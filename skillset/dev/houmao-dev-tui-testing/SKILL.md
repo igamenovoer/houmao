@@ -1,9 +1,9 @@
 ---
-name: houmao-dev-testing
+name: houmao-dev-tui-testing
 description: Use when a Houmao developer needs to turn an agent TUI task or use case into a replay-grade tmux recording, independently label public tracked states, replay current Claude, Codex, or Kimi detection at varied capture cadences, compare it with ground truth, or render review evidence.
 ---
 
-# Houmao Development Testing
+# Houmao Development TUI Testing
 
 ## Overview
 
@@ -28,7 +28,7 @@ If the task does not map cleanly to these steps, use the native planning tool to
 
 ## Invocation Contract
 
-These are skill subcommands, not shell commands. Preferred forms are `$houmao-dev-testing use <subcommand> ...` and `$houmao-dev-testing <task>`, where the skill selects the closest subcommand.
+These are skill subcommands, not shell commands. Preferred forms are `$houmao-dev-tui-testing use <subcommand> ...` and `$houmao-dev-tui-testing <task>`, where the skill selects the closest subcommand.
 
 ## Subcommands
 
@@ -55,7 +55,7 @@ No helper subcommands are currently exposed.
 
 ## Non-Negotiable Evidence Rules
 
-- Use `tmp/houmao-dev-testing/<run-id>/` or a more specific user-provided `tmp/<subdir>` for temporary projects and artifacts. Never reuse a non-empty run root.
+- Use `tmp/houmao-dev-tui-testing/<run-id>/` or a more specific user-provided `tmp/<subdir>` for temporary projects and artifacts. Never reuse a non-empty run root.
 - Default canonical capture to `0.05` seconds per sample (20 Hz). Freeze and digest `pane_snapshots.ndjson` before labeling or replay.
 - `pane_snapshots.ndjson` is machine replay authority. `session.cast` is for human review and input context, not state computation.
 - Do not inspect `state_observed*.ndjson`, tracker logs, detector traces, gateway TUI state, or live Houmao tracking while authoring ground truth.

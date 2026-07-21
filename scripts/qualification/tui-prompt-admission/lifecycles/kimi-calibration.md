@@ -23,9 +23,9 @@ Pending regex is based on the queued composer line (`❯ <prompt>`) and the edit
 
 ## Procedure
 
-1. `pixi run tui-pending-state-capture --provider kimi --lifecycle scripts/qualification/tui-prompt-admission/lifecycles/kimi-1-pending.json --run-root tmp/houmao-dev-testing/kimi-cal-1`
-2. `pixi run tui-pending-state-capture --provider kimi --lifecycle scripts/qualification/tui-prompt-admission/lifecycles/kimi-2-pending.json --run-root tmp/houmao-dev-testing/kimi-cal-2`
-3. `pixi run tui-pending-state-capture --provider kimi --lifecycle scripts/qualification/tui-prompt-admission/lifecycles/kimi-3-pending-long.json --run-root tmp/houmao-dev-testing/kimi-cal-3`
+1. `pixi run tui-pending-state-capture --provider kimi --lifecycle scripts/qualification/tui-prompt-admission/lifecycles/kimi-1-pending.json --run-root tmp/houmao-dev-tui-testing/kimi-cal-1`
+2. `pixi run tui-pending-state-capture --provider kimi --lifecycle scripts/qualification/tui-prompt-admission/lifecycles/kimi-2-pending.json --run-root tmp/houmao-dev-tui-testing/kimi-cal-2`
+3. `pixi run tui-pending-state-capture --provider kimi --lifecycle scripts/qualification/tui-prompt-admission/lifecycles/kimi-3-pending-long.json --run-root tmp/houmao-dev-tui-testing/kimi-cal-3`
 4. Inspect each `<run-root>/kimi-attempt-001/review/labels.mp4`.
 5. Record the version from each `<run-root>/kimi-attempt-001/capture/run-summary.json`.
 6. Update the matching `lifecycles/kimi-*-pending*.json` `calibrated_version` and `pending.regex`.

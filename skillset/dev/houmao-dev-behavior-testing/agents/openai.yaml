@@ -1,0 +1,6 @@
+interface:
+  display_name: "Houmao Dev Behavior Testing"
+  short_description: "Qualify live Houmao system-skill behavior"
+  default_prompt: "Use $houmao-dev-behavior-testing run-case to qualify one committed system-skill behavior case in a fresh provider context."
+policy:
+  allow_implicit_invocation: false

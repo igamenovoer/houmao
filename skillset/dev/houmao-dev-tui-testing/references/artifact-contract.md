@@ -2,7 +2,7 @@
 
 ## Workflow
 
-1. **Choose a fresh run root** under `tmp/houmao-dev-testing/` or a more specific user-provided `tmp/<subdir>`.
+1. **Choose a fresh run root** under `tmp/houmao-dev-tui-testing/` or a more specific user-provided `tmp/<subdir>`.
 2. **Create only stage-owned directories** as their workflows begin; keep live capture output paths absent until launch tools create them.
 3. **Write immutable input digests** at capture and label boundaries.
 4. **Append replay, comparison, review, and report artifacts** without changing frozen source evidence.
@@ -13,7 +13,7 @@ If an existing harness imposes a nested layout, use the native planning tool to 
 ## Logical Layout
 
 ```text
-tmp/houmao-dev-testing/<run-id>/
+tmp/houmao-dev-tui-testing/<run-id>/
 ├── definitions/
 │   ├── task.md
 │   └── scenario.json

@@ -18,7 +18,7 @@ If the task needs actions the maintained scenario driver cannot express, use the
 - Test project path or instructions for making an isolated copy under the run root
 - Ordered user operations, including prompts and control keys
 - Observable completion condition for each operation
-- Run root, defaulting to `tmp/houmao-dev-testing/<UTC timestamp>-<provider>-<case>`
+- Run root, defaulting to `tmp/houmao-dev-tui-testing/<UTC timestamp>-<provider>-<case>`
 
 Do not begin from a vague goal when exact interactions affect state coverage. Convert the goal into a versioned `definitions/task.md` and, for automated driving, `definitions/scenario.json`.
 
