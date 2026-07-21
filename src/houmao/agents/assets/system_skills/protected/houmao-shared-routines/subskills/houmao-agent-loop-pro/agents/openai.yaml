@@ -1,4 +1,0 @@
-interface:
-  display_name: "Houmao Agent Loop Pro"
-  short_description: "Author and operate topology-aware pro Houmao loops."
-  default_prompt: "Use $<public-entrypoint> agent-loop-pro only when explicitly requested or when the user names a supported pro loop operation. If no operation or prompt is given, run init: ask for <loop-dir>, then scaffold intention files including project-context.md. Read the selected command and references, and route Houmao platform operations through the same public entrypoint."

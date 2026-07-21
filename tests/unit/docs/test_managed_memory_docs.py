@@ -17,7 +17,7 @@ def test_managed_memory_docs_describe_free_form_memo_and_resolve() -> None:
     assert "free-form Markdown" in guide
     assert "memory resolve --path <page>" in guide
     assert "memo-cue" in guide
-    assert "protected memory routine" in guide
+    assert "parent-scoped memory child" in guide
     assert "$houmao-agent-entrypoint memory-mgr" in guide
     assert "$houmao-admin-entrypoint memory-mgr" in guide
     assert "Page writes and deletes do not mutate the memo" in system_files
@@ -46,7 +46,7 @@ def test_managed_header_and_system_skill_docs_describe_memory_cue_and_skill() ->
     assert "links to longer `pages/` notes" in header
     assert "existing memo content is clearly stale" in header
     assert "`memory-mgr`" in system_skills
-    assert "`agent` pack" in system_skills
+    assert "managed `agent` default" in system_skills
     assert "`recover_and_continue`" in system_skills
     assert "`houmao-memory-mgr`" in cli_reference
     assert "`houmao-agent-entrypoint`" in cli_reference
@@ -79,15 +79,15 @@ def test_launch_profile_docs_and_skills_describe_memo_seed_surface() -> None:
     cli_reference = (REPO_ROOT / "docs/reference/cli/houmao-mgr.md").read_text(encoding="utf-8")
     native_launch_dossiers_skill = (
         REPO_ROOT
-        / "src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/subskills/houmao-agent-definition/commands/low-level/launch-dossiers.md"
+        / "src/houmao/agents/assets/system_skills/public/houmao-shared-routines/subskills/houmao-agent-definition/commands/low-level/launch-dossiers.md"
     ).read_text(encoding="utf-8")
     easy_profile_create_skill = (
         REPO_ROOT
-        / "src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/subskills/houmao-agent-definition/commands/easy/profiles.md"
+        / "src/houmao/agents/assets/system_skills/public/houmao-shared-routines/subskills/houmao-agent-definition/commands/easy/profiles.md"
     ).read_text(encoding="utf-8")
     easy_launch_skill = (
         REPO_ROOT
-        / "src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/subskills/houmao-agent-definition/commands/easy/launch-instance.md"
+        / "src/houmao/agents/assets/system_skills/public/houmao-shared-routines/subskills/houmao-agent-definition/commands/easy/launch-instance.md"
     ).read_text(encoding="utf-8")
 
     assert "## Memo Seeds" in launch_profiles

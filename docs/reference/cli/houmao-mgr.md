@@ -201,7 +201,7 @@ Install, inspect, upgrade, or remove complete Houmao actor packs for resolved Cl
 
 | Subcommand | Description |
 |---|---|
-| `list` | Show actor packs, public roles, default lanes, and protected-routine eligibility. |
+| `list` | Show actor packs, six standalone roots, default lanes, shared ownership, activation posture, and sixteen parent-scoped children. |
 | `install` | Transactionally install the external default or repeatable `--pack admin|agent` selections. |
 | `status` | Report receipt integrity, per-pack state, drift, conflicts, and legacy flat evidence. |
 | `upgrade` | Refresh selected packs and remove only legacy flat paths with package-linked or known-content evidence. |
@@ -218,12 +218,12 @@ Operational notes:
 - `kimi` means Kimi Code CLI, not legacy MoonshotAI `kimi-cli`, which upstream says is being wound down in favor of Kimi Code CLI
 - `universal --home <path>` treats `<path>` as the `.agents` root that contains `skills/`; omitted-home universal installs land under `~/.agents/skills/`
 - omitting `--pack` on `install` or `upgrade` selects the external `admin` default; managed launches and joined sessions separately default to `agent`
-- repeatable `--pack` accepts only complete public packs, `admin` or `agent`; protected logical ids are routing targets and cannot be installed independently
+- repeatable `--pack` accepts only complete static packs, `admin` or `agent`; standalone names and parent-scoped child ids are not pack selectors
 - old `--skill`, `--set`, and `--skill-set` selectors fail with a migration diagnostic
-- copy projection is the default; optional `--symlink` links public paths to receipt-owned, fully composed materializations
-- the `admin` pack projects `skills/houmao-admin-welcome` and `skills/houmao-admin-entrypoint`; the `agent` pack projects `skills/houmao-agent-entrypoint`
+- copy projection is the default; optional `--symlink` links each top-level destination directly to its complete packaged source
+- the `admin` pack projects welcome, admin entrypoint, shared routines, and both top-level loops; the `agent` pack projects agent entrypoint, shared routines, and both loops
 - Kimi output reports a discovery caveat because `--home` places files; Kimi Code discovers them when a later launch uses the same `KIMI_CODE_HOME`, passes the path with `--skills-dir`, or includes it through `extra_skill_dirs`
-- the lifecycle receipt records pack ownership, projection mode, public paths, composed digests, and nested protected-route evidence; unrelated and untracked paths remain outside Houmao ownership
+- the v4 lifecycle receipt records one complete-tree digest, projection mode, destination, and non-empty pack-owner set per standalone skill; unrelated and untracked paths remain outside Houmao ownership
 - `status` classifies each pack as absent, complete, incomplete, drifted, or conflicting without mutating the home
 - `upgrade` preserves modified, unknown, and partial legacy flat projections for operator review; `uninstall` removes only selected receipt-owned paths and preserves ownership conflicts
 - managed brain build, relaunch, and `agents self join` use exact copy-based agent-pack synchronization; stored source/profile policy may override or disable that managed default

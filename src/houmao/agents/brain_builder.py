@@ -439,11 +439,7 @@ def _validate_project_skill_system_skill_collisions(
 ) -> None:
     """Reject project/private skills that collide with current Houmao system skills."""
 
-    system_skill_names = (
-        set(catalog.public_skill_names)
-        | set(catalog.protected_logical_ids)
-        | set(catalog.protected_mounts)
-    )
+    system_skill_names = set(catalog.standalone_skill_names) | set(catalog.shared_logical_ids)
     registered_collisions = sorted(set(selected_skills).intersection(system_skill_names))
     private_collisions = sorted(
         {private_skill.name for private_skill in private_skills}.intersection(system_skill_names)
@@ -799,7 +795,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         has_projected_skills=bool(
             request.skills
             or request.private_skills
-            or system_skill_sync_result.public_skill_names
+            or system_skill_sync_result.standalone_skill_names
             or (
                 auto_skill_projection_result is not None
                 and auto_skill_projection_result.projected_relative_dirs
@@ -941,14 +937,12 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             request.launch_profile_system_skill_policy
         ),
         "selected_packs": list(system_skill_sync_result.selected_pack_ids),
-        "public_skills": list(system_skill_sync_result.public_skill_names),
+        "standalone_skills": list(system_skill_sync_result.standalone_skill_names),
         "projected_relative_dirs": list(system_skill_sync_result.projected_relative_dirs),
         "receipt_path": str(system_skill_sync_result.receipt_path),
-        "protected_logical_ids_by_public": {
-            name: list(logical_ids)
-            for name, logical_ids in (
-                system_skill_sync_result.protected_logical_ids_by_public.items()
-            )
+        "owning_pack_ids_by_skill": {
+            name: list(owner_ids)
+            for name, owner_ids in system_skill_sync_result.owning_pack_ids_by_skill.items()
         },
         "removed_packs": list(system_skill_sync_result.removed_pack_ids),
         "removed_projected_relative_dirs": list(

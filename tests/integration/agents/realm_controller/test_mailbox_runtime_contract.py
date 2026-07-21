@@ -40,7 +40,10 @@ from houmao.agents.realm_controller.runtime import (
     resume_runtime_session,
     start_runtime_session,
 )
-from houmao.agents.system_skills import SYSTEM_SKILL_AGENT_ENTRYPOINT
+from houmao.agents.system_skills import (
+    SYSTEM_SKILL_AGENT_ENTRYPOINT,
+    SYSTEM_SKILL_SHARED_ROUTINES,
+)
 from houmao.agents.mailbox_runtime_models import (
     FilesystemMailboxDeclarativeConfig,
     FilesystemMailboxResolvedConfig,
@@ -165,7 +168,8 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
     )
 
     entrypoint_root = build_result.home_path / "skills" / SYSTEM_SKILL_AGENT_ENTRYPOINT
-    shared_routines_root = entrypoint_root / "subskills/houmao-shared-routines/subskills"
+    shared_skill_root = build_result.home_path / "skills" / SYSTEM_SKILL_SHARED_ROUTINES
+    shared_routines_root = shared_skill_root / "subskills"
     visible_processing_skill = (
         shared_routines_root / "houmao-process-emails-via-gateway/SKILL-MAIN.md"
     )
@@ -176,6 +180,7 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
         shared_routines_root / "houmao-agent-email-comms/references/transports/filesystem.md"
     )
     assert (entrypoint_root / "SKILL.md").is_file()
+    assert (shared_skill_root / "SKILL.md").is_file()
     assert visible_processing_skill.is_file()
     assert visible_gateway_skill.is_file()
     assert visible_mailbox_mgr_skill.is_file()

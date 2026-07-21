@@ -47,8 +47,8 @@ from houmao.agents.mailbox_runtime_support import (
     mailbox_processing_skill_name,
     mailbox_processing_route_name,
     mailbox_processing_skill_reference,
+    mailbox_shared_skill_reference,
     mailbox_gateway_skill_name,
-    mailbox_gateway_skill_reference,
     projected_mailbox_skill_document_path,
     resolve_live_mailbox_binding,
     resolved_mailbox_config_from_payload,
@@ -3499,13 +3499,13 @@ class GatewayServiceRuntime:
             home_path=home_path,
             skill_reference=mailbox_processing_skill_reference(tool=tool),
         )
-        gateway_path = projected_mailbox_skill_document_path(
+        shared_path = projected_mailbox_skill_document_path(
             tool=tool,
             home_path=home_path,
-            skill_reference=mailbox_gateway_skill_reference(tool=tool),
+            skill_reference=mailbox_shared_skill_reference(tool=tool),
         )
 
-        if not processing_path.is_file():
+        if not processing_path.is_file() or not shared_path.is_file():
             return "\n".join(
                 [
                     "Houmao mailbox skills are not installed.",
@@ -3538,15 +3538,14 @@ class GatewayServiceRuntime:
                 "above for this round."
             )
         lines.append(
-            "Protected traversal is parent-controlled: let the public entrypoint load the "
-            "selected parent-scoped entrypoints. Do not discover, open, or invoke protected "
-            "routine files independently."
+            "Static sibling routing is installed: let the public agent entrypoint delegate "
+            "to the `houmao-shared-routines` sibling, which loads only the selected "
+            "parent-scoped child."
         )
-        if gateway_path.is_file():
-            lines.append(
-                f"Ordinary mailbox details: `{mailbox_gateway_skill_name()} "
-                f"{mailbox_gateway_route_name()}`."
-            )
+        lines.append(
+            f"Ordinary mailbox details: `{mailbox_gateway_skill_name()} "
+            f"{mailbox_gateway_route_name()}`."
+        )
         return "\n".join(lines)
 
     def _mailbox_adapter_locked(self) -> GatewayMailboxAdapter:

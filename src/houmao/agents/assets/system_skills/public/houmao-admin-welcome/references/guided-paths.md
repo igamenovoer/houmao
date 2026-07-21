@@ -119,7 +119,7 @@ Read-only sequence:
 Do not restart from project initialization when an overlay already exists. Build the next handoff from observed state, for example:
 
 ```text
-$houmao-admin-entrypoint agent-inspect status for <agent-id>
+$houmao-admin-entrypoint agent-inspect discover for <agent-id>
 Selected guided path: Existing Project Reorientation
 Explicit project target: <path>
 Read-only observations: <facts>

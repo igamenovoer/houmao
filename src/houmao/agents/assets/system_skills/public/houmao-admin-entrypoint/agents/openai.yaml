@@ -1,4 +1,6 @@
 interface:
   display_name: "Houmao Admin Entrypoint"
   short_description: "Execute Houmao operations for a human operator"
-  default_prompt: "Use $houmao-admin-entrypoint, establish the immutable admin actor frame, resolve explicit targets, and let each parent explicitly load only the selected protected SKILL-MAIN.md entrypoint."
+  default_prompt: "Use $houmao-admin-entrypoint for a concrete human-operator task, preserve its admin frame, and delegate ordinary work to $houmao-shared-routines or explicit loop work to the top-level loop sibling."
+policy:
+  allow_implicit_invocation: false

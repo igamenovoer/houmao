@@ -76,26 +76,36 @@ def test_system_skills_install_help_exposes_only_pack_selection() -> None:
     assert "universal" in result.output
 
 
-def test_system_skills_list_reports_actor_packs_and_nested_protected_records() -> None:
+def test_system_skills_list_reports_static_collection_and_shared_routines() -> None:
     payload, _ = _invoke_json("system-skills", "list")
 
     packs = payload["packs"]
     assert isinstance(packs, list)
     assert [pack["pack_id"] for pack in packs] == ["admin", "agent"]
-    assert [skill["name"] for pack in packs for skill in pack["public_skills"]] == [
+    assert [len(pack["standalone_skills"]) for pack in packs] == [5, 4]
+    assert [record["name"] for record in payload["standalone_skills"]] == [
         "houmao-admin-welcome",
         "houmao-admin-entrypoint",
         "houmao-agent-entrypoint",
+        "houmao-shared-routines",
+        "houmao-agent-loop-pro",
+        "houmao-agent-loop-lite",
+    ]
+    assert payload["overlapping_standalone_skills"] == [
+        "houmao-shared-routines",
+        "houmao-agent-loop-pro",
+        "houmao-agent-loop-lite",
     ]
     assert payload["defaults"] == {
         "cli": ["admin"],
         "managed_launch": ["agent"],
         "managed_join": ["agent"],
     }
-    protected = payload["protected_routines"]
-    assert isinstance(protected, list)
-    assert len(protected) == 18
-    assert all("invocation_designators" in record for record in protected)
+    shared = payload["shared_routines"]
+    assert isinstance(shared, list)
+    assert len(shared) == 16
+    assert all(record["invocation"].startswith("houmao-shared-routines->") for record in shared)
+    assert "protected_routines" not in payload
     assert payload["auto_skill_separate"] == "houmao-auto-system-prompt"
 
 
@@ -105,18 +115,23 @@ def test_system_skills_install_defaults_to_admin_pack(tmp_path: Path) -> None:
     payload, _ = _invoke_json("system-skills", "install", "--tool", "codex", "--home", str(home))
 
     assert payload["selected_packs"] == ["admin"]
-    assert payload["public_skills"] == [
+    assert payload["standalone_skills"] == [
         "houmao-admin-welcome",
         "houmao-admin-entrypoint",
+        "houmao-shared-routines",
+        "houmao-agent-loop-pro",
+        "houmao-agent-loop-lite",
     ]
     assert (home / "skills/houmao-admin-welcome/SKILL.md").is_file()
-    entrypoint = home / "skills/houmao-admin-entrypoint"
-    assert (entrypoint / "SKILL.md").is_file()
-    shared = entrypoint / "subskills/houmao-shared-routines"
-    assert (shared / "SKILL-MAIN.md").is_file()
+    assert (home / "skills/houmao-admin-entrypoint/SKILL.md").is_file()
+    shared = home / "skills/houmao-shared-routines"
+    assert (shared / "SKILL.md").is_file()
     assert (shared / "subskills/houmao-project-mgr/SKILL-MAIN.md").is_file()
-    assert not (shared / "subskills/houmao-process-emails-via-gateway").exists()
+    assert (shared / "subskills/houmao-process-emails-via-gateway/SKILL-MAIN.md").is_file()
+    assert (home / "skills/houmao-agent-loop-pro/SKILL.md").is_file()
+    assert (home / "skills/houmao-agent-loop-lite/SKILL.md").is_file()
     assert not (home / "skills/houmao-project-mgr").exists()
+    assert not (home / "skills/houmao-admin-entrypoint/subskills").exists()
     assert Path(str(payload["receipt_path"])).is_file()
 
 
@@ -137,8 +152,14 @@ def test_system_skills_install_supports_each_target(tmp_path: Path, tool: str) -
 
     assert payload["tool"] == tool
     assert payload["selected_packs"] == ["agent"]
-    assert payload["public_skills"] == ["houmao-agent-entrypoint"]
-    assert (home / "skills/houmao-agent-entrypoint/SKILL.md").is_file()
+    assert payload["standalone_skills"] == [
+        "houmao-agent-entrypoint",
+        "houmao-shared-routines",
+        "houmao-agent-loop-pro",
+        "houmao-agent-loop-lite",
+    ]
+    for skill_name in payload["standalone_skills"]:
+        assert (home / "skills" / skill_name / "SKILL.md").is_file()
 
 
 def test_system_skills_install_supports_both_packs_and_deduplicates(tmp_path: Path) -> None:
@@ -159,15 +180,26 @@ def test_system_skills_install_supports_both_packs_and_deduplicates(tmp_path: Pa
         "agent",
     )
 
-    assert payload["selected_packs"] == ["agent", "admin"]
-    assert set(payload["public_skills"]) == {
-        "houmao-agent-entrypoint",
+    assert payload["selected_packs"] == ["admin", "agent"]
+    assert payload["standalone_skills"] == [
         "houmao-admin-welcome",
         "houmao-admin-entrypoint",
+        "houmao-shared-routines",
+        "houmao-agent-loop-pro",
+        "houmao-agent-loop-lite",
+        "houmao-agent-entrypoint",
+    ]
+    assert payload["owning_pack_ids_by_skill"] == {
+        "houmao-admin-welcome": ["admin"],
+        "houmao-admin-entrypoint": ["admin"],
+        "houmao-shared-routines": ["admin", "agent"],
+        "houmao-agent-loop-pro": ["admin", "agent"],
+        "houmao-agent-loop-lite": ["admin", "agent"],
+        "houmao-agent-entrypoint": ["agent"],
     }
 
 
-def test_system_skills_symlink_mode_uses_receipt_owned_materialization(tmp_path: Path) -> None:
+def test_system_skills_symlink_mode_links_directly_to_packaged_sources(tmp_path: Path) -> None:
     home = tmp_path / "home"
 
     payload, _ = _invoke_json(
@@ -185,8 +217,9 @@ def test_system_skills_symlink_mode_uses_receipt_owned_materialization(tmp_path:
     public = home / "skills/houmao-agent-entrypoint"
     assert payload["projection_mode"] == "symlink"
     assert public.is_symlink()
-    assert public.resolve().is_dir()
-    assert ".houmao/system-skills/codex/materialized" in public.resolve().as_posix()
+    expected = Path(load_system_skill_manifest().source_root) / "public/houmao-agent-entrypoint"
+    assert public.resolve() == expected.resolve()
+    assert not (home / ".houmao/system-skills/codex/materialized").exists()
 
 
 @pytest.mark.parametrize("selector", ["--skill", "--set", "--skill-set"])
@@ -215,7 +248,7 @@ def test_system_skills_rejects_obsolete_selectors(selector: str, tmp_path: Path)
     [
         ("unknown", "Unknown system-skill pack"),
         ("houmao-agent-email-comms", "not an install selector"),
-        ("houmao-shared-routines", "not an install selector"),
+        ("houmao-shared-routines", "not a pack selector"),
     ],
 )
 def test_system_skills_rejects_unknown_or_protected_pack_selectors(

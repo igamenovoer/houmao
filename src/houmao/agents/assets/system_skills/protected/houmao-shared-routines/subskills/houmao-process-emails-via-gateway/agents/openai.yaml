@@ -1,4 +1,0 @@
-interface:
-  display_name: "Houmao Process Emails via Gateway"
-  short_description: "Process one Houmao gateway email round."
-  default_prompt: "Use $<public-entrypoint> process-emails-via-gateway to process one notifier-driven open-mail round with the provided gateway base URL."

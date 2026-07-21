@@ -1,0 +1,129 @@
+---
+skill_invocation_notation: >
+  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+  accepted only as legacy input when SKILL-MAIN.md is absent.
+  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+  by parent subcommand parent. Intermediate subcommands act as object generators.
+  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+---
+
+# Extension Guide
+
+This guide is for developers revising `houmao-agent-loop-pro`. It is not part of the skill execution path.
+
+## Preserve The Split
+
+Keep these responsibilities separate:
+
+- `SKILL.md`: activation, routing, global boundaries, and the required root vocabulary.
+- `references/`: shared runtime guidance read by routed operation pages through `Read First` sections.
+- `commands/authoring/`: source creation, source refinement, execplan generation, validation, and execplan updates.
+- `commands/execution/`: operating a validated execplan through generated contracts and maintained Houmao surfaces.
+- `scripts/scaffold.py` plus `assets/scaffolds/`: shared ownership for scaffold-owned starter files and directory shells.
+- `dev/design/`: rationale for maintainers only.
+
+Do not put long design rationale into execution-facing pages. Those pages should stay concise and actionable for the active agent.
+
+Do not put runtime guidance that agents must follow only in `dev/design/`. Move shared execution guidance to `references/`, then let operation pages name the needed references in `Read First`.
+
+Keep `SKILL-MAIN.md` as a router. If it starts accumulating scaffold profiles, generated-contract details, bookkeeping rules, mail-runtime details, or platform-boundary details, move that material to a reference page and leave a concise pointer.
+
+Do not duplicate scaffold-owned starter file bodies across routed pages. If the initial README, manifest seed, named docs starter, or execplan ADR shape changes, update the packaged scaffold assets first and then keep the routed pages aligned to the profile names that own them.
+
+Generated artifact directory README files are scaffold and generation support material. Keep them concise and limited to `Purpose` and `Contents`; do not move contract authority into README prose.
+
+## Adding Source Inputs
+
+The first workflow intentionally uses `intention/README.md` and `intention/loop-overview.md` as the minimum source set. If a later change adds ADRs, templates, imported source directories, or reference-plan harvesting, keep that as an explicit authoring capability and preserve the rule that `intention/` remains the normal source authority for execplan updates.
+
+If importing from an existing source-design directory, define a clear adapter step instead of silently treating arbitrary Markdown as a valid root.
+
+## Tightening Generation
+
+When tightening execplan generation, update the contract in small layers:
+
+1. add the generated artifact requirement to the authoring subskill;
+2. add matching validation checks;
+3. update execution subskills only when the new artifact affects runtime behavior;
+4. update these design notes with the rationale.
+
+Prefer explicit unresolved entries over inferred behavior. A generated execplan that says what it cannot decide is easier to repair than one that hides assumptions.
+
+## Clarification Commands
+
+Preserve the source-authority split:
+
+- `clarify-intent` works on what the loop means. It reads `intention/`, project context, and intent ADRs, then writes intent ADRs plus intention Markdown.
+- `clarify-execplan` works on how the generated loop is implemented. It reads `execplan/`, prior execplan ADRs, and runtime references, then writes execplan ADRs plus affected generated artifacts or stale-artifact notes.
+
+Both commands should scan coverage before asking, ask at most five accepted questions, ask exactly one question at a time, recommend answers when context supports it, and update artifacts immediately after accepted answers.
+
+If `clarify-execplan` exposes missing or contradictory user intent, do not patch around it in generated artifacts. Report the gap and send the operator back to `clarify-intent` or direct intention edits.
+
+## Harness Dependencies
+
+Generated harnesses may use `click`, `jinja2`, and `jsonschema` when their generated features need modular commands, Markdown template rendering, or schema validation. Preserve this dependency order:
+
+- treat these libraries as normal Houmao runtime dependencies provided by the Houmao-installed environment;
+- use packages already importable by the intended harness interpreter when possible;
+- when imports fail, generated entrypoints should name the missing dependency and tell the caller to install it into the active harness Python environment or use the Python environment associated with the installed Houmao uv tool;
+- when generated harness tests fail because dependencies are missing or the wrong interpreter appears active, tell the authoring agent to retry the same test through the Houmao uv-installed environment before changing harness logic;
+- generate `execplan/harness/requirements.txt`, `execplan/harness/vendor/`, and `python -m pip install --target` guidance only for intentional standalone/custom execution;
+- add a local `sys.path` bootstrap before generated entrypoints import locally installed packages only when optional `vendor/` support exists;
+- record dependency posture, interpreter evidence, import-failure guidance, install commands for standalone support, and diagnostics in generated harness metadata.
+
+Do not reintroduce source-bundled wheel files for these harness libraries. Do not add dependency guidance that requires global Python, user site-packages, or project-environment mutation.
+
+## Generated State And TOML
+
+When improving generated state guidance, preserve the control-plane split:
+
+- state stores compact facts, refs, ownership, decisions, transitions, evidence links, and completion posture;
+- mail, docs, and artifacts store rich prose, rationale, pseudocode, rendered Markdown, and detailed analysis;
+- sqlite is the default when the generated loop has stable entities and transitions with a clear SQL schema;
+- JSONL plus explicit schemas is the alternate for append-only or schema-light state;
+- unstructured ad hoc state files are not acceptable when either structured option is feasible.
+
+Generated TOML files should stay readable and explainable:
+
+- put plain human-readable comments above generated section headers;
+- use TOML `description` fields for records or sections exposed through harness commands;
+- use `description` fields, not parsed comments, as the source for harness `--explain`.
+
+## Execution Boundaries
+
+Execution should compose existing Houmao operation surfaces. Keep managed-agent launch, mailbox, gateway, memory, lifecycle, inspection, and platform setup routed to their owning skills or supported `houmao-mgr` surfaces.
+
+Keep execution preparation and readiness validation as separate ordered stages:
+
+- `prepare-agents` materializes project profiles, concrete agent/profile facts, generated skill bindings, notifier prompt posture, memo/cwd posture, and launch facts;
+- `prepare-workspace` adapts generated workspace contracts, generated agent bindings, and prepared agent/profile facts to `houmao-shared-routines->houmao-utils-workspace-mgr` `plan`, `create`, `validate`, or `summarize` inputs, then reports readiness facts; explicit manual evidence may replace this command only when it satisfies the generated workspace contract;
+- `validate-loop` checks concrete pre-launch readiness before `launch-agents`;
+- `launch-agents` launches prepared participants through maintained Houmao launch surfaces and does not send loop-start work;
+- `start` sends the first loop trigger after agents are live and does not launch agents;
+- `prepare-agents` and `prepare-workspace` do not call each other;
+- missing live readiness is reported by `validate-loop` or `launch-agents`, not by authoring-time `validate-execplan`.
+
+Loop-local behavior belongs in generated material:
+
+- role instructions and event handlers under `execplan/skills/`;
+- loop-bound operator lifecycle and mode control under `execplan/skills/<loop-slug>-operator-control/` when those controls exist;
+- participant and concrete-agent mapping under `execplan/agents/`;
+- deterministic loop state helpers under `execplan/harness/`;
+- machine contracts under `execplan/specs/`.
+
+For controllable loops, keep `run_state` and `execution_mode` separate. `auto` is the default mode and is notifier-prompt-driven for mail loops. `manual` is operator-prompted bounded work with notifier wakeups suspended or disabled. `manual` is not `paused`; pause blocks progress, while manual changes wakeup authority.
+
+Generated on-tick skills should query harness control context before acting. In manual mode they may inspect current mail or state, perform one bounded action, send or reply as needed, apply records through the harness, and stop.
+
+Do not duplicate maintained Houmao platform contracts inside generated loop skills unless a later change explicitly moves ownership.
+
+## Domain Neutrality
+
+The packaged skill must remain domain-neutral. Domain-specific material may appear in examples, fixtures, or generated artifacts for a specific loop, but never as required global behavior.
+
+When a domain-specific reference reveals a general need, promote the general contract rather than the domain fact. For example, promote "evidence gates belong in `specs/` and participant skills must consult them" instead of promoting one loop's exact gate values.

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Houmao Advanced Usage Patterns"
+  short_description: "Use supported higher-level Houmao workflow compositions."
+  default_prompt: "Use $houmao-shared-routines adv-usage-pattern when the task is a supported multi-step Houmao workflow composition such as self-wakeup via self-mail, notifier-prompt-driven mail loops, local-close edge loops, or relay loops."
+policy:
+  allow_implicit_invocation: false

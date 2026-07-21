@@ -8,7 +8,7 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 | **From-source developer** (`pixi install`) | [Quickstart](getting-started/quickstart.md) - agent-driven first-run guide with source-checkout `pixi run houmao-mgr ...` launcher notes |
 | **Contributor to Houmao** | [CLAUDE.md](https://github.com/igamenovoer/houmao/blob/main/CLAUDE.md) or [AGENTS.md](https://github.com/igamenovoer/houmao/blob/main/AGENTS.md) for repo conventions and development commands |
 
-The public system-skill surface has three roles: `houmao-admin-welcome` for read-only first-use touring, `houmao-admin-entrypoint` for human-operator work against explicit targets, and `houmao-agent-entrypoint` for identity-verified managed-agent work. Operational routines remain protected beneath the eligible entrypoint.
+The public system-skill collection has six static roots: admin welcome, both actor entrypoints, shared routines, and the pro and lite loops. Actor entrypoints delegate ordinary work to the shared sibling; both loops remain top-level manual skills.
 
 ## Getting Started
 
@@ -17,9 +17,9 @@ The public system-skill surface has three roles: `houmao-admin-welcome` for read
 - [Quickstart](getting-started/quickstart.md): Install the admin pack, invoke `houmao-admin-welcome`, and run your first managed-agent workflow through your CLI agent.
 - [Easy Specialists](getting-started/easy-specialists.md): The easy lane — specialists, optional project profiles, and instances.
 - [Launch Profiles](getting-started/launch-profiles.md): Reusable birth-time launch configuration — project profiles, native launch dossiers, and the precedence chain.
-- [Managed Agent Memory](getting-started/managed-memory-dirs.md): Per-agent memory roots, free-form memo files, pages, the default memo cue, and the protected `memory-mgr` route.
-- [System Skills Overview](getting-started/system-skills-overview.md): Actor packs, public roles, guided paths, the protected route matrix, and managed versus external defaults.
-- [Loop Authoring Guide](getting-started/loop-authoring.md): Choose the protected `agent-loop-lite` route for Markdown/direct-SQL loops or `agent-loop-pro` for schema-rich topology loops, then discover the graph tooling that supports pro generated execplan authoring.
+- [Managed Agent Memory](getting-started/managed-memory-dirs.md): Per-agent memory roots, free-form memo files, pages, the default memo cue, and the shared `memory-mgr` route.
+- [System Skills Overview](getting-started/system-skills-overview.md): Static roots, actor packs, welcome paths, shared child routes, direct invocation, and installation choices.
+- [Loop Authoring Guide](getting-started/loop-authoring.md): Choose the top-level `houmao-agent-loop-lite` skill for Markdown/direct-SQL loops or `houmao-agent-loop-pro` for schema-rich topology loops, then discover the graph tooling that supports pro generated execplan authoring.
 
 ## Reference
 

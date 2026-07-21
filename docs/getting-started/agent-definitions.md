@@ -2,7 +2,7 @@
 
 The **agent definition directory** is the source tree Houmao parses before it resolves selectors, builds runtime homes, or launches agents. The canonical layout is prompt-only roles plus named recipes, shared launch profiles, and tool-scoped setup/auth bundles. Auth display names are catalog metadata; the file-backed auth trees use opaque bundle refs internally.
 
-For skill-driven human-operator work, start at `$houmao-admin-entrypoint agent-definition ...`. `houmao-agent-definition` is the protected logical id behind that route, not a standalone installed skill. The admin frame keeps the project or native-agent root explicit and routes credential changes separately.
+For skill-driven human-operator work, start at `$houmao-admin-entrypoint agent-definition ...`. Advanced users may call `$houmao-shared-routines agent-definition ...` directly. The parent-scoped child is `houmao-shared-routines->houmao-agent-definition`, not a standalone installed skill. The admin frame keeps the project or native-agent root explicit and routes credential changes separately.
 
 For repo-local workflows, the supported path is `houmao-mgr project init`, which creates:
 

@@ -2,7 +2,7 @@
 
 Most stateful local `houmao-mgr` workflows discover and use an active `.houmao/` project overlay for native-agent projection, runtime root binding, managed-agent memory binding, and mailbox root binding. Ordinary project-backed commands require an initialized or explicitly selected overlay; they do not bootstrap `<cwd>/.houmao` except through `houmao-mgr project init`.
 
-For skill-driven project lifecycle work, a human operator uses `$houmao-admin-entrypoint project-mgr ...` with an explicit project target. The protected `houmao-project-mgr` logical id is not installed or invoked as a standalone skill.
+For skill-driven project lifecycle work, a human operator uses `$houmao-admin-entrypoint project-mgr ...` with an explicit project target. Advanced users may call `$houmao-shared-routines project-mgr ...` directly. The parent-scoped child `houmao-shared-routines->houmao-project-mgr` is not installed or invoked as a bare standalone skill.
 
 ## Resolution Precedence
 

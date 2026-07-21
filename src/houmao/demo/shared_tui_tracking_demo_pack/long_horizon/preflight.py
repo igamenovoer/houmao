@@ -457,7 +457,7 @@ def _assert_bare_manifest(manifest: dict[str, Any]) -> None:
         .get("construction_provenance", {})
         .get("system_skills", {})
     )
-    if not isinstance(provenance, dict) or provenance.get("public_skills") != []:
+    if not isinstance(provenance, dict) or provenance.get("standalone_skills") != []:
         raise RuntimeError("Qualification provider home contains system skills")
 
 

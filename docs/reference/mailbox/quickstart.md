@@ -20,7 +20,7 @@ Do not wire mailbox behavior into prompts by hand. For the preferred local serve
 1. `houmao-mgr mailbox ...` manages the filesystem mailbox root and address lifecycle.
 2. `houmao-mgr agents single ... mailbox ...` or `houmao-mgr agents self mailbox ...` attaches or removes one filesystem mailbox binding on an existing local managed agent.
 3. `houmao-mgr agents single ... mail ...` or `houmao-mgr agents self mail ...` discovers the current live mailbox binding and performs mailbox follow-up after the agent is launched or joined.
-4. `houmao-mgr system-skills ...` installs complete actor packs into resolved Claude, Codex, Kimi Code, or Copilot homes, or into the `universal` `~/.agents/skills` target. The protected mailbox routines arrive beneath the eligible public entrypoint rather than as top-level skills.
+4. `houmao-mgr system-skills ...` installs complete actor packs into resolved Claude, Codex, Kimi Code, or Copilot homes, or into the `universal` `~/.agents/skills` target. The agent entrypoint and shared routines arrive as top-level siblings; mailbox children remain parent scoped below shared routines.
 
 
 When you need human-operator mailbox guidance in a tool home that Houmao did not launch, install the admin pack with `houmao-mgr system-skills install --tool codex --pack admin`, then invoke `$houmao-admin-entrypoint mailbox-mgr ...` or `$houmao-admin-entrypoint agent-email-comms ...` with an explicit target. Omitted `--home` resolves from the tool-native home env var first and otherwise falls back to the project-scoped default home. Use `--tool universal` for the cross-client `~/.agents/skills` target. Managed launch and join install the agent pack, whose mailbox routes begin through `$houmao-agent-entrypoint` after identity verification.
@@ -217,7 +217,7 @@ Important details:
 
 Scoped `houmao-mgr agents single ... mail ...` and `houmao-mgr agents self mail ...` prefer manager-owned direct execution and gateway-backed execution. Only the local live-TUI fallback submits a mailbox prompt into the session.
 
-- Claude, Codex, and Kimi managed runtime homes expose `skills/houmao-agent-entrypoint/SKILL.md`; its protected router and mailbox routines use parent-scoped `SKILL-MAIN.md` entrypoints loaded explicitly by their parents.
+- Claude, Codex, and Kimi managed runtime homes expose the four-member agent pack: agent entrypoint, shared routines, and both top-level loops. Mailbox children use parent-scoped `SKILL-MAIN.md` entrypoints below the shared sibling.
 - Houmao does not use the launched repo's `.claude/` tree as the runtime Claude config directory.
 - When a live loopback gateway is attached, shared mailbox operations prefer the gateway `/v1/mail/*` facade before falling back to direct transport-specific access.
 - For bounded attached-session turns, that shared facade includes `POST /v1/mail/read`, `POST /v1/mail/mark`, and `POST /v1/mail/archive` so selected messages can be inspected, marked, or archived without reconstructing transport-local identifiers.
@@ -262,4 +262,4 @@ sequenceDiagram
 - [`src/houmao/agents/system_skills.py`](../../../src/houmao/agents/system_skills.py)
 - [`src/houmao/agents/realm_controller/mail_commands.py`](../../../src/houmao/agents/realm_controller/mail_commands.py)
 - [`src/houmao/agents/assets/system_skills/public/houmao-agent-entrypoint/SKILL.md`](../../../src/houmao/agents/assets/system_skills/public/houmao-agent-entrypoint/SKILL.md)
-- [`src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/subskills/houmao-agent-email-comms/SKILL-MAIN.md`](../../../src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/subskills/houmao-agent-email-comms/SKILL-MAIN.md)
+- [`src/houmao/agents/assets/system_skills/public/houmao-shared-routines/subskills/houmao-agent-email-comms/SKILL-MAIN.md`](../../../src/houmao/agents/assets/system_skills/public/houmao-shared-routines/subskills/houmao-agent-email-comms/SKILL-MAIN.md)

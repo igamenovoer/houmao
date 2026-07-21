@@ -2,7 +2,7 @@
 
 Managed-agent mailbox discovery and follow-up commands. `houmao-mgr` routes ordinary mailbox actions through pair-owned gateway-backed execution, local manager-owned direct execution when available, or local live-TUI submission fallback when direct authority is unavailable. The dedicated operator-origin `post` action is stricter: it requires authoritative gateway-backed or manager-owned execution and never falls back to TUI submission.
 
-This is the **operator-facing CLI** for ordinary mailbox follow-up. The matching skill workflows are protected routes composed beneath public actor entrypoints:
+This is the **operator-facing CLI** for ordinary mailbox follow-up. The matching parent-scoped workflows live in the standalone shared-routines sibling and are selected through public actor entrypoints:
 
 - `$houmao-admin-entrypoint agent-email-comms ...` — human-operator mailbox work against an explicit managed-agent or mailbox target.
 - `$houmao-agent-entrypoint agent-email-comms ...` — verified managed-agent mailbox work, defaulting self-scoped operations to verified self.
@@ -262,5 +262,5 @@ pixi run houmao-mgr agents single --agent-name research mail archive \
 - [houmao-mgr](houmao-mgr.md) — parent CLI reference
 - [agents mailbox](agents-mailbox.md) — late filesystem mailbox registration
 - [Mailbox Reference](../mailbox/index.md) — mailbox subsystem details
-- [System Skills Overview](../../getting-started/system-skills-overview.md) — actor entrypoints and the protected `agent-email-comms` and `process-emails-via-gateway` routes
+- [System Skills Overview](../../getting-started/system-skills-overview.md) — actor entrypoints, the shared sibling, and the parent-scoped `agent-email-comms` and `process-emails-via-gateway` routes
 - [Managed-Agent API](../managed_agent_api.md) — HTTP mail follow-up routes

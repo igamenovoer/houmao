@@ -217,7 +217,7 @@ sequenceDiagram
 
 If the adopted session should record a different cwd than tmux window `0`, pane `0`, add `--workdir /path/to/worktree`.
 
-Managed join auto-installs the `agent` pack into the adopted home. Later skill-driven self work enters through `$houmao-agent-entrypoint`, which verifies current identity before routing to protected inspection, messaging, gateway, mailbox, or memory routines. Selected-agent commands under `agents single --agent-name research ...` can operate the same managed agent from outside its tmux session.
+Managed join auto-installs the four-member `agent` pack into the adopted home. Later skill-driven self work enters through `$houmao-agent-entrypoint`, which verifies current identity before delegating inspection, messaging, gateway, mailbox, or memory work to its shared sibling. Selected-agent commands under `agents single --agent-name research ...` can operate the same managed agent from outside its tmux session.
 
 ## Local State And Project Roots
 

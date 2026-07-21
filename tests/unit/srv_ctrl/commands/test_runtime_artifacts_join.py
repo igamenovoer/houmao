@@ -352,27 +352,31 @@ def test_materialize_joined_launch_installs_houmao_skills_by_default_and_preserv
     )
 
     entrypoint_path = codex_home / "skills/houmao-agent-entrypoint"
-    shared_root = entrypoint_path / "subskills/houmao-shared-routines/subskills"
+    shared_skill_root = codex_home / "skills/houmao-shared-routines"
+    shared_root = shared_skill_root / "subskills"
     processing_skill_path = shared_root / "houmao-process-emails-via-gateway/SKILL-MAIN.md"
     gateway_skill_path = shared_root / "houmao-agent-email-comms/SKILL-MAIN.md"
     mailbox_mgr_skill_path = shared_root / "houmao-mailbox-mgr/SKILL-MAIN.md"
     memory_mgr_skill_path = shared_root / "houmao-memory-mgr/SKILL-MAIN.md"
     advanced_skill_path = shared_root / "houmao-adv-usage-pattern/SKILL-MAIN.md"
     assert (entrypoint_path / "SKILL.md").is_file()
+    assert (shared_skill_root / "SKILL.md").is_file()
     assert processing_skill_path.is_file()
     assert gateway_skill_path.is_file()
     assert mailbox_mgr_skill_path.is_file()
     assert memory_mgr_skill_path.is_file()
     assert advanced_skill_path.is_file()
-    assert not (shared_root / "houmao-project-mgr").exists()
-    assert not (shared_root / "houmao-credential-mgr").exists()
-    assert not (shared_root / "houmao-agent-definition").exists()
+    assert (shared_root / "houmao-project-mgr/SKILL-MAIN.md").is_file()
+    assert (shared_root / "houmao-credential-mgr/SKILL-MAIN.md").is_file()
+    assert (shared_root / "houmao-agent-definition/SKILL-MAIN.md").is_file()
     assert (shared_root / "houmao-agent-gateway/SKILL-MAIN.md").is_file()
+    assert (codex_home / "skills/houmao-agent-loop-pro/SKILL.md").is_file()
+    assert (codex_home / "skills/houmao-agent-loop-lite/SKILL.md").is_file()
     assert user_skill.is_file()
     processing_skill = processing_skill_path.read_text(encoding="utf-8")
     gateway_skill = gateway_skill_path.read_text(encoding="utf-8")
     assert "shared gateway mailbox API" in processing_skill
-    assert "Do not switch to `houmao-mgr agents self mail resolve-live`" in processing_skill
+    assert "DO NOT switch to `houmao-mgr agents self mail resolve-live`" in processing_skill
     assert (
         "current prompt or recent mailbox context already provides the exact current gateway base URL"
         in gateway_skill
@@ -380,7 +384,12 @@ def test_materialize_joined_launch_installs_houmao_skills_by_default_and_preserv
     assert "pixi run houmao-mgr agents self mail resolve-live" not in gateway_skill
     installed_records = discover_installed_system_skills(tool="codex", home_path=codex_home)
     installed_names = {record.name for record in installed_records}
-    assert installed_names == {"houmao-agent-entrypoint"}
+    assert installed_names == {
+        "houmao-agent-entrypoint",
+        "houmao-shared-routines",
+        "houmao-agent-loop-pro",
+        "houmao-agent-loop-lite",
+    }
 
 
 def test_materialize_joined_launch_projects_claude_top_level_skills(
@@ -430,21 +439,25 @@ def test_materialize_joined_launch_projects_claude_top_level_skills(
     )
 
     entrypoint_path = claude_home / "skills/houmao-agent-entrypoint"
-    shared_root = entrypoint_path / "subskills/houmao-shared-routines/subskills"
+    shared_skill_root = claude_home / "skills/houmao-shared-routines"
+    shared_root = shared_skill_root / "subskills"
     processing_skill_path = shared_root / "houmao-process-emails-via-gateway/SKILL-MAIN.md"
     gateway_skill_path = shared_root / "houmao-agent-email-comms/SKILL-MAIN.md"
     mailbox_mgr_skill_path = shared_root / "houmao-mailbox-mgr/SKILL-MAIN.md"
     memory_mgr_skill_path = shared_root / "houmao-memory-mgr/SKILL-MAIN.md"
     advanced_skill_path = shared_root / "houmao-adv-usage-pattern/SKILL-MAIN.md"
     assert (entrypoint_path / "SKILL.md").is_file()
+    assert (shared_skill_root / "SKILL.md").is_file()
     assert processing_skill_path.is_file()
     assert gateway_skill_path.is_file()
     assert mailbox_mgr_skill_path.is_file()
     assert memory_mgr_skill_path.is_file()
     assert advanced_skill_path.is_file()
-    assert not (shared_root / "houmao-operator-messaging").exists()
+    assert (shared_root / "houmao-operator-messaging/SKILL-MAIN.md").is_file()
     assert (shared_root / "houmao-agent-messaging/SKILL-MAIN.md").is_file()
     assert (shared_root / "houmao-agent-gateway/SKILL-MAIN.md").is_file()
+    assert (claude_home / "skills/houmao-agent-loop-pro/SKILL.md").is_file()
+    assert (claude_home / "skills/houmao-agent-loop-lite/SKILL.md").is_file()
     assert user_skill.is_file()
     assert not (claude_home / "skills/mailbox").exists()
     assert not (tmp_path / ".claude").exists()

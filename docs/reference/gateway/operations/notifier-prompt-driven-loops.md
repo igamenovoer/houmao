@@ -44,7 +44,7 @@ Mail-driven loops normally use one of three surfaces, depending on who is acting
 | Scoped `houmao-mgr agents single/self ... mail ...` CLI | Human operator, scripts, or external orchestration | Resolve live mailbox posture, inspect mail, send/post/reply, and perform lifecycle updates. |
 | Gateway `/v1/mail/*` HTTP routes | Maintained Houmao skills and tools with a live gateway URL | Transport-neutral live mailbox operations for the attached session. |
 
-Generated loop skills should route platform mailbox mechanics through the eligible public Houmao entrypoint instead of invoking protected routines directly or hand-coding mailbox mechanics. Generated docs may still explain the gateway API contract so maintainers can debug or implement loop-local harness checks around payloads, records, and prompt guidance.
+Generated loop skills should route platform mailbox mechanics through the eligible public Houmao entrypoint, which delegates to its shared sibling, instead of invoking parent-scoped children as bare skills or hand-coding mailbox mechanics. Generated docs may still explain the gateway API contract so maintainers can debug or implement loop-local harness checks around payloads, records, and prompt guidance.
 
 ## Gateway Mail API Quick Reference
 

@@ -122,10 +122,10 @@ Project state lives under a `.houmao/` overlay with specialists, profiles, crede
 
 ## Agent Loops
 
-This is where Houmao starts to feel different from a wrapper around one CLI. Give the admin entrypoint's protected `agent-loop-pro` route a complex multi-agent plan, and your CLI agent can turn it into a runnable team workflow:
+This is where Houmao starts to feel different from a wrapper around one CLI. Invoke the public `$houmao-agent-loop-pro` skill with a complex multi-agent plan, and your CLI agent can turn it into a runnable team workflow:
 
 ```text
-You: $houmao-admin-entrypoint agent-loop-pro create a loop for this plan:
+You: $houmao-agent-loop-pro create a loop for this plan:
      three agents should design, implement, and review a migration.
      The planner decomposes the work, the builder edits code, the reviewer checks behavior,
      and the team should stop only after tests and review notes are complete.
@@ -133,7 +133,7 @@ You: $houmao-admin-entrypoint agent-loop-pro create a loop for this plan:
 AI: I created the loop intention, clarified the topology, generated the execplan, prepared specialists and launch profiles, checked workspace and mailbox/gateway posture, launched the participants, started the run, and I will report status from outside the execution loop.
 ```
 
-The internal route `houmao-admin-entrypoint->houmao-shared-routines->agent-loop-pro` owns the schema-rich path: intention clarification, `tree-loop` versus `generic-loop` topology choice, generated process and contract artifacts, harness/state contracts, generated skills, workspace readiness, validation, launch, run control, and recovery. The sibling `agent-loop-lite` route is the lighter Markdown/direct-SQL path for smaller generated loops that still use the same intention/execplan/runs spine without JSON schemas, Jinja2, or generated harnesses.
+The top-level `houmao-agent-loop-pro` skill owns the schema-rich path: intention clarification, `tree-loop` versus `generic-loop` topology choice, generated process and contract artifacts, harness/state contracts, generated skills, workspace readiness, validation, launch, run control, and recovery. The public `houmao-agent-loop-lite` sibling is the lighter Markdown/direct-SQL path for smaller generated loops that still use the same intention/execplan/runs spine without JSON schemas, Jinja2, or generated harnesses. Both loops require explicit manual invocation and an explicit `<loop-dir>` before filesystem work.
 
 The reusable [`examples/writer-team/`](examples/writer-team/) template shows a three-agent story-writing team with prompt files, a tree loop plan, start charter, local setup commands, and artifact directories. It is the team shown here: a **story-writer** drafts and finalizes chapters, a **character-designer** builds profiles, and a **story-reviewer** checks logic and pacing while the human operator watches from outside the loop.
 
@@ -149,19 +149,48 @@ For the full current loop-authoring workflow, see the [Loop Authoring Guide](doc
 - **Research or writing teams:** create non-coding specialists for outlining, drafting, critique, synthesis, and artifact production.
 - **Bring your own provider mix:** combine Claude, Codex, and Kimi agents while keeping the workflow and Houmao control surfaces stable.
 
-## System Skills: Actor-Aware Entrypoints
+## System Skills: Static Actor-Aware Collection
 
-Houmao exposes three public system skills. All operational capability is nested beneath an actor-specific entrypoint so the same protected routine can keep the caller's identity and scope rules for the entire route.
+Houmao ships six complete, host-discoverable system skills. Each directory works at rest and can be copied or installed with a standard Agent Skills tool; Houmao does not assemble skill Markdown at runtime.
 
-| Public skill | Pack | Role |
+| Standalone skill | Pack Membership | Role |
 |---|---|---|
-| `houmao-admin-welcome` | `admin` | Read-only first-use orientation with five guided paths. Start with `$houmao-admin-welcome start-guided-tour`. |
-| `houmao-admin-entrypoint` | `admin` | Executes on behalf of a human operator, requires explicit targets, and never treats the operator session as managed self. |
-| `houmao-agent-entrypoint` | `agent` | Executes as the managed agent, verifies identity with `houmao-mgr --print-json agents self identity`, and uses verified self by default. |
+| `houmao-admin-welcome` | `admin` | Narrow, read-only first-use orientation with five guided paths. Start with `$houmao-admin-welcome start-guided-tour`. |
+| `houmao-admin-entrypoint` | `admin` | Normal human-operator router. It keeps the admin frame and requires explicit targets. |
+| `houmao-agent-entrypoint` | `agent` | Managed-self router. It verifies identity before every substantive route. |
+| `houmao-shared-routines` | `admin`, `agent` | Public advanced router that owns sixteen parent-scoped ordinary routines. Direct calls default to admin posture; leading `as-agent` requires fresh managed-self verification. |
+| `houmao-agent-loop-pro` | `admin`, `agent` | Explicit manual entrypoint for schema-rich loop authoring and run control. |
+| `houmao-agent-loop-lite` | `admin`, `agent` | Explicit manual entrypoint for Markdown/direct-SQL loop authoring and run control. |
 
-The eighteen maintained routines live inside the protected `houmao-shared-routines` bundle. Public, host-discoverable roots use `SKILL.md`; the protected router and routines use parent-scoped `SKILL-MAIN.md` entrypoints that their parents load explicitly. Users invoke them through a public entrypoint, for example `$houmao-admin-entrypoint agent-definition specialists`, `$houmao-admin-entrypoint agent-inspect status`, or `$houmao-agent-entrypoint agent-email-comms list`. A notation such as `houmao-agent-entrypoint->houmao-shared-routines->agent-email-comms` is an internal route trace, not an installed top-level skill.
+The complete admin pack installs five roots: welcome, admin entrypoint, shared routines, pro loop, and lite loop. The complete agent pack installs four roots: agent entrypoint, shared routines, pro loop, and lite loop. Actor entrypoints route ordinary work to the shared sibling and loop work to the two top-level loop siblings. The shared router loads one child such as `houmao-shared-routines->houmao-agent-inspect`; its sixteen `SKILL-MAIN.md` children are parent-scoped routines, not separately installed peers.
 
-Omitting `--pack` from an external `system-skills install` selects `admin`. Managed launch, relaunch, rebuild, and join select `agent`. Stored specialist and profile policy uses `packs: [admin|agent]`; individual skill and `core`/`extensions`/`all` set selectors are removed. `houmao-auto-system-prompt` remains a separate managed auto skill and never enters a pack receipt. See the [System Skills Overview](docs/getting-started/system-skills-overview.md) for the route matrix and the [System Skills CLI reference](docs/reference/cli/system-skills.md) for receipts, status, upgrade, and uninstall.
+Use Houmao's receipt-aware manager for the normal installation path:
+
+```bash
+houmao-mgr system-skills install --tool codex --pack admin
+houmao-mgr system-skills install --tool codex --pack agent
+```
+
+Omitting `--pack` on the external install command selects `admin`. Managed launch, relaunch, rebuild, and join select `agent`. The manager resolves full pack membership, records shared owners, and preserves shared roots until their final owning pack is removed.
+
+The static collection also supports ordinary Skills CLI installation. Standard installers select independent directories and do not resolve Houmao pack dependencies, so include every sibling explicitly. From a source checkout:
+
+```bash
+npx skills add ./src/houmao/agents/assets/system_skills/public --list
+npx skills add ./src/houmao/agents/assets/system_skills/public --agent codex --skill '*' --yes
+
+# Five-member admin surface
+npx skills add ./src/houmao/agents/assets/system_skills/public --agent codex --skill houmao-admin-welcome --skill houmao-admin-entrypoint --skill houmao-shared-routines --skill houmao-agent-loop-pro --skill houmao-agent-loop-lite --yes
+
+# Four-member agent surface
+npx skills add ./src/houmao/agents/assets/system_skills/public --agent codex --skill houmao-agent-entrypoint --skill houmao-shared-routines --skill houmao-agent-loop-pro --skill houmao-agent-loop-lite --yes
+```
+
+For copy-paste installation, copy the same five admin directories or four agent directories into the host's skill root. Copying all six is also valid. These installations have no Houmao ownership receipt.
+
+Normal human work uses `$houmao-admin-entrypoint agent-inspect ...`; managed self uses `$houmao-agent-entrypoint agent-email-comms ...`. Advanced users may bypass entrypoint route selection with `$houmao-shared-routines agent-inspect ...` or `$houmao-shared-routines as-agent agent-inspect ...`; target and identity checks still apply. Invoke loops directly as `$houmao-agent-loop-pro <operation> <loop-dir>` or `$houmao-agent-loop-lite <operation> <loop-dir>`.
+
+Stored specialist and profile policy uses `packs: [admin|agent]`; individual skill and `core`/`extensions`/`all` selectors are removed. The `specialist-mgr` route remains a compatibility alias for `agent-definition`, and the old touring surface maps to `houmao-admin-welcome`. `houmao-auto-system-prompt` remains a separate managed auto skill and never enters the public collection or a pack receipt. See the [System Skills Overview](docs/getting-started/system-skills-overview.md) for the route matrix and the [System Skills CLI reference](docs/reference/cli/system-skills.md) for receipts, v3 upgrade, status, and uninstall.
 
 ## Subsystems at a Glance
 

@@ -48,6 +48,7 @@ from houmao.agents.realm_controller.gateway_storage import (
 from houmao.agents.system_skills import (
     SYSTEM_SKILL_AGENT_ENTRYPOINT,
     SYSTEM_SKILL_PACK_AGENT,
+    SYSTEM_SKILL_SHARED_ROUTINES,
     install_system_skills_for_home,
     project_system_skills_to_destination,
     system_skills_destination_for_tool,
@@ -73,7 +74,11 @@ MAILBOX_TRANSPORT_STALWART = "stalwart"
 MAILBOX_PROCESSING_ROUTE_NAME = "process-emails-via-gateway"
 MAILBOX_COMMS_ROUTE_NAME = "agent-email-comms"
 MAILBOX_AGENT_ENTRYPOINT_NAME = SYSTEM_SKILL_AGENT_ENTRYPOINT
-MAILBOX_PRIMARY_SKILL_REFERENCES = (MAILBOX_AGENT_ENTRYPOINT_NAME,)
+MAILBOX_SHARED_ROUTINES_NAME = SYSTEM_SKILL_SHARED_ROUTINES
+MAILBOX_PRIMARY_SKILL_REFERENCES = (
+    MAILBOX_AGENT_ENTRYPOINT_NAME,
+    MAILBOX_SHARED_ROUTINES_NAME,
+)
 
 _MAILBOX_COMMON_ENV_VARS = (
     "HOUMAO_MAILBOX_TRANSPORT",
@@ -896,6 +901,14 @@ def mailbox_processing_skill_reference(*, tool: str | None = None) -> str:
     return _mailbox_entrypoint_reference(tool=tool)
 
 
+def mailbox_shared_skill_reference(*, tool: str | None = None) -> str:
+    """Return the required public shared-routines sibling reference."""
+
+    if tool is not None:
+        system_skills_destination_for_tool(tool)
+    return MAILBOX_SHARED_ROUTINES_NAME
+
+
 def mailbox_gateway_skill_name() -> str:
     """Return the public entrypoint name for ordinary mailbox work."""
 
@@ -909,13 +922,13 @@ def mailbox_processing_skill_name() -> str:
 
 
 def mailbox_gateway_route_name() -> str:
-    """Return the protected ordinary-mailbox route argument."""
+    """Return the parent-scoped ordinary-mailbox route argument."""
 
     return MAILBOX_COMMS_ROUTE_NAME
 
 
 def mailbox_processing_route_name() -> str:
-    """Return the protected notifier-round route argument."""
+    """Return the parent-scoped notifier-round route argument."""
 
     return MAILBOX_PROCESSING_ROUTE_NAME
 
@@ -951,6 +964,16 @@ def mailbox_processing_skill_document_path(
     return f"{skills_destination}/{mailbox_processing_skill_reference(tool=tool)}/SKILL.md"
 
 
+def mailbox_shared_skill_document_path(
+    *,
+    skills_destination: str = "skills",
+    tool: str | None = None,
+) -> str:
+    """Return the required shared-routines sibling document path."""
+
+    return f"{skills_destination}/{mailbox_shared_skill_reference(tool=tool)}/SKILL.md"
+
+
 def mailbox_skills_destination_for_tool(tool: str) -> str:
     """Return the active runtime-owned skill destination for one supported tool."""
 
@@ -958,9 +981,12 @@ def mailbox_skills_destination_for_tool(tool: str) -> str:
 
 
 def mailbox_primary_skill_references(*, tool: str | None = None) -> tuple[str, ...]:
-    """Return the sole visible mailbox entrypoint reference."""
+    """Return both top-level skills required for managed mailbox routing."""
 
-    return (mailbox_processing_skill_reference(tool=tool),)
+    return (
+        mailbox_processing_skill_reference(tool=tool),
+        mailbox_shared_skill_reference(tool=tool),
+    )
 
 
 def projected_mailbox_skill_document_path(
@@ -989,7 +1015,7 @@ def install_runtime_mailbox_system_skills_for_tool(
         home_path=home_path,
         pack_ids=(SYSTEM_SKILL_PACK_AGENT,),
     )
-    return result.public_skill_names
+    return result.standalone_skill_names
 
 
 def project_runtime_mailbox_system_skills(
@@ -997,7 +1023,7 @@ def project_runtime_mailbox_system_skills(
     *,
     tool: str | None = None,
 ) -> tuple[str, ...]:
-    """Compose the complete managed-agent pack into an explicit skill root."""
+    """Copy the complete managed-agent pack into an explicit skill root."""
 
     return project_system_skills_to_destination(
         destination_root,

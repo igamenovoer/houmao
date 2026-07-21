@@ -8,7 +8,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SYSTEM_SKILLS_ROOT = REPO_ROOT / "src/houmao/agents/assets/system_skills"
-SHARED_ROUTINES_ROOT = SYSTEM_SKILLS_ROOT / "protected/houmao-shared-routines"
+SHARED_ROUTINES_ROOT = SYSTEM_SKILLS_ROOT / "public/houmao-shared-routines"
 AGENT_DEFINITION_ROOT = SHARED_ROUTINES_ROOT / "subskills/houmao-agent-definition"
 CREDENTIAL_MGR_ROOT = SHARED_ROUTINES_ROOT / "subskills/houmao-credential-mgr"
 WELCOME_ROOT = SYSTEM_SKILLS_ROOT / "public/houmao-admin-welcome"
@@ -57,7 +57,7 @@ def test_credential_manager_documents_kimi_login_handling_without_login_helper()
 
     assert "supported CRUD tools: `claude`, `codex`, `kimi`" in skill_text
     assert "supported login-helper tools: `claude`, `codex`" in skill_text
-    assert "Do not present Kimi as having a maintained credential login helper" in skill_text
+    assert "DO NOT present Kimi as having a maintained credential login helper" in skill_text
     assert "references/kimi-code-login-handling.md" in skill_text
     assert "Kimi: `references/kimi-credential-kinds.md`" in add_text
     assert "`tool`: one of `claude`, `codex`, or `kimi`" in add_text
@@ -124,7 +124,7 @@ def test_packaged_guidance_includes_kimi_welcome_and_avoids_stale_headless_claim
 
     guided_paths_text = _read(WELCOME_ROOT / "references/guided-paths.md")
     concepts_text = _read(WELCOME_ROOT / "references/concepts.md")
-    current_roots = (SYSTEM_SKILLS_ROOT / "public", SYSTEM_SKILLS_ROOT / "protected")
+    current_roots = (SYSTEM_SKILLS_ROOT / "public",)
     all_packaged_markdown = "\n".join(
         _read(path) for root in current_roots for path in _markdown_files(root)
     )
@@ -135,3 +135,4 @@ def test_packaged_guidance_includes_kimi_welcome_and_avoids_stale_headless_claim
     assert "Kimi specialists remain headless-only" not in all_packaged_markdown
     assert 'general-kimi","tool":"claude' not in all_packaged_markdown
     assert "raw Kimi `--auto` or `--yolo` launch flags" in all_packaged_markdown
+    assert not (SYSTEM_SKILLS_ROOT / "protected").exists()

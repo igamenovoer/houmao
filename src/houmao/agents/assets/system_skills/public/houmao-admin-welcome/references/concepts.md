@@ -1,8 +1,8 @@
 # Concepts
 
-Use this reference when `houmao-admin-welcome` needs to ground vocabulary for a first-time user or when a path cites an unfamiliar term. Keep definitions short; deeper detail lives on the protected logical routine named at the end of each entry.
+Use this reference when `houmao-admin-welcome` needs to ground vocabulary for a first-time user or when a path cites an unfamiliar term. Keep definitions short; deeper detail lives in the parent-scoped shared routine named at the end of each entry.
 
-This reference is self-contained. It does not depend on any file outside the packaged `houmao-admin-welcome/` asset directory. An owning routine name is a stable internal id, not a public skill invocation. For human-operator work, route it through `$houmao-admin-entrypoint <route-name> ...`.
+This reference is self-contained. It does not depend on any file outside the packaged `houmao-admin-welcome/` asset directory. An owning routine name is a stable child id, not a bare public skill invocation. For normal human-operator work, route it through `$houmao-admin-entrypoint <route-name> ...`; advanced users may invoke `$houmao-shared-routines <route-name> ...` directly.
 
 ## Project and Layout
 
@@ -56,4 +56,4 @@ This reference is self-contained. It does not depend on any file outside the pac
 
 ## Cross-References
 
-Every definition above names an owning protected routine. When the tour needs to explain how to act on a concept, hand the turn to `$houmao-admin-entrypoint` with that routine's manifest route name rather than presenting the logical id as a standalone skill.
+Every definition above names an owning shared routine or top-level loop sibling. When the tour needs to explain how to act on a concept, hand the turn to `$houmao-admin-entrypoint` with that route name rather than presenting a parent-scoped child as a standalone skill.

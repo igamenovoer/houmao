@@ -1,0 +1,6 @@
+interface:
+  display_name: "Houmao Agent Gateway"
+  short_description: "Operate Houmao managed-agent gateways and gateway-only services."
+  default_prompt: "Use $houmao-shared-routines agent-gateway to attach, discover, inspect, and operate a Houmao managed-agent gateway, including reminders and gateway mail-notifier behavior. For generic managed-agent inspection, use $houmao-shared-routines agent-inspect."
+policy:
+  allow_implicit_invocation: false

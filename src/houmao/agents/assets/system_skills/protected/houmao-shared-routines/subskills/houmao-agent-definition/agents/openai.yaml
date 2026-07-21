@@ -1,4 +1,0 @@
-interface:
-  display_name: "Houmao Manage Agent Definition"
-  short_description: "Manage Houmao agent definitions and launch preparation."
-  default_prompt: "Use $<public-entrypoint> agent-definition subcommands: roles, recipes, launch-dossiers, specialists, profiles, create-agent-fast-forward, launch-agent, and stop-agent."

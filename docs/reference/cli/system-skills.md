@@ -1,6 +1,6 @@
 # `system-skills`
 
-This page documents `houmao-mgr system-skills` command behavior. The command group installs, inspects, upgrades, and removes complete Houmao actor packs in external or project-scoped tool homes. Managed launch and join use the same pack lifecycle internally.
+`houmao-mgr system-skills` installs, inspects, upgrades, and removes complete Houmao actor packs in external or project-scoped tool homes. Managed launch and join use the same static pack lifecycle internally.
 
 ```text
 houmao-mgr system-skills list
@@ -17,24 +17,49 @@ houmao-mgr --print-json system-skills list
 houmao-mgr --print-json system-skills status --tool codex --home ~/.codex
 ```
 
-There is no `system-skills help` subcommand. Public skill help comes from `$houmao-admin-welcome help`, `$houmao-admin-entrypoint help`, or `$houmao-agent-entrypoint help`.
+There is no `system-skills help` subcommand. Skill-level help comes from `$houmao-admin-welcome help`, `$houmao-admin-entrypoint help`, `$houmao-agent-entrypoint help`, `$houmao-shared-routines help`, or either top-level loop's `help` operation.
 
-## Packs and Public Paths
+## V4 Static Collection and Pack Membership
 
-| Pack | Audience | Public Paths | Default Lane |
+The `houmao-system-skills.v4` manifest records six standalone source directories. Each one has a role, activation posture, pack owners, commands, aliases, dependencies, and a complete source path. It also records sixteen parent-scoped children owned by shared routines, including actor eligibility, route name, dependencies, commands, and aliases.
+
+| Pack | Audience | Static Top-Level Members | Default Lane |
 |---|---|---|---|
-| `admin` | Human operator | `houmao-admin-welcome`, `houmao-admin-entrypoint` | Explicit CLI install |
-| `agent` | Managed Houmao agent | `houmao-agent-entrypoint` | Managed launch, rebuild, relaunch, and join |
+| `admin` | Human operator | `houmao-admin-welcome`, `houmao-admin-entrypoint`, `houmao-shared-routines`, `houmao-agent-loop-pro`, `houmao-agent-loop-lite` | Explicit CLI install |
+| `agent` | Managed Houmao agent | `houmao-agent-entrypoint`, `houmao-shared-routines`, `houmao-agent-loop-pro`, `houmao-agent-loop-lite` | Managed launch, rebuild, relaunch, and join |
 
-The admin pack is atomic: both public paths install, refresh, and uninstall together. Protected `houmao-shared-routines` content is composed beneath executable entrypoints. Protected logical ids are inspection records and route arguments, never install selectors or top-level projections.
+`houmao-shared-routines`, `houmao-agent-loop-pro`, and `houmao-agent-loop-lite` belong to both packs. A combined install has six unique destinations and records both owners on those three shared records.
 
-`houmao-auto-system-prompt` is a separate managed auto skill. It does not belong to either pack and does not appear in pack receipts.
+The sixteen shared children use `SKILL-MAIN.md` below `houmao-shared-routines/subskills/`. They are route targets, not top-level install members. `houmao-auto-system-prompt` is a separate managed auto skill and never appears in the v4 manifest, static pack receipt, or public-root inventory.
+
+## Standard External Installation
+
+The public source at `src/houmao/agents/assets/system_skills/public/` is a valid static Agent Skills collection. A standard Skills CLI can list or install it without running Houmao's manager:
+
+```bash
+npx skills add ./src/houmao/agents/assets/system_skills/public --list
+npx skills add ./src/houmao/agents/assets/system_skills/public --agent codex --skill '*' --yes
+```
+
+Select all five admin siblings explicitly:
+
+```bash
+npx skills add ./src/houmao/agents/assets/system_skills/public --agent codex --skill houmao-admin-welcome --skill houmao-admin-entrypoint --skill houmao-shared-routines --skill houmao-agent-loop-pro --skill houmao-agent-loop-lite --yes
+```
+
+Select all four agent siblings explicitly:
+
+```bash
+npx skills add ./src/houmao/agents/assets/system_skills/public --agent codex --skill houmao-agent-entrypoint --skill houmao-shared-routines --skill houmao-agent-loop-pro --skill houmao-agent-loop-lite --yes
+```
+
+Skills CLI and copy-paste installation treat each directory independently. They do not resolve Houmao dependencies, create shared owner sets, or write a Houmao receipt. Selecting an entrypoint alone therefore produces an incomplete actor surface. Use `houmao-mgr system-skills` when you want automatic pack closure and receipt-aware lifecycle management.
 
 ## Supported Targets and Effective Homes
 
-Supported target names are `claude`, `codex`, `copilot`, `kimi`, and `universal`. Gemini is not a supported system-skill target.
+Supported target names are `claude`, `codex`, `copilot`, `kimi`, and `universal`. Gemini is not a supported manager target.
 
-| Target | Environment Redirect | Project Default | Public Root |
+| Target | Environment Redirect | Project Default | Skill Root |
 |---|---|---|---|
 | `claude` | `CLAUDE_CONFIG_DIR` | `<cwd>/.claude` | `<home>/skills` |
 | `codex` | `CODEX_HOME` | `<cwd>/.codex` | `<home>/skills` |
@@ -50,20 +75,20 @@ Kimi discovers projected skills when a later launch uses the same `KIMI_CODE_HOM
 
 ## `list`
 
-`list` reads the versioned manifest and reports:
+`list` reads the v4 manifest and reports:
 
-- pack id, audience, description, and default lanes;
-- each public skill's name, role, and public commands;
-- audience-eligible protected logical ids;
-- protected route names, dependencies, commands, and actor-qualified invocation designators;
+- each pack's id, audience, description, complete standalone membership, and default lanes;
+- each of the six standalone skills with role, activation posture, pack owners, commands, aliases, and dependencies;
+- each of the sixteen shared children with route, audiences, dependencies, commands, aliases, and parent-qualified invocation;
+- the three overlapping standalone members;
 - the separate auto-skill name.
-
-Plain output summarizes the two packs and protected counts. JSON output contains `schema_version`, `packs`, `defaults`, `protected_routines`, and `auto_skill_separate`.
 
 ```bash
 houmao-mgr system-skills list
 houmao-mgr --print-json system-skills list
 ```
+
+JSON output contains `schema_version`, `packs`, `standalone_skills`, `shared_routines`, `overlapping_standalone_skills`, `defaults`, and `auto_skill_separate`.
 
 ## `install`
 
@@ -77,39 +102,41 @@ houmao-mgr system-skills install --tool codex --pack admin --pack agent
 houmao-mgr system-skills install --tool universal --home ~/.agents --pack admin
 ```
 
-Copy projection is the default. `--symlink` links each public path to a complete receipt-owned composition under the hidden materialization root; it never links to an uncomposed public source directory:
+Copy projection is the default and recursively preserves the complete packaged directory bytes. `--symlink` links every top-level destination directly to its complete packaged source directory. Neither mode renders actor names, filters shared children, or creates a hidden composition tree.
 
 ```bash
 houmao-mgr system-skills install --tool codex --home ~/.codex --pack admin --symlink
 ```
 
-Before mutation, installation stages and recursively validates every selected composition. It rejects untracked collisions at selected public paths, preserves unrelated skills, backs up replaceable receipt-owned state, commits all selected public members, and writes the receipt last. Any failure rolls the transaction back.
+Before mutation, installation resolves a deduplicated static union, checks every destination for unowned collisions, stages complete directories, validates the union, and backs up replaceable receipt-owned state. It commits all destinations and writes the receipt last. A failure restores the prior paths and receipt. Unrelated user skills remain untouched.
 
-Structured install output reports `tool`, `home_path`, `selected_packs`, `public_skills`, `projected_relative_dirs`, `receipt_path`, `projection_mode`, `protected_logical_ids_by_public`, and any removed or safely migrated paths.
+Structured install output reports `tool`, `home_path`, `selected_packs`, `standalone_skills`, `projected_relative_dirs`, `receipt_path`, `projection_mode`, `owning_pack_ids_by_skill`, and any removed pack, destination, or legacy evidence.
 
-Individual `--skill` and set-based `--set` or `--skill-set` selectors are obsolete. When encountered, the CLI directs the caller to repeat `--pack admin|agent`. Passing `houmao-shared-routines` or a protected logical id to `--pack` fails because protected routines cannot be installed independently.
+The manager's individual `--skill` and set-based `--set` or `--skill-set` selectors are obsolete. Use repeated `--pack admin|agent`. Passing a standalone name such as `houmao-shared-routines` to `--pack` fails because it is not a pack selector; passing a child logical id fails because a child is not an install selector. This restriction does not apply to the separate `npx skills` command.
 
 ## Ownership Receipt
 
-Each target keeps one tool-scoped receipt:
+Each managed target keeps one tool-scoped receipt:
 
 ```text
 <home>/.houmao/system-skills/<tool>/receipt.json
 ```
 
-Symlink mode also owns complete materializations beneath:
+The `houmao-system-skills-receipt.v2` payload records the manifest and package versions, tool, resolved home, collection-wide projection mode, selected packs, update time, and conservatively removed legacy paths. Its `skills` array contains one record per standalone destination:
 
-```text
-<home>/.houmao/system-skills/<tool>/materialized/
-```
+- standalone name and role;
+- home-relative destination;
+- `copy` or `symlink` projection mode;
+- complete-tree content digest;
+- non-empty `owning_pack_ids` set.
 
-The versioned receipt records package and manifest versions, tool and home, selected packs, public roles and paths, projection mode, content digests, mounted protected logical ids, materialization paths, update time, and safely removed legacy paths.
+One receipt uses one projection mode for its complete collection. An explicit install, sync, or upgrade may transactionally replace every owned member to change mode. Receipt writes are atomic and occur after destination commit.
 
-Receipt writes are atomic. A missing receipt is reported read only as `absent`. Invalid JSON or invalid current-version data is `corrupt`. A future schema version is `unsupported`; lifecycle mutation refuses to guess ownership until the operator resolves it.
+A missing receipt is `absent`. Invalid JSON or invalid current-version data is `corrupt`. A future schema version is `unsupported`; lifecycle mutation refuses to infer ownership. A v3 composed receipt is `legacy-v3` and its packs report drift until upgrade.
 
 ## `status`
 
-Status never repairs or mutates the target. It reports receipt state, every manifest pack's integrity, and legacy flat-path evidence:
+Status is read only. It reports receipt state, all six standalone members, both packs, owner sets, expected digests, shared-child completeness, and legacy flat-path evidence:
 
 ```bash
 houmao-mgr system-skills status --tool codex
@@ -117,39 +144,48 @@ houmao-mgr system-skills status --tool codex --home ~/.codex
 houmao-mgr --print-json system-skills status --tool kimi
 ```
 
-Pack integrity classes are:
+Member and pack integrity classes are:
 
 | Status | Meaning |
 |---|---|
-| `absent` | The receipt does not own the pack. |
-| `complete` | Every receipt-owned public role and protected composition matches its digest and projection shape. |
-| `incomplete` | One or more receipt-owned public paths or materializations are missing. |
-| `drifted` | Receipt-owned content exists but its digest differs, or its recorded manifest schema predates the current composition contract. |
-| `conflicting` | A public path has the wrong type, target, or ownership shape. |
+| `absent` | The receipt does not own the member or pack. |
+| `complete` | Every owned static destination has the recorded shape and digest; shared routines contain all sixteen children. |
+| `incomplete` | An owned destination or required shared child is missing. |
+| `drifted` | Owned content differs from its digest, or a v3 receipt predates the static v4 contract. |
+| `conflicting` | A destination has the wrong type, symlink target, or ownership shape. |
 
-Legacy flat-path classifications are:
+Legacy flat-path classifications remain separate from current ownership:
 
 | Classification | Meaning |
 |---|---|
-| `package-linked` | A symlink targets the old packaged location recorded by the v1 catalog. |
-| `digest-matched` | A complete copied tree matches a known v1 digest. |
+| `package-linked` | A symlink targets a known old packaged source. |
+| `digest-matched` | A complete copied tree matches a known legacy digest. |
 | `modified` | A known legacy path contains different content or points elsewhere. |
-| `unknown` | An unrecognized `houmao-*` path exists outside current public paths. |
+| `unknown` | An unrecognized `houmao-*` path exists outside the current six roots. |
 
-Legacy aggregate state is `absent`, `complete`, `partial`, or `conflicting`. This evidence is deliberately separate from current receipt ownership.
+Legacy aggregate state is `absent`, `complete`, `partial`, or `conflicting`. Name-only or partial evidence never creates receipt ownership.
 
 ## `upgrade`
 
-`upgrade` refreshes selected complete packs through the same transaction path and conservatively migrates legacy flat paths:
+`upgrade` refreshes selected complete packs through the same receipt-last transaction and conservatively migrates old state:
 
 ```bash
 houmao-mgr system-skills upgrade --tool codex --home ~/.codex --pack admin
 houmao-mgr system-skills upgrade --tool codex --home ~/.codex --pack agent --symlink
 ```
 
-Omitting `--pack` selects the explicit CLI default `admin`. Upgrade also replaces receipt-owned packs whose recorded manifest schema predates the current parent-scoped `SKILL-MAIN.md` composition. It removes only `package-linked` and `digest-matched` legacy paths, preserves `modified` and `unknown` paths, lists them in `preserved_legacy_paths`, and leaves unrelated content untouched.
+Omitting `--pack` selects the explicit CLI default `admin`. For a healthy v3 composed receipt, upgrade:
 
-Use this sequence for a breaking flat-to-pack migration:
+1. parses the old receipt-owned pack and destination evidence;
+2. stages the complete v4 static union;
+3. replaces the old actor entrypoint destinations;
+4. adds `houmao-shared-routines` and both top-level loop siblings;
+5. commits and writes the v4 receipt last;
+6. removes obsolete receipt-owned materialization data only after commit.
+
+Modified v3 destinations block automatic replacement and remain available for manual comparison. Unknown or unowned paths are preserved. Legacy flat paths are removed only when they are `package-linked` or `digest-matched`; `modified` and `unknown` paths appear in `preserved_legacy_paths`.
+
+Use this breaking-migration sequence:
 
 ```bash
 houmao-mgr system-skills status --tool codex --home ~/.codex
@@ -157,11 +193,11 @@ houmao-mgr system-skills upgrade --tool codex --home ~/.codex --pack admin
 houmao-mgr system-skills status --tool codex --home ~/.codex
 ```
 
-If status reports a modified or unknown legacy conflict, compare and move or remove that path manually after preserving any customization. Rerun status and upgrade afterward. Do not treat a partial v1 tree as current ownership.
+Structured upgrade output adds `legacy_before`, `preserved_legacy_paths`, `migrated_v3`, and `removed_obsolete_paths` to the install result.
 
 ## `uninstall`
 
-Uninstall removes only selected receipt-owned packs and their receipt-owned materializations. Omission selects all packs currently owned by the receipt:
+Uninstall subtracts selected pack ownership. Omission selects every pack currently owned by the receipt:
 
 ```bash
 houmao-mgr system-skills uninstall --tool codex --pack admin
@@ -169,9 +205,11 @@ houmao-mgr system-skills uninstall --tool codex --pack agent
 houmao-mgr system-skills uninstall --tool codex
 ```
 
-When one selected pack has an ownership-shape conflict, uninstall preserves its paths and reports `preserved_conflicting_paths`. Other independently removable selected packs may still be removed. Unrelated user skills and unowned legacy paths remain untouched. The receipt disappears when no owned packs remain.
+When both packs are installed, removing `admin` deletes `houmao-admin-welcome` and `houmao-admin-entrypoint`. Shared routines and both loops remain because `agent` still owns them. The same rule applies in reverse: a shared projection is removed only after its final owning pack is removed.
 
-Structured output reports requested, removed, and absent packs; removed public paths; preserved conflicts; and the receipt path.
+An ownership-shape conflict is preserved and reported in `preserved_conflicting_paths`. Independently removable destinations may still be removed. Unrelated user skills and unowned legacy paths remain untouched. The receipt disappears when no owned packs remain.
+
+Structured output reports requested, removed, and absent packs; removed destinations; `retained_shared_skills`; preserved conflicts; and the receipt path.
 
 ## Managed-Home Policy
 
@@ -185,59 +223,78 @@ launch:
       - admin
 ```
 
-`extend` on a source starts from the managed `agent` default. `replace` selects exactly the listed packs. `none` selects no packs. On a reused home, exact sync removes only receipt-owned packs no longer selected and preserves unrelated user skills.
+`extend` on a source starts from the managed `agent` default. `replace` selects exactly the listed packs. `none` selects no pack. On a reused home, exact sync removes only receipt-owned members no longer selected and preserves unrelated user skills.
 
-Stored `sets` and `skills` fields are rejected with a migration diagnostic. Public entrypoints and complete packs are the only selection units.
+Stored `sets` and `skills` fields are rejected with a migration diagnostic. Complete packs are the only manager selection units.
 
-## Public Invocations and Protected Route Traces
+## Public Invocation Surfaces
 
-The CLI can report protected metadata, but users invoke a public entrypoint. The following table maps all eighteen protected logical ids. Designators in the third column are internal route traces.
-
-| Logical ID | Eligible Public Entrypoint | Internal Route Trace | Major Command Family |
-|---|---|---|---|
-| `houmao-project-mgr` | Admin | `houmao-admin-entrypoint->houmao-shared-routines->project-mgr` | `project ...` |
-| `houmao-credential-mgr` | Admin | `houmao-admin-entrypoint->houmao-shared-routines->credential-mgr` | `project credentials ...`, native credential internals |
-| `houmao-agent-definition` | Admin | `houmao-admin-entrypoint->houmao-shared-routines->agent-definition` | specialist, profile, recipe, role, launch-dossier commands |
-| `houmao-operator-messaging` | Admin | `houmao-admin-entrypoint->houmao-shared-routines->operator-messaging` | explicit-target prompt and mail dispatch |
-| `houmao-process-emails-via-gateway` | Agent | `houmao-agent-entrypoint->houmao-shared-routines->process-emails-via-gateway` | prompt-provided gateway `/v1/mail/*` round |
-| `houmao-agent-email-comms` | Admin, Agent | `<entrypoint>->houmao-shared-routines->agent-email-comms` | scoped `mail ...` and gateway mail API |
-| `houmao-adv-usage-pattern` | Admin, Agent | `<entrypoint>->houmao-shared-routines->adv-usage-pattern` | mailbox, notifier, reminder, and wakeup compositions |
-| `houmao-utils-workspace-mgr` | Admin, Agent | `<entrypoint>->houmao-shared-routines->utils-workspace-mgr` | workspace preparation and project readiness |
-| `houmao-ext-graphing` | Admin, Agent | `<entrypoint>->houmao-shared-routines->ext-graphing` | `ag-ui impl ...` graphing payloads |
-| `houmao-mailbox-mgr` | Admin, Agent | `<entrypoint>->houmao-shared-routines->mailbox-mgr` | mailbox root, registration, and binding commands |
-| `houmao-memory-mgr` | Admin, Agent | `<entrypoint>->houmao-shared-routines->memory-mgr` | scoped `memory ...` |
-| `houmao-agent-loop-pro` | Admin, Agent | `<entrypoint>->houmao-shared-routines->agent-loop-pro` | schema-rich generated loop authoring and controls |
-| `houmao-agent-loop-lite` | Admin, Agent | `<entrypoint>->houmao-shared-routines->agent-loop-lite` | Markdown/direct-SQL generated loop authoring and controls |
-| `houmao-agent-instance` | Admin, Agent | `<entrypoint>->houmao-shared-routines->agent-instance` | launch, join, list, stop, relaunch, cleanup |
-| `houmao-agent-inspect` | Admin, Agent | `<entrypoint>->houmao-shared-routines->agent-inspect` | identity, screen, mailbox, artifacts, logs |
-| `houmao-agent-messaging` | Admin, Agent | `<entrypoint>->houmao-shared-routines->agent-messaging` | prompt, interrupt, queue, send keys, mail, reset context |
-| `houmao-agent-gateway` | Admin, Agent | `<entrypoint>->houmao-shared-routines->agent-gateway` | gateway lifecycle, status, reminders, notifier, watch |
-| `houmao-interop-ag-ui` | Admin, Agent | `<entrypoint>->houmao-shared-routines->interop-ag-ui` | AG-UI validate, frame, render, publish |
-
-For a shared route, replace `<entrypoint>` with `houmao-admin-entrypoint` or `houmao-agent-entrypoint` according to the caller. Admin routes require explicit targets. Agent routes verify identity and default self-scoped operations to verified self.
-
-Copyable examples:
+Normal actor-aware calls start at an entrypoint:
 
 ```text
 $houmao-admin-entrypoint credential-mgr list
 $houmao-admin-entrypoint agent-definition profiles
-$houmao-admin-entrypoint agent-inspect status for reviewer-1
+$houmao-admin-entrypoint agent-inspect discover for reviewer-1
 $houmao-agent-entrypoint agent-email-comms status
-$houmao-agent-entrypoint process-emails-via-gateway http://127.0.0.1:43123
+$houmao-agent-entrypoint process-emails-via-gateway process-round http://127.0.0.1:43123
 ```
 
-## Breaking Selector and Name Migration
+Advanced direct calls use shared routines. No-frame direct calls default to admin; leading `as-agent` performs fresh self-verification:
 
-| Removed Surface | Replacement |
+```text
+$houmao-shared-routines agent-inspect discover for reviewer-1
+$houmao-shared-routines as-agent agent-email-comms status
+```
+
+Manual loop calls use the top-level loop skills and an explicit `<loop-dir>`:
+
+```text
+$houmao-agent-loop-pro init <loop-dir>
+$houmao-agent-loop-pro execplan-fast-forward <loop-dir>
+$houmao-agent-loop-lite init <loop-dir>
+$houmao-agent-loop-lite as-agent status <loop-dir>
+```
+
+`houmao-agent-loop-pro` provides schema-rich loop authoring; `houmao-agent-loop-lite` provides Markdown/direct-SQL loop authoring without a generated harness.
+
+Direct calls do not bypass actor eligibility, target rules, identity checks, gates, or stop conditions. Parent-qualified object notation identifies shared children, for example `houmao-shared-routines->houmao-agent-email-comms`.
+
+## Shared Child Inventory
+
+| Logical ID | Eligible Actor | Major Command Family |
+|---|---|---|
+| `houmao-project-mgr` | Admin | Project initialization, status, launch profiles, easy instances |
+| `houmao-credential-mgr` | Admin | Project and native credential operations |
+| `houmao-agent-definition` | Admin | Roles, recipes, launch dossiers, specialists, profiles, launch and stop |
+| `houmao-operator-messaging` | Admin | Clarify, confirm, and dispatch prompt or mail |
+| `houmao-process-emails-via-gateway` | Agent | Prompt-provided gateway mail round |
+| `houmao-agent-email-comms` | Admin, Agent | Resolver, scoped mail, gateway API, and transport fallback |
+| `houmao-adv-usage-pattern` | Admin, Agent | Self-notification, pairwise, relay, and notifier-loop compositions |
+| `houmao-utils-workspace-mgr` | Admin, Agent | Plan, create, validate, and summarize workspaces |
+| `houmao-ext-graphing` | Admin, Agent | Plotly and Vega-Lite graphing workflows |
+| `houmao-mailbox-mgr` | Admin, Agent | Mailbox roots, registration, binding, cleanup, and export |
+| `houmao-memory-mgr` | Admin, Agent | Managed memo read, write, and remove |
+| `houmao-agent-instance` | Admin, Agent | Launch, join, list, stop, relaunch, and cleanup |
+| `houmao-agent-inspect` | Admin, Agent | Discovery, screen, mailbox, artifacts, and logs |
+| `houmao-agent-messaging` | Admin, Agent | Prompt, interrupt, queue, raw input, mail, and reset context |
+| `houmao-agent-gateway` | Admin, Agent | Gateway lifecycle, services, reminders, notifier, and watch |
+| `houmao-interop-ag-ui` | Admin, Agent | AG-UI validation, framing, rendering, and publishing |
+
+`specialist-mgr` remains an admin and direct-shared compatibility alias. It explains the original specialist route and delegates to `houmao-agent-definition`; it does not own another command tree.
+
+## Breaking Name and Selector Migration
+
+| Removed or Changed Surface | Replacement |
 |---|---|
-| `--skill <name>` | `--pack admin` or `--pack agent` |
-| `--set` / `--skill-set core|extensions|all` | Repeat complete `--pack` selectors |
+| Manager `--skill <name>` | `--pack admin` or `--pack agent` |
+| Manager `--set` / `--skill-set core|extensions|all` | Repeat complete `--pack` selectors |
 | Stored `skills:` / `sets:` | Stored `packs:` |
 | `$houmao-touring ...` | `$houmao-admin-welcome ...` |
-| `$houmao-specialist-mgr ...` | `$houmao-admin-entrypoint agent-definition specialists|profiles ...` |
-| Any low-level `$houmao-<routine> ...` | `$houmao-admin-entrypoint <route> ...` or `$houmao-agent-entrypoint <route> ...` according to actor eligibility |
+| Old flat `$houmao-specialist-mgr ...` | `$houmao-admin-entrypoint specialist-mgr ...` or `$houmao-shared-routines specialist-mgr ...` |
+| Nested pro or lite loop route | Direct top-level loop invocation |
+| Bare low-level routine trigger | Actor entrypoint route or advanced shared-routines route |
 
-Old names remain only in migration evidence and the read-only v1 digest inventory. They are not compatibility wrappers.
+Old names remain only in migration evidence and the read-only legacy digest inventory. They are not generated compatibility directories.
 
 ## Errors and Safety Notes
 
@@ -246,12 +303,12 @@ Old names remain only in migration evidence and the read-only v1 digest inventor
 - `--home` with multiple tools fails because one path cannot represent several target-native homes.
 - Untracked selected-path collisions fail preflight and remain unchanged.
 - Corrupt or future-version receipts block lifecycle mutation but remain inspectable through status.
-- Modified legacy content is preserved during upgrade.
-- Protected ids and `houmao-auto-system-prompt` cannot be selected as packs.
+- Modified legacy or v3-owned content is preserved or blocks unsafe replacement.
+- Standalone names, child logical ids, and `houmao-auto-system-prompt` cannot be used as manager pack selectors.
 
 ## See Also
 
-- [System Skills Overview](../../getting-started/system-skills-overview.md): actor model, guided paths, and route behavior.
+- [System Skills Overview](../../getting-started/system-skills-overview.md): actor model, guided paths, direct invocation, and installation choices.
 - [Easy Specialists](../../getting-started/easy-specialists.md): persisted source pack policy.
 - [Launch Profiles](../../getting-started/launch-profiles.md): source/profile policy precedence and reuse.
 - [Mailbox Quick Start](../mailbox/quickstart.md): managed mailbox setup and agent-entrypoint routing.

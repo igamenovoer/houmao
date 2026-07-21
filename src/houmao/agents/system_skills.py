@@ -1,4 +1,4 @@
-"""Public pack-oriented facade for Houmao-owned system skills."""
+"""Public pack-oriented facade for Houmao's static system-skill collection."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from houmao.agents.system_skill_lifecycle import (
     PackIntegrityStatus,
     SystemSkillInstallError,
     SystemSkillInstallResult,
+    SystemSkillMemberStatusRecord,
     SystemSkillPackStatusRecord,
     SystemSkillProjectionMode,
     SystemSkillReceipt,
@@ -25,8 +26,7 @@ from houmao.agents.system_skill_lifecycle import (
     inspect_system_skill_receipt,
     install_system_skill_packs_for_home,
     project_system_skill_pack_to_destination,
-    projected_public_skill_relative_dir,
-    system_skill_materialization_root,
+    projected_standalone_skill_relative_dir,
     system_skill_receipt_path,
     system_skills_destination_for_tool,
     sync_system_skill_packs_for_home,
@@ -34,53 +34,58 @@ from houmao.agents.system_skill_lifecycle import (
     upgrade_system_skill_packs_for_home,
 )
 from houmao.agents.system_skill_manifest import (
+    ActivationPosture,
     AutoInstallKind,
-    ActorInvocationDesignator,
-    ComposedSystemSkillPack,
     DefaultLane,
+    EXPECTED_SHARED_ROUTINE_IDS,
+    EXPECTED_STANDALONE_SKILL_NAMES,
     LegacySystemSkillCatalog,
     LegacySystemSkillRecord,
     PackAudience,
-    ProtectedMountRecord,
-    ProtectedRoutineDependency,
-    ProtectedRoutineRecord,
-    PublicSkillRole,
-    PublicSystemSkillRecord,
+    SharedRoutineDependency,
+    SharedRoutineRecord,
+    StagedStandaloneSystemSkill,
+    StagedSystemSkillCollection,
+    StandaloneSkillRole,
+    StandaloneSystemSkillRecord,
     SystemSkillDefaults,
     SystemSkillManifest,
     SystemSkillManifestError,
     SystemSkillPackRecord,
-    compose_system_skill_pack,
     load_legacy_system_skill_catalog,
     load_system_skill_manifest,
     load_system_skill_manifest_from_paths,
-    protected_invocation_designator,
-    protected_routine_closure,
+    resolve_system_skill_pack_members,
     resolve_system_skill_pack_selection,
+    stage_system_skill_collection,
+    standalone_system_skill_source_path,
     tree_content_digest,
-    validate_composed_system_skill_pack,
+    validate_static_system_skill_source,
 )
 
 
 __all__ = (
-    "ActorInvocationDesignator",
+    "ActivationPosture",
     "AutoInstallKind",
-    "ComposedSystemSkillPack",
     "DefaultLane",
+    "EXPECTED_SHARED_ROUTINE_IDS",
+    "EXPECTED_STANDALONE_SKILL_NAMES",
     "LegacySystemSkillCatalog",
     "LegacySystemSkillInspection",
     "LegacySystemSkillPathStatus",
     "LegacySystemSkillRecord",
     "PackAudience",
     "PackIntegrityStatus",
-    "ProtectedMountRecord",
-    "ProtectedRoutineDependency",
-    "ProtectedRoutineRecord",
-    "PublicSkillRole",
-    "PublicSystemSkillRecord",
+    "SharedRoutineDependency",
+    "SharedRoutineRecord",
+    "StagedStandaloneSystemSkill",
+    "StagedSystemSkillCollection",
+    "StandaloneSkillRole",
+    "StandaloneSystemSkillRecord",
     "SystemSkillDefaults",
     "SystemSkillInstallError",
     "SystemSkillInstallResult",
+    "SystemSkillMemberStatusRecord",
     "SystemSkillManifest",
     "SystemSkillManifestError",
     "SystemSkillPackRecord",
@@ -91,7 +96,6 @@ __all__ = (
     "SystemSkillStatusResult",
     "SystemSkillUninstallResult",
     "SystemSkillUpgradeResult",
-    "compose_system_skill_pack",
     "inspect_legacy_system_skill_paths",
     "inspect_system_skill_packs",
     "inspect_system_skill_receipt",
@@ -99,19 +103,19 @@ __all__ = (
     "load_legacy_system_skill_catalog",
     "load_system_skill_manifest",
     "load_system_skill_manifest_from_paths",
-    "protected_invocation_designator",
-    "protected_routine_closure",
     "project_system_skill_pack_to_destination",
-    "projected_public_skill_relative_dir",
+    "projected_standalone_skill_relative_dir",
+    "resolve_system_skill_pack_members",
     "resolve_system_skill_pack_selection",
-    "system_skill_materialization_root",
+    "stage_system_skill_collection",
+    "standalone_system_skill_source_path",
     "system_skill_receipt_path",
     "system_skills_destination_for_tool",
     "sync_system_skill_packs_for_home",
     "tree_content_digest",
     "uninstall_system_skill_packs_for_home",
     "upgrade_system_skill_packs_for_home",
-    "validate_composed_system_skill_pack",
+    "validate_static_system_skill_source",
 )
 
 
@@ -191,7 +195,7 @@ class ResolvedManagedSystemSkillSelection:
     """Effective complete-pack selection for one managed tool home."""
 
     selected_pack_ids: tuple[str, ...]
-    resolved_public_skill_names: tuple[str, ...]
+    resolved_standalone_skill_names: tuple[str, ...]
     source_policy: SystemSkillSelectionPolicy | None = None
     profile_policy: SystemSkillSelectionPolicy | None = None
 
@@ -206,7 +210,7 @@ class InstalledSystemSkillStatusRecord:
 
 
 def load_system_skill_catalog() -> SystemSkillManifest:
-    """Return the v2 manifest under the historical loader spelling."""
+    """Return the v4 manifest under the historical loader spelling."""
 
     return load_system_skill_manifest()
 
@@ -216,7 +220,7 @@ def load_system_skill_catalog_from_paths(
     catalog_path: Path,
     schema_path: Path,
 ) -> SystemSkillManifest:
-    """Load v2 manifest fixtures under the historical loader spelling."""
+    """Load v4 manifest fixtures under the historical loader spelling."""
 
     return load_system_skill_manifest_from_paths(
         manifest_path=catalog_path,
@@ -225,24 +229,24 @@ def load_system_skill_catalog_from_paths(
 
 
 def system_skill_reference_for_name(skill_name: str, *, tool: str | None = None) -> str:
-    """Return a public skill reference and reject protected logical ids."""
+    """Return the canonical standalone or shared-child invocation reference."""
 
     manifest = load_system_skill_manifest()
-    if skill_name in manifest.protected_routines or skill_name in manifest.protected_mounts:
-        raise SystemSkillManifestError(
-            f"Protected system skill `{skill_name}` requires an actor-qualified entrypoint route."
-        )
-    if skill_name not in manifest.public_skills:
-        raise SystemSkillManifestError(f"Unknown public system skill `{skill_name}`.")
     if tool is not None:
         system_skills_destination_for_tool(tool)
-    return skill_name
+    if skill_name in manifest.standalone_skills:
+        return skill_name
+    if skill_name == "houmao-specialist-mgr":
+        return "houmao-shared-routines->houmao-agent-definition"
+    if skill_name in manifest.shared_routines:
+        return f"houmao-shared-routines->{skill_name}"
+    raise SystemSkillManifestError(f"Unknown system skill or shared routine `{skill_name}`.")
 
 
 def projected_system_skill_relative_dir(*, tool: str, skill_name: str) -> str:
-    """Return the home-relative path for one public skill."""
+    """Return the home-relative path for one standalone skill."""
 
-    return projected_public_skill_relative_dir(tool=tool, public_skill_name=skill_name)
+    return projected_standalone_skill_relative_dir(tool=tool, skill_name=skill_name)
 
 
 def parse_system_skill_selection_policy(
@@ -372,12 +376,12 @@ def resolve_managed_system_skill_selection(
             manifest,
             pack_ids=(*source_pack_ids, *profile_policy.pack_ids),
         )
-    public_names = tuple(
-        name for pack_id in selected for name in manifest.packs[pack_id].public_skill_names
+    standalone_names = tuple(
+        record.name for record in resolve_system_skill_pack_members(manifest, pack_ids=selected)
     )
     return ResolvedManagedSystemSkillSelection(
         selected_pack_ids=selected,
-        resolved_public_skill_names=public_names,
+        resolved_standalone_skill_names=standalone_names,
         source_policy=source_policy,
         profile_policy=profile_policy,
     )
@@ -454,15 +458,15 @@ def discover_installed_system_skills(
     tool: str,
     home_path: Path,
 ) -> tuple[InstalledSystemSkillStatusRecord, ...]:
-    """Return visible public paths that currently exist."""
+    """Return visible standalone paths that currently exist."""
 
     manifest = load_system_skill_manifest()
     resolved_home = home_path.resolve()
     records: list[InstalledSystemSkillStatusRecord] = []
-    for name in manifest.public_skill_names:
-        relative_path = projected_public_skill_relative_dir(
+    for name in manifest.standalone_skill_names:
+        relative_path = projected_standalone_skill_relative_dir(
             tool=tool,
-            public_skill_name=name,
+            skill_name=name,
         )
         path = resolved_home / relative_path
         if not path.exists() and not path.is_symlink():
@@ -482,7 +486,7 @@ def project_system_skills_to_destination(
     *,
     pack_id: str,
 ) -> tuple[str, ...]:
-    """Compose one complete pack into an explicit destination."""
+    """Copy one complete static pack into an explicit destination."""
 
     return project_system_skill_pack_to_destination(destination_root, pack_id=pack_id)
 

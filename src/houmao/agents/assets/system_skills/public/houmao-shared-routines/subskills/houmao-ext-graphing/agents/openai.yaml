@@ -1,0 +1,6 @@
+interface:
+  display_name: "Houmao Ext Graphing"
+  short_description: "Author Plotly.js and Vega-Lite graphics"
+  default_prompt: "Use $houmao-shared-routines ext-graphing to author a built-in Plotly.js or Vega-Lite graphic payload, validate it, and render AG-UI events."
+policy:
+  allow_implicit_invocation: false

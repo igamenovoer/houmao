@@ -6,7 +6,7 @@ This page explains how mailbox support is attached to a brain home, a launch pla
 
 Mailbox support spans build time, start time, resume time, and control time.
 
-- Build time installs the receipt-owned `agent` pack and its public entrypoint into the runtime home; mailbox behavior remains nested in protected routines.
+- Build time installs the receipt-owned four-member `agent` pack into the runtime home; mailbox behavior is routed from the agent entrypoint to parent-scoped children in the shared sibling.
 - Start time resolves one effective mailbox config and performs transport-specific bootstrap.
 - Launch-plan composition keeps the durable mailbox binding on the manifest-backed launch plan and does not treat mailbox-specific env publication as part of the mailbox contract.
 - Session manifests persist the redacted mailbox binding rather than inline secrets.
@@ -15,7 +15,7 @@ Mailbox support spans build time, start time, resume time, and control time.
 
 ## Build Time
 
-`build_brain_home()` installs the complete `agent` pack into the selected skills destination with copy projection. Claude, Codex, and Kimi expose `skills/houmao-agent-entrypoint/SKILL.md`; the composed protected route lives below `subskills/houmao-shared-routines/`. Runtime mailbox prompts invoke the public agent entrypoint, which verifies self identity before routing to `process-emails-via-gateway` or `agent-email-comms`.
+`build_brain_home()` installs the complete `agent` pack into the selected skills destination with copy projection. Claude, Codex, and Kimi expose top-level `houmao-agent-entrypoint`, `houmao-shared-routines`, `houmao-agent-loop-pro`, and `houmao-agent-loop-lite` directories. Runtime mailbox prompts require both the entrypoint and shared root, invoke the public agent entrypoint, verify self identity, and delegate to the `process-emails-via-gateway` or `agent-email-comms` child.
 
 
 ## Start Time

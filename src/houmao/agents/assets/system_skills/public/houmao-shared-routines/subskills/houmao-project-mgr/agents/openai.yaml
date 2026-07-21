@@ -1,0 +1,6 @@
+interface:
+  display_name: "Houmao Project Manager"
+  short_description: "Manage Houmao project overlays and scoped state."
+  default_prompt: "Use $houmao-shared-routines project-mgr to initialize or inspect the Houmao project overlay in this workspace, explain `.houmao/` layout or project-aware effects, and inspect or stop project agents. Route launch-dossier authoring to $houmao-shared-routines agent-definition."
+policy:
+  allow_implicit_invocation: false

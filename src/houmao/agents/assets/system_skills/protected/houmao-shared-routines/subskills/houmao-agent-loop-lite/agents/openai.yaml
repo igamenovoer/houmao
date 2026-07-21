@@ -1,4 +1,0 @@
-interface:
-  display_name: "Houmao Agent Loop Lite"
-  short_description: "Author and operate Markdown and direct-SQL Houmao loops."
-  default_prompt: "Use $<public-entrypoint> agent-loop-lite to author or operate a lightweight Houmao loop with Markdown contracts, typed templates, generated skills, and direct SQLite state."

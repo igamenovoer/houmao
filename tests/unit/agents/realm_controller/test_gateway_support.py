@@ -7476,10 +7476,10 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
             "$houmao-agent-entrypoint process-emails-via-gateway http://127.0.0.1:43123" in prompt
         )
         assert (
-            "Protected traversal is parent-controlled: let the public entrypoint load the "
-            "selected parent-scoped entrypoints."
+            "Static sibling routing is installed: let the public agent entrypoint delegate "
+            "to the `houmao-shared-routines` sibling, which loads only the selected "
+            "parent-scoped child."
         ) in prompt
-        assert "Do not discover, open, or invoke protected routine files independently." in prompt
         assert "not as a registered slash skill" not in prompt
         assert "`/houmao-process-emails-via-gateway` lookup" not in prompt
         assert "Use the installed Houmao mailbox gateway skill" not in prompt
@@ -7576,10 +7576,10 @@ def test_gateway_mail_notifier_renders_tool_native_skill_invocation(
         assert "standalone slash-skill line above invokes" not in prompt
         assert expected_invocation in prompt
         assert (
-            "Protected traversal is parent-controlled: let the public entrypoint load the "
-            "selected parent-scoped entrypoints."
+            "Static sibling routing is installed: let the public agent entrypoint delegate "
+            "to the `houmao-shared-routines` sibling, which loads only the selected "
+            "parent-scoped child."
         ) in prompt
-        assert "Do not discover, open, or invoke protected routine files independently." in prompt
         assert "Ordinary mailbox details: `houmao-agent-entrypoint agent-email-comms`." in prompt
         assert "Do not inspect the current project or runtime home for skill files." not in prompt
         assert "skills/houmao-process-emails-via-gateway/SKILL.md" not in prompt
@@ -7591,13 +7591,22 @@ def test_gateway_mail_notifier_renders_tool_native_skill_invocation(
         runtime.shutdown()
 
 
-def test_gateway_mail_notifier_falls_back_when_houmao_skills_are_not_installed(
+@pytest.mark.parametrize(
+    "missing_skill",
+    [None, "houmao-agent-entrypoint", "houmao-shared-routines"],
+)
+def test_gateway_mail_notifier_falls_back_when_required_skill_is_missing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    missing_skill: str | None,
 ) -> None:
     gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
     manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
     _install_fake_live_mailbox_projection(monkeypatch, manifest_path=manifest_path)
+    if missing_skill is not None:
+        home_path = tmp_path / "home"
+        install_runtime_mailbox_system_skills_for_tool(tool="codex", home_path=home_path)
+        (home_path / "skills" / missing_skill / "SKILL.md").unlink()
     _deliver_unread_mailbox_message(tmp_path)
     fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
     monkeypatch.setattr(

@@ -1,4 +1,4 @@
-"""Transactional lifecycle and receipt ownership for Houmao system-skill packs."""
+"""Transactional lifecycle and shared ownership for static Houmao system skills."""
 
 from __future__ import annotations
 
@@ -14,25 +14,36 @@ import tempfile
 from typing import Any, Literal, cast
 
 from houmao.agents.system_skill_manifest import (
+    ActivationPosture,
     AutoInstallKind,
-    ComposedSystemSkillPack,
+    EXPECTED_SHARED_ROUTINE_IDS,
     PackAudience,
-    PublicSkillRole,
+    StandaloneSkillRole,
     SystemSkillManifest,
     SystemSkillManifestError,
-    compose_system_skill_pack,
     load_legacy_system_skill_catalog,
     load_system_skill_manifest,
-    protected_routine_closure,
+    resolve_system_skill_pack_members,
     resolve_system_skill_pack_selection,
+    stage_system_skill_collection,
+    standalone_system_skill_content_digest,
+    standalone_system_skill_source_path,
     tree_content_digest,
 )
 
 
-SYSTEM_SKILL_RECEIPT_SCHEMA_VERSION = "houmao-system-skills-receipt.v1"
+SYSTEM_SKILL_RECEIPT_SCHEMA_VERSION = "houmao-system-skills-receipt.v2"
+LEGACY_V3_RECEIPT_SCHEMA_VERSION = "houmao-system-skills-receipt.v1"
 SYSTEM_SKILL_RECEIPT_FILENAME = "receipt.json"
 SystemSkillProjectionMode = Literal["copy", "symlink"]
-ReceiptInspectionStatus = Literal["absent", "current", "corrupt", "unsupported"]
+ReceiptInspectionStatus = Literal[
+    "absent",
+    "current",
+    "legacy-v3",
+    "corrupt",
+    "unsupported",
+]
+MemberIntegrityStatus = Literal["absent", "complete", "incomplete", "drifted", "conflicting"]
 PackIntegrityStatus = Literal["absent", "complete", "incomplete", "drifted", "conflicting"]
 LegacyPathClassification = Literal["package-linked", "digest-matched", "modified", "unknown"]
 LegacyOverallStatus = Literal["absent", "complete", "partial", "conflicting"]
@@ -47,20 +58,19 @@ _SYSTEM_SKILL_DESTINATION_BY_TOOL: dict[str, str] = {
 
 
 class SystemSkillInstallError(RuntimeError):
-    """Raised when a pack lifecycle transaction cannot complete safely."""
+    """Raised when a static skill lifecycle transaction cannot complete safely."""
 
 
 @dataclass(frozen=True)
-class SystemSkillReceiptPublicRecord:
-    """Receipt ownership and integrity evidence for one public projection."""
+class SystemSkillReceiptSkillRecord:
+    """Receipt evidence and owner set for one standalone projection."""
 
     name: str
-    role: PublicSkillRole
+    role: StandaloneSkillRole
     relative_path: str
     projection_mode: SystemSkillProjectionMode
     content_digest: str
-    protected_logical_ids: tuple[str, ...]
-    materialization_relative_path: str | None = None
+    owning_pack_ids: tuple[str, ...]
 
     def to_payload(self) -> dict[str, object]:
         """Return a JSON-safe record payload."""
@@ -71,32 +81,13 @@ class SystemSkillReceiptPublicRecord:
             "relative_path": self.relative_path,
             "projection_mode": self.projection_mode,
             "content_digest": self.content_digest,
-            "protected_logical_ids": list(self.protected_logical_ids),
-            "materialization_relative_path": self.materialization_relative_path,
-        }
-
-
-@dataclass(frozen=True)
-class SystemSkillReceiptPackRecord:
-    """Receipt record for one complete audience pack."""
-
-    pack_id: str
-    audience: PackAudience
-    public_skills: tuple[SystemSkillReceiptPublicRecord, ...]
-
-    def to_payload(self) -> dict[str, object]:
-        """Return a JSON-safe record payload."""
-
-        return {
-            "pack_id": self.pack_id,
-            "audience": self.audience,
-            "public_skills": [record.to_payload() for record in self.public_skills],
+            "owning_pack_ids": list(self.owning_pack_ids),
         }
 
 
 @dataclass(frozen=True)
 class SystemSkillReceipt:
-    """Tool-scoped ownership receipt for installed Houmao packs."""
+    """Tool-scoped receipt for one static system-skill collection."""
 
     schema_version: str
     manifest_schema_version: str
@@ -104,14 +95,10 @@ class SystemSkillReceipt:
     tool: str
     home_path: Path
     updated_at: str
-    packs: tuple[SystemSkillReceiptPackRecord, ...]
+    projection_mode: SystemSkillProjectionMode
+    selected_pack_ids: tuple[str, ...]
+    skills: tuple[SystemSkillReceiptSkillRecord, ...]
     safely_removed_legacy_paths: tuple[str, ...] = ()
-
-    @property
-    def selected_pack_ids(self) -> tuple[str, ...]:
-        """Return receipt-owned pack ids."""
-
-        return tuple(record.pack_id for record in self.packs)
 
     @property
     def path(self) -> Path:
@@ -119,21 +106,10 @@ class SystemSkillReceipt:
 
         return system_skill_receipt_path(tool=self.tool, home_path=self.home_path)
 
-    def pack_map(self) -> dict[str, SystemSkillReceiptPackRecord]:
-        """Return receipt pack records keyed by pack id."""
+    def skill_map(self) -> dict[str, SystemSkillReceiptSkillRecord]:
+        """Return receipt records keyed by standalone name."""
 
-        return {record.pack_id: record for record in self.packs}
-
-    def public_ownership_map(
-        self,
-    ) -> dict[str, tuple[SystemSkillReceiptPackRecord, SystemSkillReceiptPublicRecord]]:
-        """Return receipt public projections keyed by home-relative path."""
-
-        return {
-            public.relative_path: (pack, public)
-            for pack in self.packs
-            for public in pack.public_skills
-        }
+        return {record.name: record for record in self.skills}
 
     def to_payload(self) -> dict[str, object]:
         """Return the complete JSON-safe receipt payload."""
@@ -145,8 +121,9 @@ class SystemSkillReceipt:
             "tool": self.tool,
             "home_path": str(self.home_path),
             "updated_at": self.updated_at,
+            "projection_mode": self.projection_mode,
             "selected_packs": list(self.selected_pack_ids),
-            "packs": [record.to_payload() for record in self.packs],
+            "skills": [record.to_payload() for record in self.skills],
             "safely_removed_legacy_paths": list(self.safely_removed_legacy_paths),
         }
 
@@ -159,19 +136,36 @@ class SystemSkillReceiptInspection:
     path: Path
     receipt: SystemSkillReceipt | None
     message: str | None = None
+    legacy_pack_ids: tuple[str, ...] = ()
+    legacy_owned_paths: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class SystemSkillMemberStatusRecord:
+    """Observed integrity and ownership for one standalone skill."""
+
+    name: str
+    role: StandaloneSkillRole
+    activation: ActivationPosture
+    status: MemberIntegrityStatus
+    relative_path: str
+    owning_pack_ids: tuple[str, ...]
+    projection_mode: SystemSkillProjectionMode | None
+    expected_content_digest: str | None
 
 
 @dataclass(frozen=True)
 class SystemSkillPackStatusRecord:
-    """Observed integrity state for one manifest pack."""
+    """Observed aggregate integrity state for one actor pack."""
 
     pack_id: str
+    audience: PackAudience
     status: PackIntegrityStatus
-    public_paths: tuple[str, ...]
-    missing_public_paths: tuple[str, ...]
-    drifted_public_paths: tuple[str, ...]
-    conflicting_public_paths: tuple[str, ...]
-    protected_logical_ids: tuple[str, ...]
+    standalone_skill_names: tuple[str, ...]
+    standalone_paths: tuple[str, ...]
+    missing_paths: tuple[str, ...]
+    drifted_paths: tuple[str, ...]
+    conflicting_paths: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -195,27 +189,28 @@ class LegacySystemSkillInspection:
 
 @dataclass(frozen=True)
 class SystemSkillStatusResult:
-    """Receipt, pack integrity, and legacy evidence for one tool home."""
+    """Receipt, member, pack, and legacy evidence for one tool home."""
 
     tool: str
     home_path: Path
     receipt: SystemSkillReceiptInspection
+    members: tuple[SystemSkillMemberStatusRecord, ...]
     packs: tuple[SystemSkillPackStatusRecord, ...]
     legacy: LegacySystemSkillInspection
 
 
 @dataclass(frozen=True)
 class SystemSkillInstallResult:
-    """Outcome of installing or refreshing selected complete packs."""
+    """Outcome of installing or synchronizing a static collection."""
 
     tool: str
     home_path: Path
     selected_pack_ids: tuple[str, ...]
-    public_skill_names: tuple[str, ...]
+    standalone_skill_names: tuple[str, ...]
     projected_relative_dirs: tuple[str, ...]
     receipt_path: Path
     projection_mode: SystemSkillProjectionMode
-    protected_logical_ids_by_public: dict[str, tuple[str, ...]]
+    owning_pack_ids_by_skill: dict[str, tuple[str, ...]]
     removed_pack_ids: tuple[str, ...] = ()
     removed_projected_relative_dirs: tuple[str, ...] = ()
     safely_removed_legacy_paths: tuple[str, ...] = ()
@@ -223,16 +218,18 @@ class SystemSkillInstallResult:
 
 @dataclass(frozen=True)
 class SystemSkillUpgradeResult:
-    """Outcome of refreshing packs and conservatively migrating legacy paths."""
+    """Outcome of static refresh and conservative migration."""
 
     install: SystemSkillInstallResult
     legacy_before: LegacySystemSkillInspection
     preserved_legacy_paths: tuple[str, ...]
+    migrated_v3: bool = False
+    removed_obsolete_paths: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
 class SystemSkillUninstallResult:
-    """Outcome of removing selected receipt-owned packs."""
+    """Outcome of subtracting selected pack ownership."""
 
     tool: str
     home_path: Path
@@ -240,8 +237,36 @@ class SystemSkillUninstallResult:
     removed_pack_ids: tuple[str, ...]
     absent_pack_ids: tuple[str, ...]
     removed_projected_relative_dirs: tuple[str, ...]
+    retained_shared_skill_names: tuple[str, ...]
     preserved_conflicting_paths: tuple[str, ...]
     receipt_path: Path
+
+
+@dataclass(frozen=True)
+class _LegacyV3SkillRecord:
+    """Owned projection evidence parsed from a v3 composer receipt."""
+
+    name: str
+    relative_path: str
+    projection_mode: SystemSkillProjectionMode
+    content_digest: str
+    materialization_relative_path: str | None
+
+    @property
+    def owned_relative_paths(self) -> tuple[str, ...]:
+        """Return all paths owned by the legacy record."""
+
+        if self.materialization_relative_path is None:
+            return (self.relative_path,)
+        return (self.relative_path, self.materialization_relative_path)
+
+
+@dataclass(frozen=True)
+class _LegacyV3Receipt:
+    """Minimal safe parse of a receipt-owned composed installation."""
+
+    selected_pack_ids: tuple[str, ...]
+    skills: tuple[_LegacyV3SkillRecord, ...]
 
 
 def system_skills_destination_for_tool(tool: str) -> str:
@@ -253,36 +278,30 @@ def system_skills_destination_for_tool(tool: str) -> str:
     return destination
 
 
-def projected_public_skill_relative_dir(*, tool: str, public_skill_name: str) -> str:
-    """Return one home-relative public projection path."""
+def projected_standalone_skill_relative_dir(*, tool: str, skill_name: str) -> str:
+    """Return one home-relative standalone projection path."""
 
     manifest = load_system_skill_manifest()
-    if public_skill_name not in manifest.public_skills:
-        if public_skill_name in manifest.protected_routines:
+    if skill_name not in manifest.standalone_skills:
+        if skill_name in manifest.shared_routines:
             raise SystemSkillInstallError(
-                f"Protected routine `{public_skill_name}` has no top-level projection."
+                f"Shared child `{skill_name}` has no independent top-level projection."
             )
-        raise SystemSkillInstallError(f"Unknown public system skill `{public_skill_name}`.")
-    return str(Path(system_skills_destination_for_tool(tool)) / public_skill_name)
+        raise SystemSkillInstallError(f"Unknown standalone system skill `{skill_name}`.")
+    return str(Path(system_skills_destination_for_tool(tool)) / skill_name)
 
 
 def system_skill_state_root(*, tool: str, home_path: Path) -> Path:
-    """Return the tool-scoped hidden ownership directory."""
+    """Return the tool-scoped hidden receipt directory."""
 
     system_skills_destination_for_tool(tool)
     return home_path.resolve() / ".houmao" / "system-skills" / tool
 
 
 def system_skill_receipt_path(*, tool: str, home_path: Path) -> Path:
-    """Return the tool-scoped pack receipt path."""
+    """Return the tool-scoped static collection receipt path."""
 
     return system_skill_state_root(tool=tool, home_path=home_path) / SYSTEM_SKILL_RECEIPT_FILENAME
-
-
-def system_skill_materialization_root(*, tool: str, home_path: Path) -> Path:
-    """Return the receipt-owned symlink materialization root."""
-
-    return system_skill_state_root(tool=tool, home_path=home_path) / "materialized"
 
 
 def inspect_system_skill_receipt(
@@ -290,7 +309,7 @@ def inspect_system_skill_receipt(
     tool: str,
     home_path: Path,
 ) -> SystemSkillReceiptInspection:
-    """Read one receipt without mutating or raising for corrupt state."""
+    """Read a v4 or recognized v3 receipt without mutating filesystem state."""
 
     resolved_home = home_path.resolve()
     path = system_skill_receipt_path(tool=tool, home_path=resolved_home)
@@ -313,6 +332,32 @@ def inspect_system_skill_receipt(
             message="System-skill receipt must be a JSON object.",
         )
     schema_version = payload.get("schema_version")
+    if schema_version == LEGACY_V3_RECEIPT_SCHEMA_VERSION:
+        try:
+            legacy = _parse_legacy_v3_receipt(
+                cast(dict[str, Any], payload),
+                expected_tool=tool,
+                expected_home=resolved_home,
+            )
+        except (KeyError, TypeError, ValueError, SystemSkillInstallError) as exc:
+            return SystemSkillReceiptInspection(
+                status="corrupt",
+                path=path,
+                receipt=None,
+                message=str(exc),
+            )
+        return SystemSkillReceiptInspection(
+            status="legacy-v3",
+            path=path,
+            receipt=None,
+            message="Receipt owns a v3 composed installation; run system-skills upgrade.",
+            legacy_pack_ids=legacy.selected_pack_ids,
+            legacy_owned_paths=tuple(
+                relative_path
+                for record in legacy.skills
+                for relative_path in record.owned_relative_paths
+            ),
+        )
     if schema_version != SYSTEM_SKILL_RECEIPT_SCHEMA_VERSION:
         return SystemSkillReceiptInspection(
             status="unsupported",
@@ -322,7 +367,7 @@ def inspect_system_skill_receipt(
         )
     try:
         receipt = _parse_receipt_payload(
-            payload,
+            cast(dict[str, Any], payload),
             expected_tool=tool,
             expected_home=resolved_home,
         )
@@ -341,89 +386,127 @@ def inspect_system_skill_packs(
     tool: str,
     home_path: Path,
 ) -> SystemSkillStatusResult:
-    """Classify every manifest pack and all observed legacy flat paths."""
+    """Classify static members, actor packs, receipt posture, and legacy flat paths."""
 
     manifest = load_system_skill_manifest()
     resolved_home = home_path.resolve()
     receipt_inspection = inspect_system_skill_receipt(tool=tool, home_path=resolved_home)
-    receipt_map = (
-        receipt_inspection.receipt.pack_map() if receipt_inspection.receipt is not None else {}
-    )
+    receipt = receipt_inspection.receipt
+    receipt_map = receipt.skill_map() if receipt is not None else {}
+    member_statuses: list[SystemSkillMemberStatusRecord] = []
+    status_by_name: dict[str, MemberIntegrityStatus] = {}
+    for record in manifest.standalone_skills.values():
+        relative_path = projected_standalone_skill_relative_dir(
+            tool=tool,
+            skill_name=record.name,
+        )
+        receipt_record = receipt_map.get(record.name)
+        if receipt_inspection.status == "legacy-v3":
+            status: MemberIntegrityStatus = (
+                "drifted"
+                if record.name
+                in {
+                    "houmao-admin-welcome",
+                    "houmao-admin-entrypoint",
+                    "houmao-agent-entrypoint",
+                }
+                and relative_path in receipt_inspection.legacy_owned_paths
+                else "conflicting"
+                if _path_lexists(resolved_home / relative_path)
+                else "absent"
+            )
+            owners = tuple(
+                pack_id
+                for pack_id in receipt_inspection.legacy_pack_ids
+                if record.name in manifest.packs[pack_id].standalone_skill_names
+            )
+            mode: SystemSkillProjectionMode | None = None
+            digest: str | None = None
+        elif receipt_record is None:
+            status = "conflicting" if _path_lexists(resolved_home / relative_path) else "absent"
+            owners = ()
+            mode = None
+            digest = None
+        else:
+            status = _inspect_current_member(
+                manifest=manifest,
+                home_path=resolved_home,
+                record=receipt_record,
+            )
+            owners = receipt_record.owning_pack_ids
+            mode = receipt_record.projection_mode
+            digest = receipt_record.content_digest
+        status_by_name[record.name] = status
+        member_statuses.append(
+            SystemSkillMemberStatusRecord(
+                name=record.name,
+                role=record.role,
+                activation=record.activation,
+                status=status,
+                relative_path=relative_path,
+                owning_pack_ids=owners,
+                projection_mode=mode,
+                expected_content_digest=digest,
+            )
+        )
+
     pack_statuses: list[SystemSkillPackStatusRecord] = []
     for pack in manifest.packs.values():
-        expected_paths = tuple(
-            projected_public_skill_relative_dir(tool=tool, public_skill_name=name)
-            for name in pack.public_skill_names
+        paths = tuple(
+            projected_standalone_skill_relative_dir(tool=tool, skill_name=name)
+            for name in pack.standalone_skill_names
         )
-        receipt_record = receipt_map.get(pack.pack_id)
-        if receipt_record is None:
-            conflicts = tuple(
-                relative_path
-                for relative_path in expected_paths
-                if _path_lexists(resolved_home / relative_path)
-            )
-            pack_statuses.append(
-                SystemSkillPackStatusRecord(
-                    pack_id=pack.pack_id,
-                    status="conflicting" if conflicts else "absent",
-                    public_paths=expected_paths,
-                    missing_public_paths=(),
-                    drifted_public_paths=(),
-                    conflicting_public_paths=conflicts,
-                    protected_logical_ids=(),
-                )
-            )
-            continue
-        missing: list[str] = []
-        drifted: list[str] = []
-        protected_ids: list[str] = []
-        receipt_public_names = {record.name for record in receipt_record.public_skills}
-        if receipt_public_names != set(pack.public_skill_names):
-            drifted.extend(expected_paths)
-        for public in receipt_record.public_skills:
-            protected_ids.extend(public.protected_logical_ids)
-            integrity = _inspect_public_record(resolved_home, public)
-            if integrity == "missing":
-                missing.append(public.relative_path)
-            elif integrity == "drifted":
-                drifted.append(public.relative_path)
-        if (
-            receipt_inspection.receipt is not None
-            and receipt_inspection.receipt.manifest_schema_version != manifest.schema_version
+        member_states = {name: status_by_name[name] for name in pack.standalone_skill_names}
+        if receipt_inspection.status == "legacy-v3" and pack.pack_id in (
+            receipt_inspection.legacy_pack_ids
         ):
-            drifted.extend(expected_paths)
-        expected_protected = tuple(
-            routine.logical_id
-            for routine in protected_routine_closure(manifest, audience=pack.audience)
-        )
-        entrypoint_records = [
-            record for record in receipt_record.public_skills if record.role == "entrypoint"
-        ]
-        if len(entrypoint_records) != 1 or (
-            entrypoint_records[0].protected_logical_ids != expected_protected
-        ):
-            drifted.extend(record.relative_path for record in entrypoint_records)
-        if missing:
-            status: PackIntegrityStatus = "incomplete"
-        elif drifted:
-            status = "drifted"
+            pack_status: PackIntegrityStatus = "drifted"
+        elif receipt is not None and pack.pack_id not in receipt.selected_pack_ids:
+            unowned_conflicts = any(
+                status_by_name[name] == "conflicting"
+                for name in pack.standalone_skill_names
+                if not receipt_map.get(name)
+            )
+            pack_status = "conflicting" if unowned_conflicts else "absent"
+        elif all(state == "absent" for state in member_states.values()):
+            pack_status = "absent"
+        elif any(state == "conflicting" for state in member_states.values()):
+            pack_status = "conflicting"
+        elif any(state in {"absent", "incomplete"} for state in member_states.values()):
+            pack_status = "incomplete"
+        elif any(state == "drifted" for state in member_states.values()):
+            pack_status = "drifted"
         else:
-            status = "complete"
+            pack_status = "complete"
         pack_statuses.append(
             SystemSkillPackStatusRecord(
                 pack_id=pack.pack_id,
-                status=status,
-                public_paths=expected_paths,
-                missing_public_paths=tuple(dict.fromkeys(missing)),
-                drifted_public_paths=tuple(dict.fromkeys(drifted)),
-                conflicting_public_paths=(),
-                protected_logical_ids=tuple(dict.fromkeys(protected_ids)),
+                audience=pack.audience,
+                status=pack_status,
+                standalone_skill_names=pack.standalone_skill_names,
+                standalone_paths=paths,
+                missing_paths=tuple(
+                    path
+                    for name, path in zip(pack.standalone_skill_names, paths, strict=True)
+                    if member_states[name] in {"absent", "incomplete"}
+                ),
+                drifted_paths=tuple(
+                    path
+                    for name, path in zip(pack.standalone_skill_names, paths, strict=True)
+                    if member_states[name] == "drifted"
+                ),
+                conflicting_paths=tuple(
+                    path
+                    for name, path in zip(pack.standalone_skill_names, paths, strict=True)
+                    if member_states[name] == "conflicting"
+                ),
             )
         )
     return SystemSkillStatusResult(
         tool=tool,
         home_path=resolved_home,
         receipt=receipt_inspection,
+        members=tuple(member_statuses),
         packs=tuple(pack_statuses),
         legacy=inspect_legacy_system_skill_paths(tool=tool, home_path=resolved_home),
     )
@@ -434,7 +517,7 @@ def inspect_legacy_system_skill_paths(
     tool: str,
     home_path: Path,
 ) -> LegacySystemSkillInspection:
-    """Classify legacy paths without mutating them."""
+    """Classify retired flat skill paths without mutating them."""
 
     manifest = load_system_skill_manifest()
     legacy_catalog = load_legacy_system_skill_catalog()
@@ -442,16 +525,19 @@ def inspect_legacy_system_skill_paths(
     skill_root = resolved_home / system_skills_destination_for_tool(tool)
     package_root = _packaged_asset_filesystem_root()
     paths: list[LegacySystemSkillPathStatus] = []
+    standalone_names = set(manifest.standalone_skills)
     known_names = set(manifest.legacy_skills)
     for legacy in manifest.legacy_skills.values():
+        if legacy.name in standalone_names:
+            continue
         path = skill_root / legacy.name
         if not _path_lexists(path):
             continue
         if path.is_symlink():
             raw_target = path.readlink()
-            target = (
-                raw_target if raw_target.is_absolute() else (path.parent / raw_target)
-            ).resolve(strict=False)
+            target = (raw_target if raw_target.is_absolute() else path.parent / raw_target).resolve(
+                strict=False
+            )
             expected_target = (package_root / legacy.asset_subpath).resolve(strict=False)
             classification: LegacyPathClassification = (
                 "package-linked" if target == expected_target else "modified"
@@ -479,11 +565,10 @@ def inspect_legacy_system_skill_paths(
             )
         )
     if skill_root.is_dir():
-        public_names = set(manifest.public_skills)
         for path in sorted(skill_root.glob("houmao-*")):
             if (
                 path.name in known_names
-                or path.name in public_names
+                or path.name in standalone_names
                 or path.name == manifest.auto_skill_name
             ):
                 continue
@@ -496,7 +581,9 @@ def inspect_legacy_system_skill_paths(
                 )
             )
     conflicting = any(path.classification in {"modified", "unknown"} for path in paths)
-    current_v1_names = {record.name for record in legacy_catalog.skills}
+    current_v1_names = {
+        record.name for record in legacy_catalog.skills if record.name not in standalone_names
+    }
     present_v1_names = {record.name for record in paths if record.name in current_v1_names}
     if conflicting:
         overall: LegacyOverallStatus = "conflicting"
@@ -518,7 +605,7 @@ def install_system_skill_packs_for_home(
     auto_install_kind: AutoInstallKind | None = None,
     projection_mode: SystemSkillProjectionMode = "copy",
 ) -> SystemSkillInstallResult:
-    """Install or refresh complete selected packs and preserve other owned packs."""
+    """Install selected packs additively as one static collection."""
 
     manifest = load_system_skill_manifest()
     selected = _resolve_requested_pack_ids(
@@ -527,13 +614,14 @@ def install_system_skill_packs_for_home(
         use_cli_default=use_cli_default,
         auto_install_kind=auto_install_kind,
     )
-    return _apply_pack_transaction(
+    return _apply_static_transaction(
         manifest=manifest,
         tool=tool,
         home_path=home_path,
         selected_pack_ids=selected,
         projection_mode=projection_mode,
         exact=False,
+        allow_replace_drifted=False,
         legacy_paths_to_remove=(),
     )
 
@@ -545,17 +633,18 @@ def sync_system_skill_packs_for_home(
     selected_pack_ids: Sequence[str],
     projection_mode: SystemSkillProjectionMode = "copy",
 ) -> SystemSkillInstallResult:
-    """Synchronize a managed home to an exact receipt-owned pack selection."""
+    """Synchronize a managed home to an exact static pack selection."""
 
     manifest = load_system_skill_manifest()
     selected = resolve_system_skill_pack_selection(manifest, pack_ids=selected_pack_ids)
-    return _apply_pack_transaction(
+    return _apply_static_transaction(
         manifest=manifest,
         tool=tool,
         home_path=home_path,
         selected_pack_ids=selected,
         projection_mode=projection_mode,
         exact=True,
+        allow_replace_drifted=True,
         legacy_paths_to_remove=(),
     )
 
@@ -568,41 +657,95 @@ def upgrade_system_skill_packs_for_home(
     use_cli_default: bool = False,
     projection_mode: SystemSkillProjectionMode = "copy",
 ) -> SystemSkillUpgradeResult:
-    """Refresh selected packs and remove only safely classified legacy paths."""
+    """Upgrade v3 composition or refresh v4 while removing safe flat legacy paths."""
 
     manifest = load_system_skill_manifest()
+    resolved_home = home_path.resolve()
+    inspection = inspect_system_skill_receipt(tool=tool, home_path=resolved_home)
+    legacy_before = inspect_legacy_system_skill_paths(tool=tool, home_path=resolved_home)
+    safe_legacy_paths = tuple(
+        resolved_home / record.relative_path
+        for record in legacy_before.paths
+        if record.classification in {"package-linked", "digest-matched"}
+    )
+    preserved = tuple(
+        record.relative_path
+        for record in legacy_before.paths
+        if record.classification in {"modified", "unknown"}
+    )
+    if inspection.status == "legacy-v3":
+        payload = _read_receipt_payload(inspection.path)
+        legacy_v3 = _parse_legacy_v3_receipt(
+            payload,
+            expected_tool=tool,
+            expected_home=resolved_home,
+        )
+        conflicts = tuple(
+            record.relative_path
+            for record in legacy_v3.skills
+            if _inspect_legacy_v3_record(resolved_home, record) != "complete"
+        )
+        if conflicts:
+            rendered = ", ".join(conflicts)
+            raise SystemSkillInstallError(
+                f"V3 receipt-owned content is incomplete or modified: {rendered}."
+            )
+        selected = (
+            resolve_system_skill_pack_selection(manifest, pack_ids=pack_ids)
+            if pack_ids
+            else resolve_system_skill_pack_selection(
+                manifest,
+                pack_ids=legacy_v3.selected_pack_ids,
+            )
+        )
+        result = _apply_static_transaction(
+            manifest=manifest,
+            tool=tool,
+            home_path=resolved_home,
+            selected_pack_ids=selected,
+            projection_mode=projection_mode,
+            exact=True,
+            allow_replace_drifted=True,
+            legacy_paths_to_remove=safe_legacy_paths,
+            legacy_v3=legacy_v3,
+        )
+        _remove_empty_v3_materialization_dirs(tool=tool, home_path=resolved_home)
+        obsolete = tuple(
+            relative_path
+            for record in legacy_v3.skills
+            for relative_path in record.owned_relative_paths
+            if relative_path not in result.projected_relative_dirs
+        )
+        return SystemSkillUpgradeResult(
+            install=result,
+            legacy_before=legacy_before,
+            preserved_legacy_paths=preserved,
+            migrated_v3=True,
+            removed_obsolete_paths=obsolete,
+        )
+    if inspection.status in {"corrupt", "unsupported"}:
+        raise SystemSkillInstallError(
+            inspection.message or "The system-skill receipt cannot be upgraded safely."
+        )
     selected = _resolve_requested_pack_ids(
         manifest,
         pack_ids=pack_ids,
         use_cli_default=use_cli_default,
         auto_install_kind=None,
     )
-    resolved_home = home_path.resolve()
-    legacy = inspect_legacy_system_skill_paths(tool=tool, home_path=resolved_home)
-    safe_records = [
-        record
-        for record in legacy.paths
-        if record.classification in {"package-linked", "digest-matched"}
-    ]
-    result = _apply_pack_transaction(
+    result = _apply_static_transaction(
         manifest=manifest,
         tool=tool,
         home_path=resolved_home,
         selected_pack_ids=selected,
         projection_mode=projection_mode,
         exact=False,
-        legacy_paths_to_remove=tuple(
-            resolved_home / record.relative_path for record in safe_records
-        ),
-    )
-    preserved = tuple(
-        record.relative_path
-        for record in legacy.paths
-        if record.classification in {"modified", "unknown"}
+        allow_replace_drifted=True,
+        legacy_paths_to_remove=safe_legacy_paths,
     )
     return SystemSkillUpgradeResult(
         install=result,
-        legacy_before=legacy,
+        legacy_before=legacy_before,
         preserved_legacy_paths=preserved,
     )
 
@@ -613,14 +756,14 @@ def uninstall_system_skill_packs_for_home(
     home_path: Path,
     pack_ids: Sequence[str] = (),
 ) -> SystemSkillUninstallResult:
-    """Remove selected receipt-owned packs and preserve ownership conflicts."""
+    """Subtract pack owners and remove only final-owner projections."""
 
     manifest = load_system_skill_manifest()
     resolved_home = home_path.resolve()
     inspection = inspect_system_skill_receipt(tool=tool, home_path=resolved_home)
-    if inspection.status in {"corrupt", "unsupported"}:
+    if inspection.status in {"corrupt", "unsupported", "legacy-v3"}:
         raise SystemSkillInstallError(
-            inspection.message or "The system-skill receipt cannot be used safely."
+            inspection.message or "The system-skill receipt cannot be uninstalled safely."
         )
     receipt = inspection.receipt
     if receipt is None:
@@ -634,6 +777,7 @@ def uninstall_system_skill_packs_for_home(
             removed_pack_ids=(),
             absent_pack_ids=requested,
             removed_projected_relative_dirs=(),
+            retained_shared_skill_names=(),
             preserved_conflicting_paths=(),
             receipt_path=inspection.path,
         )
@@ -642,67 +786,93 @@ def uninstall_system_skill_packs_for_home(
         if pack_ids
         else receipt.selected_pack_ids
     )
-    receipt_map = receipt.pack_map()
-    absent = tuple(pack_id for pack_id in requested if pack_id not in receipt_map)
-    removable: list[SystemSkillReceiptPackRecord] = []
+    present_requested = tuple(
+        pack_id for pack_id in requested if pack_id in receipt.selected_pack_ids
+    )
+    absent = tuple(pack_id for pack_id in requested if pack_id not in receipt.selected_pack_ids)
+    new_pack_ids = tuple(
+        pack_id for pack_id in receipt.selected_pack_ids if pack_id not in present_requested
+    )
+    updated_records: list[SystemSkillReceiptSkillRecord] = []
+    removable_records: list[SystemSkillReceiptSkillRecord] = []
+    retained_shared: list[str] = []
     conflicts: list[str] = []
-    for pack_id in requested:
-        record = receipt_map.get(pack_id)
-        if record is None:
+    for record in receipt.skills:
+        owners = tuple(owner for owner in record.owning_pack_ids if owner not in present_requested)
+        if owners:
+            updated_records.append(
+                SystemSkillReceiptSkillRecord(
+                    name=record.name,
+                    role=record.role,
+                    relative_path=record.relative_path,
+                    projection_mode=record.projection_mode,
+                    content_digest=record.content_digest,
+                    owning_pack_ids=owners,
+                )
+            )
+            if owners != record.owning_pack_ids:
+                retained_shared.append(record.name)
             continue
-        pack_conflicts = [
-            public.relative_path
-            for public in record.public_skills
-            if _public_path_has_ownership_conflict(resolved_home, public)
-        ]
-        if pack_conflicts:
-            conflicts.extend(pack_conflicts)
+        integrity = _inspect_current_member(
+            manifest=manifest,
+            home_path=resolved_home,
+            record=record,
+        )
+        if integrity not in {"complete", "absent"}:
+            conflicts.append(record.relative_path)
         else:
-            removable.append(record)
+            removable_records.append(record)
+
+    previous_receipt_bytes = inspection.path.read_bytes()
     removed_paths: list[str] = []
     with _transaction_directory(tool=tool, home_path=resolved_home) as raw_transaction_root:
         transaction_root = Path(raw_transaction_root)
-        backups_root = transaction_root / "backups"
         backups: list[tuple[Path, Path]] = []
         try:
-            for pack in removable:
-                for public in pack.public_skills:
-                    for relative_path in _receipt_record_owned_paths(public):
-                        original = resolved_home / relative_path
-                        if not _path_lexists(original):
-                            continue
-                        backup = backups_root / str(len(backups))
-                        _backup_path(original, backup)
-                        backups.append((original, backup))
-                    removed_paths.append(public.relative_path)
-            removable_ids = {record.pack_id for record in removable}
-            remaining = tuple(
-                record for record in receipt.packs if record.pack_id not in removable_ids
-            )
-            if remaining:
-                updated = SystemSkillReceipt(
-                    schema_version=receipt.schema_version,
-                    manifest_schema_version=receipt.manifest_schema_version,
+            for record in removable_records:
+                target = resolved_home / record.relative_path
+                if not _path_lexists(target):
+                    continue
+                backup = transaction_root / "backups" / str(len(backups))
+                _backup_path(target, backup)
+                backups.append((target, backup))
+                removed_paths.append(record.relative_path)
+            if updated_records:
+                updated_record_map = {record.name: record for record in updated_records}
+                ordered_updated_records = tuple(
+                    updated_record_map[record.name]
+                    for record in resolve_system_skill_pack_members(
+                        manifest,
+                        pack_ids=new_pack_ids,
+                    )
+                )
+                updated_receipt = SystemSkillReceipt(
+                    schema_version=SYSTEM_SKILL_RECEIPT_SCHEMA_VERSION,
+                    manifest_schema_version=manifest.schema_version,
                     package_version=_package_version(),
                     tool=tool,
                     home_path=resolved_home,
                     updated_at=_utc_now(),
-                    packs=remaining,
+                    projection_mode=receipt.projection_mode,
+                    selected_pack_ids=new_pack_ids,
+                    skills=ordered_updated_records,
                     safely_removed_legacy_paths=receipt.safely_removed_legacy_paths,
                 )
-                _persist_receipt_atomic(updated)
+                _persist_receipt_atomic(updated_receipt)
             elif inspection.path.exists():
                 inspection.path.unlink()
         except Exception:
             _restore_backups(backups)
+            _restore_receipt_bytes(inspection.path, previous_receipt_bytes)
             raise
     return SystemSkillUninstallResult(
         tool=tool,
         home_path=resolved_home,
         requested_pack_ids=requested,
-        removed_pack_ids=tuple(record.pack_id for record in removable),
+        removed_pack_ids=present_requested,
         absent_pack_ids=absent,
         removed_projected_relative_dirs=tuple(removed_paths),
+        retained_shared_skill_names=tuple(retained_shared),
         preserved_conflicting_paths=tuple(conflicts),
         receipt_path=inspection.path,
     )
@@ -713,18 +883,19 @@ def project_system_skill_pack_to_destination(
     *,
     pack_id: str,
 ) -> tuple[str, ...]:
-    """Compose one pack into an explicit non-home destination for fixture use."""
+    """Copy one pack's complete static members into an explicit destination."""
 
     manifest = load_system_skill_manifest()
-    result = compose_system_skill_pack(
+    staged = stage_system_skill_collection(
         manifest,
-        pack_id=pack_id,
+        pack_ids=(pack_id,),
         destination_root=destination_root,
+        projection_mode="copy",
     )
-    return tuple(record.name for record in result.public_skills)
+    return tuple(record.name for record in staged.skills)
 
 
-def _apply_pack_transaction(
+def _apply_static_transaction(
     *,
     manifest: SystemSkillManifest,
     tool: str,
@@ -732,9 +903,11 @@ def _apply_pack_transaction(
     selected_pack_ids: tuple[str, ...],
     projection_mode: SystemSkillProjectionMode,
     exact: bool,
+    allow_replace_drifted: bool,
     legacy_paths_to_remove: tuple[Path, ...],
+    legacy_v3: _LegacyV3Receipt | None = None,
 ) -> SystemSkillInstallResult:
-    """Stage, preflight, commit, receipt, and roll back one pack transaction."""
+    """Stage, preflight, commit, write receipt last, and roll back one union."""
 
     _validate_projection_mode(projection_mode)
     if not selected_pack_ids and not exact:
@@ -745,192 +918,197 @@ def _apply_pack_transaction(
     state_root = system_skill_state_root(tool=tool, home_path=resolved_home)
     state_root.mkdir(parents=True, exist_ok=True)
     inspection = inspect_system_skill_receipt(tool=tool, home_path=resolved_home)
-    if inspection.status in {"corrupt", "unsupported"}:
+    if legacy_v3 is None and inspection.status in {"corrupt", "unsupported", "legacy-v3"}:
         raise SystemSkillInstallError(
             inspection.message or "The system-skill receipt cannot be used safely."
         )
-    previous_receipt = inspection.receipt
-    previous_pack_map = previous_receipt.pack_map() if previous_receipt is not None else {}
-    ownership_map = previous_receipt.public_ownership_map() if previous_receipt is not None else {}
-    removed_pack_ids = (
-        tuple(pack_id for pack_id in previous_pack_map if pack_id not in selected_pack_ids)
+    previous_receipt = inspection.receipt if legacy_v3 is None else None
+    previous_pack_ids = previous_receipt.selected_pack_ids if previous_receipt is not None else ()
+    final_pack_ids = (
+        selected_pack_ids
         if exact
-        else ()
+        else _manifest_ordered_pack_union(
+            manifest,
+            (*previous_pack_ids, *selected_pack_ids),
+        )
     )
+    removed_pack_ids = tuple(
+        pack_id for pack_id in previous_pack_ids if pack_id not in final_pack_ids
+    )
+    previous_map = previous_receipt.skill_map() if previous_receipt is not None else {}
+    legacy_owned_by_relative = (
+        {record.relative_path: record for record in legacy_v3.skills}
+        if legacy_v3 is not None
+        else {}
+    )
+    previous_receipt_bytes = inspection.path.read_bytes() if inspection.path.exists() else None
     with _transaction_directory(tool=tool, home_path=resolved_home) as raw_transaction_root:
         transaction_root = Path(raw_transaction_root)
         staged_root = transaction_root / "staged"
-        composed_by_pack: dict[str, ComposedSystemSkillPack] = {}
-        digest_by_public: dict[str, str] = {}
-        for pack_id in selected_pack_ids:
-            composed = compose_system_skill_pack(
-                manifest,
-                pack_id=pack_id,
-                destination_root=staged_root / pack_id,
+        staged = stage_system_skill_collection(
+            manifest,
+            pack_ids=final_pack_ids,
+            destination_root=staged_root,
+            projection_mode=projection_mode,
+        )
+        final_names = {record.name for record in staged.skills}
+        for staged_record in staged.skills:
+            relative_path = projected_standalone_skill_relative_dir(
+                tool=tool,
+                skill_name=staged_record.name,
             )
-            composed_by_pack[pack_id] = composed
-            for public in composed.public_skills:
-                digest_by_public[public.name] = tree_content_digest(public.path)
-                relative_path = projected_public_skill_relative_dir(
-                    tool=tool,
-                    public_skill_name=public.name,
+            target = resolved_home / relative_path
+            current_record = previous_map.get(staged_record.name)
+            legacy_record = legacy_owned_by_relative.get(relative_path)
+            if _path_lexists(target) and current_record is None and legacy_record is None:
+                raise SystemSkillInstallError(
+                    f"Untracked system-skill collision at `{target}`. Move or remove it before "
+                    "installing the owning pack."
                 )
-                target = resolved_home / relative_path
-                if _path_lexists(target) and relative_path not in ownership_map:
+            if current_record is not None:
+                integrity = _inspect_current_member(
+                    manifest=manifest,
+                    home_path=resolved_home,
+                    record=current_record,
+                )
+                if integrity == "conflicting" or (
+                    integrity in {"incomplete", "drifted"} and not allow_replace_drifted
+                ):
                     raise SystemSkillInstallError(
-                        f"Untracked system-skill collision at `{target}`. "
-                        "Move or remove it before installing the owning pack."
+                        f"Receipt-owned system skill `{relative_path}` is {integrity}; use "
+                        "sync or upgrade for explicit replacement."
                     )
-        backups_root = transaction_root / "backups"
+
+        obsolete_relative_paths: list[str] = []
+        if previous_receipt is not None:
+            obsolete_relative_paths.extend(
+                record.relative_path
+                for record in previous_receipt.skills
+                if record.name not in final_names
+            )
+        if legacy_v3 is not None:
+            obsolete_relative_paths.extend(
+                relative_path
+                for record in legacy_v3.skills
+                for relative_path in record.owned_relative_paths
+                if relative_path
+                not in {
+                    projected_standalone_skill_relative_dir(tool=tool, skill_name=name)
+                    for name in final_names
+                }
+            )
+
+        affected_paths: list[Path] = []
+        if previous_receipt is not None:
+            affected_paths.extend(
+                resolved_home / record.relative_path for record in previous_receipt.skills
+            )
+        if legacy_v3 is not None:
+            affected_paths.extend(
+                resolved_home / relative_path
+                for record in legacy_v3.skills
+                for relative_path in record.owned_relative_paths
+            )
+        affected_paths.extend(
+            resolved_home
+            / projected_standalone_skill_relative_dir(tool=tool, skill_name=record.name)
+            for record in staged.skills
+        )
+        affected_paths.extend(legacy_paths_to_remove)
+        unique_affected = _deduplicate_paths(affected_paths)
         backups: list[tuple[Path, Path]] = []
         committed_paths: list[Path] = []
-        previous_receipt_bytes = inspection.path.read_bytes() if inspection.path.exists() else None
-        removed_relative_dirs: list[str] = []
+        safe_legacy_relative_paths: list[str] = []
         try:
-            affected_pack_ids = set(selected_pack_ids) | set(removed_pack_ids)
-            for pack_id in affected_pack_ids:
-                old_pack = previous_pack_map.get(pack_id)
-                if old_pack is None:
+            for original in unique_affected:
+                if not _path_lexists(original):
                     continue
-                for old_public in old_pack.public_skills:
-                    for relative_path in _receipt_record_owned_paths(old_public):
-                        original = resolved_home / relative_path
-                        if not _path_lexists(original):
-                            continue
-                        backup = backups_root / str(len(backups))
-                        _backup_path(original, backup)
-                        backups.append((original, backup))
-                    if pack_id in removed_pack_ids:
-                        removed_relative_dirs.append(old_public.relative_path)
-            safe_legacy_relative_paths: list[str] = []
-            for legacy_path in legacy_paths_to_remove:
-                resolved_legacy = legacy_path.absolute()
                 try:
-                    legacy_relative_path = resolved_legacy.relative_to(resolved_home)
+                    relative_to_home = original.absolute().relative_to(resolved_home)
                 except ValueError as exc:
                     raise SystemSkillInstallError(
-                        f"Legacy cleanup path `{legacy_path}` escapes the target home."
+                        f"Transaction path `{original}` escapes the target home."
                     ) from exc
-                concrete_path = resolved_home / legacy_relative_path
-                if not _path_lexists(concrete_path):
-                    continue
-                backup = backups_root / str(len(backups))
-                _backup_path(concrete_path, backup)
-                backups.append((concrete_path, backup))
-                safe_legacy_relative_paths.append(str(legacy_relative_path))
-            new_pack_records: dict[str, SystemSkillReceiptPackRecord] = {}
-            for pack_id in selected_pack_ids:
-                composed = composed_by_pack[pack_id]
-                public_records: list[SystemSkillReceiptPublicRecord] = []
-                for public in composed.public_skills:
-                    relative_path = projected_public_skill_relative_dir(
-                        tool=tool,
-                        public_skill_name=public.name,
-                    )
-                    target = resolved_home / relative_path
-                    materialization_relative_path: str | None = None
-                    if projection_mode == "copy":
-                        _commit_public_projection(public.path, target)
-                        committed_paths.append(target)
-                    else:
-                        materialization = (
-                            system_skill_materialization_root(
-                                tool=tool,
-                                home_path=resolved_home,
-                            )
-                            / pack_id
-                            / public.name
-                        )
-                        if _path_lexists(materialization):
-                            backup = backups_root / str(len(backups))
-                            _backup_path(materialization, backup)
-                            backups.append((materialization, backup))
-                        _commit_public_projection(public.path, materialization)
-                        committed_paths.append(materialization)
-                        _commit_public_symlink(target, materialization)
-                        committed_paths.append(target)
-                        materialization_relative_path = str(
-                            materialization.relative_to(resolved_home)
-                        )
-                    public_records.append(
-                        SystemSkillReceiptPublicRecord(
-                            name=public.name,
-                            role=public.role,
-                            relative_path=relative_path,
-                            projection_mode=projection_mode,
-                            content_digest=digest_by_public[public.name],
-                            protected_logical_ids=public.protected_logical_ids,
-                            materialization_relative_path=materialization_relative_path,
-                        )
-                    )
-                new_pack_records[pack_id] = SystemSkillReceiptPackRecord(
-                    pack_id=pack_id,
-                    audience=composed.audience,
-                    public_skills=tuple(public_records),
+                backup = transaction_root / "backups" / str(len(backups))
+                _backup_path(original, backup)
+                backups.append((original, backup))
+                if original in legacy_paths_to_remove:
+                    safe_legacy_relative_paths.append(str(relative_to_home))
+            for staged_record in staged.skills:
+                target = resolved_home / projected_standalone_skill_relative_dir(
+                    tool=tool,
+                    skill_name=staged_record.name,
                 )
-            retained_records = {
-                pack_id: record
-                for pack_id, record in previous_pack_map.items()
-                if pack_id not in set(selected_pack_ids) | set(removed_pack_ids)
-            }
-            final_records = tuple(
-                (new_pack_records | retained_records)[pack_id]
-                for pack_id in manifest.pack_ids
-                if pack_id in new_pack_records or pack_id in retained_records
-            )
-            prior_legacy = (
-                previous_receipt.safely_removed_legacy_paths if previous_receipt is not None else ()
-            )
-            receipt = SystemSkillReceipt(
-                schema_version=SYSTEM_SKILL_RECEIPT_SCHEMA_VERSION,
-                manifest_schema_version=manifest.schema_version,
-                package_version=_package_version(),
-                tool=tool,
-                home_path=resolved_home,
-                updated_at=_utc_now(),
-                packs=final_records,
-                safely_removed_legacy_paths=tuple(
-                    dict.fromkeys((*prior_legacy, *safe_legacy_relative_paths))
-                ),
-            )
-            _persist_receipt_atomic(receipt)
+                _commit_static_projection(staged_record.path, target)
+                committed_paths.append(target)
+            if staged.skills:
+                prior_legacy = (
+                    previous_receipt.safely_removed_legacy_paths
+                    if previous_receipt is not None
+                    else ()
+                )
+                receipt = SystemSkillReceipt(
+                    schema_version=SYSTEM_SKILL_RECEIPT_SCHEMA_VERSION,
+                    manifest_schema_version=manifest.schema_version,
+                    package_version=_package_version(),
+                    tool=tool,
+                    home_path=resolved_home,
+                    updated_at=_utc_now(),
+                    projection_mode=projection_mode,
+                    selected_pack_ids=final_pack_ids,
+                    skills=tuple(
+                        SystemSkillReceiptSkillRecord(
+                            name=record.name,
+                            role=record.role,
+                            relative_path=projected_standalone_skill_relative_dir(
+                                tool=tool,
+                                skill_name=record.name,
+                            ),
+                            projection_mode=projection_mode,
+                            content_digest=record.content_digest,
+                            owning_pack_ids=record.owning_pack_ids,
+                        )
+                        for record in staged.skills
+                    ),
+                    safely_removed_legacy_paths=tuple(
+                        dict.fromkeys((*prior_legacy, *safe_legacy_relative_paths))
+                    ),
+                )
+                _persist_receipt_atomic(receipt)
+            elif inspection.path.exists():
+                inspection.path.unlink()
         except Exception:
             for path in reversed(committed_paths):
                 _remove_path(path)
             _restore_backups(backups)
             _restore_receipt_bytes(inspection.path, previous_receipt_bytes)
             raise
-    selected_public = tuple(
-        public.name
-        for pack_id in selected_pack_ids
-        for public in composed_by_pack[pack_id].public_skills
-    )
+
+    standalone_names = tuple(record.name for record in staged.skills)
     projected_dirs = tuple(
-        projected_public_skill_relative_dir(tool=tool, public_skill_name=name)
-        for name in selected_public
+        projected_standalone_skill_relative_dir(tool=tool, skill_name=name)
+        for name in standalone_names
     )
-    protected_by_public = {
-        public.name: public.protected_logical_ids
-        for pack_id in selected_pack_ids
-        for public in composed_by_pack[pack_id].public_skills
-    }
-    safely_removed = tuple(
-        str(path.absolute().relative_to(resolved_home))
-        for path in legacy_paths_to_remove
-        if not _path_lexists(path)
+    owners_by_skill = {record.name: record.owning_pack_ids for record in staged.skills}
+    removed_dirs = tuple(
+        dict.fromkeys(
+            relative_path
+            for relative_path in obsolete_relative_paths
+            if relative_path not in projected_dirs
+        )
     )
     return SystemSkillInstallResult(
         tool=tool,
         home_path=resolved_home,
-        selected_pack_ids=selected_pack_ids,
-        public_skill_names=selected_public,
+        selected_pack_ids=final_pack_ids,
+        standalone_skill_names=standalone_names,
         projected_relative_dirs=projected_dirs,
         receipt_path=system_skill_receipt_path(tool=tool, home_path=resolved_home),
         projection_mode=projection_mode,
-        protected_logical_ids_by_public=protected_by_public,
+        owning_pack_ids_by_skill=owners_by_skill,
         removed_pack_ids=removed_pack_ids,
-        removed_projected_relative_dirs=tuple(removed_relative_dirs),
-        safely_removed_legacy_paths=safely_removed,
+        removed_projected_relative_dirs=removed_dirs,
+        safely_removed_legacy_paths=tuple(safe_legacy_relative_paths),
     )
 
 
@@ -941,7 +1119,7 @@ def _resolve_requested_pack_ids(
     use_cli_default: bool,
     auto_install_kind: AutoInstallKind | None,
 ) -> tuple[str, ...]:
-    """Resolve explicit and lane-default pack ids."""
+    """Resolve explicit and lane-default actor pack ids."""
 
     if use_cli_default and auto_install_kind is not None:
         raise SystemSkillInstallError(
@@ -959,13 +1137,23 @@ def _resolve_requested_pack_ids(
     return selected
 
 
+def _manifest_ordered_pack_union(
+    manifest: SystemSkillManifest,
+    pack_ids: Sequence[str],
+) -> tuple[str, ...]:
+    """Return a de-duplicated pack union in manifest order."""
+
+    requested = set(resolve_system_skill_pack_selection(manifest, pack_ids=pack_ids))
+    return tuple(pack_id for pack_id in manifest.pack_ids if pack_id in requested)
+
+
 def _parse_receipt_payload(
     payload: dict[str, Any],
     *,
     expected_tool: str,
     expected_home: Path,
 ) -> SystemSkillReceipt:
-    """Parse and strictly validate a current receipt payload."""
+    """Parse and strictly validate one current static receipt."""
 
     required_keys = {
         "schema_version",
@@ -974,8 +1162,9 @@ def _parse_receipt_payload(
         "tool",
         "home_path",
         "updated_at",
+        "projection_mode",
         "selected_packs",
-        "packs",
+        "skills",
         "safely_removed_legacy_paths",
     }
     if set(payload) != required_keys:
@@ -984,40 +1173,56 @@ def _parse_receipt_payload(
         raise SystemSkillInstallError("System-skill receipt tool does not match its location.")
     if Path(_require_string(payload, "home_path")).resolve() != expected_home:
         raise SystemSkillInstallError("System-skill receipt home does not match its location.")
-    raw_packs = payload["packs"]
-    if not isinstance(raw_packs, list):
-        raise SystemSkillInstallError("System-skill receipt packs must be a list.")
-    packs: list[SystemSkillReceiptPackRecord] = []
-    for raw_pack in raw_packs:
-        if not isinstance(raw_pack, dict) or set(raw_pack) != {
-            "pack_id",
-            "audience",
-            "public_skills",
-        }:
-            raise SystemSkillInstallError("System-skill receipt has an invalid pack record.")
-        pack_id = _require_string(raw_pack, "pack_id")
-        audience = raw_pack["audience"]
-        if audience not in {"admin", "agent"}:
-            raise SystemSkillInstallError(f"Receipt pack `{pack_id}` has invalid audience.")
-        raw_public = raw_pack["public_skills"]
-        if not isinstance(raw_public, list):
-            raise SystemSkillInstallError(f"Receipt pack `{pack_id}` has invalid public records.")
-        public_records = tuple(_parse_receipt_public(item) for item in raw_public)
-        if len({record.name for record in public_records}) != len(public_records):
-            raise SystemSkillInstallError(f"Receipt pack `{pack_id}` has duplicate public names.")
-        packs.append(
-            SystemSkillReceiptPackRecord(
-                pack_id=pack_id,
-                audience=cast(PackAudience, audience),
-                public_skills=public_records,
-            )
-        )
-    if len({record.pack_id for record in packs}) != len(packs):
-        raise SystemSkillInstallError("System-skill receipt has duplicate pack ids.")
+    mode = payload["projection_mode"]
+    if mode not in {"copy", "symlink"}:
+        raise SystemSkillInstallError("System-skill receipt projection mode is invalid.")
     selected = _require_string_list(payload, "selected_packs")
-    if selected != tuple(record.pack_id for record in packs):
-        raise SystemSkillInstallError("Receipt selected_packs does not match its pack records.")
-    legacy_paths = _require_string_list(payload, "safely_removed_legacy_paths")
+    raw_skills = payload["skills"]
+    if not isinstance(raw_skills, list):
+        raise SystemSkillInstallError("System-skill receipt skills must be a list.")
+    skill_records = tuple(
+        _parse_receipt_skill(item, collection_mode=cast(SystemSkillProjectionMode, mode))
+        for item in raw_skills
+    )
+    if len({record.name for record in skill_records}) != len(skill_records):
+        raise SystemSkillInstallError("System-skill receipt has duplicate standalone names.")
+    manifest = load_system_skill_manifest()
+    resolve_system_skill_pack_selection(manifest, pack_ids=selected)
+    if _require_string(payload, "manifest_schema_version") != manifest.schema_version:
+        raise SystemSkillInstallError(
+            "System-skill receipt manifest schema does not match the current static manifest."
+        )
+    expected_records = resolve_system_skill_pack_members(manifest, pack_ids=selected)
+    if tuple(record.name for record in skill_records) != tuple(
+        record.name for record in expected_records
+    ):
+        raise SystemSkillInstallError(
+            "System-skill receipt skills do not match the selected static pack union."
+        )
+    expected_by_name = {record.name: record for record in expected_records}
+    for record in skill_records:
+        expected_record = expected_by_name[record.name]
+        if record.role != expected_record.role:
+            raise SystemSkillInstallError(
+                f"Receipt role for `{record.name}` does not match the static manifest."
+            )
+        expected_relative_path = projected_standalone_skill_relative_dir(
+            tool=expected_tool,
+            skill_name=record.name,
+        )
+        if record.relative_path != expected_relative_path:
+            raise SystemSkillInstallError(
+                f"Receipt path for `{record.name}` does not match its canonical destination."
+            )
+        expected_owners = tuple(
+            pack_id
+            for pack_id in selected
+            if record.name in manifest.packs[pack_id].standalone_skill_names
+        )
+        if record.owning_pack_ids != expected_owners:
+            raise SystemSkillInstallError(
+                f"Receipt owner set for `{record.name}` does not match selected packs."
+            )
     return SystemSkillReceipt(
         schema_version=_require_string(payload, "schema_version"),
         manifest_schema_version=_require_string(payload, "manifest_schema_version"),
@@ -1025,13 +1230,22 @@ def _parse_receipt_payload(
         tool=expected_tool,
         home_path=expected_home,
         updated_at=_require_string(payload, "updated_at"),
-        packs=tuple(packs),
-        safely_removed_legacy_paths=legacy_paths,
+        projection_mode=cast(SystemSkillProjectionMode, mode),
+        selected_pack_ids=selected,
+        skills=skill_records,
+        safely_removed_legacy_paths=_require_string_list(
+            payload,
+            "safely_removed_legacy_paths",
+        ),
     )
 
 
-def _parse_receipt_public(payload: object) -> SystemSkillReceiptPublicRecord:
-    """Parse one strict receipt public record."""
+def _parse_receipt_skill(
+    payload: object,
+    *,
+    collection_mode: SystemSkillProjectionMode,
+) -> SystemSkillReceiptSkillRecord:
+    """Parse one strict standalone receipt record."""
 
     if not isinstance(payload, dict) or set(payload) != {
         "name",
@@ -1039,60 +1253,189 @@ def _parse_receipt_public(payload: object) -> SystemSkillReceiptPublicRecord:
         "relative_path",
         "projection_mode",
         "content_digest",
-        "protected_logical_ids",
-        "materialization_relative_path",
+        "owning_pack_ids",
     }:
-        raise SystemSkillInstallError("System-skill receipt has an invalid public record.")
+        raise SystemSkillInstallError("System-skill receipt has an invalid skill record.")
     role = payload["role"]
-    mode = payload["projection_mode"]
-    if role not in {"welcome", "entrypoint"} or mode not in {"copy", "symlink"}:
-        raise SystemSkillInstallError("System-skill receipt public role or mode is invalid.")
-    digest = _require_string(payload, "content_digest")
-    if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
-        raise SystemSkillInstallError("System-skill receipt content digest is invalid.")
-    materialization = payload["materialization_relative_path"]
-    if materialization is not None and not isinstance(materialization, str):
-        raise SystemSkillInstallError("Receipt materialization path must be a string or null.")
-    protected_ids = _require_string_list(payload, "protected_logical_ids")
-    return SystemSkillReceiptPublicRecord(
-        name=_require_string(payload, "name"),
-        role=cast(PublicSkillRole, role),
-        relative_path=_require_safe_relative_path(payload, "relative_path"),
-        projection_mode=cast(SystemSkillProjectionMode, mode),
-        content_digest=digest,
-        protected_logical_ids=protected_ids,
-        materialization_relative_path=(
-            _validate_safe_relative_path(materialization) if materialization is not None else None
+    if role not in {"welcome", "entrypoint", "shared-routines", "loop"}:
+        raise SystemSkillInstallError("System-skill receipt skill role is invalid.")
+    if payload["projection_mode"] != collection_mode:
+        raise SystemSkillInstallError(
+            "System-skill receipt mixes projection modes in one static collection."
+        )
+    digest = _require_string(cast(dict[str, Any], payload), "content_digest")
+    _validate_digest(digest)
+    owners = _require_string_list(cast(dict[str, Any], payload), "owning_pack_ids")
+    if not owners:
+        raise SystemSkillInstallError("Receipt standalone owner sets must not be empty.")
+    return SystemSkillReceiptSkillRecord(
+        name=_require_string(cast(dict[str, Any], payload), "name"),
+        role=cast(StandaloneSkillRole, role),
+        relative_path=_require_safe_relative_path(
+            cast(dict[str, Any], payload),
+            "relative_path",
         ),
+        projection_mode=collection_mode,
+        content_digest=digest,
+        owning_pack_ids=owners,
     )
 
 
-def _inspect_public_record(
-    home_path: Path,
-    record: SystemSkillReceiptPublicRecord,
-) -> Literal["complete", "missing", "drifted"]:
-    """Classify one receipt public record against the filesystem."""
+def _parse_legacy_v3_receipt(
+    payload: dict[str, Any],
+    *,
+    expected_tool: str,
+    expected_home: Path,
+) -> _LegacyV3Receipt:
+    """Parse enough v3 receipt evidence for safe migration."""
 
-    public_path = home_path / record.relative_path
-    if not _path_lexists(public_path):
-        return "missing"
-    content_root = public_path
+    if payload.get("schema_version") != LEGACY_V3_RECEIPT_SCHEMA_VERSION:
+        raise SystemSkillInstallError("Receipt is not a recognized v3 composition receipt.")
+    if payload.get("tool") != expected_tool:
+        raise SystemSkillInstallError("V3 receipt tool does not match its location.")
+    raw_home = payload.get("home_path")
+    if not isinstance(raw_home, str) or Path(raw_home).resolve() != expected_home:
+        raise SystemSkillInstallError("V3 receipt home does not match its location.")
+    selected = payload.get("selected_packs")
+    if not isinstance(selected, list) or not all(
+        isinstance(item, str) and item in {"admin", "agent"} for item in selected
+    ):
+        raise SystemSkillInstallError("V3 receipt has invalid selected packs.")
+    selected_pack_ids = tuple(cast(list[str], selected))
+    if len(selected_pack_ids) != len(set(selected_pack_ids)):
+        raise SystemSkillInstallError("V3 receipt has duplicate selected packs.")
+    raw_packs = payload.get("packs")
+    if not isinstance(raw_packs, list):
+        raise SystemSkillInstallError("V3 receipt has invalid pack records.")
+    records: list[_LegacyV3SkillRecord] = []
+    for raw_pack in raw_packs:
+        if not isinstance(raw_pack, dict):
+            raise SystemSkillInstallError("V3 receipt has an invalid pack record.")
+        raw_public = raw_pack.get("public_skills")
+        if not isinstance(raw_public, list):
+            raise SystemSkillInstallError("V3 receipt pack has invalid public records.")
+        for raw_record in raw_public:
+            if not isinstance(raw_record, dict):
+                raise SystemSkillInstallError("V3 receipt has an invalid public record.")
+            mode = raw_record.get("projection_mode")
+            if mode not in {"copy", "symlink"}:
+                raise SystemSkillInstallError("V3 receipt public projection mode is invalid.")
+            digest = raw_record.get("content_digest")
+            if not isinstance(digest, str):
+                raise SystemSkillInstallError("V3 receipt content digest is invalid.")
+            _validate_digest(digest)
+            materialization = raw_record.get("materialization_relative_path")
+            if materialization is not None and not isinstance(materialization, str):
+                raise SystemSkillInstallError("V3 receipt materialization path is invalid.")
+            name = raw_record.get("name")
+            relative_path = raw_record.get("relative_path")
+            if not isinstance(name, str) or not isinstance(relative_path, str):
+                raise SystemSkillInstallError("V3 receipt public identity is invalid.")
+            records.append(
+                _LegacyV3SkillRecord(
+                    name=name,
+                    relative_path=_validate_safe_relative_path(relative_path),
+                    projection_mode=cast(SystemSkillProjectionMode, mode),
+                    content_digest=digest,
+                    materialization_relative_path=(
+                        _validate_safe_relative_path(materialization)
+                        if materialization is not None
+                        else None
+                    ),
+                )
+            )
+    if len({record.relative_path for record in records}) != len(records):
+        raise SystemSkillInstallError("V3 receipt has duplicate public paths.")
+    return _LegacyV3Receipt(selected_pack_ids=selected_pack_ids, skills=tuple(records))
+
+
+def _inspect_current_member(
+    *,
+    manifest: SystemSkillManifest,
+    home_path: Path,
+    record: SystemSkillReceiptSkillRecord,
+) -> MemberIntegrityStatus:
+    """Classify one receipt-owned static member against source and destination."""
+
+    manifest_record = manifest.standalone_skills.get(record.name)
+    if manifest_record is None:
+        return "drifted"
+    if record.content_digest != standalone_system_skill_content_digest(manifest, manifest_record):
+        return "drifted"
+    expected_relative_path = projected_standalone_skill_relative_dir(
+        tool=_tool_from_receipt_relative_path(record.relative_path),
+        skill_name=record.name,
+    )
+    if expected_relative_path != record.relative_path:
+        return "conflicting"
+    path = home_path / record.relative_path
+    if not _path_lexists(path):
+        return "absent"
     if record.projection_mode == "copy":
-        if public_path.is_symlink() or not public_path.is_dir():
+        if path.is_symlink() or not path.is_dir():
+            return "conflicting"
+    else:
+        if not path.is_symlink():
+            return "conflicting"
+        expected_target = standalone_system_skill_source_path(manifest, manifest_record)
+        actual_target = _symlink_target(path)
+        if actual_target != expected_target.resolve(strict=False):
+            return "conflicting"
+    if record.name == "houmao-shared-routines" and not _shared_children_complete(path):
+        return "incomplete"
+    try:
+        digest = tree_content_digest(path)
+    except SystemSkillManifestError:
+        return "drifted"
+    return "complete" if digest == record.content_digest else "drifted"
+
+
+def _tool_from_receipt_relative_path(relative_path: str) -> str:
+    """Return a tool whose destination root matches one receipt path."""
+
+    destination = Path(relative_path).parts[0] if Path(relative_path).parts else ""
+    for tool, root in _SYSTEM_SKILL_DESTINATION_BY_TOOL.items():
+        if root == destination:
+            return tool
+    raise SystemSkillInstallError(f"Receipt path `{relative_path}` has an unknown skill root.")
+
+
+def _shared_children_complete(path: Path) -> bool:
+    """Return whether shared routines contains all and only sixteen child entrypoints."""
+
+    child_root = path / "subskills"
+    if not child_root.is_dir():
+        return False
+    actual = {
+        child.name
+        for child in child_root.iterdir()
+        if child.is_dir()
+        and (child / "SKILL-MAIN.md").is_file()
+        and not (child / "SKILL.md").exists()
+    }
+    return actual == set(EXPECTED_SHARED_ROUTINE_IDS)
+
+
+def _inspect_legacy_v3_record(
+    home_path: Path,
+    record: _LegacyV3SkillRecord,
+) -> Literal["complete", "missing", "drifted"]:
+    """Validate one receipt-owned composed projection before upgrade."""
+
+    path = home_path / record.relative_path
+    if not _path_lexists(path):
+        return "missing"
+    content_root = path
+    if record.projection_mode == "copy":
+        if path.is_symlink() or not path.is_dir():
             return "drifted"
     else:
-        if not public_path.is_symlink() or record.materialization_relative_path is None:
+        if not path.is_symlink() or record.materialization_relative_path is None:
             return "drifted"
         materialization = home_path / record.materialization_relative_path
         if not materialization.is_dir() or materialization.is_symlink():
             return "missing"
-        expected_target = materialization.resolve()
-        actual_target = (
-            public_path.readlink()
-            if public_path.readlink().is_absolute()
-            else public_path.parent / public_path.readlink()
-        ).resolve(strict=False)
-        if actual_target != expected_target:
+        if _symlink_target(path) != materialization.resolve(strict=False):
             return "drifted"
         content_root = materialization
     try:
@@ -1100,34 +1443,6 @@ def _inspect_public_record(
     except SystemSkillManifestError:
         return "drifted"
     return "complete" if digest == record.content_digest else "drifted"
-
-
-def _public_path_has_ownership_conflict(
-    home_path: Path,
-    record: SystemSkillReceiptPublicRecord,
-) -> bool:
-    """Return whether a receipt path has changed into an unowned projection shape."""
-
-    path = home_path / record.relative_path
-    if not _path_lexists(path):
-        return False
-    if record.projection_mode == "copy":
-        return path.is_symlink() or not path.is_dir()
-    if not path.is_symlink() or record.materialization_relative_path is None:
-        return True
-    materialization = home_path / record.materialization_relative_path
-    actual_target = (
-        path.readlink() if path.readlink().is_absolute() else path.parent / path.readlink()
-    ).resolve(strict=False)
-    return actual_target != materialization.resolve(strict=False)
-
-
-def _receipt_record_owned_paths(record: SystemSkillReceiptPublicRecord) -> tuple[str, ...]:
-    """Return all home-relative paths owned by one receipt public record."""
-
-    if record.materialization_relative_path is None:
-        return (record.relative_path,)
-    return (record.relative_path, record.materialization_relative_path)
 
 
 def _persist_receipt_atomic(receipt: SystemSkillReceipt) -> None:
@@ -1180,8 +1495,8 @@ def _restore_backups(backups: Iterable[tuple[Path, Path]]) -> None:
         os.replace(backup, original)
 
 
-def _commit_public_projection(staged_path: Path, target_path: Path) -> None:
-    """Commit one already validated composed directory."""
+def _commit_static_projection(staged_path: Path, target_path: Path) -> None:
+    """Commit one complete copied directory or direct source symlink."""
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     if _path_lexists(target_path):
@@ -1189,20 +1504,8 @@ def _commit_public_projection(staged_path: Path, target_path: Path) -> None:
     os.replace(staged_path, target_path)
 
 
-def _commit_public_symlink(target_path: Path, materialization_path: Path) -> None:
-    """Atomically point a public path at a receipt-owned materialization."""
-
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    if _path_lexists(target_path):
-        raise SystemSkillInstallError(f"Symlink target `{target_path}` was not preflight-cleared.")
-    temporary_link = target_path.with_name(f".{target_path.name}.houmao-link")
-    _remove_path(temporary_link)
-    temporary_link.symlink_to(materialization_path)
-    os.replace(temporary_link, target_path)
-
-
 def _restore_receipt_bytes(path: Path, previous_bytes: bytes | None) -> None:
-    """Restore the previous receipt after transaction failure."""
+    """Restore previous receipt bytes after transaction failure."""
 
     if previous_bytes is None:
         if path.exists():
@@ -1223,10 +1526,51 @@ def _remove_path(path: Path) -> None:
         path.unlink()
 
 
+def _remove_empty_v3_materialization_dirs(*, tool: str, home_path: Path) -> None:
+    """Remove only empty directory shells left by a migrated v3 symlink receipt."""
+
+    root = system_skill_state_root(tool=tool, home_path=home_path) / "materialized"
+    if not root.is_dir() or root.is_symlink():
+        return
+    directories = sorted(
+        (path for path in root.rglob("*") if path.is_dir() and not path.is_symlink()),
+        key=lambda path: len(path.parts),
+        reverse=True,
+    )
+    for path in (*directories, root):
+        try:
+            path.rmdir()
+        except OSError:
+            continue
+
+
 def _path_lexists(path: Path) -> bool:
     """Return whether a path exists, including a dangling symlink."""
 
     return path.exists() or path.is_symlink()
+
+
+def _symlink_target(path: Path) -> Path:
+    """Resolve one symlink target without requiring that it still exists."""
+
+    raw_target = path.readlink()
+    return (raw_target if raw_target.is_absolute() else path.parent / raw_target).resolve(
+        strict=False
+    )
+
+
+def _deduplicate_paths(paths: Iterable[Path]) -> tuple[Path, ...]:
+    """Return first-occurrence unique absolute paths."""
+
+    result: list[Path] = []
+    seen: set[Path] = set()
+    for path in paths:
+        absolute = path.absolute()
+        if absolute in seen:
+            continue
+        seen.add(absolute)
+        result.append(absolute)
+    return tuple(result)
 
 
 def _validate_projection_mode(mode: str) -> None:
@@ -1272,6 +1616,22 @@ def _validate_safe_relative_path(value: str) -> str:
     return value
 
 
+def _validate_digest(value: str) -> None:
+    """Require one lowercase SHA-256 digest."""
+
+    if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+        raise SystemSkillInstallError("System-skill receipt content digest is invalid.")
+
+
+def _read_receipt_payload(path: Path) -> dict[str, Any]:
+    """Read one already-inspected JSON receipt object."""
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise SystemSkillInstallError("System-skill receipt must be a JSON object.")
+    return cast(dict[str, Any], payload)
+
+
 def _package_version() -> str:
     """Return the installed Houmao package version for receipt evidence."""
 
@@ -1282,7 +1642,7 @@ def _package_version() -> str:
 
 
 def _packaged_asset_filesystem_root() -> Path:
-    """Return the concrete package asset root used for old symlink recognition."""
+    """Return the package asset root used for old symlink recognition."""
 
     root = resources.files("houmao.agents.assets.system_skills")
     if not isinstance(root, Path):

@@ -1,4 +1,4 @@
-"""Pack-oriented Houmao system-skill lifecycle commands."""
+"""CLI lifecycle for Houmao's static system-skill collection."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ from houmao.agents.system_skills import (
     inspect_system_skill_packs,
     install_system_skill_packs_for_home,
     load_system_skill_manifest,
-    protected_invocation_designator,
     resolve_system_skill_pack_selection,
     uninstall_system_skill_packs_for_home,
     upgrade_system_skill_packs_for_home,
@@ -62,61 +61,58 @@ def system_skills_group() -> None:
 
 @system_skills_group.command(name="list")
 def list_system_skills_command() -> None:
-    """List packs, public roles, default lanes, and protected eligibility."""
+    """List static roots, shared children, pack membership, and activation."""
 
     manifest = load_system_skill_manifest()
-    packs: list[dict[str, object]] = []
-    for pack in manifest.packs.values():
-        protected = [
-            routine.logical_id
-            for routine in manifest.protected_routines.values()
-            if pack.audience in routine.audiences
-        ]
-        packs.append(
-            {
-                "pack_id": pack.pack_id,
-                "audience": pack.audience,
-                "description": pack.description,
-                "default_lanes": list(pack.default_lanes),
-                "public_skills": [
-                    {
-                        "name": manifest.public_skills[name].name,
-                        "role": manifest.public_skills[name].role,
-                        "public_commands": list(manifest.public_skills[name].public_commands),
-                    }
-                    for name in pack.public_skill_names
-                ],
-                "protected_logical_ids": protected,
-            }
-        )
-    protected_routines = []
-    for routine in manifest.protected_routines.values():
-        protected_routines.append(
-            {
-                "logical_id": routine.logical_id,
-                "route_name": routine.route_name,
-                "audiences": list(routine.audiences),
-                "dependencies": [dependency.logical_id for dependency in routine.dependencies],
-                "commands": list(routine.commands),
-                "invocation_designators": [
-                    protected_invocation_designator(
-                        routine.logical_id,
-                        audience=audience,
-                        manifest=manifest,
-                    ).value
-                    for audience in routine.audiences
-                ],
-            }
-        )
+    packs = [
+        {
+            "pack_id": pack.pack_id,
+            "audience": pack.audience,
+            "description": pack.description,
+            "default_lanes": list(pack.default_lanes),
+            "standalone_skills": list(pack.standalone_skill_names),
+        }
+        for pack in manifest.packs.values()
+    ]
+    standalone_skills = [
+        {
+            "name": record.name,
+            "role": record.role,
+            "activation": record.activation,
+            "pack_ids": list(record.pack_ids),
+            "commands": list(record.commands),
+            "aliases": list(record.aliases),
+            "dependencies": list(record.dependencies),
+        }
+        for record in manifest.standalone_skills.values()
+    ]
+    shared_routines = [
+        {
+            "logical_id": routine.logical_id,
+            "route_name": routine.route_name,
+            "audiences": list(routine.audiences),
+            "dependencies": [dependency.logical_id for dependency in routine.dependencies],
+            "commands": list(routine.commands),
+            "aliases": list(routine.aliases),
+            "invocation": f"houmao-shared-routines->{routine.logical_id}",
+        }
+        for routine in manifest.shared_routines.values()
+    ]
     payload = {
         "schema_version": manifest.schema_version,
         "packs": packs,
+        "standalone_skills": standalone_skills,
+        "shared_routines": shared_routines,
+        "overlapping_standalone_skills": [
+            record.name
+            for record in manifest.standalone_skills.values()
+            if len(record.pack_ids) > 1
+        ],
         "defaults": {
             "cli": list(manifest.defaults.cli),
             "managed_launch": list(manifest.defaults.managed_launch),
             "managed_join": list(manifest.defaults.managed_join),
         },
-        "protected_routines": protected_routines,
         "auto_skill_separate": manifest.auto_skill_name,
     }
     emit(payload, plain_renderer=_render_list_plain)
@@ -159,7 +155,7 @@ def _target_options(command: Any) -> Any:
     "--symlink",
     "use_symlink",
     is_flag=True,
-    help="Link public paths to receipt-owned complete materializations.",
+    help="Link each top-level destination directly to its complete packaged source.",
 )
 def install_system_skills_command(
     tool: str,
@@ -227,7 +223,7 @@ def status_system_skills_command(tool: str, home: Path | None) -> None:
     "--symlink",
     "use_symlink",
     is_flag=True,
-    help="Refresh through receipt-owned complete materializations.",
+    help="Refresh each top-level destination as a direct packaged-source symlink.",
 )
 def upgrade_system_skills_command(
     tool: str,
@@ -304,13 +300,12 @@ def _install_payload(result: SystemSkillInstallResult) -> dict[str, object]:
         "tool": result.tool,
         "home_path": str(result.home_path),
         "selected_packs": list(result.selected_pack_ids),
-        "public_skills": list(result.public_skill_names),
+        "standalone_skills": list(result.standalone_skill_names),
         "projected_relative_dirs": list(result.projected_relative_dirs),
         "receipt_path": str(result.receipt_path),
         "projection_mode": result.projection_mode,
-        "protected_logical_ids_by_public": {
-            name: list(logical_ids)
-            for name, logical_ids in result.protected_logical_ids_by_public.items()
+        "owning_pack_ids_by_skill": {
+            name: list(owner_ids) for name, owner_ids in result.owning_pack_ids_by_skill.items()
         },
         "removed_packs": list(result.removed_pack_ids),
         "removed_projected_relative_dirs": list(result.removed_projected_relative_dirs),
@@ -333,16 +328,32 @@ def _status_payload(result: SystemSkillStatusResult) -> dict[str, object]:
                 if result.receipt.receipt is not None
                 else []
             ),
+            "legacy_pack_ids": list(result.receipt.legacy_pack_ids),
+            "legacy_owned_paths": list(result.receipt.legacy_owned_paths),
         },
+        "members": [
+            {
+                "name": record.name,
+                "role": record.role,
+                "activation": record.activation,
+                "status": record.status,
+                "relative_path": record.relative_path,
+                "owning_pack_ids": list(record.owning_pack_ids),
+                "projection_mode": record.projection_mode,
+                "expected_content_digest": record.expected_content_digest,
+            }
+            for record in result.members
+        ],
         "packs": [
             {
                 "pack_id": record.pack_id,
+                "audience": record.audience,
                 "status": record.status,
-                "public_paths": list(record.public_paths),
-                "missing_public_paths": list(record.missing_public_paths),
-                "drifted_public_paths": list(record.drifted_public_paths),
-                "conflicting_public_paths": list(record.conflicting_public_paths),
-                "protected_logical_ids": list(record.protected_logical_ids),
+                "standalone_skills": list(record.standalone_skill_names),
+                "standalone_paths": list(record.standalone_paths),
+                "missing_paths": list(record.missing_paths),
+                "drifted_paths": list(record.drifted_paths),
+                "conflicting_paths": list(record.conflicting_paths),
             }
             for record in result.packs
         ],
@@ -378,6 +389,8 @@ def _upgrade_payload(result: SystemSkillUpgradeResult) -> dict[str, object]:
         ],
     }
     payload["preserved_legacy_paths"] = list(result.preserved_legacy_paths)
+    payload["migrated_v3"] = result.migrated_v3
+    payload["removed_obsolete_paths"] = list(result.removed_obsolete_paths)
     return payload
 
 
@@ -391,24 +404,32 @@ def _uninstall_payload(result: SystemSkillUninstallResult) -> dict[str, object]:
         "removed_packs": list(result.removed_pack_ids),
         "absent_packs": list(result.absent_pack_ids),
         "removed_projected_relative_dirs": list(result.removed_projected_relative_dirs),
+        "retained_shared_skills": list(result.retained_shared_skill_names),
         "preserved_conflicting_paths": list(result.preserved_conflicting_paths),
         "receipt_path": str(result.receipt_path),
     }
 
 
 def _render_list_plain(payload: object) -> None:
-    """Render pack inventory."""
+    """Render static collection and pack inventory."""
 
     mapping = _mapping(payload)
     click.echo("Houmao system-skill packs:")
     for pack in _mapping_list(mapping.get("packs")):
         lanes = ", ".join(_string_list(pack.get("default_lanes"))) or "explicit only"
         click.echo(f"  - {pack.get('pack_id')} ({pack.get('audience')}): defaults={lanes}")
-        for public in _mapping_list(pack.get("public_skills")):
-            click.echo(f"      {public.get('role')}: {public.get('name')}")
-        protected = _string_list(pack.get("protected_logical_ids"))
-        click.echo(f"      protected routines: {len(protected)}")
-    click.echo("Protected routines are nested inspection records, not install selectors.")
+        click.echo(f"      members: {', '.join(_string_list(pack.get('standalone_skills')))}")
+    click.echo("Standalone skills:")
+    for record in _mapping_list(mapping.get("standalone_skills")):
+        owners = ", ".join(_string_list(record.get("pack_ids")))
+        click.echo(
+            f"  - {record.get('name')} ({record.get('role')}, "
+            f"activation={record.get('activation')}, packs={owners})"
+        )
+    shared = _mapping_list(mapping.get("shared_routines"))
+    click.echo(f"Shared parent-scoped routines: {len(shared)}")
+    for record in shared:
+        click.echo(f"  - {record.get('logical_id')}: {record.get('invocation')}")
     click.echo("Managed auto skill remains separate: houmao-auto-system-prompt")
 
 
@@ -440,6 +461,9 @@ def _render_status_plain(payload: object) -> None:
         click.echo(f"Receipt: {receipt.get('status')} ({receipt.get('path')})")
         for pack in _mapping_list(item.get("packs")):
             click.echo(f"  - {pack.get('pack_id')}: {pack.get('status')}")
+        for member in _mapping_list(item.get("members")):
+            owners = ", ".join(_string_list(member.get("owning_pack_ids"))) or "none"
+            click.echo(f"      {member.get('name')}: {member.get('status')} (owners={owners})")
         legacy = _mapping(item.get("legacy"))
         click.echo(f"Legacy flat state: {legacy.get('status')}")
         for record in _mapping_list(legacy.get("paths")):
@@ -460,6 +484,7 @@ def _render_upgrade_plain(payload: object) -> None:
         preserved = _string_list(item.get("preserved_legacy_paths"))
         click.echo(f"Safely removed legacy paths: {len(removed)}")
         click.echo(f"Preserved legacy conflicts: {len(preserved)}")
+        click.echo(f"Migrated v3 receipt: {item.get('migrated_v3')}")
         for path in preserved:
             click.echo(f"  - {path}")
 
@@ -475,6 +500,9 @@ def _render_uninstall_plain(payload: object) -> None:
         )
         click.echo(f"Home: {item.get('home_path')}")
         conflicts = _string_list(item.get("preserved_conflicting_paths"))
+        retained = _string_list(item.get("retained_shared_skills"))
+        if retained:
+            click.echo(f"Retained shared skills: {', '.join(retained)}")
         if conflicts:
             click.echo("Preserved conflicts:")
             for path in conflicts:
@@ -491,7 +519,8 @@ def _reject_obsolete_selectors(
     if obsolete_sets or obsolete_skill_sets or obsolete_skills:
         raise click.ClickException(
             "Individual `--skill` and set-based `--set`/`--skill-set` selectors were removed. "
-            "Use repeatable `--pack admin|agent`."
+            "Use repeatable `--pack admin|agent`; houmao-shared-routines is a standalone pack "
+            "member, not an independent pack selector."
         )
 
 

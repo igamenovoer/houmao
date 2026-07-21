@@ -475,23 +475,23 @@ def test_config_drafts_cli_fix_guide_omits_secret_values() -> None:
 
 def test_packaged_skills_route_config_authoring_to_config_drafts() -> None:
     agent_definition = _skill_text(
-        "src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/"
+        "src/houmao/agents/assets/system_skills/public/houmao-shared-routines/"
         "subskills/houmao-agent-definition/SKILL-MAIN.md"
     )
     specialists = _skill_text(
-        "src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/"
+        "src/houmao/agents/assets/system_skills/public/houmao-shared-routines/"
         "subskills/houmao-agent-definition/commands/easy/specialists.md"
     )
     profiles = _skill_text(
-        "src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/"
+        "src/houmao/agents/assets/system_skills/public/houmao-shared-routines/"
         "subskills/houmao-agent-definition/commands/easy/profiles.md"
     )
     launch_dossiers = _skill_text(
-        "src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/"
+        "src/houmao/agents/assets/system_skills/public/houmao-shared-routines/"
         "subskills/houmao-agent-definition/commands/low-level/launch-dossiers.md"
     )
     memory = _skill_text(
-        "src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/"
+        "src/houmao/agents/assets/system_skills/public/houmao-shared-routines/"
         "subskills/houmao-memory-mgr/SKILL-MAIN.md"
     )
 

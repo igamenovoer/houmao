@@ -1,4 +1,4 @@
-schema_version = "houmao-system-skills.v3"
+schema_version = "houmao-system-skills.v4"
 auto_skill_name = "houmao-auto-system-prompt"
 
 [defaults]
@@ -9,211 +9,236 @@ managed_join = ["agent"]
 [[packs]]
 pack_id = "admin"
 audience = "admin"
-description = "Human-operator welcome and execution entrypoint."
-public_skills = ["houmao-admin-welcome", "houmao-admin-entrypoint"]
-protected_mounts = ["houmao-shared-routines"]
+description = "Human-operator welcome, router, shared routines, and manual loops."
+standalone_skills = ["houmao-admin-welcome", "houmao-admin-entrypoint", "houmao-shared-routines", "houmao-agent-loop-pro", "houmao-agent-loop-lite"]
 default_lanes = ["cli"]
 
 [[packs]]
 pack_id = "agent"
 audience = "agent"
-description = "Verified managed-agent execution entrypoint."
-public_skills = ["houmao-agent-entrypoint"]
-protected_mounts = ["houmao-shared-routines"]
+description = "Verified managed-agent router, shared routines, and manual loops."
+standalone_skills = ["houmao-agent-entrypoint", "houmao-shared-routines", "houmao-agent-loop-pro", "houmao-agent-loop-lite"]
 default_lanes = ["managed_launch", "managed_join"]
 
-[[public_skills]]
+[[standalone_skills]]
 name = "houmao-admin-welcome"
-pack_id = "admin"
 role = "welcome"
 source_path = "public/houmao-admin-welcome"
-public_commands = ["help", "show-options", "choose-path", "show-command-map", "next-step", "start-guided-tour"]
-handoff_to = "houmao-admin-entrypoint"
+activation = "narrow-implicit"
+pack_ids = ["admin"]
+commands = ["help", "show-options", "choose-path", "show-command-map", "next-step", "start-guided-tour"]
+aliases = ["bare invocation=orientation", "start a guided tour=start-guided-tour", "orient me in this project=next-step"]
+dependencies = ["houmao-admin-entrypoint"]
 
-[[public_skills]]
+[[standalone_skills]]
 name = "houmao-admin-entrypoint"
-pack_id = "admin"
 role = "entrypoint"
 source_path = "public/houmao-admin-entrypoint"
-public_commands = ["help"]
-welcome_delegate = "houmao-admin-welcome"
+activation = "explicit"
+pack_ids = ["admin"]
+commands = ["help", "welcome", "project-mgr", "credential-mgr", "agent-definition", "specialist-mgr", "operator-messaging", "agent-email-comms", "adv-usage-pattern", "utils-workspace-mgr", "ext-graphing", "mailbox-mgr", "memory-mgr", "agent-instance", "agent-inspect", "agent-messaging", "agent-gateway", "interop-ag-ui", "agent-loop-pro", "agent-loop-lite"]
+aliases = ["show-options=welcome", "choose-path=welcome", "show-command-map=welcome", "next-step=welcome", "start-guided-tour=welcome"]
+dependencies = ["houmao-admin-welcome", "houmao-shared-routines", "houmao-agent-loop-pro", "houmao-agent-loop-lite"]
 
-[[public_skills]]
+[[standalone_skills]]
 name = "houmao-agent-entrypoint"
-pack_id = "agent"
 role = "entrypoint"
 source_path = "public/houmao-agent-entrypoint"
-public_commands = ["help"]
+activation = "explicit"
+pack_ids = ["agent"]
+commands = ["help", "process-emails-via-gateway", "agent-email-comms", "adv-usage-pattern", "utils-workspace-mgr", "ext-graphing", "mailbox-mgr", "memory-mgr", "agent-instance", "agent-inspect", "agent-messaging", "agent-gateway", "interop-ag-ui", "agent-loop-pro", "agent-loop-lite"]
+aliases = []
+dependencies = ["houmao-shared-routines", "houmao-agent-loop-pro", "houmao-agent-loop-lite"]
 
-[[protected_mounts]]
-mount_id = "houmao-shared-routines"
-source_path = "protected/houmao-shared-routines"
-member_name = "houmao-shared-routines"
-admin_route_path = "protected/houmao-shared-routines/routes/admin/SKILL-MAIN.md"
-agent_route_path = "protected/houmao-shared-routines/routes/agent/SKILL-MAIN.md"
-shared_paths = ["commands", "references"]
+[[standalone_skills]]
+name = "houmao-shared-routines"
+role = "shared-routines"
+source_path = "public/houmao-shared-routines"
+activation = "explicit"
+pack_ids = ["admin", "agent"]
+commands = ["help", "project-mgr", "credential-mgr", "agent-definition", "specialist-mgr", "operator-messaging", "process-emails-via-gateway", "agent-email-comms", "adv-usage-pattern", "utils-workspace-mgr", "ext-graphing", "mailbox-mgr", "memory-mgr", "agent-instance", "agent-inspect", "agent-messaging", "agent-gateway", "interop-ag-ui", "agent-loop-pro", "agent-loop-lite"]
+aliases = ["specialist-mgr=agent-definition"]
+dependencies = ["houmao-agent-loop-pro", "houmao-agent-loop-lite"]
 
-[[protected_routines]]
+[[standalone_skills]]
+name = "houmao-agent-loop-pro"
+role = "loop"
+source_path = "public/houmao-agent-loop-pro"
+activation = "explicit"
+pack_ids = ["admin", "agent"]
+commands = ["help", "init", "create-intention", "clarify-intent", "clarify-execplan", "execplan-fast-forward", "execplan-step-by-step", "execplan-specs-process", "execplan-specs-contract", "execplan-harness", "execplan-skills", "execplan-agent-bindings", "execplan-finalize", "validate-execplan", "update-execplan", "prepare-agents", "prepare-workspace", "validate-loop", "launch-agents", "start", "status", "pause", "resume", "recover", "stop"]
+aliases = ["clarify intent=clarify-intent"]
+dependencies = ["houmao-shared-routines"]
+
+[[standalone_skills]]
+name = "houmao-agent-loop-lite"
+role = "loop"
+source_path = "public/houmao-agent-loop-lite"
+activation = "explicit"
+pack_ids = ["admin", "agent"]
+commands = ["help", "init", "create-intention", "clarify-intent", "clarify-execplan", "execplan-fast-forward", "execplan-specs-process", "execplan-specs-contract", "execplan-skills", "execplan-agent-bindings", "execplan-finalize", "validate-execplan", "update-execplan", "prepare-agents", "prepare-workspace", "validate-loop", "launch-agents", "start", "status", "pause", "resume", "recover", "stop"]
+aliases = ["clarify=clarify-intent", "generate-skills=execplan-skills", "validate=validate-execplan|validate-loop"]
+dependencies = ["houmao-shared-routines"]
+
+[[shared_routines]]
 logical_id = "houmao-project-mgr"
-source_path = "protected/houmao-shared-routines/subskills/houmao-project-mgr"
+source_path = "public/houmao-shared-routines/subskills/houmao-project-mgr"
 member_name = "houmao-project-mgr"
 route_name = "project-mgr"
 audiences = ["admin"]
 dependencies = []
 commands = ["help", "init", "status", "launch-profiles", "easy-instances"]
+aliases = []
 
-[[protected_routines]]
+[[shared_routines]]
 logical_id = "houmao-credential-mgr"
-source_path = "protected/houmao-shared-routines/subskills/houmao-credential-mgr"
+source_path = "public/houmao-shared-routines/subskills/houmao-credential-mgr"
 member_name = "houmao-credential-mgr"
 route_name = "credential-mgr"
 audiences = ["admin"]
 dependencies = []
 commands = ["help", "list", "get", "add", "set", "login", "rename", "remove"]
+aliases = []
 
-[[protected_routines]]
+[[shared_routines]]
 logical_id = "houmao-agent-definition"
-source_path = "protected/houmao-shared-routines/subskills/houmao-agent-definition"
+source_path = "public/houmao-shared-routines/subskills/houmao-agent-definition"
 member_name = "houmao-agent-definition"
 route_name = "agent-definition"
 audiences = ["admin"]
 dependencies = ["houmao-credential-mgr"]
 commands = ["help", "roles", "recipes", "launch-dossiers", "specialists", "profiles", "create-agent-fast-forward", "launch-agent", "stop-agent"]
+aliases = ["presets=recipes", "specialist-mgr=agent-definition", "ready-profile=create-agent-fast-forward"]
 
-[[protected_routines]]
+[[shared_routines]]
 logical_id = "houmao-operator-messaging"
-source_path = "protected/houmao-shared-routines/subskills/houmao-operator-messaging"
+source_path = "public/houmao-shared-routines/subskills/houmao-operator-messaging"
 member_name = "houmao-operator-messaging"
 route_name = "operator-messaging"
 audiences = ["admin"]
 dependencies = ["houmao-agent-messaging", "houmao-agent-email-comms"]
 commands = ["help", "clarify", "dispatch"]
+aliases = []
 
-[[protected_routines]]
+[[shared_routines]]
 logical_id = "houmao-process-emails-via-gateway"
-source_path = "protected/houmao-shared-routines/subskills/houmao-process-emails-via-gateway"
+source_path = "public/houmao-shared-routines/subskills/houmao-process-emails-via-gateway"
 member_name = "houmao-process-emails-via-gateway"
 route_name = "process-emails-via-gateway"
 audiences = ["agent"]
 dependencies = ["houmao-agent-email-comms"]
 commands = ["help", "process-round"]
+aliases = []
 
-[[protected_routines]]
+[[shared_routines]]
 logical_id = "houmao-agent-email-comms"
-source_path = "protected/houmao-shared-routines/subskills/houmao-agent-email-comms"
+source_path = "public/houmao-shared-routines/subskills/houmao-agent-email-comms"
 member_name = "houmao-agent-email-comms"
 route_name = "agent-email-comms"
 audiences = ["admin", "agent"]
 dependencies = []
-commands = ["help", "resolve-live", "status", "list", "read", "send", "reply", "archive", "post"]
+commands = ["help", "resolve-live", "status", "list", "peek", "read", "send", "post", "reply", "mark", "move", "archive"]
+aliases = []
 
-[[protected_routines]]
+[[shared_routines]]
 logical_id = "houmao-adv-usage-pattern"
-source_path = "protected/houmao-shared-routines/subskills/houmao-adv-usage-pattern"
+source_path = "public/houmao-shared-routines/subskills/houmao-adv-usage-pattern"
 member_name = "houmao-adv-usage-pattern"
 route_name = "adv-usage-pattern"
 audiences = ["admin", "agent"]
 dependencies = ["houmao-agent-email-comms", "houmao-agent-gateway"]
 commands = ["help", "self-notification", "notifier-prompt-driven-mail-loop", "pairwise-edge-loop", "relay-loop"]
+aliases = ["pairwise edge-loop=pairwise-edge-loop", "pairwise-edge-loop-via-gateway-and-mailbox=pairwise-edge-loop", "relay-loop-via-gateway-and-mailbox=relay-loop"]
 
-[[protected_routines]]
+[[shared_routines]]
 logical_id = "houmao-utils-workspace-mgr"
-source_path = "protected/houmao-shared-routines/subskills/houmao-utils-workspace-mgr"
+source_path = "public/houmao-shared-routines/subskills/houmao-utils-workspace-mgr"
 member_name = "houmao-utils-workspace-mgr"
 route_name = "utils-workspace-mgr"
 audiences = ["admin", "agent"]
 dependencies = []
 commands = ["help", "plan", "create", "validate", "summarize"]
+aliases = ["execute=create"]
 
-[[protected_routines]]
+[[shared_routines]]
 logical_id = "houmao-ext-graphing"
-source_path = "protected/houmao-shared-routines/subskills/houmao-ext-graphing"
+source_path = "public/houmao-shared-routines/subskills/houmao-ext-graphing"
 member_name = "houmao-ext-graphing"
 route_name = "ext-graphing"
 audiences = ["admin", "agent"]
 dependencies = ["houmao-interop-ag-ui"]
 commands = ["help", "templated-graphics", "freeform-graphics"]
+aliases = []
 
-[[protected_routines]]
+[[shared_routines]]
 logical_id = "houmao-mailbox-mgr"
-source_path = "protected/houmao-shared-routines/subskills/houmao-mailbox-mgr"
+source_path = "public/houmao-shared-routines/subskills/houmao-mailbox-mgr"
 member_name = "houmao-mailbox-mgr"
 route_name = "mailbox-mgr"
 audiences = ["admin", "agent"]
 dependencies = []
 commands = ["help", "init", "status", "repair", "cleanup", "export", "register", "unregister", "agent-binding-status", "agent-binding-register", "agent-binding-unregister"]
+aliases = ["accounts-list", "accounts-get", "messages-list", "messages-get", "messages-clear", "clear-messages"]
 
-[[protected_routines]]
+[[shared_routines]]
 logical_id = "houmao-memory-mgr"
-source_path = "protected/houmao-shared-routines/subskills/houmao-memory-mgr"
+source_path = "public/houmao-shared-routines/subskills/houmao-memory-mgr"
 member_name = "houmao-memory-mgr"
 route_name = "memory-mgr"
 audiences = ["admin", "agent"]
 dependencies = []
 commands = ["help", "read", "write", "remove"]
+aliases = []
 
-[[protected_routines]]
-logical_id = "houmao-agent-loop-pro"
-source_path = "protected/houmao-shared-routines/subskills/houmao-agent-loop-pro"
-member_name = "houmao-agent-loop-pro"
-route_name = "agent-loop-pro"
-audiences = ["admin", "agent"]
-dependencies = ["houmao-utils-workspace-mgr", "houmao-agent-instance", "houmao-agent-email-comms"]
-commands = ["help", "init", "execplan-fast-forward", "validate-execplan", "prepare-agents", "start", "status", "pause", "resume", "recover", "stop"]
-
-[[protected_routines]]
-logical_id = "houmao-agent-loop-lite"
-source_path = "protected/houmao-shared-routines/subskills/houmao-agent-loop-lite"
-member_name = "houmao-agent-loop-lite"
-route_name = "agent-loop-lite"
-audiences = ["admin", "agent"]
-dependencies = ["houmao-utils-workspace-mgr", "houmao-agent-instance", "houmao-agent-email-comms"]
-commands = ["help", "init", "execplan-fast-forward", "validate-execplan", "prepare-agents", "start", "status", "pause", "resume", "recover", "stop"]
-
-[[protected_routines]]
+[[shared_routines]]
 logical_id = "houmao-agent-instance"
-source_path = "protected/houmao-shared-routines/subskills/houmao-agent-instance"
+source_path = "public/houmao-shared-routines/subskills/houmao-agent-instance"
 member_name = "houmao-agent-instance"
 route_name = "agent-instance"
 audiences = ["admin", "agent"]
 dependencies = []
 commands = ["help", "launch", "join", "list", "stop", "relaunch", "cleanup"]
+aliases = []
 
-[[protected_routines]]
+[[shared_routines]]
 logical_id = "houmao-agent-inspect"
-source_path = "protected/houmao-shared-routines/subskills/houmao-agent-inspect"
+source_path = "public/houmao-shared-routines/subskills/houmao-agent-inspect"
 member_name = "houmao-agent-inspect"
 route_name = "agent-inspect"
 audiences = ["admin", "agent"]
 dependencies = []
 commands = ["help", "discover", "screen", "mailbox", "artifacts", "logs"]
+aliases = []
 
-[[protected_routines]]
+[[shared_routines]]
 logical_id = "houmao-agent-messaging"
-source_path = "protected/houmao-shared-routines/subskills/houmao-agent-messaging"
+source_path = "public/houmao-shared-routines/subskills/houmao-agent-messaging"
 member_name = "houmao-agent-messaging"
 route_name = "agent-messaging"
 audiences = ["admin", "agent"]
 dependencies = ["houmao-agent-email-comms"]
 commands = ["help", "discover", "prompt", "interrupt", "gateway-queue", "send-keys", "mail", "reset-context"]
+aliases = ["raw-input=send-keys"]
 
-[[protected_routines]]
+[[shared_routines]]
 logical_id = "houmao-agent-gateway"
-source_path = "protected/houmao-shared-routines/subskills/houmao-agent-gateway"
+source_path = "public/houmao-shared-routines/subskills/houmao-agent-gateway"
 member_name = "houmao-agent-gateway"
 route_name = "agent-gateway"
 audiences = ["admin", "agent"]
 dependencies = []
 commands = ["help", "lifecycle", "discover", "gateway-services", "reminders", "mail-notifier"]
+aliases = []
 
-[[protected_routines]]
+[[shared_routines]]
 logical_id = "houmao-interop-ag-ui"
-source_path = "protected/houmao-shared-routines/subskills/houmao-interop-ag-ui"
+source_path = "public/houmao-shared-routines/subskills/houmao-interop-ag-ui"
 member_name = "houmao-interop-ag-ui"
 route_name = "interop-ag-ui"
 audiences = ["admin", "agent"]
 dependencies = ["houmao-agent-gateway"]
 commands = ["help", "validate", "frame", "render", "publish"]
+aliases = []
 
 [[legacy_skills]]
 name = "houmao-adv-usage-pattern"

@@ -1,0 +1,24 @@
+# Inspect Mailbox Root Status
+
+Use this action only when the user wants mailbox-root health, registration counts, or project-aware root-selection detail.
+
+## Workflow
+
+1. Determine whether the task targets one arbitrary filesystem mailbox root or the active project mailbox root.
+2. Use the `houmao-mgr` launcher already chosen by the top-level skill.
+3. Run the matching mailbox-root status command.
+4. Report the root status payload and keep the mailbox-root lane explicit.
+
+
+If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+## Command Shape
+
+```bash
+<chosen houmao-mgr launcher> mailbox status [--mailbox-root <root>]
+<chosen houmao-mgr launcher> project mailbox status
+```
+
+## Guardrails
+
+- Do not reinterpret mailbox-root status as actor-scoped mailbox `status`.
+- Do not ask for an address when the task is root-level status only.

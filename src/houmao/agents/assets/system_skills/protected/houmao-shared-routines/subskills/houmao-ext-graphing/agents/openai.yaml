@@ -1,4 +1,0 @@
-interface:
-  display_name: "Houmao Ext Graphing"
-  short_description: "Author Plotly.js and Vega-Lite graphics"
-  default_prompt: "Use $<public-entrypoint> ext-graphing to author a built-in Plotly.js or Vega-Lite graphic payload, validate it, and render AG-UI events."

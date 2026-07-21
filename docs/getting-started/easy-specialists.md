@@ -2,7 +2,7 @@
 
 The easy lane is the higher-level, opinionated path for project-local agents. It is built on three project-local objects: the **specialist** (the source definition), the optional **project profile** (reusable birth-time launch configuration over one specialist), and the **instance** (the running managed agent). Specialists alone are enough for one-off setups; project profiles add persistent launch context when the same specialist needs the same recurring `--name`, `--workdir`, mailbox, or auth lane each time.
 
-A human operator can ask `$houmao-admin-entrypoint agent-definition specialists ...` or `$houmao-admin-entrypoint agent-definition profiles ...`; the protected definition routine then uses the CLI commands documented here against an explicit project target.
+A human operator can ask `$houmao-admin-entrypoint agent-definition specialists ...` or `$houmao-admin-entrypoint agent-definition profiles ...`; the entrypoint delegates to the parent-scoped definition child in shared routines, which then uses the CLI commands documented here against an explicit project target.
 
 For the shared semantic model that ties project profiles to native launch dossiers — including the precedence chain, prompt overlays, and how provenance flows into runtime metadata — see [Launch Profiles](launch-profiles.md).
 

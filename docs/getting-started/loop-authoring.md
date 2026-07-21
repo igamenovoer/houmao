@@ -1,15 +1,15 @@
 # Loop Authoring Guide
 
-Houmao has two protected loop-authoring routes: `agent-loop-lite` and `agent-loop-pro`. A human operator invokes them through `$houmao-admin-entrypoint agent-loop-lite ...` or `$houmao-admin-entrypoint agent-loop-pro ...`; a verified managed agent uses the same route names through `$houmao-agent-entrypoint`. Both routes cover authoring, execution, validation, launch, and run control. Choose lite for Markdown/direct-SQL loops with required generated skills and no generated harness. Choose pro for schema-rich topology work, graph validation, harness-backed contracts, and heavier generated run-control surfaces.
+Houmao has two public top-level loop-authoring skills: `houmao-agent-loop-lite` and `houmao-agent-loop-pro`. A human operator invokes `$houmao-agent-loop-lite ...` or `$houmao-agent-loop-pro ...` directly. A managed agent adds the leading `as-agent` qualifier or arrives through an inherited verified agent frame. Both skills cover authoring, execution, validation, launch, and run control. Choose lite for Markdown/direct-SQL loops with required generated skills and no generated harness. Choose pro for schema-rich topology work, graph validation, harness-backed contracts, and heavier generated run-control surfaces.
 
 For mailbox-driven loops, first understand the runtime model: agents are normally woken by gateway notifier prompts, process bounded mail event work, optionally run one prompt-invoked tick, then finish the chat turn. They should not wait in-chat for future mail or periodic ticks. See [Notifier-Prompt-Driven Loop Runtime](../reference/gateway/operations/notifier-prompt-driven-loops.md).
 
 ## Current Skills
 
-| Protected route | What it owns | Main operations |
+| Public skill | What it owns | Main operations |
 |---|---|---|
-| `agent-loop-lite` (`houmao-agent-loop-lite`) | Pro-shaped routed workflow with lightweight generated artifacts: Markdown contracts, typed Markdown templates, direct SQLite state, and generated skills | `init`, `clarify-intent`, `clarify-execplan`, `execplan-fast-forward`, staged `execplan-*` generation without harness, `prepare-agents`, `prepare-workspace`, `validate-loop`, `launch-agents`, `start`, `status`, `pause`, `resume`, `recover`, `stop` |
-| `agent-loop-pro` (`houmao-agent-loop-pro`) | Schema-rich generated loop definitions for `tree-loop` and `generic-loop` topologies | `init`, `clarify-intent`, `clarify-execplan`, `execplan-fast-forward`, staged `execplan-*` generation, `prepare-agents`, `prepare-workspace`, `validate-loop`, `launch-agents`, `start`, `status`, `pause`, `resume`, `recover`, `stop` |
+| `houmao-agent-loop-lite` | Pro-shaped workflow with lightweight generated artifacts: Markdown contracts, typed Markdown templates, direct SQLite state, and generated skills | `init`, `clarify-intent`, `clarify-execplan`, `execplan-fast-forward`, staged `execplan-*` generation without harness, `prepare-agents`, `prepare-workspace`, `validate-loop`, `launch-agents`, `start`, `status`, `pause`, `resume`, `recover`, `stop` |
+| `houmao-agent-loop-pro` | Schema-rich generated loop definitions for `tree-loop` and `generic-loop` topologies | `init`, `clarify-intent`, `clarify-execplan`, `execplan-fast-forward`, staged `execplan-*` generation, `prepare-agents`, `prepare-workspace`, `validate-loop`, `launch-agents`, `start`, `status`, `pause`, `resume`, `recover`, `stop` |
 
 Do not choose among retired loop packages for new work. Choose lite explicitly for Markdown/direct-SQL/no-harness loops, or choose the topology mode inside the pro-generated execplan.
 
@@ -76,7 +76,7 @@ Lite does not generate `execplan/harness/` or `execplan/docs/` by default. Optio
 
 `prepare-agents` and `prepare-workspace` are separate stages. Workspace preparation may depend on prepared agent names and profile facts, but neither stage should call the other implicitly.
 
-For workspace work outside a loop command, use `$houmao-admin-entrypoint utils-workspace-mgr ...` with an explicit workspace target, or `$houmao-agent-entrypoint utils-workspace-mgr ...` from a verified managed session. The protected logical id is `houmao-utils-workspace-mgr`; it is an internal route member rather than a public skill invocation.
+For workspace work outside a loop command, use `$houmao-admin-entrypoint utils-workspace-mgr ...` with an explicit workspace target, `$houmao-agent-entrypoint utils-workspace-mgr ...` from a verified managed session, or the advanced direct form `$houmao-shared-routines utils-workspace-mgr ...`. The parent-scoped child is `houmao-shared-routines->houmao-utils-workspace-mgr`, not a bare top-level skill invocation.
 
 ## Pro Generated Artifacts
 

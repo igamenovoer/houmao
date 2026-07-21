@@ -95,12 +95,9 @@ def test_prepare_mail_prompt_references_runtime_skill_and_contract(tmp_path: Pat
         "files or infer install locations."
     ) in prompt_request.prompt
     assert (
-        "Protected traversal is parent-controlled: let the public entrypoint load the selected "
-        "parent-scoped entrypoints."
+        "Static sibling routing is installed: let the public agent entrypoint delegate to the "
+        "`houmao-shared-routines` sibling, which loads only the selected parent-scoped child."
     ) in prompt_request.prompt
-    assert "Do not discover, open, or invoke protected routine files independently." in (
-        prompt_request.prompt
-    )
     assert "pixi run houmao-mgr agents self mail resolve-live" in prompt_request.prompt
     assert "pixi run houmao-mgr agents single --agent-name <name> mail resolve-live" in (
         prompt_request.prompt
@@ -136,6 +133,28 @@ def test_parse_mail_result_rejects_multiple_sentinel_payloads(tmp_path: Path) ->
             operation="list",
             mailbox=mailbox,
         )
+
+
+@pytest.mark.parametrize("missing_skill", ["houmao-agent-entrypoint", "houmao-shared-routines"])
+def test_prepare_mail_prompt_falls_back_when_one_required_skill_is_missing(
+    tmp_path: Path,
+    missing_skill: str,
+) -> None:
+    """The generated prompt requires both static sibling roots."""
+
+    launch_plan = _build_launch_plan(tmp_path)
+    (launch_plan.home_path / "skills" / missing_skill / "SKILL.md").unlink()
+
+    prompt_request = prepare_mail_prompt(
+        launch_plan=launch_plan,
+        operation="list",
+        args={"read_state": "unread", "limit": 5},
+        prefer_live_gateway=True,
+    )
+
+    assert "Houmao mailbox skills are not installed for this session." in prompt_request.prompt
+    assert "Use the resolver and the supported mailbox contract directly" in prompt_request.prompt
+    assert "Static sibling routing is installed" not in prompt_request.prompt
 
 
 def test_parse_mail_result_accepts_cao_only_done_event_payload(tmp_path: Path) -> None:
@@ -752,7 +771,7 @@ def _build_prompt_echo_surface() -> str:
     return (
         "Use the installed public entrypoint `$houmao-agent-entrypoint agent-email-comms` for this mailbox operation.\n"
         "Use the installed runtime-owned Houmao mailbox skills directly from the tool's native skill surface. Do not inspect the current project, repository, or runtime home to rediscover skill files or infer install locations.\n"
-        "Protected traversal is parent-controlled: let the public entrypoint load the selected parent-scoped entrypoints. Do not discover, open, or invoke protected routine files independently.\n"
+        "Static sibling routing is installed: let the public agent entrypoint delegate to the `houmao-shared-routines` sibling, which loads only the selected parent-scoped child.\n"
         "Use transport-local guidance nested under `houmao-agent-entrypoint agent-email-comms` only for transport-specific context and no-gateway fallback.\n"
         "Return exactly one JSON result between "
         f"`{MAIL_RESULT_BEGIN_SENTINEL}` and `{MAIL_RESULT_END_SENTINEL}`.\n"

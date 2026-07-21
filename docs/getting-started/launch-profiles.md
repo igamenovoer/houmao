@@ -2,7 +2,7 @@
 
 Launch profiles are reusable, operator-owned, **birth-time** launch configuration. They are distinct from reusable source definitions (specialists, recipes), and distinct from live managed-agent instances. Persisting, listing, inspecting, or removing a launch profile does not by itself create, stop, or mutate a live instance.
 
-For skill-driven authoring, a human operator enters through `$houmao-admin-entrypoint agent-definition profiles ...` for project profiles or the same entrypoint's `launch-dossiers` command for the explicit native lane. These are nested protected routes; managed agents do not receive the admin-only definition routine.
+For skill-driven authoring, a human operator enters through `$houmao-admin-entrypoint agent-definition profiles ...` for project profiles or the same entrypoint's `launch-dossiers` command for the explicit native lane. The entrypoint delegates to the parent-scoped agent-definition child in its shared sibling; managed agents do not receive that admin-only route.
 
 This page is the conceptual home for the launch-profile model. Other docs link here instead of restating the precedence chain or the easy-versus-explicit lane split inline.
 
@@ -113,7 +113,7 @@ Rules:
 
 ## Managed System-Skill Policy
 
-Managed system skills are actor-aware Houmao instruction packs. The `admin` pack exposes `houmao-admin-welcome` and `houmao-admin-entrypoint`; the `agent` pack exposes `houmao-agent-entrypoint`. Protected routines such as `agent-definition`, `agent-messaging`, and `utils-workspace-mgr` are composed beneath eligible entrypoints and cannot be selected independently.
+Managed system skills are actor-aware static Houmao instruction packs. The `admin` pack contains welcome, admin entrypoint, shared routines, and both loops. The `agent` pack contains agent entrypoint, shared routines, and both loops. Parent-scoped routines such as `agent-definition`, `agent-messaging`, and `utils-workspace-mgr` live below the standalone shared-routines sibling and cannot be selected as manager pack members.
 
 Source recipes and specialists may store source-owned policy under `launch.system_skills` with modes:
 
@@ -129,7 +129,7 @@ Launch profiles may store profile-owned policy under `defaults.system_skills` wi
 - `replace` — use exactly the selected packs from the profile.
 - `none` — install no current Houmao-owned system skills.
 
-Pack ids are validated against the versioned manifest. On reused homes, Houmao synchronizes the receipt-owned public paths to the effective pack selection while preserving unrelated user skills. Registered project skills and profile-private skills cannot use public, protected, or reserved auto-skill names because those surfaces share the visible skill root or nested routing namespace.
+Pack ids are validated against the versioned manifest. On reused homes, Houmao synchronizes the receipt-owned standalone paths to the effective pack selection while preserving unrelated user skills. Registered project skills and profile-private skills cannot use standalone, shared-child, or reserved auto-skill names because those surfaces share the visible skill root or parent-scoped routing namespace.
 
 Examples:
 

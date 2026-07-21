@@ -6,11 +6,11 @@ Stay inside the tiny copied dummy project and finish only the mailbox task for t
 ## Core Rules
 
 - Route shared mailbox actions through `$houmao-agent-entrypoint agent-email-comms` in this demo.
-- Let the public entrypoint verify managed-agent identity before it enters the protected mailbox routine.
+- Let the public entrypoint verify managed-agent identity before it delegates to the shared-routines sibling.
 - Let each parent explicitly load only the selected child `SKILL-MAIN.md`; do not search recursively for nested `SKILL.md` files.
-- Use transport-local guidance only when the protected route selects it for transport-specific context or no-gateway fallback.
-- Do not open, search for, or invoke protected routine files as standalone skills.
-- Treat `houmao-agent-entrypoint->houmao-shared-routines->agent-email-comms` as internal route notation, not a public trigger.
+- Use transport-local guidance only when the parent-scoped route selects it for transport-specific context or no-gateway fallback.
+- Do not invoke parent-scoped child files as bare standalone skills.
+- Treat `houmao-shared-routines->houmao-agent-email-comms` as parent-qualified object notation, not a bare public trigger.
 - When a live loopback gateway mailbox facade is attached, keep routine mailbox work on the shared gateway surface.
 - Treat notifier-provided `message_ref` and `thread_ref` values as opaque shared mailbox references.
 - Operate only on the ping-pong thread described by visible message lines such as `Thread-Key:`, `Round:`, and `Round-Limit:`.
