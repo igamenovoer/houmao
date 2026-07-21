@@ -17,7 +17,7 @@ skill_invocation_notation: >
 
 ## Overview
 
-Qualify observable Houmao system-skill behavior in fresh live-agent contexts. Keep the committed case oracle, raw evidence, adjudication, and aggregate result separate so provider nondeterminism remains visible instead of being averaged into a pass.
+Qualify observable Houmao system-skill behavior in fresh live-agent contexts through selectable functional-area coverage profiles. Keep committed selection and case oracles, raw evidence, adjudication, and aggregate results separate so provider nondeterminism remains visible instead of being averaged into a pass.
 
 ## When to Use
 
@@ -30,7 +30,7 @@ Do not use it for deterministic package structure checks, ordinary Houmao operat
 When this skill is invoked, execute the following steps in order.
 
 1. **Select the public subcommand** from **Subcommands**. With no actionable task, select `help`.
-2. **Resolve the case and family** from [references/case-catalog.md](references/case-catalog.md), then load only that family page plus the shared contracts it needs.
+2. **Resolve exact cases or suite selectors** from [references/case-catalog.md](references/case-catalog.md), then load only the selected functional-area pages plus the shared contracts they need. With no selector, return the read-only area/profile summary.
 3. **Plan and freeze the run** with `plan-run`, including provider, context, skill revision, repetitions, allowed effects, and evidence sources.
 4. **Execute fresh attempts** with `execute-case`. Use the exact stimulus without revealing the expected answer to the agent under test.
 5. **Collect immutable observable evidence** with `collect-evidence`; never request or preserve hidden reasoning.
@@ -49,7 +49,7 @@ These are skill subcommands, not shell commands. Preferred forms are `$houmao-de
 
 | Subcommand | Use For | Detail |
 | --- | --- | --- |
-| `plan-run` | Resolve cases, providers, contexts, repetitions, drift checks, and the frozen run manifest | [commands/plan-run.md](commands/plan-run.md) |
+| `plan-run` | Resolve and freeze suite selectors, cases, variants, providers, contexts, repetitions, drift checks, and the run manifest | [commands/plan-run.md](commands/plan-run.md) |
 | `execute-case` | Launch one fresh attempt, submit the exact stimulus, and stop at the declared observation boundary | [commands/execute-case.md](commands/execute-case.md) |
 | `adjudicate-case` | Assign activation, routing, actor, gate, effect, and outcome verdicts from frozen evidence | [commands/adjudicate-case.md](commands/adjudicate-case.md) |
 | `report-run` | Aggregate attempt verdicts without majority-vote masking and finalize cleanup evidence | [commands/report-run.md](commands/report-run.md) |
@@ -65,7 +65,7 @@ These are skill subcommands, not shell commands. Preferred forms are `$houmao-de
 
 | Subcommand | Use For | Detail |
 | --- | --- | --- |
-| `list-cases` | Read the committed catalog without launching a provider or mutating runtime state | This entrypoint and [references/case-catalog.md](references/case-catalog.md) |
+| `list-cases` | Summarize areas and profiles or expand selected slices without launching a provider or mutating runtime state | This entrypoint and [references/case-catalog.md](references/case-catalog.md) |
 | `run-case` | Execute the full procedure for one case and provider selection | [commands/run-case.md](commands/run-case.md) |
 | `run-suite` | Execute a selected catalog slice with fresh attempts and one aggregate report | [commands/run-suite.md](commands/run-suite.md) |
 | `help` | Explain contexts, cases, evidence limits, verdicts, and subcommands without launching anything | This entrypoint |
@@ -80,9 +80,10 @@ Load shared contracts only when the selected subcommand needs them:
 - [references/evidence-contract.md](references/evidence-contract.md): acceptable evidence and activation visibility.
 - [references/verdict-rubric.md](references/verdict-rubric.md): dimensional and aggregate verdict rules.
 
-Load exactly one family page for an ordinary case:
+Load only the functional-area pages selected by an ordinary case or suite:
 
 - [references/cases/activation.md](references/cases/activation.md)
+- [references/cases/managed-bootstrap.md](references/cases/managed-bootstrap.md)
 - [references/cases/admin-routing.md](references/cases/admin-routing.md)
 - [references/cases/managed-agent-routing.md](references/cases/managed-agent-routing.md)
 - [references/cases/shared-routines.md](references/cases/shared-routines.md)
@@ -98,11 +99,13 @@ Load exactly one family page for an ordinary case:
 
 ## Help Contract
 
-Explicit help and `list-cases` are read-only. Explain the six case families, supported live providers, fresh-context requirement, evidence visibility limits, five aggregate outcomes, and the difference from TUI testing. Do not preflight credentials, inspect active agents, create a run root, or launch a provider.
+Explicit help and `list-cases` are read-only. With no selector, explain the seven functional areas, four cumulative coverage profiles, canonical selector forms, profile counts, supported live providers, fresh-context requirement, evidence visibility limits, five aggregate outcomes, and the difference from TUI testing. Expand case ids and variants only for supplied selectors. Do not preflight credentials, inspect active agents, create a run root, or launch a provider.
 
 ## Guardrails
 
 - DO NOT run a case against a maintainer's active project, ordinary tool home, or non-disposable managed agent.
+- DO NOT infer `all/normal` or another executable suite when no selector is supplied.
+- DO NOT use a coverage profile to choose providers or repetitions.
 - DO NOT expose the semantic oracle, required behavior, or forbidden behavior to the agent under test.
 - DO NOT infer native skill activation from final prose when root-selection evidence is unavailable.
 - DO NOT inspect, request, record, or grade hidden chain-of-thought.

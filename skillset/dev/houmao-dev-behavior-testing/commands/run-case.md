@@ -2,7 +2,7 @@
 
 ## Workflow
 
-1. **Invoke `plan-run`** for one exact case revision, selected providers, and context overrides.
+1. **Invoke `plan-run`** for one exact case revision or stable variant, selected providers, and context overrides.
 2. **For every planned fresh attempt, invoke `execute-case`.** Preserve incomplete attempts and use a new context for retries.
 3. **Invoke `adjudicate-case`** after each attempt's evidence is frozen.
 4. **Stop when all configured attempts have verdicts or explicit incomplete reasons.** Do not add opportunistic attempts after seeing an unfavorable result.

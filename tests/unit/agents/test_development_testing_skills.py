@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import tomllib
 from pathlib import Path
@@ -57,6 +58,151 @@ EXPECTED_CASE_IDS = {
     *(f"LOOP-{index:03d}" for index in range(1, 8)),
     *(f"PRM-{index:03d}" for index in range(1, 6)),
 }
+EXPECTED_AREA_CASE_PROFILES = {
+    "activation.md": {
+        "area": "activation",
+        "cases": {
+            "ACT-001": "minimal",
+            "ACT-002": "minimal",
+            "ACT-003": "normal",
+            "ACT-004": "normal",
+        },
+    },
+    "managed-bootstrap.md": {
+        "area": "managed-bootstrap",
+        "cases": {"AUTO-001": "minimal", "AUTO-002": "extended"},
+    },
+    "admin-routing.md": {
+        "area": "admin-entrypoint",
+        "cases": {
+            "ADM-001": "extended",
+            "ADM-002": "extended",
+            "ADM-003": "minimal",
+            "ADM-004": "normal",
+            "ADM-005": "extended",
+            "ADM-006": "normal",
+            "ADM-007": "extended",
+            "ADM-008": "complete",
+            "PRM-005": "extended",
+        },
+    },
+    "managed-agent-routing.md": {
+        "area": "agent-entrypoint",
+        "cases": {
+            "AGT-001": "extended",
+            "AGT-002": "minimal",
+            "AGT-003": "extended",
+            "AGT-004": "normal",
+            "AGT-005": "normal",
+            "AGT-006": "extended",
+            "AGT-007": "extended",
+            "AGT-008": "extended",
+            "PRM-004": "extended",
+        },
+    },
+    "shared-routines.md": {
+        "area": "shared-routines",
+        "cases": {
+            "SHR-001": "minimal",
+            "SHR-002": "minimal",
+            "SHR-003": "normal",
+            "SHR-004": "normal",
+            "SHR-005": "extended",
+            "SHR-006": "extended",
+            "SHR-007": "extended",
+            "SHR-008": "extended",
+        },
+    },
+    "loops.md": {
+        "area": "agent-loops",
+        "cases": {
+            "LOOP-001": "minimal",
+            "LOOP-002": "minimal",
+            "LOOP-003": "minimal",
+            "LOOP-004": "normal",
+            "LOOP-005": "normal",
+            "LOOP-006": "extended",
+            "LOOP-007": "extended",
+        },
+    },
+    "generated-prompts.md": {
+        "area": "generated-prompts",
+        "cases": {
+            "PRM-001": "minimal",
+            "PRM-002": "normal",
+            "PRM-003": "extended",
+        },
+    },
+}
+EXPECTED_PROFILE_TOTALS = {"minimal": 11, "normal": 22, "extended": 41, "complete": 42}
+EXPECTED_TAG_CASES = {
+    "critical": {
+        "ACT-001",
+        "ACT-002",
+        "ACT-003",
+        "ACT-004",
+        "AUTO-001",
+        "ADM-003",
+        "ADM-004",
+        "ADM-006",
+        "AGT-002",
+        "AGT-004",
+        "AGT-005",
+        "SHR-001",
+        "SHR-002",
+        "SHR-004",
+        "LOOP-001",
+        "LOOP-002",
+        "LOOP-003",
+        "PRM-001",
+        "PRM-002",
+    },
+    "actor-boundaries": {
+        "ADM-005",
+        "ADM-007",
+        "ADM-008",
+        "AGT-004",
+        "AGT-005",
+        "AGT-006",
+        "AGT-007",
+        "SHR-002",
+        "SHR-003",
+        "SHR-006",
+        "SHR-007",
+        "LOOP-005",
+        "LOOP-006",
+    },
+    "route-coverage": {
+        "ADM-003",
+        "AGT-002",
+        "SHR-003",
+        "SHR-004",
+        "SHR-005",
+        "SHR-006",
+        "SHR-007",
+        "LOOP-002",
+        "LOOP-003",
+        "PRM-001",
+    },
+}
+EXPECTED_CASE_VARIANTS = {
+    "ACT-004": {
+        "admin-welcome",
+        "admin-entrypoint",
+        "agent-entrypoint",
+        "shared-routines",
+        "agent-loop-pro",
+        "agent-loop-lite",
+    },
+    "AUTO-002": {"resume", "relaunch", "compaction"},
+    "SHR-003": {"admin-entrypoint", "agent-entrypoint"},
+    "LOOP-004": {"pro-admin", "pro-agent", "lite-admin", "lite-agent"},
+    "LOOP-005": {"admin-pro", "agent-lite"},
+    "LOOP-006": {"pro", "lite"},
+    "LOOP-007": {"pro", "lite"},
+    "PRM-003": {"entrypoint-missing", "shared-routines-missing"},
+}
+EXPECTED_CASE_SEMANTIC_DIGEST = "5067f8a0dc3e085002f25982d4a6b287e9621400fd2058d1aec8a594c7f0fdfb"
 EXPECTED_PUBLIC_SYSTEM_SKILLS = {
     "houmao-admin-welcome",
     "houmao-admin-entrypoint",
@@ -93,6 +239,39 @@ def _manifest_payload() -> dict[str, Any]:
     """Load the packaged system-skill manifest."""
     with MANIFEST_PATH.open("rb") as stream:
         return tomllib.load(stream)
+
+
+def _behavior_case_rows() -> dict[str, tuple[Path, list[str]]]:
+    """Return one introduced-profile row for every committed behavior case."""
+    tiers = set(EXPECTED_PROFILE_TOTALS)
+    result: dict[str, tuple[Path, list[str]]] = {}
+    for path in sorted((BEHAVIOR_ROOT / "references" / "cases").glob("*.md")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.startswith("| `"):
+                continue
+            cells = [cell.strip().strip("`") for cell in line.strip().strip("|").split("|")]
+            if len(cells) < 2 or cells[1] not in tiers or cells[0] not in EXPECTED_CASE_IDS:
+                continue
+            assert cells[0] not in result, f"duplicate behavior case row: {cells[0]}"
+            result[cells[0]] = (path, cells)
+    return result
+
+
+def _behavior_semantic_digest(rows: dict[str, tuple[Path, list[str]]]) -> str:
+    """Hash the stimuli and semantic oracles while excluding profile metadata."""
+    semantics: dict[str, tuple[str, str, str, str]] = {}
+    for case_id, (_, cells) in rows.items():
+        if case_id.startswith(("ACT-", "AUTO-")):
+            semantic = (cells[3], cells[4], cells[5], cells[6])
+        elif case_id.startswith("ADM-") or case_id == "PRM-005":
+            semantic = (cells[2], cells[3], cells[4], cells[5])
+        else:
+            semantic = (cells[2], cells[4], cells[5], cells[6])
+        semantics[case_id] = semantic
+    payload = "\n".join(
+        "\x1f".join((case_id, *semantics[case_id])) for case_id in sorted(semantics)
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def test_development_testing_skill_identities_are_unambiguous() -> None:
@@ -139,32 +318,89 @@ def test_development_testing_skill_links_resolve() -> None:
                 )
 
 
-def test_behavior_catalog_declares_every_required_case_and_family() -> None:
-    """The committed catalog and its family pages expose the complete v1 case set."""
+def test_behavior_catalog_declares_every_required_case_and_functional_area() -> None:
+    """The versioned catalog owns all stable cases through seven functional areas."""
     catalog = (BEHAVIOR_ROOT / "references" / "case-catalog.md").read_text(encoding="utf-8")
-    assert "houmao-dev-behavior-cases.v1" in catalog
-    catalog_ids = set(re.findall(r"`((?:ACT|AUTO|ADM|AGT|SHR|LOOP|PRM)-\d{3})`", catalog))
-    assert catalog_ids == EXPECTED_CASE_IDS
+    assert "houmao-dev-behavior-cases.v2" in catalog
 
-    family_paths = {
-        "activation.md",
-        "admin-routing.md",
-        "managed-agent-routing.md",
-        "shared-routines.md",
-        "loops.md",
-        "generated-prompts.md",
-    }
-    actual_family_paths = {
+    expected_area_paths = set(EXPECTED_AREA_CASE_PROFILES)
+    actual_area_paths = {
         path.name for path in (BEHAVIOR_ROOT / "references" / "cases").glob("*.md")
     }
-    assert actual_family_paths == family_paths
-    family_text = "\n".join(
-        (BEHAVIOR_ROOT / "references" / "cases" / name).read_text(encoding="utf-8")
-        for name in sorted(family_paths)
+    assert actual_area_paths == expected_area_paths
+
+    rows = _behavior_case_rows()
+    assert set(rows) == EXPECTED_CASE_IDS
+    for filename, expected in EXPECTED_AREA_CASE_PROFILES.items():
+        path = BEHAVIOR_ROOT / "references" / "cases" / filename
+        text = path.read_text(encoding="utf-8")
+        assert f"Functional area: `{expected['area']}`" in text
+        assert "Case revision: `1` for every listed case." in text
+        actual_cases = {
+            case_id: cells[1] for case_id, (case_path, cells) in rows.items() if case_path == path
+        }
+        assert actual_cases == expected["cases"]
+
+
+def test_behavior_case_semantics_survive_profile_reorganization() -> None:
+    """Profile metadata does not change any v1 stimulus or semantic oracle."""
+    assert _behavior_semantic_digest(_behavior_case_rows()) == EXPECTED_CASE_SEMANTIC_DIGEST
+
+
+def test_behavior_profiles_are_cumulative_and_match_committed_counts() -> None:
+    """Every profile is a cumulative slice and complete equals the full catalog."""
+    profile_rank = {name: rank for rank, name in enumerate(EXPECTED_PROFILE_TOTALS)}
+    rows = _behavior_case_rows()
+    resolved_profiles = {
+        profile: {case_id for case_id, (_, cells) in rows.items() if profile_rank[cells[1]] <= rank}
+        for profile, rank in profile_rank.items()
+    }
+    for profile, expected_count in EXPECTED_PROFILE_TOTALS.items():
+        assert len(resolved_profiles[profile]) == expected_count
+    assert resolved_profiles["minimal"] < resolved_profiles["normal"]
+    assert resolved_profiles["normal"] < resolved_profiles["extended"]
+    assert resolved_profiles["extended"] < resolved_profiles["complete"]
+    assert resolved_profiles["complete"] == EXPECTED_CASE_IDS
+
+    catalog = (BEHAVIOR_ROOT / "references" / "case-catalog.md").read_text(encoding="utf-8")
+    assert "| `all` | 11 | 22 | 41 | 42 |" in catalog
+    for selector in (
+        "<area>/<profile>",
+        "all/<profile>",
+        "tag:<name>",
+        "<case-id>/<variant-id>",
+    ):
+        assert f"`{selector}`" in catalog
+    assert "An absent selector never implies `all/normal`" in catalog
+
+
+def test_behavior_tags_and_matrix_variants_are_stable() -> None:
+    """Legacy diagnostic views and existing matrix cells remain selectable."""
+    catalog = (BEHAVIOR_ROOT / "references" / "case-catalog.md").read_text(encoding="utf-8")
+    for tag, expected_cases in EXPECTED_TAG_CASES.items():
+        line = next(line for line in catalog.splitlines() if line.startswith(f"- `{tag}`:"))
+        actual_cases = set(re.findall(r"`((?:ACT|AUTO|ADM|AGT|SHR|LOOP|PRM)-\d{3})`", line))
+        assert actual_cases == expected_cases
+
+    area_text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((BEHAVIOR_ROOT / "references" / "cases").glob("*.md"))
     )
-    assert EXPECTED_CASE_IDS <= set(
-        re.findall(r"`((?:ACT|AUTO|ADM|AGT|SHR|LOOP|PRM)-\d{3})`", family_text)
+    for case_id, variants in EXPECTED_CASE_VARIANTS.items():
+        for variant in variants:
+            assert f"`{case_id}/{variant}`" in area_text
+
+    admin_text = (BEHAVIOR_ROOT / "references" / "cases" / "admin-routing.md").read_text(
+        encoding="utf-8"
     )
+    agent_text = (BEHAVIOR_ROOT / "references" / "cases" / "managed-agent-routing.md").read_text(
+        encoding="utf-8"
+    )
+    generated_text = (BEHAVIOR_ROOT / "references" / "cases" / "generated-prompts.md").read_text(
+        encoding="utf-8"
+    )
+    assert "`PRM-005`" in admin_text and "`PRM-005`" not in generated_text
+    assert "`PRM-004`" in agent_text and "`PRM-004`" not in generated_text
 
 
 def test_behavior_verdict_vocabulary_is_complete() -> None:

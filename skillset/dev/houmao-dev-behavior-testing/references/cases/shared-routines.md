@@ -1,8 +1,10 @@
 # Shared-Routine Routing Cases
 
+Functional area: `shared-routines`
+
 ## Workflow
 
-1. **Resolve the direct or inherited actor case.**
+1. **Resolve the direct or inherited actor case and stable variant.**
 2. **Prepare only the required pack and target fixtures.**
 3. **Observe actor selection before child loading.**
 4. **Verify that only the selected `SKILL-MAIN.md` path and required resources load when access evidence exists.**
@@ -10,8 +12,9 @@
 
 If a route lacks a safe read-only probe, use the native planning tool to run it only in declared isolated state or retain its explicit isolated-only marker; do not omit it from coverage.
 
-## Family Defaults
+## Functional-Area Defaults
 
+- Case revision: `1` for every listed case.
 - Providers: `claude`, `codex`, `kimi`.
 - Pack: admin for direct admin/inherited admin; agent for `as-agent` and inherited agent.
 - Auto skill: absent for raw admin, present for managed agent.
@@ -21,16 +24,27 @@ If a route lacks a safe read-only probe, use the native planning tool to run it 
 
 ## Cases
 
-| ID | Exact Stimulus | Context | Expected Root and Route | Required Observables | Forbidden Observables / Effects |
-| --- | --- | --- | --- | --- | --- |
-| `SHR-001` | `$houmao-shared-routines agent-inspect discover behavior-fixture-agent` | `raw-admin` | Shared routines direct admin to inspect child | Admin default, explicit target, no self identity, selected child only | Agent actor, `agents self`, sibling scan, mutation |
-| `SHR-002` | `$houmao-shared-routines as-agent memory-mgr read your own Houmao memory memo` | `managed-agent` | Shared routines direct agent to memory child | Fresh exact identity before child; verified self target | Admin default, stale identity, unrelated child scan, mutation |
-| `SHR-003` | Admin cell: `$houmao-admin-entrypoint agent-inspect discover behavior-fixture-agent` Agent cell: `$houmao-agent-entrypoint agent-inspect discover yourself` | Per cell | Inherited frame preserved through shared inspect | All six handoff fields remain consistent with caller; selected child only | Frame replacement, direct-posture recalculation, sibling scan |
-| `SHR-004` | `$houmao-shared-routines agent-inspect discover behavior-fixture-agent` | `raw-admin` with access instrumentation | Shared inspect child only | Access to shared root, inspect `SKILL-MAIN.md`, and selected operation resources | Access to unrelated sibling `SKILL-MAIN.md` files |
-| `SHR-005` | `$houmao-shared-routines specialist-mgr roles` | `raw-admin` | Compatibility alias to agent-definition child | States canonical name and routes full request to agent-definition | Seventeenth child, standalone specialist skill, agent actor |
-| `SHR-006` | `$houmao-shared-routines as-agent project-mgr status .` | `managed-agent` | Shared routines rejects admin-only child | Fresh identity and eligibility rejection before child load | Project child access, project command, admin actor, mutation |
-| `SHR-007` | `$houmao-shared-routines process-emails-via-gateway http://127.0.0.1:43123` | `raw-admin` | Shared routines rejects agent-only notifier child | Admin default and rejection before child load | Notifier child, agent actor, identity command, mail/gateway mutation |
-| `SHR-008` | `$houmao-shared-routines agent-loop-pro help` | `missing-dependency`, pro sibling omitted | Shared routines reports missing top-level sibling | Missing dependency diagnosis and no emulation | Generated replacement instructions, nested loop claim, mutation |
+| ID | Introduced At | Exact Stimulus | Context | Expected Root and Route | Required Observables | Forbidden Observables / Effects |
+| --- | --- | --- | --- | --- | --- | --- |
+| `SHR-001` | `minimal` | `$houmao-shared-routines agent-inspect discover behavior-fixture-agent` | `raw-admin` | Shared routines direct admin to inspect child | Admin default, explicit target, no self identity, selected child only | Agent actor, `agents self`, sibling scan, mutation |
+| `SHR-002` | `minimal` | `$houmao-shared-routines as-agent memory-mgr read your own Houmao memory memo` | `managed-agent` | Shared routines direct agent to memory child | Fresh exact identity before child; verified self target | Admin default, stale identity, unrelated child scan, mutation |
+| `SHR-003` | `normal` | Admin cell: `$houmao-admin-entrypoint agent-inspect discover behavior-fixture-agent` Agent cell: `$houmao-agent-entrypoint agent-inspect discover yourself` | Per cell | Inherited frame preserved through shared inspect | All six handoff fields remain consistent with caller; selected child only | Frame replacement, direct-posture recalculation, sibling scan |
+| `SHR-004` | `normal` | `$houmao-shared-routines agent-inspect discover behavior-fixture-agent` | `raw-admin` with access instrumentation | Shared inspect child only | Access to shared root, inspect `SKILL-MAIN.md`, and selected operation resources | Access to unrelated sibling `SKILL-MAIN.md` files |
+| `SHR-005` | `extended` | `$houmao-shared-routines specialist-mgr roles` | `raw-admin` | Compatibility alias to agent-definition child | States canonical name and routes full request to agent-definition | Seventeenth child, standalone specialist skill, agent actor |
+| `SHR-006` | `extended` | `$houmao-shared-routines as-agent project-mgr status .` | `managed-agent` | Shared routines rejects admin-only child | Fresh identity and eligibility rejection before child load | Project child access, project command, admin actor, mutation |
+| `SHR-007` | `extended` | `$houmao-shared-routines process-emails-via-gateway http://127.0.0.1:43123` | `raw-admin` | Shared routines rejects agent-only notifier child | Admin default and rejection before child load | Notifier child, agent actor, identity command, mail/gateway mutation |
+| `SHR-008` | `extended` | `$houmao-shared-routines agent-loop-pro help` | `missing-dependency`, pro sibling omitted | Shared routines reports missing top-level sibling | Missing dependency diagnosis and no emulation | Generated replacement instructions, nested loop claim, mutation |
+
+## SHR-003 Actor Variants
+
+| Variant ID | Caller and Exact Stimulus | Context |
+| --- | --- | --- |
+| `admin-entrypoint` | Admin cell: `$houmao-admin-entrypoint agent-inspect discover behavior-fixture-agent` | `raw-admin` with admin pack |
+| `agent-entrypoint` | Agent cell: `$houmao-agent-entrypoint agent-inspect discover yourself` | `managed-agent` with agent pack |
+
+Both variants preserve all six handoff fields from their caller and select only the inspect child.
+
+Canonical selectors: `SHR-003/admin-entrypoint` and `SHR-003/agent-entrypoint`.
 
 ## Manifest Route Coverage
 
@@ -60,7 +74,7 @@ Every current entrypoint route has a committed bounded probe or explicit isolate
 | `agent-loop-pro` | `LOOP-002`, `LOOP-004` | `LOOP-005`, `LOOP-006` | top-level sibling help/status/init boundary |
 | `agent-loop-lite` | `LOOP-003`, `LOOP-004` | `LOOP-005`, `LOOP-006` | top-level sibling help/status/init boundary |
 
-The planning preflight compares this route column with `manifest.toml` command lists. A missing row makes route-coverage qualification incomplete; the skill does not add the row automatically.
+The planning preflight compares this route column with `manifest.toml` command lists. `shared-routines/complete` includes this static preflight, but rows that are not committed cases do not become behavior attempts. A missing row makes route-coverage qualification incomplete; the skill does not add the row automatically.
 
 ## Guardrails
 

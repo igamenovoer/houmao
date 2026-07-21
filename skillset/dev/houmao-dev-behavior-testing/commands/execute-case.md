@@ -2,7 +2,7 @@
 
 ## Workflow
 
-1. **Verify attempt admission.** Require a frozen run manifest, selected case revision, unused attempt directory, and supported context/provider combination.
+1. **Verify attempt admission.** Require a frozen run manifest, selected case revision and variant, unused attempt directory, and supported context/provider combination.
 2. **Prepare the isolated context.** Follow [../references/fixture-contexts.md](../references/fixture-contexts.md) and invoke `snapshot-context` before launch.
 3. **Launch a fresh session.** Delegate raw provider launch or use the supported managed-agent lifecycle named by the context; verify the live target.
 4. **Start observable capture.** Enable provider-native events and bounded terminal, command, filesystem, and runtime evidence available for this context.

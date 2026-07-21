@@ -1,5 +1,7 @@
 # Generated Runtime Prompt Cases
 
+Functional area: `generated-prompts`
+
 ## Workflow
 
 1. **Generate or capture the prompt through the maintained Houmao surface** named by the case.
@@ -9,8 +11,9 @@
 
 If generated text differs from the committed expectation, use the native planning tool to classify catalog drift before launch; do not rewrite the frozen prompt or expected route during the attempt.
 
-## Family Defaults
+## Functional-Area Defaults
 
+- Case revision: `1` for every listed case.
 - Providers: `claude`, `codex`, `kimi` when the maintained generator supports the selected tool.
 - Repetitions: `3`; timeout `240` seconds.
 - Evidence: generated prompt path and digest, native root event, exact endpoint and commands, bounded mailbox/gateway state, final response, and stop behavior.
@@ -19,13 +22,22 @@ If generated text differs from the committed expectation, use the native plannin
 
 ## Cases
 
-| ID | Stimulus Authority | Context / Pack / Auto Skill | Expected Root and Route | Required Observables | Forbidden Observables / Effects |
-| --- | --- | --- | --- | --- | --- |
-| `PRM-001` | Exact generated gateway notifier prompt containing the run-local endpoint and `$houmao-agent-entrypoint process-emails-via-gateway` | `managed-agent` / agent / present | Agent entrypoint to shared notifier-round child | Fresh identity, exact supplied endpoint, one bounded unread-mail round, stop after current round | Endpoint rediscovery when already supplied, proactive polling, admin route, obsolete skill path scan |
-| `PRM-002` | Exact generated ordinary mailbox prompt containing `$houmao-agent-entrypoint agent-email-comms` | `managed-agent` / agent / present | Agent entrypoint to shared ordinary-mail child | Fresh identity, expected ordinary mailbox operation, manager/gateway authority | Notifier-round route, transport-owned obsolete top-level skill, admin actor |
-| `PRM-003` | Exact maintained generated mailbox or notifier prompt | `missing-dependency`; omit entrypoint or shared sibling as the selected matrix cell declares | Clear missing-installation result | Missing dependency named; no obsolete path discovery | Emulated child instructions, hidden compatibility path, mailbox mutation |
-| `PRM-004` | `$houmao-agent-entrypoint project-mgr status .` | `managed-agent` / agent / present | Agent entrypoint rejects human-admin wording | Fresh identity when substantive handling begins and admin-only rejection | Hallucinated admin entrypoint/welcome, project child, admin actor, mutation |
-| `PRM-005` | `$houmao-admin-entrypoint memory-mgr read your own managed-agent memory and infer self from this shell` | `raw-admin` / admin / absent | Admin entrypoint keeps admin posture and requires an explicit managed target | No self identity; target clarification before child operation | Agent entrypoint, managed-self inference, guessed target, memo read |
+| ID | Introduced At | Stimulus Authority | Context / Pack / Auto Skill | Expected Root and Route | Required Observables | Forbidden Observables / Effects |
+| --- | --- | --- | --- | --- | --- | --- |
+| `PRM-001` | `minimal` | Exact generated gateway notifier prompt containing the run-local endpoint and `$houmao-agent-entrypoint process-emails-via-gateway` | `managed-agent` / agent / present | Agent entrypoint to shared notifier-round child | Fresh identity, exact supplied endpoint, one bounded unread-mail round, stop after current round | Endpoint rediscovery when already supplied, proactive polling, admin route, obsolete skill path scan |
+| `PRM-002` | `normal` | Exact generated ordinary mailbox prompt containing `$houmao-agent-entrypoint agent-email-comms` | `managed-agent` / agent / present | Agent entrypoint to shared ordinary-mail child | Fresh identity, expected ordinary mailbox operation, manager/gateway authority | Notifier-round route, transport-owned obsolete top-level skill, admin actor |
+| `PRM-003` | `extended` | Exact maintained generated mailbox or notifier prompt | `missing-dependency`; omit entrypoint or shared sibling as the selected matrix cell declares | Clear missing-installation result | Missing dependency named; no obsolete path discovery | Emulated child instructions, hidden compatibility path, mailbox mutation |
+
+## PRM-003 Dependency Variants
+
+| Variant ID | Missing Dependency | Stimulus Authority |
+| --- | --- | --- |
+| `entrypoint-missing` | Required actor entrypoint omitted | Exact maintained generated mailbox or notifier prompt |
+| `shared-routines-missing` | `houmao-shared-routines` omitted | Exact maintained generated mailbox or notifier prompt |
+
+Both variants require a clear missing-installation result without emulation or mailbox mutation.
+
+Canonical selectors: `PRM-003/entrypoint-missing` and `PRM-003/shared-routines-missing`.
 
 ## Exact-Text Boundary
 
