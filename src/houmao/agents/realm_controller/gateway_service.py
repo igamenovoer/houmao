@@ -43,7 +43,9 @@ from houmao.agents.agent_workspace import (
     write_memory_page,
 )
 from houmao.agents.mailbox_runtime_support import (
+    mailbox_gateway_route_name,
     mailbox_processing_skill_name,
+    mailbox_processing_route_name,
     mailbox_processing_skill_reference,
     mailbox_gateway_skill_name,
     mailbox_gateway_skill_reference,
@@ -3512,28 +3514,34 @@ class GatewayServiceRuntime:
             )
 
         lines: list[str] = []
+        processing_route = mailbox_processing_route_name()
         if tool == "claude":
             lines.extend(
                 [
-                    f"/{mailbox_processing_skill_name()}",
+                    f"/{mailbox_processing_skill_name()} {processing_route} {gateway_base_url}",
                 ]
             )
         elif tool == "codex":
             lines.extend(
                 [
-                    f"${mailbox_processing_skill_name()} {gateway_base_url}",
+                    f"${mailbox_processing_skill_name()} {processing_route} {gateway_base_url}",
                 ]
             )
         elif tool == "kimi":
             lines.append(
-                f"Use `{mailbox_processing_skill_name()}` with the gateway above for this round."
+                f"Use `{mailbox_processing_skill_name()} {processing_route}` with the gateway "
+                "above for this round."
             )
         else:
             lines.append(
-                f"Use `{mailbox_processing_skill_name()}` with the gateway above for this round."
+                f"Use `{mailbox_processing_skill_name()} {processing_route}` with the gateway "
+                "above for this round."
             )
         if gateway_path.is_file():
-            lines.append(f"Details: `{mailbox_gateway_skill_name()}`.")
+            lines.append(
+                f"Ordinary mailbox details: `{mailbox_gateway_skill_name()} "
+                f"{mailbox_gateway_route_name()}`."
+            )
         return "\n".join(lines)
 
     def _mailbox_adapter_locked(self) -> GatewayMailboxAdapter:

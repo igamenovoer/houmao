@@ -15,7 +15,7 @@ Project docs: [https://igamenovoer.github.io/houmao/](https://igamenovoer.github
 - **Let your CLI agent operate the system.** Install Houmao skills into Claude, Codex, Kimi, or Copilot, then ask that agent to create specialists, launch agents, inspect state, send prompts, manage gateways, and run loops.
 - **Avoid central fragile orchestration.** Agents coordinate through per-agent gateways and shared mailboxes instead of one in-process object graph.
 - **Keep full provider capability.** Houmao does not replace the underlying CLI; it gives you lifecycle, memory, gateway, mailbox, and team-control structure around it.
-- **Scale from one helper to generated teams.** Start with one reviewer, add a second specialist, then hand a complex plan to `houmao-agent-loop-pro` and let the system prepare and run the team.
+- **Scale from one helper to generated teams.** Start with one reviewer, add a second specialist, then ask `$houmao-admin-entrypoint agent-loop-pro ...` to prepare and run the team.
 
 ## Architecture at a Glance
 
@@ -52,24 +52,25 @@ The normal user experience is conversational: your current CLI agent reads Houma
 ```bash
 uv tool install houmao
 command -v tmux
-npx skills add igamenovoer/tool-skills/houmao
+houmao-mgr system-skills install --tool codex --pack admin
 ```
 
-`tmux` is required because managed agents run inside tmux-backed sessions. Recommended when `npx` is available and the target machine has internet access: point the Skills CLI at the small release-synced tool-skills repo, then choose which packaged skill(s) to install from the prompt.
+`tmux` is required because managed agents run inside tmux-backed sessions. Replace `codex` with `claude`, `copilot`, `kimi`, or `universal` for another supported skill host. The complete admin pack installs `houmao-admin-welcome` and `houmao-admin-entrypoint` together.
 
-Use Houmao's installer when `npx` is unavailable, when working offline from an installed Houmao package, or when you need customization such as named sets, subset skills, explicit homes, symlink/copy projection, or retired-skill cleanup:
+Use `--home` only when you need to override the target's normal home. Repeat `--pack` to install both actor packs, and use `system-skills upgrade` when migrating an older flat installation:
 
 ```bash
-houmao-mgr system-skills install --tool claude,codex,kimi,copilot
-houmao-mgr system-skills install --tool claude --home ~/.claude
+houmao-mgr system-skills install --tool claude,codex,kimi,copilot,universal --pack admin
+houmao-mgr system-skills install --tool codex --home ~/.codex --pack admin --pack agent
+houmao-mgr system-skills upgrade --tool codex --home ~/.codex --pack admin
 ```
 
-Each installed Houmao system skill also supports explicit read-only help before it performs a workflow; for example, ask `$houmao-touring help` or `$houmao-agent-email-comms help` to see what that skill can do. Skill help is separate from the `houmao-mgr system-skills install` CLI surface that installs or projects the skill packages.
+The welcome and both entrypoints support read-only help. Ask `$houmao-admin-welcome help` for orientation, `$houmao-admin-entrypoint help` for human-operator execution routes, or `$houmao-agent-entrypoint help` from a managed-agent session. Skill help is separate from the `houmao-mgr system-skills` lifecycle CLI.
 
 Now start your CLI agent from the project directory and ask:
 
 ```text
-$houmao-touring start a guided tour
+$houmao-admin-welcome start-guided-tour
 ```
 
 The tour walks through beginner setup, intermediate live operation, and advanced coordination. For exact install flags and home-resolution behavior, see the [System Skills Overview](docs/getting-started/system-skills-overview.md) and [System Skills CLI reference](docs/reference/cli/system-skills.md).
@@ -117,14 +118,14 @@ Gateway-backed interaction gives your user agent a stable way to prompt, interru
 | Mailbox | A shared async communication layer so agents can send structured work, replies, and wakeup messages without a central orchestrator. |
 | Loop | A generated multi-agent operating plan. The user agent stays outside the execution loop and uses loop skills to author, validate, launch, observe, pause, resume, recover, or stop it. |
 
-Project state lives under a `.houmao/` overlay with specialists, profiles, credentials, projected content, mailbox roots, memory, and catalog metadata. The tour and project-management skills can initialize or inspect that overlay; direct details live in the [getting-started docs](docs/getting-started/quickstart.md).
+Project state lives under a `.houmao/` overlay with specialists, profiles, credentials, projected content, mailbox roots, memory, and catalog metadata. The admin welcome can explain that overlay, while concrete work routes through `$houmao-admin-entrypoint project-mgr ...`; direct details live in the [getting-started docs](docs/getting-started/quickstart.md).
 
 ## Agent Loops
 
-This is where Houmao starts to feel different from a wrapper around one CLI. Give `houmao-agent-loop-pro` a complex multi-agent plan, and your CLI agent can turn it into a runnable team workflow:
+This is where Houmao starts to feel different from a wrapper around one CLI. Give the admin entrypoint's protected `agent-loop-pro` route a complex multi-agent plan, and your CLI agent can turn it into a runnable team workflow:
 
 ```text
-You: Use houmao-agent-loop-pro for this plan:
+You: $houmao-admin-entrypoint agent-loop-pro create a loop for this plan:
      three agents should design, implement, and review a migration.
      The planner decomposes the work, the builder edits code, the reviewer checks behavior,
      and the team should stop only after tests and review notes are complete.
@@ -132,13 +133,13 @@ You: Use houmao-agent-loop-pro for this plan:
 AI: I created the loop intention, clarified the topology, generated the execplan, prepared specialists and launch profiles, checked workspace and mailbox/gateway posture, launched the participants, started the run, and I will report status from outside the execution loop.
 ```
 
-`houmao-agent-loop-pro` owns the schema-rich path: intention clarification, `tree-loop` versus `generic-loop` topology choice, generated process and contract artifacts, harness/state contracts, generated skills, workspace readiness, validation, launch, run control, and recovery. `houmao-agent-loop-lite` is the lighter Markdown/direct-SQL path for smaller generated loops that still use the same intention/execplan/runs spine without JSON schemas, Jinja2, or generated harnesses.
+The internal route `houmao-admin-entrypoint->houmao-shared-routines->agent-loop-pro` owns the schema-rich path: intention clarification, `tree-loop` versus `generic-loop` topology choice, generated process and contract artifacts, harness/state contracts, generated skills, workspace readiness, validation, launch, run control, and recovery. The sibling `agent-loop-lite` route is the lighter Markdown/direct-SQL path for smaller generated loops that still use the same intention/execplan/runs spine without JSON schemas, Jinja2, or generated harnesses.
 
 The reusable [`examples/writer-team/`](examples/writer-team/) template shows a three-agent story-writing team with prompt files, a tree loop plan, start charter, local setup commands, and artifact directories. It is the team shown here: a **story-writer** drafts and finalizes chapters, a **character-designer** builds profiles, and a **story-reviewer** checks logic and pacing while the human operator watches from outside the loop.
 
 https://github.com/user-attachments/assets/6cff608a-8b5b-4dcd-96fb-f2f0208a18b6
 
-For the full current loop-authoring workflow, see the [Loop Authoring Guide](docs/getting-started/loop-authoring.md), the [`houmao-agent-loop-lite` skill](src/houmao/agents/assets/system_skills/houmao-agent-loop-lite/SKILL.md), and the [`houmao-agent-loop-pro` skill](src/houmao/agents/assets/system_skills/houmao-agent-loop-pro/SKILL.md).
+For the full current loop-authoring workflow, see the [Loop Authoring Guide](docs/getting-started/loop-authoring.md) and the [System Skills Overview](docs/getting-started/system-skills-overview.md).
 
 ## Typical Use Cases
 
@@ -148,24 +149,19 @@ For the full current loop-authoring workflow, see the [Loop Authoring Guide](doc
 - **Research or writing teams:** create non-coding specialists for outlining, drafting, critique, synthesis, and artifact production.
 - **Bring your own provider mix:** combine Claude, Codex, and Kimi agents while keeping the workflow and Houmao control surfaces stable.
 
-## System Skills: Agent Self-Management
+## System Skills: Actor-Aware Entrypoints
 
-Houmao installs packaged skills into agent tool homes so the agent itself can drive management tasks through its native skill interface without the operator manually invoking every `houmao-mgr` command. Those skills cover guided touring, project setup, specialist and profile authoring, credentials, live-agent lifecycle, prompt and mailbox messaging, gateway/reminder work, memory, inspection, AG-UI interop, graphing extension guidance, workspace preparation, and loop orchestration.
+Houmao exposes three public system skills. All operational capability is nested beneath an actor-specific entrypoint so the same protected routine can keep the caller's identity and scope rules for the entire route.
 
-The orientation-level entry points are:
+| Public skill | Pack | Role |
+|---|---|---|
+| `houmao-admin-welcome` | `admin` | Read-only first-use orientation with five guided paths. Start with `$houmao-admin-welcome start-guided-tour`. |
+| `houmao-admin-entrypoint` | `admin` | Executes on behalf of a human operator, requires explicit targets, and never treats the operator session as managed self. |
+| `houmao-agent-entrypoint` | `agent` | Executes as the managed agent, verifies identity with `houmao-mgr --print-json agents self identity`, and uses verified self by default. |
 
-| Skill | What to ask it for |
-|---|---|
-| `houmao-touring` | A staged first-run or re-orientation tour. |
-| `houmao-agent-definition` | Roles, recipes, `launch-dossiers`, specialists, easy `profiles`, `create-agent-fast-forward`, launch, and stop workflows. |
-| `houmao-agent-messaging` | Prompt, interrupt, queue, raw input, mailbox-routing entry, and one-turn headless override work against running agents. |
-| `houmao-agent-gateway` | Gateway attach/detach/status/watch, reminders, and mail-notifier posture. |
-| `houmao-interop-ag-ui` | AG-UI protocol validation, generic implementation rendering, gateway publishing, and delivery-result interpretation. |
-| `houmao-ext-graphing` | Default-installed extension guidance for built-in Plotly.js `templated-graphics` and Vega-Lite `freeform-graphics` payload authoring. |
-| `houmao-agent-loop-lite` | Lightweight Markdown/direct-SQL generated loop authoring and operation. |
-| `houmao-agent-loop-pro` | Schema-rich loop authoring, preparation, validation, launch, run control, and recovery for complex generated teams. |
+The eighteen maintained routines live inside the protected `houmao-shared-routines` bundle. Users invoke them through a public entrypoint, for example `$houmao-admin-entrypoint agent-definition specialists`, `$houmao-admin-entrypoint agent-inspect status`, or `$houmao-agent-entrypoint agent-email-comms list`. A notation such as `houmao-agent-entrypoint->houmao-shared-routines->agent-email-comms` is an internal route trace, not an installed top-level skill.
 
-`houmao-specialist-mgr` may still appear in older installed homes as compatibility guidance, but current specialist and profile work belongs to `houmao-agent-definition`. Managed launch and join install the catalog's `core` plus `extensions` sets by default; explicit CLI installation defaults to `all`, the complete current packaged catalog. For the complete catalog, grouping, auto-install behavior, and per-skill boundaries, see the [System Skills Overview](docs/getting-started/system-skills-overview.md).
+Omitting `--pack` from an external `system-skills install` selects `admin`. Managed launch, relaunch, rebuild, and join select `agent`. Stored specialist and profile policy uses `packs: [admin|agent]`; individual skill and `core`/`extensions`/`all` set selectors are removed. `houmao-auto-system-prompt` remains a separate managed auto skill and never enters a pack receipt. See the [System Skills Overview](docs/getting-started/system-skills-overview.md) for the route matrix and the [System Skills CLI reference](docs/reference/cli/system-skills.md) for receipts, status, upgrade, and uninstall.
 
 ## Subsystems at a Glance
 

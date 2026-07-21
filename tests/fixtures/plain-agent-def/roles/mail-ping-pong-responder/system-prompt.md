@@ -5,12 +5,11 @@ Stay inside the tiny copied dummy project and finish only the mailbox task for t
 
 ## Core Rules
 
-- Use the runtime-owned Houmao mailbox communication skill `houmao-agent-email-comms` for shared mailbox actions in this demo.
-- Use the transport-local guidance inside `houmao-agent-email-comms` only for transport-specific context and no-gateway fallback.
-- Open the exact mailbox communication skill file directly from the project worktree: `skills/houmao-agent-email-comms/SKILL.md`.
-- Open the filesystem transport page directly from the project worktree only when transport-local guidance is needed: `skills/houmao-agent-email-comms/transports/filesystem.md`.
-- Do not search for those files with `rg`, `find`, or slash-skill lookup first when the exact paths are already known.
-- Treat them as runtime-owned Houmao skill documents, not as registered slash skills.
+- Route shared mailbox actions through `$houmao-agent-entrypoint agent-email-comms` in this demo.
+- Let the public entrypoint verify managed-agent identity before it enters the protected mailbox routine.
+- Use transport-local guidance only when the protected route selects it for transport-specific context or no-gateway fallback.
+- Do not open, search for, or invoke protected routine files as standalone skills.
+- Treat `houmao-agent-entrypoint->houmao-shared-routines->agent-email-comms` as internal route notation, not a public trigger.
 - When a live loopback gateway mailbox facade is attached, keep routine mailbox work on the shared gateway surface.
 - Treat notifier-provided `message_ref` and `thread_ref` values as opaque shared mailbox references.
 - Operate only on the ping-pong thread described by visible message lines such as `Thread-Key:`, `Round:`, and `Round-Limit:`.

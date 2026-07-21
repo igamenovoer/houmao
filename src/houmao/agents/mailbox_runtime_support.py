@@ -46,9 +46,10 @@ from houmao.agents.realm_controller.gateway_storage import (
     load_gateway_current_instance,
 )
 from houmao.agents.system_skills import (
+    SYSTEM_SKILL_AGENT_ENTRYPOINT,
+    SYSTEM_SKILL_PACK_AGENT,
     install_system_skills_for_home,
     project_system_skills_to_destination,
-    system_skill_reference_for_name,
     system_skills_destination_for_tool,
 )
 
@@ -69,18 +70,10 @@ _COLLAPSE_UNDERSCORE_RE = re.compile(r"_{2,}")
 MAILBOX_TRANSPORT_NONE = "none"
 MAILBOX_TRANSPORT_FILESYSTEM = "filesystem"
 MAILBOX_TRANSPORT_STALWART = "stalwart"
-MAILBOX_PRIMARY_NAMESPACE_DIR = "mailbox"
-MAILBOX_PROCESSING_SKILL_NAME = "houmao-process-emails-via-gateway"
-MAILBOX_COMMS_SKILL_NAME = "houmao-agent-email-comms"
-MAILBOX_ADVANCED_USAGE_SKILL_NAME = "houmao-adv-usage-pattern"
-MAILBOX_PROCESSING_SKILL_REFERENCE = (
-    f"{MAILBOX_PRIMARY_NAMESPACE_DIR}/{MAILBOX_PROCESSING_SKILL_NAME}"
-)
-MAILBOX_COMMS_SKILL_REFERENCE = f"{MAILBOX_PRIMARY_NAMESPACE_DIR}/{MAILBOX_COMMS_SKILL_NAME}"
-MAILBOX_PRIMARY_SKILL_REFERENCES = (
-    MAILBOX_PROCESSING_SKILL_REFERENCE,
-    MAILBOX_COMMS_SKILL_REFERENCE,
-)
+MAILBOX_PROCESSING_ROUTE_NAME = "process-emails-via-gateway"
+MAILBOX_COMMS_ROUTE_NAME = "agent-email-comms"
+MAILBOX_AGENT_ENTRYPOINT_NAME = SYSTEM_SKILL_AGENT_ENTRYPOINT
+MAILBOX_PRIMARY_SKILL_REFERENCES = (MAILBOX_AGENT_ENTRYPOINT_NAME,)
 
 _MAILBOX_COMMON_ENV_VARS = (
     "HOUMAO_MAILBOX_TRANSPORT",
@@ -878,39 +871,53 @@ def bootstrap_resolved_mailbox(
 
 
 def mailbox_skill_reference(config: MailboxResolvedConfig, *, tool: str | None = None) -> str:
-    """Return the unified projected ordinary-mailbox skill reference."""
+    """Return the public managed-agent entrypoint reference for mailbox work."""
 
-    return _mailbox_skill_reference_for_name(MAILBOX_COMMS_SKILL_NAME, tool=tool)
+    del config
+    return _mailbox_entrypoint_reference(tool=tool)
 
 
 def mailbox_skill_name(config: MailboxResolvedConfig) -> str:
-    """Return the stable unified ordinary-mailbox skill name."""
+    """Return the public entrypoint name used for ordinary mailbox work."""
 
-    return MAILBOX_COMMS_SKILL_NAME
+    del config
+    return MAILBOX_AGENT_ENTRYPOINT_NAME
 
 
 def mailbox_gateway_skill_reference(*, tool: str | None = None) -> str:
-    """Return the primary projected ordinary-mailbox skill reference."""
+    """Return the public entrypoint reference for ordinary mailbox work."""
 
-    return _mailbox_skill_reference_for_name(MAILBOX_COMMS_SKILL_NAME, tool=tool)
+    return _mailbox_entrypoint_reference(tool=tool)
 
 
 def mailbox_processing_skill_reference(*, tool: str | None = None) -> str:
-    """Return the primary projected gateway email-processing skill reference."""
+    """Return the public entrypoint reference for notifier mail rounds."""
 
-    return _mailbox_skill_reference_for_name(MAILBOX_PROCESSING_SKILL_NAME, tool=tool)
+    return _mailbox_entrypoint_reference(tool=tool)
 
 
 def mailbox_gateway_skill_name() -> str:
-    """Return the stable ordinary-mailbox skill name."""
+    """Return the public entrypoint name for ordinary mailbox work."""
 
-    return MAILBOX_COMMS_SKILL_NAME
+    return MAILBOX_AGENT_ENTRYPOINT_NAME
 
 
 def mailbox_processing_skill_name() -> str:
-    """Return the stable gateway email-processing skill name."""
+    """Return the public entrypoint name for notifier mail rounds."""
 
-    return MAILBOX_PROCESSING_SKILL_NAME
+    return MAILBOX_AGENT_ENTRYPOINT_NAME
+
+
+def mailbox_gateway_route_name() -> str:
+    """Return the protected ordinary-mailbox route argument."""
+
+    return MAILBOX_COMMS_ROUTE_NAME
+
+
+def mailbox_processing_route_name() -> str:
+    """Return the protected notifier-round route argument."""
+
+    return MAILBOX_PROCESSING_ROUTE_NAME
 
 
 def mailbox_skill_document_path(
@@ -951,12 +958,9 @@ def mailbox_skills_destination_for_tool(tool: str) -> str:
 
 
 def mailbox_primary_skill_references(*, tool: str | None = None) -> tuple[str, ...]:
-    """Return the visible mailbox skill references for one tool projection contract."""
+    """Return the sole visible mailbox entrypoint reference."""
 
-    return (
-        mailbox_processing_skill_reference(tool=tool),
-        mailbox_gateway_skill_reference(tool=tool),
-    )
+    return (mailbox_processing_skill_reference(tool=tool),)
 
 
 def projected_mailbox_skill_document_path(
@@ -978,21 +982,14 @@ def projected_mailbox_skill_document_path(
 def install_runtime_mailbox_system_skills_for_tool(
     *, tool: str, home_path: Path
 ) -> tuple[str, ...]:
-    """Project runtime-owned mailbox skills into one concrete tool home."""
+    """Install the complete managed-agent pack into one concrete tool home."""
 
     result = install_system_skills_for_home(
         tool=tool,
         home_path=home_path,
-        skill_names=(
-            MAILBOX_PROCESSING_SKILL_NAME,
-            MAILBOX_COMMS_SKILL_NAME,
-            MAILBOX_ADVANCED_USAGE_SKILL_NAME,
-        ),
+        pack_ids=(SYSTEM_SKILL_PACK_AGENT,),
     )
-    return tuple(
-        system_skill_reference_for_name(skill_name, tool=tool)
-        for skill_name in result.resolved_skill_names
-    )
+    return result.public_skill_names
 
 
 def project_runtime_mailbox_system_skills(
@@ -1000,26 +997,20 @@ def project_runtime_mailbox_system_skills(
     *,
     tool: str | None = None,
 ) -> tuple[str, ...]:
-    """Project packaged runtime-owned mailbox skills into one brain home.
-
-    Project the packaged mailbox skill tree only into the visible mailbox path.
-    """
+    """Compose the complete managed-agent pack into an explicit skill root."""
 
     return project_system_skills_to_destination(
         destination_root,
-        tool=tool,
-        skill_names=(
-            MAILBOX_PROCESSING_SKILL_NAME,
-            MAILBOX_COMMS_SKILL_NAME,
-            MAILBOX_ADVANCED_USAGE_SKILL_NAME,
-        ),
+        pack_id=SYSTEM_SKILL_PACK_AGENT,
     )
 
 
-def _mailbox_skill_reference_for_name(skill_name: str, *, tool: str | None = None) -> str:
-    """Return the projected skill reference for one mailbox skill name."""
+def _mailbox_entrypoint_reference(*, tool: str | None = None) -> str:
+    """Return the projected public managed-agent entrypoint reference."""
 
-    return system_skill_reference_for_name(skill_name, tool=tool)
+    if tool is not None:
+        system_skills_destination_for_tool(tool)
+    return MAILBOX_AGENT_ENTRYPOINT_NAME
 
 
 def _resolve_declared_mailbox_root(*, declared_root: str | None, runtime_root: Path) -> Path | None:

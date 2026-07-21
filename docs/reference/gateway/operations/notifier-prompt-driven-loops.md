@@ -27,7 +27,7 @@ There is no hidden loop runner inside the agent. There is no external periodic t
 | Gateway request queue | Admits notifier prompts only when the target session is idle and prompt-ready. |
 | Managed agent | Receives one prompt, processes bounded work, and returns to prompt-ready state by ending the turn. |
 | Generated loop execplan | Defines participant roles, message families, schemas, renderers, on-event skills, on-tick skills, agent bindings, and notifier prompt guidance. |
-| Maintained Houmao mail skills | Own mailbox setup, list/read/send/reply/archive operations, gateway-backed mail rounds, and mailbox lifecycle mechanics. |
+| Maintained Houmao agent entrypoint | Routes verified-agent mailbox setup, list/read/send/reply/archive operations, gateway-backed mail rounds, and mailbox lifecycle mechanics. |
 | Operator | Starts, pauses, resumes, recovers, or stops the loop, and may send explicit prompts when needed. |
 
 The generated loop owns loop semantics. Houmao platform features own transport and wake-up mechanics.
@@ -38,12 +38,13 @@ Mail-driven loops normally use one of three surfaces, depending on who is acting
 
 | Surface | Typical caller | Use |
 | --- | --- | --- |
-| `houmao-process-emails-via-gateway` skill | Agent that was woken by a notifier prompt | Process one notifier-driven mailbox round through the provided gateway base URL. |
-| `houmao-agent-email-comms` skill | Agent or operator-agent doing lower-level mail work | List, read, send, reply, mark, move, or archive mail, including no-gateway fallback when supported. |
+| `$houmao-agent-entrypoint process-emails-via-gateway ...` | Agent that was woken by a notifier prompt | Verify self identity and process one notifier-driven mailbox round through the provided gateway base URL. |
+| `$houmao-agent-entrypoint agent-email-comms ...` | Managed agent doing ordinary mail work | List, read, send, reply, mark, move, or archive mail, including no-gateway fallback when supported. |
+| `$houmao-admin-entrypoint agent-email-comms ...` | Human operator acting through an assistant | Perform ordinary mail work against an explicit managed-agent or mailbox target. |
 | Scoped `houmao-mgr agents single/self ... mail ...` CLI | Human operator, scripts, or external orchestration | Resolve live mailbox posture, inspect mail, send/post/reply, and perform lifecycle updates. |
 | Gateway `/v1/mail/*` HTTP routes | Maintained Houmao skills and tools with a live gateway URL | Transport-neutral live mailbox operations for the attached session. |
 
-Generated loop skills should prefer maintained Houmao skills instead of hand-coding mailbox mechanics. Generated docs may still explain the gateway API contract so maintainers can debug or implement loop-local harness checks around payloads, records, and prompt guidance.
+Generated loop skills should route platform mailbox mechanics through the eligible public Houmao entrypoint instead of invoking protected routines directly or hand-coding mailbox mechanics. Generated docs may still explain the gateway API contract so maintainers can debug or implement loop-local harness checks around payloads, records, and prompt guidance.
 
 ## Gateway Mail API Quick Reference
 

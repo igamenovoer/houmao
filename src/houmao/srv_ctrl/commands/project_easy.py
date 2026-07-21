@@ -46,13 +46,14 @@ def easy_profile_group() -> None:
     "--system-skill-set",
     "system_skill_sets",
     multiple=True,
-    help="Add one packaged Houmao system-skill set to launches from this project profile.",
+    hidden=True,
+    help="Obsolete selector; use --system-skill-pack admin or --system-skill-pack agent.",
 )
 @click.option(
-    "--system-skill",
+    "--system-skill-pack",
     "system_skills",
     multiple=True,
-    help="Add one packaged Houmao system skill to launches from this project profile.",
+    help="Add one complete Houmao actor pack to launches from this project profile.",
 )
 @click.option(
     "--system-skills-mode",
@@ -348,13 +349,14 @@ def create_easy_profile_command(
     "--system-skill-set",
     "system_skill_sets",
     multiple=True,
-    help="Set one packaged Houmao system-skill set in this project profile policy.",
+    hidden=True,
+    help="Obsolete selector; use --system-skill-pack admin or --system-skill-pack agent.",
 )
 @click.option(
-    "--system-skill",
+    "--system-skill-pack",
     "system_skills",
     multiple=True,
-    help="Set one packaged Houmao system skill in this project profile policy.",
+    help="Set one complete Houmao actor pack",
 )
 @click.option(
     "--system-skills-mode",
@@ -835,13 +837,14 @@ def easy_specialist_group() -> None:
     "--system-skill-set",
     "system_skill_sets",
     multiple=True,
-    help="Add one packaged Houmao system-skill set to managed launches from this specialist.",
+    hidden=True,
+    help="Obsolete selector; use --system-skill-pack admin or --system-skill-pack agent.",
 )
 @click.option(
-    "--system-skill",
+    "--system-skill-pack",
     "system_skills",
     multiple=True,
-    help="Add one packaged Houmao system skill to managed launches from this specialist.",
+    help="Add one complete Houmao actor pack",
 )
 @click.option(
     "--system-skills-mode",
@@ -1552,13 +1555,14 @@ def _store_specialist_patch_from_cli(
     "--system-skill-set",
     "system_skill_sets",
     multiple=True,
-    help="Set one packaged Houmao system-skill set in this specialist policy.",
+    hidden=True,
+    help="Obsolete selector; use --system-skill-pack admin or --system-skill-pack agent.",
 )
 @click.option(
-    "--system-skill",
+    "--system-skill-pack",
     "system_skills",
     multiple=True,
-    help="Set one packaged Houmao system skill in this specialist policy.",
+    help="Set one complete Houmao actor pack",
 )
 @click.option(
     "--system-skills-mode",

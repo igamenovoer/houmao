@@ -1,3 +1,5 @@
+"""CLI coverage for actor-oriented system-skill packs."""
+
 from __future__ import annotations
 
 import json
@@ -7,100 +9,33 @@ import subprocess
 import sys
 
 from click.testing import CliRunner
+import pytest
 
+from houmao.agents.system_skill_manifest import load_system_skill_manifest
 from houmao.srv_ctrl.commands.main import cli
 from houmao.version import get_version
 
-_CORE_SET_NAMES = ["core"]
-_EXTENSION_SET_NAMES = ["extensions"]
-_MANAGED_DEFAULT_SET_NAMES = _CORE_SET_NAMES + _EXTENSION_SET_NAMES
-_DEFAULT_SET_NAMES = ["all"]
-_CATALOG_SKILLS = [
-    "houmao-process-emails-via-gateway",
-    "houmao-agent-email-comms",
-    "houmao-adv-usage-pattern",
-    "houmao-utils-workspace-mgr",
-    "houmao-ext-graphing",
-    "houmao-touring",
-    "houmao-mailbox-mgr",
-    "houmao-memory-mgr",
-    "houmao-project-mgr",
-    "houmao-specialist-mgr",
-    "houmao-credential-mgr",
-    "houmao-agent-definition",
-    "houmao-agent-loop-pro",
-    "houmao-agent-loop-lite",
-    "houmao-agent-instance",
-    "houmao-agent-inspect",
-    "houmao-operator-messaging",
-    "houmao-agent-messaging",
-    "houmao-agent-gateway",
-    "houmao-interop-ag-ui",
-]
-_RETIRED_SYSTEM_SKILLS = [
-    "houmao-agent-loop-pairwise",
-    "houmao-agent-loop-pairwise-v2",
-    "houmao-agent-loop-pairwise-v3",
-    "houmao-agent-loop-pairwise-v4",
-    "houmao-agent-loop-pairwise-v5",
-    "houmao-agent-loop-generic",
-    "houmao-agent-ag-ui",
-    "houmao-utils-graphing",
-]
+
+def _invoke_json(*args: str) -> tuple[dict[str, object], str]:
+    """Invoke the manager with JSON output and return its payload and output."""
+
+    result = CliRunner().invoke(cli, ["--print-json", *args])
+    assert result.exit_code == 0, result.output
+    return json.loads(result.output), result.output
 
 
-def _obsolete_system_skill_state_path(home_path: Path) -> Path:
-    return (home_path.resolve() / ".houmao/system-skills/install-state.json").resolve()
-
-
-def _write(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-
-
-_CORE_RESOLVED_SKILLS = [
-    "houmao-process-emails-via-gateway",
-    "houmao-agent-email-comms",
-    "houmao-utils-workspace-mgr",
-    "houmao-mailbox-mgr",
-    "houmao-memory-mgr",
-    "houmao-adv-usage-pattern",
-    "houmao-touring",
-    "houmao-project-mgr",
-    "houmao-specialist-mgr",
-    "houmao-credential-mgr",
-    "houmao-agent-definition",
-    "houmao-agent-loop-pro",
-    "houmao-agent-loop-lite",
-    "houmao-agent-instance",
-    "houmao-agent-inspect",
-    "houmao-operator-messaging",
-    "houmao-agent-messaging",
-    "houmao-agent-gateway",
-    "houmao-interop-ag-ui",
-]
-_DEFAULT_RESOLVED_SKILLS = [
-    *_CORE_RESOLVED_SKILLS,
-    "houmao-ext-graphing",
-]
-_DEFAULT_INSTALLED_CATALOG_ORDER = [
-    skill_name for skill_name in _CATALOG_SKILLS if skill_name in _DEFAULT_RESOLVED_SKILLS
-]
-
-
-def _run_houmao_mgr_module(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-    """Run the package module entrypoint through a fresh Python subprocess."""
+def _run_houmao_mgr_module(*args: str) -> subprocess.CompletedProcess[str]:
+    """Run the package module entrypoint in a fresh Python subprocess."""
 
     repo_root = Path(__file__).resolve().parents[3]
     env = os.environ.copy()
-    pythonpath_entries = [str(repo_root / "src")]
-    existing_pythonpath = env.get("PYTHONPATH")
-    if existing_pythonpath:
-        pythonpath_entries.append(existing_pythonpath)
-    env["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
+    entries = [str(repo_root / "src")]
+    if existing := env.get("PYTHONPATH"):
+        entries.append(existing)
+    env["PYTHONPATH"] = os.pathsep.join(entries)
     return subprocess.run(
         [sys.executable, "-m", "houmao.srv_ctrl", *args],
-        cwd=(repo_root if cwd is None else cwd.resolve()),
+        cwd=repo_root,
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -109,986 +44,357 @@ def _run_houmao_mgr_module(*args: str, cwd: Path | None = None) -> subprocess.Co
     )
 
 
-def test_system_skills_help_lists_commands() -> None:
+def test_system_skills_help_lists_pack_lifecycle_commands() -> None:
     result = CliRunner().invoke(cli, ["system-skills", "--help"])
 
     assert result.exit_code == 0
-    assert "list" in result.output
-    assert "install" in result.output
-    assert "status" in result.output
-    assert "uninstall" in result.output
+    for command in ("list", "install", "status", "upgrade", "uninstall"):
+        assert command in result.output
 
 
-def test_houmao_mgr_module_version_starts_successfully() -> None:
-    result = _run_houmao_mgr_module("--version")
+def test_houmao_mgr_module_starts_with_version_and_system_skills_help() -> None:
+    version = _run_houmao_mgr_module("--version")
+    help_result = _run_houmao_mgr_module("system-skills", "--help")
 
-    assert result.returncode == 0, result.stderr
-    assert get_version() in result.stdout
-
-
-def test_houmao_mgr_module_system_skills_help_starts_successfully() -> None:
-    result = _run_houmao_mgr_module("system-skills", "--help")
-
-    assert result.returncode == 0, result.stderr
-    assert "install" in result.stdout
-    assert "status" in result.stdout
-    assert "uninstall" in result.stdout
+    assert version.returncode == 0, version.stderr
+    assert get_version() in version.stdout
+    assert help_result.returncode == 0, help_result.stderr
+    assert "upgrade" in help_result.stdout
 
 
-def test_houmao_mgr_module_system_skills_install_starts_successfully(tmp_path: Path) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
+def test_system_skills_install_help_exposes_only_pack_selection() -> None:
+    result = CliRunner().invoke(cli, ["system-skills", "install", "--help"])
 
-    result = _run_houmao_mgr_module(
-        "--print-json",
+    assert result.exit_code == 0
+    assert "--pack" in result.output
+    assert "--skill" not in result.output
+    assert "--set" not in result.output
+    assert "claude" in result.output
+    assert "codex" in result.output
+    assert "copilot" in result.output
+    assert "kimi" in result.output
+    assert "universal" in result.output
+
+
+def test_system_skills_list_reports_actor_packs_and_nested_protected_records() -> None:
+    payload, _ = _invoke_json("system-skills", "list")
+
+    packs = payload["packs"]
+    assert isinstance(packs, list)
+    assert [pack["pack_id"] for pack in packs] == ["admin", "agent"]
+    assert [skill["name"] for pack in packs for skill in pack["public_skills"]] == [
+        "houmao-admin-welcome",
+        "houmao-admin-entrypoint",
+        "houmao-agent-entrypoint",
+    ]
+    assert payload["defaults"] == {
+        "cli": ["admin"],
+        "managed_launch": ["agent"],
+        "managed_join": ["agent"],
+    }
+    protected = payload["protected_routines"]
+    assert isinstance(protected, list)
+    assert len(protected) == 18
+    assert all("invocation_designators" in record for record in protected)
+    assert payload["auto_skill_separate"] == "houmao-auto-system-prompt"
+
+
+def test_system_skills_install_defaults_to_admin_pack(tmp_path: Path) -> None:
+    home = tmp_path / "codex-home"
+
+    payload, _ = _invoke_json("system-skills", "install", "--tool", "codex", "--home", str(home))
+
+    assert payload["selected_packs"] == ["admin"]
+    assert payload["public_skills"] == [
+        "houmao-admin-welcome",
+        "houmao-admin-entrypoint",
+    ]
+    assert (home / "skills/houmao-admin-welcome/SKILL.md").is_file()
+    entrypoint = home / "skills/houmao-admin-entrypoint"
+    assert (entrypoint / "SKILL.md").is_file()
+    shared = entrypoint / "subskills/houmao-shared-routines"
+    assert (shared / "SKILL.md").is_file()
+    assert (shared / "subskills/houmao-project-mgr/SKILL.md").is_file()
+    assert not (shared / "subskills/houmao-process-emails-via-gateway").exists()
+    assert not (home / "skills/houmao-project-mgr").exists()
+    assert Path(str(payload["receipt_path"])).is_file()
+
+
+@pytest.mark.parametrize("tool", ["claude", "codex", "copilot", "kimi", "universal"])
+def test_system_skills_install_supports_each_target(tmp_path: Path, tool: str) -> None:
+    home = tmp_path / tool
+
+    payload, _ = _invoke_json(
+        "system-skills",
+        "install",
+        "--tool",
+        tool,
+        "--home",
+        str(home),
+        "--pack",
+        "agent",
+    )
+
+    assert payload["tool"] == tool
+    assert payload["selected_packs"] == ["agent"]
+    assert payload["public_skills"] == ["houmao-agent-entrypoint"]
+    assert (home / "skills/houmao-agent-entrypoint/SKILL.md").is_file()
+
+
+def test_system_skills_install_supports_both_packs_and_deduplicates(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+
+    payload, _ = _invoke_json(
         "system-skills",
         "install",
         "--tool",
         "codex",
         "--home",
-        str(home_path),
-        "--skill",
-        "houmao-specialist-mgr",
+        str(home),
+        "--pack",
+        "agent",
+        "--pack",
+        "admin",
+        "--pack",
+        "agent",
     )
 
-    assert result.returncode == 0, result.stderr
-    payload = json.loads(result.stdout)
-    assert payload["resolved_skills"] == ["houmao-specialist-mgr"]
-    assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
+    assert payload["selected_packs"] == ["agent", "admin"]
+    assert set(payload["public_skills"]) == {
+        "houmao-agent-entrypoint",
+        "houmao-admin-welcome",
+        "houmao-admin-entrypoint",
+    }
 
 
-def test_system_skills_install_help_omits_removed_default_flag() -> None:
-    result = CliRunner().invoke(cli, ["system-skills", "install", "--help"])
+def test_system_skills_symlink_mode_uses_receipt_owned_materialization(tmp_path: Path) -> None:
+    home = tmp_path / "home"
 
-    assert result.exit_code == 0
-    assert "--default" not in result.output
-    assert "--skill-set" in result.output
-    assert "--set " not in result.output
-    assert "universal" in result.output
-    assert "Kimi Code CLI" in result.output
-    assert "legacy" in result.output
-    assert "MoonshotAI `kimi-cli`" in result.output
-    assert "~/.agents/skills" in result.output
-
-
-def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
-    result = CliRunner().invoke(cli, ["--print-json", "system-skills", "list"])
-
-    assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
-    assert [record["name"] for record in payload["skills"]] == _CATALOG_SKILLS
-    assert [record["name"] for record in payload["sets"]] == ["core", "extensions", "all"]
-    assert payload["auto_install"]["cli_default_sets"] == _DEFAULT_SET_NAMES
-    assert payload["auto_install"]["managed_launch_sets"] == _MANAGED_DEFAULT_SET_NAMES
-    assert payload["auto_install"]["managed_join_sets"] == _MANAGED_DEFAULT_SET_NAMES
-    assert payload["retired_skill_names"] == _RETIRED_SYSTEM_SKILLS
-    skill_descriptions = {record["name"]: record["description"] for record in payload["skills"]}
-    assert (
-        "Canonical pre-launch agent-definition skill"
-        in skill_descriptions["houmao-agent-definition"]
+    payload, _ = _invoke_json(
+        "system-skills",
+        "install",
+        "--tool",
+        "codex",
+        "--home",
+        str(home),
+        "--pack",
+        "agent",
+        "--symlink",
     )
-    assert "Compatibility wrapper" in skill_descriptions["houmao-specialist-mgr"]
-    assert "graphing payloads" in skill_descriptions["houmao-ext-graphing"]
-    assert "AG-UI protocol event validation" in skill_descriptions["houmao-interop-ag-ui"]
-    core_record = next(record for record in payload["sets"] if record["name"] == "core")
-    assert core_record["skills"] == _CORE_RESOLVED_SKILLS
-    extensions_record = next(record for record in payload["sets"] if record["name"] == "extensions")
-    assert extensions_record["skills"] == ["houmao-ext-graphing"]
-    all_record = next(record for record in payload["sets"] if record["name"] == "all")
-    assert all_record["skills"] == _DEFAULT_RESOLVED_SKILLS
+
+    public = home / "skills/houmao-agent-entrypoint"
+    assert payload["projection_mode"] == "symlink"
+    assert public.is_symlink()
+    assert public.resolve().is_dir()
+    assert ".houmao/system-skills/codex/materialized" in public.resolve().as_posix()
 
 
-def test_system_skills_install_uses_cli_default_selection_when_selection_is_omitted(
+@pytest.mark.parametrize("selector", ["--skill", "--set", "--skill-set"])
+def test_system_skills_rejects_obsolete_selectors(selector: str, tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        cli,
+        [
+            "system-skills",
+            "install",
+            "--tool",
+            "codex",
+            "--home",
+            str(tmp_path / "home"),
+            selector,
+            "legacy-value",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "selectors were removed" in result.output
+    assert "--pack admin|agent" in result.output
+
+
+@pytest.mark.parametrize(
+    ("pack_id", "message"),
+    [
+        ("unknown", "Unknown system-skill pack"),
+        ("houmao-agent-email-comms", "not an install selector"),
+        ("houmao-shared-routines", "not an install selector"),
+    ],
+)
+def test_system_skills_rejects_unknown_or_protected_pack_selectors(
+    pack_id: str,
+    message: str,
     tmp_path: Path,
 ) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
-    stale_retired_skill = home_path / "skills/houmao-agent-loop-pairwise-v4/SKILL.md"
-    stale_retired_ag_ui_skill = home_path / "skills/houmao-agent-ag-ui/SKILL.md"
-    stale_retired_graphing_skill = home_path / "skills/houmao-utils-graphing/SKILL.md"
-    _write(stale_retired_skill, "stale retired loop skill\n")
-    _write(stale_retired_ag_ui_skill, "stale retired AG-UI skill\n")
-    _write(stale_retired_graphing_skill, "stale retired graphing skill\n")
-
-    install_result = CliRunner().invoke(
+    result = CliRunner().invoke(
         cli,
         [
-            "--print-json",
             "system-skills",
             "install",
             "--tool",
             "codex",
             "--home",
-            str(home_path),
+            str(tmp_path / "home"),
+            "--pack",
+            pack_id,
         ],
     )
 
-    assert install_result.exit_code == 0, install_result.output
-    install_payload = json.loads(install_result.output)
-    assert install_payload["home_path"] == str(home_path)
-    assert install_payload["selected_sets"] == _DEFAULT_SET_NAMES
-    assert install_payload["projection_mode"] == "copy"
-    assert install_payload["resolved_skills"] == _DEFAULT_RESOLVED_SKILLS
-    assert install_payload["removed_retired_skills"] == [
-        "houmao-agent-loop-pairwise-v4",
-        "houmao-agent-ag-ui",
-        "houmao-utils-graphing",
-    ]
-    assert install_payload["removed_retired_projected_relative_dirs"] == [
-        "skills/houmao-agent-loop-pairwise-v4",
-        "skills/houmao-agent-ag-ui",
-        "skills/houmao-utils-graphing",
-    ]
-    assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-mailbox-mgr/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-memory-mgr/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-adv-usage-pattern/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-touring/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-project-mgr/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-credential-mgr/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-agent-definition/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-agent-loop-pro/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-agent-loop-lite/SKILL.md").is_file()
-    for retired_name in _RETIRED_SYSTEM_SKILLS:
-        assert not (home_path / f"skills/{retired_name}").exists()
-    assert (home_path / "skills/houmao-agent-instance/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-agent-inspect/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-operator-messaging/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-agent-messaging/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-agent-gateway/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-interop-ag-ui/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-utils-workspace-mgr/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-ext-graphing/SKILL.md").is_file()
-
-    status_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "status",
-            "--tool",
-            "codex",
-            "--home",
-            str(home_path),
-        ],
-    )
-
-    assert status_result.exit_code == 0, status_result.output
-    status_payload = json.loads(status_result.output)
-    assert status_payload["home_path"] == str(home_path)
-    assert status_payload["installed_skills"] == _DEFAULT_INSTALLED_CATALOG_ORDER
-    assert status_payload["retired_skill_leftovers"] == []
-    assert status_payload["retired_skill_records"] == []
-    assert status_payload["installed_skill_records"] == [
-        {
-            "name": skill_name,
-            "projected_relative_dir": f"skills/{skill_name}",
-            "projection_mode": "copy",
-        }
-        for skill_name in _DEFAULT_INSTALLED_CATALOG_ORDER
-    ]
-    assert (home_path / "skills/houmao-utils-workspace-mgr/SKILL.md").is_file()
+    assert result.exit_code != 0
+    assert message in result.output
 
 
-def test_system_skills_install_status_and_uninstall_support_all_set(tmp_path: Path) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
-
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "install",
-            "--tool",
-            "codex",
-            "--home",
-            str(home_path),
-            "--skill-set",
-            "all",
-        ],
-    )
-
-    assert install_result.exit_code == 0, install_result.output
-    install_payload = json.loads(install_result.output)
-    assert install_payload["selected_sets"] == _DEFAULT_SET_NAMES
-    assert install_payload["resolved_skills"] == _DEFAULT_RESOLVED_SKILLS
-    workspace_skill_dir = home_path / "skills/houmao-utils-workspace-mgr"
-    graphing_skill_dir = home_path / "skills/houmao-ext-graphing"
-    assert (workspace_skill_dir / "SKILL.md").is_file()
-    assert (graphing_skill_dir / "SKILL.md").is_file()
-
-    status_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "status",
-            "--tool",
-            "codex",
-            "--home",
-            str(home_path),
-        ],
-    )
-
-    assert status_result.exit_code == 0, status_result.output
-    status_payload = json.loads(status_result.output)
-    assert status_payload["installed_skills"] == _DEFAULT_INSTALLED_CATALOG_ORDER
-    assert status_payload["retired_skill_leftovers"] == []
-    assert status_payload["installed_skill_records"] == [
-        {
-            "name": skill_name,
-            "projected_relative_dir": f"skills/{skill_name}",
-            "projection_mode": "copy",
-        }
-        for skill_name in _DEFAULT_INSTALLED_CATALOG_ORDER
-    ]
-
-    uninstall_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "uninstall",
-            "--tool",
-            "codex",
-            "--home",
-            str(home_path),
-        ],
-    )
-
-    assert uninstall_result.exit_code == 0, uninstall_result.output
-    uninstall_payload = json.loads(uninstall_result.output)
-    assert "houmao-utils-workspace-mgr" in uninstall_payload["removed_skills"]
-    assert "houmao-ext-graphing" in uninstall_payload["removed_skills"]
-    assert uninstall_payload["removed_retired_skills"] == []
-    assert (
-        "skills/houmao-utils-workspace-mgr" in uninstall_payload["removed_projected_relative_dirs"]
-    )
-    assert "skills/houmao-ext-graphing" in uninstall_payload["removed_projected_relative_dirs"]
-    assert not workspace_skill_dir.exists()
-    assert not graphing_skill_dir.exists()
-
-
-def test_system_skills_install_supports_extensions_set(tmp_path: Path) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
-
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "install",
-            "--tool",
-            "codex",
-            "--home",
-            str(home_path),
-            "--skill-set",
-            "extensions",
-        ],
-    )
-
-    assert install_result.exit_code == 0, install_result.output
-    install_payload = json.loads(install_result.output)
-    assert install_payload["selected_sets"] == _EXTENSION_SET_NAMES
-    assert install_payload["resolved_skills"] == ["houmao-ext-graphing"]
-    assert (home_path / "skills/houmao-ext-graphing/SKILL.md").is_file()
-    assert not (home_path / "skills/houmao-interop-ag-ui").exists()
-
-
-def test_system_skills_install_uses_explicit_home_over_env_redirect(tmp_path: Path) -> None:
-    env_home = (tmp_path / "env-codex-home").resolve()
-    explicit_home = (tmp_path / "explicit-codex-home").resolve()
-
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "install",
-            "--tool",
-            "codex",
-            "--home",
-            str(explicit_home),
-            "--skill",
-            "houmao-specialist-mgr",
-        ],
-        env={"CODEX_HOME": str(env_home)},
-    )
-
-    assert install_result.exit_code == 0, install_result.output
-    install_payload = json.loads(install_result.output)
-    assert install_payload["home_path"] == str(explicit_home)
-    assert (explicit_home / "skills/houmao-specialist-mgr/SKILL.md").is_file()
-    assert not (env_home / "skills/houmao-specialist-mgr").exists()
-
-
-def test_system_skills_install_overwrites_selected_existing_skill_path(tmp_path: Path) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
-    selected_skill_dir = home_path / "skills/houmao-specialist-mgr"
-    selected_skill_path = selected_skill_dir / "SKILL.md"
-    stale_child = selected_skill_dir / "stale.txt"
-    _write(selected_skill_path, "stale selected skill\n")
-    _write(stale_child, "stale child\n")
-
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "install",
-            "--tool",
-            "codex",
-            "--home",
-            str(home_path),
-            "--skill",
-            "houmao-specialist-mgr",
-        ],
-    )
-
-    assert install_result.exit_code == 0, install_result.output
-    install_payload = json.loads(install_result.output)
-    assert install_payload["resolved_skills"] == ["houmao-specialist-mgr"]
-    assert selected_skill_path.is_file()
-    assert selected_skill_path.read_text(encoding="utf-8") != "stale selected skill\n"
-    assert not stale_child.exists()
-
-
-def test_system_skills_status_reports_retired_loop_leftovers(tmp_path: Path) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
-    _write(home_path / "skills/houmao-agent-loop-pairwise-v5/SKILL.md", "retired loop\n")
-    _write(home_path / "skills/houmao-agent-loop-pro/SKILL.md", "current loop\n")
-
-    status_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "status",
-            "--tool",
-            "codex",
-            "--home",
-            str(home_path),
-        ],
-    )
-
-    assert status_result.exit_code == 0, status_result.output
-    payload = json.loads(status_result.output)
-    assert payload["installed_skills"] == ["houmao-agent-loop-pro"]
-    assert payload["retired_skill_leftovers"] == ["houmao-agent-loop-pairwise-v5"]
-    assert payload["retired_skill_records"] == [
-        {
-            "name": "houmao-agent-loop-pairwise-v5",
-            "projected_relative_dir": "skills/houmao-agent-loop-pairwise-v5",
-            "projection_mode": "copy",
-        }
-    ]
-
-
-def test_system_skills_status_ignores_stale_removed_llm_wiki_path(tmp_path: Path) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
-    stale_skill_path = home_path / "skills/houmao-utils-llm-wiki/SKILL.md"
-    _write(stale_skill_path, "stale removed wiki\n")
-
-    status_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "status",
-            "--tool",
-            "codex",
-            "--home",
-            str(home_path),
-        ],
-    )
-
-    assert status_result.exit_code == 0, status_result.output
-    payload = json.loads(status_result.output)
-    assert "houmao-utils-llm-wiki" not in payload["installed_skills"]
-    assert "houmao-utils-llm-wiki" not in payload["retired_skill_leftovers"]
-    assert payload["installed_skill_records"] == []
-    assert payload["retired_skill_records"] == []
-    assert stale_skill_path.is_file()
-
-
-def test_system_skills_uninstall_removes_all_current_skills_and_status_is_empty(
+def test_system_skills_explicit_home_precedes_environment_redirect(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
+    redirected = tmp_path / "redirected"
+    explicit = tmp_path / "explicit"
+    monkeypatch.setenv("CODEX_HOME", str(redirected))
 
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "install",
-            "--tool",
-            "codex",
-            "--home",
-            str(home_path),
-        ],
-    )
-    assert install_result.exit_code == 0, install_result.output
-    _write(home_path / "skills/houmao-agent-loop-generic/SKILL.md", "retired loop\n")
-
-    uninstall_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "uninstall",
-            "--tool",
-            "codex",
-            "--home",
-            str(home_path),
-        ],
+    _invoke_json(
+        "system-skills",
+        "install",
+        "--tool",
+        "codex",
+        "--home",
+        str(explicit),
+        "--pack",
+        "agent",
     )
 
-    assert uninstall_result.exit_code == 0, uninstall_result.output
-    uninstall_payload = json.loads(uninstall_result.output)
-    assert uninstall_payload["tool"] == "codex"
-    assert uninstall_payload["home_path"] == str(home_path)
-    assert uninstall_payload["removed_skills"] == _DEFAULT_INSTALLED_CATALOG_ORDER
-    assert uninstall_payload["removed_projected_relative_dirs"] == [
-        f"skills/{skill_name}" for skill_name in _DEFAULT_INSTALLED_CATALOG_ORDER
-    ]
-    assert uninstall_payload["absent_skills"] == []
-    assert uninstall_payload["absent_projected_relative_dirs"] == []
-    assert uninstall_payload["removed_retired_skills"] == ["houmao-agent-loop-generic"]
-    assert uninstall_payload["removed_retired_projected_relative_dirs"] == [
-        "skills/houmao-agent-loop-generic"
-    ]
-    assert uninstall_payload["absent_retired_skills"] == [
-        name for name in _RETIRED_SYSTEM_SKILLS if name != "houmao-agent-loop-generic"
-    ]
-    assert (home_path / "skills").is_dir()
-    assert not (home_path / "skills/houmao-specialist-mgr").exists()
-
-    status_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "status",
-            "--tool",
-            "codex",
-            "--home",
-            str(home_path),
-        ],
-    )
-    assert status_result.exit_code == 0, status_result.output
-    status_payload = json.loads(status_result.output)
-    assert status_payload["installed_skills"] == []
-    assert status_payload["installed_skill_records"] == []
-    assert status_payload["retired_skill_leftovers"] == []
-    assert status_payload["retired_skill_records"] == []
+    assert (explicit / "skills/houmao-agent-entrypoint").is_dir()
+    assert not redirected.exists()
 
 
-def test_system_skills_uninstall_does_not_create_missing_home(tmp_path: Path) -> None:
-    home_path = (tmp_path / "missing-codex-home").resolve()
-
-    uninstall_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "uninstall",
-            "--tool",
-            "codex",
-            "--home",
-            str(home_path),
-        ],
+def test_system_skills_status_reports_complete_then_drifted(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    _invoke_json(
+        "system-skills",
+        "install",
+        "--tool",
+        "codex",
+        "--home",
+        str(home),
+        "--pack",
+        "agent",
     )
 
-    assert uninstall_result.exit_code == 0, uninstall_result.output
-    uninstall_payload = json.loads(uninstall_result.output)
-    assert uninstall_payload["removed_skills"] == []
-    assert uninstall_payload["removed_projected_relative_dirs"] == []
-    assert uninstall_payload["absent_skills"] == _CATALOG_SKILLS
-    assert uninstall_payload["absent_projected_relative_dirs"] == [
-        f"skills/{skill_name}" for skill_name in _CATALOG_SKILLS
-    ]
-    assert uninstall_payload["absent_retired_skills"] == _RETIRED_SYSTEM_SKILLS
-    assert uninstall_payload["absent_retired_projected_relative_dirs"] == [
-        f"skills/{skill_name}" for skill_name in _RETIRED_SYSTEM_SKILLS
-    ]
-    assert not home_path.exists()
+    complete, _ = _invoke_json("system-skills", "status", "--tool", "codex", "--home", str(home))
+    assert complete["receipt"]["status"] == "current"
+    assert {record["pack_id"]: record["status"] for record in complete["packs"]} == {
+        "admin": "absent",
+        "agent": "complete",
+    }
+
+    skill_path = home / "skills/houmao-agent-entrypoint/SKILL.md"
+    skill_path.write_text(
+        skill_path.read_text(encoding="utf-8") + "\nlocal edit\n", encoding="utf-8"
+    )
+    drifted, _ = _invoke_json("system-skills", "status", "--tool", "codex", "--home", str(home))
+    assert {record["pack_id"]: record["status"] for record in drifted["packs"]}[
+        "agent"
+    ] == "drifted"
 
 
-def test_system_skills_uninstall_preserves_stale_removed_llm_wiki_path(tmp_path: Path) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
-    stale_skill_path = home_path / "skills/houmao-utils-llm-wiki/SKILL.md"
-    _write(stale_skill_path, "stale removed wiki\n")
+def test_system_skills_upgrade_preserves_modified_legacy_paths(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    legacy = home / "skills/houmao-specialist-mgr"
+    legacy.mkdir(parents=True)
+    (legacy / "SKILL.md").write_text("operator customization\n", encoding="utf-8")
 
-    uninstall_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "uninstall",
-            "--tool",
-            "codex",
-            "--home",
-            str(home_path),
-        ],
+    payload, _ = _invoke_json(
+        "system-skills",
+        "upgrade",
+        "--tool",
+        "codex",
+        "--home",
+        str(home),
+        "--pack",
+        "admin",
     )
 
-    assert uninstall_result.exit_code == 0, uninstall_result.output
-    payload = json.loads(uninstall_result.output)
-    assert "houmao-utils-llm-wiki" not in payload["removed_skills"]
-    assert "houmao-utils-llm-wiki" not in payload["removed_retired_skills"]
-    assert "skills/houmao-utils-llm-wiki" not in payload["removed_projected_relative_dirs"]
-    assert "skills/houmao-utils-llm-wiki" not in payload["removed_retired_projected_relative_dirs"]
-    assert stale_skill_path.is_file()
+    assert payload["selected_packs"] == ["admin"]
+    assert payload["legacy_before"]["status"] == "conflicting"
+    assert "skills/houmao-specialist-mgr" in payload["preserved_legacy_paths"]
+    assert (legacy / "SKILL.md").read_text(encoding="utf-8") == "operator customization\n"
 
 
-def test_system_skills_uninstall_uses_explicit_home_over_env_redirect(tmp_path: Path) -> None:
-    env_home = (tmp_path / "env-codex-home").resolve()
-    explicit_home = (tmp_path / "explicit-codex-home").resolve()
-    _write(env_home / "skills/houmao-specialist-mgr/SKILL.md", "env skill\n")
-    _write(explicit_home / "skills/houmao-specialist-mgr/SKILL.md", "explicit skill\n")
+def test_system_skills_upgrade_removes_package_linked_legacy_path(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    legacy = home / "skills/houmao-touring"
+    legacy.parent.mkdir(parents=True)
+    asset_root = Path(load_system_skill_manifest().source_root)
+    legacy.symlink_to(asset_root / "houmao-touring", target_is_directory=True)
 
-    uninstall_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "uninstall",
-            "--tool",
-            "codex",
-            "--home",
-            str(explicit_home),
-        ],
-        env={"CODEX_HOME": str(env_home)},
+    payload, _ = _invoke_json(
+        "system-skills",
+        "upgrade",
+        "--tool",
+        "codex",
+        "--home",
+        str(home),
+        "--pack",
+        "admin",
     )
 
-    assert uninstall_result.exit_code == 0, uninstall_result.output
-    uninstall_payload = json.loads(uninstall_result.output)
-    assert uninstall_payload["home_path"] == str(explicit_home)
-    assert uninstall_payload["removed_skills"] == ["houmao-specialist-mgr"]
-    assert not (explicit_home / "skills/houmao-specialist-mgr").exists()
-    assert (env_home / "skills/houmao-specialist-mgr/SKILL.md").is_file()
+    assert "skills/houmao-touring" in payload["safely_removed_legacy_paths"]
+    assert not legacy.is_symlink()
 
 
-def test_system_skills_uninstall_uses_env_redirect_when_home_is_omitted(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "env-codex-home").resolve()
-    _write(home_path / "skills/houmao-specialist-mgr/SKILL.md", "env skill\n")
-
-    uninstall_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "uninstall",
-            "--tool",
-            "codex",
-        ],
-        env={"CODEX_HOME": str(home_path)},
+def test_system_skills_uninstall_removes_only_selected_owned_pack(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    _invoke_json(
+        "system-skills",
+        "install",
+        "--tool",
+        "codex",
+        "--home",
+        str(home),
+        "--pack",
+        "admin",
+        "--pack",
+        "agent",
     )
 
-    assert uninstall_result.exit_code == 0, uninstall_result.output
-    uninstall_payload = json.loads(uninstall_result.output)
-    assert uninstall_payload["home_path"] == str(home_path)
-    assert uninstall_payload["removed_skills"] == ["houmao-specialist-mgr"]
-    assert not (home_path / "skills/houmao-specialist-mgr").exists()
-
-
-def test_system_skills_install_uses_env_redirect_when_home_is_omitted(tmp_path: Path) -> None:
-    home_path = (tmp_path / "claude-home").resolve()
-
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "install",
-            "--tool",
-            "claude",
-        ],
-        env={"CLAUDE_CONFIG_DIR": str(home_path)},
+    payload, _ = _invoke_json(
+        "system-skills",
+        "uninstall",
+        "--tool",
+        "codex",
+        "--home",
+        str(home),
+        "--pack",
+        "admin",
     )
 
-    assert install_result.exit_code == 0, install_result.output
-    install_payload = json.loads(install_result.output)
-    assert install_payload["home_path"] == str(home_path)
-    assert install_payload["selected_sets"] == _DEFAULT_SET_NAMES
-    assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
+    assert payload["removed_packs"] == ["admin"]
+    assert not (home / "skills/houmao-admin-welcome").exists()
+    assert not (home / "skills/houmao-admin-entrypoint").exists()
+    assert (home / "skills/houmao-agent-entrypoint").is_dir()
+    status, _ = _invoke_json("system-skills", "status", "--tool", "codex", "--home", str(home))
+    assert status["receipt"]["selected_packs"] == ["agent"]
 
 
-def test_system_skills_install_uses_project_scoped_codex_default_home(
-    tmp_path: Path, monkeypatch
-) -> None:
-    expected_home = (tmp_path / ".codex").resolve()
-    monkeypatch.delenv("CODEX_HOME", raising=False)
-    monkeypatch.chdir(tmp_path)
-
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "install",
-            "--tool",
-            "codex",
-        ],
+def test_system_skills_uninstall_without_pack_removes_all_owned_packs(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    _invoke_json(
+        "system-skills",
+        "install",
+        "--tool",
+        "codex",
+        "--home",
+        str(home),
+        "--pack",
+        "admin",
+        "--pack",
+        "agent",
     )
 
-    assert install_result.exit_code == 0, install_result.output
-    install_payload = json.loads(install_result.output)
-    assert install_payload["home_path"] == str(expected_home)
-    assert install_payload["selected_sets"] == _DEFAULT_SET_NAMES
-    assert (expected_home / "skills/houmao-agent-instance/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-agent-inspect/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-operator-messaging/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-agent-messaging/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-agent-gateway/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-interop-ag-ui/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-memory-mgr/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-ext-graphing/SKILL.md").is_file()
+    payload, _ = _invoke_json("system-skills", "uninstall", "--tool", "codex", "--home", str(home))
+
+    assert payload["removed_packs"] == ["admin", "agent"]
+    assert not Path(str(payload["receipt_path"])).exists()
 
 
-def test_system_skills_install_uses_project_scoped_kimi_default_home(
-    tmp_path: Path, monkeypatch
-) -> None:
-    workspace = tmp_path.resolve()
-    expected_home = workspace / ".kimi-code"
-    monkeypatch.delenv("KIMI_CODE_HOME", raising=False)
-    monkeypatch.chdir(workspace)
-
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "install",
-            "--tool",
-            "kimi",
-            "--skill-set",
-            "core",
-        ],
-    )
-
-    assert install_result.exit_code == 0, install_result.output
-    install_payload = json.loads(install_result.output)
-    assert install_payload["home_path"] == str(expected_home)
-    assert (expected_home / "skills/houmao-project-mgr/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-specialist-mgr/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-credential-mgr/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-agent-definition/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-agent-loop-pro/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-agent-loop-lite/SKILL.md").is_file()
-
-
-def test_system_skills_install_uses_kimi_env_redirect_when_home_is_omitted(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "kimi-home").resolve()
-
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "install",
-            "--tool",
-            "kimi",
-            "--skill",
-            "houmao-agent-definition",
-        ],
-        env={"KIMI_CODE_HOME": str(home_path)},
-    )
-
-    assert install_result.exit_code == 0, install_result.output
-    install_payload = json.loads(install_result.output)
-    assert install_payload["home_path"] == str(home_path)
-    assert install_payload["projected_relative_dirs"] == ["skills/houmao-agent-definition"]
-    assert (home_path / "skills/houmao-agent-definition/SKILL.md").is_file()
-
-
-def test_system_skills_install_uses_user_agents_home_for_universal_default_home(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    workspace = tmp_path / "workspace"
-    user_home = tmp_path / "user-home"
-    expected_home = user_home / ".agents"
-    workspace.mkdir()
-    user_home.mkdir()
-    monkeypatch.setenv("HOME", str(user_home))
-    monkeypatch.chdir(workspace)
-
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "install",
-            "--tool",
-            "universal",
-            "--skill",
-            "houmao-agent-definition",
-        ],
-    )
-
-    assert install_result.exit_code == 0, install_result.output
-    install_payload = json.loads(install_result.output)
-    assert install_payload["tool"] == "universal"
-    assert install_payload["home_path"] == str(expected_home.resolve())
-    assert install_payload["projected_relative_dirs"] == ["skills/houmao-agent-definition"]
-    assert (expected_home / "skills/houmao-agent-definition/SKILL.md").is_file()
-    assert not (workspace / ".agents").exists()
-
-
-def test_system_skills_install_explicit_universal_home_reports_skill_root(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "shared-agents").resolve()
-
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-plain",
-            "system-skills",
-            "install",
-            "--tool",
-            "universal",
-            "--home",
-            str(home_path),
-            "--skill",
-            "houmao-agent-definition",
-        ],
-    )
-
-    assert install_result.exit_code == 0, install_result.output
-    assert f"Home: {home_path}" in install_result.output
-    assert f"Skill root: {home_path / 'skills'}" in install_result.output
-    assert "Projected path:" not in install_result.output
-    assert (home_path / "skills/houmao-agent-definition/SKILL.md").is_file()
-
-
-def test_system_skills_install_plain_reports_single_kimi_projected_skill_path_and_note(
-    tmp_path: Path, monkeypatch
-) -> None:
-    workspace = tmp_path.resolve()
-    expected_home = workspace / ".kimi-code"
-    monkeypatch.delenv("KIMI_CODE_HOME", raising=False)
-    monkeypatch.chdir(workspace)
-
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-plain",
-            "system-skills",
-            "install",
-            "--tool",
-            "kimi",
-            "--skill",
-            "houmao-specialist-mgr",
-        ],
-    )
-
-    assert install_result.exit_code == 0, install_result.output
-    assert f"Home: {expected_home}" in install_result.output
-    assert (
-        f"Projected path: {expected_home / 'skills/houmao-specialist-mgr'}" in install_result.output
-    )
-    assert "Projection mode: copy" in install_result.output
-    assert "Kimi discovery: this command projects files only" in install_result.output
-    assert "same `KIMI_CODE_HOME`" in install_result.output
-    assert "`--skills-dir`" in install_result.output
-    assert "not arbitrary `KIMI_CODE_HOME/skills` automatically" not in install_result.output
-
-
-def test_system_skills_install_explicit_kimi_home_does_not_mutate_config(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "external-kimi-home").resolve()
-    config_path = home_path / "config.toml"
-    _write(config_path, 'default_model = "kimi-code/default"\n')
-
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "install",
-            "--tool",
-            "kimi",
-            "--home",
-            str(home_path),
-            "--skill",
-            "houmao-credential-mgr",
-        ],
-    )
-
-    assert install_result.exit_code == 0, install_result.output
-    assert (home_path / "skills/houmao-credential-mgr/SKILL.md").is_file()
-    assert config_path.read_text(encoding="utf-8") == 'default_model = "kimi-code/default"\n'
-
-
-def test_system_skills_install_uses_project_scoped_copilot_default_home(
-    tmp_path: Path, monkeypatch
-) -> None:
-    workspace = tmp_path.resolve()
-    expected_home = workspace / ".github"
-    monkeypatch.delenv("COPILOT_HOME", raising=False)
-    monkeypatch.chdir(workspace)
-
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "install",
-            "--tool",
-            "copilot",
-            "--skill-set",
-            "core",
-        ],
-    )
-
-    assert install_result.exit_code == 0, install_result.output
-    install_payload = json.loads(install_result.output)
-    assert install_payload["home_path"] == str(expected_home)
-    assert (expected_home / "skills/houmao-project-mgr/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-specialist-mgr/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-credential-mgr/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-agent-definition/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-agent-loop-pro/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-agent-loop-lite/SKILL.md").is_file()
-
-
-def test_system_skills_install_supports_comma_separated_tools_with_project_defaults(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    workspace = tmp_path.resolve()
-    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
-    monkeypatch.delenv("CODEX_HOME", raising=False)
-    monkeypatch.delenv("COPILOT_HOME", raising=False)
-    monkeypatch.delenv("KIMI_CODE_HOME", raising=False)
-    monkeypatch.chdir(workspace)
-
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "install",
-            "--tool",
-            "claude, codex,copilot,kimi",
-            "--skill-set",
-            "core",
-        ],
-    )
-
-    assert install_result.exit_code == 0, install_result.output
-    payload = json.loads(install_result.output)
-    assert payload["tools"] == ["claude", "codex", "copilot", "kimi"]
-    installations = {record["tool"]: record for record in payload["installations"]}
-    assert installations["claude"]["home_path"] == str(workspace / ".claude")
-    assert installations["codex"]["home_path"] == str(workspace / ".codex")
-    assert installations["copilot"]["home_path"] == str(workspace / ".github")
-    assert installations["kimi"]["home_path"] == str(workspace / ".kimi-code")
-    for record in installations.values():
-        assert record["selected_sets"] == ["core"]
-        assert record["explicit_skills"] == []
-        assert record["projection_mode"] == "copy"
-        assert record["resolved_skills"] == _CORE_RESOLVED_SKILLS
-    assert (workspace / ".claude/skills/houmao-project-mgr/SKILL.md").is_file()
-    assert (workspace / ".codex/skills/houmao-project-mgr/SKILL.md").is_file()
-    assert (workspace / ".github/skills/houmao-project-mgr/SKILL.md").is_file()
-    assert (workspace / ".kimi-code/skills/houmao-project-mgr/SKILL.md").is_file()
-    assert not (workspace / ".claude/skills/houmao-ext-graphing").exists()
-    assert not (workspace / ".codex/skills/houmao-ext-graphing").exists()
-    assert not (workspace / ".github/skills/houmao-ext-graphing").exists()
-    assert not (workspace / ".kimi-code/skills/houmao-ext-graphing").exists()
-
-
-def test_system_skills_install_supports_comma_separated_tools_with_universal_default(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    workspace = tmp_path.resolve()
-    user_home = workspace / "user-home"
-    user_home.mkdir()
-    monkeypatch.delenv("CODEX_HOME", raising=False)
-    monkeypatch.setenv("HOME", str(user_home))
-    monkeypatch.chdir(workspace)
-
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "install",
-            "--tool",
-            "codex,universal",
-            "--skill-set",
-            "core",
-        ],
-    )
-
-    assert install_result.exit_code == 0, install_result.output
-    payload = json.loads(install_result.output)
-    assert payload["tools"] == ["codex", "universal"]
-    installations = {record["tool"]: record for record in payload["installations"]}
-    assert installations["codex"]["home_path"] == str(workspace / ".codex")
-    assert installations["universal"]["home_path"] == str(user_home / ".agents")
-    assert installations["codex"]["resolved_skills"] == _CORE_RESOLVED_SKILLS
-    assert installations["universal"]["resolved_skills"] == _CORE_RESOLVED_SKILLS
-    assert (workspace / ".codex/skills/houmao-project-mgr/SKILL.md").is_file()
-    assert (user_home / ".agents/skills/houmao-project-mgr/SKILL.md").is_file()
-
-
-def test_system_skills_install_plain_reports_multi_tool_projection_roots(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    workspace = tmp_path.resolve()
-    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
-    monkeypatch.delenv("CODEX_HOME", raising=False)
-    monkeypatch.delenv("KIMI_CODE_HOME", raising=False)
-    monkeypatch.chdir(workspace)
-
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-plain",
-            "system-skills",
-            "install",
-            "--tool",
-            "codex,claude,kimi",
-            "--skill",
-            "houmao-specialist-mgr",
-            "--symlink",
-        ],
-    )
-
-    assert install_result.exit_code == 0, install_result.output
-    assert "  - codex:" in install_result.output
-    assert f"home: {workspace / '.codex'}" in install_result.output
-    assert f"skill root: {workspace / '.codex/skills'}" in install_result.output
-    assert "  - claude:" in install_result.output
-    assert f"home: {workspace / '.claude'}" in install_result.output
-    assert f"skill root: {workspace / '.claude/skills'}" in install_result.output
-    assert "  - kimi:" in install_result.output
-    assert f"home: {workspace / '.kimi-code'}" in install_result.output
-    assert f"skill root: {workspace / '.kimi-code/skills'}" in install_result.output
-    assert "Kimi discovery: this command projects files only" in install_result.output
-    assert "Projection mode: symlink" in install_result.output
-
-
-def test_system_skills_install_rejects_multi_tool_home_before_mutation(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    workspace = tmp_path.resolve()
-    explicit_home = workspace / "explicit-home"
-    monkeypatch.chdir(workspace)
-
+def test_system_skills_rejects_one_home_for_multiple_tools(tmp_path: Path) -> None:
     result = CliRunner().invoke(
         cli,
         [
@@ -1097,761 +403,11 @@ def test_system_skills_install_rejects_multi_tool_home_before_mutation(
             "--tool",
             "codex,claude",
             "--home",
-            str(explicit_home),
-            "--skill-set",
-            "core",
+            str(tmp_path / "home"),
+            "--pack",
+            "agent",
         ],
     )
 
     assert result.exit_code != 0
-    assert "--home can only be used when --tool names exactly one tool" in result.output
-    assert not explicit_home.exists()
-    assert not (workspace / ".codex").exists()
-    assert not (workspace / ".claude").exists()
-
-
-def test_system_skills_install_rejects_malformed_multi_tool_list_before_mutation(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    workspace = tmp_path.resolve()
-    monkeypatch.chdir(workspace)
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "system-skills",
-            "install",
-            "--tool",
-            "codex,,kimi",
-            "--skill",
-            "houmao-specialist-mgr",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "comma-separated tool lists cannot contain empty entries" in result.output
-    assert not (workspace / ".codex").exists()
-    assert not (workspace / ".kimi-code").exists()
-
-
-def test_system_skills_install_rejects_duplicate_multi_tool_entries_before_mutation(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    workspace = tmp_path.resolve()
-    monkeypatch.chdir(workspace)
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "system-skills",
-            "install",
-            "--tool",
-            "codex,codex",
-            "--skill",
-            "houmao-specialist-mgr",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "Duplicate tool `codex`" in result.output
-    assert not (workspace / ".codex").exists()
-
-
-def test_system_skills_install_rejects_kimi_code_selector_before_mutation(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    workspace = tmp_path.resolve()
-    monkeypatch.chdir(workspace)
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "system-skills",
-            "install",
-            "--tool",
-            "kimi-code",
-            "--skill",
-            "houmao-agent-definition",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "Unsupported system-skill target `kimi-code`" in result.output
-    assert "Use `kimi` for Kimi Code CLI" in result.output
-    assert "legacy MoonshotAI `kimi-cli` is not supported" in result.output
-    assert not (workspace / ".kimi-code").exists()
-
-
-def test_system_skills_uninstall_supports_comma_separated_tools_with_project_defaults(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    workspace = tmp_path.resolve()
-    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
-    monkeypatch.delenv("CODEX_HOME", raising=False)
-    monkeypatch.delenv("COPILOT_HOME", raising=False)
-    monkeypatch.delenv("KIMI_CODE_HOME", raising=False)
-    monkeypatch.chdir(workspace)
-    _write(workspace / ".claude/skills/houmao-project-mgr/SKILL.md", "claude skill\n")
-    _write(workspace / ".codex/skills/houmao-project-mgr/SKILL.md", "codex skill\n")
-    _write(workspace / ".github/skills/houmao-project-mgr/SKILL.md", "copilot skill\n")
-    _write(workspace / ".kimi-code/skills/houmao-project-mgr/SKILL.md", "kimi skill\n")
-
-    uninstall_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "uninstall",
-            "--tool",
-            "claude, codex,copilot,kimi",
-        ],
-    )
-
-    assert uninstall_result.exit_code == 0, uninstall_result.output
-    payload = json.loads(uninstall_result.output)
-    assert payload["tools"] == ["claude", "codex", "copilot", "kimi"]
-    uninstallations = {record["tool"]: record for record in payload["uninstallations"]}
-    assert uninstallations["claude"]["home_path"] == str(workspace / ".claude")
-    assert uninstallations["codex"]["home_path"] == str(workspace / ".codex")
-    assert uninstallations["copilot"]["home_path"] == str(workspace / ".github")
-    assert uninstallations["kimi"]["home_path"] == str(workspace / ".kimi-code")
-    for record in uninstallations.values():
-        assert record["removed_skills"] == ["houmao-project-mgr"]
-    assert not (workspace / ".claude/skills/houmao-project-mgr").exists()
-    assert not (workspace / ".codex/skills/houmao-project-mgr").exists()
-    assert not (workspace / ".github/skills/houmao-project-mgr").exists()
-    assert not (workspace / ".kimi-code/skills/houmao-project-mgr").exists()
-
-
-def test_system_skills_uninstall_supports_comma_separated_tools_with_universal_default(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    workspace = tmp_path.resolve()
-    user_home = workspace / "user-home"
-    user_home.mkdir()
-    monkeypatch.delenv("CODEX_HOME", raising=False)
-    monkeypatch.setenv("HOME", str(user_home))
-    monkeypatch.chdir(workspace)
-    _write(workspace / ".codex/skills/houmao-project-mgr/SKILL.md", "codex skill\n")
-    _write(user_home / ".agents/skills/houmao-project-mgr/SKILL.md", "universal skill\n")
-
-    uninstall_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "uninstall",
-            "--tool",
-            "codex,universal",
-        ],
-    )
-
-    assert uninstall_result.exit_code == 0, uninstall_result.output
-    payload = json.loads(uninstall_result.output)
-    assert payload["tools"] == ["codex", "universal"]
-    uninstallations = {record["tool"]: record for record in payload["uninstallations"]}
-    assert uninstallations["codex"]["home_path"] == str(workspace / ".codex")
-    assert uninstallations["universal"]["home_path"] == str(user_home / ".agents")
-    assert uninstallations["codex"]["removed_skills"] == ["houmao-project-mgr"]
-    assert uninstallations["universal"]["removed_skills"] == ["houmao-project-mgr"]
-    assert not (workspace / ".codex/skills/houmao-project-mgr").exists()
-    assert not (user_home / ".agents/skills/houmao-project-mgr").exists()
-
-
-def test_system_skills_uninstall_plain_reports_multi_tool_projection_roots(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    workspace = tmp_path.resolve()
-    monkeypatch.delenv("CODEX_HOME", raising=False)
-    monkeypatch.delenv("KIMI_CODE_HOME", raising=False)
-    monkeypatch.chdir(workspace)
-    _write(workspace / ".codex/skills/houmao-project-mgr/SKILL.md", "codex skill\n")
-    _write(workspace / ".kimi-code/skills/houmao-project-mgr/SKILL.md", "kimi skill\n")
-
-    uninstall_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-plain",
-            "system-skills",
-            "uninstall",
-            "--tool",
-            "codex,kimi",
-        ],
-    )
-
-    assert uninstall_result.exit_code == 0, uninstall_result.output
-    assert "  - codex:" in uninstall_result.output
-    assert f"removed root: {workspace / '.codex/skills'}" in uninstall_result.output
-    assert "  - kimi:" in uninstall_result.output
-    assert f"home: {workspace / '.kimi-code'}" in uninstall_result.output
-    assert f"removed root: {workspace / '.kimi-code/skills'}" in uninstall_result.output
-    assert "Kimi discovery: this command projects files only" in uninstall_result.output
-
-
-def test_system_skills_uninstall_kimi_explicit_home_preserves_config(tmp_path: Path) -> None:
-    home_path = (tmp_path / "kimi-home").resolve()
-    _write(home_path / "skills/houmao-agent-definition/SKILL.md", "kimi skill\n")
-    _write(home_path / "skills/custom-user-skill/SKILL.md", "custom skill\n")
-    _write(home_path / "config.toml", 'default_model = "kimi-code/default"\n')
-
-    uninstall_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "uninstall",
-            "--tool",
-            "kimi",
-            "--home",
-            str(home_path),
-        ],
-    )
-
-    assert uninstall_result.exit_code == 0, uninstall_result.output
-    payload = json.loads(uninstall_result.output)
-    assert payload["home_path"] == str(home_path)
-    assert payload["removed_skills"] == ["houmao-agent-definition"]
-    assert payload["removed_projected_relative_dirs"] == ["skills/houmao-agent-definition"]
-    assert not (home_path / "skills/houmao-agent-definition").exists()
-    assert (home_path / "skills/custom-user-skill/SKILL.md").is_file()
-    assert (home_path / "config.toml").read_text(encoding="utf-8") == (
-        'default_model = "kimi-code/default"\n'
-    )
-
-
-def test_system_skills_uninstall_rejects_multi_tool_home_before_mutation(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    workspace = tmp_path.resolve()
-    explicit_home = workspace / "explicit-home"
-    monkeypatch.chdir(workspace)
-    _write(workspace / ".codex/skills/houmao-project-mgr/SKILL.md", "codex skill\n")
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "system-skills",
-            "uninstall",
-            "--tool",
-            "codex,claude",
-            "--home",
-            str(explicit_home),
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "--home can only be used when --tool names exactly one tool" in result.output
-    assert (workspace / ".codex/skills/houmao-project-mgr/SKILL.md").is_file()
-    assert not explicit_home.exists()
-
-
-def test_system_skills_uninstall_rejects_malformed_multi_tool_list_before_mutation(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    workspace = tmp_path.resolve()
-    monkeypatch.chdir(workspace)
-    _write(workspace / ".codex/skills/houmao-project-mgr/SKILL.md", "codex skill\n")
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "system-skills",
-            "uninstall",
-            "--tool",
-            "codex,,kimi",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "comma-separated tool lists cannot contain empty entries" in result.output
-    assert (workspace / ".codex/skills/houmao-project-mgr/SKILL.md").is_file()
-
-
-def test_system_skills_uninstall_rejects_duplicate_multi_tool_entries_before_mutation(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    workspace = tmp_path.resolve()
-    monkeypatch.chdir(workspace)
-    _write(workspace / ".codex/skills/houmao-project-mgr/SKILL.md", "codex skill\n")
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "system-skills",
-            "uninstall",
-            "--tool",
-            "codex,codex",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "Duplicate tool `codex`" in result.output
-    assert (workspace / ".codex/skills/houmao-project-mgr/SKILL.md").is_file()
-
-
-def test_system_skills_uninstall_rejects_install_only_selection_flags() -> None:
-    for flag, value in (
-        ("--skill", "houmao-specialist-mgr"),
-        ("--skill-set", "core"),
-        ("--set", "core"),
-    ):
-        result = CliRunner().invoke(
-            cli,
-            [
-                "system-skills",
-                "uninstall",
-                "--tool",
-                "codex",
-                flag,
-                value,
-            ],
-        )
-
-        assert result.exit_code != 0
-        assert "No such option" in result.output
-        assert flag in result.output
-
-    for flag in ("--default", "--symlink"):
-        result = CliRunner().invoke(
-            cli,
-            [
-                "system-skills",
-                "uninstall",
-                "--tool",
-                "codex",
-                flag,
-            ],
-        )
-
-        assert result.exit_code != 0
-        assert "No such option" in result.output
-        assert flag in result.output
-
-
-def test_system_skills_install_rejects_unknown_skill_set_before_multi_tool_mutation(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    workspace = tmp_path.resolve()
-    monkeypatch.chdir(workspace)
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "system-skills",
-            "install",
-            "--tool",
-            "codex,kimi",
-            "--skill-set",
-            "unknown-set",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "Unknown system-skill set `unknown-set`" in result.output
-    assert not (workspace / ".codex").exists()
-    assert not (workspace / ".kimi-code").exists()
-
-
-def test_system_skills_install_uses_copilot_env_redirect_when_home_is_omitted(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "copilot-home").resolve()
-
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "install",
-            "--tool",
-            "copilot",
-            "--skill",
-            "houmao-specialist-mgr",
-        ],
-        env={"COPILOT_HOME": str(home_path)},
-    )
-
-    assert install_result.exit_code == 0, install_result.output
-    install_payload = json.loads(install_result.output)
-    assert install_payload["home_path"] == str(home_path)
-    assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
-
-
-def test_system_skills_install_uses_explicit_copilot_home_over_env_redirect(
-    tmp_path: Path,
-) -> None:
-    env_home = (tmp_path / "env-copilot-home").resolve()
-    user_home = (tmp_path / "user-home").resolve()
-    explicit_home = user_home / ".copilot"
-
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "install",
-            "--tool",
-            "copilot",
-            "--home",
-            "~/.copilot",
-            "--skill",
-            "houmao-agent-messaging",
-        ],
-        env={"COPILOT_HOME": str(env_home), "HOME": str(user_home)},
-    )
-
-    assert install_result.exit_code == 0, install_result.output
-    install_payload = json.loads(install_result.output)
-    assert install_payload["home_path"] == str(explicit_home)
-    assert (explicit_home / "skills/houmao-agent-messaging/SKILL.md").is_file()
-    assert not (env_home / "skills/houmao-agent-messaging").exists()
-
-
-def test_system_skills_status_reports_missing_state_for_project_default_home(
-    tmp_path: Path, monkeypatch
-) -> None:
-    expected_home = (tmp_path / ".codex").resolve()
-    monkeypatch.delenv("CODEX_HOME", raising=False)
-    monkeypatch.chdir(tmp_path)
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "status",
-            "--tool",
-            "codex",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
-    assert payload["tool"] == "codex"
-    assert payload["home_path"] == str(expected_home)
-    assert payload["installed_skills"] == []
-    assert payload["installed_skill_records"] == []
-
-
-def test_system_skills_status_reports_project_scoped_copilot_default_home(
-    tmp_path: Path, monkeypatch
-) -> None:
-    expected_home = (tmp_path / ".github").resolve()
-    monkeypatch.delenv("COPILOT_HOME", raising=False)
-    monkeypatch.chdir(tmp_path)
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "status",
-            "--tool",
-            "copilot",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
-    assert payload["tool"] == "copilot"
-    assert payload["home_path"] == str(expected_home)
-    assert payload["installed_skills"] == []
-    assert payload["installed_skill_records"] == []
-
-
-def test_system_skills_status_and_uninstall_use_explicit_universal_home(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "shared-agents").resolve()
-    _write(home_path / "skills/houmao-specialist-mgr/SKILL.md", "universal skill\n")
-
-    status_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "status",
-            "--tool",
-            "universal",
-            "--home",
-            str(home_path),
-        ],
-    )
-
-    assert status_result.exit_code == 0, status_result.output
-    status_payload = json.loads(status_result.output)
-    assert status_payload["tool"] == "universal"
-    assert status_payload["home_path"] == str(home_path)
-    assert status_payload["installed_skills"] == ["houmao-specialist-mgr"]
-    assert status_payload["projected_relative_dirs"] == ["skills/houmao-specialist-mgr"]
-
-    uninstall_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "uninstall",
-            "--tool",
-            "universal",
-            "--home",
-            str(home_path),
-        ],
-    )
-
-    assert uninstall_result.exit_code == 0, uninstall_result.output
-    uninstall_payload = json.loads(uninstall_result.output)
-    assert uninstall_payload["tool"] == "universal"
-    assert uninstall_payload["home_path"] == str(home_path)
-    assert uninstall_payload["removed_skills"] == ["houmao-specialist-mgr"]
-    assert not (home_path / "skills/houmao-specialist-mgr").exists()
-
-
-def test_system_skills_status_reports_kimi_env_redirect_home_and_note(tmp_path: Path) -> None:
-    home_path = (tmp_path / "kimi-home").resolve()
-    _write(home_path / "skills/houmao-specialist-mgr/SKILL.md", "kimi skill\n")
-
-    status_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-plain",
-            "system-skills",
-            "status",
-            "--tool",
-            "kimi",
-        ],
-        env={"KIMI_CODE_HOME": str(home_path)},
-    )
-
-    assert status_result.exit_code == 0, status_result.output
-    assert f"Home: {home_path}" in status_result.output
-    assert "  - houmao-specialist-mgr (copy): skills/houmao-specialist-mgr" in status_result.output
-    assert "Kimi discovery: this command projects files only" in status_result.output
-    assert "same `KIMI_CODE_HOME`" in status_result.output
-    assert "`--skills-dir`" in status_result.output
-    assert "not arbitrary `KIMI_CODE_HOME/skills` automatically" not in status_result.output
-
-
-def test_system_skills_status_reports_env_redirect_home_when_omitted(tmp_path: Path) -> None:
-    home_path = (tmp_path / "claude-home").resolve()
-
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "install",
-            "--tool",
-            "claude",
-            "--skill",
-            "houmao-specialist-mgr",
-        ],
-        env={"CLAUDE_CONFIG_DIR": str(home_path)},
-    )
-    assert install_result.exit_code == 0, install_result.output
-
-    status_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "status",
-            "--tool",
-            "claude",
-        ],
-        env={"CLAUDE_CONFIG_DIR": str(home_path)},
-    )
-
-    assert status_result.exit_code == 0, status_result.output
-    status_payload = json.loads(status_result.output)
-    assert status_payload["home_path"] == str(home_path)
-    assert status_payload["installed_skills"] == ["houmao-specialist-mgr"]
-
-
-def test_system_skills_install_supports_symlink_mode_and_status_reports_it(tmp_path: Path) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
-
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "install",
-            "--tool",
-            "codex",
-            "--home",
-            str(home_path),
-            "--skill",
-            "houmao-specialist-mgr",
-            "--symlink",
-        ],
-    )
-
-    assert install_result.exit_code == 0, install_result.output
-    install_payload = json.loads(install_result.output)
-    assert install_payload["projection_mode"] == "symlink"
-    assert install_payload["resolved_skills"] == ["houmao-specialist-mgr"]
-    assert (home_path / "skills/houmao-specialist-mgr").is_symlink()
-
-    status_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "status",
-            "--tool",
-            "codex",
-            "--home",
-            str(home_path),
-        ],
-    )
-
-    assert status_result.exit_code == 0, status_result.output
-    status_payload = json.loads(status_result.output)
-    assert status_payload["installed_skills"] == ["houmao-specialist-mgr"]
-    assert status_payload["installed_skill_records"] == [
-        {
-            "name": "houmao-specialist-mgr",
-            "projected_relative_dir": "skills/houmao-specialist-mgr",
-            "projection_mode": "symlink",
-        }
-    ]
-
-
-def test_system_skills_status_ignores_stale_legacy_state_without_current_paths(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
-    state_path = _obsolete_system_skill_state_path(home_path)
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(
-        json.dumps(
-            {
-                "schema_version": 2,
-                "tool": "codex",
-                "installed_at": "2026-04-09T00:00:00Z",
-                "installed_skills": [
-                    {
-                        "name": "houmao-specialist-mgr",
-                        "asset_subpath": "houmao-specialist-mgr",
-                        "projected_relative_dir": "skills/houmao-specialist-mgr",
-                        "projection_mode": "copy",
-                        "content_digest": "stale",
-                    }
-                ],
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    status_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "status",
-            "--tool",
-            "codex",
-            "--home",
-            str(home_path),
-        ],
-    )
-
-    assert status_result.exit_code == 0, status_result.output
-    status_payload = json.loads(status_result.output)
-    assert status_payload["installed_skills"] == []
-    assert status_payload["installed_skill_records"] == []
-
-
-def test_system_skills_install_rejects_removed_default_flag() -> None:
-    result = CliRunner().invoke(
-        cli,
-        [
-            "system-skills",
-            "install",
-            "--tool",
-            "codex",
-            "--default",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "No such option" in result.output
-    assert "--default" in result.output
-
-
-def test_system_skills_install_rejects_removed_set_flag() -> None:
-    result = CliRunner().invoke(
-        cli,
-        [
-            "system-skills",
-            "install",
-            "--tool",
-            "codex",
-            "--set",
-            "core",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "No such option" in result.output
-    assert "--set" in result.output
-
-
-def test_system_skills_install_rejects_superseded_current_skill_names(tmp_path: Path) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
-
-    for legacy_name in (
-        "houmao-manage-specialist",
-        "houmao-manage-credentials",
-        "houmao-manage-agent-definition",
-        "houmao-manage-agent-instance",
-    ):
-        result = CliRunner().invoke(
-            cli,
-            [
-                "system-skills",
-                "install",
-                "--tool",
-                "codex",
-                "--home",
-                str(home_path),
-                "--skill",
-                legacy_name,
-            ],
-        )
-
-        assert result.exit_code != 0
-        assert f"Unknown system skill `{legacy_name}`" in result.output
-
-
-def test_system_skills_install_rejects_removed_llm_wiki_before_mutation(tmp_path: Path) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "system-skills",
-            "install",
-            "--tool",
-            "codex",
-            "--home",
-            str(home_path),
-            "--skill",
-            "houmao-utils-llm-wiki",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "Unknown system skill `houmao-utils-llm-wiki`" in result.output
-    assert not home_path.exists()
+    assert "--home can only be used" in result.output

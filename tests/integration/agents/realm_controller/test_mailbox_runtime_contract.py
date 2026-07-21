@@ -40,6 +40,7 @@ from houmao.agents.realm_controller.runtime import (
     resume_runtime_session,
     start_runtime_session,
 )
+from houmao.agents.system_skills import SYSTEM_SKILL_AGENT_ENTRYPOINT
 from houmao.agents.mailbox_runtime_models import (
     FilesystemMailboxDeclarativeConfig,
     FilesystemMailboxResolvedConfig,
@@ -73,12 +74,12 @@ launch:
   env_injection:
     mode: home_dotenv
     env_file_in_home: .env
-config_projection:
+setup_projection:
   destination: .
 skills_projection:
   destination: skills
   mode: symlink
-credential_projection:
+auth_projection:
   files_dir: files
   file_mappings: []
   env:
@@ -151,8 +152,8 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
             runtime_root=runtime_root,
             tool="codex",
             skills=["skill-a"],
-            setup="default",
-            auth="personal-a",
+            config_profile="default",
+            credential_profile="personal-a",
             mailbox=FilesystemMailboxDeclarativeConfig(
                 transport="filesystem",
                 principal_id="HOUMAO-research",
@@ -163,15 +164,16 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
         )
     )
 
-    visible_processing_skill = (
-        build_result.home_path / "skills/houmao-process-emails-via-gateway/SKILL.md"
-    )
-    visible_gateway_skill = build_result.home_path / "skills/houmao-agent-email-comms/SKILL.md"
-    visible_mailbox_mgr_skill = build_result.home_path / "skills/houmao-mailbox-mgr/SKILL.md"
-    visible_memory_mgr_skill = build_result.home_path / "skills/houmao-memory-mgr/SKILL.md"
+    entrypoint_root = build_result.home_path / "skills" / SYSTEM_SKILL_AGENT_ENTRYPOINT
+    shared_routines_root = entrypoint_root / "subskills/houmao-shared-routines/subskills"
+    visible_processing_skill = shared_routines_root / "houmao-process-emails-via-gateway/SKILL.md"
+    visible_gateway_skill = shared_routines_root / "houmao-agent-email-comms/SKILL.md"
+    visible_mailbox_mgr_skill = shared_routines_root / "houmao-mailbox-mgr/SKILL.md"
+    visible_memory_mgr_skill = shared_routines_root / "houmao-memory-mgr/SKILL.md"
     visible_skill = (
-        build_result.home_path / "skills/houmao-agent-email-comms/transports/filesystem.md"
+        shared_routines_root / "houmao-agent-email-comms/references/transports/filesystem.md"
     )
+    assert (entrypoint_root / "SKILL.md").is_file()
     assert visible_processing_skill.is_file()
     assert visible_gateway_skill.is_file()
     assert visible_mailbox_mgr_skill.is_file()
@@ -186,6 +188,7 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
         in visible_gateway_skill.read_text(encoding="utf-8")
     )
     assert not (build_result.home_path / "skills/.system/mailbox").exists()
+    assert not (build_result.home_path / "skills/houmao-agent-email-comms").exists()
 
     class _FakeStartBackend:
         def update_launch_plan(self, launch_plan: LaunchPlan) -> None:
@@ -479,6 +482,10 @@ def test_mailbox_runtime_contract_mail_send_waits_for_delayed_shadow_sentinel(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.cao_rest._ensure_tmux_available",
         lambda: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.cao_rest._ensure_required_executable",
+        lambda **_: None,
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.cao_rest._create_tmux_session",

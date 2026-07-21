@@ -439,7 +439,11 @@ def _validate_project_skill_system_skill_collisions(
 ) -> None:
     """Reject project/private skills that collide with current Houmao system skills."""
 
-    system_skill_names = set(catalog.skill_names)
+    system_skill_names = (
+        set(catalog.public_skill_names)
+        | set(catalog.protected_logical_ids)
+        | set(catalog.protected_mounts)
+    )
     registered_collisions = sorted(set(selected_skills).intersection(system_skill_names))
     private_collisions = sorted(
         {private_skill.name for private_skill in private_skills}.intersection(system_skill_names)
@@ -795,7 +799,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         has_projected_skills=bool(
             request.skills
             or request.private_skills
-            or system_skill_sync_result.resolved_skill_names
+            or system_skill_sync_result.public_skill_names
             or (
                 auto_skill_projection_result is not None
                 and auto_skill_projection_result.projected_relative_dirs
@@ -936,17 +940,19 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         "profile_policy": system_skill_selection_policy_to_payload(
             request.launch_profile_system_skill_policy
         ),
-        "selected_sets": list(system_skill_sync_result.selected_set_names),
-        "explicit_skills": list(system_skill_sync_result.explicit_skill_names),
-        "resolved_skills": list(system_skill_sync_result.resolved_skill_names),
+        "selected_packs": list(system_skill_sync_result.selected_pack_ids),
+        "public_skills": list(system_skill_sync_result.public_skill_names),
         "projected_relative_dirs": list(system_skill_sync_result.projected_relative_dirs),
-        "removed_skills": list(system_skill_sync_result.removed_skill_names),
+        "receipt_path": str(system_skill_sync_result.receipt_path),
+        "protected_logical_ids_by_public": {
+            name: list(logical_ids)
+            for name, logical_ids in (
+                system_skill_sync_result.protected_logical_ids_by_public.items()
+            )
+        },
+        "removed_packs": list(system_skill_sync_result.removed_pack_ids),
         "removed_projected_relative_dirs": list(
             system_skill_sync_result.removed_projected_relative_dirs
-        ),
-        "removed_retired_skills": list(system_skill_sync_result.removed_retired_skill_names),
-        "removed_retired_projected_relative_dirs": list(
-            system_skill_sync_result.removed_retired_projected_relative_dirs
         ),
         "projection_mode": system_skill_sync_result.projection_mode,
     }

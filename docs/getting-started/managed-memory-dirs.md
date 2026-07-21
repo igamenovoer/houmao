@@ -67,7 +67,7 @@ houmao-mgr agents memory delete --agent-name researcher --path notes/todo.md
 
 Page operations accept only relative paths and reject traversal outside `pages/`. Page writes, appends, and deletes do not edit `houmao-memo.md`. Use `memo set` or `memo append` when you want to author memo text, and use `memory resolve --path <page>` when you need the page-relative path, memo-relative link, absolute path, existence, and kind for a page.
 
-Managed homes also install the `houmao-memory-mgr` system skill by default as a member of the managed default's `core` set. Use that skill when the agent itself is asked to inspect, append to, prune, or reorganize the managed memo or contained pages; it routes through the same supported `houmao-mgr agents memory ...` commands and preserves the free-form memo model.
+Managed homes install the `agent` system-skill pack by default. A managed agent enters the protected memory routine through `$houmao-agent-entrypoint memory-mgr ...`; the entrypoint verifies managed identity before the routine uses the supported `houmao-mgr agents self memory ...` commands. A human operator uses `$houmao-admin-entrypoint memory-mgr ...` with an explicit managed-agent target. Both actor routes preserve the free-form memo model.
 
 ## Ownership
 

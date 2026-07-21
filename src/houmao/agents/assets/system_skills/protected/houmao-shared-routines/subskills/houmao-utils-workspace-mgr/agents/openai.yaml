@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Workspace Manager"
+  short_description: "Plan and manage Houmao multi-agent workspaces."
+  default_prompt: "Use $<public-entrypoint> utils-workspace-mgr to plan a Houmao multi-agent workspace for these launch profiles."

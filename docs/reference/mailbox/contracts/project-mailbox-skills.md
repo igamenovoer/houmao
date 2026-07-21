@@ -1,29 +1,30 @@
 # Project Mailbox Skills
 
-When an agent has a mailbox binding, the build phase automatically projects a set of mailbox system skills into the agent's runtime home. These skills give the agent native knowledge of how to list, inspect, send, reply to, and manage mailbox messages.
+Managed launch and join project the complete `agent` system-skill pack into the agent's runtime home. Its one public `houmao-agent-entrypoint` path contains protected mailbox routines for listing, inspecting, sending, replying to, and managing messages.
 
 ## When Skills Are Projected
 
-Mailbox skill projection happens during `BrainBuilder.build()` after standard user-defined skills are projected. The trigger is the presence of a resolved mailbox configuration in the build request — no explicit configuration is needed beyond having a mailbox binding in the source recipe, the resolved launch profile, or the build request.
+Pack synchronization happens during `BrainBuilder.build()` after standard user-defined skills are projected. Managed launch selects the agent pack by default, independently of whether a mailbox binding already exists. A resolved mailbox configuration supplies runtime context for the nested routines.
 
-## Projected Skills
+## Public and Protected Shape
 
-Two mailbox skills are projected:
+Only one mailbox-capable skill is public:
 
-| Skill | Purpose |
+| Surface | Purpose |
 |---|---|
-| `houmao-process-emails-via-gateway` | Round-oriented workflow for processing gateway-notified mailbox work. Instructs the agent to list mailbox work through the gateway, triage by metadata, process relevant messages, archive successfully processed messages, and stop after the round. |
-| `houmao-agent-email-comms` | Unified mailbox communication skill for exact shared `/v1/mail/*` operations, transport-aware fallback, and resolver-driven mailbox inspection. |
+| `houmao-agent-entrypoint` | Verifies managed self identity and routes agent-eligible work. |
+| Protected `process-emails-via-gateway` | Processes one gateway-notified mailbox round, triages metadata, archives successful work, and stops after the round. |
+| Protected `agent-email-comms` | Provides exact shared `/v1/mail/*` operations, transport-aware fallback, and resolver-driven mailbox inspection. |
 
 ## Tool-Specific Behavior
 
-The skill destination directory differs by tool, but Houmao-owned mailbox skills stay flat within that destination:
+The public destination is the same shape for each managed tool:
 
-| Tool | Destination | Namespace |
+| Tool | Public Path | Protected Mailbox Path |
 |---|---|---|
-| Claude | `skills/` (top-level) | No namespace — skills appear at top level as native SKILL.md projections. |
-| Codex | `skills/` | No namespace — Houmao-owned Codex skills live at top level. |
-| Kimi | `skills/` | No namespace — Houmao-owned Kimi skills live at top level, and managed Kimi homes add the projected root to `extra_skill_dirs`. |
+| Claude | `skills/houmao-agent-entrypoint/` | `subskills/houmao-shared-routines/subskills/<routine>/` |
+| Codex | `skills/houmao-agent-entrypoint/` | `subskills/houmao-shared-routines/subskills/<routine>/` |
+| Kimi | `skills/houmao-agent-entrypoint/` | `subskills/houmao-shared-routines/subskills/<routine>/`; managed homes add `skills/` to `extra_skill_dirs` |
 
 
 ## Maintained Contract
@@ -32,15 +33,15 @@ Runtime-owned mailbox skills belong to the runtime home, not to copied project c
 
 Ordinary mailbox prompting should use the installed native skill surface instead:
 
-- Claude Code: invoke the installed skill through Claude's native skill surface, typically with `/houmao-...`.
-- Codex: invoke the installed skill through Codex's native skill surface, typically with `$houmao-...`.
-- Kimi: invoke the installed skill by name.
+- Claude Code: `/houmao-agent-entrypoint process-emails-via-gateway <gateway-url>`.
+- Codex: `$houmao-agent-entrypoint process-emails-via-gateway <gateway-url>`.
+- Kimi: invoke `houmao-agent-entrypoint` with the protected route name and required gateway context.
 
 Maintained prompts should not tell agents to open copied `skills/.../SKILL.md` files from the worktree for ordinary mailbox rounds.
 
 ## Skill Content
 
-### `houmao-process-emails-via-gateway`
+### Protected `process-emails-via-gateway`
 
 The primary round-oriented workflow skill. When triggered by a mail-notifier prompt, it instructs the agent to:
 
@@ -52,7 +53,7 @@ The primary round-oriented workflow skill. When triggered by a mail-notifier pro
 6. Archive only successfully processed emails.
 7. Stop after the round (do not proactively poll).
 
-### `houmao-agent-email-comms`
+### Protected `agent-email-comms`
 
 The unified mailbox skill keeps the exact shared gateway facade plus no-gateway transport-aware fallback in one place:
 
@@ -70,9 +71,9 @@ The unified mailbox skill keeps the exact shared gateway facade plus no-gateway 
 
 The same skill also includes:
 
-- `actions/status.md` and `actions/resolve-live.md` for mailbox binding inspection
-- `transports/filesystem.md` for filesystem-specific layout and fallback guidance
-- `transports/stalwart.md` for Stalwart-specific endpoint and fallback guidance
+- `commands/status.md` and `commands/resolve-live.md` for mailbox binding inspection
+- `references/transports/filesystem.md` for filesystem-specific layout and fallback guidance
+- `references/transports/stalwart.md` for Stalwart-specific endpoint and fallback guidance
 
 ## See Also
 

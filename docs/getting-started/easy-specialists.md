@@ -2,6 +2,8 @@
 
 The easy lane is the higher-level, opinionated path for project-local agents. It is built on three project-local objects: the **specialist** (the source definition), the optional **project profile** (reusable birth-time launch configuration over one specialist), and the **instance** (the running managed agent). Specialists alone are enough for one-off setups; project profiles add persistent launch context when the same specialist needs the same recurring `--name`, `--workdir`, mailbox, or auth lane each time.
 
+A human operator can ask `$houmao-admin-entrypoint agent-definition specialists ...` or `$houmao-admin-entrypoint agent-definition profiles ...`; the protected definition routine then uses the CLI commands documented here against an explicit project target.
+
 For the shared semantic model that ties project profiles to native launch dossiers — including the precedence chain, prompt overlays, and how provenance flows into runtime metadata — see [Launch Profiles](launch-profiles.md).
 
 ## When to Use Each Easy-Lane Object
@@ -75,7 +77,7 @@ Key options:
 | `--skill` | None | Repeatable. Bind one already registered project skill by name. |
 | `--with-skill` | None | Repeatable. Convenience path: register or update one skill directory (must contain `SKILL.md`) and then bind that resulting project skill name; Houmao reads the provided source directory but does not mutate it. |
 | `--env-set` | None | Repeatable. Persistent environment variable as `NAME=value`. |
-| `--system-skill-set` / `--system-skill` | None | Repeatable. Store managed system-skill policy for future managed homes built from this specialist. Selectors without a mode infer additive `extend`. |
+| `--system-skill-pack` | None | Repeatable `admin` or `agent` pack selector for future managed homes built from this specialist. Selectors without a mode infer additive `extend`. |
 | `--system-skills-mode` | `default` when omitted | Source policy mode: `default`, `extend`, `replace`, or `none`. |
 | `--no-system-skills` | False | Shorthand for source policy `none`, disabling current Houmao-owned system skills for future launches from this specialist. |
 | `--no-unattended` | False | Use `prompt_mode: as_is` instead of the default `unattended` mode. |
@@ -131,7 +133,7 @@ Kimi-specific auth inputs support OAuth import and env-model bundles:
 - OAuth lane: `--kimi-code-home ~/.kimi-code` imports `config.toml` and `credentials/kimi-code.json` from an existing logged-in Kimi home. You can also pass `--kimi-config-toml` and `--kimi-credential-json` directly.
 - Env-model lane: `--api-key` with optional `--base-url` persists `KIMI_MODEL_API_KEY` plus `KIMI_MODEL_BASE_URL`; use `--kimi-model-name` or launch-owned `--model` to supply `KIMI_MODEL_NAME`.
 
-Managed launch installs the catalog's `core` plus `extensions` sets by default. To store an exact core-only source policy that omits default extension guidance, replace the managed default with the `core` set:
+Managed launch installs the `agent` pack by default. To store that choice explicitly, replace the managed default with the complete agent pack:
 
 ```bash
 houmao-mgr project specialist create \
@@ -140,10 +142,10 @@ houmao-mgr project specialist create \
   --system-prompt "Plan and validate multi-agent workspaces before launch." \
   --api-key "$OPENAI_API_KEY" \
   --system-skills-mode replace \
-  --system-skill-set core
+  --system-skill-pack agent
 ```
 
-That writes an exact `launch.system_skills` policy into the generated recipe. Use `--system-skills-mode replace --system-skill <skill-name>` when the specialist should use exactly a narrow named subset, or `--no-system-skills` when it should launch without current Houmao-owned system skills.
+That writes `mode: replace` with `packs: [agent]` into the generated recipe. Repeat `--system-skill-pack` when a managed home intentionally needs both complete actor packs, or use `--no-system-skills` when it should launch without Houmao system-skill packs. Protected routines cannot be selected independently.
 
 ## Editing a Specialist
 
@@ -172,7 +174,7 @@ Common patch options:
 | `--prompt-mode unattended|as_is` / `--clear-prompt-mode` | Replace or clear the stored operator prompt mode. |
 | `--model`, `--clear-model`, `--reasoning-level`, `--clear-reasoning-level` | Patch the launch-owned default model selection. |
 | `--env-set NAME=value` / `--clear-env` | Replace the stored specialist env mapping, or clear it. |
-| `--system-skill-set`, `--system-skill`, `--system-skills-mode`, `--no-system-skills`, `--clear-system-skills` | Patch or clear the specialist-owned managed system-skill policy stored under `launch.system_skills`. |
+| `--system-skill-pack`, `--system-skills-mode`, `--no-system-skills`, `--clear-system-skills` | Patch or clear the specialist-owned managed system-skill pack policy stored under `launch.system_skills`. |
 
 `specialist set` requires at least one update or clear flag. It does not rename a specialist and does not move a specialist between tool lanes; create a new specialist when the name or tool lane should change. Changes affect future launches and profiles resolved from the updated specialist definition. Already-running easy instances keep their current runtime state.
 
@@ -210,7 +212,7 @@ Key options:
 | `--auth` | None | Optional default auth display-name override. The stored relationship resolves through auth-profile identity, so later auth rename stays valid. |
 | `--prompt-mode` | None | Optional `unattended` or `as_is` operator prompt-mode override. |
 | `--env-set` | None | Repeatable durable launch env record (`NAME=value`). |
-| `--system-skill-set` / `--system-skill` | None | Repeatable. Store profile-owned managed system-skill policy for future launches from this profile. Selectors without a mode infer additive `extend` over the source specialist policy. |
+| `--system-skill-pack` | None | Repeatable `admin` or `agent` pack selector for future launches from this profile. Selectors without a mode infer additive `extend` over the source specialist policy. |
 | `--system-skills-mode` | `inherit` when omitted | Profile policy mode: `inherit`, `extend`, `replace`, or `none`. |
 | `--no-system-skills` | False | Shorthand for profile policy `none`, disabling current Houmao-owned system skills for future launches from this profile. |
 | `--mail-transport` | None | Optional declarative mailbox transport (`filesystem` or `stalwart`). |
@@ -232,14 +234,14 @@ Project profile creation may also store managed prompt-header policy. `--managed
 
 Project profiles may also store gateway mail-notifier appendix text through `--gateway-mail-notifier-appendix-text`. `profile set` preserves the stored appendix when the flag is omitted and removes it with `--clear-gateway-mail-notifier-appendix`. The stored appendix seeds runtime gateway notifier state on launches from the profile, but later live notifier edits such as `houmao-mgr agents single --agent-name <name> gateway mail-notifier enable --appendix-text ...` or `houmao-mgr agents self gateway mail-notifier enable --appendix-text ...` remain runtime-owned and do not rewrite the project profile.
 
-Project profiles may also override or extend the source specialist's managed system-skill policy. A common override is a core-only profile that inherits the source specialist but drops default extension guidance:
+Project profiles may override or extend the source specialist's managed system-skill policy. This example records an exact agent-only profile:
 
 ```bash
 houmao-mgr project profile create \
   --name workspace-researcher-default \
   --specialist workspace-researcher \
   --system-skills-mode replace \
-  --system-skill-set core
+  --system-skill-pack agent
 ```
 
 Use `--no-system-skills` on a profile for a minimal future launch, or `houmao-mgr project profile set --name workspace-researcher-default --clear-system-skills` to remove the profile override and inherit the source specialist again.

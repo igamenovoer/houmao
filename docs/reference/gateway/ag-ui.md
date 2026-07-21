@@ -2,6 +2,8 @@
 
 This page is for operators and GUI authors who want to connect an AG-UI or CopilotKit-style client directly to one live per-agent gateway. These routes belong to the live gateway sidecar for one existing Houmao agent. They do not start, stop, restart, shut down, or own the managed agent.
 
+For skill-driven work, a human operator uses `$houmao-admin-entrypoint interop-ag-ui ...` with an explicit gateway or output target; a verified managed agent uses `$houmao-agent-entrypoint interop-ag-ui ...`. Graph authoring routes through `ext-graphing` under the same public entrypoint. `houmao-interop-ag-ui` and `houmao-ext-graphing` are protected logical ids, not top-level installed skills.
+
 ## Direct Gateway Routes
 
 <!-- BEGIN ag-ui-route-inventory -->

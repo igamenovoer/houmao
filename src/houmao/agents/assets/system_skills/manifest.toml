@@ -1,0 +1,321 @@
+schema_version = "houmao-system-skills.v2"
+auto_skill_name = "houmao-auto-system-prompt"
+
+[defaults]
+cli = ["admin"]
+managed_launch = ["agent"]
+managed_join = ["agent"]
+
+[[packs]]
+pack_id = "admin"
+audience = "admin"
+description = "Human-operator welcome and execution entrypoint."
+public_skills = ["houmao-admin-welcome", "houmao-admin-entrypoint"]
+protected_mounts = ["houmao-shared-routines"]
+default_lanes = ["cli"]
+
+[[packs]]
+pack_id = "agent"
+audience = "agent"
+description = "Verified managed-agent execution entrypoint."
+public_skills = ["houmao-agent-entrypoint"]
+protected_mounts = ["houmao-shared-routines"]
+default_lanes = ["managed_launch", "managed_join"]
+
+[[public_skills]]
+name = "houmao-admin-welcome"
+pack_id = "admin"
+role = "welcome"
+source_path = "public/houmao-admin-welcome"
+public_commands = ["help", "show-options", "choose-path", "show-command-map", "next-step", "start-guided-tour"]
+handoff_to = "houmao-admin-entrypoint"
+
+[[public_skills]]
+name = "houmao-admin-entrypoint"
+pack_id = "admin"
+role = "entrypoint"
+source_path = "public/houmao-admin-entrypoint"
+public_commands = ["help"]
+welcome_delegate = "houmao-admin-welcome"
+
+[[public_skills]]
+name = "houmao-agent-entrypoint"
+pack_id = "agent"
+role = "entrypoint"
+source_path = "public/houmao-agent-entrypoint"
+public_commands = ["help"]
+
+[[protected_mounts]]
+mount_id = "houmao-shared-routines"
+source_path = "protected/houmao-shared-routines"
+member_name = "houmao-shared-routines"
+admin_route_path = "protected/houmao-shared-routines/routes/admin/SKILL.md"
+agent_route_path = "protected/houmao-shared-routines/routes/agent/SKILL.md"
+shared_paths = ["commands", "references"]
+
+[[protected_routines]]
+logical_id = "houmao-project-mgr"
+source_path = "protected/houmao-shared-routines/subskills/houmao-project-mgr"
+member_name = "houmao-project-mgr"
+route_name = "project-mgr"
+audiences = ["admin"]
+dependencies = []
+commands = ["help", "init", "status", "launch-profiles", "easy-instances"]
+
+[[protected_routines]]
+logical_id = "houmao-credential-mgr"
+source_path = "protected/houmao-shared-routines/subskills/houmao-credential-mgr"
+member_name = "houmao-credential-mgr"
+route_name = "credential-mgr"
+audiences = ["admin"]
+dependencies = []
+commands = ["help", "list", "get", "add", "set", "login", "rename", "remove"]
+
+[[protected_routines]]
+logical_id = "houmao-agent-definition"
+source_path = "protected/houmao-shared-routines/subskills/houmao-agent-definition"
+member_name = "houmao-agent-definition"
+route_name = "agent-definition"
+audiences = ["admin"]
+dependencies = ["houmao-credential-mgr"]
+commands = ["help", "roles", "recipes", "launch-dossiers", "specialists", "profiles", "create-agent-fast-forward", "launch-agent", "stop-agent"]
+
+[[protected_routines]]
+logical_id = "houmao-operator-messaging"
+source_path = "protected/houmao-shared-routines/subskills/houmao-operator-messaging"
+member_name = "houmao-operator-messaging"
+route_name = "operator-messaging"
+audiences = ["admin"]
+dependencies = ["houmao-agent-messaging", "houmao-agent-email-comms"]
+commands = ["help", "clarify", "dispatch"]
+
+[[protected_routines]]
+logical_id = "houmao-process-emails-via-gateway"
+source_path = "protected/houmao-shared-routines/subskills/houmao-process-emails-via-gateway"
+member_name = "houmao-process-emails-via-gateway"
+route_name = "process-emails-via-gateway"
+audiences = ["agent"]
+dependencies = ["houmao-agent-email-comms"]
+commands = ["help", "process-round"]
+
+[[protected_routines]]
+logical_id = "houmao-agent-email-comms"
+source_path = "protected/houmao-shared-routines/subskills/houmao-agent-email-comms"
+member_name = "houmao-agent-email-comms"
+route_name = "agent-email-comms"
+audiences = ["admin", "agent"]
+dependencies = []
+commands = ["help", "resolve-live", "status", "list", "read", "send", "reply", "archive", "post"]
+
+[[protected_routines]]
+logical_id = "houmao-adv-usage-pattern"
+source_path = "protected/houmao-shared-routines/subskills/houmao-adv-usage-pattern"
+member_name = "houmao-adv-usage-pattern"
+route_name = "adv-usage-pattern"
+audiences = ["admin", "agent"]
+dependencies = ["houmao-agent-email-comms", "houmao-agent-gateway"]
+commands = ["help", "self-notification", "notifier-prompt-driven-mail-loop", "pairwise-edge-loop", "relay-loop"]
+
+[[protected_routines]]
+logical_id = "houmao-utils-workspace-mgr"
+source_path = "protected/houmao-shared-routines/subskills/houmao-utils-workspace-mgr"
+member_name = "houmao-utils-workspace-mgr"
+route_name = "utils-workspace-mgr"
+audiences = ["admin", "agent"]
+dependencies = []
+commands = ["help", "plan", "create", "validate", "summarize"]
+
+[[protected_routines]]
+logical_id = "houmao-ext-graphing"
+source_path = "protected/houmao-shared-routines/subskills/houmao-ext-graphing"
+member_name = "houmao-ext-graphing"
+route_name = "ext-graphing"
+audiences = ["admin", "agent"]
+dependencies = ["houmao-interop-ag-ui"]
+commands = ["help", "templated-graphics", "freeform-graphics"]
+
+[[protected_routines]]
+logical_id = "houmao-mailbox-mgr"
+source_path = "protected/houmao-shared-routines/subskills/houmao-mailbox-mgr"
+member_name = "houmao-mailbox-mgr"
+route_name = "mailbox-mgr"
+audiences = ["admin", "agent"]
+dependencies = []
+commands = ["help", "init", "status", "repair", "cleanup", "export", "register", "unregister", "agent-binding-status", "agent-binding-register", "agent-binding-unregister"]
+
+[[protected_routines]]
+logical_id = "houmao-memory-mgr"
+source_path = "protected/houmao-shared-routines/subskills/houmao-memory-mgr"
+member_name = "houmao-memory-mgr"
+route_name = "memory-mgr"
+audiences = ["admin", "agent"]
+dependencies = []
+commands = ["help", "read", "write", "remove"]
+
+[[protected_routines]]
+logical_id = "houmao-agent-loop-pro"
+source_path = "protected/houmao-shared-routines/subskills/houmao-agent-loop-pro"
+member_name = "houmao-agent-loop-pro"
+route_name = "agent-loop-pro"
+audiences = ["admin", "agent"]
+dependencies = ["houmao-utils-workspace-mgr", "houmao-agent-instance", "houmao-agent-email-comms"]
+commands = ["help", "init", "execplan-fast-forward", "validate-execplan", "prepare-agents", "start", "status", "pause", "resume", "recover", "stop"]
+
+[[protected_routines]]
+logical_id = "houmao-agent-loop-lite"
+source_path = "protected/houmao-shared-routines/subskills/houmao-agent-loop-lite"
+member_name = "houmao-agent-loop-lite"
+route_name = "agent-loop-lite"
+audiences = ["admin", "agent"]
+dependencies = ["houmao-utils-workspace-mgr", "houmao-agent-instance", "houmao-agent-email-comms"]
+commands = ["help", "init", "execplan-fast-forward", "validate-execplan", "prepare-agents", "start", "status", "pause", "resume", "recover", "stop"]
+
+[[protected_routines]]
+logical_id = "houmao-agent-instance"
+source_path = "protected/houmao-shared-routines/subskills/houmao-agent-instance"
+member_name = "houmao-agent-instance"
+route_name = "agent-instance"
+audiences = ["admin", "agent"]
+dependencies = []
+commands = ["help", "launch", "join", "list", "stop", "relaunch", "cleanup"]
+
+[[protected_routines]]
+logical_id = "houmao-agent-inspect"
+source_path = "protected/houmao-shared-routines/subskills/houmao-agent-inspect"
+member_name = "houmao-agent-inspect"
+route_name = "agent-inspect"
+audiences = ["admin", "agent"]
+dependencies = []
+commands = ["help", "discover", "screen", "mailbox", "artifacts", "logs"]
+
+[[protected_routines]]
+logical_id = "houmao-agent-messaging"
+source_path = "protected/houmao-shared-routines/subskills/houmao-agent-messaging"
+member_name = "houmao-agent-messaging"
+route_name = "agent-messaging"
+audiences = ["admin", "agent"]
+dependencies = ["houmao-agent-email-comms"]
+commands = ["help", "discover", "prompt", "interrupt", "gateway-queue", "send-keys", "mail", "reset-context"]
+
+[[protected_routines]]
+logical_id = "houmao-agent-gateway"
+source_path = "protected/houmao-shared-routines/subskills/houmao-agent-gateway"
+member_name = "houmao-agent-gateway"
+route_name = "agent-gateway"
+audiences = ["admin", "agent"]
+dependencies = []
+commands = ["help", "lifecycle", "discover", "gateway-services", "reminders", "mail-notifier"]
+
+[[protected_routines]]
+logical_id = "houmao-interop-ag-ui"
+source_path = "protected/houmao-shared-routines/subskills/houmao-interop-ag-ui"
+member_name = "houmao-interop-ag-ui"
+route_name = "interop-ag-ui"
+audiences = ["admin", "agent"]
+dependencies = ["houmao-agent-gateway"]
+commands = ["help", "validate", "frame", "render", "publish"]
+
+[[legacy_skills]]
+name = "houmao-adv-usage-pattern"
+asset_subpath = "houmao-adv-usage-pattern"
+content_digest = "7c8be02599e9a561c132f702655203cf89cf3651887dced9c026f48e6a53231a"
+[[legacy_skills]]
+name = "houmao-agent-definition"
+asset_subpath = "houmao-agent-definition"
+content_digest = "57a8188f399f62e9621d2392dcff8126062a31ad6e7be43673efa8bfc313ecb1"
+[[legacy_skills]]
+name = "houmao-agent-email-comms"
+asset_subpath = "houmao-agent-email-comms"
+content_digest = "44caa69336131a5e83939bc3f74e9882ffb07ff36ad3c46d370e0b861c2c838a"
+[[legacy_skills]]
+name = "houmao-agent-gateway"
+asset_subpath = "houmao-agent-gateway"
+content_digest = "30522616e5ac878f52ff4d3fbbf9ee6fbea5f533f100717657f7508a2daa67db"
+[[legacy_skills]]
+name = "houmao-agent-inspect"
+asset_subpath = "houmao-agent-inspect"
+content_digest = "1ae7982df25e3fb9c9448f2bd4ad0afd8cafb2e60e2b9224dde0b7d73734cde5"
+[[legacy_skills]]
+name = "houmao-agent-instance"
+asset_subpath = "houmao-agent-instance"
+content_digest = "346db6c4375538f0dccd077e117494379dfa0018cb5d6f9d8cd927f90ec76a10"
+[[legacy_skills]]
+name = "houmao-agent-loop-lite"
+asset_subpath = "houmao-agent-loop-lite"
+content_digest = "e42d9bf906e0764811bb64d1b0a14d9b1e8b1a364ceeef576524602ab9471c9f"
+[[legacy_skills]]
+name = "houmao-agent-loop-pro"
+asset_subpath = "houmao-agent-loop-pro"
+content_digest = "e3853c749a1c4e3139fc91421d4e34b3df0046b07b751681b0f01a5b483b7ba0"
+[[legacy_skills]]
+name = "houmao-agent-messaging"
+asset_subpath = "houmao-agent-messaging"
+content_digest = "1c9682da08e0aa241850a641df28ff0aa5f3e957d711682acf6f1b626d047302"
+[[legacy_skills]]
+name = "houmao-credential-mgr"
+asset_subpath = "houmao-credential-mgr"
+content_digest = "66621140db035f4739795fdd0908fc85aaaac77a9053e5dd6ace52365ecd570e"
+[[legacy_skills]]
+name = "houmao-ext-graphing"
+asset_subpath = "houmao-ext-graphing"
+content_digest = "ed2a85e14e430d0275c1fc06e4012b0594f9621e3c9a1e0720b144059cf0aeb4"
+[[legacy_skills]]
+name = "houmao-interop-ag-ui"
+asset_subpath = "houmao-interop-ag-ui"
+content_digest = "c2fab5a53fd67b210142d6f2a3577297d736c378ee9a66032e77a406425f5b3c"
+[[legacy_skills]]
+name = "houmao-mailbox-mgr"
+asset_subpath = "houmao-mailbox-mgr"
+content_digest = "58f6366fca282bceacbb10901682caa03a521ff30d1ea664e17c5042bbd88de7"
+[[legacy_skills]]
+name = "houmao-memory-mgr"
+asset_subpath = "houmao-memory-mgr"
+content_digest = "d1c0b5f7d1fc947cb5b5fb219cda44be8499182aa335e78db3c638989cbf4b40"
+[[legacy_skills]]
+name = "houmao-operator-messaging"
+asset_subpath = "houmao-operator-messaging"
+content_digest = "9627745ee2d90369339edf7a06cc1873d3d6d77ec266b3de0e70bc732f7b7ffa"
+[[legacy_skills]]
+name = "houmao-process-emails-via-gateway"
+asset_subpath = "houmao-process-emails-via-gateway"
+content_digest = "7ecfbe50eba32055ac58b524ca95df79c18cfac646c0f7e8b6e4269660d13d97"
+[[legacy_skills]]
+name = "houmao-project-mgr"
+asset_subpath = "houmao-project-mgr"
+content_digest = "ac412d95d5905163e19b0f4daa823b4182022984ee4c7a453d0a55e58612af95"
+[[legacy_skills]]
+name = "houmao-specialist-mgr"
+asset_subpath = "houmao-specialist-mgr"
+content_digest = "4eb407a05fa029fae8fae0a61b5cc816204722fc3c6694691659decfb3ff9731"
+[[legacy_skills]]
+name = "houmao-touring"
+asset_subpath = "houmao-touring"
+content_digest = "d2828670b9a95f614eb3ecce6fe70bb654eacc3e8e34088aaf18ad5cfa95a89e"
+[[legacy_skills]]
+name = "houmao-utils-workspace-mgr"
+asset_subpath = "houmao-utils-workspace-mgr"
+content_digest = "487bd03977531f479a7b79d16986376e195118b6e3186648f8c106cd9c532a6b"
+[[legacy_skills]]
+name = "houmao-agent-loop-generic"
+asset_subpath = "legacy/houmao-agent-loop-generic"
+content_digest = "942d0200d3b7cc63efa4e0d8504a78f0128c9856244d21164f8f60fc14afbc1b"
+[[legacy_skills]]
+name = "houmao-agent-loop-pairwise"
+asset_subpath = "legacy/houmao-agent-loop-pairwise"
+content_digest = "e6ff13549c6ee0cecf8a15513d4033da770a8fcb0cc23760b0a31d5f40aaef6e"
+[[legacy_skills]]
+name = "houmao-agent-loop-pairwise-v2"
+asset_subpath = "legacy/houmao-agent-loop-pairwise-v2"
+content_digest = "ecc14d8c392edabdf012479b2e3dfb49103bc8c8a3867218f3c1ea3cdb2f435c"
+[[legacy_skills]]
+name = "houmao-agent-loop-pairwise-v3"
+asset_subpath = "legacy/houmao-agent-loop-pairwise-v3"
+content_digest = "919e901107a4fdc451c03b9e5337e4c29d4a0e3b0489c4c2203d0dbfa7fbe040"
+[[legacy_skills]]
+name = "houmao-agent-loop-pairwise-v4"
+asset_subpath = "legacy/houmao-agent-loop-pairwise-v4"
+content_digest = "38c01aa19916c69214f5d65090811407babf655e69f53558f68178c3280127c5"
+[[legacy_skills]]
+name = "houmao-agent-loop-pairwise-v5"
+asset_subpath = "legacy/houmao-agent-loop-pairwise-v5"
+content_digest = "6992fa31be49c0ee988dff696c3b20b0a83bc3bf290a7c436e1d8a761f2e3af6"

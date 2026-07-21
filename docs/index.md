@@ -4,20 +4,22 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 
 | Who you are | Where to start |
 |---|---|
-| **Installed user** (`uv tool install houmao`) | Install system skills with `npx skills add igamenovoer/tool-skills/houmao` when `npx` and internet are available; use [`houmao-mgr system-skills install`](reference/cli/system-skills.md) for offline/package-local or customized installs. Then start your agent and invoke `houmao-touring` or ask `$houmao-touring help`. |
+| **Installed user** (`uv tool install houmao`) | Install the admin pack with `houmao-mgr system-skills install --tool <target> --pack admin`, then start your assistant and ask `$houmao-admin-welcome start-guided-tour`. |
 | **From-source developer** (`pixi install`) | [Quickstart](getting-started/quickstart.md) - agent-driven first-run guide with source-checkout `pixi run houmao-mgr ...` launcher notes |
 | **Contributor to Houmao** | [CLAUDE.md](https://github.com/igamenovoer/houmao/blob/main/CLAUDE.md) or [AGENTS.md](https://github.com/igamenovoer/houmao/blob/main/AGENTS.md) for repo conventions and development commands |
+
+The public system-skill surface has three roles: `houmao-admin-welcome` for read-only first-use touring, `houmao-admin-entrypoint` for human-operator work against explicit targets, and `houmao-agent-entrypoint` for identity-verified managed-agent work. Operational routines remain protected beneath the eligible entrypoint.
 
 ## Getting Started
 
 - [Architecture Overview](getting-started/overview.md): Two-phase lifecycle, backend model, and high-level design.
 - [Agent Definitions](getting-started/agent-definitions.md): Agent definition directory layout — tools, roles, recipes, launch profiles, and skills.
-- [Quickstart](getting-started/quickstart.md): Start with Houmao system skills, invoke `houmao-touring`, and run your first managed-agent workflow through your CLI agent.
+- [Quickstart](getting-started/quickstart.md): Install the admin pack, invoke `houmao-admin-welcome`, and run your first managed-agent workflow through your CLI agent.
 - [Easy Specialists](getting-started/easy-specialists.md): The easy lane — specialists, optional project profiles, and instances.
 - [Launch Profiles](getting-started/launch-profiles.md): Reusable birth-time launch configuration — project profiles, native launch dossiers, and the precedence chain.
-- [Managed Agent Memory](getting-started/managed-memory-dirs.md): Per-agent memory roots, free-form memo files, pages, the default memo cue, and the `houmao-memory-mgr` skill.
-- [System Skills Overview](getting-started/system-skills-overview.md): Narrative tour of every packaged Houmao-owned system skill, when each one fires, and how managed-home auto-install differs from explicit CLI-default install.
-- [Loop Authoring Guide](getting-started/loop-authoring.md): Choose `houmao-agent-loop-lite` for Markdown/direct-SQL loops or `houmao-agent-loop-pro` for schema-rich topology loops, then discover the graph tooling that supports pro generated execplan authoring.
+- [Managed Agent Memory](getting-started/managed-memory-dirs.md): Per-agent memory roots, free-form memo files, pages, the default memo cue, and the protected `memory-mgr` route.
+- [System Skills Overview](getting-started/system-skills-overview.md): Actor packs, public roles, guided paths, the protected route matrix, and managed versus external defaults.
+- [Loop Authoring Guide](getting-started/loop-authoring.md): Choose the protected `agent-loop-lite` route for Markdown/direct-SQL loops or `agent-loop-pro` for schema-rich topology loops, then discover the graph tooling that supports pro generated execplan authoring.
 
 ## Reference
 
@@ -25,7 +27,7 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 
 - [houmao-mgr](reference/cli/houmao-mgr.md): Primary management CLI for agents, projects, mailbox, system skills, internals, and local workflow control.
 - [houmao-passive-server](reference/cli/houmao-passive-server.md): Maintained registry-driven API server for discovery, observation, request submission, gateway proxying, mail proxying, and managed-headless agents.
-- [system-skills](reference/cli/system-skills.md): Install and inspect packaged Houmao-owned skill sets for resolved tool homes.
+- [system-skills](reference/cli/system-skills.md): Install, inspect, upgrade, and remove receipt-owned actor packs in resolved tool homes.
 - [agents gateway](reference/cli/agents-gateway.md): Scoped `agents single ... gateway` and `agents self gateway` lifecycle and request commands.
 - [agents external](reference/cli/agents-external.md): Local imports for remotely owned communication-only managed agents.
 - [agents turn](reference/cli/agents-turn.md): Scoped managed headless turn submission and inspection.

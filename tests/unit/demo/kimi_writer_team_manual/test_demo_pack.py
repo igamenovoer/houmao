@@ -188,7 +188,7 @@ def test_driver_parser_accepts_manual_command_surface() -> None:
     assert parser.parse_args(["stop"]).command == "stop"
 
 
-def test_create_specialist_uses_kimi_tui_unattended_for_story_and_core_system_skills(
+def test_create_specialist_uses_kimi_tui_unattended_for_story_and_agent_pack(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -229,8 +229,8 @@ def test_create_specialist_uses_kimi_tui_unattended_for_story_and_core_system_sk
     assert "--no-unattended" not in command
     assert "--system-skills-mode" in command
     assert "replace" in command
-    assert "--system-skill-set" in command
-    assert "core" in command
+    assert "--system-skill-pack" in command
+    assert "agent" in command
 
 
 def test_create_specialist_uses_unattended_default_for_reviewer(

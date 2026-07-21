@@ -10,7 +10,7 @@ from houmao.agents.definition_parser import (
     parse_tool_adapter,
     resolve_agent_preset,
 )
-from houmao.agents.system_skills import SYSTEM_SKILL_UTILS_WORKSPACE_MGR
+from houmao.agents.system_skills import SYSTEM_SKILL_PACK_AGENT
 
 
 def _write(path: Path, content: str) -> None:
@@ -246,8 +246,8 @@ skills:
 launch:
   system_skills:
     mode: extend
-    skills:
-      - houmao-utils-workspace-mgr
+    packs:
+      - agent
 """.strip()
         + "\n",
     )
@@ -256,7 +256,7 @@ launch:
 
     assert preset.launch_system_skill_policy is not None
     assert preset.launch_system_skill_policy.mode == "extend"
-    assert preset.launch_system_skill_policy.skill_names == (SYSTEM_SKILL_UTILS_WORKSPACE_MGR,)
+    assert preset.launch_system_skill_policy.pack_ids == (SYSTEM_SKILL_PACK_AGENT,)
 
 
 def test_parse_agent_preset_rejects_removed_launch_system_skill_policy(tmp_path: Path) -> None:
@@ -278,7 +278,7 @@ launch:
         + "\n",
     )
 
-    with pytest.raises(ValueError, match="Unknown system skill `houmao-utils-llm-wiki`"):
+    with pytest.raises(ValueError, match="obsolete system-skills selector field.*skills"):
         parse_agent_preset(preset_path)
 
 

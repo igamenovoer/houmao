@@ -6,7 +6,7 @@ This page explains how mailbox support is attached to a brain home, a launch pla
 
 Mailbox support spans build time, start time, resume time, and control time.
 
-- Build time projects both runtime-owned mailbox skills into the home under the visible mailbox subtree.
+- Build time installs the receipt-owned `agent` pack and its public entrypoint into the runtime home; mailbox behavior remains nested in protected routines.
 - Start time resolves one effective mailbox config and performs transport-specific bootstrap.
 - Launch-plan composition keeps the durable mailbox binding on the manifest-backed launch plan and does not treat mailbox-specific env publication as part of the mailbox contract.
 - Session manifests persist the redacted mailbox binding rather than inline secrets.
@@ -15,10 +15,7 @@ Mailbox support spans build time, start time, resume time, and control time.
 
 ## Build Time
 
-`build_brain_home()` always projects the runtime-owned mailbox skills into the selected skills destination. The visible mailbox skill surface is tool-specific:
-
-- Claude uses top-level Houmao skill directories under the isolated runtime-owned `CLAUDE_CONFIG_DIR`, such as `skills/houmao-process-emails-via-gateway/SKILL.md` and `skills/houmao-agent-email-comms/SKILL.md`.
-- Codex also uses top-level Houmao skill directories under `skills/`, such as `skills/houmao-agent-email-comms/SKILL.md`.
+`build_brain_home()` installs the complete `agent` pack into the selected skills destination with copy projection. Claude, Codex, and Kimi expose `skills/houmao-agent-entrypoint/SKILL.md`; the composed protected route lives below `subskills/houmao-shared-routines/`. Runtime mailbox prompts invoke the public agent entrypoint, which verifies self identity before routing to `process-emails-via-gateway` or `agent-email-comms`.
 
 
 ## Start Time
@@ -49,7 +46,7 @@ sequenceDiagram
     participant SR as Session<br/>root
     participant LP as LaunchPlan
     participant Man as Session<br/>manifest
-    Bld->>Bld: project both runtime-owned<br/>mailbox skills
+    Bld->>Bld: install receipt-owned agent pack<br/>and composed entrypoint
     RT->>RT: resolve effective mailbox<br/>config and defaults
     alt filesystem transport
         RT->>FS: bootstrap root and register<br/>session address

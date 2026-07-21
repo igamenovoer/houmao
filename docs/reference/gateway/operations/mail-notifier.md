@@ -161,10 +161,10 @@ Additional runtime guidance:
 
 Current source behavior:
 
-- when the installed round-oriented mailbox skill is available, the prompt gives a concise native invocation for `houmao-process-emails-via-gateway`,
-- the prompt uses native installed-skill invocation guidance for the current tool rather than telling the agent to inspect `SKILL.md` files,
-- when the lower-level mailbox communication skill is also installed, the prompt names `houmao-agent-email-comms` only as an optional details reference,
-- when the round-oriented mailbox skill is not installed, the prompt falls back to the compact mailbox API summary.
+- when the managed `agent` pack is installed, the prompt invokes `$houmao-agent-entrypoint process-emails-via-gateway <gateway-url>`,
+- the prompt uses the public installed entrypoint rather than telling the agent to inspect `SKILL.md` files or invoke protected routines directly,
+- ordinary mailbox details remain available through the nested `agent-email-comms` route under that same entrypoint,
+- when the agent pack is unavailable, the prompt falls back to the compact mailbox API summary.
 
 ## Lifecycle Integration
 

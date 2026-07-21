@@ -16,6 +16,7 @@ from typing import Any, Callable, Literal, cast
 
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import (
+    mailbox_gateway_route_name,
     mailbox_gateway_skill_name,
     mailbox_skill_name,
     projected_mailbox_skill_document_path,
@@ -293,6 +294,7 @@ def _mail_prompt_instruction_lines(
 ) -> list[str]:
     skill_name = mailbox_skill_name(mailbox)
     gateway_skill_name = mailbox_gateway_skill_name()
+    gateway_route_name = mailbox_gateway_route_name()
     gateway_skill_path = projected_mailbox_skill_document_path(
         tool=launch_plan.tool,
         home_path=launch_plan.home_path,
@@ -307,8 +309,8 @@ def _mail_prompt_instruction_lines(
     if gateway_skill_path.is_file() and transport_skill_path.is_file():
         installed_skill_lines = [
             (
-                f"Use the installed Houmao mailbox communication skill `{gateway_skill_name}` for "
-                "this mailbox operation."
+                f"Use the installed public entrypoint `${gateway_skill_name} "
+                f"{gateway_route_name}` for this mailbox operation."
             ),
             (
                 "Use the installed runtime-owned Houmao mailbox skills directly from the "
@@ -316,8 +318,9 @@ def _mail_prompt_instruction_lines(
                 "or runtime home to rediscover skill files or infer install locations."
             ),
             (
-                f"Use the transport-local guidance inside `{skill_name}` only for "
-                "transport-specific context and no-gateway fallback."
+                f"Use transport-local guidance nested under `{skill_name} "
+                f"{gateway_route_name}` only for transport-specific context and "
+                "no-gateway fallback."
             ),
         ]
     else:

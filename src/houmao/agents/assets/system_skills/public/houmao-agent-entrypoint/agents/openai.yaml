@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Agent Entrypoint"
+  short_description: "Verified managed-agent execution entrypoint"
+  default_prompt: "Use $houmao-agent-entrypoint, run `houmao-mgr --print-json agents self identity` before each substantive route, fail closed on identity errors, and preserve the immutable agent actor frame."

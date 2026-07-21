@@ -16,7 +16,9 @@ def test_loop_authoring_docs_cover_current_loop_authoring() -> None:
     )
     cli_reference = (REPO_ROOT / "docs/reference/cli/system-skills.md").read_text(encoding="utf-8")
 
-    assert "Houmao has two current loop authoring entrypoints" in guide
+    assert "Houmao has two protected loop-authoring routes" in guide
+    assert "$houmao-admin-entrypoint agent-loop-lite" in guide
+    assert "$houmao-agent-entrypoint" in guide
     assert "`houmao-agent-loop-lite`" in guide
     assert "Markdown/direct-SQL loops" in guide
     assert "Lite Default Shape" in guide
@@ -35,11 +37,11 @@ def test_loop_authoring_docs_cover_current_loop_authoring() -> None:
     assert "generated skills in one flat skills directory" in guide
     assert "Generated TOML files should include comments above each section" in guide
     assert "`houmao-mgr internals graph high` remains available" in guide
-    assert "`houmao-agent-loop-lite`" in readme
-    assert "`houmao-agent-loop-pro`" in readme
+    assert "`agent-loop-lite` route" in readme
+    assert "protected `agent-loop-pro` route" in readme
     assert "`tree-loop` versus `generic-loop` topology choice" in readme
-    assert "`houmao-agent-loop-lite`" in system_skills
-    assert "`houmao-agent-loop-pro`" in system_skills
+    assert "`agent-loop-lite`" in system_skills
+    assert "`agent-loop-pro`" in system_skills
     assert "`tree-loop` and `generic-loop` topology modes" in system_skills
     assert "typed Markdown templates" in system_skills
     assert "`houmao-agent-loop-lite`" in cli_reference

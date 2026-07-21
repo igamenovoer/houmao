@@ -2,6 +2,8 @@
 
 The **agent definition directory** is the source tree Houmao parses before it resolves selectors, builds runtime homes, or launches agents. The canonical layout is prompt-only roles plus named recipes, shared launch profiles, and tool-scoped setup/auth bundles. Auth display names are catalog metadata; the file-backed auth trees use opaque bundle refs internally.
 
+For skill-driven human-operator work, start at `$houmao-admin-entrypoint agent-definition ...`. `houmao-agent-definition` is the protected logical id behind that route, not a standalone installed skill. The admin frame keeps the project or native-agent root explicit and routes credential changes separately.
+
 For repo-local workflows, the supported path is `houmao-mgr project init`, which creates:
 
 ```text
@@ -107,7 +109,7 @@ The compatibility-projected declarative recipe file. The filename supplies the r
 - optional `mailbox`
 - optional `extra`
 
-`launch.system_skills` is the source-owned managed system-skill policy for managed homes built from that recipe. Omit it to keep the packaged managed-launch default (`core` plus `extensions`), use `mode: replace` with `sets: [core]` for a core-only home without default extension guidance, use `mode: replace` with selected `sets` or `skills` for any exact selection, use `mode: extend` for additive policy over the packaged default, or use `mode: none` to install no current Houmao-owned system skills.
+`launch.system_skills` is the source-owned managed system-skill policy for homes built from that recipe. Omit it to keep the managed-launch `agent` default, use `mode: replace` with `packs: [agent]` or another complete pack list for exact selection, use `mode: extend` for additive pack policy over the default, or use `mode: none` to install no Houmao system-skill packs. Stored `sets` and individual `skills` selectors are obsolete.
 
 ### `launch-profiles/<profile>.yaml`
 
@@ -174,7 +176,7 @@ The compatibility `.houmao/agents/` tree can still be inspected directly, but pr
 - `internals native-agent launch-dossiers ...` is the low-level authoring path for reusable recipe-backed birth-time launch profiles.
 - for maintained easy launch paths, `project specialist create ...` persists unattended launch posture by default; pass `--no-unattended` to persist `launch.prompt_mode: as_is` instead.
 - persistent non-credential launch env belongs to specialist config via repeatable `project specialist create --env-set NAME=value`, which projects into `launch.env_records` and survives relaunch.
-- specialist-owned managed system-skill policy belongs to the recipe launch payload via repeatable `project specialist create|set --system-skill ...` / `--system-skill-set ...`, which projects into `launch.system_skills`.
+- specialist-owned managed system-skill policy belongs to the recipe launch payload via repeatable `project specialist create|set --system-skill-pack admin|agent`, which projects into `launch.system_skills`.
 - `project agents launch|stop ...` is the higher-level runtime lifecycle path when you want to materialize or stop managed-agent instances from those compiled specialists.
 - one-off runtime env belongs to `project agents launch --env-set NAME=value|NAME`; it applies to the current live session only and is dropped by relaunch.
 - `project agents ...` is the low-level maintenance surface when you want to inspect or mutate the compatibility projection directly.

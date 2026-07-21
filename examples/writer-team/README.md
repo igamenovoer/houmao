@@ -39,8 +39,8 @@ cd examples/writer-team
 Install system skills for the tools used by the team:
 
 ```bash
-houmao-mgr system-skills install --tool claude
-houmao-mgr system-skills install --tool codex
+houmao-mgr system-skills install --tool claude --pack admin
+houmao-mgr system-skills install --tool codex --pack admin
 ```
 
 Credentials are local operator setup. The commands below use credential names as placeholders; replace them with credentials already configured in your environment, or use the appropriate `houmao-mgr project easy specialist create` credential flags for your tool lane. Do not commit credential files or secrets into this example.

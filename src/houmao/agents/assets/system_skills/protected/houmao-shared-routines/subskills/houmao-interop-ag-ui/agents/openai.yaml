@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Interop AG-UI"
+  short_description: "Validate, render, and publish AG-UI events"
+  default_prompt: "Use $<public-entrypoint> interop-ag-ui to validate, render, and publish AG-UI event batches through the live Houmao gateway."

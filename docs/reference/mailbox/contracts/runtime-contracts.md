@@ -103,12 +103,9 @@ The filesystem transport splits durable state between a shared catalog and mailb
 
 ## Projected Skill Contract
 
-The runtime projects one round-oriented workflow skill plus one unified mailbox communication skill into the brain home during brain build. The primary discoverable mailbox skill surface is tool-specific:
+The runtime installs the receipt-owned `agent` pack into the brain home during brain build. Claude, Codex, and Kimi runtime homes expose one public `skills/houmao-agent-entrypoint/SKILL.md`; the eligible mailbox routines are nested under `subskills/houmao-shared-routines/subskills/` inside that composed entrypoint. `houmao-process-emails-via-gateway` and `houmao-agent-email-comms` are protected routines, not top-level projected skills.
 
-- Claude native runtime homes: `skills/houmao-process-emails-via-gateway/SKILL.md` and `skills/houmao-agent-email-comms/SKILL.md`
-- Codex runtime homes: `skills/houmao-process-emails-via-gateway/SKILL.md` and `skills/houmao-agent-email-comms/SKILL.md`
-
-For Claude, these mailbox skills live under the isolated runtime-owned `CLAUDE_CONFIG_DIR` and not under the launched workdir's `.claude/skills/` tree.
+For Claude, the agent entrypoint lives under the isolated runtime-owned `CLAUDE_CONFIG_DIR` and not under the launched workdir's `.claude/skills/` tree. Runtime prompts invoke `$houmao-agent-entrypoint process-emails-via-gateway ...` or `$houmao-agent-entrypoint agent-email-comms ...` after identity verification.
 
 Shared runtime rules:
 
@@ -221,6 +218,7 @@ When the runtime does recover a preview payload, it still validates that preview
 - [`src/houmao/agents/realm_controller/cli.py`](../../../../src/houmao/agents/realm_controller/cli.py)
 - [`src/houmao/agents/realm_controller/mail_commands.py`](../../../../src/houmao/agents/realm_controller/mail_commands.py)
 - [`src/houmao/agents/brain_builder.py`](../../../../src/houmao/agents/brain_builder.py)
-- [`src/houmao/agents/assets/system_skills/houmao-agent-email-comms/SKILL.md`](../../../../src/houmao/agents/assets/system_skills/houmao-agent-email-comms/SKILL.md)
-- [`src/houmao/agents/assets/system_skills/houmao-agent-email-comms/references/filesystem-resolver-fields.md`](../../../../src/houmao/agents/assets/system_skills/houmao-agent-email-comms/references/filesystem-resolver-fields.md)
-- [`src/houmao/agents/assets/system_skills/houmao-agent-email-comms/references/stalwart-resolver-fields.md`](../../../../src/houmao/agents/assets/system_skills/houmao-agent-email-comms/references/stalwart-resolver-fields.md)
+- [`src/houmao/agents/assets/system_skills/public/houmao-agent-entrypoint/SKILL.md`](../../../../src/houmao/agents/assets/system_skills/public/houmao-agent-entrypoint/SKILL.md)
+- [`src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/subskills/houmao-agent-email-comms/SKILL.md`](../../../../src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/subskills/houmao-agent-email-comms/SKILL.md)
+- [`src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/subskills/houmao-agent-email-comms/references/filesystem-resolver-fields.md`](../../../../src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/subskills/houmao-agent-email-comms/references/filesystem-resolver-fields.md)
+- [`src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/subskills/houmao-agent-email-comms/references/stalwart-resolver-fields.md`](../../../../src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/subskills/houmao-agent-email-comms/references/stalwart-resolver-fields.md)

@@ -312,9 +312,12 @@ def test_launch_managed_agent_locally_merges_launch_profile_skill_overlays(
     manifest_path.write_text("{}\n", encoding="utf-8")
     source_system_skill_policy = SystemSkillSelectionPolicy(
         mode="extend",
-        skill_names=("houmao-utils-workspace-mgr",),
+        pack_ids=("admin",),
     )
-    profile_system_skill_policy = SystemSkillSelectionPolicy(mode="replace", set_names=("core",))
+    profile_system_skill_policy = SystemSkillSelectionPolicy(
+        mode="replace",
+        pack_ids=("agent",),
+    )
     _install_basic_launch_patches(
         monkeypatch,
         runtime_root=runtime_root,
@@ -500,8 +503,8 @@ def test_launch_managed_agent_locally_requests_kimi_auto_system_prompt_skill(
     assert build_request.required_auto_skill_names == (AUTO_SKILL_SYSTEM_PROMPT,)
 
 
-def test_launch_profile_policy_rejects_removed_llm_wiki_system_skill_selector() -> None:
-    with pytest.raises(click.ClickException, match="Unknown system skill `houmao-utils-llm-wiki`"):
+def test_launch_profile_policy_rejects_removed_individual_system_skill_selector() -> None:
+    with pytest.raises(click.ClickException, match="obsolete system-skills selector field.*skills"):
         _resolve_launch_profile_system_skill_policy_or_click(
             {
                 "mode": "extend",

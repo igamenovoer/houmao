@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Admin Entrypoint"
+  short_description: "Execute Houmao operations for a human operator"
+  default_prompt: "Use $houmao-admin-entrypoint, establish the immutable admin actor frame, resolve explicit targets, and route only through the installed admin protected composition."

@@ -509,24 +509,22 @@ def _build_kickoff_prompt(
     return "\n".join(
         [
             (
-                "Use the runtime-owned Houmao mailbox communication skill "
-                "`houmao-agent-email-comms` for shared mailbox actions in this demo."
+                "Route shared mailbox actions through "
+                "`$houmao-agent-entrypoint agent-email-comms` in this demo."
             ),
             (
-                "Use the transport-local guidance inside `houmao-agent-email-comms` only for "
-                "transport-specific context and no-gateway fallback."
+                "Let the public entrypoint verify managed-agent identity before it enters the "
+                "protected mailbox routine."
             ),
             (
-                "Open and follow the exact mailbox communication skill file "
-                "`skills/houmao-agent-email-comms/SKILL.md` from the project worktree."
+                "Use transport-local guidance only when the protected route selects it for "
+                "transport-specific context or no-gateway fallback."
             ),
+            ("Do not open, search for, or invoke protected routine files as standalone skills."),
             (
-                "Open and follow the exact filesystem transport page "
-                "`skills/houmao-agent-email-comms/transports/filesystem.md` from the project "
-                "worktree only when transport-local guidance is needed."
+                "Treat `houmao-agent-entrypoint->houmao-shared-routines->agent-email-comms` "
+                "as internal route notation, not a public trigger."
             ),
-            ("Do not search for those files with `rg`, `find`, or slash-skill lookup first."),
-            ("Treat them as runtime-owned Houmao skill documents, not as registered slash skills."),
             (
                 "When a live loopback gateway mailbox facade is attached, keep routine mailbox "
                 "work on the shared gateway mailbox operations instead of reconstructing "

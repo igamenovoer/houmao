@@ -7458,7 +7458,7 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
         assert second_message_id not in prompt
         assert "Unread email summaries in the current snapshot:" not in prompt
         assert prompt.index("You have mail in inbox.") < prompt.index(
-            "$houmao-process-emails-via-gateway http://127.0.0.1:43123"
+            "$houmao-agent-entrypoint process-emails-via-gateway http://127.0.0.1:43123"
         )
         assert "Mode: `any_inbox` - open unarchived inbox mail" in prompt
         assert "Choose which email or emails are relevant to process" not in prompt
@@ -7472,12 +7472,14 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
         assert "Remaining unread after this target" not in prompt
         assert "Use the installed Houmao email-processing skill" not in prompt
         assert "In Codex this Houmao skill is installed natively." not in prompt
-        assert "$houmao-process-emails-via-gateway http://127.0.0.1:43123" in prompt
+        assert (
+            "$houmao-agent-entrypoint process-emails-via-gateway http://127.0.0.1:43123" in prompt
+        )
         assert "not as a registered slash skill" not in prompt
         assert "`/houmao-process-emails-via-gateway` lookup" not in prompt
         assert "Use the installed Houmao mailbox gateway skill" not in prompt
         assert "lower-level Houmao mailbox communication skill" not in prompt
-        assert "Details: `houmao-agent-email-comms`." in prompt
+        assert "Ordinary mailbox details: `houmao-agent-entrypoint agent-email-comms`." in prompt
         assert "Do not inspect the current project or runtime home for skill files." not in prompt
         assert "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" not in prompt
         assert "skills/mailbox/houmao-agent-email-comms/SKILL.md" not in prompt
@@ -7551,8 +7553,10 @@ def test_gateway_mail_notifier_renders_claude_native_skill_invocation(
         assert len(fake_client.submitted_prompts) == 1
         prompt = fake_client.submitted_prompts[0][1]
         assert "standalone slash-skill line above invokes" not in prompt
-        assert "/houmao-process-emails-via-gateway" in prompt
-        assert "Details: `houmao-agent-email-comms`." in prompt
+        assert (
+            "/houmao-agent-entrypoint process-emails-via-gateway http://127.0.0.1:43123" in prompt
+        )
+        assert "Ordinary mailbox details: `houmao-agent-entrypoint agent-email-comms`." in prompt
         assert "Do not inspect the current project or runtime home for skill files." not in prompt
         assert "skills/houmao-process-emails-via-gateway/SKILL.md" not in prompt
         assert "skills/houmao-agent-email-comms/SKILL.md" not in prompt
@@ -7608,6 +7612,7 @@ def test_gateway_mail_notifier_falls_back_when_houmao_skills_are_not_installed(
         assert "- `GET http://127.0.0.1:43123/v1/mail/status`" not in prompt
         assert "houmao-process-emails-via-gateway" not in prompt
         assert "houmao-agent-email-comms" not in prompt
+        assert "houmao-agent-entrypoint" not in prompt
     finally:
         runtime.shutdown()
 

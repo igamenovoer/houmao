@@ -461,8 +461,8 @@ def create_specialist(
         [
             "--system-skills-mode",
             "replace",
-            "--system-skill-set",
-            "core",
+            "--system-skill-pack",
+            "agent",
             "--yes",
         ]
     )

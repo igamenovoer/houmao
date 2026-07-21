@@ -1,13 +1,12 @@
-  Use the installed Houmao email-processing skill `houmao-process-emails-via-gateway`
-  for this round.
-  $houmao-process-emails-via-gateway http://127.0.0.1:38003
-  In Codex this Houmao skill is installed natively. The standalone line above is the
-  native skill trigger for this gateway-notified round.
-  Use the installed Houmao skills directly from the native tool skill surface. Do not
-  inspect the current project or runtime home for skill files.
+  Use the installed Houmao agent entrypoint for this email-processing round.
+  $houmao-agent-entrypoint process-emails-via-gateway http://127.0.0.1:38003
+  In Codex this public entrypoint is installed natively. The standalone line above is
+  the native actor-qualified route for this gateway-notified round.
+  Use the installed public Houmao skill directly from the native tool skill surface.
+  Do not inspect the current project or runtime home for protected skill files.
   If you need the exact `/v1/mail/*` operation contract or no-gateway transport
-  guidance for this round, use the lower-level Houmao mailbox communication skill
-  `houmao-agent-email-comms` after the round skill expands.
+  guidance for this round, route through `$houmao-agent-entrypoint agent-email-comms`
+  after the notified-email routine expands.
 
   List unread mail through the shared gateway mailbox API for this round.
   Choose which unread email or emails are relevant to process, complete that work,

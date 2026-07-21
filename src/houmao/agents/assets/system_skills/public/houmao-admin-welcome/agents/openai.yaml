@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Admin Welcome"
+  short_description: "Read-only first-use orientation for human operators"
+  default_prompt: "Use $houmao-admin-welcome only for orientation, comparison, or a guided tour. Keep the route read-only and hand executable work to $houmao-admin-entrypoint with context preserved."

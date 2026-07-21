@@ -15,16 +15,17 @@ For an installed user:
 ```bash
 uv tool install houmao
 command -v tmux
-npx skills add igamenovoer/tool-skills/houmao
+houmao-mgr system-skills install --tool codex --pack admin
 ```
 
-`tmux` is required because local managed agents run inside tmux-backed sessions. When `npx` is available and the target machine has internet access, the Skills CLI path points at Houmao's small release-synced `tool-skills` mirror and lets you choose which packaged skills to install.
+`tmux` is required because local managed agents run inside tmux-backed sessions. Replace `codex` with `claude`, `copilot`, `kimi`, or `universal` for another supported skill host. The admin pack installs the read-only welcome and executable human-operator entrypoint together.
 
-Use Houmao's own installer when `npx` is unavailable, when working offline from an installed Houmao package, or when you need explicit projection behavior such as named sets, subset skills, explicit homes, symlink/copy mode, or retired-skill cleanup:
+Use repeatable pack selectors for an explicit alternative, and use `upgrade` for a legacy flat installation:
 
 ```bash
-houmao-mgr system-skills install --tool claude,codex,kimi,copilot,universal
-houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set core
+houmao-mgr system-skills install --tool claude,codex,kimi,copilot,universal --pack admin
+houmao-mgr system-skills install --tool codex --home ~/.codex --pack admin --pack agent
+houmao-mgr system-skills upgrade --tool codex --home ~/.codex --pack admin
 ```
 
 Maintained Kimi Code 0.23.x unattended TUI launches start in native `--auto` mode. Managed role context uses bootstrap or auto-skill workflows; invoke the projected `houmao-auto-system-prompt` skill before substantive chat if Kimi has not confirmed that role context is loaded.
@@ -42,7 +43,7 @@ Then prefix Houmao commands with `pixi run`.
 Open your CLI agent from the project directory where you want Houmao state to live. Then ask:
 
 ```text
-$houmao-touring start a guided tour
+$houmao-admin-welcome start-guided-tour
 ```
 
 The tour inspects the current directory, checks whether a `.houmao/` project overlay already exists, looks for existing specialists, profiles, and running managed agents, then routes you toward the next useful step. It is the right first prompt when you are new or when you want Houmao to orient itself to the current workspace.
@@ -50,9 +51,9 @@ The tour inspects the current directory, checks whether a `.houmao/` project ove
 For read-only skill help before starting a workflow, ask:
 
 ```text
-$houmao-touring help
-$houmao-agent-definition help
-$houmao-agent-email-comms help
+$houmao-admin-welcome help
+$houmao-admin-entrypoint help
+$houmao-agent-entrypoint help
 ```
 
 Those help prompts explain what the installed skill can do without mutating project state, sending mail, changing gateway state, or changing managed-agent lifecycle state.
@@ -86,7 +87,7 @@ Create two specialists, one builder and one reviewer, prepare separate workspace
 ```
 
 ```text
-Use houmao-agent-loop-pro to turn this multi-agent plan into a runnable loop, validate it, launch the participants, and report status from outside the loop.
+$houmao-admin-entrypoint agent-loop-pro turn this multi-agent plan into a runnable loop, validate it, launch the participants, and report status from outside the loop.
 ```
 
 For the concepts behind those requests, see [Easy Specialists](easy-specialists.md), [Launch Profiles](launch-profiles.md), [Managed Agent Memory](managed-memory-dirs.md), [System Skills Overview](system-skills-overview.md), and [Loop Authoring](loop-authoring.md).
@@ -216,7 +217,7 @@ sequenceDiagram
 
 If the adopted session should record a different cwd than tmux window `0`, pane `0`, add `--workdir /path/to/worktree`.
 
-Managed join auto-installs the catalog's managed-join system-skill selection into the adopted home. After join, the current-session commands under `agents self ...` can inspect, prompt, interrupt, use gateway surfaces, use mailbox surfaces, or read and edit managed memory. Selected-agent commands under `agents single --agent-name research ...` can operate the same managed agent from outside its tmux session.
+Managed join auto-installs the `agent` pack into the adopted home. Later skill-driven self work enters through `$houmao-agent-entrypoint`, which verifies current identity before routing to protected inspection, messaging, gateway, mailbox, or memory routines. Selected-agent commands under `agents single --agent-name research ...` can operate the same managed agent from outside its tmux session.
 
 ## Local State And Project Roots
 
