@@ -169,6 +169,7 @@ Use Houmao's receipt-aware manager for the normal installation path:
 ```bash
 houmao-mgr system-skills install --tool codex --pack admin
 houmao-mgr system-skills install --tool codex --pack agent
+houmao-mgr system-skills doctor --tool codex --pack agent
 ```
 
 Omitting `--pack` on the external install command selects `admin`. Managed launch, relaunch, rebuild, and join select `agent`. The manager resolves full pack membership, records shared owners, and preserves shared roots until their final owning pack is removed.
@@ -190,7 +191,7 @@ For copy-paste installation, copy the same five admin directories or four agent 
 
 Normal human work uses `$houmao-admin-entrypoint agent-inspect ...`; managed self uses `$houmao-agent-entrypoint agent-email-comms ...`. Advanced users may bypass entrypoint route selection with `$houmao-shared-routines agent-inspect ...` or `$houmao-shared-routines as-agent agent-inspect ...`; target and identity checks still apply. Invoke loops directly as `$houmao-agent-loop-pro <operation> <loop-dir>` or `$houmao-agent-loop-lite <operation> <loop-dir>`.
 
-Stored specialist and profile policy uses `packs: [admin|agent]`; individual skill and `core`/`extensions`/`all` selectors are removed. The `specialist-mgr` route remains a compatibility alias for `agent-definition`, and the old touring surface maps to `houmao-admin-welcome`. `houmao-auto-system-prompt` remains a separate managed auto skill and never enters the public collection or a pack receipt. See the [System Skills Overview](docs/getting-started/system-skills-overview.md) for the route matrix and the [System Skills CLI reference](docs/reference/cli/system-skills.md) for receipts, v3 upgrade, status, and uninstall.
+Stored specialist and profile policy uses `packs: [admin|agent]`; individual skill and `core`/`extensions`/`all` selectors are removed. The `specialist-mgr` route remains a compatibility alias for `agent-definition`, and the old touring surface maps to `houmao-admin-welcome`. `houmao-auto-system-prompt` remains a separate managed auto skill and never enters the public collection or a pack receipt. See the [System Skills Overview](docs/getting-started/system-skills-overview.md) for the route matrix and the [System Skills CLI reference](docs/reference/cli/system-skills.md) for release metadata, doctor, receipts, v3 upgrade, status, and uninstall.
 
 ## Subsystems at a Glance
 

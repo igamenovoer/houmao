@@ -11,6 +11,7 @@ import sys
 from click.testing import CliRunner
 import pytest
 
+from houmao.agents.system_skill_doctor import SystemSkillDoctorTarget
 from houmao.agents.system_skill_manifest import load_system_skill_manifest
 from houmao.srv_ctrl.commands.main import cli
 from houmao.version import get_version
@@ -48,7 +49,7 @@ def test_system_skills_help_lists_pack_lifecycle_commands() -> None:
     result = CliRunner().invoke(cli, ["system-skills", "--help"])
 
     assert result.exit_code == 0
-    for command in ("list", "install", "status", "upgrade", "uninstall"):
+    for command in ("list", "install", "status", "doctor", "upgrade", "uninstall"):
         assert command in result.output
 
 
@@ -325,6 +326,173 @@ def test_system_skills_status_reports_complete_then_drifted(tmp_path: Path) -> N
     assert {record["pack_id"]: record["status"] for record in drifted["packs"]}[
         "agent"
     ] == "drifted"
+
+
+def test_system_skills_doctor_defaults_to_receiptless_agent_pack(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    _invoke_json(
+        "system-skills",
+        "install",
+        "--tool",
+        "codex",
+        "--home",
+        str(home),
+        "--pack",
+        "agent",
+    )
+    (home / ".houmao/system-skills/codex/receipt.json").unlink()
+
+    payload, _ = _invoke_json(
+        "system-skills",
+        "doctor",
+        "--tool",
+        "codex",
+        "--home",
+        str(home),
+    )
+
+    assert payload["healthy"] is True
+    assert payload["running_houmao_version"] == get_version()
+    assert payload["selected_packs"] == ["agent"]
+    assert payload["receipt"]["status"] == "absent"
+    assert [member["name"] for member in payload["members"]] == [
+        "houmao-agent-entrypoint",
+        "houmao-shared-routines",
+        "houmao-agent-loop-pro",
+        "houmao-agent-loop-lite",
+    ]
+    assert all(member["integrity_status"] == "complete" for member in payload["members"])
+    assert all(member["version_status"] == "match" for member in payload["members"])
+
+
+def test_system_skills_doctor_emits_json_before_health_exit_one(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "doctor",
+            "--tool",
+            "codex",
+            "--home",
+            str(tmp_path / "missing-home"),
+        ],
+    )
+
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["healthy"] is False
+    assert payload["selected_packs"] == ["agent"]
+    assert {member["integrity_status"] for member in payload["members"]} == {"absent"}
+
+
+def test_houmao_mgr_module_preserves_doctor_health_exit_one(tmp_path: Path) -> None:
+    result = _run_houmao_mgr_module(
+        "--print-json",
+        "system-skills",
+        "doctor",
+        "--tool",
+        "codex",
+        "--home",
+        str(tmp_path / "missing-home"),
+    )
+
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["healthy"] is False
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        (),
+        ("--tool", "bogus"),
+        ("--tool", "codex", "--agent-id", "agent-id"),
+        ("--agent-id", "agent-id", "--agent-name", "agent-name"),
+        ("--tool", "codex", "--pack", "unknown"),
+    ],
+)
+def test_system_skills_doctor_rejects_invalid_target_or_pack_usage(args: tuple[str, ...]) -> None:
+    result = CliRunner().invoke(cli, ["system-skills", "doctor", *args])
+
+    assert result.exit_code == 2
+
+
+def test_system_skills_doctor_supports_repeatable_combined_packs(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    _invoke_json(
+        "system-skills",
+        "install",
+        "--tool",
+        "codex",
+        "--home",
+        str(home),
+        "--pack",
+        "admin",
+        "--pack",
+        "agent",
+    )
+
+    payload, _ = _invoke_json(
+        "system-skills",
+        "doctor",
+        "--tool",
+        "codex",
+        "--home",
+        str(home),
+        "--pack",
+        "agent",
+        "--pack",
+        "admin",
+        "--pack",
+        "agent",
+    )
+
+    assert payload["healthy"] is True
+    assert payload["selected_packs"] == ["agent", "admin"]
+    assert len(payload["members"]) == 6
+
+
+def test_system_skills_doctor_supports_managed_agent_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "managed-home"
+    _invoke_json(
+        "system-skills",
+        "install",
+        "--tool",
+        "codex",
+        "--home",
+        str(home),
+        "--pack",
+        "agent",
+    )
+    target = SystemSkillDoctorTarget(
+        kind="managed-agent",
+        tool="codex",
+        home_path=home,
+        agent_id="agent-authoritative-id",
+        agent_name="HOUMAO-worker",
+        lifecycle_state="stopped",
+        session_manifest_path=tmp_path / "manifest.json",
+        brain_manifest_path=tmp_path / "brain-manifest.yaml",
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.system_skills.resolve_managed_system_skill_doctor_target",
+        lambda **_: target,
+    )
+
+    payload, _ = _invoke_json(
+        "system-skills",
+        "doctor",
+        "--agent-id",
+        "agent-authoritative-id",
+    )
+
+    assert payload["healthy"] is True
+    assert payload["target"]["kind"] == "managed-agent"
+    assert payload["target"]["agent_id"] == "agent-authoritative-id"
+    assert payload["target"]["lifecycle_state"] == "stopped"
 
 
 def test_system_skills_upgrade_preserves_modified_legacy_paths(tmp_path: Path) -> None:

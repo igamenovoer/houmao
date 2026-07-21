@@ -1,5 +1,6 @@
 ---
 name: houmao-admin-entrypoint
+houmao_version: "1.2.1"
 description: Use when a human operator needs to execute or route a concrete Houmao project, credential, definition, mailbox, messaging, gateway, workspace, inspection, lifecycle, graphing, AG-UI, or explicit loop task.
 license: MIT
 skill_invocation_notation: >

@@ -1,11 +1,13 @@
 # `system-skills`
 
-`houmao-mgr system-skills` installs, inspects, upgrades, and removes complete Houmao actor packs in external or project-scoped tool homes. Managed launch and join use the same static pack lifecycle internally.
+`houmao-mgr system-skills` installs, diagnoses, inspects, upgrades, and removes complete Houmao actor packs in external or project-scoped tool homes. Managed launch and join use the same static pack lifecycle internally.
 
 ```text
 houmao-mgr system-skills list
 houmao-mgr system-skills install --tool <target> [--home <path>] [--pack admin|agent]... [--symlink]
 houmao-mgr system-skills status --tool <target> [--home <path>]
+houmao-mgr system-skills doctor --tool <target> [--home <path>] [--pack admin|agent]...
+houmao-mgr system-skills doctor (--agent-id <id> | --agent-name <unique-name>) [--pack admin|agent]...
 houmao-mgr system-skills upgrade --tool <target> [--home <path>] [--pack admin|agent]... [--symlink]
 houmao-mgr system-skills uninstall --tool <target> [--home <path>] [--pack admin|agent]...
 ```
@@ -15,6 +17,7 @@ Use the root `--print-json` flag before `system-skills` for structured output:
 ```bash
 houmao-mgr --print-json system-skills list
 houmao-mgr --print-json system-skills status --tool codex --home ~/.codex
+houmao-mgr --print-json system-skills doctor --agent-id <id>
 ```
 
 There is no `system-skills help` subcommand. Skill-level help comes from `$houmao-admin-welcome help`, `$houmao-admin-entrypoint help`, `$houmao-agent-entrypoint help`, `$houmao-shared-routines help`, or either top-level loop's `help` operation.
@@ -31,6 +34,22 @@ The `houmao-system-skills.v4` manifest records six standalone source directories
 `houmao-shared-routines`, `houmao-agent-loop-pro`, and `houmao-agent-loop-lite` belong to both packs. A combined install has six unique destinations and records both owners on those three shared records.
 
 The sixteen shared children use `SKILL-MAIN.md` below `houmao-shared-routines/subskills/`. They are route targets, not top-level install members. `houmao-auto-system-prompt` is a separate managed auto skill and never appears in the v4 manifest, static pack receipt, or public-root inventory.
+
+## Top-Level Release Metadata
+
+Each of the six standalone public `SKILL.md` roots declares one quoted `houmao_version` equal to the Houmao project release. The value identifies the checked-in static tree that a copy-paste installer, Skills CLI, or Houmao lifecycle projects without rendering. Release validation compares all six source values with `[project].version` before local distribution builds and tagged publication.
+
+The sixteen `SKILL-MAIN.md` children do not declare independent versions. `houmao-shared-routines/SKILL.md` is the release authority for the complete shared tree. Legacy skills, generated execplan skills, project-authored skills, and the separate `houmao-auto-system-prompt` asset remain outside this contract.
+
+Three values answer different questions:
+
+| Evidence | Meaning |
+|---|---|
+| Installed `houmao_version` | Release string declared by the installed top-level `SKILL.md`; doctor uses this as observed version evidence. |
+| Receipt `package_version` | Houmao package release recorded by the last lifecycle mutation; it does not replace installed frontmatter evidence. |
+| Content digest | Exact complete-tree compatibility with the running packaged source, including commands, assets, scripts, references, and shared children. |
+
+Version metadata is diagnostic only. Install, sync, status, upgrade, managed launch, rebuild, relaunch, join, runtime authorization, generated prompts, and skill invocation do not reject a root because its version is old, missing, or malformed.
 
 ## Standard External Installation
 
@@ -164,6 +183,33 @@ Legacy flat-path classifications remain separate from current ownership:
 | `unknown` | An unrecognized `houmao-*` path exists outside the current six roots. |
 
 Legacy aggregate state is `absent`, `complete`, `partial`, or `conflicting`. Name-only or partial evidence never creates receipt ownership.
+
+## `doctor`
+
+Doctor is a read-only check of an explicit expected pack. Omitted `--pack` selects `agent`; repeat the option to inspect a combined six-root installation. Direct-home mode accepts exactly one supported tool and uses the same `--home`, environment redirect, and project-default resolution as lifecycle commands:
+
+```bash
+houmao-mgr system-skills doctor --tool codex
+houmao-mgr system-skills doctor --tool codex --home ~/.codex --pack agent
+houmao-mgr system-skills doctor --tool codex --home ~/.codex --pack admin --pack agent
+houmao-mgr --print-json system-skills doctor --tool universal --home ~/.agents --pack admin
+```
+
+A complete copy-paste or Skills CLI installation can be healthy without a Houmao receipt. Doctor reads each installed top-level `SKILL.md`, checks its complete tree against the running package, and requires the exact sixteen shared child entrypoints when shared routines is expected. Receipt status and receipt package version appear as separate supporting evidence.
+
+Managed-agent mode resolves a known local registry record, its session manifest, its brain manifest, the recorded tool, and the persistent home. It does not require a live gateway, lease, tmux session, or provider TUI, so a stopped agent remains diagnosable while those authority files and its home remain readable:
+
+```bash
+houmao-mgr system-skills doctor --agent-id <authoritative-agent-id>
+houmao-mgr system-skills doctor --agent-name HOUMAO-reviewer
+houmao-mgr --print-json system-skills doctor --agent-id <authoritative-agent-id>
+```
+
+Friendly names must resolve to exactly one local record. Use `--agent-id` when a name is ambiguous. Agent selectors cannot be combined with `--tool` or `--home`, and external communication-only agents are not valid doctor targets.
+
+Each member reports integrity independently as `absent`, `complete`, `incomplete`, `drifted`, or `conflicting`. Its version status is one of `match`, `mismatch`, `missing`, `invalid`, or `unavailable`. A matching version does not hide edited content, and a receipt package version does not substitute for missing installed metadata. A running version of `0+unknown` produces `unavailable` rather than a false match.
+
+Doctor exits with code 0 only when every expected root has current complete content and a matching version. It emits the full diagnostic and exits with code 1 for health failures. Invalid selectors and unresolved targets use Click exit code 2. Doctor never installs, upgrades, repairs, launches, or writes a receipt. After a mismatch, choose a separate explicit install or upgrade only after reviewing the reported content and ownership evidence.
 
 ## `upgrade`
 

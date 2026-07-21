@@ -9,16 +9,23 @@ from typing import Any
 import click
 
 from houmao.agents.system_skills import (
+    SystemSkillDoctorResult,
+    SystemSkillDoctorTarget,
     SystemSkillInstallResult,
     SystemSkillStatusResult,
     SystemSkillUninstallResult,
     SystemSkillUpgradeResult,
     inspect_system_skill_packs,
+    inspect_system_skill_doctor,
     install_system_skill_packs_for_home,
     load_system_skill_manifest,
     resolve_system_skill_pack_selection,
     uninstall_system_skill_packs_for_home,
     upgrade_system_skill_packs_for_home,
+)
+from houmao.srv_ctrl.system_skill_doctor_target import (
+    SystemSkillDoctorTargetError,
+    resolve_managed_system_skill_doctor_target,
 )
 
 from .output import emit
@@ -56,7 +63,7 @@ _SYSTEM_SKILLS_HOME_HELP = (
 
 @click.group(name="system-skills")
 def system_skills_group() -> None:
-    """Install, inspect, upgrade, and remove complete Houmao actor packs."""
+    """Install, diagnose, inspect, upgrade, and remove complete actor packs."""
 
 
 @system_skills_group.command(name="list")
@@ -216,6 +223,53 @@ def status_system_skills_command(tool: str, home: Path | None) -> None:
     emit(payload, plain_renderer=_render_status_plain)
 
 
+@system_skills_group.command(name="doctor")
+@click.option(
+    "--pack",
+    "pack_ids",
+    multiple=True,
+    help="Repeatable expected pack (`admin` or `agent`); defaults to `agent`.",
+)
+@click.option("--tool", help=_SYSTEM_SKILLS_TARGET_HELP)
+@click.option(
+    "--home",
+    type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
+    help=_SYSTEM_SKILLS_HOME_HELP,
+)
+@click.option("--agent-id", help="Authoritative id of one known local managed agent.")
+@click.option("--agent-name", help="Unique friendly name of one known local managed agent.")
+def doctor_system_skills_command(
+    pack_ids: tuple[str, ...],
+    tool: str | None,
+    home: Path | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Diagnose expected installed roots and versions without changing them."""
+
+    target = _resolve_system_skills_doctor_target(
+        tool=tool,
+        home=home,
+        agent_id=agent_id,
+        agent_name=agent_name,
+    )
+    try:
+        resolve_system_skill_pack_selection(
+            load_system_skill_manifest(),
+            pack_ids=pack_ids or ("agent",),
+        )
+    except RuntimeError as exc:
+        raise click.UsageError(str(exc)) from exc
+    try:
+        result = inspect_system_skill_doctor(target=target, pack_ids=pack_ids)
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc)) from exc
+    payload = _doctor_payload(result)
+    emit(payload, plain_renderer=_render_doctor_plain)
+    if not result.healthy:
+        raise click.exceptions.Exit(1)
+
+
 @system_skills_group.command(name="upgrade")
 @_target_options
 @_pack_selection_options
@@ -373,6 +427,64 @@ def _status_payload(result: SystemSkillStatusResult) -> dict[str, object]:
     }
 
 
+def _doctor_payload(result: SystemSkillDoctorResult) -> dict[str, object]:
+    """Return complete structured doctor output."""
+
+    target = result.target
+    return {
+        "target": {
+            "kind": target.kind,
+            "tool": target.tool,
+            "home_path": str(target.home_path),
+            "agent_id": target.agent_id,
+            "agent_name": target.agent_name,
+            "lifecycle_state": target.lifecycle_state,
+            "session_manifest_path": (
+                str(target.session_manifest_path)
+                if target.session_manifest_path is not None
+                else None
+            ),
+            "brain_manifest_path": (
+                str(target.brain_manifest_path) if target.brain_manifest_path is not None else None
+            ),
+        },
+        "running_houmao_version": result.running_houmao_version,
+        "selected_packs": list(result.selected_pack_ids),
+        "receipt": {
+            "status": result.receipt.status,
+            "path": str(result.receipt.path),
+            "message": result.receipt.message,
+            "package_version": result.receipt.package_version,
+            "selected_packs": list(result.receipt.selected_pack_ids),
+            "legacy_pack_ids": list(result.receipt.legacy_pack_ids),
+        },
+        "healthy": result.healthy,
+        "members": [
+            {
+                "name": member.name,
+                "role": member.role,
+                "expected_packs": list(member.expected_pack_ids),
+                "relative_path": member.relative_path,
+                "path": str(member.path),
+                "healthy": member.healthy,
+                "integrity_status": member.integrity_status,
+                "expected_content_digest": member.expected_content_digest,
+                "observed_content_digest": member.observed_content_digest,
+                "observed_version": member.observed_version,
+                "version_status": member.version_status,
+                "issues": list(member.issues),
+                "receipt": {
+                    "present": member.receipt.present,
+                    "projection_mode": member.receipt.projection_mode,
+                    "content_digest": member.receipt.content_digest,
+                    "owning_packs": list(member.receipt.owning_pack_ids),
+                },
+            }
+            for member in result.members
+        ],
+    }
+
+
 def _upgrade_payload(result: SystemSkillUpgradeResult) -> dict[str, object]:
     """Return structured upgrade output."""
 
@@ -468,6 +580,37 @@ def _render_status_plain(payload: object) -> None:
         click.echo(f"Legacy flat state: {legacy.get('status')}")
         for record in _mapping_list(legacy.get("paths")):
             click.echo(f"  - {record.get('relative_path')}: {record.get('classification')}")
+
+
+def _render_doctor_plain(payload: object) -> None:
+    """Render concise health and corrective evidence for one doctor target."""
+
+    mapping = _mapping(payload)
+    target = _mapping(mapping.get("target"))
+    label = target.get("agent_id") or target.get("home_path")
+    click.echo(f"System-skill doctor target: {label}")
+    click.echo(f"Tool/home: {target.get('tool')} / {target.get('home_path')}")
+    click.echo(f"Expected Houmao release: {mapping.get('running_houmao_version')}")
+    click.echo(f"Expected packs: {', '.join(_string_list(mapping.get('selected_packs')))}")
+    receipt = _mapping(mapping.get("receipt"))
+    click.echo(f"Receipt: {receipt.get('status')} ({receipt.get('path')})")
+    click.echo(f"Health: {'healthy' if mapping.get('healthy') else 'unhealthy'}")
+    failed = [
+        member for member in _mapping_list(mapping.get("members")) if not member.get("healthy")
+    ]
+    if not failed:
+        click.echo(
+            f"Checked members: {len(_mapping_list(mapping.get('members')))} complete and current"
+        )
+        return
+    click.echo("Failures:")
+    for member in failed:
+        click.echo(
+            f"  - {member.get('name')}: integrity={member.get('integrity_status')}, "
+            f"version={member.get('version_status')}, observed={member.get('observed_version')}"
+        )
+        for issue in _string_list(member.get("issues")):
+            click.echo(f"      {issue}")
 
 
 def _render_upgrade_plain(payload: object) -> None:
@@ -576,6 +719,55 @@ def _resolve_effective_system_skills_home(*, tool: str, home: Path | None) -> Pa
     if env_value is not None and env_value.strip():
         return Path(env_value.strip()).expanduser().resolve()
     return (Path.cwd() / _SYSTEM_SKILLS_PROJECT_DEFAULT_HOME_BY_TOOL[tool]).resolve()
+
+
+def _resolve_system_skills_doctor_target(
+    *,
+    tool: str | None,
+    home: Path | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> SystemSkillDoctorTarget:
+    """Validate doctor selector modes and resolve one inspection target."""
+
+    has_agent_selector = agent_id is not None or agent_name is not None
+    if agent_id is not None and agent_name is not None:
+        raise click.UsageError("Use exactly one of --agent-id or --agent-name.")
+    if has_agent_selector:
+        if tool is not None or home is not None:
+            raise click.UsageError(
+                "Managed-agent selectors cannot be combined with --tool or --home."
+            )
+        try:
+            target = resolve_managed_system_skill_doctor_target(
+                agent_id=agent_id,
+                agent_name=agent_name,
+            )
+        except SystemSkillDoctorTargetError as exc:
+            raise click.UsageError(str(exc)) from exc
+        _validate_system_skills_doctor_tool(target.tool)
+        return target
+    if tool is None:
+        raise click.UsageError(
+            "Choose one doctor target: --tool [--home] or exactly one of --agent-id/--agent-name."
+        )
+    if "," in tool:
+        raise click.UsageError("Doctor --tool accepts exactly one supported tool.")
+    _validate_system_skills_doctor_tool(tool)
+    return SystemSkillDoctorTarget(
+        kind="explicit-home",
+        tool=tool,
+        home_path=_resolve_effective_system_skills_home(tool=tool, home=home),
+    )
+
+
+def _validate_system_skills_doctor_tool(tool: str) -> None:
+    """Validate one doctor tool using usage-error exit semantics."""
+
+    try:
+        _validate_supported_system_skills_tool(tool)
+    except click.ClickException as exc:
+        raise click.UsageError(exc.format_message()) from exc
 
 
 def _validate_supported_system_skills_tool(tool: str) -> None:

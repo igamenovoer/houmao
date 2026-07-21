@@ -1,5 +1,6 @@
 ---
 name: houmao-admin-welcome
+houmao_version: "1.2.1"
 description: Use when a newcomer or returning human operator asks what Houmao is for, which workflow fits a goal, how projects, definitions, managed agents, communication, workspaces, or loops fit together, or what read-only next step to take.
 license: MIT
 ---

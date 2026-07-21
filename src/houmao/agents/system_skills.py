@@ -7,6 +7,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
 
+from houmao.agents.system_skill_doctor import (
+    SystemSkillDoctorMemberReceiptEvidence,
+    SystemSkillDoctorMemberResult,
+    SystemSkillDoctorReceiptEvidence,
+    SystemSkillDoctorResult,
+    SystemSkillDoctorTarget,
+    SystemSkillDoctorTargetKind,
+    SystemSkillVersionStatus,
+    inspect_system_skill_doctor,
+)
 from houmao.agents.system_skill_lifecycle import (
     LegacySystemSkillInspection,
     LegacySystemSkillPathStatus,
@@ -62,6 +72,14 @@ from houmao.agents.system_skill_manifest import (
     tree_content_digest,
     validate_static_system_skill_source,
 )
+from houmao.agents.system_skill_version import (
+    SystemSkillFrontmatterError,
+    SystemSkillVersionSourceCheck,
+    SystemSkillVersionSourceIssue,
+    TopLevelSystemSkillFrontmatter,
+    check_system_skill_source_versions,
+    parse_top_level_system_skill_frontmatter,
+)
 
 
 __all__ = (
@@ -83,6 +101,13 @@ __all__ = (
     "StandaloneSkillRole",
     "StandaloneSystemSkillRecord",
     "SystemSkillDefaults",
+    "SystemSkillDoctorMemberReceiptEvidence",
+    "SystemSkillDoctorMemberResult",
+    "SystemSkillDoctorReceiptEvidence",
+    "SystemSkillDoctorResult",
+    "SystemSkillDoctorTarget",
+    "SystemSkillDoctorTargetKind",
+    "SystemSkillFrontmatterError",
     "SystemSkillInstallError",
     "SystemSkillInstallResult",
     "SystemSkillMemberStatusRecord",
@@ -96,14 +121,21 @@ __all__ = (
     "SystemSkillStatusResult",
     "SystemSkillUninstallResult",
     "SystemSkillUpgradeResult",
+    "SystemSkillVersionSourceCheck",
+    "SystemSkillVersionSourceIssue",
+    "SystemSkillVersionStatus",
+    "TopLevelSystemSkillFrontmatter",
+    "check_system_skill_source_versions",
     "inspect_legacy_system_skill_paths",
     "inspect_system_skill_packs",
     "inspect_system_skill_receipt",
+    "inspect_system_skill_doctor",
     "install_system_skill_packs_for_home",
     "load_legacy_system_skill_catalog",
     "load_system_skill_manifest",
     "load_system_skill_manifest_from_paths",
     "project_system_skill_pack_to_destination",
+    "parse_top_level_system_skill_frontmatter",
     "projected_standalone_skill_relative_dir",
     "resolve_system_skill_pack_members",
     "resolve_system_skill_pack_selection",

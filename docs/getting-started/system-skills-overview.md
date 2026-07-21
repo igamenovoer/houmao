@@ -17,9 +17,18 @@ Public means that an agent host can discover the directory through its normal to
 | `houmao-agent-loop-pro` | `admin`, `agent` | Explicit manual schema-rich loop workflow. |
 | `houmao-agent-loop-lite` | `admin`, `agent` | Explicit manual Markdown/direct-SQL loop workflow. |
 
-The source of truth is [`src/houmao/agents/assets/system_skills/manifest.toml`](../../src/houmao/agents/assets/system_skills/manifest.toml). All six current roots live under `src/houmao/agents/assets/system_skills/public/`. The read-only `legacy/` area exists only for migration classification.
+The source of truth is [`src/houmao/agents/assets/system_skills/manifest.toml`](../../src/houmao/agents/assets/system_skills/manifest.toml). All six current roots live under `src/houmao/agents/assets/system_skills/public/` and each root `SKILL.md` declares its Houmao release in quoted `houmao_version` metadata. The read-only `legacy/` area exists only for migration classification.
 
-The shared root owns sixteen children under `houmao-shared-routines/subskills/<logical-id>/SKILL-MAIN.md`. A child is loaded by its parent after route selection and does not become a seventeenth top-level install unit. Exact top-level `SKILL.md` discovery therefore returns the six names in the table and ignores all parent-scoped children.
+The shared root owns sixteen children under `houmao-shared-routines/subskills/<logical-id>/SKILL-MAIN.md`. Those children inherit the shared root release and do not declare independent versions. A child is loaded by its parent after route selection and does not become a seventeenth top-level install unit. Exact top-level `SKILL.md` discovery therefore returns the six names in the table and ignores all parent-scoped children.
+
+Use the read-only doctor to check an expected installation. It defaults to the four-member agent pack and also works for receiptless copy-paste or Skills CLI installations:
+
+```bash
+houmao-mgr system-skills doctor --tool codex --home ~/.codex
+houmao-mgr system-skills doctor --agent-id <authoritative-agent-id>
+```
+
+Doctor compares both complete-tree content and installed frontmatter with the running package. A mismatch is diagnostic and never blocks launch or skill invocation; repair remains a separate explicit install or upgrade choice. See the [`system-skills` CLI reference](../reference/cli/system-skills.md#doctor) for pack selection, managed-agent name resolution, JSON output, receipt evidence, and exit codes.
 
 ## Installation Choices
 

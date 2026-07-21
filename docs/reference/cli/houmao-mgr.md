@@ -195,7 +195,7 @@ Ordinary project users manage credentials through `houmao-mgr project [--project
 houmao-mgr system-skills [OPTIONS] COMMAND [ARGS]...
 ```
 
-Install, inspect, upgrade, or remove complete Houmao actor packs for resolved Claude, Codex, Kimi Code, or Copilot homes, or for the cross-client `universal` Agent Skills target.
+Install, diagnose, inspect, upgrade, or remove complete Houmao actor packs for resolved Claude, Codex, Kimi Code, or Copilot homes, or for the cross-client `universal` Agent Skills target.
 
 #### Subcommands
 
@@ -204,6 +204,7 @@ Install, inspect, upgrade, or remove complete Houmao actor packs for resolved Cl
 | `list` | Show actor packs, six standalone roots, default lanes, shared ownership, activation posture, and sixteen parent-scoped children. |
 | `install` | Transactionally install the external default or repeatable `--pack admin|agent` selections. |
 | `status` | Report receipt integrity, per-pack state, drift, conflicts, and legacy flat evidence. |
+| `doctor` | Read installed tree and release evidence for an expected pack in an explicit or managed-agent home. |
 | `upgrade` | Refresh selected packs and remove only legacy flat paths with package-linked or known-content evidence. |
 | `uninstall` | Remove selected receipt-owned packs, or all owned packs when `--pack` is omitted. |
 
@@ -213,6 +214,7 @@ Operational notes:
 - mutating lifecycle commands also require `--tool` and accept the same single-tool or comma-separated tool syntax
 - `--home` is valid only when `--tool` names one tool; comma-separated multi-tool operations resolve each home independently
 - `system-skills status` requires `--tool` and accepts optional `--home`
+- `system-skills doctor` accepts either `--tool` with optional `--home`, or exactly one managed selector `--agent-id` or `--agent-name`; omitted `--pack` expects `agent`
 - when `--home` is omitted, tool-specific targets resolve with precedence tool-native home env var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `KIMI_CODE_HOME`, `COPILOT_HOME`), then the project-scoped default home; `universal` resolves to `~/.agents`
 - the project-scoped defaults are `<cwd>/.claude` for Claude, `<cwd>/.codex` for Codex, `<cwd>/.kimi-code` for Kimi, and `<cwd>/.github` for Copilot
 - `kimi` means Kimi Code CLI, not legacy MoonshotAI `kimi-cli`, which upstream says is being wound down in favor of Kimi Code CLI

@@ -1,5 +1,6 @@
 ---
 name: houmao-agent-entrypoint
+houmao_version: "1.2.1"
 description: Use when a Houmao-managed agent needs to perform a concrete self or explicit-peer mailbox, messaging, gateway, memory, workspace, inspection, lifecycle, graphing, AG-UI, notifier-round, or explicitly selected loop task.
 license: MIT
 skill_invocation_notation: >

@@ -144,7 +144,8 @@ lint = { cmd = "ruff check src tests docs scripts", description = "Run Ruff lint
 typecheck = { cmd = "mypy src", description = "Run strict mypy checks" }
 test = { cmd = "workers=$(python -c 'import os; print(max(1, (os.cpu_count() or 2) // 2))'); python -m pytest tests/unit -n \"$workers\"", description = "Run destination unit tests in parallel using half the available CPU cores" }
 test-runtime = { cmd = "python -m pytest tests/unit/agents tests/unit/cao", description = "Run runtime-focused unit suites" }
-build-dist = { cmd = "python -m build --sdist --wheel", description = "Build sdist and wheel artifacts" }
+check-system-skill-versions = { cmd = "python scripts/check_system_skill_versions.py", description = "Check public system-skill frontmatter against the project version" }
+build-dist = { cmd = "python scripts/check_system_skill_versions.py && python -m build --sdist --wheel", description = "Check versioned system skills, then build sdist and wheel artifacts" }
 check-dist = { cmd = "python -m twine check dist/*", description = "Validate built package metadata" }
 tui-pending-state-capture = { cmd = "python scripts/qualification/tui-prompt-admission/tui_pending_state_capture_runner.py", description = "Capture labeled tmux recordings of the prompt-queue lifecycle for TUI state tracking" }
 install-global-tool = { cmd = "uv tool install --force --editable .", description = "Install the current checkout as a global editable uv tool, replacing any existing houmao tool install" }
