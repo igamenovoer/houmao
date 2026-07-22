@@ -35,7 +35,7 @@ The `houmao-system-skills.v4` manifest records six standalone source directories
 
 The two actor entrypoints use narrow implicit activation. `houmao-admin-entrypoint` handles semantically Houmao-related requests in a raw human-operator context, and `houmao-agent-entrypoint` handles them in a genuine managed-agent context. `houmao-admin-welcome`, `houmao-shared-routines`, and both loop roots remain explicit-only. Exact `$houmao-*` handles take precedence over implicit discovery. In a combined installation, current execution context selects the actor entrypoint; prompt claims cannot turn a raw operator into managed self or a managed agent into admin.
 
-The sixteen shared children use `SKILL-MAIN.md` below `houmao-shared-routines/subskills/`. They are route targets, not top-level install members. `houmao-auto-system-prompt` is a separate managed auto skill and never appears in the v4 manifest, static pack receipt, or public-root inventory.
+The sixteen shared children use `SKILL-MAIN.md` below `houmao-shared-routines/subskills/`. They are route targets, not top-level install members. `houmao-auto-system-prompt` is a separate managed auto skill and never appears in the v4 manifest, skill config, or public-root inventory.
 
 ## Top-Level Release Metadata
 
@@ -48,7 +48,7 @@ Three values answer different questions:
 | Evidence | Meaning |
 |---|---|
 | Installed `houmao_version` | Release string declared by the installed top-level `SKILL.md`; doctor uses this as observed version evidence. |
-| Receipt `package_version` | Houmao package release recorded by the last lifecycle mutation; it does not replace installed frontmatter evidence. |
+| Config `houmao_version` | Houmao package release recorded by the last lifecycle mutation; it does not replace installed frontmatter evidence. |
 | Content digest | Exact complete-tree compatibility with the running packaged source, including commands, assets, scripts, references, and shared children. |
 
 Version metadata is diagnostic only. Install, sync, status, upgrade, managed launch, rebuild, relaunch, join, runtime authorization, generated prompts, and skill invocation do not reject a root because its version is old, missing, or malformed.
@@ -74,7 +74,7 @@ Select all four agent siblings explicitly:
 npx skills add ./src/houmao/agents/assets/system_skills/public --agent codex --skill houmao-agent-entrypoint --skill houmao-shared-routines --skill houmao-agent-loop-pro --skill houmao-agent-loop-lite --yes
 ```
 
-Skills CLI and copy-paste installation treat each directory independently. They do not resolve Houmao dependencies, create shared owner sets, or write a Houmao receipt. Selecting an entrypoint alone therefore produces an incomplete actor surface. Use `houmao-mgr system-skills` when you want automatic pack closure and receipt-aware lifecycle management.
+Skills CLI and copy-paste installation treat each directory independently. They do not resolve Houmao dependencies, create shared owner sets, or write a Houmao skill config. Selecting an entrypoint alone therefore produces an incomplete actor surface. Use `houmao-mgr system-skills` when you want automatic pack closure and config-backed lifecycle management.
 
 ## Supported Targets and Effective Homes
 
@@ -129,35 +129,36 @@ Copy projection is the default and recursively preserves the complete packaged d
 houmao-mgr system-skills install --tool codex --home ~/.codex --pack admin --symlink
 ```
 
-Before mutation, installation resolves a deduplicated static union, checks every destination for unowned collisions, stages complete directories, validates the union, and backs up replaceable receipt-owned state. It commits all destinations and writes the receipt last. A failure restores the prior paths and receipt. Unrelated user skills remain untouched.
+Before mutation, installation resolves a deduplicated static union, checks every destination for unowned collisions, stages complete directories, validates the union, and backs up replaceable config-owned state. It commits all destinations and writes the config last. A failure restores the prior paths and config. Unrelated user skills remain untouched.
 
-Structured install output reports `tool`, `home_path`, `selected_packs`, `standalone_skills`, `projected_relative_dirs`, `receipt_path`, `projection_mode`, `owning_pack_ids_by_skill`, and any removed pack, destination, or legacy evidence.
+Structured install output reports `tool`, `home_path`, `selected_packs`, `standalone_skills`, `projected_relative_dirs`, `config_path`, `projection_mode`, `owning_pack_ids_by_skill`, and any removed pack, destination, or legacy evidence.
 
 The manager's individual `--skill` and set-based `--set` or `--skill-set` selectors are obsolete. Use repeated `--pack admin|agent`. Passing a standalone name such as `houmao-shared-routines` to `--pack` fails because it is not a pack selector; passing a child logical id fails because a child is not an install selector. This restriction does not apply to the separate `npx skills` command.
 
-## Ownership Receipt
+## Minimal Skill Config
 
-Each managed target keeps one tool-scoped receipt:
+Each manager-owned target keeps one tool-scoped config:
 
 ```text
-<home>/.houmao/system-skills/<tool>/receipt.json
+<home>/.houmao/system-skills/<tool>/houmao-skill-config.json
 ```
 
-The `houmao-system-skills-receipt.v2` payload records the manifest and package versions, tool, resolved home, collection-wide projection mode, selected packs, update time, and conservatively removed legacy paths. Its `skills` array contains one record per standalone destination:
+The `houmao-skill-config.v1` payload has exactly four top-level fields:
 
-- standalone name and role;
-- home-relative destination;
-- `copy` or `symlink` projection mode;
-- complete-tree content digest;
-- non-empty `owning_pack_ids` set.
+- `schema_version`: the literal `houmao-skill-config.v1`;
+- `houmao_version`: the Houmao release that performed the last lifecycle mutation;
+- `projection_mode`: `copy` or `symlink` for the whole collection;
+- `skills`: the manifest-ordered standalone destination records.
 
-One receipt uses one projection mode for its complete collection. An explicit install, sync, or upgrade may transactionally replace every owned member to change mode. Receipt writes are atomic and occur after destination commit.
+Each skill record has exactly `name`, `relative_path`, `content_digest`, and a non-empty `owning_pack_ids` list. The manager derives selected packs from the owner union; it does not serialize `selected_packs`, tool, home, timestamps, roles, manifest versions, or source paths. Tool and home come from the config location.
 
-A missing receipt is `absent`. Invalid JSON or invalid current-version data is `corrupt`. A future schema version is `unsupported`; lifecycle mutation refuses to infer ownership. A v3 composed receipt is `legacy-v3` and its packs report drift until upgrade.
+One config uses one projection mode for its complete collection. An explicit install, sync, or upgrade may transactionally replace every owned member to change mode. Config writes are atomic and occur after destination commit.
+
+A missing config is `absent`. Invalid JSON, unknown or missing fields, unsafe paths, duplicate records, invalid digests, invalid owners, or a union that differs from the derived packs is `corrupt`. A future schema version is `unsupported`. Lifecycle mutation refuses to infer ownership from corrupt, unsupported, or absent config state.
 
 ## `status`
 
-Status is read only. It reports receipt state, all six standalone members, both packs, owner sets, expected digests, shared-child completeness, and legacy flat-path evidence:
+Status is read only. It reports config state, all six standalone members, both packs, owner sets, expected digests, shared-child completeness, and legacy flat-path evidence:
 
 ```bash
 houmao-mgr system-skills status --tool codex
@@ -169,10 +170,10 @@ Member and pack integrity classes are:
 
 | Status | Meaning |
 |---|---|
-| `absent` | The receipt does not own the member or pack. |
+| `absent` | The config does not own the member or pack. |
 | `complete` | Every owned static destination has the recorded shape and digest; shared routines contain all sixteen children. |
 | `incomplete` | An owned destination or required shared child is missing. |
-| `drifted` | Owned content differs from its digest, or a v3 receipt predates the static v4 contract. |
+| `drifted` | Config-owned content differs from its recorded or packaged digest. |
 | `conflicting` | A destination has the wrong type, symlink target, or ownership shape. |
 
 Legacy flat-path classifications remain separate from current ownership:
@@ -184,7 +185,7 @@ Legacy flat-path classifications remain separate from current ownership:
 | `modified` | A known legacy path contains different content or points elsewhere. |
 | `unknown` | An unrecognized `houmao-*` path exists outside the current six roots. |
 
-Legacy aggregate state is `absent`, `complete`, `partial`, or `conflicting`. Name-only or partial evidence never creates receipt ownership.
+Legacy aggregate state is `absent`, `complete`, `partial`, or `conflicting`. Name-only or partial evidence never creates config ownership.
 
 ## `doctor`
 
@@ -197,7 +198,7 @@ houmao-mgr system-skills doctor --tool codex --home ~/.codex --pack admin --pack
 houmao-mgr --print-json system-skills doctor --tool universal --home ~/.agents --pack admin
 ```
 
-A complete copy-paste or Skills CLI installation can be healthy without a Houmao receipt. Doctor reads each installed top-level `SKILL.md`, checks its complete tree against the running package, and requires the exact sixteen shared child entrypoints when shared routines is expected. Receipt status and receipt package version appear as separate supporting evidence.
+A complete copy-paste or Skills CLI installation can be healthy without a Houmao skill config. Doctor reads each installed top-level `SKILL.md`, checks its complete tree against the running package, and requires the exact sixteen shared child entrypoints when shared routines is expected. Config status and config `houmao_version` appear as separate supporting evidence.
 
 Managed-agent mode resolves a known local registry record, its session manifest, its brain manifest, the recorded tool, and the persistent home. It does not require a live gateway, lease, tmux session, or provider TUI, so a stopped agent remains diagnosable while those authority files and its home remain readable:
 
@@ -209,43 +210,28 @@ houmao-mgr --print-json system-skills doctor --agent-id <authoritative-agent-id>
 
 Friendly names must resolve to exactly one local record. Use `--agent-id` when a name is ambiguous. Agent selectors cannot be combined with `--tool` or `--home`, and external communication-only agents are not valid doctor targets.
 
-Each member reports integrity independently as `absent`, `complete`, `incomplete`, `drifted`, or `conflicting`. Its version status is one of `match`, `mismatch`, `missing`, `invalid`, or `unavailable`. A matching version does not hide edited content, and a receipt package version does not substitute for missing installed metadata. A running version of `0+unknown` produces `unavailable` rather than a false match.
+Each member reports integrity independently as `absent`, `complete`, `incomplete`, `drifted`, or `conflicting`. Its version status is one of `match`, `mismatch`, `missing`, `invalid`, or `unavailable`. A matching version does not hide edited content, and a config `houmao_version` does not substitute for missing installed metadata. A running version of `0+unknown` produces `unavailable` rather than a false match.
 
-Doctor exits with code 0 only when every expected root has current complete content and a matching version. It emits the full diagnostic and exits with code 1 for health failures. Invalid selectors and unresolved targets use Click exit code 2. Doctor never installs, upgrades, repairs, launches, or writes a receipt. After a mismatch, choose a separate explicit install or upgrade only after reviewing the reported content and ownership evidence.
+Doctor exits with code 0 only when every expected root has current complete content and a matching version. It emits the full diagnostic and exits with code 1 for health failures. Invalid selectors and unresolved targets use Click exit code 2. Doctor never installs, upgrades, repairs, launches, or writes a config. After a mismatch, choose a separate explicit install or upgrade only after reviewing the reported content and ownership evidence.
 
 ## `upgrade`
 
-`upgrade` refreshes selected complete packs through the same receipt-last transaction and conservatively migrates old state:
+`upgrade` refreshes selected complete packs through the same config-last transaction:
 
 ```bash
 houmao-mgr system-skills upgrade --tool codex --home ~/.codex --pack admin
 houmao-mgr system-skills upgrade --tool codex --home ~/.codex --pack agent --symlink
 ```
 
-Omitting `--pack` selects the explicit CLI default `admin`. For a healthy v3 composed receipt, upgrade:
+Omitting `--pack` selects the explicit CLI default `admin`. Upgrade accepts a current `houmao-skill-config.v1` installation or a clean target with no selected destinations. It stages the complete static union, replaces only config-owned destinations, commits destinations, and writes the config last. Legacy flat paths are removed only when they are `package-linked` or `digest-matched`; `modified` and `unknown` paths appear in `preserved_legacy_paths`.
 
-1. parses the old receipt-owned pack and destination evidence;
-2. stages the complete v4 static union;
-3. replaces the old actor entrypoint destinations;
-4. adds `houmao-shared-routines` and both top-level loop siblings;
-5. commits and writes the v4 receipt last;
-6. removes obsolete receipt-owned materialization data only after commit.
+This config change is a breaking lifecycle boundary. The manager does not read, migrate, remove, or use an old `receipt.json` to infer ownership. Old projected top-level roots therefore remain unowned collisions. To reinstall, first inspect and back up any edited roots, remove the old Houmao top-level skill directories from the target skill root, and then run `install` with the intended pack selection. Removing the old receipt is optional because the new lifecycle ignores it, but doing so avoids leaving misleading stale metadata. Do not expect `upgrade` to convert the old installation.
 
-Modified v3 destinations block automatic replacement and remain available for manual comparison. Unknown or unowned paths are preserved. Legacy flat paths are removed only when they are `package-linked` or `digest-matched`; `modified` and `unknown` paths appear in `preserved_legacy_paths`.
-
-Use this breaking-migration sequence:
-
-```bash
-houmao-mgr system-skills status --tool codex --home ~/.codex
-houmao-mgr system-skills upgrade --tool codex --home ~/.codex --pack admin
-houmao-mgr system-skills status --tool codex --home ~/.codex
-```
-
-Structured upgrade output adds `legacy_before`, `preserved_legacy_paths`, `migrated_v3`, and `removed_obsolete_paths` to the install result.
+Structured upgrade output adds `legacy_before` and `preserved_legacy_paths` to the install result.
 
 ## `uninstall`
 
-Uninstall subtracts selected pack ownership. Omission selects every pack currently owned by the receipt:
+Uninstall subtracts selected pack ownership. Omission selects every pack currently owned by the config:
 
 ```bash
 houmao-mgr system-skills uninstall --tool codex --pack admin
@@ -255,9 +241,9 @@ houmao-mgr system-skills uninstall --tool codex
 
 When both packs are installed, removing `admin` deletes `houmao-admin-welcome` and `houmao-admin-entrypoint`. Shared routines and both loops remain because `agent` still owns them. The same rule applies in reverse: a shared projection is removed only after its final owning pack is removed.
 
-An ownership-shape conflict is preserved and reported in `preserved_conflicting_paths`. Independently removable destinations may still be removed. Unrelated user skills and unowned legacy paths remain untouched. The receipt disappears when no owned packs remain.
+An ownership-shape conflict is preserved and reported in `preserved_conflicting_paths`. Independently removable destinations may still be removed. Unrelated user skills and unowned legacy paths remain untouched. The config disappears when no owned packs remain.
 
-Structured output reports requested, removed, and absent packs; removed destinations; `retained_shared_skills`; preserved conflicts; and the receipt path.
+Structured output reports requested, removed, and absent packs; removed destinations; `retained_shared_skills`; preserved conflicts; and the config path.
 
 ## Managed-Home Policy
 
@@ -271,7 +257,7 @@ launch:
       - admin
 ```
 
-`extend` on a source starts from the managed `agent` default. `replace` selects exactly the listed packs. `none` selects no pack. On a reused home, exact sync removes only receipt-owned members no longer selected and preserves unrelated user skills.
+`extend` on a source starts from the managed `agent` default. `replace` selects exactly the listed packs. `none` selects no pack. On a reused home, exact sync removes only config-owned members no longer selected and preserves unrelated user skills.
 
 Stored `sets` and `skills` fields are rejected with a migration diagnostic. Complete packs are the only manager selection units.
 
@@ -354,8 +340,8 @@ Old names remain only in migration evidence and the read-only legacy digest inve
 - Duplicate tool names and empty comma-separated tool entries fail validation.
 - `--home` with multiple tools fails because one path cannot represent several target-native homes.
 - Untracked selected-path collisions fail preflight and remain unchanged.
-- Corrupt or future-version receipts block lifecycle mutation but remain inspectable through status.
-- Modified legacy or v3-owned content is preserved or blocks unsafe replacement.
+- Corrupt or future-version configs block lifecycle mutation but remain inspectable through status.
+- Old receipt-era roots remain unowned collisions until the user performs a clean reinstall.
 - Standalone names, child logical ids, and `houmao-auto-system-prompt` cannot be used as manager pack selectors.
 
 ## See Also

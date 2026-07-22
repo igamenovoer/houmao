@@ -203,10 +203,10 @@ Install, diagnose, inspect, upgrade, or remove complete Houmao actor packs for r
 |---|---|
 | `list` | Show actor packs, six standalone roots, default lanes, shared ownership, activation posture, and sixteen parent-scoped children. |
 | `install` | Transactionally install the external default or repeatable `--pack admin|agent` selections. |
-| `status` | Report receipt integrity, per-pack state, drift, conflicts, and legacy flat evidence. |
+| `status` | Report config integrity, per-pack state, drift, conflicts, and legacy flat evidence. |
 | `doctor` | Read installed tree and release evidence for an expected pack in an explicit or managed-agent home. |
 | `upgrade` | Refresh selected packs and remove only legacy flat paths with package-linked or known-content evidence. |
-| `uninstall` | Remove selected receipt-owned packs, or all owned packs when `--pack` is omitted. |
+| `uninstall` | Remove selected config-owned packs, or all owned packs when `--pack` is omitted. |
 
 Operational notes:
 
@@ -225,9 +225,9 @@ Operational notes:
 - copy projection is the default; optional `--symlink` links each top-level destination directly to its complete packaged source
 - the `admin` pack projects welcome, admin entrypoint, shared routines, and both top-level loops; the `agent` pack projects agent entrypoint, shared routines, and both loops
 - Kimi output reports a discovery caveat because `--home` places files; Kimi Code discovers them when a later launch uses the same `KIMI_CODE_HOME`, passes the path with `--skills-dir`, or includes it through `extra_skill_dirs`
-- the v4 lifecycle receipt records one complete-tree digest, projection mode, destination, and non-empty pack-owner set per standalone skill; unrelated and untracked paths remain outside Houmao ownership
+- the lifecycle config records the Houmao release and collection projection mode plus one name, destination, complete-tree digest, and non-empty pack-owner set per standalone skill; unrelated and untracked paths remain outside Houmao ownership
 - `status` classifies each pack as absent, complete, incomplete, drifted, or conflicting without mutating the home
-- `upgrade` preserves modified, unknown, and partial legacy flat projections for operator review; `uninstall` removes only selected receipt-owned paths and preserves ownership conflicts
+- `upgrade` preserves modified, unknown, and partial legacy flat projections for operator review; `uninstall` removes only selected config-owned paths and preserves ownership conflicts
 - managed brain build, relaunch, and `agents self join` use exact copy-based agent-pack synchronization; stored source/profile policy may override or disable that managed default
 
 For the detailed catalog, projection, and ownership contract, see [system-skills](system-skills.md).

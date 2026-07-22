@@ -8,10 +8,10 @@ from pathlib import Path
 from typing import Literal
 
 from houmao.agents.system_skill_lifecycle import (
+    ConfigInspectionStatus,
     MemberIntegrityStatus,
-    ReceiptInspectionStatus,
     SystemSkillProjectionMode,
-    inspect_system_skill_receipt,
+    inspect_system_skill_config,
     projected_standalone_skill_relative_dir,
 )
 from houmao.agents.system_skill_manifest import (
@@ -50,20 +50,19 @@ class SystemSkillDoctorTarget:
 
 
 @dataclass(frozen=True)
-class SystemSkillDoctorReceiptEvidence:
-    """Tool-home receipt evidence kept separate from direct health checks."""
+class SystemSkillDoctorConfigEvidence:
+    """Tool-home config evidence kept separate from direct health checks."""
 
-    status: ReceiptInspectionStatus
+    status: ConfigInspectionStatus
     path: Path
     message: str | None
-    package_version: str | None
+    houmao_version: str | None
     selected_pack_ids: tuple[str, ...]
-    legacy_pack_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True)
-class SystemSkillDoctorMemberReceiptEvidence:
-    """Optional current-receipt record for one expected member."""
+class SystemSkillDoctorMemberConfigEvidence:
+    """Optional current-config record for one expected member."""
 
     present: bool
     projection_mode: SystemSkillProjectionMode | None
@@ -73,7 +72,7 @@ class SystemSkillDoctorMemberReceiptEvidence:
 
 @dataclass(frozen=True)
 class SystemSkillDoctorMemberResult:
-    """Independent integrity, version, and receipt evidence for one expected root."""
+    """Independent integrity, version, and config evidence for one expected root."""
 
     name: str
     role: StandaloneSkillRole
@@ -86,7 +85,7 @@ class SystemSkillDoctorMemberResult:
     observed_version: str | None
     version_status: SystemSkillVersionStatus
     issues: tuple[str, ...]
-    receipt: SystemSkillDoctorMemberReceiptEvidence
+    config: SystemSkillDoctorMemberConfigEvidence
 
     @property
     def healthy(self) -> bool:
@@ -102,7 +101,7 @@ class SystemSkillDoctorResult:
     target: SystemSkillDoctorTarget
     running_houmao_version: str
     selected_pack_ids: tuple[str, ...]
-    receipt: SystemSkillDoctorReceiptEvidence
+    config: SystemSkillDoctorConfigEvidence
     members: tuple[SystemSkillDoctorMemberResult, ...]
     healthy: bool
 
@@ -123,9 +122,9 @@ def inspect_system_skill_doctor(
     records = resolve_system_skill_pack_members(manifest, pack_ids=selected_pack_ids)
     expected_version = running_houmao_version or get_version()
     home_path = target.home_path.expanduser().resolve()
-    receipt_inspection = inspect_system_skill_receipt(tool=target.tool, home_path=home_path)
-    receipt = receipt_inspection.receipt
-    receipt_map = receipt.skill_map() if receipt is not None else {}
+    config_inspection = inspect_system_skill_config(tool=target.tool, home_path=home_path)
+    config = config_inspection.config
+    config_map = config.skill_map() if config is not None else {}
     members: list[SystemSkillDoctorMemberResult] = []
     for record in records:
         relative_path = projected_standalone_skill_relative_dir(
@@ -144,7 +143,7 @@ def inspect_system_skill_doctor(
             skill_name=record.name,
             running_houmao_version=expected_version,
         )
-        receipt_record = receipt_map.get(record.name)
+        config_record = config_map.get(record.name)
         expected_owners = tuple(
             pack_id
             for pack_id in selected_pack_ids
@@ -163,27 +162,28 @@ def inspect_system_skill_doctor(
                 observed_version=observed_version,
                 version_status=version_status,
                 issues=integrity_issues + version_issues,
-                receipt=SystemSkillDoctorMemberReceiptEvidence(
-                    present=receipt_record is not None,
+                config=SystemSkillDoctorMemberConfigEvidence(
+                    present=config_record is not None,
                     projection_mode=(
-                        receipt_record.projection_mode if receipt_record is not None else None
+                        config.projection_mode
+                        if config is not None and config_record is not None
+                        else None
                     ),
                     content_digest=(
-                        receipt_record.content_digest if receipt_record is not None else None
+                        config_record.content_digest if config_record is not None else None
                     ),
                     owning_pack_ids=(
-                        receipt_record.owning_pack_ids if receipt_record is not None else ()
+                        config_record.owning_pack_ids if config_record is not None else ()
                     ),
                 ),
             )
         )
-    receipt_evidence = SystemSkillDoctorReceiptEvidence(
-        status=receipt_inspection.status,
-        path=receipt_inspection.path,
-        message=receipt_inspection.message,
-        package_version=receipt.package_version if receipt is not None else None,
-        selected_pack_ids=receipt.selected_pack_ids if receipt is not None else (),
-        legacy_pack_ids=receipt_inspection.legacy_pack_ids,
+    config_evidence = SystemSkillDoctorConfigEvidence(
+        status=config_inspection.status,
+        path=config_inspection.path,
+        message=config_inspection.message,
+        houmao_version=config.houmao_version if config is not None else None,
+        selected_pack_ids=config.selected_pack_ids if config is not None else (),
     )
     normalized_target = SystemSkillDoctorTarget(
         kind=target.kind,
@@ -199,7 +199,7 @@ def inspect_system_skill_doctor(
         target=normalized_target,
         running_houmao_version=expected_version,
         selected_pack_ids=selected_pack_ids,
-        receipt=receipt_evidence,
+        config=config_evidence,
         members=tuple(members),
         healthy=all(member.healthy for member in members),
     )
@@ -211,7 +211,7 @@ def _inspect_member_integrity(
     skill_name: str,
     expected_digest: str,
 ) -> tuple[MemberIntegrityStatus, str | None, tuple[str, ...]]:
-    """Classify one installed root independently from any receipt."""
+    """Classify one installed root independently from any config."""
 
     if not os.path.lexists(path):
         return "absent", None, ("expected standalone root is absent",)
@@ -308,9 +308,9 @@ def _shared_routine_shape_issue(path: Path) -> str | None:
 
 
 __all__ = (
-    "SystemSkillDoctorMemberReceiptEvidence",
+    "SystemSkillDoctorMemberConfigEvidence",
     "SystemSkillDoctorMemberResult",
-    "SystemSkillDoctorReceiptEvidence",
+    "SystemSkillDoctorConfigEvidence",
     "SystemSkillDoctorResult",
     "SystemSkillDoctorTarget",
     "SystemSkillDoctorTargetKind",

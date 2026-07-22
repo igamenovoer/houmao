@@ -129,7 +129,7 @@ Launch profiles may store profile-owned policy under `defaults.system_skills` wi
 - `replace` — use exactly the selected packs from the profile.
 - `none` — install no current Houmao-owned system skills.
 
-Pack ids are validated against the versioned manifest. On reused homes, Houmao synchronizes the receipt-owned standalone paths to the effective pack selection while preserving unrelated user skills. Registered project skills and profile-private skills cannot use standalone, shared-child, or reserved auto-skill names because those surfaces share the visible skill root or parent-scoped routing namespace.
+Pack ids are validated against the versioned manifest. On reused homes, Houmao synchronizes the config-owned standalone paths to the effective pack selection while preserving unrelated user skills. Registered project skills and profile-private skills cannot use standalone, shared-child, or reserved auto-skill names because those surfaces share the visible skill root or parent-scoped routing namespace.
 
 Examples:
 

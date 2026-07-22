@@ -6,7 +6,7 @@ This page explains how mailbox support is attached to a brain home, a launch pla
 
 Mailbox support spans build time, start time, resume time, and control time.
 
-- Build time installs the receipt-owned four-member `agent` pack into the runtime home; mailbox behavior is routed from the agent entrypoint to parent-scoped children in the shared sibling.
+- Build time installs the config-owned four-member `agent` pack into the runtime home; mailbox behavior is routed from the agent entrypoint to parent-scoped children in the shared sibling.
 - Start time resolves one effective mailbox config and performs transport-specific bootstrap.
 - Launch-plan composition keeps the durable mailbox binding on the manifest-backed launch plan and does not treat mailbox-specific env publication as part of the mailbox contract.
 - Session manifests persist the redacted mailbox binding rather than inline secrets.
@@ -46,7 +46,7 @@ sequenceDiagram
     participant SR as Session<br/>root
     participant LP as LaunchPlan
     participant Man as Session<br/>manifest
-    Bld->>Bld: install receipt-owned agent pack<br/>and composed entrypoint
+    Bld->>Bld: install config-owned agent pack<br/>and static entrypoint
     RT->>RT: resolve effective mailbox<br/>config and defaults
     alt filesystem transport
         RT->>FS: bootstrap root and register<br/>session address

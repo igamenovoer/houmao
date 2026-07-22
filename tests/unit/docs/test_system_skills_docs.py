@@ -122,7 +122,7 @@ def test_system_skill_docs_cover_installation_choices_and_invocation() -> None:
 
 
 def test_system_skill_docs_cover_actor_welcome_and_static_lifecycle() -> None:
-    """Guard actor frames, guided paths, v4 receipts, owner sets, and v3 migration."""
+    """Guard actor frames, guided paths, minimal configs, and owner sets."""
 
     overview = _read("docs/getting-started/system-skills-overview.md")
     cli_reference = _read("docs/reference/cli/system-skills.md")
@@ -142,17 +142,24 @@ def test_system_skill_docs_cover_actor_welcome_and_static_lifecycle() -> None:
 
     for heading in ("## `list`", "## `install`", "## `status`", "## `upgrade`", "## `uninstall`"):
         assert heading in cli_reference
-    assert "<home>/.houmao/system-skills/<tool>/receipt.json" in cli_reference
-    assert "houmao-system-skills-receipt.v2" in cli_reference
-    assert "non-empty `owning_pack_ids` set" in cli_reference
+    assert "<home>/.houmao/system-skills/<tool>/houmao-skill-config.json" in cli_reference
+    assert "houmao-skill-config.v1" in cli_reference
+    for field in ("`schema_version`", "`houmao_version`", "`projection_mode`", "`skills`"):
+        assert field in cli_reference
+    assert "exactly `name`, `relative_path`, `content_digest`" in cli_reference
+    assert "non-empty `owning_pack_ids` list" in cli_reference
+    assert "does not serialize `selected_packs`" in cli_reference
     for pack_status in ("`absent`", "`complete`", "`incomplete`", "`drifted`", "`conflicting`"):
         assert pack_status in cli_reference
     for classification in ("package-linked", "digest-matched", "modified", "unknown"):
         assert classification in cli_reference
-    assert "A v3 composed receipt is `legacy-v3`" in cli_reference
-    assert "writes the v4 receipt last" in cli_reference
+    assert "writes the config last" in cli_reference
+    assert "does not read, migrate, remove, or use an old `receipt.json`" in cli_reference
+    assert "Do not expect `upgrade` to convert the old installation" in cli_reference
     assert "removed only after its final owning pack is removed" in cli_reference
-    assert "The receipt disappears when no owned packs remain" in cli_reference
+    assert "The config disappears when no owned packs remain" in cli_reference
+    assert "houmao-system-skills-receipt" not in cli_reference
+    assert "`receipt_path`" not in cli_reference
     assert "`specialist-mgr` remains" in cli_reference
     assert "`houmao-auto-system-prompt`" in overview
     assert "only public roots eligible for implicit selection" in overview

@@ -3,54 +3,6 @@
 ## Purpose
 Define README requirements for documenting Houmao system skills and keeping top-level usage examples accurate.
 ## Requirements
-### Requirement: README usage section introduces system skills
-The `README.md` usage section SHALL include a subsection introducing the system-skills surface. The subsection SHALL appear after the "Subsystems at a Glance" table and before the "Full Documentation" section.
-
-The subsection SHALL explain that Houmao installs packaged skills into agent tool homes so that agents can drive management tasks through their native skill interface without requiring the operator to invoke `houmao-mgr` manually.
-
-The subsection SHALL list the seven non-mailbox packaged skill families:
-
-- `houmao-project-mgr` — project overlay lifecycle, project layout, and project-scoped launch-profile and easy-instance inspection routing
-- `houmao-specialist-mgr` — specialist authoring plus specialist-scoped launch and stop entry
-- `houmao-credential-mgr` — project-local credential management
-- `houmao-agent-definition` — low-level role and preset definition management
-- `houmao-agent-instance` — managed agent instance lifecycle
-- `houmao-agent-messaging` — prompt, queue, raw-input, mailbox routing, and reset-context guidance for already-running managed agents
-- `houmao-agent-gateway` — gateway lifecycle, gateway discovery, wakeups, and notifier guidance for attached managed agents
-
-The subsection SHALL explain that `agents join` and `agents launch` auto-install the packaged user-control, agent-messaging, and agent-gateway skills into managed homes by default, which means the managed `user-control` install now includes `houmao-project-mgr`, `houmao-specialist-mgr`, `houmao-credential-mgr`, and `houmao-agent-definition`, while explicit `houmao-mgr system-skills install` into an external tool home can add the broader CLI-default skill selection that also includes `houmao-agent-instance`.
-
-The subsection SHALL show a brief current `houmao-mgr system-skills install` example that relies on the CLI-default selection by omitting both `--skill-set` and `--skill`.
-
-The subsection SHALL show the comma-separated multi-tool install form without `--home` and SHALL explain that `--home` can be used only with a single selected tool when the operator needs an explicit home override.
-
-When the subsection shows named system-skill set selection, it SHALL use `--skill-set <name>` and SHALL NOT present `--set <name>` as the current public flag.
-
-The subsection SHALL link to `docs/reference/cli/system-skills.md` for the full reference.
-
-#### Scenario: Reader discovers system skills from the README
-
-- **WHEN** a reader scans the README usage section
-- **THEN** they find a subsection describing the system-skills surface
-- **AND THEN** they see the seven non-mailbox packaged skill families listed with brief descriptions
-- **AND THEN** they see that `houmao-project-mgr` is presented as the project lifecycle and layout skill
-
-#### Scenario: Reader can distinguish managed auto-install from external CLI-default install
-
-- **WHEN** a reader wants to understand which Houmao skills appear inside managed homes versus an explicit external tool home
-- **THEN** the README explains that managed launch and join auto-install the user-control, messaging, and gateway skills
-- **AND THEN** it explains that the managed `user-control` set now includes `houmao-project-mgr`
-- **AND THEN** it explains that external `system-skills install` can add the broader CLI-default selection that also includes `houmao-agent-instance`
-
-#### Scenario: Reader can install system skills into resolved tool homes with current CLI syntax
-
-- **WHEN** a reader wants to prepare one or more tool homes with Houmao skills
-- **THEN** the README shows a `houmao-mgr system-skills install` example with a single `--tool` value or comma-separated `--tool` value and no stale `--default` flag
-- **AND THEN** the README explains that omitted `--home` resolves each selected tool through its own env/default home rules
-- **AND THEN** the README explains that explicit `--home` is valid only for one selected tool
-- **AND THEN** any named system-skill set examples use `--skill-set` rather than `--set`
-- **AND THEN** the example links to the full reference for additional options
-
 ### Requirement: README accuracy pass for recent refactors
 
 The `README.md` SHALL be reviewed for accuracy against the current codebase. Any stale command examples, flag names, or descriptions introduced by recent refactors SHALL be corrected.
@@ -59,25 +11,6 @@ The `README.md` SHALL be reviewed for accuracy against the current codebase. Any
 
 - **WHEN** a reader copies a command example from the README
 - **THEN** the command uses current flag names and does not fail with unrecognized options
-
-### Requirement: README skill catalog lists the unified email-comms skill
-
-The `README.md` system-skills subsection SHALL list `houmao-agent-email-comms` as one of the packaged skill families, alongside the existing entries documented by the prior pass.
-
-The catalog row SHALL describe `houmao-agent-email-comms` as the ordinary shared-mailbox operations skill that pairs with `houmao-process-emails-via-gateway` (which handles notifier-driven unread-mail rounds).
-
-The README SHALL NOT continue to describe the pre-unification split mailbox skill names as the current packaged skills.
-
-#### Scenario: Reader sees the unified email-comms skill in the README catalog
-
-- **WHEN** a reader scans the README system-skills catalog table or list
-- **THEN** they find a row for `houmao-agent-email-comms` with a one-line description
-- **AND THEN** the row distinguishes ordinary mailbox operations from notifier-driven unread-mail rounds
-
-#### Scenario: README skill catalog does not list pre-unification split skill names as current
-
-- **WHEN** a reader greps the README system-skills subsection for the pre-unification split mailbox skill names
-- **THEN** none of those names appear as current packaged skills
 
 ### Requirement: README mentions the managed prompt header in the join/launch outcome
 
@@ -104,25 +37,6 @@ The note SHALL state that `houmao-mgr --version` prints the packaged Houmao vers
 - **THEN** they see a mention of `houmao-mgr --version`
 - **AND THEN** the mention explains what the flag prints and that it does not require a subcommand
 
-### Requirement: README default-install paragraph matches current system_skills.py defaults
-The `README.md` paragraph that explains which skills `agents join` and `agents launch` auto-install by default into managed homes SHALL match the current set declared in `src/houmao/agents/system_skills.py` and the packaged catalog as of this change.
-
-The README SHALL describe managed launch and managed join as resolving the `core` set.
-
-The README SHALL describe omitted-selection external `houmao-mgr system-skills install` as resolving the `all` set.
-
-When the auto-install set or the CLI-default external-install set changes during implementation discovery, the README SHALL be updated to match, and any divergence between the README paragraph and the current source SHALL be treated as a doc bug.
-
-#### Scenario: README auto-install set agrees with current source
-- **WHEN** a reader compares the README auto-install paragraph with the current system-skill defaults
-- **THEN** the listed managed launch and managed join set is `core`
-- **AND THEN** any skill that is added to or removed from `core` is reflected in the README
-
-#### Scenario: README CLI-default install set agrees with current source
-- **WHEN** a reader compares the README explanation of `system-skills install` defaults with the current system-skill defaults
-- **THEN** the listed omitted-selection CLI default set is `all`
-- **AND THEN** the README explains that `all` includes utility skills
-
 ### Requirement: README links the system-skills overview narrative guide
 
 The `README.md` system-skills subsection SHALL link to the new narrative guide at `docs/getting-started/system-skills-overview.md` so that readers who want more than a catalog row can reach the walkthrough in one click.
@@ -135,23 +49,6 @@ The link SHALL be presented alongside the existing link to `docs/reference/cli/s
 - **THEN** they find a link to `docs/getting-started/system-skills-overview.md`
 - **AND THEN** they also find the existing link to `docs/reference/cli/system-skills.md`
 - **AND THEN** the README presents catalog, narrative, and reference as the three layers of system-skills coverage
-
-### Requirement: README system-skills subsection lists the packaged mailbox-admin skill
-The `README.md` system-skills subsection SHALL list `houmao-mailbox-mgr` as one of the current packaged skill families.
-
-That catalog row or list entry SHALL describe `houmao-mailbox-mgr` as the mailbox-administration skill for mailbox root lifecycle, mailbox account lifecycle, structural mailbox inspection, and late managed-agent filesystem mailbox binding.
-
-That subsection SHALL distinguish `houmao-mailbox-mgr` from `houmao-agent-email-comms` and `houmao-process-emails-via-gateway` by explaining that the new skill handles mailbox administration while the existing mailbox skills handle ordinary mailbox participation and notifier-driven unread-mail rounds.
-
-#### Scenario: Reader sees the packaged mailbox-admin skill in the README catalog
-- **WHEN** a reader scans the README system-skills catalog table or list
-- **THEN** they find `houmao-mailbox-mgr` with a one-line description
-- **AND THEN** the entry describes mailbox administration rather than ordinary mailbox operations
-
-#### Scenario: README catalog distinguishes mailbox administration from mailbox participation
-- **WHEN** a reader compares the README rows for `houmao-mailbox-mgr`, `houmao-agent-email-comms`, and `houmao-process-emails-via-gateway`
-- **THEN** the README explains that `houmao-mailbox-mgr` owns mailbox administration
-- **AND THEN** it keeps ordinary mailbox operations and notifier-driven unread-mail rounds on the existing mailbox worker skills
 
 ### Requirement: README does not contain a Current Status stability paragraph
 
@@ -169,77 +66,6 @@ The opening content above the "Project Introduction" section SHALL jump directly
 
 - **WHEN** searching `README.md` content above the "Project Introduction" section
 - **THEN** the text does not claim that the operator interface is stabilizing, unstable, or likely to change
-
-### Requirement: README system-skills subsection lists the touring skill
-The `README.md` system-skills subsection SHALL list `houmao-touring` as one of the current packaged Houmao-owned system skills.
-
-That catalog row or list entry SHALL describe `houmao-touring` as the manual guided-tour skill for first-time or re-orienting users.
-
-The README SHALL explain that `houmao-touring` is a branching guided entrypoint that can orient the user across project setup, mailbox setup, specialist or profile authoring, live-agent operations, and lifecycle follow-up.
-
-The README SHALL state that `houmao-touring` is manual-invocation-only rather than the default entrypoint for ordinary direct-operation requests.
-
-#### Scenario: Reader sees the touring skill in the README catalog
-- **WHEN** a reader scans the README system-skills catalog table or list
-- **THEN** they find `houmao-touring` with a one-line description
-- **AND THEN** the description presents it as a guided tour skill rather than as a direct-operation manager
-
-#### Scenario: README describes touring as manual-only and branching
-- **WHEN** a reader checks the `houmao-touring` entry in the README system-skills subsection
-- **THEN** the README states that the skill is manual-invocation-only
-- **AND THEN** it explains that the touring flow can branch across setup, launch, live operations, and lifecycle follow-up
-
-### Requirement: README system-skills table enumerates every catalog entry
-The README "System Skills: Agent Self-Management" subsection SHALL document every system skill listed under `[skills.*]` in `src/houmao/agents/assets/system_skills/catalog.toml`.
-
-At minimum the table SHALL include one row for each of the following skills currently shipped by the catalog:
-
-- `houmao-process-emails-via-gateway`
-- `houmao-agent-email-comms`
-- `houmao-adv-usage-pattern`
-- `houmao-utils-workspace-mgr`
-- `houmao-touring`
-- `houmao-mailbox-mgr`
-- `houmao-memory-mgr`
-- `houmao-project-mgr`
-- `houmao-specialist-mgr`
-- `houmao-credential-mgr`
-- `houmao-agent-definition`
-- `houmao-agent-loop-pairwise`
-- `houmao-agent-loop-pairwise-v2`
-- `houmao-agent-loop-pairwise-v3`
-- `houmao-agent-loop-pairwise-v4`
-- `houmao-agent-loop-generic`
-- `houmao-agent-instance`
-- `houmao-agent-inspect`
-- `houmao-agent-messaging`
-- `houmao-agent-gateway`
-
-The "What it enables" column SHALL describe each skill in operator-facing language and SHALL avoid claiming a skill exists when it is not present in the catalog.
-
-The row for `houmao-agent-loop-pairwise-v3` SHALL describe it as the workspace-aware pairwise loop authoring and run-control skill, consistent with the canonical one-line description in `docs/getting-started/system-skills-overview.md`.
-
-The row for `houmao-agent-loop-pairwise-v4` SHALL describe it as the template-driven workspace-aware pairwise loop skill for rich task-note contracts, strict generated document templates, role-local hard gates, and source-constraint coverage audits.
-
-#### Scenario: README row count matches catalog size
-- **WHEN** a reader compares the README system-skills table to `src/houmao/agents/assets/system_skills/catalog.toml`
-- **THEN** every `[skills.<name>]` block in the catalog has exactly one corresponding row in the README table
-- **AND THEN** the README table contains no row for a skill that is not declared in the catalog
-
-#### Scenario: Workspace manager is surfaced in the README catalog
-- **WHEN** a reader opens the README "System Skills" subsection
-- **THEN** the table contains `houmao-utils-workspace-mgr`
-- **AND THEN** the row describes the skill as a utility for planning and executing multi-agent workspace layouts before launch
-
-### Requirement: README auto-install wording includes all pairwise variants when `core` includes them
-When the README describes the managed-home or CLI-default system-skill expansions, that wording SHALL include every pairwise loop-skill variant currently packaged in the `core` set of `src/houmao/agents/assets/system_skills/catalog.toml`.
-
-After this change, that wording SHALL explicitly include `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, and `houmao-agent-loop-pairwise-v4`, and SHALL NOT imply that only one, two, or three pairwise variants are auto-installed through `core` or `user-control`.
-
-#### Scenario: README auto-install wording tracks all pairwise variants currently in `core`
-- **WHEN** a reader reads the README paragraph describing which skills `agents launch` and `agents join` auto-install
-- **THEN** the described `core` expansion includes `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, and `houmao-agent-loop-pairwise-v4` when the catalog includes all four
-- **AND THEN** the paragraph does not imply that only one, two, or three pairwise variants are auto-installed
 
 ### Requirement: README Runnable Demos section lists all maintained demos
 
@@ -265,20 +91,6 @@ The README "Subsystems at a Glance" table SHALL include a row for the passive-se
 - **WHEN** a reader scans the README "Subsystems at a Glance" table
 - **THEN** they find a row for the passive-server with a brief description and a link to its reference page
 
-### Requirement: README system-skills narrative count tracks the catalog
-The README SHALL NOT claim a fixed "twelve" or "eleven" system-skill count when the catalog contains a different number of skills. Any narrative sentence that states how many packaged system skills ship SHALL state the number that matches the current catalog, and any sentence describing auto-install defaults SHALL reference the resolved `[auto_install] managed_launch_sets`, `managed_join_sets`, and `cli_default_sets` contents rather than a frozen count.
-
-#### Scenario: README narrative skill count matches the catalog
-- **WHEN** a reader reads the README sentence that introduces how many packaged Houmao system skills ship
-- **THEN** that sentence references the same count as the current `src/houmao/agents/assets/system_skills/catalog.toml`
-- **AND THEN** the sentence does not contradict the row count of the README system-skills table
-
-#### Scenario: README auto-install wording tracks the resolved sets
-- **WHEN** a reader reads the README paragraph describing which skills `agents launch` and `agents join` auto-install
-- **THEN** the described set expansions match the `managed_launch_sets` and `managed_join_sets` entries in `catalog.toml`
-- **AND THEN** the paragraph includes `houmao-agent-loop-generic` through `user-control` when the catalog includes it
-- **AND THEN** the paragraph does not assert that `houmao-agent-loop-pairwise` or `houmao-agent-loop-generic` are left out of managed-home auto-install unless the catalog has been updated to reflect that policy
-
 ### Requirement: README CLI Entry Points documents the credentials family
 
 The README "CLI Entry Points" subsection SHALL either list `houmao-mgr credentials` as a supported command family or otherwise visibly point readers at the dedicated credential-management surface before routing them into the full `docs/reference/cli/houmao-mgr.md` reference.
@@ -298,114 +110,6 @@ The `README.md` CLI Entry Points section SHALL include a discoverable reference 
 - **THEN** they find a reference to `houmao-mgr internals graph` with a brief description of its purpose
 - **AND THEN** they are not required to read source code or run `houmao-mgr --help` to discover this surface
 
-### Requirement: README §4 introduces all loop skill options
-
-The README `§4 Agent Loop` section SHALL mention all five packaged loop skills before or alongside the detailed pairwise walkthrough. That mention SHALL use a compact table or a brief list with one-line descriptions, and SHALL link to `docs/getting-started/loop-authoring.md` for the skill-selection guide.
-
-The existing pairwise worked example SHALL be retained as the canonical entry-level walkthrough.
-
-The five skills identified SHALL be `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, `houmao-agent-loop-pairwise-v4`, and `houmao-agent-loop-generic`. Any narrative sentence in §4 that states how many loop skills ship SHALL state five rather than four.
-
-#### Scenario: Reader in the README loop section discovers the loop authoring guide
-
-- **WHEN** a reader reads the README §4 Agent Loop section
-- **THEN** they see all five loop skill options identified
-- **AND THEN** they find a link to `docs/getting-started/loop-authoring.md` for guidance on which skill to use
-
-#### Scenario: Existing README pairwise example is preserved
-
-- **WHEN** a reader follows the README §4 Agent Loop section step by step
-- **THEN** the pairwise loop walkthrough (specialists, plan template, Mermaid control graph, operate the run) is still present as the detailed worked example
-
-#### Scenario: README §4 narrative count matches catalog loop-skill count
-
-- **WHEN** a reader reads any sentence in §4 that enumerates the number of packaged loop skills
-- **THEN** that sentence says five, not four
-- **AND THEN** the table or list shows `houmao-agent-loop-pairwise-v4` alongside the other four loop skills
-
-### Requirement: README explains current core, extensions, and all set surface
-The README system-skills subsection SHALL explain that the current installable named sets are `core`, `extensions`, and `all`.
-
-The README SHALL explain that `core` plus `extensions` is used for managed launch and join defaults, and `all` is used by `houmao-mgr system-skills install` when no `--skill-set` or `--skill` is supplied.
-
-The README MAY organize skills as automation, control, utils, and extensions for readability, but SHALL NOT present organization groups other than the declared `extensions` set as installable set names.
-
-#### Scenario: Reader sees current set names from README
-- **WHEN** a reader scans the README system-skills subsection
-- **THEN** they see `core`, `extensions`, and `all` as the supported named set surface
-- **AND THEN** they do not see removed granular set names presented as current installable sets
-
-### Requirement: README system-skills table lists the workspace-manager utility skill
-The README system-skills subsection SHALL list `houmao-utils-workspace-mgr` as one of the current packaged Houmao-owned system skills.
-
-That catalog row or list entry SHALL describe `houmao-utils-workspace-mgr` as the utility skill for planning and executing multi-agent workspace layouts before launching agents.
-
-The README SHALL distinguish `houmao-utils-workspace-mgr` from lifecycle skills by explaining that it prepares workspaces and launch-profile cwd changes but does not launch agents.
-
-#### Scenario: Reader sees workspace manager in README
-- **WHEN** a reader scans the README system-skills catalog table or list
-- **THEN** they find `houmao-utils-workspace-mgr` with a one-line description
-- **AND THEN** the entry describes workspace preparation rather than live managed-agent lifecycle operation
-
-### Requirement: README system-skill prose describes unified agent definition
-README system-skill prose SHALL describe `houmao-agent-definition` as the canonical skill for low-level roles and recipes, `launch-dossiers`, specialists, easy `profiles`, and `create-agent-fast-forward`.
-
-README prose SHALL NOT present `houmao-specialist-mgr` as the current independent canonical specialist-management skill after the unification.
-
-#### Scenario: README user-control inventory is not split by specialist manager
-- **WHEN** a reader checks the README system-skill inventory
-- **THEN** the reader sees `houmao-agent-definition` covering both low-level and easy agent-definition workflows
-- **AND THEN** the README does not require the reader to choose `houmao-specialist-mgr` for ordinary specialist or project-profile authoring
-
-#### Scenario: README names default profile terminology
-- **WHEN** a reader checks the README system-skill inventory for profile authoring
-- **THEN** project-profile authoring is named as `profiles`
-- **AND THEN** low-level recipe-backed profiles are named as `launch-dossiers`
-
-### Requirement: README system-skills narrative lists pro as the loop skill
-The README system-skills sections SHALL list `houmao-agent-loop-pro` as the current packaged loop skill.
-
-The README SHALL NOT list retired pairwise or generic loop packages as current installed loop skills.
-
-#### Scenario: Reader sees current loop inventory in README
-- **WHEN** a reader inspects README system-skill inventory or auto-install prose
-- **THEN** the loop entry names `houmao-agent-loop-pro`
-- **AND THEN** the prose does not claim that retired loop packages are current auto-installed skills
-
-### Requirement: README system-skill inventory lists lite alongside pro
-The README system-skill inventory SHALL list `houmao-agent-loop-lite` as a current packaged Houmao system skill.
-
-The README loop narrative SHALL describe `houmao-agent-loop-pro` and `houmao-agent-loop-lite` as separate current loop paths.
-
-The README SHALL describe lite as the lightweight Markdown/direct-SQL loop path with required generated skills and communication templates.
-
-The README SHALL continue to identify retired pairwise and generic loop packages only as retired or legacy material when mentioned.
-
-#### Scenario: README names both current loop skills
-- **WHEN** a reader scans the README system-skill inventory
-- **THEN** they see `houmao-agent-loop-pro`
-- **AND THEN** they see `houmao-agent-loop-lite`
-- **AND THEN** retired loop package names are not presented as current installable choices
-
-#### Scenario: README explains lite in one sentence
-- **WHEN** a reader checks the README row for `houmao-agent-loop-lite`
-- **THEN** the row describes Markdown contracts, typed communication templates, generated skills, and direct SQLite state
-
-### Requirement: README mentions system-skill help
-The `README.md` system-skills guidance SHALL tell users that each current installed Houmao system skill supports an explicit help request.
-
-The README SHALL describe help as a read-only way to learn what a skill can do before asking it to perform a workflow.
-
-The README SHALL include at least one example prompt such as `$houmao-touring help` or `$houmao-agent-email-comms help`.
-
-The README SHALL preserve the distinction between skill-level help and the `houmao-mgr system-skills install` CLI surface.
-
-#### Scenario: Reader discovers skill help from README
-- **WHEN** a reader scans the README system-skill guidance
-- **THEN** they see that installed Houmao system skills can answer explicit help requests
-- **AND THEN** they see an example of asking one skill for help
-- **AND THEN** the README does not imply that help runs commands or mutates Houmao state
-
 ### Requirement: README distinguishes Skills CLI install from Houmao system-skills install
 
 The README system-skill guidance SHALL present `npx skills add https://github.com/igamenovoer/houmao/tree/main/src/houmao/agents/assets/system_skills/` as the recommended install path when `npx` is available and the target machine has internet access.
@@ -424,16 +128,70 @@ The README SHALL point the external Skills CLI at the `system_skills/` collectio
 - **THEN** the README routes them to `houmao-mgr system-skills install`
 - **AND THEN** the README does not imply that the external Skills CLI owns Houmao-specific projection or cleanup behavior
 
-### Requirement: README mentions explicit read-only skill help
+### Requirement: README introduces the three-skill public surface
+The README System Skills subsection SHALL present `houmao-admin-welcome`, `houmao-admin-entrypoint`, and `houmao-agent-entrypoint` as the complete public Houmao system-skill surface.
 
-The README SHALL tell users that each installed Houmao system skill supports an explicit read-only help request before it performs a workflow.
+It SHALL describe protected routines as nested implementation, SHALL avoid a long flat routine table, and SHALL link to the System Skills Overview for the audience matrix and command-family detail.
 
-The README SHALL include at least one prompt-level example such as `$houmao-touring help` or `$houmao-agent-email-comms help`.
+#### Scenario: Reader scans the README system-skills section
+- **WHEN** a reader wants the shortest public-surface explanation
+- **THEN** the README identifies the welcome, admin execution, and managed-agent execution roles
+- **AND THEN** it does not present protected logical ids as peer installable skills
 
-The README SHALL distinguish skill-level help from the `houmao-mgr system-skills install` CLI surface.
+### Requirement: README quick start begins with the admin welcome
+The skill-driven quick start SHALL install the admin pack into the user's CLI-agent home and SHALL make `$houmao-admin-welcome start-guided-tour` the recommended first-use prompt.
 
-#### Scenario: Reader discovers skill help from README
-- **WHEN** a reader scans the README system-skill guidance
-- **THEN** they see that installed skills can answer explicit read-only help requests
-- **AND THEN** they see at least one `$<skill> help` example
-- **AND THEN** the README does not imply that help runs commands or mutates Houmao state
+The README SHALL explain that welcome is read-only and hands concrete work to `$houmao-admin-entrypoint ...`. It SHALL NOT recommend `$houmao-touring` as a current invocation.
+
+#### Scenario: First-time user follows quick start
+- **WHEN** the user completes system-skill installation for an external home
+- **THEN** the next prompt invokes `houmao-admin-welcome`
+- **AND THEN** the README shows the admin entrypoint as the execution owner
+
+### Requirement: README distinguishes external and managed pack defaults
+The README SHALL state that explicit external-home installation defaults to the admin pack, while managed launch, rebuild, relaunch, and join default to the agent pack.
+
+It SHALL state that the admin welcome and entrypoint install atomically, no default installs both actors, and `houmao-auto-system-prompt` remains separate managed bootstrap content.
+
+#### Scenario: Reader compares two homes
+- **WHEN** a reader compares a human-operated CLI-agent home with a Houmao-managed home
+- **THEN** the README identifies the admin pack for the first and the agent pack for the second
+- **AND THEN** it does not describe `core`, `extensions`, or `all` as current selectors
+
+### Requirement: README examples use public entrypoint invocations
+System-skill examples SHALL begin with one of the three public skill names.
+
+The README MAY name important protected routines when explaining ownership, but SHALL label them as nested routes and SHALL not use a protected id as a top-level `$skill` prompt. Help examples SHALL remain read-only and role-appropriate.
+
+#### Scenario: README mentions agent-definition behavior
+- **WHEN** the README explains specialist or profile authoring
+- **THEN** it starts the executable example from `$houmao-admin-entrypoint`
+- **AND THEN** it may identify protected `houmao-agent-definition` as the nested owner
+
+### Requirement: README system-skill inventory matches the static public root
+The README system-skills section SHALL list `houmao-admin-welcome`, `houmao-admin-entrypoint`, `houmao-agent-entrypoint`, `houmao-shared-routines`, `houmao-agent-loop-pro`, and `houmao-agent-loop-lite` exactly once as current standalone skills.
+
+It SHALL explain that the sixteen ordinary routines are selected below shared routines through actor entrypoints or direct advanced invocation. It SHALL NOT list those children as top-level installed peers.
+
+#### Scenario: README inventory is checked against packaged assets
+- **WHEN** documentation validation compares README names with `system_skills/public/*/SKILL.md`
+- **THEN** both inventories contain the same six names
+- **AND THEN** no old protected-mount or flat low-level skill is advertised as a current root
+
+### Requirement: README provides complete static installation examples
+The README SHALL show the recommended Houmao admin-pack install, the managed agent-pack default, copy-paste directory lists, Skills CLI all-skills discovery, and explicit actor-specific Skills CLI selections.
+
+Every example SHALL include shared routines and both loops when an actor entrypoint depends on them. The README SHALL state that Houmao's manager owns pack receipts while Skills CLI performs ordinary independent skill installation.
+
+#### Scenario: User copies the admin skills manually
+- **WHEN** a reader follows the README copy-paste admin example
+- **THEN** the example copies all five admin-pack roots
+- **AND THEN** the admin entrypoint has its shared and loop siblings
+
+### Requirement: README preserves welcome and direct advanced routes
+The README SHALL recommend `$houmao-admin-welcome` for first-use orientation, `$houmao-admin-entrypoint` for normal human operations, `$houmao-agent-entrypoint` for managed self, `$houmao-shared-routines` for advanced direct ordinary routines, and the two loop skills for explicit manual loop work.
+
+#### Scenario: Advanced reader wants direct inspection
+- **WHEN** a reader wants to bypass actor-entrypoint route selection
+- **THEN** the README shows direct shared-routines invocation
+- **AND THEN** it explains that target, identity, and runtime validation remain active

@@ -14,20 +14,20 @@ The Quick Start SHALL NOT require a reader to walk through a numbered 0-through-
 - **AND THEN** the README does not present project init, specialist creation, agent join, and full recipes as a long numbered manual tutorial
 
 ### Requirement: Drive with Your CLI Agent is step 1
+The README Quick Start SHALL present the skill-driven human-operator path as the primary recommended entry point. It SHALL instruct the user to install Houmao, verify `tmux`, install the admin system-skill pack into the target CLI-agent home with `houmao-mgr system-skills install --tool <tool> --pack admin`, start that CLI agent from the target directory, and invoke `$houmao-admin-welcome start-guided-tour`.
 
-The README Quick Start SHALL present the skill-driven path as the primary recommended entry point. It SHALL instruct the user to install Houmao, verify `tmux`, install Houmao system skills, start their CLI agent from the target directory, and invoke `houmao-touring`.
+The README SHALL explain that the welcome is read-only and hands executable work to `$houmao-admin-entrypoint ...`. It SHALL keep detailed pack, home, mode, migration, and receipt behavior in linked documentation and SHALL NOT recommend direct installation from the source asset tree, old named sets, protected routine selectors, or `$houmao-touring`.
 
-When `npx` is available and the target machine has internet access, the README SHALL recommend the release-synced tool-skills install path:
+#### Scenario: User follows the preferred admin-pack path
+- **WHEN** a user reads the Quick Start
+- **THEN** they see the Houmao-owned admin-pack installation command
+- **AND THEN** their first guided prompt uses `houmao-admin-welcome`
+- **AND THEN** they understand that execution transfers to the admin entrypoint
 
-```bash
-npx skills add igamenovoer/tool-skills/houmao
-```
-
-The README SHALL still mention `houmao-mgr system-skills install --tool <tool>[,<tool>...]` as the Houmao-owned installation path for environments without `npx`, installed-package/offline workflows, named sets, subset skills, explicit homes, symlink/copy projection, or retired-skill cleanup.
-
-The README SHALL mention that installed Houmao system skills support explicit read-only help such as `$houmao-touring help` and that the user's next action is to ask their CLI agent to run `$houmao-touring start a guided tour`.
-
-The README SHALL NOT recommend installing system skills from the full Houmao source-tree `system_skills/` path as the ordinary first path.
+#### Scenario: User needs installation detail
+- **WHEN** a user needs an explicit home, symlink mode, upgrade, or conflict resolution
+- **THEN** the README links to the system-skills reference
+- **AND THEN** it does not expand the full lifecycle flag reference inline
 
 #### Scenario: User follows the preferred skill install path
 - **WHEN** a user reads the Quick Start on a machine with `npx` and internet access
@@ -92,10 +92,14 @@ The README MAY summarize joined-session capability at a high level and SHALL lin
 - **AND THEN** detailed join commands are available through docs links rather than expanded as the main README flow
 
 ### Requirement: System Skills section lists every shipped skill with its purpose
+The README System Skills section SHALL be a concise summary of the three public roles and the actor-driven model, not a table of protected routines.
 
-The README System Skills section SHALL be a concise summary of skill families and the agent-driven model, not a full table of every shipped system skill. It SHALL explain that Houmao installs skills into CLI-agent homes so the agent can drive project setup, specialist/profile authoring, live-agent messaging, gateway/mailbox/memory work, inspection, and loop orchestration through supported `houmao-mgr` surfaces.
+It SHALL explain that the admin welcome orients the human, the admin entrypoint performs human-directed work against explicit targets, and the agent entrypoint performs verified managed-agent work. It SHALL state that project, specialist/profile, messaging, gateway, mailbox, memory, inspection, workspace, interop, and loop behavior is nested protected implementation and SHALL link to the System Skills Overview for the complete route map.
 
-The README SHALL link to the System Skills Overview for the full packaged-skill catalog and per-skill boundaries.
+#### Scenario: Reader sees skills as an actor-qualified capability layer
+- **WHEN** a reader scans the System Skills section
+- **THEN** they understand the three public roles and which actor each serves
+- **AND THEN** they see a link to protected routine detail instead of a long flat catalog
 
 #### Scenario: Reader sees skills as an agent capability layer
 - **WHEN** a reader scans the System Skills section
@@ -161,22 +165,6 @@ The README SHALL distinguish the reusable example from the inline quick-start na
 - **THEN** they find a link to `examples/writer-team/`
 - **AND THEN** they understand that the linked example is the reusable template for creating the three-agent writing team locally
 
-### Requirement: README skill table uses unified agent-definition row
-
-If the README mentions individual system skills, it SHALL mention only the most important entry points needed for orientation, such as `houmao-touring`, `houmao-agent-definition`, `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-loop-lite`, and `houmao-agent-loop-pro`.
-
-If the README mentions `houmao-agent-definition`, it SHALL describe it as the agent-facing surface for specialist, project profile, launch dossier, recipe, launch, and `create-agent-fast-forward` workflows. If the README mentions `houmao-specialist-mgr`, that mention SHALL identify it as compatibility or migration guidance rather than as the primary current specialist-management surface.
-
-#### Scenario: README keeps individual skill references compact
-- **WHEN** the README mentions individual system skills
-- **THEN** it limits the list to orientation-level entry points
-- **AND THEN** detailed skill boundaries are delegated to the System Skills Overview
-
-#### Scenario: README names the current definition surface
-- **WHEN** the README describes specialist or profile authoring through system skills
-- **THEN** it identifies `houmao-agent-definition` as the current primary skill surface
-- **AND THEN** it does not present `houmao-specialist-mgr` as the primary current surface
-
 ### Requirement: Install prerequisites are step 0
 
 The README Quick Start install block SHALL focus on the minimum first-run path:
@@ -228,3 +216,13 @@ The repository README SHALL not present Gemini as a launch provider, credential 
 - **WHEN** a reader scans the README introduction, concepts, examples, and demos
 - **THEN** no current support claim or workflow names Gemini
 - **AND THEN** the remaining provider guidance stays accurate for Claude, Codex, and Kimi
+
+### Requirement: README system-skill examples preserve the actor boundary
+Every README system-skill example SHALL make clear whether the user's CLI assistant is acting for the human through the admin entrypoint or whether a managed Houmao agent is acting through the agent entrypoint.
+
+Examples SHALL use public skill invocations and SHALL NOT rely on a protected logical id as a top-level trigger.
+
+#### Scenario: README shows a managed-agent mailbox example
+- **WHEN** the README demonstrates mailbox work performed by a managed agent
+- **THEN** the example begins through `$houmao-agent-entrypoint`
+- **AND THEN** it does not make the reader invoke the protected mailbox routine directly

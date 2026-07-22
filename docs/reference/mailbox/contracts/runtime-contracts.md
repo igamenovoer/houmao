@@ -103,7 +103,7 @@ The filesystem transport splits durable state between a shared catalog and mailb
 
 ## Projected Skill Contract
 
-The runtime installs the receipt-owned four-member `agent` pack into the brain home during brain build. Claude, Codex, and Kimi runtime homes expose sibling `skills/houmao-agent-entrypoint/SKILL.md` and `skills/houmao-shared-routines/SKILL.md` roots plus both top-level loops. The mailbox children live under `skills/houmao-shared-routines/subskills/`. `houmao-process-emails-via-gateway` and `houmao-agent-email-comms` are parent-scoped children, not top-level projected skills.
+The runtime installs the config-owned four-member `agent` pack into the brain home during brain build. Claude, Codex, and Kimi runtime homes expose sibling `skills/houmao-agent-entrypoint/SKILL.md` and `skills/houmao-shared-routines/SKILL.md` roots plus both top-level loops. The mailbox children live under `skills/houmao-shared-routines/subskills/`. `houmao-process-emails-via-gateway` and `houmao-agent-email-comms` are parent-scoped children, not top-level projected skills.
 
 For Claude, the agent entrypoint lives under the isolated runtime-owned `CLAUDE_CONFIG_DIR` and not under the launched workdir's `.claude/skills/` tree. Runtime prompts invoke `$houmao-agent-entrypoint process-emails-via-gateway ...` or `$houmao-agent-entrypoint agent-email-comms ...` after identity verification.
 

@@ -2,7 +2,7 @@
 
 Houmao system skills let an AI assistant operate Houmao through supported `houmao-mgr` commands. The current distribution is a static collection of six complete public skill directories. Houmao copies those directories byte for byte or links directly to them; it does not compose Markdown, filter children, or generate skill trees during installation.
 
-This page explains actor routing, advanced direct invocation, and installation choices. See the [`system-skills` CLI reference](../reference/cli/system-skills.md) for receipt ownership, lifecycle commands, status classes, and v3 upgrade behavior.
+This page explains actor routing, advanced direct invocation, and installation choices. See the [`system-skills` CLI reference](../reference/cli/system-skills.md) for config ownership, lifecycle commands, status classes, and the breaking clean-reinstall boundary.
 
 ## Static Public Collection
 
@@ -21,20 +21,20 @@ The source of truth is [`src/houmao/agents/assets/system_skills/manifest.toml`](
 
 The shared root owns sixteen children under `houmao-shared-routines/subskills/<logical-id>/SKILL-MAIN.md`. Those children inherit the shared root release and do not declare independent versions. A child is loaded by its parent after route selection and does not become a seventeenth top-level install unit. Exact top-level `SKILL.md` discovery therefore returns the six names in the table and ignores all parent-scoped children.
 
-Use the read-only doctor to check an expected installation. It defaults to the four-member agent pack and also works for receiptless copy-paste or Skills CLI installations:
+Use the read-only doctor to check an expected installation. It defaults to the four-member agent pack and also works for configless copy-paste or Skills CLI installations:
 
 ```bash
 houmao-mgr system-skills doctor --tool codex --home ~/.codex
 houmao-mgr system-skills doctor --agent-id <authoritative-agent-id>
 ```
 
-Doctor compares both complete-tree content and installed frontmatter with the running package. A mismatch is diagnostic and never blocks launch or skill invocation; repair remains a separate explicit install or upgrade choice. See the [`system-skills` CLI reference](../reference/cli/system-skills.md#doctor) for pack selection, managed-agent name resolution, JSON output, receipt evidence, and exit codes.
+Doctor compares both complete-tree content and installed frontmatter with the running package. A mismatch is diagnostic and never blocks launch or skill invocation; repair remains a separate explicit install or upgrade choice. See the [`system-skills` CLI reference](../reference/cli/system-skills.md#doctor) for pack selection, managed-agent name resolution, JSON output, config evidence, and exit codes.
 
 ## Installation Choices
 
 ### Houmao Pack Lifecycle
 
-Use `houmao-mgr` when you want complete actor packs, shared-owner receipts, status, upgrades, and safe uninstall:
+Use `houmao-mgr` when you want complete actor packs, shared-owner config, status, upgrades, and safe uninstall:
 
 ```bash
 houmao-mgr system-skills install --tool codex --pack admin
@@ -77,7 +77,7 @@ Install the complete four-member agent surface:
 npx skills add ./src/houmao/agents/assets/system_skills/public --agent codex --skill houmao-agent-entrypoint --skill houmao-shared-routines --skill houmao-agent-loop-pro --skill houmao-agent-loop-lite --yes
 ```
 
-Skills CLI installs each selected directory independently. It does not read Houmao pack membership, resolve sibling dependencies, or create a Houmao receipt. Selecting only an actor entrypoint does not install shared routines or either loop.
+Skills CLI installs each selected directory independently. It does not read Houmao pack membership, resolve sibling dependencies, or create a Houmao skill config. Selecting only an actor entrypoint does not install shared routines or either loop.
 
 ### Copy-Paste Installation
 
@@ -92,7 +92,7 @@ for houmao_skill_name in houmao-admin-welcome houmao-admin-entrypoint houmao-sha
 done
 ```
 
-For the agent surface, copy `houmao-agent-entrypoint`, `houmao-shared-routines`, `houmao-agent-loop-pro`, and `houmao-agent-loop-lite`. Copy all six if one host needs both actor surfaces. Manual and Skills CLI installations have no Houmao ownership receipt; manage later replacement or removal with the installing tool.
+For the agent surface, copy `houmao-agent-entrypoint`, `houmao-shared-routines`, `houmao-agent-loop-pro`, and `houmao-agent-loop-lite`. Copy all six if one host needs both actor surfaces. Manual and Skills CLI installations have no Houmao ownership config; manage later replacement or removal with the installing tool.
 
 ## Sibling Routing
 
@@ -214,9 +214,9 @@ launch:
 
 Source policy supports `default`, `extend`, `replace`, and `none`. An omitted or `default` source policy selects the managed `agent` default. Profile policy supports `inherit`, `extend`, `replace`, and `none`; an omitted profile policy inherits the source result. `replace` requires at least one pack, while `none` disables the collection.
 
-On reused homes, Houmao synchronizes the complete receipt-owned selection and preserves unrelated user skills. Shared routines and loops remain when either selected pack still owns them.
+On reused homes, Houmao synchronizes the complete config-owned selection and preserves unrelated user skills. Shared routines and loops remain when either selected pack still owns them.
 
-`houmao-auto-system-prompt` stays in `assets/auto_skills`. It has separate projection, collision, and provenance rules and never appears among the six roots, in a pack selector, or in a system-skills receipt.
+`houmao-auto-system-prompt` stays in `assets/auto_skills`. It has separate projection, collision, and provenance rules and never appears among the six roots, in a pack selector, or in a system-skills config.
 
 ## Projection and Tool Discovery
 
@@ -226,17 +226,11 @@ All supported targets project under the resolved home's `skills/` directory. Too
 
 Kimi Code discovers a projected home when the same path is used as `KIMI_CODE_HOME`, supplied through `--skills-dir`, or included in `extra_skill_dirs`. Managed Kimi homes record their projected skill root in `config.toml` `extra_skill_dirs`.
 
-## Breaking Migration to the Static Collection
+## Breaking Clean Reinstall
 
-The v4 collection replaces v3 actor entrypoints that contained composed shared mounts and nested loops. Run status, upgrade the intended pack, and verify again:
+The minimal `houmao-skill-config.json` format is a breaking lifecycle boundary. Houmao does not read the old `receipt.json`, infer ownership from it, or migrate its projected roots. Existing roots without the new config remain unowned collisions.
 
-```bash
-houmao-mgr system-skills status --tool codex --home ~/.codex
-houmao-mgr system-skills upgrade --tool codex --home ~/.codex --pack admin
-houmao-mgr system-skills status --tool codex --home ~/.codex
-```
-
-Upgrade treats a v3 composed receipt as drifted. It transactionally replaces receipt-owned actor entrypoints, adds the shared and loop siblings, removes obsolete owned materialization data after the static destinations commit, and writes the v4 receipt last. Modified or unowned conflicts are preserved for manual comparison. Legacy flat paths are removed only when they target the known package source or match a known complete digest.
+Inspect and back up any edited Houmao skill roots before reinstalling. Remove the old top-level Houmao directories from the target skill root, then run `houmao-mgr system-skills install` with the intended packs. The old receipt may also be removed as stale metadata, but the new lifecycle never depends on that cleanup. `upgrade` refreshes only current-config installations or clean targets.
 
 Prompt and selector migration is direct:
 
@@ -250,7 +244,7 @@ Prompt and selector migration is direct:
 | `--skill`, `--set`, or `--skill-set` on `houmao-mgr` | Repeat `--pack admin` and/or `--pack agent` |
 | Stored `sets:` or `skills:` policy | Stored `packs:` policy |
 
-Standard Skills CLI still uses its own `--skill` option; the removed selector applies only to `houmao-mgr system-skills`. A manually installed static collection has no v3 receipt to upgrade and should be replaced with the same external installation method.
+Standard Skills CLI still uses its own `--skill` option; the removed selector applies only to `houmao-mgr system-skills`. A manually installed static collection has no Houmao config to upgrade and should be replaced with the same external installation method.
 
 ## See Also
 

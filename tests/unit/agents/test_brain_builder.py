@@ -405,6 +405,10 @@ def test_build_brain_home_applies_source_additive_system_skill_policy(
         SYSTEM_SKILL_ADMIN_WELCOME,
         SYSTEM_SKILL_ADMIN_ENTRYPOINT,
     ]
+    config_path = result.home_path / ".houmao/system-skills/codex/houmao-skill-config.json"
+    assert system_skill_provenance["config_path"] == str(config_path)
+    assert "receipt_path" not in system_skill_provenance
+    assert config_path.is_file()
 
 
 def test_build_brain_home_rejects_removed_llm_wiki_system_skill_policy_before_mutation(

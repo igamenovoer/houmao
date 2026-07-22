@@ -144,7 +144,8 @@ def test_system_skills_install_defaults_to_admin_pack(tmp_path: Path) -> None:
     assert (home / "skills/houmao-agent-loop-lite/SKILL.md").is_file()
     assert not (home / "skills/houmao-project-mgr").exists()
     assert not (home / "skills/houmao-admin-entrypoint/subskills").exists()
-    assert Path(str(payload["receipt_path"])).is_file()
+    assert Path(str(payload["config_path"])).is_file()
+    assert "receipt_path" not in payload
 
 
 @pytest.mark.parametrize("tool", ["claude", "codex", "copilot", "kimi", "universal"])
@@ -323,7 +324,8 @@ def test_system_skills_status_reports_complete_then_drifted(tmp_path: Path) -> N
     )
 
     complete, _ = _invoke_json("system-skills", "status", "--tool", "codex", "--home", str(home))
-    assert complete["receipt"]["status"] == "current"
+    assert complete["config"]["status"] == "current"
+    assert "receipt" not in complete
     assert {record["pack_id"]: record["status"] for record in complete["packs"]} == {
         "admin": "absent",
         "agent": "complete",
@@ -339,7 +341,7 @@ def test_system_skills_status_reports_complete_then_drifted(tmp_path: Path) -> N
     ] == "drifted"
 
 
-def test_system_skills_doctor_defaults_to_receiptless_agent_pack(tmp_path: Path) -> None:
+def test_system_skills_doctor_defaults_to_configless_agent_pack(tmp_path: Path) -> None:
     home = tmp_path / "home"
     _invoke_json(
         "system-skills",
@@ -351,7 +353,7 @@ def test_system_skills_doctor_defaults_to_receiptless_agent_pack(tmp_path: Path)
         "--pack",
         "agent",
     )
-    (home / ".houmao/system-skills/codex/receipt.json").unlink()
+    (home / ".houmao/system-skills/codex/houmao-skill-config.json").unlink()
 
     payload, _ = _invoke_json(
         "system-skills",
@@ -365,7 +367,8 @@ def test_system_skills_doctor_defaults_to_receiptless_agent_pack(tmp_path: Path)
     assert payload["healthy"] is True
     assert payload["running_houmao_version"] == get_version()
     assert payload["selected_packs"] == ["agent"]
-    assert payload["receipt"]["status"] == "absent"
+    assert payload["config"]["status"] == "absent"
+    assert "receipt" not in payload
     assert [member["name"] for member in payload["members"]] == [
         "houmao-agent-entrypoint",
         "houmao-shared-routines",
@@ -582,7 +585,7 @@ def test_system_skills_uninstall_removes_only_selected_owned_pack(tmp_path: Path
     assert not (home / "skills/houmao-admin-entrypoint").exists()
     assert (home / "skills/houmao-agent-entrypoint").is_dir()
     status, _ = _invoke_json("system-skills", "status", "--tool", "codex", "--home", str(home))
-    assert status["receipt"]["selected_packs"] == ["agent"]
+    assert status["config"]["selected_packs"] == ["agent"]
 
 
 def test_system_skills_uninstall_without_pack_removes_all_owned_packs(tmp_path: Path) -> None:
@@ -603,7 +606,8 @@ def test_system_skills_uninstall_without_pack_removes_all_owned_packs(tmp_path: 
     payload, _ = _invoke_json("system-skills", "uninstall", "--tool", "codex", "--home", str(home))
 
     assert payload["removed_packs"] == ["admin", "agent"]
-    assert not Path(str(payload["receipt_path"])).exists()
+    assert not Path(str(payload["config_path"])).exists()
+    assert "receipt_path" not in payload
 
 
 def test_system_skills_rejects_one_home_for_multiple_tools(tmp_path: Path) -> None:

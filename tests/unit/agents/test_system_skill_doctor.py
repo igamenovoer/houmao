@@ -169,21 +169,21 @@ def test_source_check_fails_project_version_drift_without_rewriting_sources(
 
 
 @pytest.mark.parametrize("symlink", [False, True])
-def test_doctor_accepts_current_copy_or_symlink_with_or_without_receipt(
+def test_doctor_accepts_current_copy_or_symlink_with_or_without_config(
     tmp_path: Path,
     symlink: bool,
 ) -> None:
     home = tmp_path / "home"
     _install(home, symlink=symlink)
-    receipt = home / ".houmao/system-skills/codex/receipt.json"
+    config = home / ".houmao/system-skills/codex/houmao-skill-config.json"
     if not symlink:
-        receipt.unlink()
+        config.unlink()
 
     result = inspect_system_skill_doctor(target=_target(home))
 
     assert result.healthy
     assert result.selected_pack_ids == ("agent",)
-    assert result.receipt.status == ("current" if symlink else "absent")
+    assert result.config.status == ("current" if symlink else "absent")
     assert len(result.members) == 4
     assert all(member.integrity_status == "complete" for member in result.members)
     assert all(member.version_status == "match" for member in result.members)
@@ -252,76 +252,75 @@ def test_doctor_reports_unknown_running_version_without_losing_observed_value(
     assert {member.version_status for member in result.members} == {"unavailable"}
 
 
-def test_corrupt_receipt_stays_separate_from_direct_health(tmp_path: Path) -> None:
+def test_corrupt_config_stays_separate_from_direct_health(tmp_path: Path) -> None:
     home = tmp_path / "home"
     _install(home)
-    receipt = home / ".houmao/system-skills/codex/receipt.json"
-    receipt.write_text("{broken\n", encoding="utf-8")
+    config = home / ".houmao/system-skills/codex/houmao-skill-config.json"
+    config.write_text("{broken\n", encoding="utf-8")
 
     result = inspect_system_skill_doctor(target=_target(home))
 
     assert result.healthy
-    assert result.receipt.status == "corrupt"
-    assert result.receipt.message is not None
-    assert all(not member.receipt.present for member in result.members)
+    assert result.config.status == "corrupt"
+    assert result.config.message is not None
+    assert all(not member.config.present for member in result.members)
 
 
 @pytest.mark.parametrize(
-    ("receipt_payload", "expected_status"),
+    ("config_payload", "expected_status"),
     [
         ({"schema_version": "future.v99"}, "unsupported"),
         (
             {
-                "schema_version": "houmao-system-skills-receipt.v1",
-                "tool": "codex",
-                "selected_packs": ["agent"],
-                "packs": [{"public_skills": []}],
+                "schema_version": "houmao-skill-config.v1",
+                "houmao_version": "1.2.1",
+                "projection_mode": "copy",
+                "skills": [],
             },
-            "legacy-v3",
+            "corrupt",
         ),
     ],
 )
-def test_noncurrent_receipt_posture_does_not_replace_direct_health(
+def test_noncurrent_config_posture_does_not_replace_direct_health(
     tmp_path: Path,
-    receipt_payload: dict[str, object],
+    config_payload: dict[str, object],
     expected_status: str,
 ) -> None:
     home = tmp_path / "home"
     _install(home)
-    receipt = home / ".houmao/system-skills/codex/receipt.json"
-    receipt_payload["home_path"] = str(home.resolve())
-    receipt.write_text(json.dumps(receipt_payload) + "\n", encoding="utf-8")
+    config = home / ".houmao/system-skills/codex/houmao-skill-config.json"
+    config.write_text(json.dumps(config_payload) + "\n", encoding="utf-8")
 
     result = inspect_system_skill_doctor(target=_target(home))
 
     assert result.healthy
-    assert result.receipt.status == expected_status
-    assert all(not member.receipt.present for member in result.members)
+    assert result.config.status == expected_status
+    assert all(not member.config.present for member in result.members)
 
 
-def test_receipt_package_version_and_digest_do_not_replace_installed_evidence(
+def test_config_version_and_digest_do_not_replace_installed_evidence(
     tmp_path: Path,
 ) -> None:
     home = tmp_path / "home"
     _install(home)
-    receipt = home / ".houmao/system-skills/codex/receipt.json"
-    payload = json.loads(receipt.read_text(encoding="utf-8"))
-    payload["package_version"] = "0.1.0"
+    config = home / ".houmao/system-skills/codex/houmao-skill-config.json"
+    payload = json.loads(config.read_text(encoding="utf-8"))
+    payload["houmao_version"] = "0.1.0"
     payload["skills"][0]["content_digest"] = "0" * 64
-    receipt.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    config.write_text(json.dumps(payload) + "\n", encoding="utf-8")
 
     result = inspect_system_skill_doctor(target=_target(home))
 
     assert result.healthy
-    assert result.receipt.status == "current"
-    assert result.receipt.package_version == "0.1.0"
+    assert result.config.status == "current"
+    assert result.config.houmao_version == "0.1.0"
     first = result.members[0]
     assert first.observed_version == "1.2.1"
     assert first.version_status == "match"
-    assert first.receipt.content_digest == "0" * 64
+    assert first.config.content_digest == "0" * 64
 
 
-def test_doctor_does_not_modify_receiptless_home(tmp_path: Path) -> None:
+def test_doctor_does_not_modify_configless_home(tmp_path: Path) -> None:
     home = tmp_path / "home"
     _install(home)
     shutil.rmtree(home / ".houmao")

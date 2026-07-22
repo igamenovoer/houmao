@@ -201,7 +201,7 @@ def install_system_skills_command(
 @system_skills_group.command(name="status")
 @_target_options
 def status_system_skills_command(tool: str, home: Path | None) -> None:
-    """Show receipt integrity, per-pack state, and legacy evidence."""
+    """Show config integrity, per-pack state, and legacy evidence."""
 
     tools = _parse_system_skills_tools(tool)
     _validate_home_scope_for_system_skills_tools(tools=tools, home=home)
@@ -324,7 +324,7 @@ def uninstall_system_skills_command(
     obsolete_skill_sets: tuple[str, ...],
     obsolete_skills: tuple[str, ...],
 ) -> None:
-    """Remove selected receipt-owned packs; omission selects all owned packs."""
+    """Remove selected config-owned packs; omission selects all owned packs."""
 
     _reject_obsolete_selectors(obsolete_sets, obsolete_skill_sets, obsolete_skills)
     tools = _parse_system_skills_tools(tool)
@@ -356,7 +356,7 @@ def _install_payload(result: SystemSkillInstallResult) -> dict[str, object]:
         "selected_packs": list(result.selected_pack_ids),
         "standalone_skills": list(result.standalone_skill_names),
         "projected_relative_dirs": list(result.projected_relative_dirs),
-        "receipt_path": str(result.receipt_path),
+        "config_path": str(result.config_path),
         "projection_mode": result.projection_mode,
         "owning_pack_ids_by_skill": {
             name: list(owner_ids) for name, owner_ids in result.owning_pack_ids_by_skill.items()
@@ -373,17 +373,18 @@ def _status_payload(result: SystemSkillStatusResult) -> dict[str, object]:
     return {
         "tool": result.tool,
         "home_path": str(result.home_path),
-        "receipt": {
-            "status": result.receipt.status,
-            "path": str(result.receipt.path),
-            "message": result.receipt.message,
+        "config": {
+            "status": result.config.status,
+            "path": str(result.config.path),
+            "message": result.config.message,
+            "houmao_version": (
+                result.config.config.houmao_version if result.config.config is not None else None
+            ),
             "selected_packs": (
-                list(result.receipt.receipt.selected_pack_ids)
-                if result.receipt.receipt is not None
+                list(result.config.config.selected_pack_ids)
+                if result.config.config is not None
                 else []
             ),
-            "legacy_pack_ids": list(result.receipt.legacy_pack_ids),
-            "legacy_owned_paths": list(result.receipt.legacy_owned_paths),
         },
         "members": [
             {
@@ -450,13 +451,12 @@ def _doctor_payload(result: SystemSkillDoctorResult) -> dict[str, object]:
         },
         "running_houmao_version": result.running_houmao_version,
         "selected_packs": list(result.selected_pack_ids),
-        "receipt": {
-            "status": result.receipt.status,
-            "path": str(result.receipt.path),
-            "message": result.receipt.message,
-            "package_version": result.receipt.package_version,
-            "selected_packs": list(result.receipt.selected_pack_ids),
-            "legacy_pack_ids": list(result.receipt.legacy_pack_ids),
+        "config": {
+            "status": result.config.status,
+            "path": str(result.config.path),
+            "message": result.config.message,
+            "houmao_version": result.config.houmao_version,
+            "selected_packs": list(result.config.selected_pack_ids),
         },
         "healthy": result.healthy,
         "members": [
@@ -473,11 +473,11 @@ def _doctor_payload(result: SystemSkillDoctorResult) -> dict[str, object]:
                 "observed_version": member.observed_version,
                 "version_status": member.version_status,
                 "issues": list(member.issues),
-                "receipt": {
-                    "present": member.receipt.present,
-                    "projection_mode": member.receipt.projection_mode,
-                    "content_digest": member.receipt.content_digest,
-                    "owning_packs": list(member.receipt.owning_pack_ids),
+                "config": {
+                    "present": member.config.present,
+                    "projection_mode": member.config.projection_mode,
+                    "content_digest": member.config.content_digest,
+                    "owning_packs": list(member.config.owning_pack_ids),
                 },
             }
             for member in result.members
@@ -501,8 +501,6 @@ def _upgrade_payload(result: SystemSkillUpgradeResult) -> dict[str, object]:
         ],
     }
     payload["preserved_legacy_paths"] = list(result.preserved_legacy_paths)
-    payload["migrated_v3"] = result.migrated_v3
-    payload["removed_obsolete_paths"] = list(result.removed_obsolete_paths)
     return payload
 
 
@@ -518,7 +516,7 @@ def _uninstall_payload(result: SystemSkillUninstallResult) -> dict[str, object]:
         "removed_projected_relative_dirs": list(result.removed_projected_relative_dirs),
         "retained_shared_skills": list(result.retained_shared_skill_names),
         "preserved_conflicting_paths": list(result.preserved_conflicting_paths),
-        "receipt_path": str(result.receipt_path),
+        "config_path": str(result.config_path),
     }
 
 
@@ -555,7 +553,7 @@ def _render_install_plain(payload: object) -> None:
             f"Installed packs for {item.get('tool')}: {', '.join(_string_list(item.get('selected_packs')))}"
         )
         click.echo(f"Home: {item.get('home_path')}")
-        click.echo(f"Receipt: {item.get('receipt_path')}")
+        click.echo(f"Skill config: {item.get('config_path')}")
         click.echo(f"Projection mode: {item.get('projection_mode')}")
         for path in _string_list(item.get("projected_relative_dirs")):
             click.echo(f"  - {path}")
@@ -569,8 +567,8 @@ def _render_status_plain(payload: object) -> None:
     for item in statuses:
         click.echo(f"Tool: {item.get('tool')}")
         click.echo(f"Home: {item.get('home_path')}")
-        receipt = _mapping(item.get("receipt"))
-        click.echo(f"Receipt: {receipt.get('status')} ({receipt.get('path')})")
+        config = _mapping(item.get("config"))
+        click.echo(f"Skill config: {config.get('status')} ({config.get('path')})")
         for pack in _mapping_list(item.get("packs")):
             click.echo(f"  - {pack.get('pack_id')}: {pack.get('status')}")
         for member in _mapping_list(item.get("members")):
@@ -592,8 +590,8 @@ def _render_doctor_plain(payload: object) -> None:
     click.echo(f"Tool/home: {target.get('tool')} / {target.get('home_path')}")
     click.echo(f"Expected Houmao release: {mapping.get('running_houmao_version')}")
     click.echo(f"Expected packs: {', '.join(_string_list(mapping.get('selected_packs')))}")
-    receipt = _mapping(mapping.get("receipt"))
-    click.echo(f"Receipt: {receipt.get('status')} ({receipt.get('path')})")
+    config = _mapping(mapping.get("config"))
+    click.echo(f"Skill config: {config.get('status')} ({config.get('path')})")
     click.echo(f"Health: {'healthy' if mapping.get('healthy') else 'unhealthy'}")
     failed = [
         member for member in _mapping_list(mapping.get("members")) if not member.get("healthy")
@@ -622,12 +620,11 @@ def _render_upgrade_plain(payload: object) -> None:
         click.echo(
             f"Upgraded packs for {item.get('tool')}: {', '.join(_string_list(item.get('selected_packs')))}"
         )
-        click.echo(f"Receipt: {item.get('receipt_path')}")
+        click.echo(f"Skill config: {item.get('config_path')}")
         removed = _string_list(item.get("safely_removed_legacy_paths"))
         preserved = _string_list(item.get("preserved_legacy_paths"))
         click.echo(f"Safely removed legacy paths: {len(removed)}")
         click.echo(f"Preserved legacy conflicts: {len(preserved)}")
-        click.echo(f"Migrated v3 receipt: {item.get('migrated_v3')}")
         for path in preserved:
             click.echo(f"  - {path}")
 

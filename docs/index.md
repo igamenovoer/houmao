@@ -27,7 +27,7 @@ The public system-skill collection has six static roots: admin welcome, both act
 
 - [houmao-mgr](reference/cli/houmao-mgr.md): Primary management CLI for agents, projects, mailbox, system skills, internals, and local workflow control.
 - [houmao-passive-server](reference/cli/houmao-passive-server.md): Maintained registry-driven API server for discovery, observation, request submission, gateway proxying, mail proxying, and managed-headless agents.
-- [system-skills](reference/cli/system-skills.md): Install, inspect, upgrade, and remove receipt-owned actor packs in resolved tool homes.
+- [system-skills](reference/cli/system-skills.md): Install, inspect, upgrade, and remove config-owned actor packs in resolved tool homes.
 - [agents gateway](reference/cli/agents-gateway.md): Scoped `agents single ... gateway` and `agents self gateway` lifecycle and request commands.
 - [agents external](reference/cli/agents-external.md): Local imports for remotely owned communication-only managed agents.
 - [agents turn](reference/cli/agents-turn.md): Scoped managed headless turn submission and inspection.

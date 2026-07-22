@@ -939,7 +939,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         "selected_packs": list(system_skill_sync_result.selected_pack_ids),
         "standalone_skills": list(system_skill_sync_result.standalone_skill_names),
         "projected_relative_dirs": list(system_skill_sync_result.projected_relative_dirs),
-        "receipt_path": str(system_skill_sync_result.receipt_path),
+        "config_path": str(system_skill_sync_result.config_path),
         "owning_pack_ids_by_skill": {
             name: list(owner_ids)
             for name, owner_ids in system_skill_sync_result.owning_pack_ids_by_skill.items()
