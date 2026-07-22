@@ -2,7 +2,7 @@
 
 ### Requirement: README intro narrative carries brand, rationale, and architecture
 
-The README opening SHALL present, in order: the title and one-line summary, the central motivation (strong single agents as units, human-like cooperation without a hardcoded orchestration layer), the name-origin brand story, "What It Is", "Why This Design" as short rationale paragraphs, and an architecture walkthrough, all before Quick Start. The name-origin story SHALL be preserved as brand identity.
+The README opening SHALL present, in order: the title and one-line summary, the central motivation (strong single agents as units, human-like cooperation without a hardcoded orchestration layer), a "who this is for" audience list (multi-agent system developers, agent system end users, Houmao extenders), and "What It Is" with the name-origin brand story, followed by "Why This Design" as short rationale paragraphs and an architecture walkthrough, all before Quick Start. The name-origin story SHALL be preserved as brand identity.
 
 The pre-Quick-Start prose MAY use up to ~60 lines and SHALL use subheadings so the narrative stays scannable. This supersedes the former ~20-line condensation cap.
 
@@ -215,6 +215,19 @@ It SHALL keep the table of the six shipped skills with pack membership and role,
 - **WHEN** a reader wants pack membership, route-selection, or install-lifecycle detail
 - **THEN** they follow the README link to the System Skills Overview or CLI reference
 - **AND THEN** the moved detail is present in that linked doc, merged with its existing content rather than duplicated
+
+### Requirement: README section ordering follows specialist-first onboarding
+
+The README SHALL present an agent-first onboarding order: title/intro, Motivation, audience list, What It Is (with name origin), Why This Design, Architecture at a Glance, Quick Start, agent-driven examples, Core Concepts, Agent Loops, concise System Skills summary, Subsystems, Demos and Examples, CLI Entry Points, Full Documentation, Development, License. The former Typical Use Cases section is removed; audience signposting in the "who this is for" list and the Agent Loops and Demos sections carry that content.
+
+The Quick Start SHALL NOT require a reader to walk through a numbered 0-through-6 manual `houmao-mgr` tutorial before seeing Houmao's agent-driven value. Manual command details and secondary paths SHALL be linked to docs rather than expanded as the primary README flow.
+
+#### Scenario: Reader scans the README headings
+
+- **WHEN** a reader opens README.md and scans section headings
+- **THEN** they see a concise Quick Start before detailed usage references
+- **AND THEN** they see agent-driven examples before low-level CLI command details
+- **AND THEN** the README does not present project init, specialist creation, agent join, and full recipes as a long numbered manual tutorial
 
 ## REMOVED Requirements
 

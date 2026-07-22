@@ -7,9 +7,15 @@ Project docs: [https://igamenovoer.github.io/houmao/](https://igamenovoer.github
 
 If you build multi-agent systems, you know the hard part is the single agent: instruction following, tool use, real file access, communication, and memory take serious work to get right. CLI coding agents already do all of this, and they can be instructed like people, so Houmao lets them cooperate like people, without a hardcoded orchestration layer.
 
-> **Name Origin:** `Houmao` (猴毛, "monkey hair") is inspired by the classic tale *Journey to the West*. Just as Sun Wukong (The Monkey King) plucks strands of his magical hair to create independent, capable clones of himself, this framework lets you multiply your capabilities by spinning up autonomous helpers.
+**Who this is for:**
+
+- **Multi-agent system developers** prototyping a team: start with [Agent Loops](#agent-loops) and the [`examples/writer-team/`](examples/writer-team/) template; everything is also drivable through the `houmao-mgr` CLI and the `houmao-passive-server` HTTP API.
+- **Agent system end users** with one-off tasks: Houmao spawns fully independent, persisting agents you instruct and hand work between. Expect Codex-style agent threads you orchestrate by talking to them, not a single prompt that launches an autonomous team and exits.
+- **Houmao extenders** modifying the system itself: jump to [Development](#development) and the [developer docs](docs/developer/).
 
 ## What It Is
+
+> **Name Origin:** `Houmao` (猴毛, "monkey hair") is inspired by the classic tale *Journey to the West*. Just as Sun Wukong (The Monkey King) plucks strands of his magical hair to create independent, capable clones of himself, this framework lets you multiply your capabilities by spinning up autonomous helpers.
 
 Houmao builds and runs teams of CLI-based AI agents. You keep talking to your own CLI agent (`claude`, `codex`, or `kimi`), and Houmao lets it spawn and supervise more agents like itself. (`copilot` is also supported, but only as a target for installing Houmao's skills, not as an agent Houmao launches.)
 
@@ -187,14 +193,6 @@ The video below shows this writer team running: three managed agents drafting, r
 https://github.com/user-attachments/assets/6cff608a-8b5b-4dcd-96fb-f2f0208a18b6
 
 For the full loop-authoring workflow, see the [Loop Authoring Guide](docs/getting-started/loop-authoring.md) and the [System Skills Overview](docs/getting-started/system-skills-overview.md).
-
-## Typical Use Cases
-
-- **Multi-agent execution loops:** turn a complex plan into a generated team run with explicit participants, status, pause, resume, recovery, and stop controls.
-- **Project-local specialist teams:** define reusable specialists with different roles and tools, then launch them into the same project with shared mailbox and gateway posture.
-- **Parallel review and build flows:** run a builder and reviewer side by side on the same repository while your user agent coordinates prompts and inspections.
-- **Research or writing teams:** create non-coding specialists for outlining, drafting, critique, synthesis, and artifact production.
-- **Bring your own provider mix:** combine Claude, Codex, and Kimi agents while keeping the workflow and Houmao control surfaces stable.
 
 ## System Skills
 
