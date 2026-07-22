@@ -75,7 +75,9 @@ The generated-prompt family SHALL cover notifier mail rounds, ordinary mailbox p
 ### Requirement: Every run uses isolated and frozen context
 Each run SHALL use a fresh root below `tmp/houmao-dev-behavior-testing/<run-id>/` and SHALL freeze a run manifest before the first stimulus.
 
-The context snapshot SHALL record Git revision and dirty posture, Houmao release, public skill version and digests, selected pack, managed auto-skill posture, provider executable and version, model when observable, context type, fixture identifiers, generated prompt digest when applicable, and allowed mutation roots. It MUST NOT record credential values or hidden reasoning.
+The context snapshot SHALL record Git revision and dirty posture, Houmao release, skill installation method, pinned `houmao-skills` source and tag when applicable, public skill version and digests, selected pack or explicit sibling set, managed auto-skill posture, provider executable and version, model when observable, context type, fixture identifiers, generated prompt digest when applicable, and allowed mutation roots. It MUST NOT record credential values or hidden reasoning.
+
+Current-checkout qualification SHALL use package-local manager installation or its supported symlink mode. Published-release qualification SHALL pin `https://github.com/igamenovoer/houmao-skills#<houmao-release-tag>` to the release under test. The unqualified repository URL SHALL be reserved for cases that explicitly qualify latest-stable discovery or default installation behavior.
 
 Raw admin cases SHALL use an isolated skill projection and SHALL delegate provider launch to `houmao-dev-launch-agents`. Managed-agent cases SHALL use supported Houmao launch or join surfaces so the agent pack, auto prompt, and self-identity authority are genuine.
 
@@ -88,6 +90,11 @@ Raw admin cases SHALL use an isolated skill projection and SHALL delegate provid
 - **WHEN** a managed-agent case starts
 - **THEN** the agent is created through a supported Houmao managed launch or join path
 - **AND THEN** the run records agent-pack, auto-prompt, and verified identity authority evidence
+
+#### Scenario: Behavior case qualifies a published release
+- **WHEN** a case targets one released `houmao-mgr` version
+- **THEN** the fixture installs from the matching immutable `houmao-skills` Git tag
+- **AND THEN** the frozen context records the source URL, tag, installed roots, top-level versions, and content digests
 
 ### Requirement: Evidence remains observable and immutable
 Each attempt SHALL preserve the exact stimulus, context snapshot, provider-native skill events when available, transcript or terminal evidence, observed commands, bounded filesystem and runtime before-and-after evidence, final response, and adjudication record.
@@ -133,4 +140,3 @@ A failed case SHALL identify a candidate system-skill defect but MUST NOT author
 - **WHEN** a case receives `stable-fail` or `flaky`
 - **THEN** the report links the evidence and names the violated semantic oracle
 - **AND THEN** the behavior-testing workflow leaves packaged system-skill content unchanged
-

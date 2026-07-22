@@ -112,16 +112,21 @@ The `README.md` CLI Entry Points section SHALL include a discoverable reference 
 
 ### Requirement: README distinguishes Skills CLI install from Houmao system-skills install
 
-The README system-skill guidance SHALL present `npx skills add https://github.com/igamenovoer/houmao/tree/main/src/houmao/agents/assets/system_skills/` as the recommended install path when `npx` is available and the target machine has internet access.
+The README system-skill guidance SHALL present `npx skills add https://github.com/igamenovoer/houmao-skills` as the recommended install path when `npx` is available and the target machine has internet access. It SHALL explain that the repository root contains the released skills, the unqualified URL selects the latest stable release, and a `#vX.Y.Z` Git fragment selects the skills matching a specific `houmao-mgr` release.
 
 The README SHALL present `houmao-mgr system-skills install` as the preferred path when `npx` is unavailable, internet access is unavailable, the user is working from an installed Houmao package, or the user needs customization such as named sets, subset skills, explicit homes, symlink/copy projection, or retired-skill cleanup.
 
-The README SHALL point the external Skills CLI at the `system_skills/` collection directory rather than at an individual skill path, so the user can choose the packaged skill or skills to install.
+The README SHALL point the external Skills CLI at the `houmao-skills` repository root rather than at an individual skill path, so the user can choose the released skill or skills to install.
 
 #### Scenario: Reader sees the recommended internet path
 - **WHEN** a reader scans the README's agent-driven setup guidance
-- **THEN** they see an `npx skills add` command pointed at the GitHub main-branch `system_skills/` directory
+- **THEN** they see an `npx skills add` command pointed at the root of the dedicated `houmao-skills` repository
 - **AND THEN** the surrounding text qualifies that path as recommended when `npx` and internet access are available
+
+#### Scenario: Reader selects a matching released skill version
+- **WHEN** a reader needs skills for a specific `houmao-mgr` release
+- **THEN** the README shows or explains a `houmao-skills#vX.Y.Z` source
+- **AND THEN** the Git tag matches the Houmao release tag
 
 #### Scenario: Reader sees when to use Houmao installer
 - **WHEN** a reader needs offline, package-local, selected-set, selected-skill, explicit-home, symlink/copy, or cleanup behavior

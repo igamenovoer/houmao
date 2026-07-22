@@ -55,23 +55,23 @@ Version metadata is diagnostic only. Install, sync, status, upgrade, managed lau
 
 ## Standard External Installation
 
-The public source at `src/houmao/agents/assets/system_skills/public/` is a valid static Agent Skills collection. A standard Skills CLI can list or install it without running Houmao's manager:
+The dedicated [`houmao-skills`](https://github.com/igamenovoer/houmao-skills) repository is a valid static Agent Skills collection whose skill directories live at repository root. Its unqualified URL selects the latest stable release from `main`; append a matching release tag such as `#v1.2.1` to install the system skills for a specific `houmao-mgr` version. A standard Skills CLI can list or install it without running Houmao's manager:
 
 ```bash
-npx skills add ./src/houmao/agents/assets/system_skills/public --list
-npx skills add ./src/houmao/agents/assets/system_skills/public --agent codex --skill '*' --yes
+npx skills add https://github.com/igamenovoer/houmao-skills --list
+npx skills add https://github.com/igamenovoer/houmao-skills#v1.2.1 --agent codex --skill '*' --yes
 ```
 
 Select all five admin siblings explicitly:
 
 ```bash
-npx skills add ./src/houmao/agents/assets/system_skills/public --agent codex --skill houmao-admin-welcome --skill houmao-admin-entrypoint --skill houmao-shared-routines --skill houmao-agent-loop-pro --skill houmao-agent-loop-lite --yes
+npx skills add https://github.com/igamenovoer/houmao-skills --agent codex --skill houmao-admin-welcome --skill houmao-admin-entrypoint --skill houmao-shared-routines --skill houmao-agent-loop-pro --skill houmao-agent-loop-lite --yes
 ```
 
 Select all four agent siblings explicitly:
 
 ```bash
-npx skills add ./src/houmao/agents/assets/system_skills/public --agent codex --skill houmao-agent-entrypoint --skill houmao-shared-routines --skill houmao-agent-loop-pro --skill houmao-agent-loop-lite --yes
+npx skills add https://github.com/igamenovoer/houmao-skills --agent codex --skill houmao-agent-entrypoint --skill houmao-shared-routines --skill houmao-agent-loop-pro --skill houmao-agent-loop-lite --yes
 ```
 
 Skills CLI and copy-paste installation treat each directory independently. They do not resolve Houmao dependencies, create shared owner sets, or write a Houmao skill config. Selecting an entrypoint alone therefore produces an incomplete actor surface. Use `houmao-mgr system-skills` when you want automatic pack closure and config-backed lifecycle management.

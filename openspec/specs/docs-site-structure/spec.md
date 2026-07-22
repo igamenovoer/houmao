@@ -310,7 +310,7 @@ The `docs/index.md` file SHALL open with a short introductory block (2–3 sente
 
 The docs landing page `docs/index.md` SHALL point installed users toward the current recommended agent-driven setup path.
 
-For installed users with `npx` and internet access, the docs index SHALL mention installing system skills with `npx skills add` against the GitHub main-branch `system_skills/` collection or link to guidance that does so.
+For installed users with `npx` and internet access, the docs index SHALL mention installing system skills with `npx skills add` against the root of `https://github.com/igamenovoer/houmao-skills` or link to guidance that does so. The linked guidance SHALL distinguish latest-stable installation from Git-tag-pinned installation.
 
 The docs index SHALL still route readers to `houmao-mgr system-skills install` or the system-skills overview/reference when they need offline, package-local, explicit-home, named-set, subset-skill, symlink/copy, or cleanup behavior.
 

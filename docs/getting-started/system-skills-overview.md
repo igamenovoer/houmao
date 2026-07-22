@@ -53,28 +53,28 @@ Omitting `--pack` from the explicit external install command selects `admin`. Se
 
 ### Standard Skills CLI
 
-The static source also works with a standard Agent Skills installer. List all six discoverable roots from a checkout:
+The dedicated [`houmao-skills`](https://github.com/igamenovoer/houmao-skills) repository works directly with a standard Agent Skills installer. Its root contains the released standalone skill directories, `main` tracks the latest stable Houmao release, and a `#vX.Y.Z` fragment selects the skills matching that `houmao-mgr` version. List the latest stable roots:
 
 ```bash
-npx skills add ./src/houmao/agents/assets/system_skills/public --list
+npx skills add https://github.com/igamenovoer/houmao-skills --list
 ```
 
-Install all six:
+Install all six from a specific release:
 
 ```bash
-npx skills add ./src/houmao/agents/assets/system_skills/public --agent codex --skill '*' --yes
+npx skills add https://github.com/igamenovoer/houmao-skills#v1.2.1 --agent codex --skill '*' --yes
 ```
 
 Install the complete five-member admin surface:
 
 ```bash
-npx skills add ./src/houmao/agents/assets/system_skills/public --agent codex --skill houmao-admin-welcome --skill houmao-admin-entrypoint --skill houmao-shared-routines --skill houmao-agent-loop-pro --skill houmao-agent-loop-lite --yes
+npx skills add https://github.com/igamenovoer/houmao-skills --agent codex --skill houmao-admin-welcome --skill houmao-admin-entrypoint --skill houmao-shared-routines --skill houmao-agent-loop-pro --skill houmao-agent-loop-lite --yes
 ```
 
 Install the complete four-member agent surface:
 
 ```bash
-npx skills add ./src/houmao/agents/assets/system_skills/public --agent codex --skill houmao-agent-entrypoint --skill houmao-shared-routines --skill houmao-agent-loop-pro --skill houmao-agent-loop-lite --yes
+npx skills add https://github.com/igamenovoer/houmao-skills --agent codex --skill houmao-agent-entrypoint --skill houmao-shared-routines --skill houmao-agent-loop-pro --skill houmao-agent-loop-lite --yes
 ```
 
 Skills CLI installs each selected directory independently. It does not read Houmao pack membership, resolve sibling dependencies, or create a Houmao skill config. Selecting only an actor entrypoint does not install shared routines or either loop.

@@ -52,14 +52,16 @@ The normal user experience is conversational: your current CLI agent reads Houma
 ```bash
 uv tool install houmao
 command -v tmux
-houmao-mgr system-skills install --tool codex --pack admin
+npx skills add https://github.com/igamenovoer/houmao-skills
 ```
 
-`tmux` is required because managed agents run inside tmux-backed sessions. Replace `codex` with `claude`, `copilot`, `kimi`, or `universal` for another supported skill host. The complete admin pack installs `houmao-admin-welcome` and `houmao-admin-entrypoint` together.
+`tmux` is required because managed agents run inside tmux-backed sessions. The unqualified `houmao-skills` URL installs from `main`, which tracks the latest stable Houmao release. Skills CLI lets you choose the target agent and skills; select the complete admin surface (`houmao-admin-welcome`, `houmao-admin-entrypoint`, `houmao-shared-routines`, `houmao-agent-loop-pro`, and `houmao-agent-loop-lite`) for the guided operator workflow.
 
-Use `--home` only when you need to override the target's normal home. Repeat `--pack` to install both actor packs, and use `system-skills upgrade` when migrating an older flat installation:
+Pin the repository to the tag matching your installed `houmao-mgr` when you need a reproducible version. Use Houmao's manager instead when you need package-local or offline installation, automatic pack closure, explicit home resolution, config-backed ownership, upgrade, or uninstall:
 
 ```bash
+npx skills add https://github.com/igamenovoer/houmao-skills#v1.2.1
+houmao-mgr system-skills install --tool codex --pack admin
 houmao-mgr system-skills install --tool claude,codex,kimi,copilot,universal --pack admin
 houmao-mgr system-skills install --tool codex --home ~/.codex --pack admin --pack agent
 houmao-mgr system-skills upgrade --tool codex --home ~/.codex --pack admin
@@ -174,17 +176,17 @@ houmao-mgr system-skills doctor --tool codex --pack agent
 
 Omitting `--pack` on the external install command selects `admin`. Managed launch, relaunch, rebuild, and join select `agent`. The manager resolves full pack membership, records shared owners, and preserves shared roots until their final owning pack is removed.
 
-The static collection also supports ordinary Skills CLI installation. Standard installers select independent directories and do not resolve Houmao pack dependencies, so include every sibling explicitly. From a source checkout:
+The static collection also supports ordinary Skills CLI installation. The dedicated [`houmao-skills`](https://github.com/igamenovoer/houmao-skills) repository publishes released skills at its root. Its default `main` branch tracks the latest stable Houmao release; append a matching Git tag such as `#v1.2.1` to install skills for a specific `houmao-mgr` version. Standard installers select independent directories and do not resolve Houmao pack dependencies, so include every sibling explicitly.
 
 ```bash
-npx skills add ./src/houmao/agents/assets/system_skills/public --list
-npx skills add ./src/houmao/agents/assets/system_skills/public --agent codex --skill '*' --yes
+npx skills add https://github.com/igamenovoer/houmao-skills --list
+npx skills add https://github.com/igamenovoer/houmao-skills#v1.2.1 --agent codex --skill '*' --yes
 
 # Five-member admin surface
-npx skills add ./src/houmao/agents/assets/system_skills/public --agent codex --skill houmao-admin-welcome --skill houmao-admin-entrypoint --skill houmao-shared-routines --skill houmao-agent-loop-pro --skill houmao-agent-loop-lite --yes
+npx skills add https://github.com/igamenovoer/houmao-skills --agent codex --skill houmao-admin-welcome --skill houmao-admin-entrypoint --skill houmao-shared-routines --skill houmao-agent-loop-pro --skill houmao-agent-loop-lite --yes
 
 # Four-member agent surface
-npx skills add ./src/houmao/agents/assets/system_skills/public --agent codex --skill houmao-agent-entrypoint --skill houmao-shared-routines --skill houmao-agent-loop-pro --skill houmao-agent-loop-lite --yes
+npx skills add https://github.com/igamenovoer/houmao-skills --agent codex --skill houmao-agent-entrypoint --skill houmao-shared-routines --skill houmao-agent-loop-pro --skill houmao-agent-loop-lite --yes
 ```
 
 For copy-paste installation, copy the same five admin directories or four agent directories into the host's skill root. Copying all six is also valid. These installations have no Houmao ownership config.

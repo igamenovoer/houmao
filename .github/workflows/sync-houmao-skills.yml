@@ -9,26 +9,89 @@ permissions:
   contents: read
 
 jobs:
-  dispatch:
+  sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Dispatch skills mirror sync
+      - name: Check publishing credentials
         env:
-          GH_TOKEN: ${{ secrets.HOUMAO_SKILLS_SYNC_TOKEN }}
-          HOUMAO_REF: ${{ github.event.release.tag_name }}
-          TOOL_SKILLS_REF: ${{ github.event.release.prerelease && 'release-candidates' || 'main' }}
+          HOUMAO_SKILLS_DEPLOY_KEY: ${{ secrets.HOUMAO_SKILLS_DEPLOY_KEY }}
         run: |
-          if [[ -z "${GH_TOKEN}" ]]; then
-            echo "Missing HOUMAO_SKILLS_SYNC_TOKEN secret." >&2
-            echo "Create a fine-grained token with Actions: write access to igamenovoer/tool-skills." >&2
+          if [[ -z "${HOUMAO_SKILLS_DEPLOY_KEY}" ]]; then
+            echo "Missing HOUMAO_SKILLS_DEPLOY_KEY secret." >&2
+            echo "Configure a write deploy key for igamenovoer/houmao-skills." >&2
             exit 1
           fi
 
-          echo "Dispatching igamenovoer/tool-skills sync on ${TOOL_SKILLS_REF} for ${HOUMAO_REF}."
-          gh api \
-            --method POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            /repos/igamenovoer/tool-skills/actions/workflows/sync-houmao.yml/dispatches \
-            -f ref="${TOOL_SKILLS_REF}" \
-            -f inputs[houmao_ref]="${HOUMAO_REF}"
+      - name: Check out Houmao at the release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          path: houmao
+
+      - name: Check out the skills repository
+        uses: actions/checkout@v4
+        with:
+          repository: igamenovoer/houmao-skills
+          ref: main
+          path: houmao-skills
+          fetch-depth: 0
+          ssh-key: ${{ secrets.HOUMAO_SKILLS_DEPLOY_KEY }}
+
+      - name: Validate release and skill versions
+        env:
+          HOUMAO_REF: ${{ github.event.release.tag_name }}
+        working-directory: houmao
+        run: |
+          project_version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          if [[ "${HOUMAO_REF}" != "v${project_version}" ]]; then
+            echo "Release tag ${HOUMAO_REF} does not match project version ${project_version}." >&2
+            exit 1
+          fi
+          PYTHONPATH=src python scripts/check_system_skill_versions.py
+
+      - name: Sync released system skills to repository root
+        run: |
+          rsync -a --delete \
+            --exclude='__pycache__/' \
+            --exclude='*.pyc' \
+            --include='houmao-*/***' \
+            --exclude='*' \
+            houmao/src/houmao/agents/assets/system_skills/public/ \
+            houmao-skills/
+
+      - name: Validate Skills CLI discovery
+        run: npx --yes skills add ./houmao-skills --list
+
+      - name: Commit, tag, and publish skills
+        env:
+          HOUMAO_REF: ${{ github.event.release.tag_name }}
+          IS_PRERELEASE: ${{ github.event.release.prerelease }}
+        working-directory: houmao-skills
+        run: |
+          git fetch origin --tags --force
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+
+          if git rev-parse --verify --quiet "refs/tags/${HOUMAO_REF}" >/dev/null; then
+            desired_tree="$(git write-tree)"
+            published_tree="$(git rev-parse "${HOUMAO_REF}^{tree}")"
+            if [[ "${desired_tree}" == "${published_tree}" ]]; then
+              echo "${HOUMAO_REF} already publishes this skill tree."
+              exit 0
+            fi
+            echo "Refusing to replace existing immutable tag ${HOUMAO_REF}." >&2
+            exit 1
+          fi
+
+          if ! git diff --cached --quiet; then
+            git commit -m "Sync Houmao skills for ${HOUMAO_REF}"
+          fi
+
+          git tag -a "${HOUMAO_REF}" -m "Houmao system skills ${HOUMAO_REF}"
+          if [[ "${IS_PRERELEASE}" == "true" ]]; then
+            git push origin "refs/tags/${HOUMAO_REF}"
+          else
+            git push --atomic origin HEAD:refs/heads/main "refs/tags/${HOUMAO_REF}"
+          fi

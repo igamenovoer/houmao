@@ -31,7 +31,7 @@ The README SHALL explain that the welcome is read-only and hands executable work
 
 #### Scenario: User follows the preferred skill install path
 - **WHEN** a user reads the Quick Start on a machine with `npx` and internet access
-- **THEN** they see `npx skills add igamenovoer/tool-skills/houmao` as the preferred system-skill installation command
+- **THEN** they see `npx skills add https://github.com/igamenovoer/houmao-skills` as the preferred system-skill installation command
 - **AND THEN** they understand that `houmao-touring` is the first guided workflow to ask their CLI agent to run
 
 #### Scenario: User needs the Houmao-owned installer
@@ -172,14 +172,14 @@ The README Quick Start install block SHALL focus on the minimum first-run path:
 ```bash
 uv tool install houmao
 command -v tmux
-npx skills add igamenovoer/tool-skills/houmao
+npx skills add https://github.com/igamenovoer/houmao-skills
 ```
 
 The install block SHALL state that `tmux` is required because managed agents run in tmux-backed sessions. It SHALL mention the Houmao-owned `system-skills install` command after the preferred `npx` path, not as the default first command.
 
 #### Scenario: Reader sees a short install path first
 - **WHEN** a reader scans the README Quick Start
-- **THEN** they see `uv tool install houmao`, `command -v tmux`, and `npx skills add igamenovoer/tool-skills/houmao`
+- **THEN** they see `uv tool install houmao`, `command -v tmux`, and `npx skills add https://github.com/igamenovoer/houmao-skills`
 - **AND THEN** they do not have to read project initialization or specialist command syntax before starting the guided tour
 
 ### Requirement: README usage examples use AI/user chat style

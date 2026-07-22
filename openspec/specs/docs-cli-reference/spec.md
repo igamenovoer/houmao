@@ -1048,7 +1048,7 @@ The reference SHALL describe the new config as the sole manager ownership eviden
 - **AND THEN** it explains why shared routines and loops remain for the other pack
 
 ### Requirement: CLI reference documents standard external skill installation
-The system-skills reference SHALL link to the public static source collection and show that users may install it with normal Skills CLI or copy-paste workflows.
+The system-skills reference SHALL link to the dedicated public `houmao-skills` repository and show that users may install its root-level static collection with normal Skills CLI or copy-paste workflows. It SHALL state that the unqualified repository URL tracks the latest stable release and that a matching Houmao Git tag selects a specific released skill version.
 
 It SHALL explain that external standard installation has no Houmao skill config and requires explicit sibling selection, while `houmao-mgr system-skills` provides dependency-aware pack lifecycle management.
 

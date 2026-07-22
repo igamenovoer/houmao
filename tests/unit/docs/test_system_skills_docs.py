@@ -94,13 +94,20 @@ def test_system_skill_docs_cover_installation_choices_and_invocation() -> None:
     """Guard manager, Skills CLI, copy-paste, welcome, shared, and loop examples."""
 
     readme = _read("README.md")
+    quickstart = _read("docs/getting-started/quickstart.md")
+    docs_index = _read("docs/index.md")
     overview = _read("docs/getting-started/system-skills-overview.md")
     cli_reference = _read("docs/reference/cli/system-skills.md")
-    combined = "\n".join((readme, overview, cli_reference))
+    combined = "\n".join((readme, quickstart, docs_index, overview, cli_reference))
 
     assert "houmao-mgr system-skills install --tool codex --pack admin" in readme
     assert "houmao-mgr system-skills install --tool codex --pack agent" in readme
-    assert "npx skills add ./src/houmao/agents/assets/system_skills/public --list" in combined
+    assert "npx skills add https://github.com/igamenovoer/houmao-skills --list" in combined
+    assert "https://github.com/igamenovoer/houmao-skills#v1.2.1" in combined
+    for onboarding_doc in (readme, quickstart, docs_index):
+        assert "https://github.com/igamenovoer/houmao-skills" in onboarding_doc
+    assert "package-local" in readme
+    assert "config-backed ownership" in quickstart
     assert "--skill '*'" in combined
     assert "for houmao_skill_name in" in overview
     assert "Skills CLI installs each selected directory independently" in overview

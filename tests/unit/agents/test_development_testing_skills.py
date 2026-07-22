@@ -546,6 +546,8 @@ def test_behavior_generated_and_combined_context_cases_keep_distinct_provenance(
         encoding="utf-8"
     )
     assert "`raw-admin-combined`" in fixture_contexts
+    assert "https://github.com/igamenovoer/houmao-skills#<houmao-release-tag>" in fixture_contexts
+    assert "latest-stable discovery" in fixture_contexts
     assert "`managed-agent-combined`" in fixture_contexts
     assert "live attempts as explicit maintainer-run, credential-gated qualification" in (
         fixture_contexts

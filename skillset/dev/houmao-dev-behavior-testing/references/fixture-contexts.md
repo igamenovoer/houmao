@@ -11,6 +11,16 @@
 
 If a provider cannot use the required isolated skill projection without mutating its ordinary home, use the native planning tool to mark that provider/context cell unsupported; do not fall back to the live home.
 
+## Skill Source and Version Selection
+
+Choose and freeze one skill source before creating attempts:
+
+- For current-checkout qualification, use `houmao-mgr system-skills install` or its supported symlink mode against the checkout's packaged public collection. Record the Git commit, dirty posture, and complete source digests.
+- For published-release qualification, install from `https://github.com/igamenovoer/houmao-skills#<houmao-release-tag>`. Pin the tag matching the `houmao-mgr` version under test; do not use the unqualified default when exact version matching is part of the oracle.
+- Use the unqualified `https://github.com/igamenovoer/houmao-skills` source only when the case explicitly tests latest-stable discovery or default installation behavior.
+
+Skills CLI installation does not resolve Houmao packs. Select every required standalone sibling for the case and record that explicit set. A manager-installed context may select `admin`, `agent`, or both and must record the resulting `houmao-skill-config.json`. A Skills CLI context has no Houmao ownership config; record the pinned source, installed roots, top-level `houmao_version` values, and complete-tree digests instead.
+
 ## Context Matrix
 
 | Context Type | Purpose | Skill Posture | Launch Authority |

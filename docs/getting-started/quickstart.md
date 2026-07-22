@@ -15,14 +15,16 @@ For an installed user:
 ```bash
 uv tool install houmao
 command -v tmux
-houmao-mgr system-skills install --tool codex --pack admin
+npx skills add https://github.com/igamenovoer/houmao-skills
 ```
 
-`tmux` is required because local managed agents run inside tmux-backed sessions. Replace `codex` with `claude`, `copilot`, `kimi`, or `universal` for another supported skill host. The admin pack installs the read-only welcome and executable human-operator entrypoint together.
+`tmux` is required because local managed agents run inside tmux-backed sessions. The dedicated repository exposes every released system skill at its root, so Skills CLI can discover and install it directly. The unqualified URL follows the latest stable Houmao release on `main`; select the complete admin surface for the guided operator workflow.
 
-Use repeatable pack selectors for an explicit alternative, and use `upgrade` for a legacy flat installation:
+Append the tag matching your installed `houmao-mgr` for a reproducible install. Use `houmao-mgr system-skills` instead when `npx` or internet access is unavailable, or when you need package-local content, automatic pack closure, explicit homes, config-backed ownership, upgrade, or uninstall:
 
 ```bash
+npx skills add https://github.com/igamenovoer/houmao-skills#v1.2.1
+houmao-mgr system-skills install --tool codex --pack admin
 houmao-mgr system-skills install --tool claude,codex,kimi,copilot,universal --pack admin
 houmao-mgr system-skills install --tool codex --home ~/.codex --pack admin --pack agent
 houmao-mgr system-skills upgrade --tool codex --home ~/.codex --pack admin

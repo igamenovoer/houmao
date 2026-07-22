@@ -43,6 +43,25 @@ The tagged release build SHALL fail before distribution publication when a root 
 - **THEN** both artifacts contain all six standalone roots with the project release version
 - **AND THEN** neither artifact adds version fields to shared child entrypoints
 
+### Requirement: Released system skills publish under matching Git tags
+Publishing a Houmao GitHub release SHALL copy the complete public system-skill directories to the repository root of `igamenovoer/houmao-skills` and SHALL create an immutable tag whose name matches the Houmao release tag.
+
+The mirror's `main` branch SHALL track the latest stable Houmao release. Publishing a prerelease SHALL create its matching tag without advancing `main`. The release workflow SHALL validate the release tag against `[project].version`, validate standalone `houmao_version` frontmatter, and validate Skills CLI discovery before publishing.
+
+#### Scenario: Stable release publishes the default collection
+- **WHEN** a stable Houmao release named `vX.Y.Z` is published
+- **THEN** `houmao-skills` receives an immutable `vX.Y.Z` tag containing the released public skills at repository root
+- **AND THEN** `houmao-skills/main` advances to the same released skill tree
+
+#### Scenario: Prerelease preserves the stable default
+- **WHEN** a Houmao prerelease named `vX.Y.ZrcN` is published
+- **THEN** `houmao-skills` receives an immutable matching prerelease tag
+- **AND THEN** `houmao-skills/main` remains on the latest stable release
+
+#### Scenario: Existing tag differs from release content
+- **WHEN** publication finds that the matching `houmao-skills` tag already exists with different content
+- **THEN** publication fails instead of moving or replacing the existing tag
+
 ### Requirement: Installed version parsing is portable and read only
 The diagnostic parser SHALL read the installed top-level `SKILL.md` YAML frontmatter directly and SHALL preserve the observed `houmao_version` string for reporting.
 
@@ -57,4 +76,3 @@ Parsing SHALL NOT require a Houmao lifecycle receipt and SHALL NOT rewrite the s
 - **WHEN** an installed root contains a non-string or invalid `houmao_version`
 - **THEN** parsing reports the field as invalid for that root
 - **AND THEN** no install, upgrade, or repair action is attempted
-

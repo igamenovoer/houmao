@@ -4,17 +4,17 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 
 | Who you are | Where to start |
 |---|---|
-| **Installed user** (`uv tool install houmao`) | Install the admin pack with `houmao-mgr system-skills install --tool <target> --pack admin`, then start your assistant and ask `$houmao-admin-welcome start-guided-tour`. |
+| **Installed user** (`uv tool install houmao`) | Install from `https://github.com/igamenovoer/houmao-skills` with `npx skills add`, select the complete admin surface, then start your assistant and ask `$houmao-admin-welcome start-guided-tour`. |
 | **From-source developer** (`pixi install`) | [Quickstart](getting-started/quickstart.md) - agent-driven first-run guide with source-checkout `pixi run houmao-mgr ...` launcher notes |
 | **Contributor to Houmao** | [CLAUDE.md](https://github.com/igamenovoer/houmao/blob/main/CLAUDE.md) or [AGENTS.md](https://github.com/igamenovoer/houmao/blob/main/AGENTS.md) for repo conventions and development commands |
 
-The public system-skill collection has six static roots: admin welcome, both actor entrypoints, shared routines, and the pro and lite loops. Actor entrypoints delegate ordinary work to the shared sibling; both loops remain top-level manual skills.
+The public system-skill collection has six static roots: admin welcome, both actor entrypoints, shared routines, and the pro and lite loops. Actor entrypoints delegate ordinary work to the shared sibling; both loops remain top-level manual skills. The unqualified `houmao-skills` repository URL tracks the latest stable release, while a fragment such as `#v1.2.1` selects the matching version explicitly. Use `houmao-mgr system-skills install` for package-local, offline, or config-managed pack installation.
 
 ## Getting Started
 
 - [Architecture Overview](getting-started/overview.md): Two-phase lifecycle, backend model, and high-level design.
 - [Agent Definitions](getting-started/agent-definitions.md): Agent definition directory layout — tools, roles, recipes, launch profiles, and skills.
-- [Quickstart](getting-started/quickstart.md): Install the admin pack, invoke `houmao-admin-welcome`, and run your first managed-agent workflow through your CLI agent.
+- [Quickstart](getting-started/quickstart.md): Install released skills from `houmao-skills`, invoke `houmao-admin-welcome`, and run your first managed-agent workflow through your CLI agent.
 - [Easy Specialists](getting-started/easy-specialists.md): The easy lane — specialists, optional project profiles, and instances.
 - [Launch Profiles](getting-started/launch-profiles.md): Reusable birth-time launch configuration — project profiles, native launch dossiers, and the precedence chain.
 - [Managed Agent Memory](getting-started/managed-memory-dirs.md): Per-agent memory roots, free-form memo files, pages, the default memo cue, and the shared `memory-mgr` route.

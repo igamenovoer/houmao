@@ -121,7 +121,7 @@ The quickstart SHALL:
 
 - present the user's current CLI agent as the primary operator of Houmao workflows,
 - explain that Houmao system skills guide that CLI agent toward maintained `houmao-mgr` command surfaces,
-- show the preferred installed-user setup path with `uv tool install houmao`, `tmux` verification, and `npx skills add igamenovoer/tool-skills/houmao` when `npx` and internet access are available,
+- show the preferred installed-user setup path with `uv tool install houmao`, `tmux` verification, and `npx skills add https://github.com/igamenovoer/houmao-skills` when `npx` and internet access are available,
 - show the Houmao-owned `houmao-mgr system-skills install --tool <tool>[,<tool>...]` path for offline, installed-package-local, explicit-home, named-set, subset-skill, symlink/copy, or cleanup needs,
 - include a from-source note that source checkout commands use `pixi run houmao-mgr ...` while installed users use `houmao-mgr ...`,
 - instruct the reader to start Claude Code, Codex, Kimi, Gemini, or another supported CLI-agent surface from the target project directory and ask for `$houmao-touring start a guided tour`,
