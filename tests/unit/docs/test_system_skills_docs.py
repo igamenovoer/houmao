@@ -65,7 +65,7 @@ def test_system_skill_docs_match_static_collection_and_pack_membership() -> None
         assert f"`{name}`" in cli_reference
 
     assert "six static roots" in docs_index
-    assert "six complete, host-discoverable system skills" in readme
+    assert "Houmao ships six system skills" in readme
     assert "## Static Public Collection" in overview
     assert "six standalone source directories" in cli_reference
     assert "sixteen parent-scoped" in overview
@@ -100,13 +100,13 @@ def test_system_skill_docs_cover_installation_choices_and_invocation() -> None:
     cli_reference = _read("docs/reference/cli/system-skills.md")
     combined = "\n".join((readme, quickstart, docs_index, overview, cli_reference))
 
-    assert "houmao-mgr system-skills install --tool codex --pack admin" in readme
-    assert "houmao-mgr system-skills install --tool codex --pack agent" in readme
+    assert "houmao-mgr system-skills install --tool <tool> --pack admin" in readme
+    assert "houmao-mgr system-skills install --tool codex --pack agent" in combined
     assert "npx skills add https://github.com/igamenovoer/houmao-skills --list" in combined
-    assert "https://github.com/igamenovoer/houmao-skills#v1.2.1" in combined
+    assert "https://github.com/igamenovoer/houmao-skills#v2.0.0" in combined
     for onboarding_doc in (readme, quickstart, docs_index):
         assert "https://github.com/igamenovoer/houmao-skills" in onboarding_doc
-    assert "package-local" in readme
+    assert "Without `npx` or internet access" in readme
     assert "config-backed ownership" in quickstart
     assert "--skill '*'" in combined
     assert "for houmao_skill_name in" in overview
@@ -185,8 +185,7 @@ def test_readme_keeps_agent_first_onboarding_and_static_collection_order() -> No
         "## Agent-Driven Examples",
         "## Core Concepts",
         "## Agent Loops",
-        "## Typical Use Cases",
-        "## System Skills: Static Actor-Aware Collection",
+        "## System Skills",
         "## Subsystems at a Glance",
         "## Demos and Examples",
         "## CLI Entry Points",
@@ -194,11 +193,13 @@ def test_readme_keeps_agent_first_onboarding_and_static_collection_order() -> No
     positions = [readme.index(heading) for heading in expected_heading_order]
 
     assert positions == sorted(positions)
-    assert "You: Create a Codex backend reviewer specialist" in readme
-    assert "AI: Done." in readme
-    assert "attached or discovered its gateway" in readme
+    assert (
+        "You: $houmao-admin-entrypoint create a houmao Codex backend-reviewer specialist" in readme
+    )
+    assert "AI:  Done." in readme
+    assert "gateway attached" in readme
     assert "The complete admin pack installs five roots" in readme
-    assert "The complete agent pack installs four roots" in readme
+    assert "the agent pack installs four" in readme
     assert "Houmao does not assemble skill Markdown at runtime" in readme
-    assert "Stored specialist and profile policy uses `packs: [admin|agent]`" in readme
-    assert "`houmao-auto-system-prompt` remains a separate managed auto skill" in readme
+    assert "Welcome and both loop skills run only when invoked explicitly" in readme
+    assert "advanced users may call `$houmao-shared-routines` directly" in readme

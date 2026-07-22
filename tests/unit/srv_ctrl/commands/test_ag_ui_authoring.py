@@ -891,4 +891,5 @@ def test_gateway_ag_ui_publish_does_not_accept_third_party_endpoint_option() -> 
     )
 
     assert result.exit_code != 0
-    assert "No such option '--endpoint'" in result.output
+    assert "No such option" in result.output
+    assert "--endpoint" in result.output

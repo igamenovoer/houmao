@@ -38,8 +38,8 @@ def test_loop_authoring_docs_cover_current_loop_authoring() -> None:
     assert "generated skills in one flat skills directory" in guide
     assert "Generated TOML files should include comments above each section" in guide
     assert "`houmao-mgr internals graph high` remains available" in guide
-    assert "top-level `houmao-agent-loop-pro` skill" in readme
-    assert "public `houmao-agent-loop-lite` sibling" in readme
+    assert "Invoke `$houmao-agent-loop-pro` with a complex multi-agent plan" in readme
+    assert "The `houmao-agent-loop-lite` sibling is the lighter" in readme
     assert "`tree-loop` versus `generic-loop` topology choice" in readme
     assert "`houmao-agent-loop-lite`" in system_skills
     assert "`houmao-agent-loop-pro`" in system_skills

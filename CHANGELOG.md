@@ -4,6 +4,33 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [2.0.0] - 2026-07-22
+
+### Added
+
+- **Actor-aware system-skill entrypoints**: `houmao-admin-entrypoint` routes human-operator work, while `houmao-agent-entrypoint` routes work performed by Houmao-managed agents. Each entrypoint identifies its actor before delegating to shared routines, so overlapping commands can follow the correct logical path.
+- **Direct advanced and loop skill surfaces**: `houmao-shared-routines`, `houmao-agent-loop-pro`, and `houmao-agent-loop-lite` remain public top-level skills for explicit invocation. Advanced users can bypass entrypoint routing, and existing manual loop workflows keep stable skill names.
+- **Version diagnostics for installed skills**: all six public top-level skills declare the release in `houmao_version` frontmatter. `houmao-mgr system-skills doctor` checks installed content, configuration evidence, and per-skill version matches without enforcing them during installation or execution.
+- **Agent behavior test catalog**: the new `houmao-dev-behavior-testing` development skill groups context-sensitive manual and implicit invocation cases by functional area and `minimal`, `normal`, `extended`, or `complete` coverage. The existing TUI-focused workflow is now named `houmao-dev-tui-testing`.
+- **Dedicated versioned skill repository**: public system skills are published at [`igamenovoer/houmao-skills`](https://github.com/igamenovoer/houmao-skills). Its root is directly installable with `npx skills add`, stable releases advance `main`, and every Houmao release creates the matching immutable tag.
+
+### Changed
+
+- **BREAKING: system skills are now a static six-root collection**: Houmao no longer composes or generates skills at runtime. Installations copy or link complete checked-in skill directories, including the shared routine children, so the same collection works through `houmao-mgr`, copy-paste installation, and the Skills CLI.
+- **BREAKING: shared commands use parent-scoped subskill entrypoints**: the actor entrypoints list relevant commands and routines but route their execution to `houmao-shared-routines`, whose child entrypoints use the `SKILL-MAIN.md` convention. Existing installations of the former flat skill set must be reinstalled.
+- **BREAKING: invocation policy now follows skill role**: the two actor entrypoints support narrow implicit invocation in actor-appropriate contexts. `houmao-admin-welcome` is manual-only, and shared routines plus both loop skills require explicit invocation.
+- **BREAKING: installation state uses `houmao-skill-config.json`**: the minimal config records the schema, Houmao version, projection mode, and installed skills. The former generic receipt is unsupported; reinstall system skills to create current state.
+- **Release publication now owns skill synchronization**: publishing a Houmao GitHub release validates the static collection, updates the dedicated skill repository, and creates the corresponding skill tag. Prereleases publish tags without advancing its stable `main` branch.
+
+### Docs
+
+- Reworked the README and onboarding documentation around a newcomer-first path, clear audience signposting, the actor-specific skill model, direct Skills CLI installation, version pinning, diagnostics, and release publication.
+
+### Notes
+
+- This release bumps the major segment because the packaged skill layout, routing contract, invocation policy, and installation state format all changed incompatibly.
+- The `v2.0.0` GitHub release publishes the Python distribution and documentation, then publishes the six public system skills under the matching `houmao-skills` tag.
+
 ## [1.2.1] - 2026-07-15
 
 ### Changed

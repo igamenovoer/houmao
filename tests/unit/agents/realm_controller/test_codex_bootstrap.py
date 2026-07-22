@@ -78,6 +78,7 @@ def test_codex_bootstrap_falls_back_to_workdir_and_seeds_runtime_defaults(
 ) -> None:
     workdir = tmp_path / "workspace"
     workdir.mkdir()
+    (workdir / ".git").mkdir()
 
     home = tmp_path / "codex-home"
     home.mkdir()

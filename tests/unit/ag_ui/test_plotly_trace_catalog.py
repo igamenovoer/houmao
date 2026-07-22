@@ -4,6 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from houmao.ag_ui.plotly_trace_catalog import (
     PLOTLY_2D_TRACE_CATALOG,
     PLOTLY_2D_TRACE_TYPES,
@@ -30,6 +32,9 @@ def test_plotly_trace_catalog_generated_artifacts_are_current() -> None:
     """The checked-in Python and TypeScript catalog artifacts must not drift."""
 
     repo_root = Path(__file__).resolve().parents[3]
+    schema_path = repo_root / "extern/orphan/plotly.js/dist/plot-schema.json"
+    if not schema_path.is_file():
+        pytest.skip("the local Plotly source reference is not available")
     result = subprocess.run(
         [sys.executable, "scripts/generate_plotly_trace_catalog.py", "--check"],
         cwd=repo_root,

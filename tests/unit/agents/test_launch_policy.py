@@ -72,6 +72,8 @@ def test_codex_unattended_strategy_supports_auth_json_fresh_home(
     tmp_path: Path,
 ) -> None:
     _stub_version(monkeypatch, output="codex-cli 0.140.0")
+    workspace = tmp_path / "workspace"
+    (workspace / ".git").mkdir(parents=True)
     home = tmp_path / "codex-home"
     home.mkdir()
     (home / "auth.json").write_text('{"session_id":"abc"}\n', encoding="utf-8")
@@ -83,7 +85,7 @@ def test_codex_unattended_strategy_supports_auth_json_fresh_home(
             executable="codex",
             base_args=(),
             requested_operator_prompt_mode="unattended",
-            working_directory=tmp_path / "workspace",
+            working_directory=workspace,
             home_path=home,
             env={},
         )
@@ -105,7 +107,7 @@ def test_codex_unattended_strategy_supports_auth_json_fresh_home(
     assert payload["notice"]["hide_full_access_warning"] is True
     assert payload["notice"].get("model_migrations") is None
     assert payload["tui"]["show_tooltips"] is False
-    assert payload["projects"][str((tmp_path / "workspace").resolve())]["trust_level"] == "trusted"
+    assert payload["projects"][str(workspace.resolve())]["trust_level"] == "trusted"
 
 
 def test_codex_unattended_strategy_supports_env_only_custom_provider(
@@ -113,6 +115,8 @@ def test_codex_unattended_strategy_supports_env_only_custom_provider(
     tmp_path: Path,
 ) -> None:
     _stub_version(monkeypatch, output="codex-cli 0.140.0")
+    workspace = tmp_path / "workspace"
+    (workspace / ".git").mkdir(parents=True)
     home = tmp_path / "codex-home"
     home.mkdir()
     (home / "config.toml").write_text(
@@ -137,7 +141,7 @@ wire_api = "responses"
             executable="codex",
             base_args=(),
             requested_operator_prompt_mode="unattended",
-            working_directory=tmp_path / "workspace",
+            working_directory=workspace,
             home_path=home,
             env={"OPENAI_API_KEY": "sk-test"},
         )
@@ -152,7 +156,7 @@ wire_api = "responses"
     assert payload["approval_policy"] == "never"
     assert payload["sandbox_mode"] == "danger-full-access"
     assert payload["tui"]["show_tooltips"] is False
-    assert payload["projects"][str((tmp_path / "workspace").resolve())]["trust_level"] == "trusted"
+    assert payload["projects"][str(workspace.resolve())]["trust_level"] == "trusted"
 
 
 def test_codex_unattended_strategy_preserves_explicit_model_selection(

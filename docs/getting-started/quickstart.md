@@ -23,7 +23,7 @@ npx skills add https://github.com/igamenovoer/houmao-skills
 Append the tag matching your installed `houmao-mgr` for a reproducible install. Use `houmao-mgr system-skills` instead when `npx` or internet access is unavailable, or when you need package-local content, automatic pack closure, explicit homes, config-backed ownership, upgrade, or uninstall:
 
 ```bash
-npx skills add https://github.com/igamenovoer/houmao-skills#v1.2.1
+npx skills add https://github.com/igamenovoer/houmao-skills#v2.0.0
 houmao-mgr system-skills install --tool codex --pack admin
 houmao-mgr system-skills install --tool claude,codex,kimi,copilot,universal --pack admin
 houmao-mgr system-skills install --tool codex --home ~/.codex --pack admin --pack agent

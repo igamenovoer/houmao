@@ -38,6 +38,15 @@ from houmao.agents.launch_policy.provider_hooks import (
 
 _VERSION_PATTERN = re.compile(r"(\d+\.\d+\.\d+)")
 _OVERRIDE_ENV_VAR = "HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY"
+_EvidenceKind = Literal["official_docs", "source_reference", "live_probe"]
+_ActionKind = Literal[
+    "cli_arg.ensure_present",
+    "cli_arg.ensure_absent",
+    "json.set",
+    "toml.set",
+    "validate.reject_conflicting_launch_args",
+    "provider_hook.call",
+]
 _OPERATOR_PROMPT_MODES: tuple[OperatorPromptMode, ...] = ("as_is", "unattended")
 _SUPPORTED_BACKENDS: tuple[LaunchSurface, ...] = (
     "raw_launch",
@@ -47,22 +56,12 @@ _SUPPORTED_BACKENDS: tuple[LaunchSurface, ...] = (
     "kimi_headless",
     "cao_rest",
 )
-_EVIDENCE_KINDS: tuple[Literal["official_docs", "source_reference", "live_probe"], ...] = (
+_EVIDENCE_KINDS: tuple[_EvidenceKind, ...] = (
     "official_docs",
     "source_reference",
     "live_probe",
 )
-_ACTION_KINDS: tuple[
-    Literal[
-        "cli_arg.ensure_present",
-        "cli_arg.ensure_absent",
-        "json.set",
-        "toml.set",
-        "validate.reject_conflicting_launch_args",
-        "provider_hook.call",
-    ],
-    ...,
-] = (
+_ACTION_KINDS: tuple[_ActionKind, ...] = (
     "cli_arg.ensure_present",
     "cli_arg.ensure_absent",
     "json.set",
@@ -262,7 +261,7 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
     )
     if operator_prompt_mode_raw not in _OPERATOR_PROMPT_MODES:
         raise LaunchPolicyError(f"{source}.operator_prompt_mode must be `as_is` or `unattended`.")
-    operator_prompt_mode = operator_prompt_mode_raw
+    operator_prompt_mode = cast(OperatorPromptMode, operator_prompt_mode_raw)
 
     backends_payload = payload.get("backends")
     if not isinstance(backends_payload, list) or not backends_payload:
@@ -274,7 +273,7 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
             raise LaunchPolicyError(
                 f"{source}.backends contains unsupported backend `{backend_raw}`."
             )
-        parsed_backends.append(backend_raw)
+        parsed_backends.append(cast(LaunchSurface, backend_raw))
     backends = tuple(parsed_backends)
 
     supported_versions_raw = payload.get("supported_versions")
@@ -397,7 +396,7 @@ def _parse_evidence(*, item: object, source: str) -> StrategyEvidence:
     if kind_raw not in _EVIDENCE_KINDS:
         raise LaunchPolicyError(f"{source}.kind is unsupported: `{kind_raw}`.")
     return StrategyEvidence(
-        kind=kind_raw,
+        kind=cast(_EvidenceKind, kind_raw),
         ref=_require_non_blank_str(item, "ref", source=source),
         note=_require_non_blank_str(item, "note", source=source),
     )
@@ -431,7 +430,7 @@ def _parse_action(*, item: object, source: str) -> LaunchPolicyAction:
     if not isinstance(params, dict):
         raise LaunchPolicyError(f"{source}.params must be a mapping.")
     return LaunchPolicyAction(
-        kind=kind_raw,
+        kind=cast(_ActionKind, kind_raw),
         params=params,
     )
 

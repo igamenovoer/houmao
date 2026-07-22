@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, cast
 
 ManagedLaunchForceMode = Literal["keep-stale", "clean"]
 
@@ -26,4 +26,4 @@ def normalize_managed_launch_force_mode(
     if value not in MANAGED_LAUNCH_FORCE_MODE_VALUES:
         expected = ", ".join(repr(item) for item in MANAGED_LAUNCH_FORCE_MODE_VALUES)
         raise ValueError(f"{source} must be one of {expected}; got {value!r}.")
-    return value
+    return cast(ManagedLaunchForceMode, value)

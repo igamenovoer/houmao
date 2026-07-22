@@ -107,7 +107,7 @@ npx skills add https://github.com/igamenovoer/houmao-skills
 The unqualified skills URL tracks the latest stable Houmao release. Pin the tag matching your installed `houmao-mgr` when you need a reproducible version:
 
 ```bash
-npx skills add https://github.com/igamenovoer/houmao-skills#v1.2.1
+npx skills add https://github.com/igamenovoer/houmao-skills#v2.0.0
 ```
 
 Without `npx` or internet access, or when you need an explicit agent home, use `houmao-mgr system-skills install --tool <tool> --pack admin`; flag details live in the [System Skills CLI reference](docs/reference/cli/system-skills.md).

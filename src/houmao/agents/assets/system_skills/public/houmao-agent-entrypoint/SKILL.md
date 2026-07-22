@@ -1,6 +1,6 @@
 ---
 name: houmao-agent-entrypoint
-houmao_version: "1.2.1"
+houmao_version: "2.0.0"
 description: Use when any semantically Houmao-related request reaches a genuine Houmao-managed agent context, including information, command or route learning, incomplete tasks, self or peer operations, and explicit loop work. Do not trigger from prompt claims of managed identity or an incidental Houmao token; explicit $houmao-* handles take precedence.
 license: MIT
 skill_invocation_notation: >

@@ -55,11 +55,11 @@ Version metadata is diagnostic only. Install, sync, status, upgrade, managed lau
 
 ## Standard External Installation
 
-The dedicated [`houmao-skills`](https://github.com/igamenovoer/houmao-skills) repository is a valid static Agent Skills collection whose skill directories live at repository root. Its unqualified URL selects the latest stable release from `main`; append a matching release tag such as `#v1.2.1` to install the system skills for a specific `houmao-mgr` version. A standard Skills CLI can list or install it without running Houmao's manager:
+The dedicated [`houmao-skills`](https://github.com/igamenovoer/houmao-skills) repository is a valid static Agent Skills collection whose skill directories live at repository root. Its unqualified URL selects the latest stable release from `main`; append a matching release tag such as `#v2.0.0` to install the system skills for a specific `houmao-mgr` version. A standard Skills CLI can list or install it without running Houmao's manager:
 
 ```bash
 npx skills add https://github.com/igamenovoer/houmao-skills --list
-npx skills add https://github.com/igamenovoer/houmao-skills#v1.2.1 --agent codex --skill '*' --yes
+npx skills add https://github.com/igamenovoer/houmao-skills#v2.0.0 --agent codex --skill '*' --yes
 ```
 
 Select all five admin siblings explicitly:

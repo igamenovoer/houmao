@@ -63,7 +63,7 @@ def test_six_source_roots_have_versions_and_children_remain_unversioned() -> Non
 
     assert result.healthy
     assert result.checked_skill_names == EXPECTED_STANDALONE_SKILL_NAMES
-    assert result.project_version == "1.2.1"
+    assert result.project_version == "2.0.0"
     children = tuple((PUBLIC_ROOT / "houmao-shared-routines/subskills").glob("*/SKILL-MAIN.md"))
     assert len(children) == 16
     assert all("houmao_version:" not in path.read_text(encoding="utf-8") for path in children)
@@ -76,31 +76,31 @@ def test_six_source_roots_have_versions_and_children_remain_unversioned() -> Non
 def test_frontmatter_parser_preserves_exact_version_string(tmp_path: Path) -> None:
     path = _write_skill(
         tmp_path / "SKILL.md",
-        'name: houmao-test\nhoumao_version: "1.2.1+local.7"',
+        'name: houmao-test\nhoumao_version: "2.0.0+local.7"',
     )
 
     metadata = parse_top_level_system_skill_frontmatter(path, expected_name="houmao-test")
 
     assert metadata.name == "houmao-test"
-    assert metadata.houmao_version == "1.2.1+local.7"
+    assert metadata.houmao_version == "2.0.0+local.7"
 
 
 @pytest.mark.parametrize(
     ("text", "expected_name", "code"),
     [
         (
-            "name: houmao-test\nname: duplicate\nhoumao_version: '1.2.1'",
+            "name: houmao-test\nname: duplicate\nhoumao_version: '2.0.0'",
             "houmao-test",
             "duplicate-key",
         ),
         (
-            "name: houmao-test\nhoumao_version: '1.2.1'\nhoumao_version: '1.2.0'",
+            "name: houmao-test\nhoumao_version: '2.0.0'\nhoumao_version: '1.2.1'",
             "houmao-test",
             "duplicate-key",
         ),
-        ("name: [broken\nhoumao_version: '1.2.1'", "houmao-test", "malformed-yaml"),
-        ("name: other\nhoumao_version: '1.2.1'", "houmao-test", "name-mismatch"),
-        ("houmao_version: '1.2.1'", "houmao-test", "missing-name"),
+        ("name: [broken\nhoumao_version: '2.0.0'", "houmao-test", "malformed-yaml"),
+        ("name: other\nhoumao_version: '2.0.0'", "houmao-test", "name-mismatch"),
+        ("houmao_version: '2.0.0'", "houmao-test", "missing-name"),
         ("name: houmao-test", "houmao-test", "missing-version"),
         ("name: houmao-test\nhoumao_version: 1.2", "houmao-test", "non-string-version"),
         ("name: houmao-test\nhoumao_version: 'not a release'", "houmao-test", "invalid-version"),
@@ -160,7 +160,7 @@ def test_source_check_fails_project_version_drift_without_rewriting_sources(
 
     assert not result.healthy
     assert len(result.issues) == 6
-    assert {issue.observed_version for issue in result.issues} == {"1.2.1"}
+    assert {issue.observed_version for issue in result.issues} == {"2.0.0"}
     assert {issue.expected_version for issue in result.issues} == {"9.9.9"}
     assert before == {
         name: (PUBLIC_ROOT / name / "SKILL.md").read_bytes()
@@ -217,8 +217,8 @@ def test_doctor_separates_missing_incomplete_drift_and_version_mismatch(
     lite = home / "skills/houmao-agent-loop-lite/SKILL.md"
     lite.write_text(
         lite.read_text(encoding="utf-8").replace(
+            'houmao_version: "2.0.0"',
             'houmao_version: "1.2.1"',
-            'houmao_version: "1.2.0"',
         ),
         encoding="utf-8",
     )
@@ -232,7 +232,7 @@ def test_doctor_separates_missing_incomplete_drift_and_version_mismatch(
     assert by_name["houmao-agent-loop-pro"].integrity_status == "drifted"
     assert by_name["houmao-agent-loop-pro"].version_status == "match"
     assert by_name["houmao-agent-loop-lite"].integrity_status == "drifted"
-    assert by_name["houmao-agent-loop-lite"].observed_version == "1.2.0"
+    assert by_name["houmao-agent-loop-lite"].observed_version == "1.2.1"
     assert by_name["houmao-agent-loop-lite"].version_status == "mismatch"
 
 
@@ -248,7 +248,7 @@ def test_doctor_reports_unknown_running_version_without_losing_observed_value(
     )
 
     assert not result.healthy
-    assert {member.observed_version for member in result.members} == {"1.2.1"}
+    assert {member.observed_version for member in result.members} == {"2.0.0"}
     assert {member.version_status for member in result.members} == {"unavailable"}
 
 
@@ -273,7 +273,7 @@ def test_corrupt_config_stays_separate_from_direct_health(tmp_path: Path) -> Non
         (
             {
                 "schema_version": "houmao-skill-config.v1",
-                "houmao_version": "1.2.1",
+                "houmao_version": "2.0.0",
                 "projection_mode": "copy",
                 "skills": [],
             },
@@ -315,7 +315,7 @@ def test_config_version_and_digest_do_not_replace_installed_evidence(
     assert result.config.status == "current"
     assert result.config.houmao_version == "0.1.0"
     first = result.members[0]
-    assert first.observed_version == "1.2.1"
+    assert first.observed_version == "2.0.0"
     assert first.version_status == "match"
     assert first.config.content_digest == "0" * 64
 
@@ -346,7 +346,7 @@ def test_manifest_loading_does_not_require_version_metadata(tmp_path: Path) -> N
     shutil.copytree(source_root, copied_root)
     entrypoint = copied_root / "public/houmao-agent-entrypoint/SKILL.md"
     entrypoint.write_text(
-        entrypoint.read_text(encoding="utf-8").replace('houmao_version: "1.2.1"\n', ""),
+        entrypoint.read_text(encoding="utf-8").replace('houmao_version: "2.0.0"\n', ""),
         encoding="utf-8",
     )
 

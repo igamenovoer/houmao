@@ -1,6 +1,6 @@
 ---
 name: houmao-admin-welcome
-houmao_version: "1.2.1"
+houmao_version: "2.0.0"
 description: Use when a human operator explicitly invokes $houmao-admin-welcome for first-use orientation, route comparison, reorientation, command learning, or a guided tour; never select it implicitly.
 license: MIT
 ---
