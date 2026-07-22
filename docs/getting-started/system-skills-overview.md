@@ -212,7 +212,7 @@ launch:
       - agent
 ```
 
-Source policy supports `default`, `extend`, `replace`, and `none`. An omitted or `default` source policy selects the managed `agent` default. Profile policy supports `inherit`, `extend`, `replace`, and `none`; an omitted profile policy inherits the source result. `replace` requires at least one pack, while `none` disables the collection.
+Source policy supports `default`, `extend`, `replace`, and `none`. An omitted or `default` source policy selects the managed `agent` default. Profile policy supports `inherit`, `extend`, `replace`, and `none`; an omitted profile policy inherits the source result. `replace` requires at least one pack, while `none` disables the collection. Individual skill selectors and the former `core`, `extensions`, and `all` set selectors are removed; complete packs are the only stored selection unit.
 
 On reused homes, Houmao synchronizes the complete config-owned selection and preserves unrelated user skills. Shared routines and loops remain when either selected pack still owns them.
 
