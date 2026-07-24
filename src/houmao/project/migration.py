@@ -106,7 +106,7 @@ def detect_project_migration_plan(overlay: HoumaoProjectOverlay) -> ProjectMigra
     unsupported_reasons: list[str] = []
     steps: list[ProjectMigrationStep] = []
 
-    if catalog_exists and state.catalog_version not in {14, 16, CATALOG_SCHEMA_VERSION}:
+    if catalog_exists and state.catalog_version not in {14, 16, 17, CATALOG_SCHEMA_VERSION}:
         unsupported_reasons.append(
             f"catalog schema version `{state.catalog_version}` is not supported for automatic migration"
         )
@@ -119,7 +119,7 @@ def detect_project_migration_plan(overlay: HoumaoProjectOverlay) -> ProjectMigra
                 paths=(overlay.catalog_path,),
             )
         )
-    elif state.catalog_version in {14, 16}:
+    elif state.catalog_version in {14, 16, 17}:
         steps.append(
             ProjectMigrationStep(
                 code="upgrade-catalog-schema",
@@ -359,7 +359,7 @@ def _upgrade_catalog_schema_in_place(catalog_path: Path) -> None:
         version = _catalog_schema_version(connection)
         if version == CATALOG_SCHEMA_VERSION:
             return
-        if version not in {14, 16}:
+        if version not in {14, 16, 17}:
             raise ValueError(
                 f"Catalog `{catalog_path}` is not at a supported migratable schema version: {version}"
             )
@@ -382,6 +382,34 @@ def _upgrade_catalog_schema_in_place(catalog_path: Path) -> None:
             connection.execute(
                 "ALTER TABLE launch_profiles ADD COLUMN system_skills_payload TEXT NOT NULL DEFAULT '{}'"
             )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_deployments (
+                deployment_id TEXT PRIMARY KEY,
+                deployment_name TEXT NOT NULL UNIQUE,
+                definition_id TEXT NOT NULL,
+                revision_id TEXT NOT NULL,
+                revision_digest TEXT NOT NULL,
+                instance_contract_digest TEXT NOT NULL,
+                private_workspace_enabled INTEGER NOT NULL DEFAULT 0,
+                workspace_workdir_mode TEXT NOT NULL DEFAULT 'project-root',
+                workspace_contract_digest TEXT,
+                batch_operation_id TEXT,
+                batch_member_ordinal INTEGER,
+                request_path TEXT NOT NULL,
+                request_digest TEXT NOT NULL,
+                plan_path TEXT NOT NULL,
+                plan_digest TEXT NOT NULL,
+                specialist_name TEXT NOT NULL UNIQUE
+                    REFERENCES specialists(name) ON DELETE RESTRICT,
+                profile_name TEXT NOT NULL UNIQUE
+                    REFERENCES launch_profiles(name) ON DELETE RESTRICT,
+                skill_names_payload TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
         connection.execute(
             "UPDATE catalog_meta SET value = ? WHERE key = 'schema_version'",
             (str(CATALOG_SCHEMA_VERSION),),

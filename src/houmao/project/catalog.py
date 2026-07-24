@@ -35,7 +35,7 @@ from houmao.project.config_payloads import build_launch_profile_config_payload
 if TYPE_CHECKING:
     from houmao.project.overlay import HoumaoProjectOverlay
 
-CATALOG_SCHEMA_VERSION = 17
+CATALOG_SCHEMA_VERSION = 18
 PROJECT_CATALOG_FILENAME = "catalog.sqlite"
 PROJECT_CONTENT_DIRNAME = "content"
 _STARTER_ASSET_PACKAGE = "houmao.project.assets"
@@ -3003,6 +3003,29 @@ def _table_schema_sql() -> str:
         PRIMARY KEY(launch_profile_id, source_path),
         UNIQUE(launch_profile_id, name)
     );
+
+    CREATE TABLE IF NOT EXISTS agent_deployments (
+        deployment_id TEXT PRIMARY KEY,
+        deployment_name TEXT NOT NULL UNIQUE,
+        definition_id TEXT NOT NULL,
+        revision_id TEXT NOT NULL,
+        revision_digest TEXT NOT NULL,
+        instance_contract_digest TEXT NOT NULL,
+        private_workspace_enabled INTEGER NOT NULL DEFAULT 0,
+        workspace_workdir_mode TEXT NOT NULL DEFAULT 'project-root',
+        workspace_contract_digest TEXT,
+        batch_operation_id TEXT,
+        batch_member_ordinal INTEGER,
+        request_path TEXT NOT NULL,
+        request_digest TEXT NOT NULL,
+        plan_path TEXT NOT NULL,
+        plan_digest TEXT NOT NULL,
+        specialist_name TEXT NOT NULL UNIQUE REFERENCES specialists(name) ON DELETE RESTRICT,
+        profile_name TEXT NOT NULL UNIQUE REFERENCES launch_profiles(name) ON DELETE RESTRICT,
+        skill_names_payload TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
     """
 
 
@@ -3305,6 +3328,28 @@ def _required_current_catalog_columns() -> dict[str, tuple[str, ...]]:
             "source_path",
             "mode",
             "ordinal",
+        ),
+        "agent_deployments": (
+            "deployment_id",
+            "deployment_name",
+            "definition_id",
+            "revision_id",
+            "revision_digest",
+            "instance_contract_digest",
+            "private_workspace_enabled",
+            "workspace_workdir_mode",
+            "workspace_contract_digest",
+            "batch_operation_id",
+            "batch_member_ordinal",
+            "request_path",
+            "request_digest",
+            "plan_path",
+            "plan_digest",
+            "specialist_name",
+            "profile_name",
+            "skill_names_payload",
+            "created_at",
+            "updated_at",
         ),
     }
 

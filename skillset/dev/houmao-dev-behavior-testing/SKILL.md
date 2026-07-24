@@ -89,6 +89,7 @@ Load only the functional-area pages selected by an ordinary case or suite:
 - [references/cases/shared-routines.md](references/cases/shared-routines.md)
 - [references/cases/loops.md](references/cases/loops.md)
 - [references/cases/generated-prompts.md](references/cases/generated-prompts.md)
+- [references/cases/agent-definitions.md](references/cases/agent-definitions.md)
 
 ## Calls to External Skills
 
@@ -99,7 +100,7 @@ Load only the functional-area pages selected by an ordinary case or suite:
 
 ## Help Contract
 
-Explicit help and `list-cases` are read-only. With no selector, explain the seven functional areas, manual, automatic, and not-applicable invocation modes, four cumulative coverage profiles, canonical selector forms, profile counts, supported live providers, fresh-context requirement, evidence visibility limits, five aggregate outcomes, and the difference from TUI testing. Expand case ids and variants only for supplied selectors. Do not preflight credentials, inspect active agents, create a run root, or launch a provider.
+Explicit help and `list-cases` are read-only. With no selector, explain the eight functional areas, manual, automatic, and not-applicable invocation modes, four cumulative coverage profiles, canonical selector forms, profile counts, supported live providers, fresh-context requirement, evidence visibility limits, five aggregate outcomes, and the difference from TUI testing. Expand case ids and variants only for supplied selectors. Do not preflight credentials, inspect active agents, create a run root, or launch a provider.
 
 ## Guardrails
 

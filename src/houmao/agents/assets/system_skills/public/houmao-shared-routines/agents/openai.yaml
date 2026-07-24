@@ -1,6 +1,6 @@
 interface:
   display_name: "Houmao Shared Routines"
   short_description: "Advanced direct access to ordinary Houmao routines"
-  default_prompt: "Use $houmao-shared-routines for an explicit advanced route, default direct calls to admin posture, and use the leading as-agent qualifier only with fresh managed-self verification."
+  default_prompt: "Use $houmao-shared-routines for an explicit advanced route, including direct definition deployment or instance-state access. Default direct calls to admin posture, and use the leading as-agent qualifier only with fresh managed-self verification."
 policy:
   allow_implicit_invocation: false

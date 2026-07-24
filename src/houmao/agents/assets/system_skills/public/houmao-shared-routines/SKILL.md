@@ -43,16 +43,16 @@ Owned routines are parent-scoped subskills. A bare designator such as `houmao-sh
 | --- | --- | --- | --- |
 | `project-mgr` | `subskills/houmao-project-mgr/SKILL-MAIN.md` | admin | A project overlay, `.houmao/` layout, launch profile, or project-scoped state needs administration. |
 | `credential-mgr` | `subskills/houmao-credential-mgr/SKILL-MAIN.md` | admin | A project or native-agent credential must be listed, inspected, added, updated, logged in, renamed, or removed. |
-| `agent-definition` | `subskills/houmao-agent-definition/SKILL-MAIN.md` | admin | Roles, recipes, launch dossiers, specialists, profiles, config drafts, or definition-backed launch preparation are the target. |
+| `agent-definition` | `subskills/houmao-agent-definition/SKILL-MAIN.md` | admin | Roles, recipes, launch dossiers, specialists, profiles, immutable definition authoring, or single and batch definition deployment are the target. |
 | `operator-messaging` | `subskills/houmao-operator-messaging/SKILL-MAIN.md` | admin | A human operator explicitly wants to clarify and dispatch prompts or mailbox packets to one or more managed agents. |
 | `process-emails-via-gateway` | `subskills/houmao-process-emails-via-gateway/SKILL-MAIN.md` | agent | A notifier prompt supplies the exact gateway context for one bounded unread-mail round. |
 | `agent-email-comms` | `subskills/houmao-agent-email-comms/SKILL-MAIN.md` | admin, agent | Ordinary mailbox inspection, send, post, reply, mark, move, archive, or transport fallback work is required. |
 | `adv-usage-pattern` | `subskills/houmao-adv-usage-pattern/SKILL-MAIN.md` | admin, agent | A maintained multi-step gateway, notifier, mailbox, wakeup, edge-loop, or relay pattern must be composed. |
-| `utils-workspace-mgr` | `subskills/houmao-utils-workspace-mgr/SKILL-MAIN.md` | admin, agent | Multi-agent workspace topology must be planned, created, validated, or summarized. |
+| `utils-workspace-mgr` | `subskills/houmao-utils-workspace-mgr/SKILL-MAIN.md` | admin, agent | Multi-agent workspace topology must be planned, created, validated, or summarized; individual definition-owned private workspaces are excluded. |
 | `ext-graphing` | `subskills/houmao-ext-graphing/SKILL-MAIN.md` | admin, agent | Plotly templated graphics or Vega-Lite freeform graphics must be authored, validated, repaired, or rendered. |
 | `mailbox-mgr` | `subskills/houmao-mailbox-mgr/SKILL-MAIN.md` | admin, agent | Mailbox roots, accounts, registrations, projections, cleanup, export, or late bindings need administration. |
 | `memory-mgr` | `subskills/houmao-memory-mgr/SKILL-MAIN.md` | admin, agent | A Houmao managed-agent memo or reusable profile memo seed must be read, written, or removed. |
-| `agent-instance` | `subskills/houmao-agent-instance/SKILL-MAIN.md` | admin, agent | A managed instance must be launched, joined, listed, stopped, relaunched, cleaned up, or followed up under verified self. |
+| `agent-instance` | `subskills/houmao-agent-instance/SKILL-MAIN.md` | admin, agent | A managed instance needs lifecycle work or actor-scoped runtime-variable, mindset, or definition-owned private-workspace access. |
 | `agent-inspect` | `subskills/houmao-agent-inspect/SKILL-MAIN.md` | admin, agent | A targeted managed agent needs read-only liveness, TUI, mailbox, artifact, or log evidence. |
 | `agent-messaging` | `subskills/houmao-agent-messaging/SKILL-MAIN.md` | admin, agent | A running agent must receive a prompt, interrupt, gateway queue item, raw input, mail handoff, or context reset. |
 | `agent-gateway` | `subskills/houmao-agent-gateway/SKILL-MAIN.md` | admin, agent | A managed-agent gateway, service, reminder, notifier, or HTTP surface needs operation or inspection. |

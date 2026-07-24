@@ -1,6 +1,6 @@
 interface:
   display_name: "Houmao Admin Entrypoint"
   short_description: "Route Houmao requests for a human operator"
-  default_prompt: "Use $houmao-admin-entrypoint for any semantically Houmao-related human-operator request, including information, incomplete tasks, and operations. Answer informational requests locally; for operational work preserve the admin frame and delegate only after route and target gates. Explicit $houmao-* handles take precedence."
+  default_prompt: "Use $houmao-admin-entrypoint for any semantically Houmao-related human-operator request, including information, incomplete tasks, reusable agent-definition authoring, single or batch deployment, per-instance state administration, and other operations. Answer informational requests locally; for operational work preserve the admin frame and delegate only after route and target gates. Explicit $houmao-* handles take precedence."
 policy:
   allow_implicit_invocation: true

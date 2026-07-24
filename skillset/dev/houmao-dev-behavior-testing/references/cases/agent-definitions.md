@@ -1,0 +1,44 @@
+# Agent Definition and Instance-State Cases
+
+Functional area: `agent-definitions`
+
+## Workflow
+
+1. **Resolve one definition case** and prepare a disposable initialized Houmao project plus the named authoring, definition, credential, or managed-agent fixture.
+2. **Preserve the actor split**: reusable authoring and deployment are admin-only; a managed agent may read only its verified-self runtime variables, named mindsets, and private-workspace mappings.
+3. **Observe route and phase boundaries** independently: intent source, derived interpretation, immutable materialization, plan, apply, launch handoff, launch snapshot, and live state.
+4. **Freeze filesystem and catalog evidence** before cleanup.
+
+If the selected case includes deployment or workspace mutation, use the native planning tool to enumerate the exact disposable paths and state deltas before launch.
+
+## Functional-Area Defaults
+
+- Case revision: `1` for every listed case.
+- Providers: `claude`, `codex`, `kimi`.
+- Context: `raw-admin`; pack `admin`; auto skill `present-required`.
+- Activation: `explicit`; repetitions `3`; timeout `300` seconds.
+- Driver invocation: `manual` from `driving-agent`.
+- Permitted effects: the disposable project, authoring workspace, definition root, generated deployment jobs, and disposable managed-agent resources named by the case.
+- Evidence: root skill event, delegated roots, exact maintained commands, source/derived/revision digests, catalog deltas, response, and bounded filesystem/runtime deltas.
+- Cleanup: remove disposable authoring roots, project overlays, managed agents, runtime homes, memory state, and private workspaces after evidence freeze.
+
+## Cases
+
+| ID | Introduced At | Exact Stimulus | Context Override | Expected Root and Route | Required Observables | Forbidden Observables / Effects | Driver Invocation Mode | Stimulus Origin | Activation Mode | Expected Initial Root | Expected Delegated Roots | Expected Route |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `ADF-001` | `minimal` | `$houmao-admin-entrypoint agent-definition definition-authoring initialize an agent-definition intent at <authoring-root> from the requirements in <overview-file>, derive it using the supplied role, memo, and skill sources, but stop before approval.` | Area default with confined source fixtures | Admin entrypoint to definition authoring | Only `intent/src/agent-def-overview.md` is initialized; linked source confinement is checked; derived interpretation and mappings are explicit; workflow stops before approval | Dynamic skill composition, extra prescribed source files, source mutation, approval, revision write, deployment | `manual` | `driving-agent` | `explicit` | `houmao-admin-entrypoint` | `houmao-shared-routines`, `houmao-agent-definition` | `agent-definition/definition-authoring` |
+| `ADF-002` | `minimal` | `I need you to turn the agent requirements in <authoring-root>/intent/src/agent-def-overview.md into a reusable Houmao agent definition. Derive the interpretation and show me the derivation validation findings, but do not approve, preview, or write the revision.` | Area default with confined source fixtures | Implicit admin entrypoint to definition authoring | Admin root activates implicitly; derived interpretation, normalized mapping, copied skill material, and validation findings are produced; approval, preview, and immutable write remain separate | Shared routines as initial root, agent entrypoint, silent approval, materialization preview, revision write, deployment | `automatic` | `driving-agent` | `implicit` | `houmao-admin-entrypoint` | `houmao-shared-routines`, `houmao-agent-definition` | `agent-definition/definition-authoring` |
+| `ADF-003` | `normal` | `$houmao-admin-entrypoint agent-definition definition-deployment plan <revision> as deployment review-agent with specialist review-specialist, profile review-profile, tool kimi, credential fixture-kimi, task_objective=\"review this repository\", and no private workspace. Do not apply or launch.` | Area default with a validated immutable revision and existing compatible credential | Admin entrypoint to single deployment plan | Exact revision and contract digests; typed binding; project precondition; plan and blockers reported; no semantic catalog rows added | Placeholder guess, secret capture, apply, specialist/profile/deployment visibility, launch | `manual` | `driving-agent` | `explicit` | `houmao-admin-entrypoint` | `houmao-shared-routines`, `houmao-agent-definition` | `agent-definition/definition-deployment/plan` |
+| `ADF-004` | `normal` | `Using immutable Houmao agent definition revision <revision>, prepare four project agents for the same review objective. You may choose their names, supported CLI tools, and compatible existing credentials. Keep private workspaces disabled. Plan the operation only.` | Area default with multiple compatible credentials | Implicit admin entrypoint to batch planning | Explicit user delegation maps to names, tools, and credentials only; four ordinary member plans; deterministic choices and collision checks; no catalog visibility | Shared routines as initial root, undelegated input guessing, partial apply, launch | `automatic` | `driving-agent` | `implicit` | `houmao-admin-entrypoint` | `houmao-shared-routines`, `houmao-agent-definition` | `agent-definition/definition-batch/plan` |
+| `ADF-005` | `normal` | `$houmao-admin-entrypoint agent-definition definition-batch plan 3 agents from <revision>. Pick whatever values are missing.` | Area default | Admin entrypoint reaches delegation gate | Asks for or rejects absent category-specific delegation and required deploy inputs; no member plan is created | Broad delegation inferred from “whatever,” guessed credential or secret, partial project mutation, launch | `manual` | `driving-agent` | `explicit` | `houmao-admin-entrypoint` | `houmao-shared-routines`, `houmao-agent-definition` | `agent-definition/definition-batch` blocked at delegation gate |
+| `ADF-006` | `extended` | `$houmao-agent-entrypoint agent-instance read your current review_depth runtime variable and take the required mindset snapshot for skill review-checklist.` | `managed-agent` with definition-deployed state; pack `agent`; auto skill `present-required` | Agent entrypoint to verified-self instance state | Fresh exact identity command; self variable get at use time; one atomic mindset snapshot before skill work; agent actor preserved | Admin actor, explicit-target mutation, launch-time value treated as live, per-question mindset assembly, work after snapshot failure | `manual` | `driving-agent` | `explicit` | `houmao-agent-entrypoint` | `houmao-shared-routines`, `houmao-agent-instance` | `agent-instance/runtime-variables`, then `agent-instance/mindsets` |
+| `ADF-007` | `extended` | `$houmao-admin-entrypoint agent-instance inspect and doctor the definition-owned private workspace for agent <agent-id>, resolve workspace.artifacts, remap it to records/review using the current generation, and preserve untracked posture.` | Area default with a disposable definition-deployed agent and private workspace | Admin entrypoint to explicit-target private workspace | Explicit target; manifest/index/registry/state cross-check; semantic resolution; CAS remap; confined path; owned Git exclude block and effective-ignore check | `agents self`, utils-workspace route, broad `.gitignore`, path escape, tracked-file mutation, agent launch | `manual` | `driving-agent` | `explicit` | `houmao-admin-entrypoint` | `houmao-shared-routines`, `houmao-agent-instance` | `agent-instance/private-workspace` |
+| `ADF-008` | `complete` | `Resolve your private workspace directory workspace.artifacts and report its current path. Do not change anything.` | `managed-agent` with definition-deployed private workspace; pack `agent`; auto skill `present-required` | Implicit agent entrypoint to verified-self private-workspace read | Agent root activates implicitly; fresh identity; self inspect or resolve; semantic mapping returned read-only | Admin root, shared routines as initial root, utils-workspace route, remap, materialize, tracking change, filesystem mutation | `automatic` | `driving-agent` | `implicit` | `houmao-agent-entrypoint` | `houmao-shared-routines`, `houmao-agent-instance` | `agent-instance/private-workspace/resolve` |
+
+## Guardrails
+
+- DO NOT reuse a materialized definition, credential, deployment job, managed agent, or private workspace from a maintainer's active project.
+- DO NOT count an immutable revision preview as approval or deployment.
+- DO NOT count deployment apply as agent launch.
+- DO NOT let a natural-context admin case activate shared routines as its initial root.
+- DO NOT let a natural-context managed case bypass fresh self verification.

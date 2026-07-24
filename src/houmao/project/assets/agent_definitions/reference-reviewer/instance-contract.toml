@@ -1,0 +1,52 @@
+schema_version = "houmao-agent-instance-contract.v1"
+contract_digest = "sha256:77f397d966fb79625b756165126c9ba4298f12617464b03370b3fe2abe6b567b"
+
+[[runtime_variables]]
+key = "review_depth"
+value_type = "enum"
+required = false
+default = "normal"
+choices = ["quick", "normal", "deep"]
+consumers = ["prompt", "skill:review-checklist"]
+mutable = true
+secret = false
+
+[[mindsets]]
+name = "review-quality"
+required_skills = ["review-checklist"]
+user_editable = true
+expose_in_private_workspace = true
+
+[[mindsets.questions]]
+question_id = "risk_focus"
+text = "Which concrete failure risks deserve the closest review attention?"
+max_answer_length = 4000
+max_note_length = 4000
+
+[[mindsets.questions]]
+question_id = "evidence_bar"
+text = "What evidence should support each reported finding?"
+max_answer_length = 4000
+max_note_length = 4000
+
+[private_workspace]
+mode = "optional"
+default_enabled = false
+workdir_mode = "project-root"
+tracked_by_default = false
+
+[[private_workspace.directories]]
+key = "workspace.artifacts"
+default_path = "artifacts"
+description = "Review evidence and generated reports."
+path_kind = "directory"
+required = true
+materialize = true
+
+[[private_workspace.directories]]
+key = "workspace.notes"
+default_path = "notes"
+description = "Private working notes."
+path_kind = "directory"
+required = false
+materialize = false

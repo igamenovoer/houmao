@@ -13,7 +13,7 @@ The public system-skill collection has six static roots: admin welcome, both act
 ## Getting Started
 
 - [Architecture Overview](getting-started/overview.md): Two-phase lifecycle, backend model, and high-level design.
-- [Agent Definitions](getting-started/agent-definitions.md): Agent definition directory layout — tools, roles, recipes, launch profiles, and skills.
+- [Agent Definitions](getting-started/agent-definitions.md): authoring, immutable revisions, single and batch deployment, per-instance state, private workspaces, and the projected directory layout.
 - [Quickstart](getting-started/quickstart.md): Install released skills from `houmao-skills`, invoke `houmao-admin-welcome`, and run your first managed-agent workflow through your CLI agent.
 - [Easy Specialists](getting-started/easy-specialists.md): The easy lane — specialists, optional project profiles, and instances.
 - [Launch Profiles](getting-started/launch-profiles.md): Reusable birth-time launch configuration — project profiles, native launch dossiers, and the precedence chain.

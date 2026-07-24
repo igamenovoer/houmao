@@ -46,7 +46,7 @@ These are peer route subcommands of this entrypoint. The route component is pare
 | `help` | This entrypoint | The operator asks what the admin router can do, which targets it requires, or which siblings it uses. |
 | `project-mgr` | `houmao-shared-routines->houmao-project-mgr` | A project overlay, `.houmao/` layout, launch profile, or project-scoped state needs administration. |
 | `credential-mgr` | `houmao-shared-routines->houmao-credential-mgr` | A project or native-agent credential must be listed, inspected, added, updated, logged in, renamed, or removed. |
-| `agent-definition` | `houmao-shared-routines->houmao-agent-definition` | Roles, recipes, launch dossiers, specialists, profiles, config drafts, or definition-backed launch preparation are the target. |
+| `agent-definition` | `houmao-shared-routines->houmao-agent-definition` | Roles, recipes, launch dossiers, specialists, profiles, reusable definition authoring, immutable revision materialization, or single and batch definition deployment are the target. |
 | `specialist-mgr` | `houmao-shared-routines->houmao-agent-definition` | Compatibility wording asks for specialist, profile, fast-forward, launch-agent, or stop-agent work owned by agent-definition. |
 | `operator-messaging` | `houmao-shared-routines->houmao-operator-messaging` | A human operator explicitly wants to clarify and dispatch direct prompts or mailbox packets to managed agents. |
 | `agent-email-comms` | `houmao-shared-routines->houmao-agent-email-comms` | Ordinary mailbox inspection, send, post, reply, mark, move, or archive work is required. |
@@ -55,7 +55,7 @@ These are peer route subcommands of this entrypoint. The route component is pare
 | `ext-graphing` | `houmao-shared-routines->houmao-ext-graphing` | Plotly templated graphics or Vega-Lite freeform graphics must be authored, validated, repaired, or rendered. |
 | `mailbox-mgr` | `houmao-shared-routines->houmao-mailbox-mgr` | Mailbox roots, accounts, registrations, projections, cleanup, export, or late agent bindings need administration. |
 | `memory-mgr` | `houmao-shared-routines->houmao-memory-mgr` | A Houmao managed-agent memo or reusable profile memo seed must be read, written, or removed. |
-| `agent-instance` | `houmao-shared-routines->houmao-agent-instance` | A managed agent must be launched, joined, listed, stopped, relaunched, or cleaned up. |
+| `agent-instance` | `houmao-shared-routines->houmao-agent-instance` | A managed agent needs lifecycle work or explicit-target runtime-variable, mindset, or definition-owned private-workspace administration. |
 | `agent-inspect` | `houmao-shared-routines->houmao-agent-inspect` | A named managed agent needs read-only liveness, TUI, mailbox, artifact, or log inspection. |
 | `agent-messaging` | `houmao-shared-routines->houmao-agent-messaging` | A running agent must receive a prompt, interrupt, gateway queue item, raw input, mail handoff, or context reset. |
 | `agent-gateway` | `houmao-shared-routines->houmao-agent-gateway` | A managed-agent gateway, service, reminder, notifier, or gateway HTTP surface needs operation or inspection. |

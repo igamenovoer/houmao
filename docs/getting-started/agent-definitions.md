@@ -1,6 +1,155 @@
-# Agent Definition Directory
+# Agent Definitions
 
-The **agent definition directory** is the source tree Houmao parses before it resolves selectors, builds runtime homes, or launches agents. The canonical layout is prompt-only roles plus named recipes, shared launch profiles, and tool-scoped setup/auth bundles. Auth display names are catalog metadata; the file-backed auth trees use opaque bundle refs internally.
+Houmao supports two related forms of pre-launch material:
+
+- A **reusable Agent Definition Revision** is a portable, immutable package produced from user-owned authoring intent. It declares deploy-time inputs, runtime variables, named mindsets, optional private-workspace behavior, prompts, memo content, and complete skill directories.
+- The **project agent definition directory** is the lower-level projected tree of roles, recipes, launch profiles, tool setup/auth bundles, and skills that current builders consume.
+
+A definition deployment resolves one reusable revision into the lower-level project objects. It does not launch an agent.
+
+## Reusable Definition Lifecycle
+
+The maintained lifecycle has explicit ownership and review boundaries:
+
+```mermaid
+flowchart LR
+    A["intent/src<br/>user requirements"] --> B["intent/derived<br/>operator interpretation"]
+    B --> C["materialization preview"]
+    C --> D["immutable Agent Definition Revision"]
+    D --> E["Deployment Request"]
+    E --> F["Deployment Plan"]
+    F --> G["Agent Deployment<br/>catalog objects"]
+    G --> H["explicit launch handoff"]
+    H --> I["managed-agent instance"]
+```
+
+`intent/src` has one required file: `agent-def-overview.md`. It can contain all requirements directly or link to more files under the same source root. Houmao follows only overview-referenced files, rejects symbolic links and path escapes, and does not impose more contract-shaped source files.
+
+`intent/derived` contains the operator agent's interpretation, normalized materialization mapping, confined copies of source materials, validation evidence, and digest-bound approval. Editing source or derived material invalidates prior approval. The packaged `builtin:reference-reviewer` revision provides a validation and deployment example without becoming mutable project state.
+
+An **Agent Definition Revision** contains:
+
+- `definition.toml`, which identifies the definition and immutable revision;
+- `deploy-contract.toml`, which declares typed deploy-time inputs and structured bindings;
+- `instance-contract.toml`, which declares runtime variables, named mindsets, and optional private-workspace behavior;
+- `assets/`, which contains prompts, memo material, and complete Agent Skill directories;
+- `provenance/`, which records materialization evidence.
+
+The revision digest covers the semantic contents. A materialized revision is never edited in place. Change the intent, derive again, approve the new interpretation, and write another revision.
+
+## Authoring Commands
+
+Initialize only the required overview:
+
+```bash
+houmao-mgr project agent-definitions init-intent ./review-agent
+```
+
+After the overview and linked source materials are ready, derive the interpretation and copy complete confined skill directories:
+
+```bash
+houmao-mgr project agent-definitions derive ./review-agent \
+  --interpretation-file ./review-agent/interpretation-draft.md \
+  --materialization-file ./review-agent/materialization-draft.toml \
+  --skill /work/reviewer-materials/skills/review-checklist
+```
+
+The normalized materialization file maps role and memo sources under `intent/src`, declares definition, deployment, and instance contracts, and lists each derived skill destination. Review the derived files, approve their exact digests, preview, write one exact immutable revision root, and validate it:
+
+```bash
+houmao-mgr project agent-definitions approve ./review-agent --approved-by operator
+houmao-mgr project agent-definitions materialize ./review-agent --preview
+houmao-mgr project agent-definitions materialize ./review-agent --output ./definitions/review-agent-1.0.0
+houmao-mgr project agent-definitions validate ./definitions/review-agent-1.0.0
+```
+
+Reusable definition material is non-secret. Keep credentials in the project credential catalog and bind them by existing name at deployment time.
+
+## Single Deployment
+
+A Deployment Request chooses one exact revision, deployment/specialist/profile names, tool, existing credential, project workdir, typed input values, and optional private-workspace posture. Planning resolves exact markers, validates the final prompt, memo, skills, and contracts, records the project precondition digest, and stages an immutable plan under `.houmao/jobs/agent-definition-deployments/`.
+
+```bash
+houmao-mgr project agent-definitions plan <revision> \
+  --deployment-name review-agent \
+  --specialist-name review-specialist \
+  --profile-name review-profile \
+  --tool kimi \
+  --credential kimi-coding \
+  --workdir . \
+  --set task_objective="review this repository"
+```
+
+Planning does not add a specialist, profile, skill, or Agent Deployment row. Apply the reviewed plan separately:
+
+```bash
+houmao-mgr project agent-definitions apply <plan.json>
+```
+
+Apply registers the owned project objects and returns `houmao-mgr project agents launch --profile <profile>`. It does not execute that launch command. Use `inspect`, `doctor`, `update`, and `remove` for the durable deployment lifecycle. Updates use another immutable revision plus fresh specialist and profile names for recoverable publication. They reject incompatible instance-contract changes while preserved instance state refers to the old contract. Removal preserves credentials and removes only deployment-owned relationships.
+
+## Batch Deployment
+
+Batch planning expands one immutable revision into 1 through 32 ordinary single-instance deployment plans. The user must supply missing values or explicitly delegate individual categories with `--delegate-names`, `--delegate-tools`, and `--delegate-credentials`. Delegating names does not delegate tools, credentials, deploy inputs, workspace posture, or tracked-workspace consent.
+
+```bash
+houmao-mgr project agent-definitions batch-plan <revision> \
+  --count 4 \
+  --set task_objective="review this repository" \
+  --name-prefix review \
+  --delegate-names \
+  --tool kimi \
+  --credential kimi-coding
+houmao-mgr project agent-definitions batch-apply <batch-plan.json>
+```
+
+Every member is prepared before catalog visibility. One SQLite transaction inserts all ordinary Agent Deployment rows with a shared operation id and ordinal. The operation is recovery metadata, not a separate reusable batch object. Batch apply returns one launch handoff per member and launches none of them.
+
+## Per-Instance Runtime State
+
+Definition-deployed agents keep canonical state in `.houmao/memory/agents/<agent-id>/state.sqlite`. The store binds opaque agent id, deployment identity, exact instance-contract digest, launch attempts, runtime-variable revisions, mindset revisions and snapshots, and private-workspace association.
+
+Launch collects and validates runtime values, initializes a revision-one state for a new agent, and renders prompt and memo consumers from one launch snapshot. A skill declared as a live runtime-variable consumer must read the current value at use time:
+
+```bash
+houmao-mgr agents self instance-state variables get <key>
+```
+
+Verified managed self has read-only `variables list|get|explain`. A human operator uses an explicit target and compare-and-set mutation:
+
+```bash
+houmao-mgr agents single --agent-id <id> instance-state variables set <key> \
+  --value <value> \
+  --expected-revision <revision>
+```
+
+Named mindsets are revisioned question sets. Skills that require a mindset take one atomic snapshot before substantive work and stop if it fails:
+
+```bash
+houmao-mgr agents self instance-state mindsets snapshot --skill <skill-name>
+```
+
+The operator can inspect and update named mindsets with an explicit `agents single --agent-id|--agent-name` target. Runtime variables and mindsets reject secret-bearing declarations.
+
+## Optional Private Workspaces
+
+An Agent Definition Revision may declare no private workspace, an optional private workspace, or a required one. Workspace activation, launch selection, execution workdir (`project-root` or `private-root`), and Git tracking posture are separate choices.
+
+The default root is project-contained at `.houmao/private-agents/<agent-id>/`. `houmao-agent-workspace.toml` holds stable identity, topology, semantic path bindings, tracking posture, and the SQLite index location. `houmao-agent-workspace.sqlite` holds mutable generation, materialization, projection, and cleanup records. Growing records and mutable digests never belong in TOML.
+
+Agents resolve semantic labels read-only:
+
+```bash
+houmao-mgr agents self instance-state workspace resolve workspace.artifacts
+```
+
+Operators use explicit-target `inspect`, `validate`, `doctor`, `remap`, `materialize`, `tracking`, `project-mindset`, and confirmed `cleanup` operations. Remapping uses an expected generation and rejects escapes, symbolic-link traversal, reserved files, type mismatches, and collisions.
+
+Private workspaces are local-untracked by default through a Houmao-owned block in `.git/info/exclude`. Houmao verifies effective ignore behavior and refuses untracked posture when content is already indexed. `tracked-permitted` removes only Houmao's owned ignore block; it does not stage or commit files. This individual workspace contract is separate from the multi-agent topology managed by `houmao-utils-workspace-mgr`.
+
+## Project Agent Definition Directory
+
+The lower-level **agent definition directory** is the source tree Houmao parses before it resolves selectors, builds runtime homes, or launches agents. The canonical layout is prompt-only roles plus named recipes, shared launch profiles, and tool-scoped setup/auth bundles. Auth display names are catalog metadata; the file-backed auth trees use opaque bundle refs internally.
 
 For skill-driven human-operator work, start at `$houmao-admin-entrypoint agent-definition ...`. Advanced users may call `$houmao-shared-routines agent-definition ...` directly. The parent-scoped child is `houmao-shared-routines->houmao-agent-definition`, not a standalone installed skill. The admin frame keeps the project or native-agent root explicit and routes credential changes separately.
 

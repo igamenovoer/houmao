@@ -12,12 +12,16 @@ This reference is self-contained. It does not depend on any file outside the pac
 
 ## Agents, Specialists, Profiles, Launches
 
+- **Agent Definition Revision** — a portable immutable package derived from user-owned intent. It can declare typed deploy inputs, prompts, memo content, complete skills, runtime variables, named mindsets, and optional private-workspace behavior. Owning routine: `houmao-agent-definition` subcommand `definition-authoring`.
+- **Agent Deployment** — the durable project relationship created when one exact Agent Definition Revision and deploy-time values resolve into specialist, profile, skills, and launch-ready instance contracts. Deployment returns a launch command and does not run it. Owning routine: `houmao-agent-definition` subcommand `definition-deployment`.
 - **Specialist** — a reusable agent template that pairs a role prompt, tool adapter, and credentials under one name. You can launch a specialist more than once. Owning routine: `houmao-agent-definition`.
 - **Project profile** — an optional reusable launch-default wrapper layered on top of a specialist. It captures birth-time defaults such as a fixed instance name, working directory, authentication lane, or mailbox posture. Owning routine: `houmao-agent-definition`.
 - **Launch dossier** — the low-level recipe-backed launch-profile object that can be attached to a build request to carry reusable birth-time defaults such as managed-agent identity, workdir, auth override, prompt mode, durable env records, mailbox config, gateway posture, and managed-header policy. Owning routine: `houmao-agent-definition` subcommand `launch-dossiers`.
 - **Managed agent** — the running live instance of an agent that Houmao supervises inside a real tmux session. A managed agent has its own disk state, memory, gateway sidecar, and mailbox binding. Owning routine: `houmao-agent-instance`.
 - **Relaunch** — restart a relaunchable managed session without treating it as a fresh launch. Relaunch preserves the original managed-agent identity and supporting artifacts. Owning routine: `houmao-agent-instance`.
 - **Cleanup** — remove artifacts for a stopped managed-agent session. Cleanup takes a cleanup kind such as `session` or `logs` and is never safe for a live session. Owning routine: `houmao-agent-instance`.
+- **Runtime variable** — a non-secret typed value stored per managed-agent instance with revision history. Launch uses one snapshot, while declared live-consuming skills read the current value at use time. Owning routine: `houmao-agent-instance` subcommand `runtime-variables`.
+- **Named mindset** — a revisioned question set referenced by name. A bound skill takes one atomic snapshot before work; a private-workspace copy is only a projection. Owning routine: `houmao-agent-instance` subcommand `mindsets`.
 
 ## Gateway, Posture, Watch
 
@@ -48,6 +52,7 @@ This reference is self-contained. It does not depend on any file outside the pac
 
 - **Isolated workspace** — a prepared multi-agent workspace layout that gives agents controlled per-agent worktrees, local shared repos, knowledge directories, safe local-state symlinks, and launch-profile cwd rules before agents are launched. Owning routine: `houmao-utils-workspace-mgr`.
 - **Workspace contract** — the human-readable record of a prepared workspace's layout, read/write ownership, Git branches, submodule decisions, launch-profile cwd changes, and optional memo-seed workspace rules. Owning routine: `houmao-utils-workspace-mgr`.
+- **Private Agent Workspace** — one optional definition-owned auxiliary workspace for an individual agent, with TOML semantic path mappings, a SQLite record index, and local-untracked Git posture by default. It is separate from multi-agent workspace topology. Owning routine: `houmao-agent-instance` subcommand `private-workspace`.
 
 ## Memory and Pages
 

@@ -14,6 +14,7 @@ _MEMORY_DIRNAME = "memory"
 _AGENTS_DIRNAME = "agents"
 _PAGES_DIRNAME = "pages"
 _MEMO_FILENAME = "houmao-memo.md"
+_STATE_DB_FILENAME = "state.sqlite"
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,12 @@ class AgentMemoryPaths:
     memory_root: Path
     memo_file: Path
     pages_dir: Path
+
+    @property
+    def state_db(self) -> Path:
+        """Return the canonical per-instance state database path."""
+
+        return self.memory_root / _STATE_DB_FILENAME
 
 
 @dataclass(frozen=True)

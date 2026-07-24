@@ -1,6 +1,6 @@
 # Houmao System-Skill Behavior Suite Catalog
 
-Catalog version: `houmao-dev-behavior-cases.v3`
+Catalog version: `houmao-dev-behavior-cases.v4`
 
 ## Workflow
 
@@ -52,7 +52,7 @@ The profile order is `minimal < normal < extended < complete`. A profile include
 | `extended` | Secondary routes, repeated identity, spoof resistance, aliases, missing dependencies, combined-pack context, and lifecycle reloads |
 | `complete` | Every committed case and declared variant in the selected area for this catalog version |
 
-`complete` means complete for `houmao-dev-behavior-cases.v3`; it does not claim coverage of uncommitted product behavior.
+`complete` means complete for `houmao-dev-behavior-cases.v4`; it does not claim coverage of uncommitted product behavior.
 
 ## Functional Areas and Cumulative Counts
 
@@ -67,15 +67,16 @@ Counts are committed case records before provider, repetition, invocation-mode f
 | `shared-routines` | 2 | 5 | 9 | 9 | [cases/shared-routines.md](cases/shared-routines.md) |
 | `agent-loops` | 3 | 6 | 8 | 8 | [cases/loops.md](cases/loops.md) |
 | `generated-prompts` | 1 | 2 | 3 | 3 | [cases/generated-prompts.md](cases/generated-prompts.md) |
-| `all` | 13 | 25 | 45 | 46 | Union of all functional areas |
+| `agent-definitions` | 2 | 5 | 7 | 8 | [cases/agent-definitions.md](cases/agent-definitions.md) |
+| `all` | 15 | 30 | 52 | 54 | Union of all functional areas |
 
 ## Cross-Cutting Tags
 
 Tags retain their version 2 membership and add version 3 cases where the same diagnostic contract applies. They are overlapping views and do not change functional ownership or cumulative profile membership.
 
-- `critical`: `ACT-001`, `ACT-002`, `ACT-003`, `ACT-004`, `ACT-005`, `AUTO-001`, `ADM-003`, `ADM-004`, `ADM-006`, `AGT-002`, `AGT-004`, `AGT-005`, `SHR-001`, `SHR-002`, `SHR-004`, `SHR-009`, `LOOP-001`, `LOOP-002`, `LOOP-003`, `LOOP-008`, `PRM-001`, and `PRM-002`.
-- `actor-boundaries`: `ACT-006`, `ADM-005`, `ADM-007`, `ADM-008`, `AGT-004`, `AGT-005`, `AGT-006`, `AGT-007`, `SHR-002`, `SHR-003`, `SHR-006`, `SHR-007`, `SHR-009`, `LOOP-005`, `LOOP-006`, and `LOOP-008`.
-- `route-coverage`: `ACT-003`, `ADM-003`, `AGT-002`, `SHR-003`, `SHR-004`, `SHR-005`, `SHR-006`, `SHR-007`, `SHR-009`, `LOOP-002`, `LOOP-003`, `LOOP-008`, `PRM-001`, and the static route matrix in [cases/shared-routines.md](cases/shared-routines.md).
+- `critical`: `ACT-001`, `ACT-002`, `ACT-003`, `ACT-004`, `ACT-005`, `AUTO-001`, `ADM-003`, `ADM-004`, `ADM-006`, `AGT-002`, `AGT-004`, `AGT-005`, `SHR-001`, `SHR-002`, `SHR-004`, `SHR-009`, `LOOP-001`, `LOOP-002`, `LOOP-003`, `LOOP-008`, `PRM-001`, `PRM-002`, `ADF-001`, `ADF-002`, `ADF-003`, `ADF-004`, and `ADF-006`.
+- `actor-boundaries`: `ACT-006`, `ADM-005`, `ADM-007`, `ADM-008`, `AGT-004`, `AGT-005`, `AGT-006`, `AGT-007`, `SHR-002`, `SHR-003`, `SHR-006`, `SHR-007`, `SHR-009`, `LOOP-005`, `LOOP-006`, `LOOP-008`, `ADF-006`, `ADF-007`, and `ADF-008`.
+- `route-coverage`: `ACT-003`, `ADM-003`, `AGT-002`, `SHR-003`, `SHR-004`, `SHR-005`, `SHR-006`, `SHR-007`, `SHR-009`, `LOOP-002`, `LOOP-003`, `LOOP-008`, `PRM-001`, `ADF-002`, `ADF-004`, `ADF-006`, `ADF-007`, `ADF-008`, and the static route matrix in [cases/shared-routines.md](cases/shared-routines.md).
 
 ## Deterministic Resolution
 

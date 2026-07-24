@@ -8,6 +8,7 @@ from .credentials import project_credentials_group
 from houmao.project.migration import detect_project_migration_plan
 from .project_easy import easy_instance_group, easy_profile_group, easy_specialist_group
 from .project_mailbox import project_mailbox_group
+from .project_agent_definitions import project_agent_definitions_group
 from .project_migrate import migrate_project_command
 from .project_skills import project_skills_group
 from .project_context import active_project_dir, store_project_command_context
@@ -29,6 +30,7 @@ def project_group(ctx: click.Context, project_dir: Path | None) -> None:
 
 project_group.add_command(project_credentials_group)
 project_group.add_command(project_skills_group)
+project_group.add_command(project_agent_definitions_group)
 project_group.add_command(migrate_project_command)
 
 

@@ -45,6 +45,17 @@ from houmao.agents.launch_profile_memo_seeds import (
     apply_launch_profile_memo_seed,
 )
 from houmao.agents.agent_workspace import AgentMemoryPaths, resolve_agent_memory
+from houmao.agents.instance_state import (
+    InstancePreparationResult,
+    InstanceStateStore,
+    prepare_instance_state,
+    render_instance_snapshot,
+)
+from houmao.agents.private_workspace import (
+    PreparedPrivateWorkspace,
+    PrivateWorkspace,
+    prepare_private_workspace,
+)
 from houmao.agents.model_selection import ModelConfig, normalize_model_config
 from houmao.agents.native_launch_resolver import (
     infer_launch_source_directory_from_agent_def_dir,
@@ -107,6 +118,7 @@ from houmao.project.overlay import (
     materialize_project_agent_catalog_projection,
     resolve_project_aware_local_roots,
 )
+from houmao.project.agent_definitions import load_instance_contract
 from houmao.project.launch_profiles import (
     ResolvedLaunchProfileMemoSeed,
     launch_profile_relaunch_payload,
@@ -127,6 +139,7 @@ from .mailbox import mailbox_group
 from .scopes import clone_scoped_command_tree
 from .turn import turn_group
 from .workspace import memory_group
+from .instance_state import admin_instance_state_group, self_instance_state_group
 from ..runtime_artifacts import JoinedSessionArtifacts, materialize_joined_launch
 from ..common import (
     ManagedAgentScopeContext,
@@ -780,6 +793,8 @@ def launch_managed_agent_locally(
     launch_profile_registered_skill_names: tuple[str, ...] = (),
     launch_profile_private_skills: tuple[Any, ...] = (),
     launch_profile_system_skill_policy: SystemSkillSelectionPolicy | None = None,
+    agent_definition_deployment: dict[str, Any] | None = None,
+    instance_runtime_values: Mapping[str, Any] | None = None,
     force_mode: str | None = None,
     reuse_home: bool = False,
 ) -> LocalManagedAgentLaunchResult:
@@ -806,6 +821,9 @@ def launch_managed_agent_locally(
     predecessor_context: _ManagedPredecessorHomeContext | None = None
     takeover_completed = False
     memo_seed_application: LaunchProfileMemoSeedApplication | None = None
+    instance_preparation: InstancePreparationResult | None = None
+    private_workspace: PreparedPrivateWorkspace | None = None
+    effective_launch_env_overrides = dict(launch_env_overrides or {})
     try:
         if resolved_source_agent_def_dir is None and _is_path_like_launch_selector(agents):
             selector_path = Path(agents).expanduser()
@@ -894,8 +912,63 @@ def launch_managed_agent_locally(
                 paths=memory,
                 memo_seed=launch_profile_memo_seed,
             )
+        effective_role_prompt = target.role_prompt
+        if agent_definition_deployment is not None:
+            contract_path = Path(
+                str(agent_definition_deployment["instance_contract_path"])
+            ).resolve()
+            instance_contract_digest = str(agent_definition_deployment["instance_contract_digest"])
+            instance_contract = load_instance_contract(
+                contract_path,
+                expected_digest=instance_contract_digest,
+            )
+            instance_preparation = prepare_instance_state(
+                state_db=memory.state_db,
+                agent_id=managed_launch_identity.agent_id,
+                deployment_id=str(agent_definition_deployment["deployment_id"]),
+                instance_contract_digest=instance_contract_digest,
+                contract=instance_contract,
+                launch_values=instance_runtime_values or {},
+            )
+            if bool(agent_definition_deployment.get("private_workspace_enabled", False)):
+                private_workspace = prepare_private_workspace(
+                    project_root=project_roots.overlay_root.parent,
+                    agent_id=managed_launch_identity.agent_id,
+                    deployment_id=str(agent_definition_deployment["deployment_id"]),
+                    definition_id=str(agent_definition_deployment["definition_id"]),
+                    contract=instance_contract.private_workspace,
+                    enabled=True,
+                    workdir_mode=cast(
+                        Literal["project-root", "private-root"],
+                        str(
+                            agent_definition_deployment.get(
+                                "workspace_workdir_mode", "project-root"
+                            )
+                        ),
+                    ),
+                    state_store=InstanceStateStore(instance_preparation.state_db),
+                )
+                assert private_workspace is not None
+                resolved_working_directory = private_workspace.execution_workdir
+                effective_launch_env_overrides["HOUMAO_AGENT_PRIVATE_WORKSPACE_ROOT"] = str(
+                    private_workspace.root
+                )
+            effective_role_prompt = render_instance_snapshot(
+                effective_role_prompt,
+                instance_preparation.variable_snapshot,
+            )
+            if memory.memo_file.is_file():
+                memo_text = memory.memo_file.read_text(encoding="utf-8")
+                if "{{houmao.instance." in memo_text:
+                    memory.memo_file.write_text(
+                        render_instance_snapshot(
+                            memo_text,
+                            instance_preparation.variable_snapshot,
+                        ),
+                        encoding="utf-8",
+                    )
         prompt_payload = compose_managed_launch_prompt_payload(
-            base_prompt=target.role_prompt,
+            base_prompt=effective_role_prompt,
             overlay_mode=prompt_overlay_mode,
             overlay_text=prompt_overlay_text,
             managed_header_enabled=managed_header_decision.enabled,
@@ -959,6 +1032,10 @@ def launch_managed_agent_locally(
             if reuse_home and session_name is None and predecessor_context is not None
             else None
         )
+        if instance_preparation is not None:
+            InstanceStateStore(instance_preparation.state_db).set_launch_state(
+                instance_preparation.attempt_id, "starting"
+            )
         controller = start_runtime_session(
             agent_def_dir=target.agent_def_dir,
             brain_manifest_path=build_result.manifest_path.resolve(),
@@ -971,7 +1048,7 @@ def launch_managed_agent_locally(
             agent_id=agent_id,
             tmux_session_name=session_name,
             default_tmux_session_name=default_tmux_session_name,
-            launch_env_overrides=launch_env_overrides,
+            launch_env_overrides=effective_launch_env_overrides,
             gateway_auto_attach=gateway_auto_attach,
             gateway_host=gateway_host,
             gateway_port=gateway_port,
@@ -997,6 +1074,10 @@ def launch_managed_agent_locally(
                 controller=controller,
                 appendix_text=launch_profile_mail_notifier_appendix_text,
             )
+        if instance_preparation is not None:
+            InstanceStateStore(instance_preparation.state_db).set_launch_state(
+                instance_preparation.attempt_id, "active"
+            )
     except LaunchPolicyResolutionError as exc:
         raise click.ClickException(
             _format_launch_policy_resolution_error(
@@ -1011,6 +1092,25 @@ def launch_managed_agent_locally(
         SessionManifestError,
         ValueError,
     ) as exc:
+        if instance_preparation is not None:
+            try:
+                state_store = InstanceStateStore(instance_preparation.state_db)
+                state_store.set_launch_state(
+                    instance_preparation.attempt_id,
+                    "failed",
+                    error=str(exc),
+                )
+                if private_workspace is not None and not private_workspace.reused:
+                    try:
+                        workspace_id = private_workspace.manifest.workspace_id
+                        PrivateWorkspace(private_workspace.root).cleanup(confirmed=True)
+                        state_store.clear_private_workspace_association(
+                            expected_workspace_id=workspace_id
+                        )
+                    except (OSError, ValueError):
+                        pass
+            except (OSError, ValueError):
+                pass
         detail = str(exc)
         if takeover_completed and predecessor_context is not None:
             detail = (
@@ -2104,6 +2204,8 @@ agents_group.add_command(mailbox_group)
 agents_group.add_command(turn_group)
 agents_group.add_command(memory_group)
 _install_scoped_agents_commands()
+agents_single_group.add_command(admin_instance_state_group)
+agents_self_group.add_command(self_instance_state_group)
 
 
 def _parse_join_launch_env(values: tuple[str, ...]) -> tuple[JoinedLaunchEnvBinding, ...]:

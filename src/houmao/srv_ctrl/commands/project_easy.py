@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 # ruff: noqa: F403,F405
 from .project_common import *
 
@@ -1823,6 +1825,13 @@ def easy_instance_group() -> None:
     help="Repeatable one-off launch env (`NAME=value` or `NAME`).",
 )
 @click.option(
+    "--runtime-set",
+    "runtime_set",
+    multiple=True,
+    metavar="KEY=VALUE",
+    help="Repeatable per-instance Agent Runtime Variable assignment.",
+)
+@click.option(
     "--mail-transport",
     type=click.Choice(("filesystem", "email")),
     default=None,
@@ -1879,6 +1888,7 @@ def launch_easy_instance_command(
     gateway_tui_final_stable_active_recovery_seconds: float | None,
     workdir: Path | None,
     env_set: tuple[str, ...],
+    runtime_set: tuple[str, ...],
     mail_transport: str | None,
     mail_root: Path | None,
     mail_account_dir: Path | None,
@@ -1912,6 +1922,7 @@ def launch_easy_instance_command(
     launch_profile_registered_skill_names: tuple[str, ...] = ()
     launch_profile_private_skills: tuple[Any, ...] = ()
     launch_profile_system_skill_policy: SystemSkillSelectionPolicy | None = None
+    agent_definition_deployment: dict[str, Any] | None = None
     direct_model_config = _build_model_config_or_click(
         model_name=_resolve_model_name_or_click(model),
         reasoning_level=reasoning_level,
@@ -1972,6 +1983,13 @@ def launch_easy_instance_command(
             resolved_profile.gateway_mail_notifier_appendix_text
         )
         posture_payload = dict(resolved_profile.entry.posture_payload)
+        raw_agent_definition_deployment = posture_payload.get("houmao_agent_definition")
+        if raw_agent_definition_deployment is not None:
+            if not isinstance(raw_agent_definition_deployment, dict):
+                raise click.ClickException(
+                    "Project profile has invalid Agent Definition deployment metadata."
+                )
+            agent_definition_deployment = dict(raw_agent_definition_deployment)
         if posture_payload.get("gateway_auto_attach") is False:
             default_gateway_auto_attach = False
             default_gateway_port = None
@@ -2017,6 +2035,10 @@ def launch_easy_instance_command(
             specialist_prompt_mode,
             source=f"project specialist `{getattr(specialist_metadata, 'name', specialist)}`",
         )
+        if runtime_set:
+            raise click.ClickException(
+                "`--runtime-set` requires a profile created by an Agent Definition deployment."
+            )
 
     if no_gateway and gateway_port is not None:
         raise click.ClickException("`--no-gateway` and `--gateway-port` cannot be combined.")
@@ -2052,6 +2074,18 @@ def launch_easy_instance_command(
         )
     source_agent_def_dir = materialize_project_agent_catalog_projection(overlay)
     launch_env_overrides = _resolve_instance_env_set_or_click(env_set)
+    instance_runtime_values: dict[str, Any] = {}
+    for assignment in runtime_set:
+        key, separator, raw_value = assignment.partition("=")
+        if not separator or not key:
+            raise click.ClickException(f"Expected KEY=VALUE for `--runtime-set`: {assignment}")
+        try:
+            value = json.loads(raw_value)
+        except json.JSONDecodeError:
+            value = raw_value
+        if value is not None and not isinstance(value, (str, int, float, bool)):
+            raise click.ClickException(f"`--runtime-set {key}` must use one JSON scalar value.")
+        instance_runtime_values[key] = value
     gateway_auto_attach = default_gateway_auto_attach
     requested_gateway_port = default_gateway_port if gateway_auto_attach else None
     gateway_host = default_gateway_host if gateway_auto_attach else None
@@ -2133,6 +2167,8 @@ def launch_easy_instance_command(
         launch_profile_registered_skill_names=launch_profile_registered_skill_names,
         launch_profile_private_skills=launch_profile_private_skills,
         launch_profile_system_skill_policy=launch_profile_system_skill_policy,
+        agent_definition_deployment=agent_definition_deployment,
+        instance_runtime_values=instance_runtime_values,
         force_mode=force_mode,
         reuse_home=reuse_home,
     )

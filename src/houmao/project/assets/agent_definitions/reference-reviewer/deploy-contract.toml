@@ -1,0 +1,11 @@
+schema_version = "houmao-agent-deploy-contract.v1"
+
+[[inputs]]
+key = "task_objective"
+value_type = "string"
+required = true
+choices = []
+bindings = [
+  { target = "role_prompt", mode = "text", marker = "{{houmao.deploy.task_objective}}" },
+  { target = "memo_seed", mode = "text", marker = "{{houmao.deploy.task_objective}}" },
+]

@@ -57,6 +57,7 @@ EXPECTED_CASE_IDS = {
     *(f"SHR-{index:03d}" for index in range(1, 10)),
     *(f"LOOP-{index:03d}" for index in range(1, 9)),
     *(f"PRM-{index:03d}" for index in range(1, 6)),
+    *(f"ADF-{index:03d}" for index in range(1, 9)),
 }
 EXPECTED_AREA_CASE_PROFILES = {
     "activation.md": {
@@ -137,8 +138,21 @@ EXPECTED_AREA_CASE_PROFILES = {
             "PRM-003": "extended",
         },
     },
+    "agent-definitions.md": {
+        "area": "agent-definitions",
+        "cases": {
+            "ADF-001": "minimal",
+            "ADF-002": "minimal",
+            "ADF-003": "normal",
+            "ADF-004": "normal",
+            "ADF-005": "normal",
+            "ADF-006": "extended",
+            "ADF-007": "extended",
+            "ADF-008": "complete",
+        },
+    },
 }
-EXPECTED_PROFILE_TOTALS = {"minimal": 13, "normal": 25, "extended": 45, "complete": 46}
+EXPECTED_PROFILE_TOTALS = {"minimal": 15, "normal": 30, "extended": 52, "complete": 54}
 EXPECTED_TAG_CASES = {
     "critical": {
         "ACT-001",
@@ -163,6 +177,11 @@ EXPECTED_TAG_CASES = {
         "LOOP-008",
         "PRM-001",
         "PRM-002",
+        "ADF-001",
+        "ADF-002",
+        "ADF-003",
+        "ADF-004",
+        "ADF-006",
     },
     "actor-boundaries": {
         "ACT-006",
@@ -181,6 +200,9 @@ EXPECTED_TAG_CASES = {
         "LOOP-005",
         "LOOP-006",
         "LOOP-008",
+        "ADF-006",
+        "ADF-007",
+        "ADF-008",
     },
     "route-coverage": {
         "ACT-003",
@@ -196,6 +218,11 @@ EXPECTED_TAG_CASES = {
         "LOOP-003",
         "LOOP-008",
         "PRM-001",
+        "ADF-002",
+        "ADF-004",
+        "ADF-006",
+        "ADF-007",
+        "ADF-008",
     },
 }
 EXPECTED_CASE_VARIANTS = {
@@ -221,6 +248,7 @@ EXPECTED_CASE_VARIANTS = {
 }
 VERSION_3_NEW_CASE_IDS = {"ACT-005", "ACT-006", "SHR-009", "LOOP-008"}
 VERSION_3_REVISION_2_CASE_IDS = {"ACT-001", "ACT-003", "ADM-002", "LOOP-001"}
+VERSION_4_NEW_CASE_IDS = {f"ADF-{index:03d}" for index in range(1, 9)}
 VERSION_2_CASE_SEMANTIC_DIGESTS = {
     "ACT-001": "acb0de95c879d01cd190c6e25c095f26dabf1f3c012efbb518dc6e7c2ed8341b",
     "ACT-002": "f7c631eb47b731d90529e67effddb3667f54c903d3137d2bb11cdb7089d3d977",
@@ -396,9 +424,9 @@ def test_development_testing_skill_links_resolve() -> None:
 
 
 def test_behavior_catalog_declares_every_required_case_and_functional_area() -> None:
-    """The versioned catalog owns all stable cases through seven functional areas."""
+    """The versioned catalog owns all stable cases through eight functional areas."""
     catalog = (BEHAVIOR_ROOT / "references" / "case-catalog.md").read_text(encoding="utf-8")
-    assert "houmao-dev-behavior-cases.v3" in catalog
+    assert "houmao-dev-behavior-cases.v4" in catalog
 
     expected_area_paths = set(EXPECTED_AREA_CASE_PROFILES)
     actual_area_paths = {
@@ -426,10 +454,12 @@ def test_behavior_catalog_declares_every_required_case_and_functional_area() -> 
 
 
 def test_behavior_case_semantics_change_only_for_declared_version_3_cases() -> None:
-    """Version 3 preserves every old semantic oracle outside four revision bumps."""
+    """Version 4 preserves version 3 semantic oracles while adding definition cases."""
 
     actual = _behavior_semantic_digests(_behavior_case_rows())
-    assert set(VERSION_2_CASE_SEMANTIC_DIGESTS) == EXPECTED_CASE_IDS - VERSION_3_NEW_CASE_IDS
+    assert set(VERSION_2_CASE_SEMANTIC_DIGESTS) == (
+        EXPECTED_CASE_IDS - VERSION_3_NEW_CASE_IDS - VERSION_4_NEW_CASE_IDS
+    )
     unchanged = set(VERSION_2_CASE_SEMANTIC_DIGESTS) - VERSION_3_REVISION_2_CASE_IDS
     assert {case_id: actual[case_id] for case_id in unchanged} == {
         case_id: VERSION_2_CASE_SEMANTIC_DIGESTS[case_id] for case_id in unchanged
@@ -454,7 +484,7 @@ def test_behavior_profiles_are_cumulative_and_match_committed_counts() -> None:
     assert resolved_profiles["complete"] == EXPECTED_CASE_IDS
 
     catalog = (BEHAVIOR_ROOT / "references" / "case-catalog.md").read_text(encoding="utf-8")
-    assert "| `all` | 13 | 25 | 45 | 46 |" in catalog
+    assert "| `all` | 15 | 30 | 52 | 54 |" in catalog
     for selector in (
         "<area>/<profile>",
         "<area>/<manual|automatic>/<profile>",
@@ -501,6 +531,8 @@ def test_behavior_invocation_modes_and_mode_aware_profiles_are_deterministic() -
         "LOOP-001",
         "LOOP-008",
         "SHR-009",
+        "ADF-002",
+        "ADF-004",
     }
 
 
@@ -568,7 +600,7 @@ def test_behavior_tags_and_matrix_variants_are_stable() -> None:
     catalog = (BEHAVIOR_ROOT / "references" / "case-catalog.md").read_text(encoding="utf-8")
     for tag, expected_cases in EXPECTED_TAG_CASES.items():
         line = next(line for line in catalog.splitlines() if line.startswith(f"- `{tag}`:"))
-        actual_cases = set(re.findall(r"`((?:ACT|AUTO|ADM|AGT|SHR|LOOP|PRM)-\d{3})`", line))
+        actual_cases = set(re.findall(r"`((?:ACT|AUTO|ADM|AGT|SHR|LOOP|PRM|ADF)-\d{3})`", line))
         assert actual_cases == expected_cases
 
     area_text = "\n".join(

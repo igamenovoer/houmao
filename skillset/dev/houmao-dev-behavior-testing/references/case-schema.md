@@ -18,7 +18,7 @@ If a new case needs a field the schema cannot represent, use the native planning
 | `case_id` | Stable uppercase prefix and three digits, such as `ADM-003`; the prefix does not determine functional ownership |
 | `case_revision` | Positive integer incremented when stimulus or semantic oracle changes |
 | `title` | Short human-readable scenario name |
-| `function_area` | `activation`, `managed-bootstrap`, `admin-entrypoint`, `agent-entrypoint`, `shared-routines`, `agent-loops`, or `generated-prompts` |
+| `function_area` | `activation`, `managed-bootstrap`, `admin-entrypoint`, `agent-entrypoint`, `shared-routines`, `agent-loops`, `generated-prompts`, or `agent-definitions` |
 | `introduced_at` | `minimal`, `normal`, `extended`, or `complete`; higher profiles include lower tiers |
 | `tags` | Zero or more committed cross-cutting views; current names are `critical`, `actor-boundaries`, and `route-coverage` |
 | `providers` | Explicit subset of `claude`, `codex`, and `kimi`, or a recorded unsupported reason |
@@ -60,7 +60,7 @@ Variant records inherit the case id, revision, functional area, introduced profi
 | Field | Contract |
 | --- | --- |
 | `requested_selectors` | Exact ordered selector strings supplied by the maintainer |
-| `catalog_version` | `houmao-dev-behavior-cases.v3` |
+| `catalog_version` | `houmao-dev-behavior-cases.v4` |
 | `catalog_digest` | Digest of the committed catalog and selected area resources |
 | `resolved_cells` | Stable catalog-order records containing case id, revision, variant id, area, introduced profile, driver invocation mode, stimulus origin, exact stimulus digest, initial-root oracle, delegated-root oracle, route oracle, and contributing selectors |
 | `explicit_exclusions` | Any requested exclusions with a reason; absence is explicit |
@@ -79,6 +79,8 @@ A functional-area page may declare common providers, context, pack, auto-skill p
 Increment `case_revision` when the exact stimulus, expected initial root, delegated roots, route, required or forbidden behavior, permitted effects, stop condition, evidence minimum, or stable variants change. Provider additions, clarified prose, and timeout changes also increment revision when they can affect results. Functional-area movement, introduced-profile assignment, invocation-mode classification of an otherwise unchanged stimulus, tags, and catalog ordering alone do not increment a case revision when the stimulus and semantic oracle remain identical; they do increment the catalog version.
 
 Version 3 intentionally advances `ACT-001`, `ACT-003`, `ADM-002`, and `LOOP-001` to revision 2. It adds `ACT-005`, `ACT-006`, `SHR-009`, and `LOOP-008` at revision 1. Every other version 2 case retains its exact stimulus and semantic oracle.
+
+Version 4 adds the `agent-definitions` functional area and `ADF-001` through `ADF-008` at revision 1. Every version 3 case retains its exact stimulus and semantic oracle.
 
 ## Guardrails
 

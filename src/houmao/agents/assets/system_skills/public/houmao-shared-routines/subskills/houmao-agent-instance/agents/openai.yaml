@@ -1,6 +1,6 @@
 interface:
   display_name: "Houmao Manage Agent Instance"
-  short_description: "Manage live Houmao agent instances."
-  default_prompt: "Use $houmao-shared-routines agent-instance to launch, join, list, stop, relaunch, or clean up Houmao managed-agent instances in this workspace, including launches from direct selectors or launch dossiers."
+  short_description: "Manage live Houmao agents and definition-owned state."
+  default_prompt: "Use $houmao-shared-routines agent-instance to manage lifecycle, typed runtime variables, named mindsets, and definition-owned private workspaces through actor-scoped Houmao commands."
 policy:
   allow_implicit_invocation: false

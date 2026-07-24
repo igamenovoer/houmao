@@ -1,6 +1,6 @@
 ---
 name: houmao-agent-instance
-description: Use when a Houmao managed-agent instance must be launched, joined, listed, stopped, relaunched, or cleaned up from a maintained role, recipe, dossier, profile, or specialist definition.
+description: Use when a Houmao managed-agent instance must be launched, joined, listed, stopped, relaunched, cleaned up, or must inspect or mutate its definition-owned runtime variables, named mindsets, or private workspace through actor-scoped commands.
 license: MIT
 skill_invocation_notation: >
   Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
@@ -25,7 +25,7 @@ This parent-scoped routine loads only through `houmao-shared-routines`. Require 
 
 Preserve the actor branch for the entire route. Joining a session follows the admin entrypoint's explicit adoption handoff and never rewrites this frame in place.
 
-Use this Houmao skill when you need to create, adopt, list, stop, relaunch, or clean up live managed-agent instances through `houmao-mgr` instead of hand-editing runtime files. Managed-agent birth is project-scoped through `project agents launch`; follow-up lifecycle is split across `agents global`, `agents single`, and `agents self`.
+Use this Houmao skill when you need to create, adopt, list, stop, relaunch, or clean up live managed-agent instances through `houmao-mgr` instead of hand-editing runtime files. It also owns definition-deployed instance state: typed runtime variables, named mindset revisions and skill snapshots, and one optional private workspace with stable semantic directory mappings. Managed-agent birth is project-scoped through `project agents launch`; follow-up lifecycle and instance state are split across `agents global`, explicit-target `agents single`, and verified-self `agents self`.
 
 The trigger word `houmao` is intentional. Enter this parent-scoped routine only through `houmao-shared-routines->houmao-agent-instance`; never invoke its logical id as a standalone skill.
 
@@ -33,7 +33,7 @@ The trigger word `houmao` is intentional. Enter this parent-scoped routine only 
 
 When the user asks `$houmao-shared-routines agent-instance help`, `help for houmao-agent-instance`, `usage for houmao-agent-instance`, `available functionality for houmao-agent-instance`, or what this skill can do, answer from this section before choosing a lifecycle action, command, action page, or missing-input question. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me stop this agent", route to the matching workflow instead of stopping at generic help.
 
-Purpose: manage live Houmao-managed agent instances through supported lifecycle commands.
+Purpose: manage live Houmao-managed agent instances and their definition-owned, per-instance runtime state through supported actor-scoped commands.
 
 Available functionality:
 
@@ -41,6 +41,9 @@ Available functionality:
 - `join` one already-running supported provider session.
 - `list` current live managed agents from the lifecycle perspective.
 - `stop`, `relaunch`, or `cleanup` selected managed-agent instances.
+- `runtime-variables` for typed, revisioned per-instance values.
+- `mindsets` for named question sets, current revisions, diffs, and atomic skill snapshots.
+- `private-workspace` for manifest validation, semantic directory resolution, materialization, remapping, tracking posture, mindset projection, and safe cleanup.
 
 Common starting prompts:
 
@@ -48,6 +51,9 @@ Common starting prompts:
 - `$houmao-shared-routines agent-instance list`
 - `$houmao-shared-routines agent-instance launch from specialist <name>`
 - `$houmao-shared-routines agent-instance stop <agent>`
+- `$houmao-shared-routines as-agent agent-instance runtime-variables get <key>`
+- `$houmao-shared-routines agent-instance mindsets set <agent> <name>`
+- `$houmao-shared-routines agent-instance private-workspace doctor <agent>`
 
 Related skills and boundaries:
 
@@ -58,7 +64,7 @@ Related skills and boundaries:
 
 ## Subcommands
 
-This packaged skill covers exactly these managed-agent instance lifecycle actions:
+This packaged skill covers these managed-agent instance lifecycle and state actions:
 
 - `help` (read-only meta operation)
 - `launch`
@@ -67,6 +73,17 @@ This packaged skill covers exactly these managed-agent instance lifecycle action
 - `stop`
 - `relaunch`
 - `cleanup`
+- `runtime-variables`
+- `mindsets`
+- `private-workspace`
+
+State routes load exactly one command page:
+
+| Subcommand | Route | Actor Scope |
+| --- | --- | --- |
+| `runtime-variables` | [commands/runtime-variables.md](commands/runtime-variables.md) | agent read-only verified self; admin explicit-target read and mutation |
+| `mindsets` | [commands/mindsets.md](commands/mindsets.md) | agent read-only verified self; admin explicit-target read and mutation |
+| `private-workspace` | [commands/private-workspace.md](commands/private-workspace.md) | agent read-only verified self; admin explicit-target inspection and mutation |
 
 `houmao-shared-routines->houmao-agent-definition` also owns the specialist-scoped easy `launch` and `stop` entry points, but this skill remains the canonical follow-up lifecycle surface for broader live-agent management.
 
@@ -94,18 +111,19 @@ This packaged skill does not cover:
 
 Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
 
-1. Identify which managed-agent lifecycle action the user wants: `launch`, `join`, `list`, `stop`, `relaunch`, or `cleanup`.
-2. If the requested action is `launch`, determine whether the source is:
+1. Identify which managed-agent lifecycle or state action the user wants: `launch`, `join`, `list`, `stop`, `relaunch`, `cleanup`, `runtime-variables`, `mindsets`, or `private-workspace`.
+2. If the selected route is a state action, preserve the actor gate and load its one command page. An agent uses only verified-self read operations. An admin uses `agents single --agent-id|--agent-name ... instance-state` and may mutate only an explicit target.
+3. If the requested action is `launch`, determine whether the source is:
    - a project profile for `houmao-mgr project agents launch --profile`, or
    - a predefined specialist for `houmao-mgr project agents launch --specialist`
-3. If the requested action is still ambiguous after checking the current prompt and recent chat context, ask the user before proceeding.
-4. Choose one `houmao-mgr` launcher for the current turn:
+4. If the requested action is still ambiguous after checking the current prompt and recent chat context, ask the user before proceeding.
+5. Choose one `houmao-mgr` launcher for the current turn:
    - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
    - if that lookup fails, use `uv tool run --from houmao houmao-mgr`
    - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
    - if the user explicitly asks for a specific launcher, follow that request instead of the default order
-5. Reuse that same chosen launcher for the selected instance-lifecycle action.
-6. For supported lifecycle command authoring, show and run direct maintained commands with only fields the user explicitly supplied or that were recovered from explicit recent context:
+6. Reuse that same chosen launcher for the selected instance-lifecycle or state action.
+7. For supported command authoring, show and run direct maintained commands with only fields the user explicitly supplied or that were recovered from explicit recent context:
    - `project agents launch` for project-scoped birth from a specialist or project profile
    - `agents self join`
    - `agents global list`
@@ -113,16 +131,21 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - `agents single ... relaunch`
    - `agents single ... cleanup session`
    - `agents single ... cleanup logs`
-7. If required input is missing or explicit inputs conflict, stop and recover the missing or conflicting input before running the target command.
-8. Do not add optional posture, chat-session, cleanup, or gateway flags unless the user explicitly requested them or the selected tool/lane requires them.
-9. Load exactly one action page:
+   - `agents self instance-state ...` for verified-self state reads
+   - `agents single --agent-id|--agent-name ... instance-state ...` for explicit-target admin state reads or mutation
+8. If required input is missing or explicit inputs conflict, stop and recover the missing or conflicting input before running the target command.
+9. Do not add optional posture, chat-session, cleanup, gateway, workspace, or mutation flags unless the user explicitly requested them or the selected tool/lane requires them.
+10. Load exactly one action page:
    - `commands/launch.md`
    - `commands/join.md`
    - `commands/list.md`
    - `commands/stop.md`
    - `commands/relaunch.md`
    - `commands/cleanup.md`
-10. Follow the selected action page and report the result from the command that ran.
+   - `commands/runtime-variables.md`
+   - `commands/mindsets.md`
+   - `commands/private-workspace.md`
+11. Follow the selected action page and report the result from the command that ran.
 
 
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
@@ -147,6 +170,9 @@ If the request does not map cleanly to this workflow, use the native planning to
 - Use `commands/stop.md` only when the user wants to stop one live managed agent.
 - Use `commands/relaunch.md` only when the user wants to relaunch one tmux-backed managed-agent surface without rebuilding the managed-agent home.
 - Use `commands/cleanup.md` only when the user wants to remove stopped-session envelope artifacts or session-local logs.
+- Use `commands/runtime-variables.md` for definition-declared typed values. Skills that consume live values must read them at use time instead of treating launch-time prompt snapshots as current.
+- Use `commands/mindsets.md` for definition-declared named question sets. A required skill must take one atomic mindset snapshot before substantive work and stop if the snapshot fails.
+- Use `commands/private-workspace.md` for one definition-owned individual workspace. Keep it distinct from multi-agent workspace topology under `houmao-utils-workspace-mgr`.
 - Treat this skill as the canonical follow-up lifecycle surface after any specialist-scoped `launch` or `stop` handled through `houmao-shared-routines->houmao-agent-definition`.
 
 ## Guardrails
@@ -158,6 +184,11 @@ If the request does not map cleanly to this workflow, use the native planning to
 - DO NOT route manual mailbox-enabled launch flags, mailbox cleanup, or mailbox registration tasks through this skill.
 - DO NOT reject launch-dossier-backed launch just because the stored profile already carries gateway or mailbox defaults.
 - DO NOT route project-aware instance `list|get|stop` through this skill; use the canonical `agents` lifecycle surface once the instance exists.
+- DO NOT let an agent mutate its own runtime variables, mindset definitions, workspace mappings, tracking posture, or workspace contents through the read-only self surface.
+- DO NOT use admin `agents self` state commands; require an explicit `agents single --agent-id|--agent-name` target.
+- DO NOT read a live runtime variable from a stale launch-time prompt when the consuming skill contract requires the current value.
+- DO NOT continue a required mindset-backed skill when the atomic snapshot fails.
+- DO NOT hand-edit the private workspace TOML manifest or SQLite index.
 - DO NOT silently replace `agents single ... relaunch` or `agents self relaunch` with a fresh launch command when relaunch authority or relaunch posture is unavailable.
 - DO NOT skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
 - DO NOT probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.

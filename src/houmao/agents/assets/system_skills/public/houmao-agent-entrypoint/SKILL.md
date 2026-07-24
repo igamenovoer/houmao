@@ -46,11 +46,11 @@ These are peer route subcommands of this entrypoint. The route component is pare
 | `process-emails-via-gateway` | `houmao-shared-routines->houmao-process-emails-via-gateway` | A notifier prompt supplies the exact gateway context for one bounded unread-mail round. |
 | `agent-email-comms` | `houmao-shared-routines->houmao-agent-email-comms` | Ordinary self mailbox or explicit-peer mail work is required outside a notifier round. |
 | `adv-usage-pattern` | `houmao-shared-routines->houmao-adv-usage-pattern` | A supported multi-step gateway, notifier, mailbox, wakeup, edge-loop, or relay pattern must be composed. |
-| `utils-workspace-mgr` | `houmao-shared-routines->houmao-utils-workspace-mgr` | Workspace topology must be inspected or prepared from verified-self context and explicit paths. |
+| `utils-workspace-mgr` | `houmao-shared-routines->houmao-utils-workspace-mgr` | Multi-agent workspace topology must be inspected or prepared from verified-self context and explicit paths; this route does not own an individual definition-owned private workspace. |
 | `ext-graphing` | `houmao-shared-routines->houmao-ext-graphing` | Plotly templated graphics or Vega-Lite freeform graphics must be authored, validated, repaired, or rendered. |
 | `mailbox-mgr` | `houmao-shared-routines->houmao-mailbox-mgr` | Verified-self mailbox binding or an explicitly scoped mailbox root needs administration. |
 | `memory-mgr` | `houmao-shared-routines->houmao-memory-mgr` | Verified-self memory or a supported explicitly targeted peer memo must be read, written, or removed. |
-| `agent-instance` | `houmao-shared-routines->houmao-agent-instance` | Self-scoped lifecycle follow-up or a supported explicit-peer operation is required. |
+| `agent-instance` | `houmao-shared-routines->houmao-agent-instance` | Self-scoped lifecycle follow-up or read-only access to verified-self runtime variables, named mindsets, or a definition-owned private workspace is required. |
 | `agent-inspect` | `houmao-shared-routines->houmao-agent-inspect` | Verified self or an explicitly named peer needs read-only liveness, TUI, mailbox, artifact, or log inspection. |
 | `agent-messaging` | `houmao-shared-routines->houmao-agent-messaging` | The managed agent must communicate with an explicitly named peer through prompt, interrupt, queue, raw input, mail, or reset. |
 | `agent-gateway` | `houmao-shared-routines->houmao-agent-gateway` | Verified self gateway, service, reminder, notifier, or HTTP surface needs operation or inspection. |
