@@ -1,0 +1,6 @@
+{
+  "derived_digest": "sha256:reference-reviewer-derived",
+  "materialized_at": "2026-01-01T00:00:00+00:00",
+  "schema_version": "houmao-agent-materialization-provenance.v1",
+  "source_digest": "sha256:reference-reviewer-source"
+}

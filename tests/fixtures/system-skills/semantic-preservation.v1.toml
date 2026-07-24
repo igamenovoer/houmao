@@ -1,0 +1,375 @@
+schema_version = 1
+baseline_commit = "8f377c468bc7f87ff40dbf40c0a68327616112bd"
+baseline_file_inventory = "pre-compaction-files.txt"
+permitted_deltas = [
+  "static source ownership",
+  "standalone versus parent-scoped entrypoint role",
+  "actor-frame intake and eligibility",
+  "explicit sibling-qualified routing",
+  "scanner-safe SKILL-MAIN.md child entrypoints",
+  "Imsight structural normalization",
+]
+
+[[ownership_rules]]
+source_prefix = "src/houmao/agents/assets/system_skills/houmao-agent-loop-pro/"
+target_prefix = "src/houmao/agents/assets/system_skills/public/houmao-agent-loop-pro/"
+reason = "The manually invoked pro loop remains standalone; all support resources retain local ownership."
+
+[[ownership_rules]]
+source_prefix = "src/houmao/agents/assets/system_skills/houmao-agent-loop-lite/"
+target_prefix = "src/houmao/agents/assets/system_skills/public/houmao-agent-loop-lite/"
+reason = "The manually invoked lite loop remains standalone; all support resources retain local ownership."
+
+[[ownership_rules]]
+source_prefix = "src/houmao/agents/assets/system_skills/houmao-touring/"
+target_prefix = "src/houmao/agents/assets/system_skills/public/houmao-admin-welcome/"
+reason = "Touring becomes the independent read-only admin welcome; branch content is consolidated into owned command and reference pages."
+
+[[ownership_rules]]
+source_prefix = "src/houmao/agents/assets/system_skills/houmao-specialist-mgr/"
+target_prefix = "src/houmao/agents/assets/system_skills/public/houmao-shared-routines/subskills/houmao-agent-definition/"
+reason = "The wrapper owns no executable resources; specialist-mgr remains an admin/direct-admin route alias to canonical agent-definition."
+
+[[ownership_rules]]
+source_prefix = "src/houmao/agents/assets/system_skills/houmao-"
+target_prefix = "src/houmao/agents/assets/system_skills/public/houmao-shared-routines/subskills/<source-skill>/"
+reason = "Each of the other sixteen flat skills becomes one parent-scoped child and retains its complete private resource tree."
+
+[[normalization_rules]]
+source_pattern = "<ordinary-skill>/SKILL.md"
+target_pattern = "houmao-shared-routines/subskills/<ordinary-skill>/SKILL-MAIN.md"
+reason = "Role-canonical parent-scoped entrypoint; no compatibility SKILL.md is retained."
+
+[[normalization_rules]]
+source_pattern = "<ordinary-skill>/actions/*.md"
+target_pattern = "houmao-shared-routines/subskills/<ordinary-skill>/commands/*.md"
+reason = "Imsight names executable peer routines commands; operation names and behavior remain unchanged."
+
+[[normalization_rules]]
+source_pattern = "<ordinary-skill>/subskills/<procedure>.md"
+target_pattern = "houmao-shared-routines/subskills/<ordinary-skill>/commands/<procedure>.md or references/<procedure>.md"
+reason = "Procedure-only pages do not own resource roots and become command or reference pages without changing their contract."
+
+[[skills]]
+source = "houmao-adv-usage-pattern"
+target = "houmao-shared-routines->houmao-adv-usage-pattern"
+activation = "Supported explicit advanced workflow composition; not a generic loop trigger."
+operations = ["help", "self-notification", "notifier-prompt-driven-mail-loop", "pairwise-edge-loop", "relay-loop"]
+aliases = ["pairwise edge-loop=pairwise-edge-loop", "pairwise-edge-loop-via-gateway-and-mailbox=pairwise-edge-loop", "relay-loop-via-gateway-and-mailbox=relay-loop"]
+inputs = ["selected pattern", "managed agents", "gateway or mailbox context"]
+outputs = ["bounded composed workflow result"]
+gates = ["choose only a supported pattern", "use pro or lite only when explicitly selected"]
+blockers = ["unsupported pattern", "missing gateway or mailbox facts"]
+evidence_handoffs = ["selected child workflow returns bounded results to the composed pattern"]
+target_rules = ["operate only on the managed agents named by the selected pattern"]
+side_effects = ["the selected pattern may send prompts, mail, reminders, or loop triggers"]
+stop_conditions = ["stop at the selected pattern boundary"]
+help_read_only = true
+
+[[skills]]
+source = "houmao-agent-definition"
+target = "houmao-shared-routines->houmao-agent-definition"
+activation = "Explicit agent-definition, specialist, role, recipe, dossier, or profile authoring."
+operations = ["help", "roles", "recipes", "launch-dossiers", "specialists", "profiles", "create-agent-fast-forward", "launch-agent", "stop-agent"]
+aliases = ["presets=recipes", "specialist-mgr=agent-definition"]
+inputs = ["project or internal root", "definition kind", "name", "credential references", "launcher choice"]
+outputs = ["definition records", "config drafts", "launch command or lifecycle handoff"]
+gates = ["credential-kind boundary", "launcher precedence", "missing required profile inputs", "foreground gateway posture"]
+blockers = ["missing or conflicting definition inputs", "unsupported credential reference"]
+evidence_handoffs = ["launch and stop work hands off to agent-instance"]
+target_rules = ["write definitions only under the selected project or internal root"]
+side_effects = ["create or update definitions and config drafts; launch or stop only through explicit lifecycle operations"]
+stop_conditions = ["fast-forward stops before launch", "easy lifecycle hands broad follow-up to agent-instance"]
+help_read_only = true
+
+[[skills]]
+source = "houmao-agent-email-comms"
+target = "houmao-shared-routines->houmao-agent-email-comms"
+activation = "Ordinary operator-origin or managed-agent Houmao mailbox communication."
+operations = ["help", "resolve-live", "status", "list", "peek", "read", "send", "post", "reply", "mark", "move", "archive"]
+aliases = []
+inputs = ["caller posture", "gateway or binding", "mail action fields", "opaque message or thread ref"]
+outputs = ["mailbox status or mutation result"]
+gates = ["resolver order", "operator uses post", "archive only after action and reply succeed"]
+blockers = ["unresolved live binding", "missing required mail action fields"]
+evidence_handoffs = ["resolver evidence selects gateway, filesystem, or Stalwart transport"]
+target_rules = ["opaque message and thread references stay scoped to the resolved mailbox"]
+side_effects = ["send, post, reply, mark, move, and archive mutate mailbox state"]
+stop_conditions = ["notifier rounds hand off to process-emails-via-gateway"]
+help_read_only = true
+
+[[skills]]
+source = "houmao-agent-gateway"
+target = "houmao-shared-routines->houmao-agent-gateway"
+activation = "Gateway lifecycle, discovery, service, reminder, notifier, or HTTP-surface work."
+operations = ["help", "lifecycle", "discover", "gateway-services", "reminders", "mail-notifier"]
+aliases = []
+inputs = ["managed target", "gateway operation", "bind or notifier settings"]
+outputs = ["gateway state and service evidence"]
+gates = ["managed target required", "gateway-only boundary"]
+blockers = ["missing managed target or direct gateway input", "conflicting gateway settings"]
+evidence_handoffs = ["discovery and lifecycle commands return gateway and service evidence"]
+target_rules = ["use the selected managed agent or explicit live gateway base URL"]
+side_effects = ["attach, detach, reminders, notifier control, and service changes mutate gateway state"]
+stop_conditions = ["do not absorb ordinary mailbox or agent lifecycle work"]
+help_read_only = true
+
+[[skills]]
+source = "houmao-agent-inspect"
+target = "houmao-shared-routines->houmao-agent-inspect"
+activation = "Read-only inspection of managed agent liveness, TUI, mailbox, artifacts, or logs."
+operations = ["help", "discover", "screen", "mailbox", "artifacts", "logs"]
+aliases = []
+inputs = ["explicit target or verified self", "inspection surface"]
+outputs = ["read-only evidence with target provenance"]
+gates = ["resolve target before tmux inspection", "inspection never mutates"]
+blockers = ["missing target", "unavailable requested evidence"]
+evidence_handoffs = ["report each observation with target and source provenance"]
+target_rules = ["inspect one explicit managed target or freshly verified self"]
+side_effects = ["none; discovery and inspection remain read-only"]
+stop_conditions = ["report missing evidence without repair mutation"]
+help_read_only = true
+
+[[skills]]
+source = "houmao-agent-instance"
+target = "houmao-shared-routines->houmao-agent-instance"
+activation = "Managed-agent launch, join, list, stop, relaunch, or cleanup."
+operations = ["help", "launch", "join", "list", "stop", "relaunch", "cleanup"]
+aliases = []
+inputs = ["target or launch definition", "tool and runtime inputs"]
+outputs = ["managed instance facts and lifecycle result"]
+gates = ["target recovery", "join evidence", "cleanup confirmation"]
+blockers = ["missing or ambiguous lifecycle target", "missing join evidence", "unconfirmed cleanup"]
+evidence_handoffs = ["successful join hands verified managed-self evidence to the agent entrypoint"]
+target_rules = ["mutate only the explicit or safely recovered managed-agent target"]
+side_effects = ["launch, join, stop, relaunch, and cleanup change managed lifecycle state"]
+stop_conditions = ["successful join ends the admin route and transitions to verified agent entrypoint"]
+help_read_only = true
+
+[[skills]]
+source = "houmao-agent-loop-lite"
+target = "houmao-agent-loop-lite"
+activation = "Manual invocation only; explicit lite skill or operation."
+default_operation = "init"
+operations = ["help", "init", "create-intention", "clarify-intent", "clarify-execplan", "execplan-fast-forward", "execplan-specs-process", "execplan-specs-contract", "execplan-skills", "execplan-agent-bindings", "execplan-finalize", "validate-execplan", "update-execplan", "prepare-agents", "prepare-workspace", "validate-loop", "launch-agents", "start", "status", "pause", "resume", "recover", "stop"]
+aliases = ["clarify=clarify-intent", "generate-skills=execplan-skills", "validate=validate-execplan|validate-loop"]
+inputs = ["explicit actor posture", "loop-dir", "intention and predecessor artifacts"]
+outputs = ["Markdown and direct-SQL lite loop package", "run-control evidence"]
+gates = ["upfront plan", "loop-dir before mutation", "required predecessors", "explicit manual activation"]
+blockers = ["missing loop-dir", "missing predecessor artifacts", "failed validation"]
+evidence_handoffs = ["each authoring stage leaves artifacts for its declared successor stage"]
+target_rules = ["preserve inherited actor posture and mutate only the selected loop-dir"]
+side_effects = ["generate lite Markdown, direct-SQL state, skills, bindings, and run-control state"]
+stop_conditions = ["help never asks for loop-dir", "do not add JSON schema, Jinja2, generated harness, or generated docs layers"]
+help_read_only = true
+
+[[skills]]
+source = "houmao-agent-loop-pro"
+target = "houmao-agent-loop-pro"
+activation = "Manual invocation only; explicit pro skill or operation."
+default_operation = "init"
+operations = ["help", "init", "create-intention", "clarify-intent", "clarify-execplan", "execplan-fast-forward", "execplan-step-by-step", "execplan-specs-process", "execplan-specs-contract", "execplan-harness", "execplan-skills", "execplan-agent-bindings", "execplan-finalize", "validate-execplan", "update-execplan", "prepare-agents", "prepare-workspace", "validate-loop", "launch-agents", "start", "status", "pause", "resume", "recover", "stop"]
+aliases = ["clarify intent=clarify-intent"]
+inputs = ["explicit actor posture", "loop-dir", "intention and predecessor artifacts"]
+outputs = ["schema-rich generated execplan, harness, skills, and docs", "run-control evidence"]
+gates = ["upfront plan", "loop-dir before mutation", "required predecessors", "explicit manual activation"]
+blockers = ["missing loop-dir", "missing predecessor artifacts", "failed validation"]
+evidence_handoffs = ["each generation stage leaves schema-rich artifacts for its declared successor stage"]
+target_rules = ["preserve inherited actor posture and mutate only the selected loop-dir"]
+side_effects = ["generate execplan, harness, skills, docs, bindings, and run-control state"]
+stop_conditions = ["help never asks for loop-dir", "generated execplan is not editable intention source"]
+help_read_only = true
+
+[[skills]]
+source = "houmao-agent-messaging"
+target = "houmao-shared-routines->houmao-agent-messaging"
+activation = "Communication or control of an already-running managed agent."
+operations = ["help", "discover", "prompt", "interrupt", "gateway-queue", "send-keys", "mail", "reset-context"]
+aliases = ["raw-input=send-keys"]
+inputs = ["explicit target or verified self", "message", "route intent"]
+outputs = ["delivery result and selected route"]
+gates = ["prefer live gateway", "raw input only when requested", "target required"]
+blockers = ["missing target or message", "unsupported or unavailable requested route"]
+evidence_handoffs = ["live capability discovery selects gateway, direct TUI, or mailbox handoff"]
+target_rules = ["send only to an explicit running target or freshly verified self"]
+side_effects = ["prompt, interrupt, queue, send-keys, mail handoff, and reset-context affect the running agent"]
+stop_conditions = ["mail delegates to agent-email-comms"]
+help_read_only = true
+
+[[skills]]
+source = "houmao-credential-mgr"
+target = "houmao-shared-routines->houmao-credential-mgr"
+activation = "Admin credential list, inspect, add, update, login, rename, or remove work."
+operations = ["help", "list", "get", "add", "set", "login", "rename", "remove"]
+aliases = []
+inputs = ["project or native-agent root", "credential kind", "credential name", "secret source"]
+outputs = ["credential metadata and mutation result without secret disclosure"]
+gates = ["admin-only", "provider-specific kind", "missing secret inputs", "launcher precedence"]
+blockers = ["ambiguous credential target", "unsupported provider kind", "missing or conflicting secret input"]
+evidence_handoffs = ["return credential metadata or mutation status without secret values"]
+target_rules = ["mutate only the selected project or native-agent credential root"]
+side_effects = ["add, set, login, rename, and remove change credential-owned state"]
+stop_conditions = ["never print or persist secrets outside the credential owner"]
+help_read_only = true
+
+[[skills]]
+source = "houmao-ext-graphing"
+target = "houmao-shared-routines->houmao-ext-graphing"
+activation = "Plotly templated-graphics or Vega-Lite freeform-graphics authoring and repair."
+operations = ["help", "templated-graphics", "freeform-graphics"]
+aliases = []
+inputs = ["selected graphing layer", "data and chart intent"]
+outputs = ["validated AG-UI event batch or rendered graphics evidence"]
+gates = ["discover schema", "validate before render or publish", "choose layer explicitly"]
+blockers = ["unknown Plotly schema", "invalid Vega-Lite or AG-UI payload"]
+evidence_handoffs = ["validated event batches hand off to AG-UI rendering or publishing"]
+target_rules = ["use only the explicitly selected templated or freeform graphics layer"]
+side_effects = ["render graphics locally; publishing remains an AG-UI handoff"]
+stop_conditions = ["publishing delegates to AG-UI interop"]
+help_read_only = true
+
+[[skills]]
+source = "houmao-interop-ag-ui"
+target = "houmao-shared-routines->houmao-interop-ag-ui"
+activation = "AG-UI validation, framing, rendering, publishing, or interpretation."
+operations = ["help", "validate", "frame", "render", "publish"]
+aliases = []
+inputs = ["AG-UI event batch", "chosen Houmao implementation payload", "gateway target for publish"]
+outputs = ["validated or framed events", "rendering", "publish result"]
+gates = ["protocol and implementation remain separate", "validate before publish"]
+blockers = ["invalid event batch", "unknown implementation payload", "missing live publish destination"]
+evidence_handoffs = ["graphing supplies implementation payloads and gateway publishing returns delivery evidence"]
+target_rules = ["publish only to an explicit gateway, run, or live connection target"]
+side_effects = ["frame and render locally; publish sends live-only AG-UI events"]
+stop_conditions = ["do not choose graph semantics that belong to ext-graphing"]
+help_read_only = true
+
+[[skills]]
+source = "houmao-mailbox-mgr"
+target = "houmao-shared-routines->houmao-mailbox-mgr"
+activation = "Mailbox root, account, registration, binding, repair, cleanup, or export administration."
+operations = ["help", "init", "status", "repair", "cleanup", "export", "register", "unregister", "agent-binding-status", "agent-binding-register", "agent-binding-unregister"]
+aliases = ["accounts-list", "accounts-get", "messages-list", "messages-get", "messages-clear", "clear-messages"]
+inputs = ["mailbox or project root", "account or binding", "transport", "launcher"]
+outputs = ["structural mailbox state, actor binding state, export or cleanup result"]
+gates = ["root selection", "structural versus actor state", "Stalwart boundary"]
+blockers = ["ambiguous mailbox root or lane", "missing account, binding, transport, or cleanup input"]
+evidence_handoffs = ["ordinary message work hands off to agent-email-comms"]
+target_rules = ["administration stays scoped to the selected root, project, account, or actor binding"]
+side_effects = ["init, repair, cleanup, register, unregister, and binding operations mutate mailbox structure"]
+stop_conditions = ["ordinary message operations stay with agent-email-comms"]
+help_read_only = true
+
+[[skills]]
+source = "houmao-memory-mgr"
+target = "houmao-shared-routines->houmao-memory-mgr"
+activation = "Only when memo intent names Houmao memo, managed-agent memo, or profile memo seed."
+operations = ["help", "read", "write", "remove"]
+aliases = []
+inputs = ["managed target or profile", "memo operation", "memo content for write"]
+outputs = ["houmao-memo.md or reusable memo seed state"]
+gates = ["memo trigger required", "supported target required", "memory owner boundary"]
+blockers = ["generic memory intent", "unsupported or ambiguous memo target", "missing write content"]
+evidence_handoffs = ["profile memo seeds become reusable birth-time memory for later launches"]
+target_rules = ["select exactly one live managed-agent memo or reusable profile memo seed"]
+side_effects = ["write and remove mutate Houmao-owned memo state; read does not"]
+stop_conditions = ["do not infer generic memory work as Houmao memo work"]
+help_read_only = true
+
+[[skills]]
+source = "houmao-operator-messaging"
+target = "houmao-shared-routines->houmao-operator-messaging"
+activation = "Manual invocation only for explicit operator-messaging clarification or dispatch."
+operations = ["help", "clarify", "dispatch"]
+aliases = []
+default_behavior = ["actionable prompt without a subcommand selects clarify", "empty prompt asks which operation is wanted and never dispatches"]
+inputs = ["operator intent", "recipient set", "direct prompt or mail route", "confirmation"]
+outputs = ["current send plan", "per-recipient dispatch report"]
+gates = ["clarify one decision at a time", "confirm before dispatch", "route prompt versus mail"]
+blockers = ["ambiguous target, route, or message", "missing dispatch confirmation"]
+evidence_handoffs = ["prompt packets hand off to agent-messaging and mailbox packets to agent-email-comms"]
+target_rules = ["dispatch only to the explicit recipient set"]
+side_effects = ["confirmed dispatch sends messages and may update a user-supplied record"]
+stop_conditions = ["clarify never dispatches or writes files"]
+help_read_only = true
+
+[[skills]]
+source = "houmao-process-emails-via-gateway"
+target = "houmao-shared-routines->houmao-process-emails-via-gateway"
+activation = "Managed-agent notifier prompt for one bounded gateway email round."
+operations = ["help", "process-round"]
+aliases = []
+inputs = ["prompt-provided exact gateway base URL", "notifier round context"]
+outputs = ["metadata-first triage, replies or archive results, round summary"]
+gates = ["verified agent only", "prompt bootstrap", "reply hardening", "archive after success"]
+blockers = ["missing exact gateway base URL", "unverified managed self", "failed reply or hardening"]
+evidence_handoffs = ["metadata-first triage produces reply, archive, and bounded-round summary evidence"]
+target_rules = ["use the prompt-provided gateway and the verified agent's own mailbox"]
+side_effects = ["read mail, create one-off reminders, send replies, and archive only successful items"]
+stop_conditions = ["stop after one bounded round", "continuation mail has priority"]
+help_read_only = true
+
+[[skills]]
+source = "houmao-project-mgr"
+target = "houmao-shared-routines->houmao-project-mgr"
+activation = "Admin project overlay lifecycle, layout, launch-profile, or project-aware instance work."
+operations = ["help", "init", "status", "launch-profiles", "easy-instances"]
+aliases = []
+inputs = ["project root", "project action", "profile or managed target when applicable"]
+outputs = ["project overlay state, launch-profile facts, project-scoped lifecycle evidence"]
+gates = ["admin-only", "overlay resolution", "launcher order", "project boundary"]
+blockers = ["missing project root or action", "unresolved overlay", "ambiguous project agent target"]
+evidence_handoffs = ["credential, definition, and broad lifecycle work delegates to their owning routines"]
+target_rules = ["operate only inside the selected Houmao project overlay"]
+side_effects = ["init and project-scoped profile or instance operations mutate project state"]
+stop_conditions = ["lower-level credentials, definitions, and broad instance lifecycle delegate to their owners"]
+help_read_only = true
+
+[[skills]]
+source = "houmao-specialist-mgr"
+target = "specialist-mgr compatibility route to houmao-shared-routines->houmao-agent-definition"
+activation = "Compatibility wording for specialist, profile, fast-forward, launch, or stop tasks."
+operations = ["help", "specialists", "profiles", "create-agent-fast-forward", "launch-agent", "stop-agent"]
+aliases = ["ready-profile=create-agent-fast-forward"]
+inputs = ["complete specialist request passed through unchanged"]
+outputs = ["canonical agent-definition result"]
+gates = ["admin or direct-admin only", "no independently owned command procedure"]
+blockers = ["agent actor posture", "unsupported or incomplete specialist request"]
+evidence_handoffs = ["pass the complete request unchanged to canonical agent-definition"]
+target_rules = ["use agent-definition as the sole target owner"]
+side_effects = ["the compatibility alias has no independent effects; delegated operations retain agent-definition effects"]
+stop_conditions = ["identify agent-definition as canonical before delegation"]
+help_read_only = true
+
+[[skills]]
+source = "houmao-touring"
+target = "houmao-admin-welcome"
+activation = "Narrow first-use, reorientation, path comparison, command learning, or guided-tour intent."
+operations = ["help", "show-options", "choose-path", "show-command-map", "next-step", "start-guided-tour"]
+aliases = ["bare invocation=orientation", "start a guided tour=start-guided-tour", "orient me in this project=next-step"]
+inputs = ["read-only project and runtime posture", "likely intent", "selected guided path"]
+outputs = ["compact orientation", "state-aware choice menu", "admin entrypoint handoff"]
+gates = ["read-only", "blank workspace shows exactly create project, subsystem exploration, inspect", "questions explain why input matters"]
+blockers = ["unknown project or runtime posture narrows the tour through explanatory questions"]
+evidence_handoffs = ["preserve selected path and discovered context in the admin entrypoint handoff"]
+target_rules = ["orient against the current workspace, project, and runtime evidence"]
+side_effects = ["none; touring recommends but never executes actions"]
+stop_conditions = ["never execute the recommended action", "preserve context in handoff"]
+help_read_only = true
+
+[[skills]]
+source = "houmao-utils-workspace-mgr"
+target = "houmao-shared-routines->houmao-utils-workspace-mgr"
+activation = "Plan, create, validate, or summarize Houmao-standard multi-agent workspaces."
+operations = ["help", "plan", "create", "validate", "summarize"]
+aliases = ["execute=create"]
+default_operation = "plan"
+inputs = ["workspace flavor", "repository roots", "task name or workspace root", "agent and submodule posture"]
+outputs = ["workspace plan or topology", "validation evidence", "compact summary"]
+gates = ["repository safety", "untracked in-repo workspace", "local-state links", "memo seed", "submodule rules"]
+blockers = ["unsafe repository state", "ambiguous workspace root", "invalid submodule or local-state posture"]
+evidence_handoffs = ["workspace plans and validation evidence feed later project and agent preparation"]
+target_rules = ["mutate only the selected workspace root and explicitly bound repositories"]
+side_effects = ["create prepares topology, worktrees, links, seeds, and submodules; plan, validate, and summarize stay non-mutating"]
+stop_conditions = ["plan and summarize do not mutate topology"]
+help_read_only = true

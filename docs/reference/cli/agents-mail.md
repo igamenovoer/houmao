@@ -2,10 +2,11 @@
 
 Managed-agent mailbox discovery and follow-up commands. `houmao-mgr` routes ordinary mailbox actions through pair-owned gateway-backed execution, local manager-owned direct execution when available, or local live-TUI submission fallback when direct authority is unavailable. The dedicated operator-origin `post` action is stricter: it requires authoritative gateway-backed or manager-owned execution and never falls back to TUI submission.
 
-This is the **operator-facing CLI** for ordinary mailbox follow-up. The matching **agent-facing skill surface** is now unified into two packaged Houmao skills:
+This is the **operator-facing CLI** for ordinary mailbox follow-up. The matching parent-scoped workflows live in the standalone shared-routines sibling and are selected through public actor entrypoints:
 
-- `houmao-agent-email-comms` — ordinary shared-mailbox operations and the no-gateway fallback path. This is the canonical mailbox-operations skill paired with the scoped `agents single ... mail` and `agents self mail` families below.
-- `houmao-process-emails-via-gateway` — round-oriented workflow for processing notifier-driven unread shared-mailbox emails through a prompt-provided gateway base URL.
+- `$houmao-admin-entrypoint agent-email-comms ...` — human-operator mailbox work against an explicit managed-agent or mailbox target.
+- `$houmao-agent-entrypoint agent-email-comms ...` — verified managed-agent mailbox work, defaulting self-scoped operations to verified self.
+- `$houmao-agent-entrypoint process-emails-via-gateway ...` — agent-only round-oriented workflow for notifier-driven unread mail through a prompt-provided gateway base URL.
 
 For the narrative tour of every packaged system skill, see the [System Skills Overview](../../getting-started/system-skills-overview.md).
 
@@ -261,5 +262,5 @@ pixi run houmao-mgr agents single --agent-name research mail archive \
 - [houmao-mgr](houmao-mgr.md) — parent CLI reference
 - [agents mailbox](agents-mailbox.md) — late filesystem mailbox registration
 - [Mailbox Reference](../mailbox/index.md) — mailbox subsystem details
-- [System Skills Overview](../../getting-started/system-skills-overview.md) — narrative tour of `houmao-agent-email-comms` and `houmao-process-emails-via-gateway`
+- [System Skills Overview](../../getting-started/system-skills-overview.md) — actor entrypoints, the shared sibling, and the parent-scoped `agent-email-comms` and `process-emails-via-gateway` routes
 - [Managed-Agent API](../managed_agent_api.md) — HTTP mail follow-up routes

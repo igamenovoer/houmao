@@ -45,6 +45,7 @@ The gateway is a session-owned FastAPI companion process attached to one runtime
 ### Internals
 
 - [Queue And Recovery](internals/queue-and-recovery.md): Queue storage, current-instance state, epochs, restart recovery, and replay blocking.
+- [Why Prompt Admission Uses Readiness and Pending Input](internals/prompt-admission-and-tui-observation.md): Why stable prompt readiness cannot replace provider-native pending-input detection for direct TUI prompt control.
 
 ## Related References
 

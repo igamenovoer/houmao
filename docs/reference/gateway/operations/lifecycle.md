@@ -301,6 +301,12 @@ tail -f <session-root>/gateway/logs/gateway.log
 - `GET /health` is the runtime's liveness check before it trusts a live gateway instance.
 - Desired host, port, and execution mode are rewritten after successful live attach so later starts can reuse the actual bound listener and gateway surface topology.
 
+## See Also
+
+- [Why Prompt Admission Uses Readiness and Pending Input](../internals/prompt-admission-and-tui-observation.md) — rationale for keeping stable readiness and provider-native pending input as separate direct-control guards
+- [Gateway Queue and Recovery](../internals/queue-and-recovery.md) — durable queue, execution, epoch, and replay semantics
+- [Scoped Agents Gateway CLI](../../cli/agents-gateway.md) — exact operator commands and prompt-admission options
+
 ## Source References
 
 - [`src/houmao/agents/realm_controller/runtime.py`](../../../../src/houmao/agents/realm_controller/runtime.py)

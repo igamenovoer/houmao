@@ -2,6 +2,8 @@
 
 Launch profiles are reusable, operator-owned, **birth-time** launch configuration. They are distinct from reusable source definitions (specialists, recipes), and distinct from live managed-agent instances. Persisting, listing, inspecting, or removing a launch profile does not by itself create, stop, or mutate a live instance.
 
+For skill-driven authoring, a human operator enters through `$houmao-admin-entrypoint agent-definition profiles ...` for project profiles or the same entrypoint's `launch-dossiers` command for the explicit native lane. The entrypoint delegates to the parent-scoped agent-definition child in its shared sibling; managed agents do not receive that admin-only route.
+
 This page is the conceptual home for the launch-profile model. Other docs link here instead of restating the precedence chain or the easy-versus-explicit lane split inline.
 
 ## Why Launch Profiles Exist
@@ -107,43 +109,44 @@ Rules:
 - Stored relaunch chat-session policy is not a birth-time launch default and does not affect first launch. It is carried as secret-free launch-profile provenance so later `agents single ... relaunch` can decide whether the provider TUI should start fresh, ask the provider for its latest chat, or resume an exact provider session id.
 - Live runtime mutations such as late filesystem mailbox registration are runtime-owned. They affect the running session and the runtime manifest, but they never rewrite the stored launch profile.
 - For project profiles, the easy lane compiles down through the same five layers — the specialist resolves into a recipe-backed source layer before the launch-profile layer applies.
-- Managed system-skill policy resolves as a source/profile pair before the managed home is built. Source specialists and recipes default to the catalog's managed-launch set list; launch profiles default to inheriting the source's effective selection.
+- Managed system-skill policy resolves as a source/profile pair before the managed home is built. Source specialists and recipes default to the managed `agent` pack; launch profiles default to inheriting the source's effective pack selection.
 
 ## Managed System-Skill Policy
 
-Managed system skills are packaged Houmao-owned instruction packages such as `houmao-agent-definition`, `houmao-agent-messaging`, and `houmao-utils-workspace-mgr`. They share the visible tool skill root with project skills, but they are selected and synchronized separately.
+Managed system skills are actor-aware static Houmao instruction packs. The `admin` pack contains welcome, admin entrypoint, shared routines, and both loops. The `agent` pack contains agent entrypoint, shared routines, and both loops. Parent-scoped routines such as `agent-definition`, `agent-messaging`, and `utils-workspace-mgr` live below the standalone shared-routines sibling and cannot be selected as manager pack members.
 
 Source recipes and specialists may store source-owned policy under `launch.system_skills` with modes:
 
-- `default` — use the catalog's `auto_install.managed_launch_sets` selection.
-- `extend` — start from the managed-launch default and append selected system-skill sets or skills.
-- `replace` — use exactly the selected system-skill sets or skills.
+- `default` — use the managed-launch `agent` pack.
+- `extend` — start from the managed-launch default and append selected packs.
+- `replace` — use exactly the selected packs.
 - `none` — install no current Houmao-owned system skills.
 
 Launch profiles may store profile-owned policy under `defaults.system_skills` with modes:
 
 - `inherit` — use the source recipe or specialist's effective selection.
-- `extend` — add selected system-skill sets or skills to the source's effective selection.
-- `replace` — use exactly the selected system-skill sets or skills from the profile.
+- `extend` — add selected packs to the source's effective selection.
+- `replace` — use exactly the selected packs from the profile.
 - `none` — install no current Houmao-owned system skills.
 
-Selectors are validated against the packaged system-skill catalog. On reused homes, Houmao removes exact catalog-known current Houmao system-skill paths that are no longer selected and removes known retired paths, while preserving unrelated user skills. Selected project registered skills and profile-private skills cannot use a current Houmao system-skill name because both surfaces project into the same visible skill root.
+Pack ids are validated against the versioned manifest. On reused homes, Houmao synchronizes the config-owned standalone paths to the effective pack selection while preserving unrelated user skills. Registered project skills and profile-private skills cannot use standalone, shared-child, or reserved auto-skill names because those surfaces share the visible skill root or parent-scoped routing namespace.
 
 Examples:
 
 ```bash
-# Store a core-only selector for launches from a project profile.
+# Store an exact agent-pack selection for launches from a project profile.
 houmao-mgr project profile create \
   --name researcher-workspace \
   --specialist researcher \
   --system-skills-mode replace \
-  --system-skill-set core
+  --system-skill-pack agent
 
-# Make an explicit launch profile use exactly every packaged system skill.
+# Make an explicit launch dossier project both complete actor packs.
 houmao-mgr internals native-agent launch-dossiers set \
   --name researcher \
   --system-skills-mode replace \
-  --system-skill-set all
+  --system-skill-pack admin \
+  --system-skill-pack agent
 
 # Disable current Houmao-owned system skills for future launches from a profile.
 houmao-mgr project profile set --name minimal --no-system-skills

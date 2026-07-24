@@ -89,17 +89,26 @@ Projected mailbox system skills SHALL treat that resolver output as the supporte
 - **AND THEN** the returned structured mailbox binding includes the current derived Stalwart mailbox state needed for mailbox work without relying on `AGENTSYS_MAILBOX_*`
 
 ### Requirement: Joined-session adoption installs Houmao-owned mailbox skills by default
-When `houmao-mgr agents join` adopts a mailbox-enabled session, the join workflow SHALL install the current Houmao-owned system-skill selection resolved from the packaged catalog’s managed-join auto-install set list for the adopted tool home by default so later runtime-owned prompts can rely on the current Houmao-owned mailbox skills being installed.
+When `houmao-mgr agents join` adopts a mailbox-enabled session with default system-skill installation enabled, the join workflow SHALL install the complete agent pack into the authoritative adopted tool home.
 
-That joined-session installation SHALL:
-- resolve the adopted tool home through the join workflow’s authoritative home-resolution path,
-- invoke the shared Houmao system-skill installer rather than a mailbox-only installation code path,
-- include the current Houmao-owned mailbox skills in the resolved managed-join auto-install selection for the adopted tool,
-- project Houmao-owned mailbox skills only under reserved `houmao-<skillname>` paths in the visible skill destination for that tool,
-- preserve unrelated user-authored skill directories,
-- fail explicitly when default installation is required but the target skill destination cannot be resolved or updated safely.
+The installation SHALL use the shared pack installer, copy projection, and a pack receipt. The agent entrypoint's protected composition SHALL include the notifier-round processing routine and ordinary mailbox routine, while unrelated user-authored skills remain untouched.
 
-The join workflow MAY expose an explicit operator opt-out for default Houmao-owned skill installation. When that opt-out is used, later runtime-owned mailbox prompts and docs SHALL NOT assume the current Houmao-owned mailbox skills are installed for that joined session.
+If the agent pack cannot be staged, validated, or committed safely, join SHALL fail before publishing a managed session whose runtime prompts assume the entrypoint exists. An explicit system-skill opt-out MAY continue without the pack, but later prompts SHALL NOT assume mailbox routines are available.
+
+#### Scenario: Joined mailbox session receives agent pack
+- **WHEN** an operator adopts a mailbox-enabled session without opting out of system skills
+- **THEN** join installs `houmao-agent-entrypoint` into the adopted home
+- **AND THEN** its protected composition contains the ordinary mailbox and notified-round routines
+
+#### Scenario: Joined installation fails closed
+- **WHEN** the agent pack cannot be installed safely into the adopted home
+- **THEN** join fails before publishing the managed session
+- **AND THEN** it reports the pack installation failure without partially projecting mailbox routines
+
+#### Scenario: Join opt-out removes the prompt assumption
+- **WHEN** the operator explicitly opts out of default system-skill installation
+- **THEN** join may continue without the agent pack
+- **AND THEN** later mailbox prompts do not claim that the entrypoint or protected mailbox routines are installed
 
 #### Scenario: Joined mailbox-enabled session receives the managed-join mailbox skill set by default
 - **WHEN** an operator uses `houmao-mgr agents join` to adopt a mailbox-enabled session without opting out of Houmao skill installation
@@ -229,26 +238,22 @@ The skill SHALL NOT present mailbox `rules/` as requiring the agent to execute m
 - **AND THEN** the skill does not treat mailbox `rules/` as an executable mutation contract for ordinary mailbox operations
 
 ### Requirement: Runtime-owned mailbox system skills are available to launched agents through a unified Houmao mailbox surface
-The system SHALL provide implemented mailbox access to agents through runtime-owned mailbox system skills projected from platform-owned templates rather than requiring role-authored mailbox skill content.
+Mailbox-enabled managed homes SHALL receive the agent pack rather than separate top-level mailbox skills.
 
-These mailbox system skills SHALL be projected into mailbox-enabled sessions in a discoverable non-hidden tool-native location under the active skill destination using the same active skill-destination contract as other projected skills.
+The one public mailbox-capable surface SHALL be `houmao-agent-entrypoint`. Its protected `houmao-shared-routines` composition SHALL include `houmao-agent-email-comms` for ordinary mailbox work and `houmao-process-emails-via-gateway` for notified unread-mail rounds. Transport-specific ordinary guidance SHALL remain private to the ordinary mailbox routine.
 
-For Claude sessions whose active skill destination root is `skills` under `CLAUDE_CONFIG_DIR`, the mailbox system skill surface SHALL use top-level Houmao-owned skill directories rather than `skills/mailbox/...`.
+The runtime SHALL NOT project the protected mailbox logical ids as top-level skill directories, SHALL NOT require role-authored mailbox skill content, and SHALL NOT create a parallel hidden mailbox compatibility tree.
 
-For Codex sessions whose active skill destination root remains `skills`, the mailbox system skill surface SHALL use top-level Houmao-owned skill directories rather than `skills/mailbox/...`.
+#### Scenario: Mailbox-enabled Codex agent receives unified nested surface
+- **WHEN** Houmao launches a mailbox-enabled Codex managed agent with default system skills
+- **THEN** the Codex skill root contains top-level `houmao-agent-entrypoint`
+- **AND THEN** both protected mailbox routines are available beneath its shared-routines mount
+- **AND THEN** neither mailbox routine appears as a top-level peer
 
-For Gemini sessions whose active skill destination root is `.gemini/skills`, the mailbox system skill surface SHALL use top-level Houmao-owned skill directories rather than `.gemini/skills/mailbox/...`.
-
-For every mailbox-enabled session, the top-level visible Houmao mailbox skill surface SHALL include:
-
-- `houmao-process-emails-via-gateway`
-- `houmao-agent-email-comms`
-
-The top-level installed mailbox skill names SHALL remain the same across supported mailbox transports, and transport-specific ordinary mailbox guidance SHALL be discovered inside `houmao-agent-email-comms` rather than through separate installed top-level skill directories.
-
-Runtime-owned mailbox skills SHALL remain distinguishable from role-authored skills through reserved Houmao-owned skill names and tool-native projected paths.
-
-The runtime SHALL NOT create a parallel hidden `.system/mailbox/...` mailbox skill tree for ordinary mailbox-skill discovery.
+#### Scenario: Role-authored skills remain independent
+- **WHEN** a managed home includes role-authored skills and the agent pack
+- **THEN** mailbox behavior remains owned by the protected Houmao routines
+- **AND THEN** installation preserves unrelated role-authored skill paths
 
 #### Scenario: Filesystem mailbox-enabled Claude agent receives the unified mailbox surface
 - **WHEN** the runtime starts a Claude session with filesystem mailbox support enabled
@@ -286,40 +291,27 @@ The runtime SHALL NOT create a parallel hidden `.system/mailbox/...` mailbox ski
 - **AND THEN** Gemini sessions do not rely on a parallel `.gemini/skills/mailbox/...` compatibility mirror for ordinary mailbox-skill discovery
 
 ### Requirement: Runtime-owned mailbox skill projection pairs a unified ordinary mailbox skill with the separate processing workflow
-The system SHALL project a round-oriented runtime-owned mailbox workflow skill for gateway-notified email processing into every mailbox-enabled session in addition to a unified runtime-owned ordinary-mailbox skill.
+The agent pack's protected composition SHALL include two distinct mailbox logical routines.
 
-Projected Houmao-owned mailbox skills SHALL use a `houmao-<skillname>` naming convention under the visible tool-native mailbox skill surface so runtime-owned Houmao skills are distinguishable from role-authored or third-party skill names.
+`houmao-process-emails-via-gateway` SHALL own notifier-triggered, bounded unread-mail rounds, assume the notifier supplies the exact gateway base URL, perform metadata-first triage, inspect selected messages, complete work, archive successfully processed mail, and stop for the next notifier wake-up.
 
-That `houmao-<skillname>` convention SHALL also define the activation boundary for Houmao-owned skills: the instruction text must include the keyword `houmao` when it intends to trigger a Houmao-owned skill.
+`houmao-agent-email-comms` SHALL own ordinary discovery, status, list, peek, read, send, post, reply, mark, move, and archive behavior. It SHALL prefer a gateway base URL already present in prompt or route context and SHALL use the manager-owned live resolver only when current context lacks that URL. Filesystem and Stalwart guidance SHALL remain internal to this protected routine.
 
-For Claude sessions whose active skill destination root is `skills`, the round-oriented workflow skill SHALL be available at `skills/houmao-process-emails-via-gateway/`.
+The public agent entrypoint SHALL route to the correct protected routine from operation and notifier context. It SHALL NOT project transport-specific or old compatibility mailbox skills as top-level directories.
 
-For Claude sessions whose active skill destination root is `skills`, the unified ordinary-mailbox skill SHALL be available at `skills/houmao-agent-email-comms/`.
+#### Scenario: Notified round chooses processing routine
+- **WHEN** verified agent context contains a notifier-triggered unread-mail round and gateway URL
+- **THEN** the agent entrypoint routes to protected `houmao-process-emails-via-gateway`
+- **AND THEN** the round stops after processing and archiving the selected successful work
 
-For Codex sessions whose active skill destination root remains `skills`, the round-oriented workflow skill SHALL be available at `skills/houmao-process-emails-via-gateway/`.
+#### Scenario: Ordinary send chooses email-comms routine
+- **WHEN** a verified managed agent asks to send or reply outside a notifier round
+- **THEN** the agent entrypoint routes to protected `houmao-agent-email-comms`
+- **AND THEN** the routine applies the ordinary mailbox discovery and transport guidance
 
-For Codex sessions whose active skill destination root remains `skills`, the unified ordinary-mailbox skill SHALL be available at `skills/houmao-agent-email-comms/`.
-
-For Gemini sessions whose active skill destination root is `.gemini/skills`, the round-oriented workflow skill SHALL be available at `.gemini/skills/houmao-process-emails-via-gateway/`.
-
-For Gemini sessions whose active skill destination root is `.gemini/skills`, the unified ordinary-mailbox skill SHALL be available at `.gemini/skills/houmao-agent-email-comms/`.
-
-The round-oriented workflow skill SHALL:
-
-- act as the default installed runtime-owned procedure for notifier-triggered shared mailbox processing rounds when a live gateway facade is available,
-- assume the notifier round already provides the exact current gateway base URL,
-- define gateway-API-first metadata triage, unread-listing, relevant-message selection, selective inspection, work execution, and post-success archive behavior for the current round,
-- tell the agent to stop after the current round and wait for the next notification rather than proactively polling for more mail.
-
-The unified ordinary-mailbox skill SHALL:
-
-- remain the lower-level operational skill for live discovery, status, list, peek, read, send, post, reply, mark, move, and archive behavior,
-- use a gateway base URL already present in prompt or context when that URL is available,
-- fall back to `houmao-mgr agents mail resolve-live` only when the current gateway base URL cannot be determined from prompt or context,
-- keep filesystem-specific and Stalwart-specific ordinary mailbox guidance as internal pages or references within the same skill package,
-- support the round-oriented workflow skill rather than replacing it as the notifier-facing entrypoint.
-
-The runtime SHALL NOT project separate top-level installed skill directories for `houmao-email-via-agent-gateway`, `houmao-email-via-filesystem`, or `houmao-email-via-stalwart` once the unified ordinary-mailbox skill is in use.
+#### Scenario: Top-level mailbox compatibility paths stay absent
+- **WHEN** the agent pack is installed
+- **THEN** the tool-native skill root does not contain top-level `houmao-process-emails-via-gateway`, `houmao-agent-email-comms`, or transport-specific mailbox compatibility skills
 
 #### Scenario: Claude mailbox-enabled session receives the processing skill and unified ordinary-mailbox skill
 - **WHEN** the runtime starts a mailbox-enabled Claude session
@@ -439,3 +431,51 @@ Runtime mailbox-skill projection SHALL expose no Gemini destination, `.gemini/sk
 - **WHEN** mailbox skill projection receives Gemini as its target tool
 - **THEN** projection fails as unsupported
 - **AND THEN** it does not create `.gemini/skills` content
+
+### Requirement: Runtime mailbox prompts enter through the managed-agent entrypoint
+Runtime-owned notifier, mailbox, and gateway prompts that require Houmao system-skill behavior SHALL invoke or direct the managed agent to `houmao-agent-entrypoint` with the mailbox operation and notifier context.
+
+The public entrypoint SHALL verify managed self identity before routing to the protected `houmao-process-emails-via-gateway` or `houmao-agent-email-comms` routine. Runtime prompts SHALL NOT instruct the agent to invoke either protected logical id as a top-level skill.
+
+#### Scenario: Notifier starts an unread-mail round
+- **WHEN** the runtime wakes a managed agent for gateway-notified unread mail
+- **THEN** the prompt enters through `houmao-agent-entrypoint` with the current gateway context
+- **AND THEN** the entrypoint verifies self identity before routing to the protected processing routine
+
+### Requirement: Generated mailbox prompts require both static routing siblings
+Mailbox command prompts and gateway notifier prompts SHALL use the `$houmao-agent-entrypoint` route only when the target tool-native skill root contains both `houmao-agent-entrypoint/SKILL.md` and `houmao-shared-routines/SKILL.md`.
+
+Presence of only one sibling SHALL be treated as an incomplete skill route. The generated prompt SHALL use the maintained API fallback and SHALL NOT claim that entrypoint routing is installed.
+
+#### Scenario: Agent entrypoint exists without shared routines
+- **WHEN** prompt generation finds `houmao-agent-entrypoint/SKILL.md` but not `houmao-shared-routines/SKILL.md`
+- **THEN** the prompt uses the API-oriented fallback
+- **AND THEN** it does not instruct the agent to invoke a missing shared mailbox route
+
+#### Scenario: Both static siblings exist
+- **WHEN** prompt generation finds both required standalone entrypoints
+- **THEN** the prompt invokes `$houmao-agent-entrypoint` with the appropriate mailbox route
+- **AND THEN** it describes delegation to the shared-routines sibling rather than protected traversal below the entrypoint
+
+### Requirement: Static shared routines preserve distinct mailbox owners
+The static `houmao-shared-routines` skill SHALL own separate parent-scoped children for ordinary email communication and notifier-driven gateway email rounds.
+
+`houmao-agent-email-comms` SHALL preserve ordinary resolver, status, list, peek, read, send, post, reply, mark, move, archive, and transport fallback behavior. `houmao-process-emails-via-gateway` SHALL preserve one prompt-bootstrapped, metadata-first, stop-after-round workflow.
+
+#### Scenario: Verified agent receives notifier prompt
+- **WHEN** the agent entrypoint receives a notifier-driven round with the exact gateway base URL
+- **THEN** it delegates through static shared routines to `houmao-process-emails-via-gateway`
+- **AND THEN** the selected child stops after the bounded round
+
+#### Scenario: Verified agent sends ordinary mail
+- **WHEN** the agent entrypoint receives an ordinary send or reply request
+- **THEN** it delegates through static shared routines to `houmao-agent-email-comms`
+- **AND THEN** it does not use the notifier-round child
+
+### Requirement: Managed mailbox installation uses top-level static siblings
+A default mailbox-capable managed home SHALL receive the complete agent pack as four top-level static skill roots. Mailbox children SHALL remain parent-scoped beneath `houmao-shared-routines` and SHALL NOT be copied beneath `houmao-agent-entrypoint`.
+
+#### Scenario: Codex managed home is prepared for mailbox work
+- **WHEN** Houmao installs default system skills for a mailbox-capable Codex agent
+- **THEN** `houmao-agent-entrypoint` and `houmao-shared-routines` are top-level siblings
+- **AND THEN** ordinary and notifier mailbox children exist only inside shared routines

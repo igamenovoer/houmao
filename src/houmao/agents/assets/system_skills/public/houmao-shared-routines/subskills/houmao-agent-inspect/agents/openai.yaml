@@ -1,0 +1,6 @@
+interface:
+  display_name: "Houmao Agent Inspect"
+  short_description: "Inspect managed agents through read-only Houmao surfaces."
+  default_prompt: "Use $houmao-shared-routines agent-inspect to inspect Houmao managed agents through supported read-only surfaces such as state, detail, mailbox posture, logs, runtime artifacts, and tmux capture once the exact session name or pane target is identified."
+policy:
+  allow_implicit_invocation: false

@@ -34,7 +34,7 @@ If a design or refactoring change breaks functionality in this repository, ident
 Target Python 3.11+ with 4-space indentation and type hints for public logic. Ruff enforces formatting/linting (line length 100), and mypy runs in `strict = true` mode. Use `snake_case` for modules/functions/variables, `PascalCase` for classes, and keep CLI-facing names explicit (for example, `houmao_cli`-style semantics in scripts and commands).
 
 For Markdown documentation, do not hard-wrap lines purely for width; keep paragraphs as natural long lines and only add line breaks for semantic structure (headings, lists, tables, quotes, or code blocks).
-For UML-style diagrams in Markdown output files, use Mermaid fenced code blocks that render inline. In chat or conversational responses, use plain-text ASCII diagrams instead of Mermaid; avoid PlantUML unless the user explicitly requests a different format.
+In chat or conversational responses, prefer plain-text ASCII diagrams to present diagrams. In Markdown output files, use Mermaid fenced code blocks to present diagrams.
 
 ### Python Style (magic-context)
 Follow [`magic-context/instructions/python-coding-guide.md`](magic-context/instructions/python-coding-guide.md) for Python implementation details:

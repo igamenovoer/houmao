@@ -23,9 +23,9 @@ Not yet calibrated. Run a capture and update this file with the observed Claude 
 
 ## Procedure
 
-1. `pixi run tui-pending-state-capture --provider claude --lifecycle scripts/qualification/tui-prompt-admission/lifecycles/claude-1-pending.json --run-root tmp/houmao-dev-testing/claude-cal-1`
-2. `pixi run tui-pending-state-capture --provider claude --lifecycle scripts/qualification/tui-prompt-admission/lifecycles/claude-2-pending.json --run-root tmp/houmao-dev-testing/claude-cal-2`
-3. `pixi run tui-pending-state-capture --provider claude --lifecycle scripts/qualification/tui-prompt-admission/lifecycles/claude-3-pending-long.json --run-root tmp/houmao-dev-testing/claude-cal-3`
+1. `pixi run tui-pending-state-capture --provider claude --lifecycle scripts/qualification/tui-prompt-admission/lifecycles/claude-1-pending.json --run-root tmp/houmao-dev-tui-testing/claude-cal-1`
+2. `pixi run tui-pending-state-capture --provider claude --lifecycle scripts/qualification/tui-prompt-admission/lifecycles/claude-2-pending.json --run-root tmp/houmao-dev-tui-testing/claude-cal-2`
+3. `pixi run tui-pending-state-capture --provider claude --lifecycle scripts/qualification/tui-prompt-admission/lifecycles/claude-3-pending-long.json --run-root tmp/houmao-dev-tui-testing/claude-cal-3`
 4. Inspect each `<run-root>/claude-attempt-001/review/labels.mp4`.
 5. Record the version from each `<run-root>/claude-attempt-001/capture/run-summary.json`.
 6. Update the matching `lifecycles/claude-*-pending*.json` `calibrated_version` and `pending.regex`.

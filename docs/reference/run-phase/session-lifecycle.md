@@ -4,6 +4,8 @@ Module: `src/houmao/agents/realm_controller/runtime.py` — High-level session r
 
 The session lifecycle covers starting, interacting with, resuming, and stopping agent sessions. The `RuntimeSessionController` is the main controller class that manages this lifecycle, backed by persisted session manifests that enable resume across process restarts.
 
+On the skill surface, a human operator uses `$houmao-admin-entrypoint agent-instance ...` with an explicit target. A managed agent uses `$houmao-agent-entrypoint agent-instance ...` after self-identity verification; self-scoped follow-up defaults to verified self. Both entrypoints delegate to the parent-scoped `houmao-shared-routines->houmao-agent-instance` child.
+
 ## RuntimeSessionController
 
 `RuntimeSessionController` is the primary entry point for managing a live agent session. It is constructed via one of two class-level factory functions: `start_runtime_session` (for new sessions) or `resume_runtime_session` (for previously persisted sessions).

@@ -8,9 +8,10 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SYSTEM_SKILLS_ROOT = REPO_ROOT / "src/houmao/agents/assets/system_skills"
-AGENT_DEFINITION_ROOT = SYSTEM_SKILLS_ROOT / "houmao-agent-definition"
-CREDENTIAL_MGR_ROOT = SYSTEM_SKILLS_ROOT / "houmao-credential-mgr"
-TOURING_ROOT = SYSTEM_SKILLS_ROOT / "houmao-touring"
+SHARED_ROUTINES_ROOT = SYSTEM_SKILLS_ROOT / "public/houmao-shared-routines"
+AGENT_DEFINITION_ROOT = SHARED_ROUTINES_ROOT / "subskills/houmao-agent-definition"
+CREDENTIAL_MGR_ROOT = SHARED_ROUTINES_ROOT / "subskills/houmao-credential-mgr"
+WELCOME_ROOT = SYSTEM_SKILLS_ROOT / "public/houmao-admin-welcome"
 
 
 def _read(path: Path) -> str:
@@ -47,22 +48,22 @@ def _relative_markdown_link_targets(path: Path) -> list[str]:
 def test_credential_manager_documents_kimi_login_handling_without_login_helper() -> None:
     """Kimi credential guidance covers CRUD and login handling without login helpers."""
 
-    skill_text = _read(CREDENTIAL_MGR_ROOT / "SKILL.md")
-    add_text = _read(CREDENTIAL_MGR_ROOT / "actions/add.md")
-    set_text = _read(CREDENTIAL_MGR_ROOT / "actions/set.md")
-    login_text = _read(CREDENTIAL_MGR_ROOT / "actions/login.md")
-    kimi_login_text = _read(CREDENTIAL_MGR_ROOT / "subskills/kimi-code-login-handling.md")
+    skill_text = _read(CREDENTIAL_MGR_ROOT / "SKILL-MAIN.md")
+    add_text = _read(CREDENTIAL_MGR_ROOT / "commands/add.md")
+    set_text = _read(CREDENTIAL_MGR_ROOT / "commands/set.md")
+    login_text = _read(CREDENTIAL_MGR_ROOT / "commands/login.md")
+    kimi_login_text = _read(CREDENTIAL_MGR_ROOT / "references/kimi-code-login-handling.md")
     kimi_reference = _read(CREDENTIAL_MGR_ROOT / "references/kimi-credential-kinds.md")
 
     assert "supported CRUD tools: `claude`, `codex`, `kimi`" in skill_text
     assert "supported login-helper tools: `claude`, `codex`" in skill_text
-    assert "Do not present Kimi as having a maintained credential login helper" in skill_text
-    assert "subskills/kimi-code-login-handling.md" in skill_text
+    assert "DO NOT present Kimi as having a maintained credential login helper" in skill_text
+    assert "references/kimi-code-login-handling.md" in skill_text
     assert "Kimi: `references/kimi-credential-kinds.md`" in add_text
     assert "`tool`: one of `claude`, `codex`, or `kimi`" in add_text
     assert "`tool`: one of `claude`, `codex`, or `kimi`" in set_text
     assert "Kimi credential CRUD is supported" in login_text
-    assert "../subskills/kimi-code-login-handling.md" in login_text
+    assert "../references/kimi-code-login-handling.md" in login_text
     assert "Do not run or invent a maintained Kimi login helper" in login_text
     assert "command -v kimi || command -v kimi-code" in kimi_login_text
     assert "KIMI_CODE_HOME" in kimi_login_text
@@ -79,7 +80,7 @@ def test_credential_manager_documents_kimi_login_handling_without_login_helper()
     assert "--config-toml" in kimi_reference
     assert "--credential-json" in kimi_reference
     assert "Fresh Default Kimi Code OAuth Login" in kimi_reference
-    assert "../subskills/kimi-code-login-handling.md" in kimi_reference
+    assert "kimi-code-login-handling.md" in kimi_reference
     assert "Kimi Platform API key" in kimi_reference
     assert "kimi-code-env-<hash>.json" in kimi_reference
 
@@ -87,11 +88,11 @@ def test_credential_manager_documents_kimi_login_handling_without_login_helper()
 def test_agent_definition_kimi_guidance_and_relative_links_resolve() -> None:
     """Agent-definition guidance uses Kimi examples and keeps local links valid."""
 
-    skill_text = _read(AGENT_DEFINITION_ROOT / "SKILL.md")
-    specialists_text = _read(AGENT_DEFINITION_ROOT / "subskills/easy/specialists.md")
-    profiles_text = _read(AGENT_DEFINITION_ROOT / "subskills/easy/profiles.md")
-    launch_text = _read(AGENT_DEFINITION_ROOT / "subskills/easy/launch-instance.md")
-    fast_forward_text = _read(AGENT_DEFINITION_ROOT / "subskills/easy/create-agent-fast-forward.md")
+    skill_text = _read(AGENT_DEFINITION_ROOT / "SKILL-MAIN.md")
+    specialists_text = _read(AGENT_DEFINITION_ROOT / "commands/easy/specialists.md")
+    profiles_text = _read(AGENT_DEFINITION_ROOT / "commands/easy/profiles.md")
+    launch_text = _read(AGENT_DEFINITION_ROOT / "commands/easy/launch-instance.md")
+    fast_forward_text = _read(AGENT_DEFINITION_ROOT / "commands/easy/create-agent-fast-forward.md")
 
     stale_kimi_example = '"name":"general-kimi","tool":"claude"'
     assert stale_kimi_example not in skill_text
@@ -118,16 +119,20 @@ def test_agent_definition_kimi_guidance_and_relative_links_resolve() -> None:
     assert missing_links == []
 
 
-def test_packaged_guidance_includes_kimi_touring_and_avoids_stale_headless_claims() -> None:
+def test_packaged_guidance_includes_kimi_welcome_and_avoids_stale_headless_claims() -> None:
     """Adjacent packaged guidance includes Kimi and avoids old Kimi headless-only text."""
 
-    quickstart_text = _read(TOURING_ROOT / "branches/quickstart.md")
-    concepts_text = _read(TOURING_ROOT / "references/concepts.md")
-    all_packaged_markdown = "\n".join(_read(path) for path in _markdown_files(SYSTEM_SKILLS_ROOT))
+    guided_paths_text = _read(WELCOME_ROOT / "references/guided-paths.md")
+    concepts_text = _read(WELCOME_ROOT / "references/concepts.md")
+    current_roots = (SYSTEM_SKILLS_ROOT / "public",)
+    all_packaged_markdown = "\n".join(
+        _read(path) for root in current_roots for path in _markdown_files(root)
+    )
 
-    assert "`command -v kimi || command -v kimi-code`" in quickstart_text
-    assert "tool adapters for `claude`, `codex`, and `kimi`" in quickstart_text
+    assert "`command -v kimi || command -v kimi-code`" in guided_paths_text
+    assert "tool adapters for `claude`, `codex`, and `kimi`" in guided_paths_text
     assert "`claude`, `codex`, or `kimi`" in concepts_text
     assert "Kimi specialists remain headless-only" not in all_packaged_markdown
     assert 'general-kimi","tool":"claude' not in all_packaged_markdown
     assert "raw Kimi `--auto` or `--yolo` launch flags" in all_packaged_markdown
+    assert not (SYSTEM_SKILLS_ROOT / "protected").exists()

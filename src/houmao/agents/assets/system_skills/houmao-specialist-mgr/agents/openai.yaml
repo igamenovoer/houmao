@@ -1,4 +1,0 @@
-interface:
-  display_name: "Houmao Specialist Compatibility"
-  short_description: "Compatibility wrapper that routes specialist, profile, and fast-forward work to houmao-agent-definition."
-  default_prompt: "Use $houmao-specialist-mgr only as a compatibility redirect. Route specialist, profile, create-agent-fast-forward, launch-agent, and stop-agent work to $houmao-agent-definition."

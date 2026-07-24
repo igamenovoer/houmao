@@ -81,45 +81,36 @@ The Kimi TUI relaunch translation SHALL be:
 - `tool_last_or_new`: `kimi --continue`
 - `exact`: `kimi --session <session_id>`
 
-An exact Kimi relaunch selector SHALL require a non-empty provider-native session id.
+An exact Kimi relaunch selector SHALL require a non-empty provider-native session id. The runtime SHALL NOT use bare `kimi --session` because that starts Kimi's interactive session picker.
 
-The runtime SHALL NOT use bare `kimi --session` for managed relaunch because that starts Kimi's interactive session picker.
-
-When Kimi TUI relaunch resumes a provider chat through `--continue` or `--session <session_id>`, the runtime SHALL reject the relaunch before provider start if the final startup arguments also contain `--yolo`, `--auto`, or `--plan`.
-
-Kimi TUI relaunch SHALL permit launch-owned `--model <alias>` arguments with `--continue` or `--session <session_id>`.
+For maintained Kimi 0.23.x, unattended relaunch SHALL combine strategy-owned `--auto` with `--continue` or `--session <session_id>`. The runtime SHALL reject a final command that combines `--auto` with `--yolo`, but it SHALL NOT reject native auto mode solely because a resume selector is present. Kimi TUI relaunch SHALL continue to permit launch-owned `--model <alias>` arguments with resume selectors.
 
 #### Scenario: Kimi TUI relaunch starts a fresh chat by default
-- **WHEN** an operator relaunches a Kimi TUI managed session without a relaunch chat-session selector
-- **THEN** the runtime respawns Kimi Code without `--continue` or `--session`
-- **AND THEN** the provider starts a fresh Kimi chat according to native Kimi behavior
+- **WHEN** an operator relaunches a Kimi TUI managed session without a chat-session selector
+- **THEN** the runtime respawns Kimi without `--continue` or `--session`
 
-#### Scenario: Kimi TUI relaunch resumes latest chat
-- **WHEN** an operator relaunches a Kimi TUI managed session with relaunch chat-session mode `tool_last_or_new`
-- **THEN** the runtime respawns Kimi Code with `--continue`
-- **AND THEN** it does not send a resume request as a prompt after startup
+#### Scenario: Kimi TUI relaunch resumes latest chat unattended
+- **WHEN** an unattended Kimi TUI session relaunches with mode `tool_last_or_new`
+- **THEN** the runtime respawns Kimi with `--auto --continue`
+- **AND THEN** it does not send a resume or auto-mode request as a prompt after startup
 
-#### Scenario: Kimi TUI relaunch resumes exact chat
-- **WHEN** an operator relaunches a Kimi TUI managed session with relaunch chat-session mode `exact` and provider session id `session_abc`
-- **THEN** the runtime respawns Kimi Code with `--session session_abc`
+#### Scenario: Kimi TUI relaunch resumes exact chat unattended
+- **WHEN** an unattended Kimi TUI session relaunches with mode `exact` and provider session id `session_abc`
+- **THEN** the runtime respawns Kimi with `--auto --session session_abc`
 - **AND THEN** it rejects the relaunch if the exact selector has no provider session id
 
 #### Scenario: Kimi TUI relaunch avoids interactive picker
-- **WHEN** an operator relaunches a Kimi TUI managed session with relaunch chat-session mode `exact`
-- **THEN** the runtime requires the exact selector to contain a provider session id
-- **AND THEN** it never respawns Kimi Code with bare `--session`
+- **WHEN** an operator relaunches a Kimi TUI managed session with mode `exact`
+- **THEN** the runtime never respawns Kimi with bare `--session`
 
-#### Scenario: Kimi TUI relaunch rejects permission-mode conflicts
-- **WHEN** a Kimi TUI managed session is relaunched with relaunch chat-session mode `tool_last_or_new`
-- **AND WHEN** the final launch arguments would combine `--continue` with `--auto`
-- **THEN** Houmao rejects the relaunch before respawning Kimi
-- **AND THEN** the error explains that Kimi cannot combine `--auto`, `--yolo`, or `--plan` with `--continue` or `--session`
+#### Scenario: Kimi TUI relaunch rejects conflicting permission modes
+- **WHEN** final unattended relaunch arguments would contain both `--auto` and `--yolo`
+- **THEN** Houmao rejects or canonicalizes the conflict before provider start
+- **AND THEN** it does not remove strategy-owned `--auto` merely because a resume selector is present
 
 #### Scenario: Kimi TUI relaunch keeps model selection
-- **WHEN** a Kimi TUI managed session is relaunched with relaunch chat-session mode `exact` and provider session id `session_abc`
-- **AND WHEN** the launch-owned Kimi model is `kimi-code/kimi-for-coding`
-- **THEN** the runtime respawns Kimi Code with `--model kimi-code/kimi-for-coding --session session_abc`
-- **AND THEN** it does not reject the relaunch solely because `--model` is present
+- **WHEN** an unattended exact relaunch selects model `kimi-code/kimi-for-coding` and session `session_abc`
+- **THEN** the final command contains `--model kimi-code/kimi-for-coding --auto --session session_abc`
 
 ### Requirement: Kimi Code TUI exposes ready, active, and approval-blocked state
 The Kimi TUI support SHALL expose operator-facing state for prompt-ready surfaces, active response surfaces, and approval-blocked surfaces through the maintained TUI tracking APIs.
@@ -149,3 +140,41 @@ The system SHALL NOT treat footer model metadata such as a model name followed b
 - **WHEN** a captured Kimi TUI snapshot shows footer text containing `thinking`
 - **AND WHEN** the current Kimi surface has a submit-ready prompt and no current active-turn evidence
 - **THEN** the tracked state does not report an active turn solely from that footer text
+
+### Requirement: Kimi unattended TUI startup establishes policy without a conversational turn
+Maintained Kimi 0.23.x unattended TUI startup SHALL use native `--auto` before role bootstrap or workload submission. Houmao SHALL NOT submit `/auto on`, answer a confirmation, or send another conversational command to establish the unattended posture.
+
+Normal unattended startup and work SHALL not enter approval, waiting-for-answer, or confirmation states. If Kimi hard-codes an intervention that no supported setting can suppress, Houmao SHALL retain evidence and report it as an explicit exception rather than silently answering it.
+
+#### Scenario: Fresh unattended Kimi starts prompt-free
+- **WHEN** Houmao launches a fresh maintained Kimi TUI with unattended prompt mode
+- **THEN** the final launch command includes `--auto`
+- **AND THEN** the first managed conversational input is role bootstrap or workload content, not a policy command
+
+#### Scenario: Avoidable confirmation fails unattended validation
+- **WHEN** a normal unattended Kimi scenario displays a confirmation or user-question surface
+- **AND WHEN** current source or CLI settings provide a supported suppression mechanism
+- **THEN** validation fails the unattended contract
+- **AND THEN** the harness does not answer the prompt automatically
+
+### Requirement: Kimi queued-message surfaces remain busy until retained work is released
+The maintained Kimi Code TUI tracker SHALL treat a current source-backed queue pane as evidence that a new independent turn cannot start immediately.
+
+The current Kimi queue-pane evidence SHALL include the bounded hints `ctrl-s to steer immediately`, `will send after current task`, and `will send after compaction` when they occur in the current queue region. A current queue pane SHALL produce active evidence, SHALL set `surface.ready_posture=no`, and SHALL block ready-return success even when the empty editor remains visible and the spinner row falls outside the narrow activity window.
+
+Historical queue-pane text outside the current bounded turn region SHALL NOT keep a later idle editor busy.
+
+#### Scenario: Streaming queue pane blocks readiness
+- **WHEN** a Kimi snapshot shows an empty editor and a current queued message with `ctrl-s to steer immediately`
+- **THEN** the Kimi profile reports current active evidence
+- **AND THEN** it reports `surface.ready_posture=no`
+
+#### Scenario: Deferred current-task queue blocks readiness without a visible spinner
+- **WHEN** a Kimi snapshot shows a current queued message with `will send after current task`
+- **AND WHEN** no moon or braille spinner is inside the narrow spinner window
+- **THEN** the Kimi profile still reports the turn as active and non-ready
+
+#### Scenario: Historical queue text does not block a settled editor
+- **WHEN** older queue-pane text exists outside the bounded latest-turn region
+- **AND WHEN** the current editor is empty and has no current queue, spinner, approval, or tool activity
+- **THEN** the Kimi profile may report the current prompt as ready

@@ -1,0 +1,8 @@
+schema_version = "houmao-agent-definition.v1"
+definition_id = "reference-reviewer"
+revision_id = "1.0.0"
+purpose = "Review a repository against a deploy-time objective with configurable depth."
+revision_digest = "sha256:79c75cae4dac7bd9d26509a065bd707533f185062612f3fb81c0c77d923d9605"
+role_prompt = "assets/prompts/system.md"
+memo_seed = "assets/memo/houmao-memo.md"
+skills = ["assets/skills/review-checklist"]

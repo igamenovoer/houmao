@@ -2028,8 +2028,8 @@ def test_project_specialist_stores_and_clears_system_skill_policy(
             "sk-openai",
             "--codex-auth-json",
             str(auth_json_path),
-            "--system-skill",
-            "houmao-utils-workspace-mgr",
+            "--system-skill-pack",
+            "admin",
         ],
     )
 
@@ -2037,13 +2037,13 @@ def test_project_specialist_stores_and_clears_system_skill_policy(
     create_payload = json.loads(create_result.output)
     assert create_payload["system_skills"] == {
         "mode": "extend",
-        "skills": ["houmao-utils-workspace-mgr"],
+        "packs": ["admin"],
     }
     preset_path = Path(create_payload["generated"]["preset"])
     preset_payload = yaml.safe_load(preset_path.read_text(encoding="utf-8"))
     assert preset_payload["launch"]["system_skills"] == {
         "mode": "extend",
-        "skills": ["houmao-utils-workspace-mgr"],
+        "packs": ["admin"],
     }
 
     get_result = runner.invoke(
@@ -2053,7 +2053,7 @@ def test_project_specialist_stores_and_clears_system_skill_policy(
     assert get_result.exit_code == 0, get_result.output
     assert json.loads(get_result.output)["system_skills"] == {
         "mode": "extend",
-        "skills": ["houmao-utils-workspace-mgr"],
+        "packs": ["admin"],
     }
 
     clear_result = runner.invoke(
@@ -2101,13 +2101,13 @@ def test_project_specialist_rejects_removed_system_skill_selector(
             "sk-openai",
             "--codex-auth-json",
             str(auth_json_path),
-            "--system-skill",
-            "houmao-utils-llm-wiki",
+            "--system-skill-pack",
+            "unknown",
         ],
     )
 
     assert create_result.exit_code != 0
-    assert "Unknown system skill `houmao-utils-llm-wiki`" in create_result.output
+    assert "Unknown system-skill pack `unknown`" in create_result.output
     get_result = runner.invoke(cli, ["project", "specialist", "get", "--name", "researcher"])
     assert get_result.exit_code != 0
 
@@ -4622,15 +4622,15 @@ def test_project_profile_stores_patches_and_disables_system_skill_policy(
             "researcher",
             "--workdir",
             "/repos/alice",
-            "--system-skill",
-            "houmao-utils-workspace-mgr",
+            "--system-skill-pack",
+            "agent",
         ],
     )
     assert create_result.exit_code == 0, create_result.output
     create_payload = json.loads(create_result.output)
     assert create_payload["defaults"]["system_skills"] == {
         "mode": "extend",
-        "skills": ["houmao-utils-workspace-mgr"],
+        "packs": ["agent"],
     }
 
     patch_result = runner.invoke(
@@ -4650,7 +4650,7 @@ def test_project_profile_stores_patches_and_disables_system_skill_policy(
     assert patch_payload["defaults"]["workdir"] == "/repos/alice-next"
     assert patch_payload["defaults"]["system_skills"] == {
         "mode": "extend",
-        "skills": ["houmao-utils-workspace-mgr"],
+        "packs": ["agent"],
     }
 
     disable_result = runner.invoke(
@@ -4676,8 +4676,8 @@ def test_project_profile_stores_patches_and_disables_system_skill_policy(
             "--name",
             "alice",
             "--no-system-skills",
-            "--system-skill",
-            "houmao-utils-workspace-mgr",
+            "--system-skill-pack",
+            "agent",
         ],
     )
     assert invalid_result.exit_code != 0
@@ -4705,13 +4705,13 @@ def test_project_profile_rejects_removed_system_skill_selector(
             "researcher",
             "--workdir",
             "/repos/alice",
-            "--system-skill",
-            "houmao-utils-llm-wiki",
+            "--system-skill-pack",
+            "unknown",
         ],
     )
 
     assert create_result.exit_code != 0
-    assert "Unknown system skill `houmao-utils-llm-wiki`" in create_result.output
+    assert "Unknown system-skill pack `unknown`" in create_result.output
     assert not (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").exists()
 
 
@@ -4999,8 +4999,8 @@ def test_project_profile_create_yes_replaces_and_clears_omitted_defaults(
             "researcher",
             "--workdir",
             "/repos/alice",
-            "--system-skill",
-            "houmao-utils-workspace-mgr",
+            "--system-skill-pack",
+            "agent",
             "--mail-transport",
             "filesystem",
             "--mail-principal-id",
@@ -5086,22 +5086,22 @@ def test_project_launch_profiles_store_set_and_clear_system_skill_policy(
             "nightly",
             "--recipe",
             "researcher-codex-default",
-            "--system-skill",
-            "houmao-utils-workspace-mgr",
+            "--system-skill-pack",
+            "agent",
         ],
     )
     assert add_result.exit_code == 0, add_result.output
     add_payload = json.loads(add_result.output)
     assert add_payload["defaults"]["system_skills"] == {
         "mode": "extend",
-        "skills": ["houmao-utils-workspace-mgr"],
+        "packs": ["agent"],
     }
 
     projection_path = repo_root / ".houmao" / "agents" / "launch-profiles" / "nightly.yaml"
     projection_payload = yaml.safe_load(projection_path.read_text(encoding="utf-8"))
     assert projection_payload["defaults"]["system_skills"] == {
         "mode": "extend",
-        "skills": ["houmao-utils-workspace-mgr"],
+        "packs": ["agent"],
     }
 
     set_result = runner.invoke(
@@ -5115,13 +5115,16 @@ def test_project_launch_profiles_store_set_and_clear_system_skill_policy(
             "nightly",
             "--system-skills-mode",
             "replace",
-            "--system-skill-set",
-            "all",
+            "--system-skill-pack",
+            "admin",
         ],
     )
     assert set_result.exit_code == 0, set_result.output
     set_payload = json.loads(set_result.output)
-    assert set_payload["defaults"]["system_skills"] == {"mode": "replace", "sets": ["all"]}
+    assert set_payload["defaults"]["system_skills"] == {
+        "mode": "replace",
+        "packs": ["admin"],
+    }
 
     clear_result = runner.invoke(
         cli,
@@ -5169,8 +5172,8 @@ def test_project_launch_profile_add_yes_replaces_and_clears_omitted_defaults(
             "researcher-codex-default",
             "--workdir",
             "/repos/alice",
-            "--system-skill",
-            "houmao-utils-workspace-mgr",
+            "--system-skill-pack",
+            "agent",
             "--mail-transport",
             "filesystem",
             "--mail-principal-id",

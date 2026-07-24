@@ -25,7 +25,7 @@ Dry-run a lifecycle to inspect resolved steps:
 ```bash
 pixi run tui-pending-state-capture \
   --provider codex \
-  --run-root tmp/houmao-dev-testing/20260714-codex-pending \
+  --run-root tmp/houmao-dev-tui-testing/20260714-codex-pending \
   --dry-run
 ```
 
@@ -34,7 +34,7 @@ Capture one attempt with the default single-pending manifest:
 ```bash
 pixi run tui-pending-state-capture \
   --provider codex \
-  --run-root tmp/houmao-dev-testing/20260714-codex-pending
+  --run-root tmp/houmao-dev-tui-testing/20260714-codex-pending
 ```
 
 Use a count-targeted manifest to exercise 1, 2, or 3 coexisting pending prompts:
@@ -43,7 +43,7 @@ Use a count-targeted manifest to exercise 1, 2, or 3 coexisting pending prompts:
 pixi run tui-pending-state-capture \
   --provider codex \
   --lifecycle scripts/qualification/tui-prompt-admission/lifecycles/codex-3-pending-long.json \
-  --run-root tmp/houmao-dev-testing/20260714-codex-3-pending-long
+  --run-root tmp/houmao-dev-tui-testing/20260714-codex-3-pending-long
 ```
 
 The `3-pending-long` manifest includes a ~500-character canary prompt so the review video shows how a long queued message is rendered.
@@ -53,7 +53,7 @@ Skip the review video for faster iteration:
 ```bash
 pixi run tui-pending-state-capture \
   --provider codex \
-  --run-root tmp/houmao-dev-testing/20260714-codex-pending \
+  --run-root tmp/houmao-dev-tui-testing/20260714-codex-pending \
   --skip-video
 ```
 
@@ -62,7 +62,7 @@ pixi run tui-pending-state-capture \
 For each attempt the runner creates:
 
 ```text
-tmp/houmao-dev-testing/<run-id>/
+tmp/houmao-dev-tui-testing/<run-id>/
   <provider>-attempt-001/
     capture/
       recording/           # terminal-record artifacts

@@ -24,9 +24,15 @@ from houmao.agents.launch_overrides import LaunchArgsSection, LaunchOverrides
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxDeclarativeConfig
 from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig
 from houmao.agents.system_skills import (
-    SYSTEM_SKILL_EXT_GRAPHING,
-    SYSTEM_SKILL_UTILS_WORKSPACE_MGR,
-    SystemSkillCatalogError,
+    SYSTEM_SKILL_AGENT_LOOP_LITE,
+    SYSTEM_SKILL_AGENT_LOOP_PRO,
+    SYSTEM_SKILL_AGENT_ENTRYPOINT,
+    SYSTEM_SKILL_ADMIN_ENTRYPOINT,
+    SYSTEM_SKILL_ADMIN_WELCOME,
+    SYSTEM_SKILL_PACK_ADMIN,
+    SYSTEM_SKILL_PACK_AGENT,
+    SYSTEM_SKILL_SHARED_ROUTINES,
+    SystemSkillPolicyError,
     SystemSkillSelectionPolicy,
     discover_installed_system_skills,
 )
@@ -35,6 +41,18 @@ from houmao.agents.system_skills import (
 def _write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+def _agent_shared_root(home_path: Path) -> Path:
+    """Return the standalone shared-routine root beside the agent entrypoint."""
+
+    return home_path / "skills" / SYSTEM_SKILL_SHARED_ROUTINES
+
+
+def _agent_routine_root(home_path: Path, logical_id: str) -> Path:
+    """Return one complete shared child root."""
+
+    return _agent_shared_root(home_path) / "subskills" / logical_id
 
 
 def _seed_repo(agent_def_dir: Path) -> None:
@@ -276,53 +294,38 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert config_payload["model_reasoning_effort"] == "medium"
     assert config_payload["tui"]["show_tooltips"] is False
     assert (home / "skills/skill-a").is_symlink()
-    visible_gateway_skill = home / "skills/houmao-agent-email-comms/SKILL.md"
-    visible_processing_skill = home / "skills/houmao-process-emails-via-gateway/SKILL.md"
-    visible_mailbox_mgr_skill = home / "skills/houmao-mailbox-mgr/SKILL.md"
-    visible_memory_mgr_skill = home / "skills/houmao-memory-mgr/SKILL.md"
-    visible_advanced_skill = home / "skills/houmao-adv-usage-pattern/SKILL.md"
-    assert visible_processing_skill.is_file()
-    assert visible_gateway_skill.is_file()
-    assert visible_mailbox_mgr_skill.is_file()
-    assert visible_memory_mgr_skill.is_file()
-    assert visible_advanced_skill.is_file()
-    assert (home / "skills/houmao-project-mgr/SKILL.md").is_file()
-    assert (home / "skills/houmao-specialist-mgr/SKILL.md").is_file()
-    assert (home / "skills/houmao-credential-mgr/SKILL.md").is_file()
-    assert (home / "skills/houmao-agent-definition/SKILL.md").is_file()
-    assert (home / "skills/houmao-agent-loop-pro/SKILL.md").is_file()
-    assert (home / "skills/houmao-agent-loop-lite/SKILL.md").is_file()
-    assert (home / "skills/houmao-agent-instance/SKILL.md").is_file()
-    assert (home / "skills/houmao-agent-inspect/SKILL.md").is_file()
-    assert (home / "skills/houmao-operator-messaging/SKILL.md").is_file()
-    assert (home / "skills/houmao-agent-messaging/SKILL.md").is_file()
-    assert (home / "skills/houmao-agent-gateway/SKILL.md").is_file()
-    assert (home / "skills/houmao-interop-ag-ui/SKILL.md").is_file()
-    assert (home / f"skills/{SYSTEM_SKILL_EXT_GRAPHING}/SKILL.md").is_file()
+    agent_entrypoint = home / "skills" / SYSTEM_SKILL_AGENT_ENTRYPOINT
+    assert (agent_entrypoint / "SKILL.md").is_file()
+    for logical_id in (
+        "houmao-project-mgr",
+        "houmao-credential-mgr",
+        "houmao-agent-definition",
+        "houmao-operator-messaging",
+        "houmao-process-emails-via-gateway",
+        "houmao-agent-email-comms",
+        "houmao-mailbox-mgr",
+        "houmao-memory-mgr",
+        "houmao-adv-usage-pattern",
+        "houmao-utils-workspace-mgr",
+        "houmao-agent-instance",
+        "houmao-agent-inspect",
+        "houmao-agent-messaging",
+        "houmao-agent-gateway",
+        "houmao-interop-ag-ui",
+        "houmao-ext-graphing",
+    ):
+        assert (_agent_routine_root(home, logical_id) / "SKILL-MAIN.md").is_file()
+    assert (home / f"skills/{SYSTEM_SKILL_AGENT_LOOP_PRO}/SKILL.md").is_file()
+    assert (home / f"skills/{SYSTEM_SKILL_AGENT_LOOP_LITE}/SKILL.md").is_file()
+    assert not (home / "skills/houmao-agent-email-comms").exists()
     assert not (home / "skills/.system/mailbox").exists()
     assert not (home / "skills/skill-b").exists()
     installed_records = discover_installed_system_skills(tool="codex", home_path=home)
     assert tuple(record.name for record in installed_records) == (
-        "houmao-process-emails-via-gateway",
-        "houmao-agent-email-comms",
-        "houmao-adv-usage-pattern",
-        "houmao-utils-workspace-mgr",
-        "houmao-ext-graphing",
-        "houmao-touring",
-        "houmao-mailbox-mgr",
-        "houmao-memory-mgr",
-        "houmao-project-mgr",
-        "houmao-specialist-mgr",
-        "houmao-credential-mgr",
-        "houmao-agent-definition",
-        "houmao-agent-loop-pro",
-        "houmao-agent-loop-lite",
-        "houmao-agent-instance",
-        "houmao-agent-inspect",
-        "houmao-operator-messaging",
-        "houmao-agent-messaging",
-        "houmao-agent-gateway",
-        "houmao-interop-ag-ui",
+        SYSTEM_SKILL_AGENT_ENTRYPOINT,
+        SYSTEM_SKILL_SHARED_ROUTINES,
+        SYSTEM_SKILL_AGENT_LOOP_PRO,
+        SYSTEM_SKILL_AGENT_LOOP_LITE,
     )
 
     # Credential file projection and env contract setup.
@@ -364,7 +367,7 @@ def test_build_brain_home_applies_source_additive_system_skill_policy(
             credential_profile="personal-a",
             source_system_skill_policy=SystemSkillSelectionPolicy(
                 mode="extend",
-                skill_names=(SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
+                pack_ids=(SYSTEM_SKILL_PACK_ADMIN,),
             ),
             home_id="codex-home-source-system-skills",
         )
@@ -372,8 +375,14 @@ def test_build_brain_home_applies_source_additive_system_skill_policy(
 
     installed_records = discover_installed_system_skills(tool="codex", home_path=result.home_path)
     installed_names = tuple(record.name for record in installed_records)
-    assert SYSTEM_SKILL_UTILS_WORKSPACE_MGR in installed_names
-    assert (result.home_path / f"skills/{SYSTEM_SKILL_UTILS_WORKSPACE_MGR}/SKILL.md").is_file()
+    assert installed_names == (
+        SYSTEM_SKILL_ADMIN_WELCOME,
+        SYSTEM_SKILL_ADMIN_ENTRYPOINT,
+        SYSTEM_SKILL_AGENT_ENTRYPOINT,
+        SYSTEM_SKILL_SHARED_ROUTINES,
+        SYSTEM_SKILL_AGENT_LOOP_PRO,
+        SYSTEM_SKILL_AGENT_LOOP_LITE,
+    )
 
     manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
     system_skill_provenance = manifest["runtime"]["launch_contract"]["construction_provenance"][
@@ -381,10 +390,25 @@ def test_build_brain_home_applies_source_additive_system_skill_policy(
     ]
     assert system_skill_provenance["source_policy"] == {
         "mode": "extend",
-        "skills": [SYSTEM_SKILL_UTILS_WORKSPACE_MGR],
+        "packs": [SYSTEM_SKILL_PACK_ADMIN],
     }
     assert system_skill_provenance["profile_policy"] == {}
-    assert SYSTEM_SKILL_UTILS_WORKSPACE_MGR in system_skill_provenance["resolved_skills"]
+    assert system_skill_provenance["selected_packs"] == [
+        SYSTEM_SKILL_PACK_AGENT,
+        SYSTEM_SKILL_PACK_ADMIN,
+    ]
+    assert system_skill_provenance["standalone_skills"] == [
+        SYSTEM_SKILL_AGENT_ENTRYPOINT,
+        SYSTEM_SKILL_SHARED_ROUTINES,
+        SYSTEM_SKILL_AGENT_LOOP_PRO,
+        SYSTEM_SKILL_AGENT_LOOP_LITE,
+        SYSTEM_SKILL_ADMIN_WELCOME,
+        SYSTEM_SKILL_ADMIN_ENTRYPOINT,
+    ]
+    config_path = result.home_path / ".houmao/system-skills/codex/houmao-skill-config.json"
+    assert system_skill_provenance["config_path"] == str(config_path)
+    assert "receipt_path" not in system_skill_provenance
+    assert config_path.is_file()
 
 
 def test_build_brain_home_rejects_removed_llm_wiki_system_skill_policy_before_mutation(
@@ -395,9 +419,7 @@ def test_build_brain_home_rejects_removed_llm_wiki_system_skill_policy_before_mu
     agent_def_dir.mkdir(parents=True)
     _seed_repo(agent_def_dir)
 
-    with pytest.raises(
-        SystemSkillCatalogError, match="Unknown system skill `houmao-utils-llm-wiki`"
-    ):
+    with pytest.raises(SystemSkillPolicyError, match="Unknown system-skill pack `unknown`"):
         build_brain_home(
             BuildRequest(
                 agent_def_dir=agent_def_dir,
@@ -408,7 +430,7 @@ def test_build_brain_home_rejects_removed_llm_wiki_system_skill_policy_before_mu
                 credential_profile="personal-a",
                 source_system_skill_policy=SystemSkillSelectionPolicy(
                     mode="extend",
-                    skill_names=("houmao-utils-llm-wiki",),
+                    pack_ids=("unknown",),
                 ),
                 home_id="codex-home-removed-system-skill",
             )
@@ -434,11 +456,11 @@ def test_build_brain_home_profile_replacement_overrides_source_system_skill_poli
             credential_profile="personal-a",
             source_system_skill_policy=SystemSkillSelectionPolicy(
                 mode="extend",
-                skill_names=(SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
+                pack_ids=(SYSTEM_SKILL_PACK_ADMIN,),
             ),
             launch_profile_system_skill_policy=SystemSkillSelectionPolicy(
                 mode="replace",
-                set_names=("core",),
+                pack_ids=(SYSTEM_SKILL_PACK_AGENT,),
             ),
             home_id="codex-home-profile-system-skills",
         )
@@ -448,7 +470,12 @@ def test_build_brain_home_profile_replacement_overrides_source_system_skill_poli
         record.name
         for record in discover_installed_system_skills(tool="codex", home_path=result.home_path)
     )
-    assert SYSTEM_SKILL_UTILS_WORKSPACE_MGR in installed_names
+    assert installed_names == (
+        SYSTEM_SKILL_AGENT_ENTRYPOINT,
+        SYSTEM_SKILL_SHARED_ROUTINES,
+        SYSTEM_SKILL_AGENT_LOOP_PRO,
+        SYSTEM_SKILL_AGENT_LOOP_LITE,
+    )
 
     manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
     system_skill_provenance = manifest["runtime"]["launch_contract"]["construction_provenance"][
@@ -456,12 +483,19 @@ def test_build_brain_home_profile_replacement_overrides_source_system_skill_poli
     ]
     assert system_skill_provenance["source_policy"] == {
         "mode": "extend",
-        "skills": [SYSTEM_SKILL_UTILS_WORKSPACE_MGR],
+        "packs": [SYSTEM_SKILL_PACK_ADMIN],
     }
-    assert system_skill_provenance["profile_policy"] == {"mode": "replace", "sets": ["core"]}
-    assert system_skill_provenance["selected_sets"] == ["core"]
-    assert system_skill_provenance["explicit_skills"] == []
-    assert SYSTEM_SKILL_UTILS_WORKSPACE_MGR in system_skill_provenance["resolved_skills"]
+    assert system_skill_provenance["profile_policy"] == {
+        "mode": "replace",
+        "packs": [SYSTEM_SKILL_PACK_AGENT],
+    }
+    assert system_skill_provenance["selected_packs"] == [SYSTEM_SKILL_PACK_AGENT]
+    assert system_skill_provenance["standalone_skills"] == [
+        SYSTEM_SKILL_AGENT_ENTRYPOINT,
+        SYSTEM_SKILL_SHARED_ROUTINES,
+        SYSTEM_SKILL_AGENT_LOOP_PRO,
+        SYSTEM_SKILL_AGENT_LOOP_LITE,
+    ]
 
 
 def test_build_brain_home_disabled_profile_policy_removes_stale_system_skills_on_reuse(
@@ -482,7 +516,7 @@ def test_build_brain_home_disabled_profile_policy_removes_stale_system_skills_on
             home_id="codex-home-reused-system-skills",
         )
     )
-    assert (first_result.home_path / "skills/houmao-project-mgr/SKILL.md").is_file()
+    assert (first_result.home_path / f"skills/{SYSTEM_SKILL_AGENT_ENTRYPOINT}/SKILL.md").is_file()
 
     second_result = build_brain_home(
         BuildRequest(
@@ -504,8 +538,13 @@ def test_build_brain_home_disabled_profile_policy_removes_stale_system_skills_on
         "system_skills"
     ]
     assert system_skill_provenance["profile_policy"] == {"mode": "none"}
-    assert system_skill_provenance["resolved_skills"] == []
-    assert "houmao-project-mgr" in system_skill_provenance["removed_skills"]
+    assert system_skill_provenance["selected_packs"] == []
+    assert system_skill_provenance["standalone_skills"] == []
+    assert system_skill_provenance["removed_packs"] == [SYSTEM_SKILL_PACK_AGENT]
+    assert (
+        f"skills/{SYSTEM_SKILL_AGENT_ENTRYPOINT}"
+        in system_skill_provenance["removed_projected_relative_dirs"]
+    )
 
 
 def test_build_brain_home_rejects_registered_system_skill_name_collision(
@@ -731,29 +770,20 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
         )
     )
 
-    processing_skill = (
-        result.home_path / "skills/houmao-process-emails-via-gateway/SKILL.md"
-    ).read_text(encoding="utf-8")
-    gateway_skill = (result.home_path / "skills/houmao-agent-email-comms/SKILL.md").read_text(
-        encoding="utf-8"
-    )
-    mailbox_mgr_skill = (result.home_path / "skills/houmao-mailbox-mgr/SKILL.md").read_text(
-        encoding="utf-8"
-    )
-    memory_mgr_skill = (result.home_path / "skills/houmao-memory-mgr/SKILL.md").read_text(
-        encoding="utf-8"
-    )
-    advanced_skill = (result.home_path / "skills/houmao-adv-usage-pattern/SKILL.md").read_text(
-        encoding="utf-8"
-    )
+    processing_root = _agent_routine_root(result.home_path, "houmao-process-emails-via-gateway")
+    gateway_root = _agent_routine_root(result.home_path, "houmao-agent-email-comms")
+    mailbox_mgr_root = _agent_routine_root(result.home_path, "houmao-mailbox-mgr")
+    memory_mgr_root = _agent_routine_root(result.home_path, "houmao-memory-mgr")
+    advanced_root = _agent_routine_root(result.home_path, "houmao-adv-usage-pattern")
+    processing_skill = (processing_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
+    gateway_skill = (gateway_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
+    mailbox_mgr_skill = (mailbox_mgr_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
+    memory_mgr_skill = (memory_mgr_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
+    advanced_skill = (advanced_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
     pairwise_edge_loop_pattern = (
-        result.home_path
-        / "skills/houmao-adv-usage-pattern/patterns/pairwise-edge-loop-via-gateway-and-mailbox.md"
+        advanced_root / "commands/pairwise-edge-loop-via-gateway-and-mailbox.md"
     )
-    relay_loop_pattern = (
-        result.home_path
-        / "skills/houmao-adv-usage-pattern/patterns/relay-loop-via-gateway-and-mailbox.md"
-    )
+    relay_loop_pattern = advanced_root / "commands/relay-loop-via-gateway-and-mailbox.md"
 
     assert "houmao-process-emails-via-gateway" in processing_skill
     assert "metadata-first triage" in processing_skill
@@ -761,10 +791,10 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     assert "It is acceptable to defer unrelated open emails" in processing_skill
     assert "Archive only the successfully processed selected emails" in processing_skill
     assert "wait for the next notification" in processing_skill
-    assert "Do not switch to `houmao-mgr agents self mail resolve-live`" in processing_skill
+    assert "DO NOT switch to `houmao-mgr agents self mail resolve-live`" in processing_skill
     assert "pixi run houmao-mgr agents self mail resolve-live" not in processing_skill
     assert "houmao-agent-email-comms" in gateway_skill
-    assert "houmao-process-emails-via-gateway" in gateway_skill
+    assert "houmao-shared-routines->houmao-process-emails-via-gateway" in gateway_skill
     assert (
         "current prompt or recent mailbox context already provides the exact current gateway base URL"
         in gateway_skill
@@ -813,50 +843,53 @@ def test_build_brain_home_projects_claude_mailbox_skills_top_level(
     )
 
     skills_root = result.home_path / "skills"
-    processing_skill = (skills_root / "houmao-process-emails-via-gateway/SKILL.md").read_text(
-        encoding="utf-8"
-    )
-    gateway_skill = (skills_root / "houmao-agent-email-comms/SKILL.md").read_text(encoding="utf-8")
-    mailbox_mgr_skill = (skills_root / "houmao-mailbox-mgr/SKILL.md").read_text(encoding="utf-8")
-    filesystem_skill = (
-        skills_root / "houmao-agent-email-comms/transports/filesystem.md"
-    ).read_text(encoding="utf-8")
-    stalwart_skill = (skills_root / "houmao-agent-email-comms/transports/stalwart.md").read_text(
-        encoding="utf-8"
-    )
-    curl_reference = (
-        skills_root / "houmao-agent-email-comms/references/curl-examples.md"
-    ).read_text(encoding="utf-8")
+    processing_root = _agent_routine_root(result.home_path, "houmao-process-emails-via-gateway")
+    gateway_root = _agent_routine_root(result.home_path, "houmao-agent-email-comms")
+    mailbox_mgr_root = _agent_routine_root(result.home_path, "houmao-mailbox-mgr")
+    filesystem_path = gateway_root / "references/transports/filesystem.md"
+    stalwart_path = gateway_root / "references/transports/stalwart.md"
+    processing_skill = (processing_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
+    gateway_skill = (gateway_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
+    mailbox_mgr_skill = (mailbox_mgr_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
+    filesystem_skill = filesystem_path.read_text(encoding="utf-8")
+    stalwart_skill = stalwart_path.read_text(encoding="utf-8")
+    curl_reference = (gateway_root / "references/curl-examples.md").read_text(encoding="utf-8")
 
-    assert (skills_root / "houmao-process-emails-via-gateway/SKILL.md").is_file()
-    assert (skills_root / "houmao-agent-email-comms/SKILL.md").is_file()
-    assert (skills_root / "houmao-mailbox-mgr/SKILL.md").is_file()
-    assert (skills_root / "houmao-memory-mgr/SKILL.md").is_file()
-    assert (skills_root / "houmao-adv-usage-pattern/SKILL.md").is_file()
-    assert (skills_root / "houmao-agent-email-comms/transports/filesystem.md").is_file()
-    assert (skills_root / "houmao-agent-email-comms/transports/stalwart.md").is_file()
+    assert (skills_root / f"{SYSTEM_SKILL_AGENT_ENTRYPOINT}/SKILL.md").is_file()
+    assert (processing_root / "SKILL-MAIN.md").is_file()
+    assert (gateway_root / "SKILL-MAIN.md").is_file()
+    assert (mailbox_mgr_root / "SKILL-MAIN.md").is_file()
+    assert (_agent_routine_root(result.home_path, "houmao-memory-mgr") / "SKILL-MAIN.md").is_file()
+    assert (
+        _agent_routine_root(result.home_path, "houmao-adv-usage-pattern") / "SKILL-MAIN.md"
+    ).is_file()
+    assert filesystem_path.is_file()
+    assert stalwart_path.is_file()
     assert not (skills_root / "mailbox").exists()
     assert not (agent_def_dir / ".claude").exists()
-    assert "houmao-agent-email-comms" in processing_skill
-    assert "installed Houmao skill `houmao-agent-email-comms`" in processing_skill
+    assert "houmao-shared-routines->houmao-agent-email-comms" in processing_skill
+    assert (
+        "installed Houmao skill "
+        "`houmao-shared-routines->houmao-agent-email-comms`" in processing_skill
+    )
     assert (
         "current prompt or recent mailbox context already provides the exact current gateway base URL"
         in (gateway_skill)
     )
     assert "references/root-selection.md" in mailbox_mgr_skill
     assert "For notifier-driven shared mailbox gateway work" in filesystem_skill
-    assert "use `houmao-process-emails-via-gateway`" in filesystem_skill
+    assert "use `houmao-shared-routines->houmao-process-emails-via-gateway`" in filesystem_skill
     assert "$GATEWAY_BASE_URL/v1/mail/status" in curl_reference
     assert "houmao-mgr agents self mail resolve-live | jq -r '.gateway.base_url'" in curl_reference
     assert "pixi run houmao-mgr agents self mail resolve-live" not in curl_reference
     assert '"schema_version":1,"message_refs":["<opaque message_ref>"]' in curl_reference
 
-    assert "houmao-process-emails-via-gateway" in filesystem_skill
+    assert "houmao-shared-routines->houmao-process-emails-via-gateway" in filesystem_skill
     assert "houmao-agent-email-comms" not in filesystem_skill
     assert "gateway: null" in filesystem_skill
     assert "filesystem" in filesystem_skill
     assert "pixi run houmao-mgr agents self mail resolve-live" not in filesystem_skill
-    assert "houmao-process-emails-via-gateway" in stalwart_skill
+    assert "houmao-shared-routines->houmao-process-emails-via-gateway" in stalwart_skill
     assert "houmao-agent-email-comms" not in stalwart_skill
     assert "gateway: null" in stalwart_skill
     assert "stalwart" in stalwart_skill
@@ -1091,8 +1124,10 @@ def test_build_brain_home_projects_kimi_oauth_files_and_skills(tmp_path: Path) -
     manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
 
     assert (result.home_path / "skills/skill-a").is_symlink()
-    assert (result.home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
-    assert (result.home_path / f"skills/{SYSTEM_SKILL_EXT_GRAPHING}/SKILL.md").is_file()
+    assert (result.home_path / f"skills/{SYSTEM_SKILL_AGENT_ENTRYPOINT}/SKILL.md").is_file()
+    assert (
+        _agent_routine_root(result.home_path, "houmao-ext-graphing") / "SKILL-MAIN.md"
+    ).is_file()
     config_payload = tomllib.loads((result.home_path / "config.toml").read_text(encoding="utf-8"))
     assert config_payload["default_model"] == "kimi-code/default"
     assert config_payload["extra_skill_dirs"] == [str((result.home_path / "skills").resolve())]
@@ -1120,22 +1155,27 @@ def test_build_brain_home_projects_kimi_oauth_files_and_skills(tmp_path: Path) -
 
 
 @pytest.mark.parametrize(
-    ("profile_policy", "expected_system_skill_names"),
+    ("profile_policy", "expected_standalone_skill_names"),
     [
         (SystemSkillSelectionPolicy(mode="none"), ()),
         (
             SystemSkillSelectionPolicy(
                 mode="replace",
-                skill_names=(SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
+                pack_ids=(SYSTEM_SKILL_PACK_AGENT,),
             ),
-            (SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
+            (
+                SYSTEM_SKILL_AGENT_ENTRYPOINT,
+                SYSTEM_SKILL_SHARED_ROUTINES,
+                SYSTEM_SKILL_AGENT_LOOP_PRO,
+                SYSTEM_SKILL_AGENT_LOOP_LITE,
+            ),
         ),
     ],
 )
 def test_build_brain_home_projects_required_auto_skill_independent_from_system_skill_policy(
     tmp_path: Path,
     profile_policy: SystemSkillSelectionPolicy,
-    expected_system_skill_names: tuple[str, ...],
+    expected_standalone_skill_names: tuple[str, ...],
 ) -> None:
     agent_def_dir = tmp_path / "repo"
     agent_def_dir.mkdir(parents=True)
@@ -1183,11 +1223,11 @@ def test_build_brain_home_projects_required_auto_skill_independent_from_system_s
     assert auto_skill_provenance["destination_root"] == "skills"
     assert auto_skill_provenance["prompt_reference"] == "brain_manifest.inputs.role_prompt_text"
     assert auto_skill_provenance["prompt_sha256"] == prompt_sha256(prompt_text)
-    assert system_skill_provenance["resolved_skills"] == list(expected_system_skill_names)
-    for skill_name in expected_system_skill_names:
+    assert system_skill_provenance["standalone_skills"] == list(expected_standalone_skill_names)
+    for skill_name in expected_standalone_skill_names:
         assert (result.home_path / f"skills/{skill_name}/SKILL.md").is_file()
-    if not expected_system_skill_names:
-        assert not (result.home_path / f"skills/{SYSTEM_SKILL_UTILS_WORKSPACE_MGR}").exists()
+    if not expected_standalone_skill_names:
+        assert not (result.home_path / f"skills/{SYSTEM_SKILL_AGENT_ENTRYPOINT}").exists()
 
 
 def test_build_brain_home_preserves_kimi_extra_skill_dirs_without_duplicates(

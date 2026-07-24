@@ -189,43 +189,46 @@ houmao-mgr internals native-agent credentials <tool> <verb> --native-agent-root 
 
 Ordinary project users manage credentials through `houmao-mgr project [--project-dir <dir>] credentials <tool> ...` and launch through `houmao-mgr project agents launch`.
 
-### `system-skills` — Packaged Houmao-owned skill management for resolved tool homes
+### `system-skills` — Actor-pack lifecycle for resolved tool homes
 
 ```
 houmao-mgr system-skills [OPTIONS] COMMAND [ARGS]...
 ```
 
-Install, remove, or inspect the packaged current Houmao-owned `houmao-*` skill set for resolved Claude, Codex, Kimi Code, or Copilot homes, or for the cross-client `universal` Agent Skills target.
+Install, diagnose, inspect, upgrade, or remove complete Houmao actor packs for resolved Claude, Codex, Kimi Code, or Copilot homes, or for the cross-client `universal` Agent Skills target.
 
 #### Subcommands
 
 | Subcommand | Description |
 |---|---|
-| `list` | Show the packaged skill inventory, named sets, and fixed auto-install set lists. |
-| `status` | Show which current Houmao-owned system skills are installed in one resolved tool home by scanning the live filesystem. |
-| `install` | Install the CLI-default set list, explicit named skill sets, explicit skills, or any combination of those into one or more resolved tool homes. |
-| `uninstall` | Remove all current catalog-known Houmao system skills from one or more resolved tool homes. |
+| `list` | Show actor packs, six standalone roots, default lanes, shared ownership, activation posture, and sixteen parent-scoped children. |
+| `install` | Transactionally install the external default or repeatable `--pack admin|agent` selections. |
+| `status` | Report config integrity, per-pack state, drift, conflicts, and legacy flat evidence. |
+| `doctor` | Read installed tree and release evidence for an expected pack in an explicit or managed-agent home. |
+| `upgrade` | Refresh selected packs and remove only legacy flat paths with package-linked or known-content evidence. |
+| `uninstall` | Remove selected config-owned packs, or all owned packs when `--pack` is omitted. |
 
 Operational notes:
 
 - `system-skills install` requires `--tool`; the value may be one supported target or a comma-separated list such as `claude,codex,kimi,copilot,universal`
-- `system-skills uninstall` also requires `--tool` and accepts the same single-tool or comma-separated tool syntax
-- `system-skills install --home` and `system-skills uninstall --home` are valid only when `--tool` names one tool; comma-separated multi-tool operations resolve each home independently
+- mutating lifecycle commands also require `--tool` and accept the same single-tool or comma-separated tool syntax
+- `--home` is valid only when `--tool` names one tool; comma-separated multi-tool operations resolve each home independently
 - `system-skills status` requires `--tool` and accepts optional `--home`
+- `system-skills doctor` accepts either `--tool` with optional `--home`, or exactly one managed selector `--agent-id` or `--agent-name`; omitted `--pack` expects `agent`
 - when `--home` is omitted, tool-specific targets resolve with precedence tool-native home env var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `KIMI_CODE_HOME`, `COPILOT_HOME`), then the project-scoped default home; `universal` resolves to `~/.agents`
 - the project-scoped defaults are `<cwd>/.claude` for Claude, `<cwd>/.codex` for Codex, `<cwd>/.kimi-code` for Kimi, and `<cwd>/.github` for Copilot
 - `kimi` means Kimi Code CLI, not legacy MoonshotAI `kimi-cli`, which upstream says is being wound down in favor of Kimi Code CLI
 - `universal --home <path>` treats `<path>` as the `.agents` root that contains `skills/`; omitted-home universal installs land under `~/.agents/skills/`
-- omitting both `--skill-set` and `--skill` selects the packaged CLI-default set list
-- repeatable `--skill-set` expands named system-skill sets; `--set` is no longer a supported install flag
-- optional `--symlink` installs the selected packaged skills as absolute-target directory symlinks instead of copied trees
-- `system-skills uninstall` does not accept install-selection flags; it removes all current known Houmao skill paths for the resolved home
-- repeated skill sets expand in order, explicit skills append after sets, and the final list is deduplicated by first occurrence
-- the installer preserves flat visible Houmao-owned skill paths: Claude, Codex, Kimi, Copilot, and Universal use `skills/houmao-...`
+- omitting `--pack` on `install` or `upgrade` selects the external `admin` default; managed launches and joined sessions separately default to `agent`
+- repeatable `--pack` accepts only complete static packs, `admin` or `agent`; standalone names and parent-scoped child ids are not pack selectors
+- old `--skill`, `--set`, and `--skill-set` selectors fail with a migration diagnostic
+- copy projection is the default; optional `--symlink` links each top-level destination directly to its complete packaged source
+- the `admin` pack projects welcome, admin entrypoint, shared routines, and both top-level loops; the `agent` pack projects agent entrypoint, shared routines, and both loops
 - Kimi output reports a discovery caveat because `--home` places files; Kimi Code discovers them when a later launch uses the same `KIMI_CODE_HOME`, passes the path with `--skills-dir`, or includes it through `extra_skill_dirs`
-- uninstall removes exact current Houmao skill paths and preserves unrelated user skills, parent roots, legacy paths, and obsolete install-state files
-- `status` discovers current packaged skill paths in the resolved home; `install` replaces selected current Houmao-owned skill destinations directly without install-state ownership checks
-- managed brain build and `agents self join` use the same packaged catalog internally; `agents self join` keeps the fixed managed-join selection, while managed brain build may use stored source/profile managed system-skill policy instead of the plain managed-launch default
+- the lifecycle config records the Houmao release and collection projection mode plus one name, destination, complete-tree digest, and non-empty pack-owner set per standalone skill; unrelated and untracked paths remain outside Houmao ownership
+- `status` classifies each pack as absent, complete, incomplete, drifted, or conflicting without mutating the home
+- `upgrade` preserves modified, unknown, and partial legacy flat projections for operator review; `uninstall` removes only selected config-owned paths and preserves ownership conflicts
+- managed brain build, relaunch, and `agents self join` use exact copy-based agent-pack synchronization; stored source/profile policy may override or disable that managed default
 
 For the detailed catalog, projection, and ownership contract, see [system-skills](system-skills.md).
 
@@ -361,11 +364,11 @@ Low-level boundary notes:
 
 `internals native-agent launch-dossiers` notes:
 
-- `launch-profiles add` requires `--name` and `--recipe`. It accepts: `--agent-name`, `--agent-id`, `--workdir`, `--auth`, `--prompt-mode {unattended|as_is}`, repeatable `--env-set NAME=value`, managed system-skill flags (`--system-skill-set`, `--system-skill`, `--system-skills-mode {inherit|extend|replace|none}`, `--no-system-skills`), mailbox flags (`--mail-transport {filesystem|stalwart}`, `--mail-principal-id`, `--mail-address`, `--mail-root`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url`), launch posture flags (`--headless`, `--no-gateway`, `--gateway-port`), relaunch chat-session flags (`--relaunch-chat-session-mode {new|tool_last_or_new|exact}`, `--relaunch-chat-session-id`), prompt-overlay flags (`--prompt-overlay-mode {append|replace}`, `--prompt-overlay-text`, `--prompt-overlay-file`), `--gateway-mail-notifier-appendix-text`, and memo-seed flags (`--memo-seed-text`, `--memo-seed-file`, `--memo-seed-dir`).
+- `launch-profiles add` requires `--name` and `--recipe`. It accepts: `--agent-name`, `--agent-id`, `--workdir`, `--auth`, `--prompt-mode {unattended|as_is}`, repeatable `--env-set NAME=value`, managed system-skill flags (`--system-skill-pack admin|agent`, `--system-skills-mode {inherit|extend|replace|none}`, `--no-system-skills`), mailbox flags (`--mail-transport {filesystem|stalwart}`, `--mail-principal-id`, `--mail-address`, `--mail-root`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url`), launch posture flags (`--headless`, `--no-gateway`, `--gateway-port`), relaunch chat-session flags (`--relaunch-chat-session-mode {new|tool_last_or_new|exact}`, `--relaunch-chat-session-id`), prompt-overlay flags (`--prompt-overlay-mode {append|replace}`, `--prompt-overlay-text`, `--prompt-overlay-file`), `--gateway-mail-notifier-appendix-text`, and memo-seed flags (`--memo-seed-text`, `--memo-seed-file`, `--memo-seed-dir`).
 - `launch-profiles add` rejects an existing profile name by default. Passing `--yes` confirms same-lane replacement of an existing explicit launch profile; replacement uses create semantics, so omitted optional fields are cleared instead of preserved. `--yes` does not allow replacing an project profile with an explicit launch profile.
 - `launch-profiles add` also accepts `--managed-header` or `--no-managed-header` to store explicit managed-header whole-header policy, plus repeatable `--managed-header-section SECTION=enabled|disabled` to store section policy. Omitting whole-header flags stores `inherit`; omitting section flags stores no section entries. For the conceptual model behind these flags, see [Managed Launch Prompt Header](../run-phase/managed-prompt-header.md).
 - `launch-profiles set` patches without dropping unspecified advanced blocks and exposes matching `--clear-*` flags for nullable fields (`--clear-agent-name`, `--clear-agent-id`, `--clear-workdir`, `--clear-auth`, `--clear-prompt-mode`, `--clear-env`, `--clear-system-skills`, `--clear-mailbox`, `--clear-headless`, `--clear-relaunch-chat-session`, `--clear-managed-header`, `--clear-managed-header-section`, `--clear-managed-header-sections`, `--clear-prompt-overlay`, `--clear-gateway-mail-notifier-appendix`, `--clear-memo-seed`).
-- Managed system-skill selectors without `--system-skills-mode` infer `extend`. Profile mode `inherit` uses the source recipe's effective selection, `extend` adds selectors to that source selection, `replace` uses exactly the selected system-skill sets/skills, and `none` installs no current Houmao-owned system skills for future launches.
+- Managed system-skill pack selectors without `--system-skills-mode` infer `extend`. Profile mode `inherit` uses the source recipe's effective selection, `extend` adds packs to that source selection, `replace` uses exactly the selected packs, and `none` installs no Houmao system-skill packs for future launches.
 - Supplying `--gateway-mail-notifier-appendix-text` on `launch-profiles add|set` stores a default appended to future runtime notifier prompts. Launching from the profile seeds that text into gateway notifier state without enabling notifier polling. Later live `agents single ... gateway mail-notifier enable --appendix-text ...` or `agents self gateway mail-notifier enable --appendix-text ...` edits runtime state only and do not rewrite the stored profile.
 - Stored relaunch chat-session policy is applied only by future selected-agent `agents single ... relaunch` operations. `--relaunch-chat-session-mode exact` requires `--relaunch-chat-session-id`; ids are omitted for `new` and `tool_last_or_new`.
 - Supplying a new `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir` source on `launch-profiles set` replaces the stored seed. `--clear-memo-seed` cannot be combined with a new memo seed source.
@@ -413,7 +416,7 @@ Low-level boundary notes:
 - For Kimi specialists, the default `launch.prompt_mode: unattended` is the supported managed no-question control for visible TUI launches as well as headless launches. Use `--no-unattended` only to preserve provider approval behavior, not to switch between TUI and headless posture.
 - repeatable `--env-set NAME=value` stores durable specialist-owned launch env under `launch.env_records`.
 - `--model` and `--reasoning-level` are the supported launch-owned model-selection surfaces. `--reasoning-level` is a tool/model-specific preset index rather than a portable `1..10` knob.
-- repeatable `--system-skill-set` and `--system-skill` store specialist-owned managed system-skill policy under `launch.system_skills`; selectors without `--system-skills-mode` infer `extend`, `--system-skills-mode replace` stores exact selection, and `--no-system-skills` stores disabled policy. Omitted policy keeps the managed-launch default.
+- repeatable `--system-skill-pack admin|agent` stores specialist-owned managed system-skill policy under `launch.system_skills`; selectors without `--system-skills-mode` infer `extend`, `--system-skills-mode replace` stores exact selection, and `--no-system-skills` stores disabled policy. Omitted policy keeps the managed `agent`-pack default.
 - repeatable `--skill <name>` binds already registered project skills by name.
 - repeatable `--with-skill <dir>` is a convenience path that registers or updates one canonical project skill entry and then binds it to the specialist. Houmao treats the provided source directory as read-only input.
 - when the selected specialist name already exists, `specialist create` prompts before replacing the specialist-owned prompt and recipe projection and accepts `--yes` for non-interactive replacement.
@@ -430,7 +433,7 @@ Low-level boundary notes:
 `project specialist set` notes:
 
 - `--name` is required and must identify an existing specialist. At least one update or clear flag is required.
-- Patchable fields include prompt (`--system-prompt`, `--system-prompt-file`, `--clear-system-prompt`), skills (`--with-skill`, `--add-skill`, `--remove-skill`, `--clear-skills`), setup (`--setup`), credential (`--credential`), prompt mode (`--prompt-mode`, `--clear-prompt-mode`), launch-owned model (`--model`, `--clear-model`, `--reasoning-level`, `--clear-reasoning-level`), persistent env (`--env-set`, `--clear-env`), and managed system-skill policy (`--system-skill-set`, `--system-skill`, `--system-skills-mode`, `--no-system-skills`, `--clear-system-skills`).
+- Patchable fields include prompt (`--system-prompt`, `--system-prompt-file`, `--clear-system-prompt`), skills (`--with-skill`, `--add-skill`, `--remove-skill`, `--clear-skills`), setup (`--setup`), credential (`--credential`), prompt mode (`--prompt-mode`, `--clear-prompt-mode`), launch-owned model (`--model`, `--clear-model`, `--reasoning-level`, `--clear-reasoning-level`), persistent env (`--env-set`, `--clear-env`), and managed system-skill policy (`--system-skill-pack`, `--system-skills-mode`, `--no-system-skills`, `--clear-system-skills`).
 - `--env-set` replaces the stored specialist env mapping with the repeated `NAME=value` records supplied on that command. Use `--clear-env` to remove the mapping.
 - `--with-skill <dir>` registers or updates one canonical project skill entry and then adds that skill to the specialist without mutating the provided source directory. `--add-skill <name>` adds an already registered project skill by name. `--remove-skill <name>` removes that skill from the specialist definition; shared project skill content is not deleted just because one specialist stops referencing it.
 - `--setup <name>` switches to another setup bundle for the specialist's current tool lane. When the preset name changes, the old specialist-owned projected preset file is removed after the catalog projection is materialized.
@@ -441,11 +444,11 @@ Low-level boundary notes:
 `project profile create` notes:
 
 - `--name` and `--specialist` are required. The named profile targets exactly one existing specialist.
-- Optional birth-time defaults: `--agent-name`, `--agent-id`, `--workdir`, `--auth`, `--prompt-mode {unattended|as_is}`, `--model`, `--reasoning-level`, repeatable `--env-set NAME=value`, managed system-skill flags (`--system-skill-set`, `--system-skill`, `--system-skills-mode {inherit|extend|replace|none}`, `--no-system-skills`), mailbox flags (`--mail-transport {filesystem|stalwart}`, `--mail-principal-id`, `--mail-address`, `--mail-root`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url`), launch posture flags (`--headless`, `--no-gateway`, `--gateway-port`), relaunch chat-session flags (`--relaunch-chat-session-mode {new|tool_last_or_new|exact}`, `--relaunch-chat-session-id`), managed-header flags (`--managed-header`, `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled`), prompt-overlay flags (`--prompt-overlay-mode {append|replace}`, `--prompt-overlay-text`, `--prompt-overlay-file`), `--gateway-mail-notifier-appendix-text`, and memo-seed flags (`--memo-seed-text`, `--memo-seed-file`, `--memo-seed-dir`).
+- Optional birth-time defaults: `--agent-name`, `--agent-id`, `--workdir`, `--auth`, `--prompt-mode {unattended|as_is}`, `--model`, `--reasoning-level`, repeatable `--env-set NAME=value`, managed system-skill flags (`--system-skill-pack admin|agent`, `--system-skills-mode {inherit|extend|replace|none}`, `--no-system-skills`), mailbox flags (`--mail-transport {filesystem|stalwart}`, `--mail-principal-id`, `--mail-address`, `--mail-root`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url`), launch posture flags (`--headless`, `--no-gateway`, `--gateway-port`), relaunch chat-session flags (`--relaunch-chat-session-mode {new|tool_last_or_new|exact}`, `--relaunch-chat-session-id`), managed-header flags (`--managed-header`, `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled`), prompt-overlay flags (`--prompt-overlay-mode {append|replace}`, `--prompt-overlay-text`, `--prompt-overlay-file`), `--gateway-mail-notifier-appendix-text`, and memo-seed flags (`--memo-seed-text`, `--memo-seed-file`, `--memo-seed-dir`).
 - For Kimi-backed profiles, `--prompt-mode unattended` is the supported managed no-question control and does not imply `--headless`. Use `--prompt-mode as_is` only when the provider's normal approval posture should remain in charge.
 - `project profile create` rejects an existing profile name by default. Passing `--yes` confirms same-lane replacement of an existing project profile; replacement uses create semantics, so omitted optional fields are cleared instead of preserved. `--yes` does not allow replacing an explicit launch profile with an project profile.
 - `project profile set --name <profile>` patches stored defaults on an existing project profile while preserving unspecified fields. It accepts the same stored-default field families as explicit `launch-profiles set`, including clear flags such as `--clear-agent-name`, `--clear-agent-id`, `--clear-workdir`, `--clear-auth`, `--clear-prompt-mode`, `--clear-env`, `--clear-system-skills`, `--clear-mailbox`, `--clear-headless`, `--clear-relaunch-chat-session`, `--clear-managed-header`, `--clear-managed-header-section`, `--clear-managed-header-sections`, `--clear-prompt-overlay`, `--clear-gateway-mail-notifier-appendix`, and `--clear-memo-seed`.
-- Easy-profile managed system-skill policy follows the shared launch-profile rules: omitted means inherit from the specialist/recipe source, selectors without mode infer `extend`, `replace` stores exact selection, and `none` disables current Houmao-owned system skills for future launches.
+- Easy-profile managed system-skill policy follows the shared launch-profile rules: omitted means inherit from the specialist/recipe source, pack selectors without mode infer `extend`, `replace` stores exact pack selection, and `none` disables Houmao system-skill packs for future launches.
 - Project profiles support the same stored notifier appendix default as native launch dossiers through `--gateway-mail-notifier-appendix-text`; launches seed it into runtime gateway notifier state without enabling polling.
 - Easy-profile memo seed semantics match native launch dossiers: stored seeds replace only represented memo/pages components, and `--clear-memo-seed` removes stored seed configuration rather than seeding an empty memo.
 - The persisted project profile lives in the shared catalog launch-profile family with `profile_lane=easy_profile` and `source_kind=specialist`. It projects into the same compatibility tree (`.houmao/agents/launch-profiles/<name>.yaml`) used by native launch dossiers.

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Houmao Manage Agent Definition"
+  short_description: "Author, materialize, and deploy Houmao agent definitions."
+  default_prompt: "Use $houmao-shared-routines agent-definition for roles, recipes, launch dossiers, specialists, profiles, immutable definition authoring, single or batch deployment planning, launch preparation, and easy stop."
+policy:
+  allow_implicit_invocation: false

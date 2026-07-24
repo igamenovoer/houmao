@@ -63,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     """Run the click CLI and return an exit code."""
 
     try:
-        cli.main(args=argv, prog_name="houmao-mgr", standalone_mode=False)
+        result = cli.main(args=argv, prog_name="houmao-mgr", standalone_mode=False)
     except click.ClickException as exc:
         exc.show()
         return exc.exit_code
@@ -81,4 +81,4 @@ def main(argv: list[str] | None = None) -> int:
         rendered = _render_uncaught_exception(exc)
         rendered.show()
         return rendered.exit_code
-    return 0
+    return result if isinstance(result, int) else 0

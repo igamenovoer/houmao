@@ -1140,126 +1140,6 @@ Malformed `chat_session` payloads, including missing `id` for `exact` or unexpec
 - **THEN** the gateway rejects that request with validation semantics
 - **AND THEN** it does not ignore the selector and pretend that ordinary prompt control succeeded
 
-### Requirement: Gateway direct prompt control only dispatches when the addressed agent is prompt-ready unless forced
-
-For gateway-managed prompt control through `POST /v1/control/prompt`, the gateway SHALL reject prompt dispatch by default unless the addressed target is ready to accept a new prompt immediately.
-
-For TUI-backed sessions, the direct prompt-control path SHALL evaluate prompt readiness from the gateway-owned TUI state and SHALL require at minimum:
-
-- `turn.phase = "ready"`
-- `surface.accepting_input = "yes"`
-- `surface.editing_input = "no"`
-- `surface.ready_posture = "yes"`
-- `stability.stable = true`
-
-When a parsed surface is available for that TUI state, the gateway SHALL additionally require `parsed_surface.business_state = "idle"` and `parsed_surface.input_mode = "freeform"` before treating the target as prompt-ready.
-
-Previous-turn error evidence, current-error diagnostics, or recoverable degraded chat-context diagnostics SHALL NOT by themselves make a TUI-backed target non-ready when the prompt-ready contract above is satisfied.
-
-For native headless sessions, the direct prompt-control path SHALL require that authoritative runtime control is operable and that no active execution or active turn is already running for that managed session.
-
-For TUI-backed sessions with `chat_session.mode = new`, the direct prompt-control path SHALL:
-
-- require an initial prompt-ready TUI posture suitable for semantic context-reset submission,
-- send a tool-appropriate semantic context-reset signal, using `/new` for Codex TUI targets and configured reset signals such as `/clear` for other TUI targets,
-- wait until the tracked TUI state stabilizes back to prompt-ready posture,
-- send the caller's actual prompt only after that post-reset stabilization succeeds.
-
-If the TUI target lacks a supported reset workflow, if the reset prompt cannot be admitted, or if post-reset stabilization does not succeed, the gateway SHALL fail the request explicitly and SHALL NOT claim that the caller's actual prompt was delivered.
-
-For native headless sessions, the gateway SHALL resolve the effective chat-session selector as follows:
-
-- `chat_session.mode = auto` resolves in this order:
-  - `chat_session.next_prompt_override` when present,
-  - `chat_session.current` when present,
-  - `chat_session.startup_default`,
-  - `new`
-- `chat_session.mode = current` requires `chat_session.current` to exist and SHALL fail explicitly when no current session is pinned
-- `chat_session.mode = tool_last_or_new` asks the tool to resume its latest stored chat and falls back to fresh if none exists
-- `chat_session.mode = exact` uses the provided exact provider session id
-- `chat_session.mode = new` forces fresh provider-chat bootstrap
-
-After a successful headless prompt turn, the resolved concrete provider session id returned by the tool SHALL become the managed agent's `chat_session.current` when one is reported.
-
-When the request sets `force = true`, the gateway MAY bypass readiness checks, but it SHALL still reject unavailable, reconciliation-blocked, invalid-selector, incompatible-target, or unsupported-target requests explicitly.
-
-#### Scenario: Prompt-ready TUI accepts immediate prompt control
-
-- **WHEN** a caller submits `POST /v1/control/prompt` for a TUI-backed gateway target
-- **AND WHEN** the gateway-owned TUI state reports a stable ready posture with no active editing state
-- **THEN** the gateway dispatches the prompt immediately
-- **AND THEN** the success response states that the prompt was sent
-
-#### Scenario: Busy TUI refuses direct prompt control by default
-
-- **WHEN** a caller submits `POST /v1/control/prompt` for a TUI-backed gateway target
-- **AND WHEN** the gateway-owned TUI state does not satisfy the prompt-ready contract
-- **AND WHEN** the request does not set `force = true`
-- **THEN** the gateway rejects that prompt explicitly
-- **AND THEN** it does not return a success payload claiming the prompt was sent
-
-#### Scenario: Prompt-ready error surface accepts ordinary prompt control
-- **WHEN** a caller submits `POST /v1/control/prompt` for a TUI-backed gateway target without `chat_session.mode = new`
-- **AND WHEN** the gateway-owned TUI state satisfies the prompt-ready contract while also reporting current-error or recoverable degraded chat-context diagnostics
-- **THEN** the gateway dispatches the prompt immediately
-- **AND THEN** it does not reject or reset the prompt solely because the previous visible turn contains recoverable error context
-
-#### Scenario: TUI new mode clears the conversation before sending the prompt
-- **WHEN** a caller submits `POST /v1/control/prompt` for a TUI-backed gateway target with `chat_session.mode = new`
-- **AND WHEN** the gateway-owned TUI state reports a stable ready posture
-- **THEN** the gateway first sends the configured tool-appropriate semantic context-reset signal
-- **AND THEN** after the TUI stabilizes back to ready posture, the gateway sends the caller's actual prompt
-
-#### Scenario: Codex TUI clean-context reset uses slash-new
-- **WHEN** a caller submits prompt work for a Codex TUI-backed gateway target with `chat_session.mode = new`
-- **AND WHEN** the gateway-owned TUI state reports a stable ready posture
-- **THEN** the gateway sends `/new` as the semantic context-reset signal
-- **AND THEN** it does not use `/clear` as the Codex context-reset signal for this workflow
-
-#### Scenario: Generic TUI reset may use slash-clear
-- **WHEN** a caller submits prompt work for a non-Codex TUI-backed gateway target with `chat_session.mode = new`
-- **AND WHEN** that target's configured context-reset signal is `/clear`
-- **THEN** the gateway sends `/clear` as the semantic context-reset signal
-- **AND THEN** it still waits for post-reset prompt-ready stabilization before sending the caller's actual prompt
-
-#### Scenario: TUI new mode fails when post-clear stabilization does not complete
-- **WHEN** a caller submits `POST /v1/control/prompt` for a TUI-backed gateway target with `chat_session.mode = new`
-- **AND WHEN** the reset signal is sent but the TUI does not stabilize back to ready posture within the allowed wait
-- **THEN** the gateway rejects that request explicitly
-- **AND THEN** it does not claim that the caller's actual prompt was delivered
-
-#### Scenario: Force bypasses prompt-readiness refusal but not gateway availability failures
-
-- **WHEN** a caller submits `POST /v1/control/prompt` with `force = true`
-- **AND WHEN** the addressed target is connected but not currently prompt-ready
-- **THEN** the gateway may dispatch the prompt anyway
-- **AND THEN** the same route still rejects unavailable or reconciliation-blocked gateway state explicitly
-
-#### Scenario: Headless prompt control rejects overlapping work
-
-- **WHEN** a caller submits `POST /v1/control/prompt` for a native headless gateway target
-- **AND WHEN** that target already has active execution in flight
-- **THEN** the gateway rejects that prompt explicitly
-- **AND THEN** it does not start overlapping headless prompt work
-
-#### Scenario: Auto mode prefers the managed agent's current pinned session
-- **WHEN** a caller submits `POST /v1/control/prompt` for a native headless gateway target with omitted `chat_session`
-- **AND WHEN** that managed agent already has `chat_session.current`
-- **THEN** the gateway resolves that prompt against the pinned current provider session
-- **AND THEN** it does not re-query the tool's global latest-session storage for that prompt
-
-#### Scenario: Current mode fails when no pinned current session exists
-- **WHEN** a caller submits `POST /v1/control/prompt` for a native headless gateway target with `chat_session.mode = current`
-- **AND WHEN** the managed agent does not have `chat_session.current`
-- **THEN** the gateway rejects that request explicitly
-- **AND THEN** it does not silently fall back to `auto`, startup default, or fresh bootstrap
-
-#### Scenario: Unsupported backend rejects direct prompt control explicitly
-
-- **WHEN** a caller submits `POST /v1/control/prompt` for backend `codex_app_server`
-- **THEN** the gateway rejects that request as not implemented
-- **AND THEN** it does not pretend that prompt readiness was evaluated successfully
-
 ### Requirement: Degraded chat context does not force clean-context prompt control
 Gateway prompt control SHALL treat recoverable degraded chat context as compatible with ordinary current-context prompt delivery when the target otherwise satisfies the prompt-ready contract.
 
@@ -1919,3 +1799,112 @@ Last-sent-thread SHALL NOT participate in future destination fallback decisions.
 - **AND WHEN** a caller publishes a valid AG-UI event batch without a message-specified destination
 - **THEN** the gateway uses the default sink
 - **AND THEN** last-sent-thread remains unchanged
+
+### Requirement: Gateway direct prompt control uses explicit admission policies
+
+Gateway direct prompt control through `POST /v1/control/prompt` SHALL accept `admission_policy = ready_only | if_no_pending | always` and SHALL default omitted policy to `ready_only`.
+
+For a TUI-backed target, `ready_only` SHALL require the existing stable prompt-ready contract and `surface.pending_input=no`. It SHALL reject busy, pending, or pending-unknown observations.
+
+For a TUI-backed target, `if_no_pending` SHALL ignore prompt-readiness and busy posture, dispatch only when the latest gateway-owned tracked snapshot reports `surface.pending_input=no`, reject `yes` with `error_code=pending_input`, and reject `unknown` with `error_code=pending_input_unknown`.
+
+For a TUI-backed target, `always` SHALL bypass tracked readiness and pending-input checks. Every policy SHALL still reject unavailable, detached, reconciliation-blocked, invalid-selector, incompatible-target, and unsupported-target requests.
+
+The admission decision SHALL be observational. The gateway SHALL NOT reserve the observed no-pending state or promise atomic compare-and-submit behavior across concurrent requests. Two calls that both observe `pending_input=no` MAY both dispatch before the provider TUI repaints.
+
+Non-default admission policies SHALL be rejected for native headless targets, and native headless prompt control SHALL continue to reject overlapping active execution. TUI `chat_session.mode=new` SHALL require `ready_only` because reset-then-send depends on stable prompt readiness.
+
+Prompt submission SHALL continue to arm explicit-input tracking where applicable, but the gateway SHALL NOT synthesize `surface.pending_input` from its dispatch, event, reminder, notifier, raw-input, or durable-request state.
+
+#### Scenario: Default policy sends to a stable ready TUI with no pending input
+
+- **WHEN** a caller omits `admission_policy`
+- **AND WHEN** the addressed TUI satisfies the stable prompt-ready contract and reports `surface.pending_input=no`
+- **THEN** the gateway dispatches the prompt under `ready_only`
+- **AND THEN** the success response identifies `admission_policy=ready_only`
+
+#### Scenario: Ready-only backs off while the TUI is busy
+
+- **WHEN** a caller selects `ready_only` while the addressed TUI does not satisfy the stable prompt-ready contract
+- **THEN** the gateway refuses the prompt with `error_code=not_ready`
+- **AND THEN** it does not submit the prompt to the provider CLI
+
+#### Scenario: If-no-pending submits while busy when the queue is visibly empty
+
+- **WHEN** a caller selects `if_no_pending` while the TUI is busy and the latest tracked snapshot reports `surface.pending_input=no`
+- **THEN** the gateway dispatches the prompt to the provider CLI
+- **AND THEN** it does not require `turn.phase=ready` or `surface.ready_posture=yes`
+
+#### Scenario: If-no-pending backs off from an existing provider-native queue
+
+- **WHEN** a caller selects `if_no_pending` and the latest tracked snapshot reports `surface.pending_input=yes`
+- **THEN** the gateway refuses the prompt with `error_code=pending_input`
+- **AND THEN** it does not add that prompt to the provider CLI queue
+
+#### Scenario: If-no-pending treats uncertainty conservatively
+
+- **WHEN** a caller selects `if_no_pending` and the latest tracked snapshot reports `surface.pending_input=unknown`
+- **THEN** the gateway refuses the prompt with `error_code=pending_input_unknown`
+- **AND THEN** it does not reinterpret unknown as an empty provider queue
+
+#### Scenario: Always submits despite visible pending input
+
+- **WHEN** a caller selects `always` for an attached compatible TUI whose latest tracked snapshot reports `surface.pending_input=yes`
+- **THEN** the gateway dispatches the prompt
+- **AND THEN** structural availability and compatibility failures remain enforceable
+
+#### Scenario: Closely spaced conditional submissions may both dispatch before repaint
+
+- **WHEN** two `if_no_pending` calls independently observe the same latest snapshot with `surface.pending_input=no`
+- **THEN** both calls may dispatch before a later TUI capture reports the provider queue
+- **AND THEN** the gateway does not claim an exactly-one reservation guarantee
+
+#### Scenario: Later conditional submission reacts to observed pending state
+
+- **WHEN** earlier submissions have reached the provider CLI and a later tracked snapshot reports `surface.pending_input=yes`
+- **THEN** a later `if_no_pending` call backs off
+- **AND THEN** a later `always` call may still dispatch
+
+#### Scenario: Non-default policy is rejected for headless prompt control
+
+- **WHEN** a caller selects `if_no_pending` or `always` for a native headless target
+- **THEN** the gateway rejects the policy with validation semantics
+- **AND THEN** it does not invent provider-native pending-input state or start overlapping headless work
+
+#### Scenario: TUI new-session workflow requires ready-only policy
+
+- **WHEN** a TUI direct prompt request combines `chat_session.mode=new` with `if_no_pending` or `always`
+- **THEN** the gateway rejects the incompatible request with validation semantics
+- **AND THEN** it does not begin a context-reset workflow from a busy or pending posture
+
+### Requirement: Gateway prompt-control schema and CLI remove binary force behavior
+
+The direct prompt-control request schema SHALL advance to schema version 2, SHALL contain `admission_policy`, and SHALL NOT contain `force`. Success and structured-refusal payloads SHALL report `admission_policy` and SHALL NOT report a boolean `forced` field.
+
+The maintained `houmao-mgr agents single|self ... gateway prompt` commands SHALL expose `--admission-policy ready-only|if-no-pending|always` with `ready-only` as the default and SHALL NOT expose `--force` as an alias or deprecated compatibility flag.
+
+Gateway event and diagnostic records for direct prompt decisions SHALL identify the selected admission policy and the observed readiness/pending facts used by conditional decisions.
+
+#### Scenario: Version-two API accepts an explicit policy
+
+- **WHEN** a caller sends a schema-version-2 direct prompt request with `admission_policy=if_no_pending`
+- **THEN** the gateway validates and evaluates that named policy
+- **AND THEN** the result or refusal reports the same policy
+
+#### Scenario: Legacy force payload is rejected
+
+- **WHEN** a caller sends a direct prompt-control payload containing `force` or schema version 1
+- **THEN** strict request validation rejects the payload
+- **AND THEN** the gateway does not translate it into an admission policy
+
+#### Scenario: CLI maps hyphenated policy values to the API enum
+
+- **WHEN** an operator runs `houmao-mgr agents single --agent-name worker gateway prompt --admission-policy if-no-pending --prompt ping`
+- **THEN** the CLI sends `admission_policy=if_no_pending` through the selected managed-agent path
+- **AND THEN** command output reports the selected policy instead of a forced boolean
+
+#### Scenario: Removed force flag has no shim
+
+- **WHEN** an operator invokes gateway prompt with `--force`
+- **THEN** Click rejects the unknown option
+- **AND THEN** help output directs current callers only through `--admission-policy`

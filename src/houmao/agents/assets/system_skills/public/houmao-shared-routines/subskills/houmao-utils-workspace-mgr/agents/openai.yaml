@@ -1,0 +1,6 @@
+interface:
+  display_name: "Houmao Workspace Manager"
+  short_description: "Plan and manage Houmao multi-agent workspaces."
+  default_prompt: "Use $houmao-shared-routines utils-workspace-mgr to plan a Houmao multi-agent workspace for these launch profiles."
+policy:
+  allow_implicit_invocation: false

@@ -121,7 +121,7 @@ The quickstart SHALL:
 
 - present the user's current CLI agent as the primary operator of Houmao workflows,
 - explain that Houmao system skills guide that CLI agent toward maintained `houmao-mgr` command surfaces,
-- show the preferred installed-user setup path with `uv tool install houmao`, `tmux` verification, and `npx skills add igamenovoer/tool-skills/houmao` when `npx` and internet access are available,
+- show the preferred installed-user setup path with `uv tool install houmao`, `tmux` verification, and `npx skills add https://github.com/igamenovoer/houmao-skills` when `npx` and internet access are available,
 - show the Houmao-owned `houmao-mgr system-skills install --tool <tool>[,<tool>...]` path for offline, installed-package-local, explicit-home, named-set, subset-skill, symlink/copy, or cleanup needs,
 - include a from-source note that source checkout commands use `pixi run houmao-mgr ...` while installed users use `houmao-mgr ...`,
 - instruct the reader to start Claude Code, Codex, Kimi, Gemini, or another supported CLI-agent surface from the target project directory and ask for `$houmao-touring start a guided tour`,
@@ -358,3 +358,11 @@ Maintained onboarding, quickstart, overview, specialist, profile, credential, ma
 - **WHEN** a reader follows getting-started documentation
 - **THEN** provider examples and matrices use Claude, Codex, and Kimi as applicable
 - **AND THEN** no Gemini setup prerequisite or workflow is offered
+
+### Requirement: Getting-started guidance describes maintained current Kimi behavior
+Getting-started pages SHALL describe Kimi 0.23.x as the maintained Kimi Code family. They SHALL remove Kimi 0.11-specific launch and system-prompt statements and SHALL not instruct users to issue a policy-changing confirmation or `/auto on` bootstrap step during unattended operation.
+
+#### Scenario: New reader sees current Kimi baseline
+- **WHEN** a reader opens the overview, quickstart, or system-skills overview
+- **THEN** the guidance describes the maintained current Kimi contract
+- **AND THEN** it contains no Kimi 0.11.0 compatibility claim

@@ -14,7 +14,7 @@ The workflow contract is:
 - Validation: run `twine check` on the exact built artifacts
 - Publish behavior: publish the downloaded build artifacts to PyPI
 - Docs publication: publishing a GitHub release also triggers the docs workflow to build from the same tag and deploy GitHub Pages
-- Tool-skills sync: stable releases dispatch `igamenovoer/tool-skills` on `main`; prereleases dispatch it on `release-candidates`
+- System-skills publication: every release publishes the root-level skill collection to the matching Git tag in `igamenovoer/houmao-skills`; stable releases also advance its `main` branch, while prereleases leave `main` unchanged
 - Authentication: GitHub OIDC trusted publishing, using the GitHub environment `pypi`
 
 Because the workflow is release-driven, the workflow file must already exist on `main` before maintainers publish a release.
@@ -28,6 +28,30 @@ Configure PyPI trusted publishing before creating a release.
 Create a GitHub environment named `pypi`.
 
 No repository secret is required for the default publication path. The publish job uses the workflow's OIDC token and `pypa/gh-action-pypi-publish`.
+
+System-skill publication uses a separate `HOUMAO_SKILLS_DEPLOY_KEY` repository secret. Its public key must be configured as a write-enabled deploy key on `igamenovoer/houmao-skills`. The private key is scoped to that repository and lets `.github/workflows/sync-houmao-skills.yml` publish the released skill tree and matching immutable tag without a cross-repository personal access token.
+
+### System-Skills Repository Setup and Maintenance
+
+`igamenovoer/houmao-skills` is a generated release mirror. Keep each released `houmao-*` skill directory at repository root so `npx skills add https://github.com/igamenovoer/houmao-skills` discovers the collection directly. Do not add a wrapping `houmao/`, `skills/`, `public/`, or version directory, and do not compose or rewrite skill content in the mirror. Source changes belong under `src/houmao/agents/assets/system_skills/public/` in this repository.
+
+The release workflow copies the complete public directories, removes obsolete root-level `houmao-*` directories, preserves non-skill repository metadata such as `README.md`, and validates the resulting root with Skills CLI before publishing. `main` is the unqualified latest-stable install source. Every stable and prerelease tag is an immutable version-selection source using the same tag as Houmao, for example:
+
+```bash
+npx skills add https://github.com/igamenovoer/houmao-skills
+npx skills add https://github.com/igamenovoer/houmao-skills#v2.1.0
+```
+
+Before a release, confirm that the deploy key and secret still exist:
+
+```bash
+gh api repos/igamenovoer/houmao-skills/keys --jq '.[] | {title, read_only}'
+gh secret list --repo igamenovoer/houmao | rg '^HOUMAO_SKILLS_DEPLOY_KEY'
+```
+
+The key listed for release synchronization must report `read_only: false`. To rotate it, create a new Ed25519 key pair in a temporary directory, add its public key as a write-enabled deploy key on `igamenovoer/houmao-skills`, replace the `HOUMAO_SKILLS_DEPLOY_KEY` secret in `igamenovoer/houmao`, and securely remove the temporary private key. Remove the previous deploy key only after a validation run succeeds with the replacement.
+
+Workflow reruns are idempotent when the existing tag already contains the same tree. If a matching tag contains different content, the workflow fails instead of moving it. Treat that failure as a release-integrity incident: inspect the Houmao release tag and mirror tag, and never delete or force-move the published mirror tag as an ordinary retry.
 
 ### PyPI Trusted Publisher Setup
 
@@ -70,10 +94,11 @@ gh release create v0.4.0 --verify-tag --generate-notes
 
 7. Confirm that the `pypi-release` workflow run completes successfully and that PyPI shows the new version.
 8. Confirm that the `docs` workflow run triggered by the same release completes successfully and that GitHub Pages reflects the release tag content.
+9. Confirm that the `Sync Houmao Skills` workflow publishes the same tag in `igamenovoer/houmao-skills`. For a stable release, confirm that its `main` branch now contains the released root-level skills; for a prerelease, confirm that `main` still points to the latest stable release.
 
 For clarity and conventional GitHub release handling, use `v0.4.0` as the public tag name.
 
-Release candidates should be published as GitHub prereleases, for example `v0.11.0rc1`. A prerelease still publishes the Python package and docs from the release tag, but the Houmao skills mirror dispatch targets the `release-candidates` branch of `igamenovoer/tool-skills` instead of the stable `main` branch.
+Release candidates should be published as GitHub prereleases, for example `v0.11.0rc1`. A prerelease still publishes the Python package and docs from the release tag. The skills workflow publishes the same prerelease tag in `igamenovoer/houmao-skills` but does not advance the mirror's stable `main` branch. Users can install that prerelease explicitly with a source such as `https://github.com/igamenovoer/houmao-skills#v0.11.0rc1`.
 
 ## Release Artifact Scope
 

@@ -397,7 +397,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
         },
         system_skills_mapping={
             "mode": "extend",
-            "skills": ["houmao-utils-workspace-mgr"],
+            "packs": ["agent"],
         },
         prompt_overlay_mode="append",
         prompt_overlay_text="Prefer Alice repository conventions.",
@@ -413,7 +413,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
     assert profile.memo_seed is not None
     assert profile.system_skills_payload == {
         "mode": "extend",
-        "skills": ["houmao-utils-workspace-mgr"],
+        "packs": ["agent"],
     }
 
     projection_root = catalog.materialize_projection()
@@ -448,7 +448,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             },
             "system_skills": {
                 "mode": "extend",
-                "skills": ["houmao-utils-workspace-mgr"],
+                "packs": ["agent"],
             },
             "prompt_overlay": {
                 "mode": "append",
@@ -515,7 +515,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             4,
             "inherit",
             '{"automation-notice": "disabled", "task-reminder": "enabled"}',
-            '{"mode": "extend", "skills": ["houmao-utils-workspace-mgr"]}',
+            '{"mode": "extend", "packs": ["agent"]}',
             "append",
             "prompts/launch-profiles/alice-mail-notifier-appendix.md",
             '{"mode": "tool_last_or_new"}',

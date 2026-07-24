@@ -1292,7 +1292,11 @@ def _resolve_system_skill_policy_payload_or_click(
 ) -> tuple[bool, dict[str, object]]:
     """Resolve stored system-skill policy CLI inputs into a validated payload."""
 
-    has_selectors = bool(system_skill_sets or system_skills)
+    if system_skill_sets:
+        raise click.ClickException(
+            "`--system-skill-set` was removed; use repeatable `--system-skill-pack admin|agent`."
+        )
+    has_selectors = bool(system_skills)
     if clear_system_skills:
         if not clear_allowed:
             raise click.ClickException(
@@ -1316,10 +1320,8 @@ def _resolve_system_skill_policy_payload_or_click(
 
     resolved_mode = system_skills_mode or "extend"
     payload: dict[str, object] = {"mode": resolved_mode}
-    if system_skill_sets:
-        payload["sets"] = list(system_skill_sets)
     if system_skills:
-        payload["skills"] = list(system_skills)
+        payload["packs"] = list(system_skills)
     try:
         policy = parse_system_skill_selection_policy(
             payload,

@@ -213,3 +213,9 @@ For Codex specifically, current activity is no longer inferred from arbitrary fu
 Prompt-adjacent Codex terminal failures set `current_error_present=true` and block success candidacy while preserving prompt-ready input posture when the composer is otherwise ready. Recognized terminal failure families such as overload/high-load, context-window exhaustion, quota exhaustion, or invalid prompt can publish `known_failure`; the exact upstream sentence is not part of the stable contract.
 
 Prompt-adjacent Codex compact/server error cells expose `chat_context=degraded` and a Codex-owned diagnostic when the bounded block carries compact/server degraded semantics. Current Codex degraded error types include `codex_remote_compact_stream_disconnected`, `codex_remote_compact_context_length_exceeded`, `codex_remote_compact_unknown_parameter`, `codex_remote_compact_server_error`, and `unknown`. That state is recoverable context-health evidence, not mandatory reset evidence, and it remains distinct from `known_failure`. Historical compact/server error text in long scrollback does not degrade the current chat context.
+
+## See Also
+
+- [Why Prompt Admission Uses Readiness and Pending Input](../gateway/internals/prompt-admission-and-tui-observation.md) — how turn activity, surface stability, and provider-native pending input combine at the gateway boundary
+- [Shared TUI Detector Profiles](detectors.md) — provider and version-specific signal extraction
+- [Gateway Lifecycle and Operator Flows](../gateway/operations/lifecycle.md) — direct prompt-admission policies

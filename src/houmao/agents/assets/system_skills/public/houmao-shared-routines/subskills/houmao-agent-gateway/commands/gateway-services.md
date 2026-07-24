@@ -1,0 +1,71 @@
+---
+skill_invocation_notation: >
+  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+  accepted only as legacy input when SKILL-MAIN.md is absent.
+  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+  by parent subcommand parent. Intermediate subcommands act as object generators.
+  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+---
+
+# Use Gateway-Only Services
+
+Use this action when the task specifically needs the live gateway's own control, queueing, raw-input, TUI inspection, or headless-session surfaces instead of the broader transport-neutral managed-agent path. If the request is generic managed-agent inspection rather than a gateway-owned service, use `houmao-shared-routines->houmao-agent-inspect` instead.
+
+## Workflow
+
+1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
+2. Recover the target selector and the exact gateway service the user wants from the current prompt first and recent chat context second when they were stated explicitly.
+3. If the task still lacks a required target, prompt body, sequence, or direct-gateway endpoint, ask the user in Markdown before proceeding.
+4. Run `agents single ... gateway status` or `agents self gateway status` first unless current context already proves that a live gateway is attached.
+5. Run the matching direct gateway command for CLI prompt, interrupt, send-keys, or TUI work.
+6. Use the matching pair-managed routes when the task is already operating through pair-managed HTTP.
+7. Use direct `{gateway.base_url}/v1/...` routes only when the task genuinely needs the lower-level gateway seam and the exact live base URL is already available from current context or supported discovery.
+8. When the attached agent needs to communicate with other agents through the shared mailbox facade, run `agents self mail resolve-live` to obtain the exact current `gateway.base_url`, then hand off the exact `/v1/mail/*` contract to `houmao-shared-routines->houmao-agent-email-comms`.
+
+
+If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+## Command Shapes
+
+Run direct scoped gateway-service commands:
+
+```bash
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway prompt --prompt <text>
+<chosen houmao-mgr launcher> agents self gateway prompt --prompt <text>
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway send-keys --sequence <keys>
+<chosen houmao-mgr launcher> agents self gateway tui state
+```
+
+Pair-managed gateway routes:
+
+- `POST /houmao/agents/{agent_ref}/gateway/requests`
+- `POST /houmao/agents/{agent_ref}/gateway/control/prompt`
+- `POST /houmao/agents/{agent_ref}/gateway/control/send-keys`
+- `GET /houmao/agents/{agent_ref}/gateway/control/headless/state`
+- `POST /houmao/agents/{agent_ref}/gateway/control/headless/next-prompt-session`
+- `GET /houmao/agents/{agent_ref}/gateway/tui/state`
+- `GET /houmao/agents/{agent_ref}/gateway/tui/history`
+- `POST /houmao/agents/{agent_ref}/gateway/tui/note-prompt`
+
+Direct live gateway routes:
+
+- `POST {gateway.base_url}/v1/requests`
+- `POST {gateway.base_url}/v1/control/prompt`
+- `POST {gateway.base_url}/v1/control/send-keys`
+- `GET {gateway.base_url}/v1/control/headless/state`
+- `POST {gateway.base_url}/v1/control/headless/next-prompt-session`
+- `GET {gateway.base_url}/v1/control/tui/state`
+- `GET {gateway.base_url}/v1/control/tui/history`
+- `POST {gateway.base_url}/v1/control/tui/note-prompt`
+
+## Guardrails
+
+- Do not silently replace explicit gateway work with `houmao-mgr agents single ... prompt`, `houmao-mgr agents self prompt`, or the transport-neutral `/houmao/agents/{agent_ref}/requests` surface.
+- Do not use raw `send-keys` as a substitute for ordinary prompt-turn work.
+- Do not claim that `tui note-prompt` submits work to the agent.
+- Do not guess `{gateway.base_url}` when the exact live gateway endpoint is not already available.
+- Do not restate the full shared mailbox route contract here; use `houmao-shared-routines->houmao-agent-email-comms` after discovery hands you the exact live base URL.
+- Do not guess prompt text, key sequences, or live gateway endpoints.

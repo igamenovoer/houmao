@@ -1,4 +1,0 @@
-interface:
-  display_name: "Houmao Manage Agent Definition"
-  short_description: "Manage Houmao roles, recipes, launch-dossiers, specialists, profiles, and create-agent-fast-forward."
-  default_prompt: "Use $houmao-agent-definition subcommands: roles, recipes, launch-dossiers, specialists, profiles, create-agent-fast-forward, launch-agent, and stop-agent."

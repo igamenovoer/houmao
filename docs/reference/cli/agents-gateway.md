@@ -368,4 +368,5 @@ houmao-mgr agents single --agent-id <id> gateway mail-notifier disable [OPTIONS]
 
 - [houmao-mgr](houmao-mgr.md) — parent CLI reference
 - [Agent Gateway Reference](../gateway/index.md) — gateway subsystem details
+- [Why Prompt Admission Uses Readiness and Pending Input](../gateway/internals/prompt-admission-and-tui-observation.md) — design rationale behind `ready-only`, stability, and `surface.pending_input`
 - [Realm Controller Send-Keys](../realm_controller_send_keys.md) — raw control-input grammar and delivery semantics

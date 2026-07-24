@@ -96,13 +96,14 @@ def get_project_launch_profile_command(name: str) -> None:
     "--system-skill-set",
     "system_skill_sets",
     multiple=True,
-    help="Add one packaged Houmao system-skill set to launches from this profile.",
+    hidden=True,
+    help="Obsolete selector; use --system-skill-pack admin or --system-skill-pack agent.",
 )
 @click.option(
-    "--system-skill",
+    "--system-skill-pack",
     "system_skills",
     multiple=True,
-    help="Add one packaged Houmao system skill to launches from this profile.",
+    help="Add one complete Houmao actor pack to launches from this profile.",
 )
 @click.option(
     "--system-skills-mode",
@@ -398,13 +399,14 @@ def add_project_launch_profile_command(
     "--system-skill-set",
     "system_skill_sets",
     multiple=True,
-    help="Set one packaged Houmao system-skill set in this profile policy.",
+    hidden=True,
+    help="Obsolete selector; use --system-skill-pack admin or --system-skill-pack agent.",
 )
 @click.option(
-    "--system-skill",
+    "--system-skill-pack",
     "system_skills",
     multiple=True,
-    help="Set one packaged Houmao system skill in this profile policy.",
+    help="Set one complete Houmao actor pack",
 )
 @click.option(
     "--system-skills-mode",

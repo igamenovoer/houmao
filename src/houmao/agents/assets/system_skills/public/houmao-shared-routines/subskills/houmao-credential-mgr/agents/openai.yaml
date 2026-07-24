@@ -1,0 +1,6 @@
+interface:
+  display_name: "Houmao Manage Credentials"
+  short_description: "Manage project or native-agent Houmao credentials."
+  default_prompt: "Use $houmao-shared-routines credential-mgr to list, inspect, add, update, rename, or remove Houmao credentials in this workspace or under an explicit agent-definition directory."
+policy:
+  allow_implicit_invocation: false

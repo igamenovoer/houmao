@@ -1,0 +1,6 @@
+interface:
+  display_name: "Houmao Agent Loop Lite"
+  short_description: "Author and operate Markdown and direct-SQL Houmao loops."
+  default_prompt: "Use $houmao-agent-loop-lite only when explicitly requested. If no operation is present, select init and ask for <loop-dir> before creating files."
+policy:
+  allow_implicit_invocation: false

@@ -362,144 +362,6 @@ That page SHALL explain that `houmao-mgr --version` prints the packaged Houmao v
 - **THEN** the page explains that the command prints the packaged Houmao version
 - **AND THEN** it explains that the command exits successfully after reporting that version
 
-### Requirement: System-skills reference documents the renamed specialist-management skill
-The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe the current project-easy packaged skill as `houmao-specialist-mgr`.
-
-That page SHALL describe the packaged skill as the Houmao-owned specialist-management entry point for `project specialist create|list|get|remove` plus specialist-scoped `project agents launch|stop`.
-
-The page SHALL describe the top-level packaged skill page as an index/router and SHALL state that further agent management after those specialist-scoped runtime actions goes to `houmao-agent-instance`.
-
-The page SHALL NOT continue to describe `houmao-manage-specialist` as the active packaged project-easy skill.
-
-#### Scenario: Reader sees the renamed packaged skill in system-skills reference
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page identifies `houmao-specialist-mgr` as the packaged project-easy skill
-- **AND THEN** it describes that skill as covering `create`, `list`, `get`, `remove`, `launch`, and `stop`
-
-#### Scenario: Reader does not see the superseded packaged specialist name
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page does not present `houmao-manage-specialist` as the current packaged specialist-management skill
-
-### Requirement: System-skills reference documents the packaged `houmao-project-mgr` skill and its project-management boundary
-The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-project-mgr` as a packaged Houmao-owned system skill.
-
-That page SHALL describe the packaged skill as the Houmao-owned project-management entry point across:
-
-- `houmao-mgr project init`
-- `houmao-mgr project status`
-- `houmao-mgr internals native-agent launch-dossiers ...`
-- `houmao-mgr project agents list|get|stop`
-
-That page SHALL explain that `houmao-project-mgr` covers project overlay discovery and bootstrap guidance, `.houmao/` layout and compatibility-projection explanations, and the project-aware side effects that appear on other command families when a project overlay exists.
-
-That page SHALL explain that neighboring renamed packaged skills keep their current ownership boundaries:
-
-- `houmao-specialist-mgr` owns specialist and project profile authoring plus easy `launch|stop`
-- `houmao-credential-mgr` owns dedicated credential-management routing and CRUD
-- `houmao-agent-definition` owns low-level roles and recipes
-- `houmao-agent-instance` owns generic managed-agent lifecycle after project-scoped routing
-- `houmao-mailbox-mgr` owns mailbox-administration guidance
-
-#### Scenario: Reader sees the packaged project-management skill in system-skills reference
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page identifies `houmao-project-mgr` as a packaged Houmao-owned skill
-- **AND THEN** it describes that skill as covering project overlay lifecycle, launch-profile management, and project-scoped easy-instance inspection or stop routing
-
-#### Scenario: Reader sees the boundary between project-management and neighboring renamed skills
-- **WHEN** a reader opens the packaged project-management skill section of `docs/reference/cli/system-skills.md`
-- **THEN** the page distinguishes `houmao-project-mgr` from `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`, `houmao-agent-instance`, and `houmao-mailbox-mgr`
-- **AND THEN** it does not use obsolete `houmao-manage-*` identifiers as the current routing targets
-
-### Requirement: System-skills reference documents the packaged `houmao-mailbox-mgr` skill and its mailbox-admin boundary
-The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-mailbox-mgr` as a packaged Houmao-owned system skill.
-
-That page SHALL describe the packaged skill as the Houmao-owned entry point for mailbox-administration guidance across:
-
-- `houmao-mgr mailbox ...`
-- `houmao-mgr project mailbox ...`
-- `houmao-mgr agents single --agent-id <id> mailbox ...` or `houmao-mgr agents single --agent-name <name> mailbox ...`
-
-That page SHALL explain that `houmao-mailbox-mgr` covers filesystem mailbox root lifecycle, mailbox account lifecycle, structural mailbox inspection, and late filesystem mailbox binding for existing local managed agents.
-
-That page SHALL explain that ordinary mailbox participation remains in `houmao-agent-email-comms`, notifier-driven unread-email rounds remain in `houmao-process-emails-via-gateway`, and gateway mail-notifier control remains in `houmao-agent-gateway`.
-
-That page SHALL explain that the maintained mailbox-admin CLI remains filesystem-oriented in v1 and that Stalwart stays a transport/bootstrap boundary rather than a peer mailbox-admin CLI family.
-
-#### Scenario: Reader sees the packaged mailbox-admin skill in system-skills reference
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page identifies `houmao-mailbox-mgr` as a packaged Houmao-owned skill
-- **AND THEN** it describes that skill as covering mailbox administration across mailbox, project mailbox, and agents mailbox surfaces
-
-#### Scenario: Reader sees the boundary between mailbox admin and mailbox participation
-- **WHEN** a reader opens the packaged mailbox-admin skill section of `docs/reference/cli/system-skills.md`
-- **THEN** the page distinguishes mailbox root and binding administration from ordinary mailbox send/check/reply work
-- **AND THEN** it does not imply that `houmao-mailbox-mgr` replaces `houmao-agent-email-comms`, `houmao-process-emails-via-gateway`, or `houmao-agent-gateway`
-- **AND THEN** it explains that follow-up live-agent management after specialist launch or stop belongs to `houmao-agent-instance`
-
-### Requirement: System-skills reference documents the packaged agent-instance lifecycle skill and its boundary
-The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-agent-instance` as a packaged Houmao-owned system skill.
-
-That page SHALL describe the packaged skill as the Houmao-owned entry point for managed-agent instance lifecycle guidance across:
-
-- `project agents launch`
-- `agents self join`
-- `agents global list`
-- `agents single ... stop`
-- `agents single ... cleanup session|logs`
-
-That page SHALL explain that `houmao-agent-instance` remains the canonical lifecycle skill while `houmao-agent-messaging` becomes the canonical ordinary communication/control and mailbox-routing skill for already-running managed agents, `houmao-agent-email-comms` remains the ordinary mailbox operations skill, `houmao-agent-gateway` becomes the canonical gateway-specific skill, and `houmao-project-mgr` owns project-scoped `project agents list|get|stop` plus project launch-profile authoring guidance.
-
-That page SHALL explain that mailbox surfaces, prompting, mailbox routing, ordinary mailbox operations, gateway-only services, reset-context guidance, specialist CRUD, and project-aware `project agents list|get|stop` remain outside the packaged `houmao-agent-instance` skill scope.
-
-That page SHALL describe the CLI-default system-skill install selection as including the packaged project-management, specialist-management, credential-management, agent-definition, agent-instance, agent-messaging, and agent-gateway skills.
-
-That page SHALL explain that managed launch and managed join auto-install the project-management, messaging, and gateway skills through the packaged `user-control`, `agent-messaging`, and `agent-gateway` sets but do not auto-install the separate lifecycle-only `houmao-agent-instance` skill.
-
-#### Scenario: Reader sees the packaged lifecycle skill in system-skills reference
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page identifies `houmao-agent-instance` as a packaged Houmao-owned skill
-- **AND THEN** it describes that skill as covering managed-agent instance lifecycle rather than gateway or messaging guidance
-
-#### Scenario: Reader sees the boundary between project, lifecycle, messaging, and gateway skills
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page distinguishes `houmao-agent-instance` from `houmao-project-mgr`, `houmao-agent-messaging`, and `houmao-agent-gateway`
-- **AND THEN** it explains that prompting and mailbox routing belong to messaging, ordinary mailbox operations belong to the mailbox skill family, project-aware `project agents list|get|stop` belongs to `houmao-project-mgr`, and gateway lifecycle, discovery, and gateway-only services belong to the gateway skill
-
-#### Scenario: Reader sees the updated default install behavior
-- **WHEN** a reader checks the install-selection behavior in `docs/reference/cli/system-skills.md`
-- **THEN** the page explains that CLI-default installation includes project-management, lifecycle, messaging, and gateway skills
-- **AND THEN** it explains that managed launch and managed join auto-install the project-management, messaging, and gateway skills without auto-installing the lifecycle-only skill
-
-### Requirement: System-skills reference documents the packaged agent-messaging skill and its communication-path boundary
-The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-agent-messaging` as a packaged Houmao-owned system skill.
-
-That page SHALL describe the packaged skill as the Houmao-owned entry point for communicating with already-running managed agents across:
-
-- `agents single ... prompt` and `agents self prompt`
-- `agents single ... interrupt` and `agents self interrupt`
-- `agents single ... gateway prompt|interrupt` and `agents self gateway prompt|interrupt`
-- `agents single ... gateway send-keys` and `agents self gateway send-keys`
-- `agents single ... gateway tui state|history|note-prompt` and `agents self gateway tui state|history|note-prompt`
-- `agents single ... mail resolve-live` and `agents self mail resolve-live`
-
-That page SHALL explain that the packaged skill routes by communication intent and not by one hardcoded transport path.
-
-That page SHALL explain that ordinary prompting should prefer the managed-agent seam, that mailbox discovery and mailbox routing begin from scoped `agents single ... mail resolve-live` or `agents self mail resolve-live`, and that ordinary mailbox operations belong to `houmao-agent-email-comms` while notifier-round mailbox workflow belongs to `houmao-process-emails-via-gateway`.
-
-That page SHALL explain that gateway lifecycle, current-session discovery, notifier control, and reminder guidance belong to `houmao-agent-gateway`.
-
-That page SHALL explain that transport-specific mailbox behavior remains in the mailbox skill family rather than in `houmao-agent-messaging`.
-
-#### Scenario: Reader sees the packaged messaging skill in system-skills reference
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page identifies `houmao-agent-messaging` as a packaged Houmao-owned skill
-- **AND THEN** it describes that skill as covering managed-agent communication and mailbox routing rather than lifecycle or gateway-control-plane ownership
-
-#### Scenario: Reader sees the communication-path boundary
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page explains the distinction between synchronous prompt turns, queued gateway requests, raw `send-keys`, mailbox handoff, ordinary mailbox operations in the mailbox skills, and the separate gateway skill's lifecycle or reminder services
-- **AND THEN** it does not imply that those paths are interchangeable shortcuts
-
 ### Requirement: Managed-launch CLI reference documents `--workdir` and source-project pinning
 The CLI reference pages that document `houmao-mgr agents self join` and `houmao-mgr project agents launch` SHALL describe `--workdir` as the current public runtime-cwd flag when that surface accepts it.
 
@@ -525,113 +387,6 @@ That coverage SHALL NOT present `--working-directory` as part of the current pub
 - **WHEN** a reader looks up `houmao-mgr project agents launch --workdir`
 - **THEN** the reference explains that the selected project overlay and specialist source remain authoritative
 - **AND THEN** it explains that `--workdir` only changes the launched agent cwd
-
-### Requirement: System-skills reference documents effective-home resolution and omitted-selection defaults
-The CLI reference pages `docs/reference/cli/system-skills.md` and `docs/reference/cli/houmao-mgr.md` SHALL describe `houmao-mgr system-skills install` as requiring `--tool` with either one supported tool identifier or a comma-separated list of supported tool identifiers.
-
-The CLI reference pages `docs/reference/cli/system-skills.md` and `docs/reference/cli/houmao-mgr.md` SHALL describe `houmao-mgr system-skills status` as requiring one supported `--tool` value.
-
-That coverage SHALL describe `--home` as optional for single-tool `install` and `status` invocations.
-
-That coverage SHALL state that `--home` is invalid for `system-skills install` when `--tool` names more than one comma-separated tool.
-
-That coverage SHALL document `--skill-set <name>` as the repeatable named system-skill set selection flag for `system-skills install`.
-
-That coverage SHALL state that `--set` is no longer part of the supported public `system-skills install` surface.
-
-That coverage SHALL document effective-home resolution for omitted-home installs and status inspection with this precedence:
-
-1. tool-native home env var
-2. project-scoped default home
-
-That coverage SHALL document explicit `--home` as taking precedence over tool-native home env vars and project-scoped defaults for single-tool commands.
-
-That coverage SHALL document the tool-native home env vars:
-
-- Claude: `CLAUDE_CONFIG_DIR`
-- Codex: `CODEX_HOME`
-- Copilot: `COPILOT_HOME`
-- Gemini: `GEMINI_CLI_HOME`
-
-That coverage SHALL document the project-scoped default homes:
-
-- Claude: `<cwd>/.claude`
-- Codex: `<cwd>/.codex`
-- Copilot: `<cwd>/.github`
-- Gemini: `<cwd>`
-
-That coverage SHALL state that omitting both `--skill-set` and `--skill` resolves the packaged CLI-default set list.
-
-That coverage SHALL NOT present `--default` as part of the current public `system-skills install` surface.
-
-That coverage SHALL explain that the default Gemini home root is `<cwd>`, which yields Houmao-owned skill projection under `<cwd>/.gemini/skills/`.
-
-That coverage SHALL describe `--symlink` as a supported projection mode that replaces the selected current skill destination with a symlink to the packaged asset root.
-
-That coverage SHALL explain that `system-skills install` does not create or require `.houmao/system-skills/install-state.json` in the target tool home.
-
-That coverage SHALL explain that reinstall replaces each selected current Houmao-owned skill destination path when it already exists, without checking install-state ownership metadata.
-
-That coverage SHALL explain that the overwrite boundary is limited to selected current Houmao-owned skill destination paths and does not remove unselected skills, parent skill roots, legacy family-namespaced paths, unrelated tool-home content, or stale install-state files.
-
-That coverage SHALL explain that `system-skills status` discovers current packaged skill projection paths from the filesystem and reports inferred `copy` or `symlink` projection mode without reading install-state metadata.
-
-That coverage SHALL show at least one comma-separated multi-tool install example and at least one single-tool explicit-home install example.
-
-That coverage SHALL show at least one named-set install example using `--skill-set`.
-
-That coverage SHALL explain that single-tool JSON output keeps the scalar install payload shape and multi-tool JSON output wraps per-tool install results under an aggregate payload.
-
-#### Scenario: Reader sees the effective-home precedence in the system-skills reference
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page documents `--home` as optional for single-tool `install` and `status`
-- **AND THEN** it explains the precedence order of explicit `--home`, tool-native env redirection, and project-scoped default home for single-tool commands
-
-#### Scenario: Reader sees comma-separated multi-tool install syntax
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page documents that `system-skills install --tool` accepts comma-separated supported tools
-- **AND THEN** it shows an example such as `houmao-mgr system-skills install --tool claude,codex,kimi,gemini,copilot`
-
-#### Scenario: Reader sees explicit skill-set flag naming
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page documents `--skill-set <name>` as the named system-skill set selection flag
-- **AND THEN** the page does not present `--set` as the current named-set selection flag
-
-#### Scenario: Reader sees the multi-tool home restriction
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page explains that `--home` cannot be combined with comma-separated multi-tool install
-- **AND THEN** it explains that operators who need explicit homes must run separate single-tool install commands
-
-#### Scenario: Reader understands stateless selected-skill overwrite
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page explains that install does not create or require `.houmao/system-skills/install-state.json`
-- **AND THEN** it explains that reinstall replaces selected current Houmao-owned skill paths when they already exist
-- **AND THEN** it explains that unselected and unrelated tool-home content remains outside the overwrite boundary
-
-#### Scenario: Reader understands symlink mode remains supported
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page documents `--symlink` as a supported install mode
-- **AND THEN** it explains that symlink reinstall uses the same selected-skill replacement boundary as copied reinstall
-
-#### Scenario: Reader understands status is filesystem discovery
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page explains that `status` discovers current packaged skill projection paths from the filesystem
-- **AND THEN** it does not describe install-state metadata as the source of current status output
-
-#### Scenario: Reader understands single-tool and multi-tool install output
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page explains that existing single-tool JSON output keeps scalar `tool` and `home_path` fields
-- **AND THEN** it explains that multi-tool JSON output reports `tools` plus one per-tool installation result
-
-#### Scenario: Reader sees the Gemini project-root default home clearly
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page explains that Gemini defaults to `<cwd>` rather than `<cwd>/.gemini`
-- **AND THEN** it explains that omitted-home Gemini installs project skills under `<cwd>/.gemini/skills/`
-
-#### Scenario: Reader does not see the removed default flag in current reference docs
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md` or `docs/reference/cli/houmao-mgr.md`
-- **THEN** the current command shape does not present `--set` or `--default` as a supported `system-skills install` option
-- **AND THEN** the reference explains that omitting both `--skill-set` and `--skill` is the supported way to request CLI-default selection
 
 ### Requirement: CLI reference documents scoped gateway targeting
 The CLI reference pages `docs/reference/cli/agents-gateway.md` and `docs/reference/cli.md` SHALL document explicit selected-agent gateway commands as `houmao-mgr agents single --agent-id <id> gateway ...` or `houmao-mgr agents single --agent-name <name> gateway ...`.
@@ -725,34 +480,6 @@ The `docs/getting-started/easy-specialists.md` options table for `project agents
 - **THEN** the table includes a row for `--mail-account-dir` with default `None`
 - **AND THEN** the description explains it is an optional private filesystem mailbox directory to symlink into the shared root
 
-### Requirement: System-skills reference documents the packaged agent-gateway skill and its gateway-service boundary
-The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-agent-gateway` as a packaged Houmao-owned system skill.
-
-That page SHALL describe the packaged skill as the Houmao-owned entry point for gateway-focused work across:
-
-- `agents single ... gateway attach|detach|status` and `agents self gateway attach|detach|status`
-- `agents single ... gateway reminders list|get|create|set|remove` and `agents self gateway reminders list|get|create|set|remove`
-- `agents single ... gateway mail-notifier status|enable|disable` and `agents self gateway mail-notifier status|enable|disable`
-- current-session versus explicit managed-agent gateway targeting
-- managed-agent gateway reminder proxy routes such as `/houmao/agents/{agent_ref}/gateway/reminders...` when the task is already operating through pair-managed HTTP
-- direct live gateway route families such as `/v1/status`, `/v1/reminders`, and `/v1/mail-notifier` when the exact live `gateway.base_url` is already known from supported discovery
-
-That page SHALL explain that the packaged gateway skill prefers scoped `houmao-mgr agents single ... gateway ...`, `houmao-mgr agents self gateway ...`, and managed-agent `/houmao/agents/{agent_ref}/gateway...` routes when those higher-level surfaces exist.
-
-That page SHALL explain that reminder work uses scoped `agents single ... gateway reminders ...`, `agents self gateway reminders ...`, or managed-agent `/houmao/agents/{agent_ref}/gateway/reminders...` when those higher-level surfaces already satisfy the task, that direct `/v1/reminders` remains the lower-level live contract, that reminder state remains in-memory and non-durable across gateway restart, and that effective reminder selection still follows smallest ranking value rather than independent wakeup-job ownership.
-
-That page SHALL explain that ordinary prompt/mail follow-up remains in `houmao-agent-messaging` and the mailbox skill family rather than in `houmao-agent-gateway`.
-
-#### Scenario: Reader sees the packaged gateway skill in system-skills reference
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page identifies `houmao-agent-gateway` as a packaged Houmao-owned skill
-- **AND THEN** it describes that skill as covering gateway lifecycle, gateway discovery, and gateway-only reminder/control surfaces
-
-#### Scenario: Reader sees the reminder boundary clearly
-- **WHEN** a reader opens the packaged gateway-skill section of `docs/reference/cli/system-skills.md`
-- **THEN** the page explains that current reminder control prefers scoped `houmao-mgr agents single ... gateway reminders ...`, `houmao-mgr agents self gateway reminders ...`, or the matching managed-agent reminder proxy when available and keeps direct live `/v1/reminders` as the lower-level contract
-- **AND THEN** it does not imply that reminders are durable across gateway restart
-
 ### Requirement: CLI reference documents managed-header controls on launch and launch-profile surfaces
 The `houmao-mgr` CLI reference SHALL document the managed-header flags on the relevant launch and launch-profile commands.
 
@@ -817,44 +544,6 @@ That coverage SHALL link to the underlying tool-specific model identifiers docum
 
 - **WHEN** a reader looks up the `--model` flag
 - **THEN** the CLI reference states that `--model` does not bypass tool authentication or provider configuration
-
-### Requirement: CLI reference for scoped `agents ... mail` reflects the unified email-comms skill boundary
-
-The CLI reference page `docs/reference/cli/agents-mail.md` SHALL describe the current `agents single ... mail` and `agents self mail` command surfaces as the operator-facing mailbox follow-up families that pair with the unified `houmao-agent-email-comms` packaged system skill.
-
-That page SHALL state that ordinary shared-mailbox operations and no-gateway fallback guidance live in `houmao-agent-email-comms`, while notifier-driven unread-mail rounds live in `houmao-process-emails-via-gateway`. It SHALL NOT continue to describe the pre-unification split-mailbox skill names as current packaged skills.
-
-That page SHALL keep the documented subcommands (`resolve-live`, `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, `archive`) accurate to the current `srv_ctrl/commands/agents/mail.py` Click decorators, and SHALL preserve the existing targeting-rules and authority-aware result semantics requirements from the prior pass.
-
-That page SHALL explain that:
-
-- ordinary `send` remains mailbox participation as the managed mailbox principal,
-- `post` is the distinct operator-origin mailbox action,
-- operator-origin `post` uses the reserved sender `HOUMAO-operator@houmao.localhost`,
-- operator-origin `post` defaults to reply-enabled behavior through `HOUMAO-operator@houmao.localhost`,
-- `--reply-policy none` is the explicit no-reply opt-out,
-- operator-origin `post` is supported only for filesystem-backed mailboxes in v1.
-
-#### Scenario: agents-mail page references the unified email-comms skill
-
-- **WHEN** a reader opens `docs/reference/cli/agents-mail.md`
-- **THEN** the page describes `houmao-agent-email-comms` as the unified ordinary mailbox-operations skill paired with the scoped `agents single ... mail` and `agents self mail` families
-- **AND THEN** the page does not list the pre-unification split skill names as current
-
-#### Scenario: agents-mail subcommand list still matches the live CLI
-
-- **WHEN** a reader opens `docs/reference/cli/agents-mail.md`
-- **THEN** the page documents `resolve-live`, `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`
-- **AND THEN** the option tables match the current `srv_ctrl/commands/agents/mail.py` Click decorators
-
-#### Scenario: agents-mail page distinguishes ordinary send from operator-origin post
-
-- **WHEN** a reader opens `docs/reference/cli/agents-mail.md`
-- **THEN** the page explains that `send` composes mail as the managed mailbox principal while `post` delivers operator-origin mail
-- **AND THEN** the page identifies `HOUMAO-operator@houmao.localhost` as the reserved sender for `post`
-- **AND THEN** the page states that omitted `--reply-policy` defaults to replies through `HOUMAO-operator@houmao.localhost`
-- **AND THEN** the page states that `--reply-policy none` keeps one operator-origin post no-reply
-- **AND THEN** the page states that `post` is filesystem-only in v1
 
 ### Requirement: CLI reference resync against current Click decorators for stale `agents` and `admin` pages
 
@@ -958,46 +647,6 @@ For each of those three surfaces the reference SHALL document:
 - **WHEN** a reader looks up reasoning-level documentation for Gemini-backed launch or prompt submission
 - **THEN** the reference explains that Gemini reasoning levels are Houmao-maintained presets that may map to multiple native Gemini settings together
 - **AND THEN** the reference explains that operators needing finer Gemini-native control should omit Houmao reasoning-level and manage native config or env directly
-
-### Requirement: System-skills reference documents both pairwise skill variants and their boundary
-The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe both `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2` as packaged Houmao-owned system skills.
-
-That page SHALL describe `houmao-agent-loop-pairwise` as the restored stable pairwise skill for manual pairwise planning plus `start|status|stop` run control.
-
-That page SHALL describe `houmao-agent-loop-pairwise-v2` as the manual-invocation-only versioned enriched pairwise skill for authoring, prestart, and expanded run control.
-
-That page SHALL explain that the stable and v2 pairwise skills are distinct packaged choices rather than aliases for the same skill.
-
-When the page describes current install selections that expand `user-control`, it SHALL enumerate both pairwise skill variants when both are present in the packaged catalog.
-
-#### Scenario: Reader sees both pairwise variants in the system-skills reference
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page identifies both `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2` as packaged Houmao-owned skills
-- **AND THEN** it explains the stable-versus-v2 boundary instead of presenting the two names as interchangeable aliases
-
-#### Scenario: Reader sees both pairwise variants in current install selections
-- **WHEN** a reader checks the current packaged inventory or install-selection behavior in `docs/reference/cli/system-skills.md`
-- **THEN** the page lists both `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2` when the packaged catalog includes both
-- **AND THEN** the page explains that both arrive through `user-control` when that set contains both
-
-### Requirement: System-skills reference documents the generic loop planner replacement
-The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-agent-loop-generic` as a packaged Houmao-owned system skill.
-
-That page SHALL describe `houmao-agent-loop-generic` as the generic composed-loop planner and `start|status|stop` run-control skill for user-controlled agents that need to decompose a communication graph into pairwise local-close components and relay-root components.
-
-That page SHALL explain that `houmao-agent-loop-generic` replaces the prior relay-only `houmao-agent-loop-relay` packaged skill.
-
-When the page describes current install selections that expand `user-control`, it SHALL enumerate `houmao-agent-loop-generic` when it is present in the packaged catalog and SHALL NOT enumerate `houmao-agent-loop-relay` as current after the catalog replacement.
-
-#### Scenario: Reader sees the generic loop planner in the system-skills reference
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page identifies `houmao-agent-loop-generic` as a packaged Houmao-owned skill
-- **AND THEN** it describes generic pairwise/relay graph decomposition rather than relay-only planning
-
-#### Scenario: Reader sees generic loop skill in current install selections
-- **WHEN** a reader checks the current packaged inventory or install-selection behavior in `docs/reference/cli/system-skills.md`
-- **THEN** the page lists `houmao-agent-loop-generic` when the packaged catalog includes it
-- **AND THEN** the page does not list `houmao-agent-loop-relay` as a current installable skill after the replacement
 
 ### Requirement: CLI reference documents launch-profile editing controls
 The `houmao-mgr` CLI reference SHALL document patch and replacement controls for reusable launch profiles.
@@ -1106,27 +755,6 @@ If CLI reference content mentions internal CAO compatibility elsewhere, that con
 - **WHEN** a reader scans CLI reference project-layout notes
 - **THEN** the reference does not present `.houmao/agents/compatibility-profiles/` as a maintained local project directory
 
-### Requirement: System-skills reference documents Copilot support
-The CLI reference page `docs/reference/cli/system-skills.md` SHALL document Copilot as a supported explicit `system-skills install|status --tool` target.
-
-That page SHALL document:
-
-- Copilot's tool-native home env var as `COPILOT_HOME`,
-- Copilot's project-scoped default home as `<cwd>/.github`,
-- Copilot's visible projection root as `skills/`, yielding `.github/skills/<houmao-skill>/` for omitted-home project installs,
-- explicit personal Copilot installs through `--home ~/.copilot`, yielding `~/.copilot/skills/<houmao-skill>/`,
-- that no `--scope` flag is required or supported for Copilot system-skill installation.
-
-#### Scenario: Reader sees Copilot in system-skills home resolution
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page lists Copilot alongside Claude, Codex, Kimi, and Gemini in the supported tool-home resolution coverage
-- **AND THEN** it identifies `COPILOT_HOME` and `<cwd>/.github` as Copilot's env and project-default home inputs
-
-#### Scenario: Reader understands Copilot projection paths
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page explains that Copilot skills project under `skills/<houmao-skill>/` relative to the resolved Copilot home
-- **AND THEN** it gives examples for both `.github/skills/<houmao-skill>/` and `~/.copilot/skills/<houmao-skill>/`
-
 ### Requirement: CLI reference explains component-scoped memo seed policies
 The `houmao-mgr` CLI reference SHALL explain that launch-profile memo seeds do not expose a memo seed policy option.
 
@@ -1148,62 +776,6 @@ When the reference documents `--clear-memo-seed`, it SHALL distinguish removing 
 - **WHEN** a reader looks up `--memo-seed-text`
 - **THEN** the CLI reference states that the launch replaces `houmao-memo.md`
 - **AND THEN** it does not state that pages are cleared for memo-only seeds
-
-### Requirement: CLI reference documents system-skills uninstall
-The CLI reference pages `docs/reference/cli/system-skills.md`, `docs/reference/cli/houmao-mgr.md`, and `docs/reference/cli.md` SHALL document `houmao-mgr system-skills uninstall` as the supported command for removing current Houmao-owned system skills from resolved Claude, Codex, Kimi, Gemini, and Copilot homes.
-
-That coverage SHALL state that `system-skills uninstall` requires `--tool` with either one supported tool identifier or a comma-separated list of supported tool identifiers.
-
-That coverage SHALL describe `--home` as optional for single-tool `uninstall` invocations and invalid when `--tool` names more than one comma-separated tool.
-
-That coverage SHALL document effective-home resolution for omitted-home uninstall with this precedence:
-
-1. tool-native home env var
-2. project-scoped default home
-
-That coverage SHALL explain that uninstall removes all current catalog-known Houmao system-skill projection paths for the resolved tool home and does not accept install-selection flags such as `--skill`, `--skill-set`, `--set`, `--default`, or `--symlink`.
-
-That coverage SHALL distinguish install and uninstall semantics: install can select sets or explicit skills, while uninstall always targets all current known Houmao system skills for the resolved home.
-
-That coverage SHALL explain that uninstall removes exact current Houmao skill paths whether they are copied directories, symlinks, or files.
-
-That coverage SHALL explain that uninstall is idempotent, reports missing current skill paths as absent or skipped, and does not create missing homes or parent skill roots.
-
-That coverage SHALL explain that uninstall preserves parent skill roots, unrelated user skills, unrecognized `houmao-*` paths, legacy family-namespaced paths, and obsolete install-state files.
-
-That coverage SHALL show at least one single-tool explicit-home uninstall example and at least one comma-separated multi-tool uninstall example.
-
-#### Scenario: Reader finds system-skills uninstall in the command shape
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md` or `docs/reference/cli/houmao-mgr.md`
-- **THEN** the command shape includes `system-skills uninstall`
-- **AND THEN** the page explains that uninstall removes all current known Houmao system skills for the resolved home
-
-#### Scenario: Reader sees uninstall home-resolution rules
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page documents `--home` as optional for single-tool uninstall
-- **AND THEN** it explains that comma-separated multi-tool uninstall cannot use `--home`
-- **AND THEN** it explains omitted-home uninstall resolution through tool-native env vars and project-scoped defaults
-
-#### Scenario: Reader understands uninstall is not selective
-- **WHEN** a reader checks uninstall options in the CLI reference
-- **THEN** the page explains that uninstall does not accept `--skill`, `--skill-set`, or `--symlink`
-- **AND THEN** the page contrasts that all-known-skill uninstall behavior with selective install behavior
-
-#### Scenario: Reader understands uninstall preserves unrelated content
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page explains that uninstall removes exact current Houmao skill paths only
-- **AND THEN** it explains that unrelated user skills, parent roots, legacy paths, and stale install-state files are not removed
-
-### Requirement: CLI reference explains system-skills home and projection output
-The CLI reference SHALL document that `houmao-mgr system-skills` plain output distinguishes effective tool homes from tool-native skill projection locations.
-
-The `system-skills` reference SHALL explain that Gemini's effective home may be the project root while Houmao-owned Gemini skills are projected under `<effective-home>/.gemini/skills/`. It SHALL also state that install/status/uninstall output reports enough projection information to locate installed, discovered, removed, or absent skill paths.
-
-#### Scenario: Reader understands Gemini install output
-- **WHEN** a reader opens the `system-skills` CLI reference
-- **THEN** the page explains that a Gemini home line such as `/workspace/repo` is the effective home
-- **AND THEN** the page explains that the corresponding Houmao-owned skill files live under `/workspace/repo/.gemini/skills/`
-- **AND THEN** the page describes the projection location information reported by plain install/status/uninstall output
 
 ### Requirement: CLI reference documents relaunch chat-session selection
 The CLI reference SHALL document the `houmao-mgr agents single --agent-id <id> relaunch` and `houmao-mgr agents single --agent-name <name> relaunch` chat-session selectors.
@@ -1250,82 +822,6 @@ The CLI reference SHALL document the `agents single ... cleanup session --purge-
 
 - **WHEN** a reader reads the `agents single ... cleanup session` CLI description
 - **THEN** they see `--purge-registry` documented with its destructive semantics and the condition that it requires confirmed broken authority
-
-### Requirement: CLI reference describes unified agent-definition skill
-The CLI reference SHALL describe `houmao-agent-definition` as the packaged skill for low-level definitions, `launch-dossiers`, project-specialists, easy `profiles`, and `create-agent-fast-forward`.
-
-The CLI reference SHALL route raw recipe-backed profile authoring away from `houmao-project-mgr` and toward the `houmao-agent-definition` `launch-dossiers` subcommand.
-
-If `houmao-specialist-mgr` remains documented, the reference SHALL identify it as compatibility guidance or a migration alias.
-
-#### Scenario: CLI reference routes launch dossiers to agent-definition
-- **WHEN** a reader checks the system-skills CLI reference for `internals native-agent launch-dossiers ...`
-- **THEN** the reference points the agent-facing guidance to `houmao-agent-definition` and the `launch-dossiers` subcommand
-- **AND THEN** it does not describe `houmao-project-mgr` as the owner of raw recipe-backed profile authoring
-
-#### Scenario: CLI reference includes fast-forward profile preparation
-- **WHEN** a reader checks which skill supports one-click agent profile preparation
-- **THEN** the CLI reference identifies `houmao-agent-definition` and `create-agent-fast-forward`
-- **AND THEN** it describes that path as creating or updating a launchable project profile without launching the agent
-
-### Requirement: CLI reference documents pro as current loop skill
-The CLI reference page for system skills SHALL describe `houmao-agent-loop-pro` as the current packaged loop skill.
-
-The reference SHALL omit retired pairwise and generic loop package names from current inventory lists.
-
-#### Scenario: Reader checks current system-skills inventory
-- **WHEN** a reader checks the CLI reference for current packaged system skills
-- **THEN** the loop inventory includes `houmao-agent-loop-pro`
-- **AND THEN** retired loop package names are not listed as current installable skills
-
-### Requirement: CLI reference documents retired cleanup when relevant
-The CLI reference SHALL explain that known retired Houmao loop skill projections may be removed during current install or uninstall operations.
-
-#### Scenario: Reader sees stale skill cleanup behavior
-- **WHEN** a reader checks install or uninstall semantics
-- **THEN** the CLI reference explains cleanup of known retired loop skill projections
-
-### Requirement: CLI reference includes lite in current system-skill inventory
-The CLI reference for system-skills SHALL list `houmao-agent-loop-lite` as a current catalog-known Houmao-owned system skill.
-
-The reference SHALL include `houmao-agent-loop-lite` in the documented current `core` and `all` resolved sets when those sets are shown.
-
-The reference SHALL preserve retired loop cleanup guidance for retired pairwise and generic package names without classifying `houmao-agent-loop-lite` as retired.
-
-#### Scenario: CLI reference lists lite as current
-- **WHEN** a reader opens the system-skills CLI reference
-- **THEN** `houmao-agent-loop-lite` appears in the current skill inventory
-- **AND THEN** it appears separately from retired loop cleanup names
-
-#### Scenario: CLI reference set examples include lite
-- **WHEN** the CLI reference shows resolved `core` or `all` system-skill sets
-- **THEN** those examples include `houmao-agent-loop-lite`
-- **AND THEN** they still include `houmao-agent-loop-pro`
-
-### Requirement: System-skills CLI reference distinguishes CLI management from installed-skill help
-
-The CLI reference page `docs/reference/cli/system-skills.md` SHALL state that `houmao-mgr system-skills` is the operator-facing CLI surface for installing, inspecting, and removing packaged Houmao-owned skill projections.
-
-The page SHALL state that prompt-level requests such as `$houmao-touring help` or `$houmao-agent-email-comms help` are answered by installed skills and are not a `houmao-mgr system-skills help` subcommand.
-
-The page SHALL link to `docs/getting-started/system-skills-overview.md` for the narrative explanation of skill-level help.
-
-#### Scenario: Reader does not look for a nonexistent CLI help subcommand
-- **WHEN** a reader opens the system-skills CLI reference after hearing about skill help
-- **THEN** the page explains that `$<skill> help` is prompt-level installed-skill behavior
-- **AND THEN** the page does not present `houmao-mgr system-skills help` as a command
-- **AND THEN** the page still documents the real `list`, `status`, `install`, and `uninstall` subcommands
-
-### Requirement: System-skills CLI reference notes the external Skills CLI install path
-
-The CLI reference page `docs/reference/cli/system-skills.md` SHALL mention that users with `npx` and internet access can alternatively install from the GitHub main-branch system-skill collection with `npx skills add https://github.com/igamenovoer/houmao/tree/main/src/houmao/agents/assets/system_skills/`.
-
-That note SHALL keep the rest of the page authoritative for `houmao-mgr system-skills` behavior such as effective-home resolution, named sets, subset skills, symlink/copy projection, status, uninstall, and cleanup of retired skill projections.
-
-#### Scenario: Reader understands the CLI reference boundary
-- **WHEN** a reader opens the system-skills CLI reference for installation guidance
-- **THEN** they see the external Skills CLI option as adjacent guidance
-- **AND THEN** they understand the page's detailed command behavior applies to `houmao-mgr system-skills`
 
 ### Requirement: CLI reference documents external managed-agent imports
 The CLI reference SHALL document the `houmao-mgr agents external` command family for registering and managing communication-only external Houmao agents.
@@ -1383,51 +879,6 @@ At minimum, the migration examples SHALL cover:
 - **THEN** the page includes examples mapping old ambiguous command paths to `agents global`, `agents single`, `agents self`, `agents external`, or `project agents`
 - **AND THEN** current-session examples use `agents self` rather than `--current-session`
 
-### Requirement: CLI reference omits the removed LLM Wiki utility system skill
-The CLI reference page `docs/reference/cli/system-skills.md` SHALL NOT describe `houmao-utils-llm-wiki` as a current packaged Houmao-owned system skill, current set member, install example, status result, or uninstall target.
-
-#### Scenario: Reader cannot install the removed utility from documented examples
-- **WHEN** a reader checks install examples in `docs/reference/cli/system-skills.md`
-- **THEN** no example uses `--skill houmao-utils-llm-wiki`
-- **AND THEN** no current inventory or set listing includes `houmao-utils-llm-wiki`
-
-### Requirement: CLI reference documents corrected Kimi system-skill and launch behavior
-
-Repo-owned CLI reference docs SHALL document Kimi as a supported system-skills target wherever the `system-skills` reference lists supported tools, effective home env vars, project defaults, projection roots, status behavior, install behavior, and uninstall behavior.
-
-The `system-skills` reference SHALL explain that Kimi omitted-home resolution uses `KIMI_CODE_HOME` before the project default `<cwd>/.kimi-code`, and that Kimi system skills project under `<effective-home>/skills/`.
-
-The `system-skills` reference SHALL distinguish Kimi projection from Kimi discovery. It SHALL explain that arbitrary `<KIMI_CODE_HOME>/skills` paths are not automatically discovered by current Kimi Code, that project `.kimi-code/skills` is a Kimi project discovery root when Kimi runs from that project, and that managed Kimi TUI launches use Kimi `extra_skill_dirs` generated by managed runtime preparation rather than TUI `--skills-dir`.
-
-CLI reference material for project agents launch SHALL describe Kimi as a TUI/local-interactive-capable provider when headless posture is omitted, while preserving Gemini as the required-headless exception.
-
-CLI reference material for project and internal credential commands SHALL include Kimi credential add/set/list/get/rename/remove surfaces and Kimi-specific credential flags. It SHALL NOT document a Kimi credential login helper unless the maintained CLI exposes one.
-
-#### Scenario: Reader sees Kimi in system-skills supported tools
-
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page lists Kimi alongside the other supported `system-skills` tools
-- **AND THEN** it documents `KIMI_CODE_HOME`, `<cwd>/.kimi-code`, and `<effective-home>/skills/` for Kimi
-
-#### Scenario: Reader sees Kimi projection versus discovery caveat
-
-- **WHEN** a reader checks Kimi effective-home guidance in the `system-skills` reference
-- **THEN** the page states that `system-skills install --tool kimi` projects files into the resolved Kimi home
-- **AND THEN** it does not claim that arbitrary `<KIMI_CODE_HOME>/skills` paths are auto-discovered by Kimi Code
-- **AND THEN** it explains that managed Kimi TUI skill reachability is handled through Kimi `extra_skill_dirs`
-
-#### Scenario: Reader sees Kimi TUI launch posture
-
-- **WHEN** a reader checks project agents launch reference material
-- **THEN** Kimi specialists and profiles are described as able to use TUI/local-interactive launch posture when headless is omitted
-- **AND THEN** Gemini remains documented as the project easy launch surface's required-headless exception
-
-#### Scenario: Reader sees Kimi credential CRUD without a login helper
-
-- **WHEN** a reader checks credential command reference material
-- **THEN** Kimi appears in credential CRUD coverage with Kimi-specific credential flags
-- **AND THEN** Kimi is not shown in login-helper examples or login-helper support tables unless the CLI implements a maintained Kimi login helper
-
 ### Requirement: CLI reference points Kimi automation at unattended prompt mode
 The CLI reference SHALL document `launch.prompt_mode: unattended` and the corresponding project/profile prompt-mode flags as the supported Houmao-facing way to run Kimi Code without permission dialogs or user questions.
 
@@ -1445,49 +896,173 @@ The CLI reference MAY mention Kimi provider-native `--auto` only as implementati
 - **THEN** the reference describes prompt mode as the managed automation control
 - **AND THEN** it does not require raw launch overrides with Kimi `--auto` for ordinary managed unattended launch
 
-### Requirement: CLI reference documents the graphing extension skill
-The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-ext-graphing` as a packaged Houmao-owned system skill.
+### Requirement: CLI reference documents gateway prompt admission policies
 
-That page SHALL describe `houmao-ext-graphing` as the extension skill for built-in Plotly.js templated graphics and Vega-Lite freeform graphics authoring over Houmao AG-UI implementation schemas.
+The maintained `houmao-mgr` CLI reference SHALL document `--admission-policy ready-only|if-no-pending|always` for scoped `agents single ... gateway prompt` and `agents self gateway prompt` commands.
 
-The page SHALL NOT describe `houmao-utils-graphing` as a current packaged skill, current set member, install example, status result, or uninstall target except as a retired skill projection that may be removed.
+The reference SHALL explain the readiness and pending-input condition for each value, the conservative treatment of `pending_input=unknown`, the observational behavior when multiple submissions occur before a TUI repaint, and the TUI-only scope of non-default policies.
 
-#### Scenario: Reader sees the graphing extension in the system-skills reference
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page lists `houmao-ext-graphing` as a current packaged skill
-- **AND THEN** it describes the skill as extension graphing authoring guidance
-- **AND THEN** it does not list `houmao-utils-graphing` as current
+The reference SHALL remove `--force` from current syntax, option tables, and examples and SHALL NOT present it as an alias or migration shim.
 
-### Requirement: CLI reference documents extensions set behavior
-The CLI reference page `docs/reference/cli/system-skills.md` SHALL document `core`, `extensions`, and `all` as the current installable named sets.
+#### Scenario: Reader can choose the policy from the CLI reference
 
-The page SHALL state that managed launch and managed join auto-install `core` plus `extensions`.
+- **WHEN** a reader opens the scoped gateway prompt command reference
+- **THEN** the option table defines ready-only, if-no-pending, and always in terms of tracked readiness and provider-native pending input
+- **AND THEN** the examples show the current `--admission-policy` syntax
 
-The page SHALL state that omitted-selection `houmao-mgr system-skills install` resolves `all`.
+#### Scenario: Reference explains observational concurrency
 
-The page SHALL explain that `core` is the non-extension baseline, `extensions` contains default-installed extension skills, and `all` includes both core and extension skills.
+- **WHEN** a reader looks up whether if-no-pending reserves an empty queue slot
+- **THEN** the CLI reference states that each call evaluates the latest observation independently
+- **AND THEN** it explains that two calls may both submit before the provider TUI repaints
 
-#### Scenario: Reader sees current named sets and defaults
-- **WHEN** a reader checks install-selection behavior in `docs/reference/cli/system-skills.md`
-- **THEN** the page documents `core`, `extensions`, and `all`
-- **AND THEN** it documents `managed_launch_sets = ["core", "extensions"]`, `managed_join_sets = ["core", "extensions"]`, and `cli_default_sets = ["all"]`
+#### Scenario: Removed force option is absent from current docs
 
-#### Scenario: Reader understands explicit core excludes extensions
-- **WHEN** the CLI reference shows resolved set examples
-- **THEN** the `core` example does not include `houmao-ext-graphing`
-- **AND THEN** the `extensions` or `all` example includes `houmao-ext-graphing`
+- **WHEN** a reader reviews gateway prompt syntax after the breaking change
+- **THEN** current command tables and examples do not include `--force`
+- **AND THEN** no documentation claims that a compatibility alias remains
 
-### Requirement: CLI reference explains retired graphing utility cleanup
-The CLI reference page `docs/reference/cli/system-skills.md` SHALL explain that known retired Houmao skill projections, including `houmao-utils-graphing`, may be removed during current install or uninstall operations.
+### Requirement: System-skills reference documents portable release metadata
+The CLI reference SHALL explain that each of the six standalone public `SKILL.md` roots declares `houmao_version` equal to its Houmao release. It SHALL explain that shared children inherit the shared root version and do not declare independent values.
 
-#### Scenario: Reader understands old graphing utility removal
-- **WHEN** a reader checks install or uninstall cleanup semantics
-- **THEN** the page explains that `houmao-utils-graphing` is a retired projection name
-- **AND THEN** the page explains that current install or uninstall operations may remove that stale Houmao-owned projection
+The reference SHALL distinguish installed frontmatter version, config `houmao_version`, and content digest evidence.
 
-### Requirement: CLI reference documents no Gemini surface
-Maintained CLI reference pages SHALL omit Gemini command families, provider choices, flags, schemas, examples, fixtures, and outputs.
+#### Scenario: Reader inspects shared routines
+- **WHEN** a reader asks how the sixteen shared children are versioned
+- **THEN** the reference identifies `houmao-shared-routines/SKILL.md` as their version authority
+- **AND THEN** it does not advertise per-child release versions
 
-#### Scenario: Reader searches maintained CLI reference for Gemini workflows
-- **WHEN** a reader searches current CLI documentation
-- **THEN** they find no instructions for configuring, launching, joining, resuming, or installing skills for Gemini
+### Requirement: System-skills reference documents doctor usage
+The CLI reference SHALL document doctor with explicit tool-home examples, managed-agent id and name examples, repeatable pack selection, agent-pack default, plain output, structured output, and exit codes.
+
+It SHALL explain that doctor can inspect configless copy or Skills CLI installations and that managed-agent name resolution must be unique.
+
+#### Scenario: Reader checks one managed agent
+- **WHEN** a reader wants to diagnose one known managed agent
+- **THEN** the reference shows the authoritative agent-id form
+- **AND THEN** it explains how doctor resolves the persistent home
+
+#### Scenario: Reader checks an external copy
+- **WHEN** a reader installed the static agent roots without `houmao-mgr`
+- **THEN** the reference shows explicit `--tool`, `--home`, and `--pack agent`
+- **AND THEN** it states that a missing config does not prevent version diagnosis
+
+### Requirement: Documentation preserves the diagnostic boundary
+The reference SHALL state that `houmao_version` equality is checked only by doctor. It SHALL NOT claim that install, status, upgrade, managed launch, join, runtime authorization, or skill invocation rejects mismatched versions.
+
+Doctor documentation SHALL describe it as read only and SHALL direct repairs to explicit install or upgrade commands rather than implying automatic mutation.
+
+#### Scenario: Doctor reports an old release
+- **WHEN** a reader receives a version mismatch
+- **THEN** the reference explains that the result is diagnostic
+- **AND THEN** it offers an explicit upgrade or reinstall as a separate operator decision
+
+### Requirement: System-skills reference documents minimal skill config
+The system-skills CLI reference SHALL document `<tool-home>/.houmao/system-skills/<tool>/houmao-skill-config.json` as the sole manager ownership configuration. It SHALL enumerate the exact four top-level fields and exact four fields in each installed-skill record, explain derived pack selection, and distinguish config `houmao_version`, installed frontmatter version, and content digest evidence.
+
+The reference SHALL use config terminology throughout lifecycle commands and output examples. It SHALL NOT describe a current receipt path or receipt schema.
+
+#### Scenario: Reader inspects ownership state
+- **WHEN** a reader wants to understand what Houmao installed
+- **THEN** the reference identifies the exact skill-config path and minimal field contract
+- **AND THEN** it explains how owner sets preserve shared roots across partial pack uninstall
+
+### Requirement: System-skills reference documents the breaking reinstall boundary
+The system-skills reference SHALL state that the current release does not read, migrate, delete, or report `receipt.json`. It SHALL direct users to uninstall with the previous release or remove the old system-skill projections and state before reinstalling.
+
+The reference SHALL continue to explain that doctor can diagnose complete configless copy-paste and Skills CLI installations directly.
+
+#### Scenario: Existing user upgrades from receipt state
+- **WHEN** a reader has a receipt-based installation
+- **THEN** the reference gives the clean removal and reinstall requirement
+- **AND THEN** it does not promise automatic migration or overwrite of old projected roots
+
+### Requirement: CLI reference documents system-skill pack lifecycle
+`docs/reference/cli/system-skills.md` SHALL document `list`, `install`, `status`, `doctor`, `upgrade`, and `uninstall` with repeatable `--pack admin|agent`, supported tool and home resolution, copy and explicit symlink projection, plain output, and root `--print-json` output.
+
+The reference SHALL explain CLI-default admin selection, managed-default agent selection, complete-pack atomicity, config ownership, integrity states, and transaction rollback. It SHALL NOT document `--set` or low-level `--skill` as current manager selectors.
+
+#### Scenario: Reader looks up external installation
+- **WHEN** a reader opens the system-skills CLI reference
+- **THEN** they find a complete admin-pack install example and effective-home rules
+- **AND THEN** they understand that omission selects the admin pack
+
+### Requirement: CLI reference documents public roles and actor entrypoints
+The reference SHALL list all six standalone roots and SHALL distinguish the three actor-facing roots from shared routines and the two direct loop roots.
+
+It SHALL explain the welcome mutation boundary, admin explicit-target posture, agent self-identity verification, managed joined-session actor transition, explicit shared and loop activation, and the absence of an agent welcome.
+
+#### Scenario: Reader chooses between admin and agent entrypoints
+- **WHEN** a reader needs to perform an operation from a human-operated home or managed home
+- **THEN** the reference identifies the correct actor entrypoint and actor semantics
+- **AND THEN** it does not suggest that prompt wording can switch the active actor
+
+### Requirement: CLI reference provides an actor-qualified shared route map
+The reference SHALL map every parent-scoped shared routine to eligible actor entrypoints, route names, major `houmao-mgr` command families, and actor-specific target behavior.
+
+Parent-qualified designators SHALL be labeled as route traces. Copyable prompts SHALL begin with an actor entrypoint or the explicit advanced shared-routines root. The reference SHALL identify old top-level routine names only in migration guidance.
+
+#### Scenario: Reader finds credential-management commands
+- **WHEN** a reader searches for credential-management skill guidance
+- **THEN** the reference points to the admin entrypoint's credential route and maintained CLI families
+- **AND THEN** it does not present `houmao-credential-mgr` as a top-level installed skill
+
+### Requirement: CLI reference documents clean reinstall and config-owned removal
+The reference SHALL explain status classifications, safe legacy digest or symlink detection, preserved modified conflicts, config-owned upgrade and uninstall, static projection paths, and host refresh requirements.
+
+It SHALL state that the current lifecycle ignores old `receipt.json` state, does not silently overwrite old untracked roots, and requires a clean reinstall before those roots can become config-owned.
+
+#### Scenario: Reader has a modified legacy skill directory
+- **WHEN** a reader follows migration guidance for an old home with modified content
+- **THEN** the reference tells them to preserve and review the conflict
+- **AND THEN** it provides an explicit cleanup and reinstall path before retrying
+
+### Requirement: CLI reference retains supported provider boundaries at pack level
+The reference SHALL document pack projection for Claude, Codex, Copilot, Kimi, and universal targets, including maintained Kimi reachability caveats.
+
+It SHALL state that Gemini is not a supported system-skill projection target and that `houmao-auto-system-prompt` remains separate from pack lifecycle commands.
+
+#### Scenario: Reader checks Copilot or Gemini support
+- **WHEN** a reader compares system-skill targets
+- **THEN** Copilot is identified as a pack projection target rather than a launch backend
+- **AND THEN** Gemini is not presented as a supported pack target
+
+### Requirement: System-skills CLI reference documents static pack membership
+The CLI reference SHALL list all standalone members of the admin and agent packs, identify shared ownership of `houmao-shared-routines`, `houmao-agent-loop-pro`, and `houmao-agent-loop-lite`, and distinguish the sixteen shared children from installable roots.
+
+It SHALL NOT describe protected mounts, audience-specific composed route files, or materialized entrypoint trees as current behavior.
+
+#### Scenario: Reader checks the agent pack
+- **WHEN** a reader opens the system-skills pack table
+- **THEN** the agent pack contains agent entrypoint, shared routines, pro loop, and lite loop
+- **AND THEN** all four appear as top-level static destinations
+
+### Requirement: System-skills CLI reference documents shared-owner lifecycle behavior
+The CLI reference SHALL explain install, status, upgrade, and uninstall behavior for overlapping pack members. It SHALL state that uninstall removes a shared projection only after its last owning pack is removed.
+
+The reference SHALL describe the new config as the sole manager ownership evidence and SHALL explain that old receipt-era roots require a clean reinstall rather than automatic migration.
+
+#### Scenario: Reader plans to remove one of two installed packs
+- **WHEN** both packs own shared members
+- **THEN** the reference explains which exclusive entrypoint is removed
+- **AND THEN** it explains why shared routines and loops remain for the other pack
+
+### Requirement: CLI reference documents standard external skill installation
+The system-skills reference SHALL link to the dedicated public `houmao-skills` repository and show that users may install its root-level static collection with normal Skills CLI or copy-paste workflows. It SHALL state that the unqualified repository URL tracks the latest stable release and that a matching Houmao Git tag selects a specific released skill version.
+
+It SHALL explain that external standard installation has no Houmao skill config and requires explicit sibling selection, while `houmao-mgr system-skills` provides dependency-aware pack lifecycle management.
+
+#### Scenario: Reader compares manager and Skills CLI
+- **WHEN** a reader chooses an installation method
+- **THEN** the reference distinguishes config ownership and automatic pack closure from independent skill selection
+- **AND THEN** it provides the complete sibling list needed by the chosen actor entrypoint
+
+### Requirement: CLI reference documents direct public invocation surfaces
+The reference SHALL document normal admin and agent entrypoint forms, direct shared-routines advanced invocation, direct pro and lite invocation, and the optional managed-self qualifier for direct shared or loop calls.
+
+It SHALL describe shared children with parent-qualified object notation and SHALL not advertise their old top-level `$houmao-<routine>` forms as current standalone triggers.
+
+#### Scenario: Reader invokes a loop manually
+- **WHEN** a reader chooses the pro loop skill
+- **THEN** the reference shows `$houmao-agent-loop-pro <operation>`
+- **AND THEN** it preserves the explicit manual activation boundary and `<loop-dir>` input rules

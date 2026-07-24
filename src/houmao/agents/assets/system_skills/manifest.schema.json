@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "auto_skill_name",
+    "defaults",
+    "packs",
+    "standalone_skills",
+    "shared_routines",
+    "legacy_skills"
+  ],
+  "properties": {
+    "schema_version": {"const": "houmao-system-skills.v4"},
+    "auto_skill_name": {"const": "houmao-auto-system-prompt"},
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cli", "managed_launch", "managed_join"],
+      "properties": {
+        "cli": {"$ref": "#/$defs/packIds"},
+        "managed_launch": {"$ref": "#/$defs/packIds"},
+        "managed_join": {"$ref": "#/$defs/packIds"}
+      }
+    },
+    "packs": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"$ref": "#/$defs/pack"}
+    },
+    "standalone_skills": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {"$ref": "#/$defs/standaloneSkill"}
+    },
+    "shared_routines": {
+      "type": "array",
+      "minItems": 16,
+      "maxItems": 16,
+      "items": {"$ref": "#/$defs/sharedRoutine"}
+    },
+    "legacy_skills": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/legacySkill"}
+    }
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+    "skillName": {"type": "string", "pattern": "^houmao-[a-z0-9-]+$"},
+    "relativePath": {"type": "string", "pattern": "^[A-Za-z0-9._/-]+$"},
+    "stringList": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "packIds": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/id"},
+      "uniqueItems": true
+    },
+    "pack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pack_id",
+        "audience",
+        "description",
+        "standalone_skills",
+        "default_lanes"
+      ],
+      "properties": {
+        "pack_id": {"$ref": "#/$defs/id"},
+        "audience": {"enum": ["admin", "agent"]},
+        "description": {"type": "string", "minLength": 1},
+        "standalone_skills": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/skillName"},
+          "uniqueItems": true
+        },
+        "default_lanes": {
+          "type": "array",
+          "items": {"enum": ["cli", "managed_launch", "managed_join"]},
+          "uniqueItems": true
+        }
+      }
+    },
+    "standaloneSkill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "role",
+        "source_path",
+        "activation",
+        "pack_ids",
+        "commands",
+        "aliases",
+        "dependencies"
+      ],
+      "properties": {
+        "name": {"$ref": "#/$defs/skillName"},
+        "role": {"enum": ["welcome", "entrypoint", "shared-routines", "loop"]},
+        "source_path": {"$ref": "#/$defs/relativePath"},
+        "activation": {"enum": ["narrow-implicit", "explicit"]},
+        "pack_ids": {"$ref": "#/$defs/packIds"},
+        "commands": {"$ref": "#/$defs/stringList"},
+        "aliases": {"$ref": "#/$defs/stringList"},
+        "dependencies": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/skillName"},
+          "uniqueItems": true
+        }
+      }
+    },
+    "sharedRoutine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "logical_id",
+        "source_path",
+        "member_name",
+        "route_name",
+        "audiences",
+        "dependencies",
+        "commands",
+        "aliases"
+      ],
+      "properties": {
+        "logical_id": {"$ref": "#/$defs/skillName"},
+        "source_path": {"$ref": "#/$defs/relativePath"},
+        "member_name": {"$ref": "#/$defs/skillName"},
+        "route_name": {"$ref": "#/$defs/id"},
+        "audiences": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"enum": ["admin", "agent"]},
+          "uniqueItems": true
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/skillName"},
+          "uniqueItems": true
+        },
+        "commands": {"$ref": "#/$defs/stringList"},
+        "aliases": {"$ref": "#/$defs/stringList"}
+      }
+    },
+    "legacySkill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "asset_subpath", "content_digest"],
+      "properties": {
+        "name": {"$ref": "#/$defs/skillName"},
+        "asset_subpath": {"$ref": "#/$defs/relativePath"},
+        "content_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    }
+  }
+}

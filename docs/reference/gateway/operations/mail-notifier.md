@@ -161,10 +161,10 @@ Additional runtime guidance:
 
 Current source behavior:
 
-- when the installed round-oriented mailbox skill is available, the prompt gives a concise native invocation for `houmao-process-emails-via-gateway`,
-- the prompt uses native installed-skill invocation guidance for the current tool rather than telling the agent to inspect `SKILL.md` files,
-- when the lower-level mailbox communication skill is also installed, the prompt names `houmao-agent-email-comms` only as an optional details reference,
-- when the round-oriented mailbox skill is not installed, the prompt falls back to the compact mailbox API summary.
+- when the managed `agent` pack is installed, the prompt invokes `$houmao-agent-entrypoint process-emails-via-gateway <gateway-url>`,
+- the prompt requires both the installed agent entrypoint and shared-routines sibling, then leaves parent-scoped `SKILL-MAIN.md` selection to sibling routing,
+- ordinary mailbox details remain available through the `agent-email-comms` child in shared routines,
+- when the agent pack is unavailable, the prompt falls back to the compact mailbox API summary.
 
 ## Lifecycle Integration
 
@@ -186,6 +186,7 @@ Current source behavior:
 
 - [Notifier-Prompt-Driven Loop Runtime](notifier-prompt-driven-loops.md)
 - [scoped agents gateway mail-notifier](../../cli/agents-gateway.md#mail-notifier)
+- [Why Prompt Admission Uses Readiness and Pending Input](../internals/prompt-admission-and-tui-observation.md)
 - [Gateway Mailbox Facade](mailbox-facade.md)
 - [Gateway Reminders](reminders.md)
 - [Agent Gateway Reference](../index.md)

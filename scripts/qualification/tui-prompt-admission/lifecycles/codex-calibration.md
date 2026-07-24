@@ -23,9 +23,9 @@ Pending regex is based on the signatures documented in UC-05 and the Codex TUI a
 
 ## Procedure
 
-1. `pixi run tui-pending-state-capture --provider codex --lifecycle scripts/qualification/tui-prompt-admission/lifecycles/codex-1-pending.json --run-root tmp/houmao-dev-testing/codex-cal-1`
-2. `pixi run tui-pending-state-capture --provider codex --lifecycle scripts/qualification/tui-prompt-admission/lifecycles/codex-2-pending.json --run-root tmp/houmao-dev-testing/codex-cal-2`
-3. `pixi run tui-pending-state-capture --provider codex --lifecycle scripts/qualification/tui-prompt-admission/lifecycles/codex-3-pending-long.json --run-root tmp/houmao-dev-testing/codex-cal-3`
+1. `pixi run tui-pending-state-capture --provider codex --lifecycle scripts/qualification/tui-prompt-admission/lifecycles/codex-1-pending.json --run-root tmp/houmao-dev-tui-testing/codex-cal-1`
+2. `pixi run tui-pending-state-capture --provider codex --lifecycle scripts/qualification/tui-prompt-admission/lifecycles/codex-2-pending.json --run-root tmp/houmao-dev-tui-testing/codex-cal-2`
+3. `pixi run tui-pending-state-capture --provider codex --lifecycle scripts/qualification/tui-prompt-admission/lifecycles/codex-3-pending-long.json --run-root tmp/houmao-dev-tui-testing/codex-cal-3`
 4. Inspect each `<run-root>/codex-attempt-001/review/labels.mp4`.
 5. Record the version from each `<run-root>/codex-attempt-001/capture/run-summary.json`.
 6. Update the matching `lifecycles/codex-*-pending*.json` `calibrated_version` and tighten `pending.regex` if needed.

@@ -90,7 +90,7 @@ Use these only when their owned behavior is the test subject:
 
 - Minimal generated-home launch: `scripts/demo/minimal-agent-launch/scripts/run_demo.sh --provider claude_code|codex`
 - Shared TUI tracking live watch: `scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool claude|codex|kimi`
-- Recorder-backed capture: use the `houmao-dev-testing` skill, which composes the shared TUI tracking demo and terminal recorder
+- Recorder-backed capture: use the `houmao-dev-tui-testing` skill, which composes the shared TUI tracking demo and terminal recorder
 - Plain agent-definition experiment: copy `tests/fixtures/plain-agent-def/` and selected `tests/fixtures/auth-bundles/` content into a fresh run-local tree
 
 Never route new work through `scripts/demo/legacy/`, historical `brains/`, `blueprints/`, or `api-creds` trees.

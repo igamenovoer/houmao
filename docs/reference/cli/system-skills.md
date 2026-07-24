@@ -1,397 +1,352 @@
-# system-skills
+# `system-skills`
 
-`houmao-mgr system-skills` is the operator-facing surface for installing, removing, and inspecting the current Houmao-owned `houmao-*` skills in resolved Claude, Codex, Kimi Code, or Copilot homes, or in the cross-client `universal` Agent Skills target.
-
-> **Looking for the narrative tour?** See the [System Skills Overview](../../getting-started/system-skills-overview.md) getting-started guide for a 5-minute walkthrough of every packaged skill, when each one fires, and how managed-home auto-install differs from explicit CLI-default install.
-
-This page documents `houmao-mgr system-skills` command behavior: effective-home resolution, named sets, subset skill selection, copy versus symlink projection, status, uninstall, and retired-skill cleanup. When `npx` and internet access are available, users can alternatively install from Houmao's namespace in the small release-synced `igamenovoer/tool-skills` repository with:
-
-```bash
-npx skills add igamenovoer/tool-skills/houmao
-```
-
-That external Skills CLI path avoids cloning the full Houmao source repository and is adjacent install guidance; the detailed command behavior below applies to `houmao-mgr system-skills`.
-
-Installed Houmao system skills can answer prompt-level read-only help such as `$houmao-touring help` or `$houmao-agent-email-comms help`. That help is handled by the installed skill's top-level `SKILL.md`; it is not a `houmao-mgr system-skills help` subcommand.
-
-This is the same packaged skill system used internally by:
-
-- managed launch or internal native-agent brain build when Houmao creates a managed home and resolves any stored source/profile managed system-skill policy,
-- `houmao-mgr agents self join` when it adopts an existing session and auto-installs Houmao-owned skills into the adopted tool home.
-
-The `system-skills` command group is still the explicit tool-home installer. Managed-launch policy is configured on specialists, recipes, and launch profiles with `system_skills` fields or `--system-skill*` profile options; it is not a one-shot `system-skills install` invocation.
-
-The current implementation is still intentionally narrow. It covers the packaged Houmao-owned skills declared in `src/houmao/agents/assets/system_skills/catalog.toml`:
-
-- `houmao-process-emails-via-gateway` for round-oriented gateway mailbox workflow
-- `houmao-agent-email-comms` for ordinary shared-mailbox operations and the no-gateway fallback path
-- `houmao-adv-usage-pattern` for supported multi-skill mailbox and gateway workflow compositions such as self-wakeup through self-mail plus notifier-driven rounds
-- `houmao-utils-workspace-mgr` for explicit multi-agent workspace planning, creation, validation, and summary utilities: dry-run plans, untracked task-scoped in-repo workspace collections, out-of-repo standard workspace layouts, per-agent Git worktrees, local-only shared repos, tracked submodule materialization, launch-profile cwd updates, project-command readiness checks, and optional memo-seed workspace rules
-- `houmao-ext-graphing` for extension-owned built-in Plotly.js `templated-graphics` and Vega-Lite `freeform-graphics` authoring, schema discovery, payload validation, implementation rendering, and graphing-specific repair
-- `houmao-touring` for a manual guided tour that helps first-time or re-orienting users move through beginner agent creation, intermediate live operation, and advanced loop/workspace coordination when relevant
-- `houmao-mailbox-mgr` for mailbox-root lifecycle, mailbox account lifecycle, structural mailbox inspection, and late filesystem mailbox binding on existing local managed agents
-- `houmao-memory-mgr` for supported managed-agent memory edits to the fixed `houmao-memo.md` file and contained `pages/` files across relaunch, reset, and `recover_and_continue` flows
-- `houmao-project-mgr` for project overlay lifecycle, `.houmao/` layout explanation, project-aware command effects, and project-scoped easy-instance inspection or stop routing
-- `houmao-agent-definition` for subcommands `roles`, `recipes`, `launch-dossiers`, `specialists`, `profiles`, `create-agent-fast-forward`, `launch-agent`, and `stop-agent`; `launch-dossiers` maps to the underlying `internals native-agent launch-dossiers ...` CLI, while ordinary profile wording defaults to easy `profiles`
-- `houmao-specialist-mgr` as a compatibility wrapper that redirects older specialist/profile/ready-profile prompts to `houmao-agent-definition`
-- `houmao-credential-mgr` for project-local credential management plus direct internal native-agent credential management
-- `houmao-agent-instance` for live managed-agent instance lifecycle
-- `houmao-agent-inspect` for generic read-only managed-agent inspection across liveness, screen posture, mailbox posture, logs, runtime artifacts, and bounded local tmux peeking
-- `houmao-operator-messaging` for manual operator intent clarification and dispatch to one or more managed agents by prompt by default, or by mailbox when requested
-- `houmao-agent-messaging` for communication and control of already-running managed agents across prompt, gateway, raw-input, mailbox routing, and reset-context workflows
-- `houmao-agent-gateway` for live gateway lifecycle, manifest-first discovery, gateway-only control, ranked reminders, and gateway mail-notifier behavior
-- `houmao-interop-ag-ui` for AG-UI protocol event validation and framing, generic Houmao implementation rendering, gateway publishing, GUI delivery interpretation, and UI payload safety
-- `houmao-agent-loop-lite` for lightweight Markdown/direct-SQL generated loop authoring and execution with typed Markdown templates and generated skills
-- `houmao-agent-loop-pro` for schema-rich generated loop authoring and execution across `tree-loop` and `generic-loop` topology modes
-
-It does not yet generalize to non-skill asset kinds.
-
-## Command Shape
+`houmao-mgr system-skills` installs, diagnoses, inspects, upgrades, and removes complete Houmao actor packs in external or project-scoped tool homes. Managed launch and join use the same static pack lifecycle internally.
 
 ```text
-houmao-mgr system-skills
-├── list
-├── status --tool <tool> [--home <path>]
-├── install --tool <tool>[,<tool>...] [--home <path>] [--skill-set <name> ...] [--skill <name> ...] [--symlink]
-└── uninstall --tool <tool>[,<tool>...] [--home <path>]
+houmao-mgr system-skills list
+houmao-mgr system-skills install --tool <target> [--home <path>] [--pack admin|agent]... [--symlink]
+houmao-mgr system-skills status --tool <target> [--home <path>]
+houmao-mgr system-skills doctor --tool <target> [--home <path>] [--pack admin|agent]...
+houmao-mgr system-skills doctor (--agent-id <id> | --agent-name <unique-name>) [--pack admin|agent]...
+houmao-mgr system-skills upgrade --tool <target> [--home <path>] [--pack admin|agent]... [--symlink]
+houmao-mgr system-skills uninstall --tool <target> [--home <path>] [--pack admin|agent]...
 ```
 
-## Effective Home Resolution
+Use the root `--print-json` flag before `system-skills` for structured output:
 
-For single-target `install`, `uninstall`, and `status` commands, explicit `--home` overrides all other home selection. When `--home` is omitted, tool-specific targets resolve the effective home with this precedence:
+```bash
+houmao-mgr --print-json system-skills list
+houmao-mgr --print-json system-skills status --tool codex --home ~/.codex
+houmao-mgr --print-json system-skills doctor --agent-id <id>
+```
 
-1. tool-native home env var
-2. project-scoped default home
+There is no `system-skills help` subcommand. Skill-level help comes from `$houmao-admin-welcome help`, `$houmao-admin-entrypoint help`, `$houmao-agent-entrypoint help`, `$houmao-shared-routines help`, or either top-level loop's `help` operation.
 
-For comma-separated multi-target `install` and `uninstall`, omit `--home`; each selected target resolves through its own omitted-home rule. If you need explicit home overrides, run separate single-target commands.
+## V4 Static Collection and Pack Membership
 
-Supported targets:
+The `houmao-system-skills.v4` manifest records six standalone source directories. Each one has a role, activation posture, pack owners, commands, aliases, dependencies, and a complete source path. It also records sixteen parent-scoped children owned by shared routines, including actor eligibility, route name, dependencies, commands, and aliases.
 
-- Claude: `claude`, with home env var `CLAUDE_CONFIG_DIR` and project default `<cwd>/.claude`
-- Codex: `codex`, with home env var `CODEX_HOME` and project default `<cwd>/.codex`
-- Copilot: `copilot`, with home env var `COPILOT_HOME` and project default `<cwd>/.github`
-- Kimi Code CLI: `kimi`, with home env var `KIMI_CODE_HOME` and project default `<cwd>/.kimi-code`
-- Universal Agent Skills: `universal`, with no env var and default home `~/.agents`
+| Pack | Audience | Static Top-Level Members | Default Lane |
+|---|---|---|---|
+| `admin` | Human operator | `houmao-admin-welcome`, `houmao-admin-entrypoint`, `houmao-shared-routines`, `houmao-agent-loop-pro`, `houmao-agent-loop-lite` | Explicit CLI install |
+| `agent` | Managed Houmao agent | `houmao-agent-entrypoint`, `houmao-shared-routines`, `houmao-agent-loop-pro`, `houmao-agent-loop-lite` | Managed launch, rebuild, relaunch, and join |
 
-The `kimi` target means Kimi Code CLI. It is not the legacy MoonshotAI `kimi-cli` project; upstream says legacy `kimi-cli` is being wound down in favor of Kimi Code CLI.
+`houmao-shared-routines`, `houmao-agent-loop-pro`, and `houmao-agent-loop-lite` belong to both packs. A combined install has six unique destinations and records both owners on those three shared records.
 
+The two actor entrypoints use narrow implicit activation. `houmao-admin-entrypoint` handles semantically Houmao-related requests in a raw human-operator context, and `houmao-agent-entrypoint` handles them in a genuine managed-agent context. `houmao-admin-welcome`, `houmao-shared-routines`, and both loop roots remain explicit-only. Exact `$houmao-*` handles take precedence over implicit discovery. In a combined installation, current execution context selects the actor entrypoint; prompt claims cannot turn a raw operator into managed self or a managed agent into admin.
 
-Kimi uses the same home-relative `skills/` projection as Claude and Codex. With the project default, omitted-home Kimi installs land under `<cwd>/.kimi-code/skills/`, which Kimi Code discovers when it runs from that project. Explicit `--home` places files in the chosen home; a later Kimi Code launch sees them when it uses that same path as `KIMI_CODE_HOME`, passes the path through `--skills-dir`, or includes it through `extra_skill_dirs`. Managed Kimi brain builds still add the managed projected skill root to `extra_skill_dirs` without overwriting unrelated Kimi config, and local-interactive Kimi launches rely on that config rather than receiving a Houmao-injected `--skills-dir`.
+The sixteen shared children use `SKILL-MAIN.md` below `houmao-shared-routines/subskills/`. They are route targets, not top-level install members. `houmao-auto-system-prompt` is a separate managed auto skill and never appears in the v4 manifest, skill config, or public-root inventory.
 
-Copilot uses the same home-relative `skills/` projection as Claude and Codex, but its project-scoped default home is `<cwd>/.github`. That means omitted-home Copilot installs land under `<cwd>/.github/skills/`. To install the same Houmao-owned skills into a personal Copilot CLI home, pass an explicit home such as `--home ~/.copilot` or set `COPILOT_HOME`; no separate scope flag is required.
+## Top-Level Release Metadata
 
-Universal uses the same home-relative `skills/` projection as Claude, Codex, Kimi, and Copilot, but it is not a runtime tool. Omitted-home universal installs land under `~/.agents/skills/`, the cross-client Agent Skills convention used by clients that scan generic `.agents/skills` directories. With `--tool universal --home <path>`, `<path>` is the `.agents`-style root that contains `skills/`; passing `--home ~/.agents/skills` would therefore create `~/.agents/skills/skills/`.
+Each of the six standalone public `SKILL.md` roots declares one quoted `houmao_version` equal to the Houmao project release. The value identifies the checked-in static tree that a copy-paste installer, Skills CLI, or Houmao lifecycle projects without rendering. Release validation compares all six source values with `[project].version` before local distribution builds and tagged publication.
 
-## Packaged Catalog
+The sixteen `SKILL-MAIN.md` children do not declare independent versions. `houmao-shared-routines/SKILL.md` is the release authority for the complete shared tree. Legacy skills, generated execplan skills, project-authored skills, and the separate `houmao-auto-system-prompt` asset remain outside this contract.
 
-The authoritative packaged catalog lives in the runtime package:
+Three values answer different questions:
 
-- `src/houmao/agents/assets/system_skills/catalog.toml`
-- `src/houmao/agents/assets/system_skills/catalog.schema.json`
+| Evidence | Meaning |
+|---|---|
+| Installed `houmao_version` | Release string declared by the installed top-level `SKILL.md`; doctor uses this as observed version evidence. |
+| Config `houmao_version` | Houmao package release recorded by the last lifecycle mutation; it does not replace installed frontmatter evidence. |
+| Content digest | Exact complete-tree compatibility with the running packaged source, including commands, assets, scripts, references, and shared children. |
 
-The catalog defines four things:
+Version metadata is diagnostic only. Install, sync, status, upgrade, managed launch, rebuild, relaunch, join, runtime authorization, generated prompts, and skill invocation do not reject a root because its version is old, missing, or malformed.
 
-1. `skills`: the current installable Houmao-owned skills
-2. `sets`: named sets of explicit skill names
-3. `auto_install`: fixed set lists used for managed launch, managed join, and CLI default installation
-4. `retired_skill_names`: known retired Houmao-owned projection names that supported install/status/uninstall workflows clean or report, but never install
+## Standard External Installation
 
-The catalog is loaded by `src/houmao/agents/system_skills.py`, normalized, validated against the packaged JSON Schema, and then checked for cross-reference errors such as sets that mention unknown skills.
+The dedicated [`houmao-skills`](https://github.com/igamenovoer/houmao-skills) repository is a valid static Agent Skills collection whose skill directories live at repository root. Its unqualified URL selects the latest stable release from `main`; append a matching release tag such as `#v2.1.0` to install the system skills for a specific `houmao-mgr` version. A standard Skills CLI can list or install it without running Houmao's manager:
 
-Current sets:
+```bash
+npx skills add https://github.com/igamenovoer/houmao-skills --list
+npx skills add https://github.com/igamenovoer/houmao-skills#v2.1.0 --agent codex --skill '*' --yes
+```
 
-- `core`
-- `extensions`
-- `all`
+Select all five admin siblings explicitly:
 
-Current fixed auto-install selections:
+```bash
+npx skills add https://github.com/igamenovoer/houmao-skills --agent codex --skill houmao-admin-welcome --skill houmao-admin-entrypoint --skill houmao-shared-routines --skill houmao-agent-loop-pro --skill houmao-agent-loop-lite --yes
+```
 
-- managed launch: `core`, `extensions`
-- managed join: `core`, `extensions`
-- CLI default: `all`
+Select all four agent siblings explicitly:
 
-Managed launch can override the managed-launch default per source/profile. Source recipes and specialists support `default`, `extend`, `replace`, and `none`; launch profiles support `inherit`, `extend`, `replace`, and `none`. The shared managed-home sync removes unselected current Houmao-owned skill paths from reused managed homes and leaves unrelated user skills alone.
+```bash
+npx skills add https://github.com/igamenovoer/houmao-skills --agent codex --skill houmao-agent-entrypoint --skill houmao-shared-routines --skill houmao-agent-loop-pro --skill houmao-agent-loop-lite --yes
+```
 
-## Current Skill Inventory
+Skills CLI and copy-paste installation treat each directory independently. They do not resolve Houmao dependencies, create shared owner sets, or write a Houmao skill config. Selecting an entrypoint alone therefore produces an incomplete actor surface. Use `houmao-mgr system-skills` when you want automatic pack closure and config-backed lifecycle management.
 
-The current packaged Houmao-owned skills are:
+## Supported Targets and Effective Homes
 
-- `houmao-process-emails-via-gateway`
-- `houmao-agent-email-comms`
-- `houmao-adv-usage-pattern`
-- `houmao-utils-workspace-mgr`
-- `houmao-ext-graphing`
-- `houmao-touring`
-- `houmao-mailbox-mgr`
-- `houmao-memory-mgr`
-- `houmao-project-mgr`
-- `houmao-specialist-mgr` (compatibility wrapper; canonical specialist/profile guidance is `houmao-agent-definition`)
-- `houmao-credential-mgr`
-- `houmao-agent-definition`
-- `houmao-agent-loop-pro`
-- `houmao-agent-loop-lite`
-- `houmao-agent-instance`
-- `houmao-agent-inspect`
-- `houmao-operator-messaging`
-- `houmao-agent-messaging`
-- `houmao-agent-gateway`
-- `houmao-interop-ag-ui`
+Supported target names are `claude`, `codex`, `copilot`, `kimi`, and `universal`. Gemini is not a supported manager target.
 
-These skill trees live directly under:
+| Target | Environment Redirect | Project Default | Skill Root |
+|---|---|---|---|
+| `claude` | `CLAUDE_CONFIG_DIR` | `<cwd>/.claude` | `<home>/skills` |
+| `codex` | `CODEX_HOME` | `<cwd>/.codex` | `<home>/skills` |
+| `copilot` | `COPILOT_HOME` | `<cwd>/.github` | `<home>/skills` |
+| `kimi` | `KIMI_CODE_HOME` | `<cwd>/.kimi-code` | `<home>/skills` |
+| `universal` | None | `~/.agents` | `<home>/skills` |
 
-- `src/houmao/agents/assets/system_skills/<houmao-skill>/`
+`--home` overrides environment and project defaults for one target. A comma-separated multi-target value such as `--tool claude,codex,kimi` must omit `--home` so each target resolves independently. `kimi` means Kimi Code CLI.
 
-## Tool-Visible Projection Paths
+Copilot discovery under `.github/skills` does not by itself provide access to local Houmao runtime resources. Commands still require an environment where `houmao-mgr`, project state, tmux sessions, gateways, and mailboxes are reachable.
 
-The installer preserves the current visible tool-native skill roots with flat Houmao-owned skill directories:
-
-| Tool | Visible projection root | Example |
-| --- | --- | --- |
-| `claude` | `skills/` | `skills/houmao-agent-email-comms/SKILL.md` |
-| `codex` | `skills/` | `skills/houmao-agent-messaging/SKILL.md` |
-| `kimi` | `skills/` | `.kimi-code/skills/houmao-agent-email-comms/SKILL.md` for the project default, or `<KIMI_CODE_HOME>/skills/houmao-agent-email-comms/SKILL.md` with env redirection |
-| `copilot` | `skills/` | `.github/skills/houmao-agent-messaging/SKILL.md` for the project default, or `~/.copilot/skills/houmao-agent-messaging/SKILL.md` with `--home ~/.copilot` |
-| `universal` | `skills/` | `~/.agents/skills/houmao-agent-messaging/SKILL.md` by default, or `<home>/skills/houmao-agent-messaging/SKILL.md` with `--home <home>` |
-
-That means Houmao-owned skills stay grouped by reserved skill names and closed named sets rather than by family-specific path segments.
-
-## Human-Readable Projection Output
-
-Plain `install`, `status`, and `uninstall` output distinguishes the effective tool home from the skill projection location. The effective home is the root used for tool-home resolution and later status/uninstall targeting. The projection location is where Houmao-owned skill directories actually appear under that home.
-
-For Claude, Codex, Kimi, Copilot, and Universal, the projection root is `<effective-home>/skills/`.
-
-Kimi plain output also prints a discovery caveat. It reports where files were projected and explains that Kimi Code discovers them when a later launch uses the same `KIMI_CODE_HOME`, passes the path with `--skills-dir`, or includes it through `extra_skill_dirs`.
-
-Universal plain output reports the concrete skill root, such as `~/.agents/skills`, so operators can see the cross-client projection target. This file placement does not guarantee that every client supports every optional Houmao skill metadata field.
-
-The plain output reports projection roots or projected paths so an operator can locate installed, discovered, removed, or absent skill paths without switching to JSON output.
-
-## Stateless Selected-Skill Replacement
-
-The shared installer does not create or require `.houmao/system-skills/install-state.json` in target tool homes.
-
-For each selected current Houmao-owned skill, reinstall computes the exact current tool-native destination path, removes that path if it already exists as a directory, file, or symlink, and then projects the packaged skill with the requested mode.
-
-Replacement policy:
-
-- selected current Houmao-owned skill paths are explicit overwrite targets
-- exact known retired skill projection paths, including old loop names and `houmao-utils-graphing`, are removed from the selected target home during install/reinstall
-- copied projection materializes the packaged skill tree into the selected destination
-- symlink projection replaces the selected destination with a directory symlink to the packaged asset root
-- unselected skill directories, parent skill roots, legacy family-namespaced paths, unrelated tool-home content, and stale install-state files are not removed
-- old install-state files are ignored rather than migrated
-
-## Stateless All-Known-Skill Removal
-
-`system-skills uninstall` uses the same catalog and projection rules, but it is intentionally not selective. It targets every current Houmao-owned skill listed in the packaged catalog for the resolved tool home.
-
-Removal policy:
-
-- every current catalog-known Houmao-owned skill path is an explicit removal target
-- every known retired skill projection path, including old loop names and `houmao-utils-graphing`, is also an explicit removal target
-- copied directories, symlinks, and files at those exact current paths are removed
-- missing current skill paths are reported as absent rather than errors
-- missing retired projection paths are reported separately from current absent skills
-- missing target homes are not created just to uninstall
-- parent skill roots, unrelated user skills, unrecognized `houmao-*` paths, legacy family-namespaced paths, and stale install-state files are not removed
+Kimi discovers projected skills when a later launch uses the same `KIMI_CODE_HOME`, passes the path through `--skills-dir`, or lists it in `extra_skill_dirs`. Managed Kimi homes add their projected root to `config.toml` `extra_skill_dirs`.
 
 ## `list`
 
-Use `list` to inspect the packaged inventory, named sets, and fixed defaults:
+`list` reads the v4 manifest and reports:
+
+- each pack's id, audience, description, complete standalone membership, and default lanes;
+- each of the six standalone skills with role, activation posture, pack owners, commands, aliases, and dependencies;
+- each of the sixteen shared children with route, audiences, dependencies, commands, aliases, and parent-qualified invocation;
+- the three overlapping standalone members;
+- the separate auto-skill name.
 
 ```bash
-pixi run houmao-mgr system-skills list
-pixi run houmao-mgr --print-json system-skills list
+houmao-mgr system-skills list
+houmao-mgr --print-json system-skills list
 ```
 
-This reports:
-
-- current skill inventory
-- named sets
-- managed-launch set list
-- managed-join set list
-- CLI-default set list
-
-## `status`
-
-Use `status` to inspect one resolved tool home:
-
-```bash
-pixi run houmao-mgr system-skills status --tool codex
-pixi run houmao-mgr system-skills status --tool codex --home ~/.codex
-pixi run houmao-mgr system-skills status --tool kimi
-pixi run houmao-mgr system-skills status --tool kimi --home ~/.kimi-code
-pixi run houmao-mgr system-skills status --tool universal
-```
-
-`status` reports:
-
-- target tool
-- resolved target home
-- installed current Houmao-owned skill names discovered in that home
-- the projected relative path for each discovered current skill
-- the inferred projection mode for each installed current skill (`copy` or `symlink`)
-- retired loop skill leftovers when exact known retired projection paths are still present
-
-If the home has never been touched by the shared installer, `status` reports no installed current Houmao-owned skills. `status` discovers current packaged skill paths and retired leftovers from the filesystem and ignores old install-state files.
+JSON output contains `schema_version`, `packs`, `standalone_skills`, `shared_routines`, `overlapping_standalone_skills`, `defaults`, and `auto_skill_separate`.
 
 ## `install`
 
-Use `install` when you want the current Houmao-owned skill surface in a resolved external or project-scoped tool home:
+Omitting `--pack` selects `admin` for this explicit external-home command. Repeat `--pack` to install both complete packs:
 
 ```bash
-pixi run houmao-mgr system-skills install --tool codex
-pixi run houmao-mgr system-skills install --tool claude,codex,kimi,copilot,universal
-pixi run houmao-mgr system-skills install --tool codex --home ~/.codex
-pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set core
-pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set extensions
-pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set all
-pixi run houmao-mgr system-skills install --tool copilot
-pixi run houmao-mgr system-skills install --tool copilot --home ~/.copilot
-pixi run houmao-mgr system-skills install --tool copilot --home ~/.copilot --skill-set core
-pixi run houmao-mgr system-skills install --tool kimi
-pixi run houmao-mgr system-skills install --tool kimi --skill-set core
-pixi run houmao-mgr system-skills install --tool kimi --home ~/.kimi-code
-pixi run houmao-mgr system-skills install --tool universal
-pixi run houmao-mgr system-skills install --tool universal --home ~/.agents
-pixi run houmao-mgr system-skills install --tool codex --skill houmao-utils-workspace-mgr
-pixi run houmao-mgr system-skills install --tool codex --skill houmao-ext-graphing
-pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill houmao-agent-definition --symlink
+houmao-mgr system-skills install --tool codex
+houmao-mgr system-skills install --tool codex --pack admin
+houmao-mgr system-skills install --tool codex --pack agent
+houmao-mgr system-skills install --tool codex --pack admin --pack agent
+houmao-mgr system-skills install --tool universal --home ~/.agents --pack admin
 ```
 
-Selection rules:
+Copy projection is the default and recursively preserves the complete packaged directory bytes. `--symlink` links every top-level destination directly to its complete packaged source directory. Neither mode renders actor names, filters shared children, or creates a hidden composition tree.
 
-- omitting both `--skill-set` and `--skill` expands the catalog's CLI-default set list
-- the CLI-default set list is `all`; managed launch and join resolve `core` plus `extensions`
-- use `--skill-set core` when you want the non-extension baseline without extension skills
-- use `--skill-set extensions` when you want only default-installed extension skills such as `houmao-ext-graphing`
-- repeatable `--skill-set` expands named sets in the order given
-- repeatable `--skill` appends explicit skill names after the expanded sets, and can also be used alone for a small named subset
-- `--symlink` switches the install from copied projection to directory symlink projection
-- the final skill list is deduplicated by first occurrence
-- unknown set names or skill names are errors
-- `--set` is no longer a supported install flag; use `--skill-set` for named system-skill sets
+```bash
+houmao-mgr system-skills install --tool codex --home ~/.codex --pack admin --symlink
+```
 
-Home-resolution rules:
+Before mutation, installation resolves a deduplicated static union, checks every destination for unowned collisions, stages complete directories, validates the union, and backs up replaceable config-owned state. It commits all destinations and writes the config last. A failure restores the prior paths and config. Unrelated user skills remain untouched.
 
-- `--home` is optional for single-tool install commands
-- `--home` cannot be combined with comma-separated multi-tool install commands
-- when omitted, tool-specific targets resolve the effective home using tool-native env redirection first and project-scoped defaults second
-- omitted-home Kimi installs use `<cwd>/.kimi-code` as the effective home, so Houmao-owned skills land under `.kimi-code/skills/`
-- omitted-home Universal installs use `~/.agents` as the effective home, so Houmao-owned skills land under `~/.agents/skills/`
+Structured install output reports `tool`, `home_path`, `selected_packs`, `standalone_skills`, `projected_relative_dirs`, `config_path`, `projection_mode`, `owning_pack_ids_by_skill`, and any removed pack, destination, or legacy evidence.
 
-Structured output rules:
+The manager's individual `--skill` and set-based `--set` or `--skill-set` selectors are obsolete. Use repeated `--pack admin|agent`. Passing a standalone name such as `houmao-shared-routines` to `--pack` fails because it is not a pack selector; passing a child logical id fails because a child is not an install selector. This restriction does not apply to the separate `npx skills` command.
 
-- single-tool JSON output keeps the existing scalar payload shape with `tool`, `home_path`, `selected_sets`, `explicit_skills`, `resolved_skills`, `projected_relative_dirs`, and `projection_mode`
-- multi-tool JSON output returns `tools` plus one single-tool-shaped record per selected tool under `installations`
+## Minimal Skill Config
 
-Plain output rules:
+Each manager-owned target keeps one tool-scoped config:
 
-- single-tool output reports the effective home plus the installed projected skill path or projection root
-- multi-tool output reports each selected tool's effective home plus skill projection root
-- Kimi output reports the projected `skills/` path and includes the discovery caveat for explicit or env-redirected Kimi homes
-- Universal output reports the projected `skills/` root under the resolved `.agents` home
+```text
+<home>/.houmao/system-skills/<tool>/houmao-skill-config.json
+```
 
-Projection rules:
+The `houmao-skill-config.v1` payload has exactly four top-level fields:
 
-- without `--symlink`, Houmao copies the packaged skill tree into the target home
-- with `--symlink`, Houmao creates one directory symlink per selected skill in the tool-native skill root
-- symlink installs use the absolute filesystem path of the packaged skill asset as the symlink target
-- if the packaged skill asset is not backed by a stable real filesystem directory, `--symlink` fails explicitly instead of falling back to copied projection
-- `--symlink` is a local-machine convenience mode; if the Python environment or installed package path moves, reinstall the skills to refresh the symlink targets
-- reinstall replaces existing destinations for selected current skills without install-state ownership checks
-- legacy skill aliases, old family-namespaced paths, and obsolete install-state files are ignored and are not deleted automatically before 1.0
+- `schema_version`: the literal `houmao-skill-config.v1`;
+- `houmao_version`: the Houmao release that performed the last lifecycle mutation;
+- `projection_mode`: `copy` or `symlink` for the whole collection;
+- `skills`: the manifest-ordered standalone destination records.
+
+Each skill record has exactly `name`, `relative_path`, `content_digest`, and a non-empty `owning_pack_ids` list. The manager derives selected packs from the owner union; it does not serialize `selected_packs`, tool, home, timestamps, roles, manifest versions, or source paths. Tool and home come from the config location.
+
+One config uses one projection mode for its complete collection. An explicit install, sync, or upgrade may transactionally replace every owned member to change mode. Config writes are atomic and occur after destination commit.
+
+A missing config is `absent`. Invalid JSON, unknown or missing fields, unsafe paths, duplicate records, invalid digests, invalid owners, or a union that differs from the derived packs is `corrupt`. A future schema version is `unsupported`. Lifecycle mutation refuses to infer ownership from corrupt, unsupported, or absent config state.
+
+## `status`
+
+Status is read only. It reports config state, all six standalone members, both packs, owner sets, expected digests, shared-child completeness, and legacy flat-path evidence:
+
+```bash
+houmao-mgr system-skills status --tool codex
+houmao-mgr system-skills status --tool codex --home ~/.codex
+houmao-mgr --print-json system-skills status --tool kimi
+```
+
+Member and pack integrity classes are:
+
+| Status | Meaning |
+|---|---|
+| `absent` | The config does not own the member or pack. |
+| `complete` | Every owned static destination has the recorded shape and digest; shared routines contain all sixteen children. |
+| `incomplete` | An owned destination or required shared child is missing. |
+| `drifted` | Config-owned content differs from its recorded or packaged digest. |
+| `conflicting` | A destination has the wrong type, symlink target, or ownership shape. |
+
+Legacy flat-path classifications remain separate from current ownership:
+
+| Classification | Meaning |
+|---|---|
+| `package-linked` | A symlink targets a known old packaged source. |
+| `digest-matched` | A complete copied tree matches a known legacy digest. |
+| `modified` | A known legacy path contains different content or points elsewhere. |
+| `unknown` | An unrecognized `houmao-*` path exists outside the current six roots. |
+
+Legacy aggregate state is `absent`, `complete`, `partial`, or `conflicting`. Name-only or partial evidence never creates config ownership.
+
+## `doctor`
+
+Doctor is a read-only check of an explicit expected pack. Omitted `--pack` selects `agent`; repeat the option to inspect a combined six-root installation. Direct-home mode accepts exactly one supported tool and uses the same `--home`, environment redirect, and project-default resolution as lifecycle commands:
+
+```bash
+houmao-mgr system-skills doctor --tool codex
+houmao-mgr system-skills doctor --tool codex --home ~/.codex --pack agent
+houmao-mgr system-skills doctor --tool codex --home ~/.codex --pack admin --pack agent
+houmao-mgr --print-json system-skills doctor --tool universal --home ~/.agents --pack admin
+```
+
+A complete copy-paste or Skills CLI installation can be healthy without a Houmao skill config. Doctor reads each installed top-level `SKILL.md`, checks its complete tree against the running package, and requires the exact sixteen shared child entrypoints when shared routines is expected. Config status and config `houmao_version` appear as separate supporting evidence.
+
+Managed-agent mode resolves a known local registry record, its session manifest, its brain manifest, the recorded tool, and the persistent home. It does not require a live gateway, lease, tmux session, or provider TUI, so a stopped agent remains diagnosable while those authority files and its home remain readable:
+
+```bash
+houmao-mgr system-skills doctor --agent-id <authoritative-agent-id>
+houmao-mgr system-skills doctor --agent-name HOUMAO-reviewer
+houmao-mgr --print-json system-skills doctor --agent-id <authoritative-agent-id>
+```
+
+Friendly names must resolve to exactly one local record. Use `--agent-id` when a name is ambiguous. Agent selectors cannot be combined with `--tool` or `--home`, and external communication-only agents are not valid doctor targets.
+
+Each member reports integrity independently as `absent`, `complete`, `incomplete`, `drifted`, or `conflicting`. Its version status is one of `match`, `mismatch`, `missing`, `invalid`, or `unavailable`. A matching version does not hide edited content, and a config `houmao_version` does not substitute for missing installed metadata. A running version of `0+unknown` produces `unavailable` rather than a false match.
+
+Doctor exits with code 0 only when every expected root has current complete content and a matching version. It emits the full diagnostic and exits with code 1 for health failures. Invalid selectors and unresolved targets use Click exit code 2. Doctor never installs, upgrades, repairs, launches, or writes a config. After a mismatch, choose a separate explicit install or upgrade only after reviewing the reported content and ownership evidence.
+
+## `upgrade`
+
+`upgrade` refreshes selected complete packs through the same config-last transaction:
+
+```bash
+houmao-mgr system-skills upgrade --tool codex --home ~/.codex --pack admin
+houmao-mgr system-skills upgrade --tool codex --home ~/.codex --pack agent --symlink
+```
+
+Omitting `--pack` selects the explicit CLI default `admin`. Upgrade accepts a current `houmao-skill-config.v1` installation or a clean target with no selected destinations. It stages the complete static union, replaces only config-owned destinations, commits destinations, and writes the config last. Legacy flat paths are removed only when they are `package-linked` or `digest-matched`; `modified` and `unknown` paths appear in `preserved_legacy_paths`.
+
+This config change is a breaking lifecycle boundary. The manager does not read, migrate, remove, or use an old `receipt.json` to infer ownership. Old projected top-level roots therefore remain unowned collisions. To reinstall, first inspect and back up any edited roots, remove the old Houmao top-level skill directories from the target skill root, and then run `install` with the intended pack selection. Removing the old receipt is optional because the new lifecycle ignores it, but doing so avoids leaving misleading stale metadata. Do not expect `upgrade` to convert the old installation.
+
+Structured upgrade output adds `legacy_before` and `preserved_legacy_paths` to the install result.
 
 ## `uninstall`
 
-Use `uninstall` when you want to remove the current Houmao-owned skill surface from a resolved external or project-scoped tool home:
+Uninstall subtracts selected pack ownership. Omission selects every pack currently owned by the config:
 
 ```bash
-pixi run houmao-mgr system-skills uninstall --tool codex
-pixi run houmao-mgr system-skills uninstall --tool codex --home ~/.codex
-pixi run houmao-mgr system-skills uninstall --tool claude,codex,kimi,copilot,universal
-pixi run houmao-mgr system-skills uninstall --tool copilot --home ~/.copilot
-pixi run houmao-mgr system-skills uninstall --tool kimi
-pixi run houmao-mgr system-skills uninstall --tool kimi --home ~/.kimi-code
-pixi run houmao-mgr system-skills uninstall --tool universal
+houmao-mgr system-skills uninstall --tool codex --pack admin
+houmao-mgr system-skills uninstall --tool codex --pack agent
+houmao-mgr system-skills uninstall --tool codex
 ```
 
-Uninstall rules:
+When both packs are installed, removing `admin` deletes `houmao-admin-welcome` and `houmao-admin-entrypoint`. Shared routines and both loops remain because `agent` still owns them. The same rule applies in reverse: a shared projection is removed only after its final owning pack is removed.
 
-- `uninstall` always targets every current skill in the packaged catalog
-- selection flags such as `--skill`, `--skill-set`, `--set`, `--default`, and `--symlink` are not part of the uninstall surface
-- `--home` is optional for single-tool uninstall commands
-- `--home` cannot be combined with comma-separated multi-tool uninstall commands
-- when omitted, tool-specific targets resolve the effective home using tool-native env redirection first and project-scoped defaults second
-- omitted-home Kimi uninstalls use `<cwd>/.kimi-code` as the effective home, so Houmao-owned skills are removed from `.kimi-code/skills/`
-- omitted-home Universal uninstalls use `~/.agents` as the effective home, so Houmao-owned skills are removed from `~/.agents/skills/`
+An ownership-shape conflict is preserved and reported in `preserved_conflicting_paths`. Independently removable destinations may still be removed. Unrelated user skills and unowned legacy paths remain untouched. The config disappears when no owned packs remain.
 
-Structured output rules:
+Structured output reports requested, removed, and absent packs; removed destinations; `retained_shared_skills`; preserved conflicts; and the config path.
 
-- single-tool JSON output uses scalar `tool` and `home_path` fields and reports `removed_skills`, `removed_projected_relative_dirs`, `absent_skills`, and `absent_projected_relative_dirs`
-- multi-tool JSON output returns `tools` plus one single-tool-shaped record per selected tool under `uninstallations`
+## Managed-Home Policy
 
-Plain output rules:
+Managed launch, rebuild, relaunch, and join use `agent` when policy is omitted. Source policy modes are `default`, `extend`, `replace`, and `none`; profile policy modes are `inherit`, `extend`, `replace`, and `none`.
 
-- single-tool output reports the effective home plus removed or absent projected paths
-- multi-tool output reports each selected tool's effective home plus removed or absent projection roots when paths share a root
-- Kimi output reports `skills/` removal or absence paths and repeats the discovery caveat for explicit or env-redirected Kimi homes
-- Universal output reports `skills/` removal or absence paths under the resolved `.agents` home
+```yaml
+launch:
+  system_skills:
+    mode: extend
+    packs:
+      - admin
+```
 
-Removal boundary:
+`extend` on a source starts from the managed `agent` default. `replace` selects exactly the listed packs. `none` selects no pack. On a reused home, exact sync removes only config-owned members no longer selected and preserves unrelated user skills.
 
-- exact current Houmao-owned skill paths are removed whether they are copied directories, symlinks, or files
-- missing current paths are reported as absent or skipped
-- missing homes are not created
-- parent skill roots, unrelated user skills, unrecognized `houmao-*` paths, legacy family-namespaced paths, and obsolete install-state files are preserved
+Stored `sets` and `skills` fields are rejected with a migration diagnostic. Complete packs are the only manager selection units.
 
-## Internal Auto-Install Behavior
+## Public Invocation Surfaces
 
-Managed homes and joined homes use the same installer and catalog:
+Natural Houmao-related requests may select the matching actor entrypoint without a skill handle. Each entrypoint classifies informational versus operational intent first. Informational requests stay local; the managed entrypoint does not verify identity for them. Operational managed requests run the exact fresh self-identity command before substantive routing. Missing targets remain post-activation gates.
 
-- managed launch and internal native-agent brain build install the skill list resolved from `auto_install.managed_launch_sets`
-- `agents self join` installs the skill list resolved from `auto_install.managed_join_sets`
-- `agents self join --no-install-houmao-skills` skips that default installer step
+Explicit actor-aware calls start at an entrypoint:
 
-Those managed flows continue to use copied projection in this change even though explicit `system-skills install` now supports `--symlink`.
+```text
+$houmao-admin-entrypoint credential-mgr list
+$houmao-admin-entrypoint agent-definition profiles
+$houmao-admin-entrypoint agent-inspect discover for reviewer-1
+$houmao-agent-entrypoint agent-email-comms status
+$houmao-agent-entrypoint process-emails-via-gateway process-round http://127.0.0.1:43123
+```
 
-This removes the old mailbox-only special path and family-specific Codex subtrees while keeping logical grouping in the `core`, `extensions`, and `all` sets. The smaller `core` set is the non-extension baseline. The `extensions` set contains default-installed extension guidance that users can ignore without breaking non-extension skill behavior. Non-extension skills do not route, delegate, or require work through extension skills.
+Advanced direct calls use shared routines. No-frame direct calls default to admin; leading `as-agent` performs fresh self-verification:
 
-The conceptual groups are:
+```text
+$houmao-shared-routines agent-inspect discover for reviewer-1
+$houmao-shared-routines as-agent agent-email-comms status
+```
 
-- automation: mailbox rounds, ordinary mailbox operations, managed memory, advanced workflow patterns, read-only inspection, operator messaging, managed-agent messaging, and gateway/reminder control
-- control: touring, project overlays, agent definitions and profiles, credentials, live-agent lifecycle, and loop orchestration
-- utils: `houmao-utils-workspace-mgr`
-- extensions: `houmao-ext-graphing`
+Manual loop calls use the top-level loop skills and an explicit `<loop-dir>`:
 
-CLI-default installation expands `all`, which installs every packaged Houmao system skill. Managed launch and managed join expand `core` followed by `extensions`, so extension skills are available by default without becoming core dependencies. Explicit `--skill-set core` excludes `houmao-ext-graphing`.
+```text
+$houmao-agent-loop-pro init <loop-dir>
+$houmao-agent-loop-pro execplan-fast-forward <loop-dir>
+$houmao-agent-loop-lite init <loop-dir>
+$houmao-agent-loop-lite as-agent status <loop-dir>
+```
 
-## When To Use This Surface
+`houmao-agent-loop-pro` provides schema-rich loop authoring; `houmao-agent-loop-lite` provides Markdown/direct-SQL loop authoring without a generated harness.
 
-Use `system-skills` when:
+Welcome is also manual-only: use `$houmao-admin-welcome start-guided-tour` when a human operator wants guided orientation. A natural welcome-style question selects the admin entrypoint, which answers concise information locally and may recommend that command without invoking it.
 
-- you want to prepare an external Claude, Codex, Kimi Code, or Copilot home before using `houmao-mgr`, or install to the cross-client `~/.agents/skills` universal target
-- you want to inspect whether Houmao already installed its own skill set into a home
-- you want the same Houmao-owned guided touring, project-management, mailbox administration, ordinary mailbox participation, low-level definition-management, specialist-management, credential-management, managed-agent inspection, operator message clarification/dispatch, messaging/control, gateway-management, graphing authoring, AG-UI delivery, loop/workspace coordination, or instance-lifecycle skill surface outside a Houmao-managed launch or join flow
+Direct calls do not bypass actor eligibility, target rules, identity checks, gates, or stop conditions. Parent-qualified object notation identifies shared children, for example `houmao-shared-routines->houmao-agent-email-comms`.
 
-Do not use it for:
+## Shared Child Inventory
 
-- project-local user skills under `.houmao/agents/`
-- specialists or recipe-selected project skills
-- mailbox registration itself; that still uses `houmao-mgr mailbox ...`, `houmao-mgr agents single ... mailbox ...`, or `houmao-mgr agents self mailbox ...`
+| Logical ID | Eligible Actor | Major Command Family |
+|---|---|---|
+| `houmao-project-mgr` | Admin | Project initialization, status, launch profiles, easy instances |
+| `houmao-credential-mgr` | Admin | Project and native credential operations |
+| `houmao-agent-definition` | Admin | Roles, recipes, launch dossiers, specialists, profiles, launch and stop |
+| `houmao-operator-messaging` | Admin | Clarify, confirm, and dispatch prompt or mail |
+| `houmao-process-emails-via-gateway` | Agent | Prompt-provided gateway mail round |
+| `houmao-agent-email-comms` | Admin, Agent | Resolver, scoped mail, gateway API, and transport fallback |
+| `houmao-adv-usage-pattern` | Admin, Agent | Self-notification, pairwise, relay, and notifier-loop compositions |
+| `houmao-utils-workspace-mgr` | Admin, Agent | Plan, create, validate, and summarize workspaces |
+| `houmao-ext-graphing` | Admin, Agent | Plotly and Vega-Lite graphing workflows |
+| `houmao-mailbox-mgr` | Admin, Agent | Mailbox roots, registration, binding, cleanup, and export |
+| `houmao-memory-mgr` | Admin, Agent | Managed memo read, write, and remove |
+| `houmao-agent-instance` | Admin, Agent | Launch, join, list, stop, relaunch, and cleanup |
+| `houmao-agent-inspect` | Admin, Agent | Discovery, screen, mailbox, artifacts, and logs |
+| `houmao-agent-messaging` | Admin, Agent | Prompt, interrupt, queue, raw input, mail, and reset context |
+| `houmao-agent-gateway` | Admin, Agent | Gateway lifecycle, services, reminders, notifier, and watch |
+| `houmao-interop-ag-ui` | Admin, Agent | AG-UI validation, framing, rendering, and publishing |
 
-## Related References
+`specialist-mgr` remains an admin and direct-shared compatibility alias. It explains the original specialist route and delegates to `houmao-agent-definition`; it does not own another command tree.
 
-- [houmao-mgr](houmao-mgr.md)
-- [Mailbox Reference](../mailbox/index.md)
-- [Agents And Runtime](../system-files/agents-and-runtime.md)
+## Breaking Name and Selector Migration
 
-## Source References
+| Removed or Changed Surface | Replacement |
+|---|---|
+| Manager `--skill <name>` | `--pack admin` or `--pack agent` |
+| Manager `--set` / `--skill-set core|extensions|all` | Repeat complete `--pack` selectors |
+| Stored `skills:` / `sets:` | Stored `packs:` |
+| `$houmao-touring ...` | `$houmao-admin-welcome ...` |
+| Old flat `$houmao-specialist-mgr ...` | `$houmao-admin-entrypoint specialist-mgr ...` or `$houmao-shared-routines specialist-mgr ...` |
+| Nested pro or lite loop route | Direct top-level loop invocation |
+| Bare low-level routine trigger | Actor entrypoint route or advanced shared-routines route |
 
-- [`src/houmao/agents/system_skills.py`](../../../src/houmao/agents/system_skills.py)
-- [`src/houmao/agents/assets/system_skills/catalog.toml`](../../../src/houmao/agents/assets/system_skills/catalog.toml)
-- [`src/houmao/agents/assets/system_skills/catalog.schema.json`](../../../src/houmao/agents/assets/system_skills/catalog.schema.json)
-- [`src/houmao/srv_ctrl/commands/system_skills.py`](../../../src/houmao/srv_ctrl/commands/system_skills.py)
-- [`src/houmao/agents/brain_builder.py`](../../../src/houmao/agents/brain_builder.py)
-- [`src/houmao/srv_ctrl/commands/runtime_artifacts.py`](../../../src/houmao/srv_ctrl/commands/runtime_artifacts.py)
+Old names remain only in migration evidence and the read-only legacy digest inventory. They are not generated compatibility directories.
+
+## Errors and Safety Notes
+
+- Unknown packs fail before multi-target mutation.
+- Duplicate tool names and empty comma-separated tool entries fail validation.
+- `--home` with multiple tools fails because one path cannot represent several target-native homes.
+- Untracked selected-path collisions fail preflight and remain unchanged.
+- Corrupt or future-version configs block lifecycle mutation but remain inspectable through status.
+- Old receipt-era roots remain unowned collisions until the user performs a clean reinstall.
+- Standalone names, child logical ids, and `houmao-auto-system-prompt` cannot be used as manager pack selectors.
+
+## See Also
+
+- [System Skills Overview](../../getting-started/system-skills-overview.md): actor model, guided paths, direct invocation, and installation choices.
+- [Easy Specialists](../../getting-started/easy-specialists.md): persisted source pack policy.
+- [Launch Profiles](../../getting-started/launch-profiles.md): source/profile policy precedence and reuse.
+- [Mailbox Quick Start](../mailbox/quickstart.md): managed mailbox setup and agent-entrypoint routing.

@@ -198,8 +198,8 @@ def test_resolve_native_launch_target_ignores_unselected_invalid_preset_for_expl
                 "launch:",
                 "  system_skills:",
                 "    mode: extend",
-                "    skills:",
-                "    - houmao-agent-ag-ui",
+                "    packs:",
+                "    - unknown",
                 "",
             ]
         ),
@@ -237,15 +237,15 @@ def test_resolve_native_launch_target_fails_for_selected_invalid_system_skill(
                 "launch:",
                 "  system_skills:",
                 "    mode: extend",
-                "    skills:",
-                "    - houmao-agent-ag-ui",
+                "    packs:",
+                "    - unknown",
                 "",
             ]
         ),
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="houmao-agent-ag-ui"):
+    with pytest.raises(ValueError, match="Unknown system-skill pack `unknown`"):
         resolve_native_launch_target(
             selector=str(preset_path),
             provider="kimi",

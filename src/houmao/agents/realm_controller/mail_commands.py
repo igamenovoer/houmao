@@ -16,11 +16,12 @@ from typing import Any, Callable, Literal, cast
 
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import (
+    mailbox_gateway_route_name,
     mailbox_gateway_skill_name,
     mailbox_skill_name,
+    mailbox_shared_skill_reference,
     projected_mailbox_skill_document_path,
     mailbox_gateway_skill_reference,
-    mailbox_skill_reference,
     resolve_live_mailbox_binding,
 )
 from houmao.mailbox import resolve_filesystem_mailbox_paths
@@ -293,22 +294,23 @@ def _mail_prompt_instruction_lines(
 ) -> list[str]:
     skill_name = mailbox_skill_name(mailbox)
     gateway_skill_name = mailbox_gateway_skill_name()
+    gateway_route_name = mailbox_gateway_route_name()
     gateway_skill_path = projected_mailbox_skill_document_path(
         tool=launch_plan.tool,
         home_path=launch_plan.home_path,
         skill_reference=mailbox_gateway_skill_reference(tool=launch_plan.tool),
     )
-    transport_skill_path = projected_mailbox_skill_document_path(
+    shared_skill_path = projected_mailbox_skill_document_path(
         tool=launch_plan.tool,
         home_path=launch_plan.home_path,
-        skill_reference=mailbox_skill_reference(mailbox, tool=launch_plan.tool),
+        skill_reference=mailbox_shared_skill_reference(tool=launch_plan.tool),
     )
     installed_skill_lines: list[str]
-    if gateway_skill_path.is_file() and transport_skill_path.is_file():
+    if gateway_skill_path.is_file() and shared_skill_path.is_file():
         installed_skill_lines = [
             (
-                f"Use the installed Houmao mailbox communication skill `{gateway_skill_name}` for "
-                "this mailbox operation."
+                f"Use the installed public entrypoint `${gateway_skill_name} "
+                f"{gateway_route_name}` for this mailbox operation."
             ),
             (
                 "Use the installed runtime-owned Houmao mailbox skills directly from the "
@@ -316,8 +318,14 @@ def _mail_prompt_instruction_lines(
                 "or runtime home to rediscover skill files or infer install locations."
             ),
             (
-                f"Use the transport-local guidance inside `{skill_name}` only for "
-                "transport-specific context and no-gateway fallback."
+                "Static sibling routing is installed: let the public agent entrypoint delegate "
+                "to the `houmao-shared-routines` sibling, which loads only the selected "
+                "parent-scoped child."
+            ),
+            (
+                f"Use transport-local guidance nested under `{skill_name} "
+                f"{gateway_route_name}` only for transport-specific context and "
+                "no-gateway fallback."
             ),
         ]
     else:

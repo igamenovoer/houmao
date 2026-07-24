@@ -413,52 +413,51 @@ def test_install_runtime_mailbox_system_skills_for_tool_projects_gateway_and_tra
 
     references = install_runtime_mailbox_system_skills_for_tool(tool="codex", home_path=home_path)
 
-    mailbox_root = home_path / mailbox_skills_destination_for_tool("codex")
-    assert set(references) == {
-        "houmao-process-emails-via-gateway",
-        "houmao-agent-email-comms",
-        "houmao-adv-usage-pattern",
-    }
-    assert (mailbox_root / "houmao-process-emails-via-gateway/SKILL.md").is_file()
-    assert (mailbox_root / "houmao-agent-email-comms/SKILL.md").is_file()
-    assert (mailbox_root / "houmao-adv-usage-pattern/SKILL.md").is_file()
-    assert (
-        mailbox_root
-        / "houmao-adv-usage-pattern/patterns/pairwise-edge-loop-via-gateway-and-mailbox.md"
-    ).is_file()
-    assert (
-        mailbox_root / "houmao-adv-usage-pattern/patterns/relay-loop-via-gateway-and-mailbox.md"
-    ).is_file()
-    assert (mailbox_root / "houmao-agent-email-comms/actions/list.md").is_file()
-    assert (mailbox_root / "houmao-agent-email-comms/actions/reply.md").is_file()
-    assert (mailbox_root / "houmao-agent-email-comms/references/curl-examples.md").is_file()
-    assert (
-        mailbox_root / "houmao-agent-email-comms/references/self-notification-via-gateway.md"
-    ).is_file()
-    assert (mailbox_root / "houmao-agent-email-comms/transports/filesystem.md").is_file()
-    assert (mailbox_root / "houmao-agent-email-comms/transports/stalwart.md").is_file()
-    processing_skill = (mailbox_root / "houmao-process-emails-via-gateway/SKILL.md").read_text(
-        encoding="utf-8"
+    skills_root = home_path / mailbox_skills_destination_for_tool("codex")
+    entrypoint = skills_root / "houmao-agent-entrypoint"
+    shared_root = skills_root / "houmao-shared-routines"
+    shared = shared_root / "subskills"
+    processing_root = shared / "houmao-process-emails-via-gateway"
+    gateway_root = shared / "houmao-agent-email-comms"
+    advanced_root = shared / "houmao-adv-usage-pattern"
+    assert references == (
+        "houmao-agent-entrypoint",
+        "houmao-shared-routines",
+        "houmao-agent-loop-pro",
+        "houmao-agent-loop-lite",
     )
-    gateway_skill = (mailbox_root / "houmao-agent-email-comms/SKILL.md").read_text(encoding="utf-8")
-    advanced_skill = (mailbox_root / "houmao-adv-usage-pattern/SKILL.md").read_text(
-        encoding="utf-8"
-    )
+    assert (entrypoint / "SKILL.md").is_file()
+    assert (shared_root / "SKILL.md").is_file()
+    assert (processing_root / "SKILL-MAIN.md").is_file()
+    assert (gateway_root / "SKILL-MAIN.md").is_file()
+    assert (advanced_root / "SKILL-MAIN.md").is_file()
+    assert (advanced_root / "commands/pairwise-edge-loop-via-gateway-and-mailbox.md").is_file()
+    assert (advanced_root / "commands/relay-loop-via-gateway-and-mailbox.md").is_file()
+    assert (gateway_root / "commands/list.md").is_file()
+    assert (gateway_root / "commands/reply.md").is_file()
+    assert (gateway_root / "references/curl-examples.md").is_file()
+    assert (gateway_root / "references/self-notification-via-gateway.md").is_file()
+    assert (gateway_root / "references/transports/filesystem.md").is_file()
+    assert (gateway_root / "references/transports/stalwart.md").is_file()
+    processing_skill = (processing_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
+    gateway_skill = (gateway_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
+    advanced_skill = (advanced_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
     assert "shared gateway mailbox API" in processing_skill
     assert "pixi run houmao-mgr agents self mail resolve-live" not in processing_skill
     assert (
         "current prompt or recent mailbox context already provides the exact current gateway base URL"
         in gateway_skill
     )
-    assert "houmao-adv-usage-pattern" in gateway_skill
+    assert "houmao-shared-routines->houmao-adv-usage-pattern" in gateway_skill
     assert "pairwise-edge-loop-via-gateway-and-mailbox.md" in advanced_skill
     assert "relay-loop-via-gateway-and-mailbox.md" in advanced_skill
     assert "pixi run houmao-mgr agents self mail resolve-live" not in gateway_skill
     installed_records = discover_installed_system_skills(tool="codex", home_path=home_path)
     assert tuple(record.name for record in installed_records) == (
-        "houmao-process-emails-via-gateway",
-        "houmao-agent-email-comms",
-        "houmao-adv-usage-pattern",
+        "houmao-agent-entrypoint",
+        "houmao-shared-routines",
+        "houmao-agent-loop-pro",
+        "houmao-agent-loop-lite",
     )
 
 
@@ -470,26 +469,20 @@ def test_install_runtime_mailbox_system_skills_for_tool_respects_tool_skill_dest
     references = install_runtime_mailbox_system_skills_for_tool(tool="kimi", home_path=home_path)
 
     assert mailbox_skills_destination_for_tool("kimi") == "skills"
-    assert set(references) == {
-        "houmao-process-emails-via-gateway",
-        "houmao-agent-email-comms",
-        "houmao-adv-usage-pattern",
-    }
-    assert (
-        home_path
-        / mailbox_skills_destination_for_tool("kimi")
-        / "houmao-process-emails-via-gateway/SKILL.md"
-    ).is_file()
-    assert (
-        home_path
-        / mailbox_skills_destination_for_tool("kimi")
-        / "houmao-agent-email-comms/SKILL.md"
-    ).is_file()
-    assert (
-        home_path
-        / mailbox_skills_destination_for_tool("kimi")
-        / "houmao-adv-usage-pattern/SKILL.md"
-    ).is_file()
+    assert references == (
+        "houmao-agent-entrypoint",
+        "houmao-shared-routines",
+        "houmao-agent-loop-pro",
+        "houmao-agent-loop-lite",
+    )
+    entrypoint = home_path / "skills/houmao-agent-entrypoint"
+    shared_root = home_path / "skills/houmao-shared-routines"
+    shared = shared_root / "subskills"
+    assert (entrypoint / "SKILL.md").is_file()
+    assert (shared_root / "SKILL.md").is_file()
+    assert (shared / "houmao-process-emails-via-gateway/SKILL-MAIN.md").is_file()
+    assert (shared / "houmao-agent-email-comms/SKILL-MAIN.md").is_file()
+    assert (shared / "houmao-adv-usage-pattern/SKILL-MAIN.md").is_file()
     assert not (home_path / mailbox_skills_destination_for_tool("kimi") / "mailbox").exists()
 
 
@@ -501,15 +494,22 @@ def test_install_runtime_mailbox_system_skills_for_tool_projects_claude_top_leve
     references = install_runtime_mailbox_system_skills_for_tool(tool="claude", home_path=home_path)
 
     skills_root = home_path / mailbox_skills_destination_for_tool("claude")
-    assert set(references) == {
-        "houmao-process-emails-via-gateway",
-        "houmao-agent-email-comms",
-        "houmao-adv-usage-pattern",
-    }
-    assert (skills_root / "houmao-process-emails-via-gateway/SKILL.md").is_file()
-    assert (skills_root / "houmao-agent-email-comms/SKILL.md").is_file()
-    assert (skills_root / "houmao-adv-usage-pattern/SKILL.md").is_file()
-    assert (skills_root / "houmao-agent-email-comms/actions/list.md").is_file()
-    assert (skills_root / "houmao-agent-email-comms/transports/filesystem.md").is_file()
-    assert (skills_root / "houmao-agent-email-comms/transports/stalwart.md").is_file()
+    entrypoint = skills_root / "houmao-agent-entrypoint"
+    shared_root = skills_root / "houmao-shared-routines"
+    shared = shared_root / "subskills"
+    gateway_root = shared / "houmao-agent-email-comms"
+    assert references == (
+        "houmao-agent-entrypoint",
+        "houmao-shared-routines",
+        "houmao-agent-loop-pro",
+        "houmao-agent-loop-lite",
+    )
+    assert (entrypoint / "SKILL.md").is_file()
+    assert (shared_root / "SKILL.md").is_file()
+    assert (shared / "houmao-process-emails-via-gateway/SKILL-MAIN.md").is_file()
+    assert (gateway_root / "SKILL-MAIN.md").is_file()
+    assert (shared / "houmao-adv-usage-pattern/SKILL-MAIN.md").is_file()
+    assert (gateway_root / "commands/list.md").is_file()
+    assert (gateway_root / "references/transports/filesystem.md").is_file()
+    assert (gateway_root / "references/transports/stalwart.md").is_file()
     assert not (skills_root / "mailbox").exists()

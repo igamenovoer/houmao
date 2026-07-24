@@ -1,2486 +1,831 @@
+"""Coverage for the v4 static Houmao system-skill collection."""
+
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
+import re
+import shutil
+import tomllib
 
 import pytest
 
-import houmao.agents.system_skills as system_skills_module
+import houmao.agents.system_skill_lifecycle as lifecycle_module
 from houmao.agents.system_skills import (
-    SYSTEM_SKILL_SET_ALL,
-    SYSTEM_SKILL_SET_CORE,
-    SYSTEM_SKILL_SET_EXTENSIONS,
-    SYSTEM_SKILL_EXT_GRAPHING,
-    SYSTEM_SKILL_INTEROP_AG_UI,
-    SYSTEM_SKILL_OPERATOR_MESSAGING,
-    SYSTEM_SKILL_UTILS_WORKSPACE_MGR,
-    PROFILE_SYSTEM_SKILL_POLICY_MODES,
-    SOURCE_SYSTEM_SKILL_POLICY_MODES,
-    SystemSkillPolicyError,
-    SystemSkillSelectionPolicy,
-    SystemSkillCatalogError,
+    EXPECTED_SHARED_ROUTINE_IDS,
+    EXPECTED_STANDALONE_SKILL_NAMES,
+    SYSTEM_SKILL_AGENT_ENTRYPOINT,
+    SYSTEM_SKILL_PACK_AGENT,
+    SYSTEM_SKILL_SHARED_ROUTINES,
+    StandaloneSystemSkillRecord,
     SystemSkillInstallError,
-    discover_installed_system_skills,
-    install_system_skills_for_home,
-    load_system_skill_catalog,
-    load_system_skill_catalog_from_paths,
-    parse_system_skill_selection_policy,
-    resolve_auto_install_skill_selection,
+    SystemSkillManifest,
+    SystemSkillManifestError,
+    SystemSkillSelectionPolicy,
+    inspect_system_skill_packs,
+    inspect_system_skill_config,
+    install_system_skill_packs_for_home,
+    load_system_skill_manifest,
+    load_system_skill_manifest_from_paths,
+    project_system_skills_to_destination,
     resolve_managed_system_skill_selection,
-    resolve_system_skill_selection,
-    sync_system_skills_for_home,
-    system_skills_destination_for_tool,
-    system_skill_selection_policy_to_payload,
-    uninstall_system_skills_for_home,
+    resolve_system_skill_pack_members,
+    resolve_system_skill_pack_selection,
+    stage_system_skill_collection,
+    system_skill_reference_for_name,
+    sync_system_skill_packs_for_home,
+    tree_content_digest,
+    uninstall_system_skill_packs_for_home,
 )
 
-RETIRED_AGENT_AG_UI_SKILL = "houmao-agent-ag-ui"
-RETIRED_LOOP_SKILLS = (
-    "houmao-agent-loop-pairwise",
-    "houmao-agent-loop-pairwise-v2",
-    "houmao-agent-loop-pairwise-v3",
-    "houmao-agent-loop-pairwise-v4",
-    "houmao-agent-loop-pairwise-v5",
-    "houmao-agent-loop-generic",
-)
-RETIRED_GRAPHING_SKILL = "houmao-utils-graphing"
-RETIRED_SYSTEM_SKILLS = RETIRED_LOOP_SKILLS + (
-    RETIRED_AGENT_AG_UI_SKILL,
-    RETIRED_GRAPHING_SKILL,
-)
 
-CORE_SYSTEM_SKILLS = (
-    "houmao-process-emails-via-gateway",
-    "houmao-agent-email-comms",
-    SYSTEM_SKILL_UTILS_WORKSPACE_MGR,
-    "houmao-mailbox-mgr",
-    "houmao-memory-mgr",
-    "houmao-adv-usage-pattern",
-    "houmao-touring",
-    "houmao-project-mgr",
-    "houmao-specialist-mgr",
-    "houmao-credential-mgr",
-    "houmao-agent-definition",
+REPO_ROOT = Path(__file__).resolve().parents[3]
+ASSET_ROOT = REPO_ROOT / "src/houmao/agents/assets/system_skills"
+PUBLIC_ROOT = ASSET_ROOT / "public"
+MANIFEST_PATH = ASSET_ROOT / "manifest.toml"
+SCHEMA_PATH = ASSET_ROOT / "manifest.schema.json"
+SEMANTIC_FIXTURE_PATH = REPO_ROOT / "tests/fixtures/system-skills/semantic-preservation.v1.toml"
+INVENTORY_FIXTURE_PATH = REPO_ROOT / "tests/fixtures/system-skills/pre-compaction-files.txt"
+
+ADMIN_MEMBERS = (
+    "houmao-admin-welcome",
+    "houmao-admin-entrypoint",
+    "houmao-shared-routines",
     "houmao-agent-loop-pro",
     "houmao-agent-loop-lite",
-    "houmao-agent-instance",
-    "houmao-agent-inspect",
-    SYSTEM_SKILL_OPERATOR_MESSAGING,
-    "houmao-agent-messaging",
-    "houmao-agent-gateway",
-    SYSTEM_SKILL_INTEROP_AG_UI,
 )
-EXTENSION_SYSTEM_SKILLS = (SYSTEM_SKILL_EXT_GRAPHING,)
-ALL_SYSTEM_SKILLS = CORE_SYSTEM_SKILLS + EXTENSION_SYSTEM_SKILLS
+AGENT_MEMBERS = (
+    "houmao-agent-entrypoint",
+    "houmao-shared-routines",
+    "houmao-agent-loop-pro",
+    "houmao-agent-loop-lite",
+)
 
 
-def _write(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+def _load_modified_manifest(tmp_path: Path, transform: object) -> object:
+    """Load one textually transformed manifest against the packaged source tree."""
 
-
-def _packaged_catalog_schema_path() -> Path:
-    return (
-        Path(__file__).resolve().parents[3]
-        / "src/houmao/agents/assets/system_skills/catalog.schema.json"
+    if not callable(transform):
+        raise TypeError("transform must be callable")
+    manifest_path = tmp_path / "manifest.toml"
+    manifest_path.write_text(transform(MANIFEST_PATH.read_text(encoding="utf-8")), encoding="utf-8")
+    return load_system_skill_manifest_from_paths(
+        manifest_path=manifest_path,
+        schema_path=SCHEMA_PATH,
+        assets_root=ASSET_ROOT,
     )
 
 
-def _packaged_skill_asset_root(skill_name: str) -> Path:
-    return (
-        Path(__file__).resolve().parents[3] / "src/houmao/agents/assets/system_skills" / skill_name
-    ).resolve()
+def _entrypoint_paths() -> tuple[Path, ...]:
+    """Return all standalone and parent-scoped entrypoint paths."""
+
+    return tuple(sorted(PUBLIC_ROOT.rglob("SKILL.md"))) + tuple(
+        sorted(PUBLIC_ROOT.rglob("SKILL-MAIN.md"))
+    )
 
 
-def _obsolete_system_skill_state_path(home_path: Path) -> Path:
-    return (home_path.resolve() / ".houmao/system-skills/install-state.json").resolve()
+def _workflow_body(text: str) -> str:
+    """Return the Workflow section body from one executable page."""
+
+    match = re.search(r"(?ms)^## Workflow\s*$\n(?P<body>.*?)(?=^## |\Z)", text)
+    assert match is not None
+    return match.group("body")
 
 
-def _assert_no_install_state_written(home_path: Path) -> None:
-    assert not _obsolete_system_skill_state_path(home_path).exists()
+def test_manifest_v4_declares_exact_static_collection() -> None:
+    """The manifest exposes the fixed six roots and sixteen owned children."""
 
+    manifest = load_system_skill_manifest()
 
-def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults() -> None:
-    catalog = load_system_skill_catalog()
-
-    assert catalog.schema_version == 1
-    assert tuple(catalog.skills.keys()) == (
-        "houmao-process-emails-via-gateway",
-        "houmao-agent-email-comms",
-        "houmao-adv-usage-pattern",
-        "houmao-utils-workspace-mgr",
-        SYSTEM_SKILL_EXT_GRAPHING,
-        "houmao-touring",
-        "houmao-mailbox-mgr",
-        "houmao-memory-mgr",
-        "houmao-project-mgr",
-        "houmao-specialist-mgr",
-        "houmao-credential-mgr",
-        "houmao-agent-definition",
+    assert manifest.schema_version == "houmao-system-skills.v4"
+    assert manifest.standalone_skill_names == EXPECTED_STANDALONE_SKILL_NAMES
+    assert set(manifest.shared_logical_ids) == set(EXPECTED_SHARED_ROUTINE_IDS)
+    assert manifest.packs["admin"].standalone_skill_names == ADMIN_MEMBERS
+    assert manifest.packs["agent"].standalone_skill_names == AGENT_MEMBERS
+    assert manifest.defaults.cli == ("admin",)
+    assert manifest.defaults.managed_launch == ("agent",)
+    assert manifest.defaults.managed_join == ("agent",)
+    assert manifest.auto_skill_name == "houmao-auto-system-prompt"
+    assert tuple(
+        record.name
+        for record in manifest.standalone_skills.values()
+        if record.activation == "narrow-implicit"
+    ) == ("houmao-admin-entrypoint", "houmao-agent-entrypoint")
+    assert tuple(
+        record.name
+        for record in manifest.standalone_skills.values()
+        if record.activation == "explicit"
+    ) == (
+        "houmao-admin-welcome",
+        "houmao-shared-routines",
         "houmao-agent-loop-pro",
         "houmao-agent-loop-lite",
-        "houmao-agent-instance",
-        "houmao-agent-inspect",
-        SYSTEM_SKILL_OPERATOR_MESSAGING,
-        "houmao-agent-messaging",
-        "houmao-agent-gateway",
-        SYSTEM_SKILL_INTEROP_AG_UI,
-    )
-    assert "Canonical pre-launch agent-definition skill" in (
-        catalog.skills["houmao-agent-definition"].description or ""
-    )
-    assert "Markdown/direct-SQL loop authoring" in (
-        catalog.skills["houmao-agent-loop-lite"].description or ""
-    )
-    assert "users not yet familiar with Houmao" in (
-        catalog.skills["houmao-touring"].description or ""
-    )
-    assert "Compatibility wrapper" in (catalog.skills["houmao-specialist-mgr"].description or "")
-    assert "Manual operator messaging skill" in (
-        catalog.skills[SYSTEM_SKILL_OPERATOR_MESSAGING].description or ""
-    )
-    assert "graphing payloads" in (catalog.skills[SYSTEM_SKILL_EXT_GRAPHING].description or "")
-    assert "AG-UI protocol event validation" in (
-        catalog.skills[SYSTEM_SKILL_INTEROP_AG_UI].description or ""
-    )
-    assert catalog.retired_skill_names == RETIRED_SYSTEM_SKILLS
-    assert "houmao-utils-llm-wiki" not in catalog.skills
-    assert "houmao-utils-llm-wiki" not in catalog.retired_skill_names
-    assert all(
-        "houmao-utils-llm-wiki" not in record.skill_names for record in catalog.sets.values()
-    )
-    assert tuple(catalog.sets.keys()) == (
-        SYSTEM_SKILL_SET_CORE,
-        SYSTEM_SKILL_SET_EXTENSIONS,
-        SYSTEM_SKILL_SET_ALL,
-    )
-    assert catalog.sets[SYSTEM_SKILL_SET_CORE].skill_names == CORE_SYSTEM_SKILLS
-    assert catalog.sets[SYSTEM_SKILL_SET_EXTENSIONS].skill_names == EXTENSION_SYSTEM_SKILLS
-    assert catalog.sets[SYSTEM_SKILL_SET_ALL].skill_names == ALL_SYSTEM_SKILLS
-    assert catalog.auto_install.managed_launch_sets == (
-        SYSTEM_SKILL_SET_CORE,
-        SYSTEM_SKILL_SET_EXTENSIONS,
-    )
-    assert catalog.auto_install.managed_join_sets == (
-        SYSTEM_SKILL_SET_CORE,
-        SYSTEM_SKILL_SET_EXTENSIONS,
-    )
-    assert catalog.auto_install.cli_default_sets == (SYSTEM_SKILL_SET_ALL,)
-
-
-def test_system_skills_destination_supports_kimi_and_universal_skills_roots() -> None:
-    assert system_skills_destination_for_tool("kimi") == "skills"
-    assert system_skills_destination_for_tool("universal") == "skills"
-
-
-def test_interop_ag_ui_packaged_asset_contract() -> None:
-    skill_root = _packaged_skill_asset_root(SYSTEM_SKILL_INTEROP_AG_UI)
-    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
-
-    assert "name: houmao-interop-ag-ui" in skill_text
-    assert "Typed Houmao implementations are application-layer contracts" in skill_text
-    assert "houmao-mgr ag-ui impl list" in skill_text
-    assert "houmao-mgr ag-ui protocol events validate" in skill_text
-    assert "houmao-mgr ag-ui impl render" in skill_text
-    assert "houmao-mgr agents self gateway ag-ui publish" in skill_text
-    assert "This command intentionally has no `--endpoint` option" in skill_text
-    assert "Do not include credentials, tokens, cookies" in skill_text
-    assert "Do not use raw unsanitized HTML" in skill_text
-    assert SYSTEM_SKILL_EXT_GRAPHING not in skill_text
-    assert RETIRED_GRAPHING_SKILL not in skill_text
-
-
-def test_houmao_ext_graphing_packaged_asset_contract() -> None:
-    skill_root = _packaged_skill_asset_root(SYSTEM_SKILL_EXT_GRAPHING)
-    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
-    openai_metadata = (skill_root / "agents/openai.yaml").read_text(encoding="utf-8")
-
-    assert "name: houmao-ext-graphing" in skill_text
-    assert "templated-graphics" in skill_text
-    assert "freeform-graphics" in skill_text
-    assert "houmao-mgr ag-ui impl templated-graphics list" in skill_text
-    assert "houmao-mgr ag-ui impl freeform-graphics list" in skill_text
-    assert "houmao-mgr ag-ui impl catalog houmao.graphic.template traces" in skill_text
-    assert "houmao.graphic.template" in skill_text
-    assert "houmao.graphic.vegalite" in skill_text
-    assert "Use `houmao-interop-ag-ui` after rendering" in skill_text
-    assert "Do not publish raw graphing payloads directly to the gateway." in skill_text
-    assert RETIRED_GRAPHING_SKILL not in skill_text
-    assert "Plotly.js and Vega-Lite" in openai_metadata
-
-
-def test_agent_loop_pro_prepare_agents_routes_agent_definition() -> None:
-    skill_root = _packaged_skill_asset_root("houmao-agent-loop-pro")
-    prepare_agents = (skill_root / "subskills/execution/prepare-agents.md").read_text(
-        encoding="utf-8"
-    )
-    platform_boundaries = (skill_root / "subskills/reference/platform-boundaries.md").read_text(
-        encoding="utf-8"
     )
 
-    assert "Route persisted agent/profile preparation through `houmao-agent-definition`" in (
-        prepare_agents
+
+def test_actor_entrypoint_metadata_and_phase_contracts_match_activation_policy() -> None:
+    """Only actor entrypoints are implicit and they classify before operational gates."""
+
+    manifest = load_system_skill_manifest()
+    for name, record in manifest.standalone_skills.items():
+        metadata = (PUBLIC_ROOT / name / "agents/openai.yaml").read_text(encoding="utf-8")
+        expected_value = "true" if record.activation == "narrow-implicit" else "false"
+        assert f"allow_implicit_invocation: {expected_value}" in metadata
+
+    admin = (PUBLIC_ROOT / "houmao-admin-entrypoint/SKILL.md").read_text(encoding="utf-8")
+    agent = (PUBLIC_ROOT / "houmao-agent-entrypoint/SKILL.md").read_text(encoding="utf-8")
+    welcome = (PUBLIC_ROOT / "houmao-admin-welcome/SKILL.md").read_text(encoding="utf-8")
+    assert admin.index("**Classify intent before gates**") < admin.index(
+        "**Establish the operational actor frame**"
     )
-    assert "`create-agent-fast-forward`: default" in prepare_agents
-    assert "`profiles`: when the specialist already exists" in prepare_agents
-    assert "`specialists`: when only specialist material changes" in prepare_agents
-    assert "`launch-dossiers`: only when the execplan or operator explicitly requires" in (
-        prepare_agents
+    assert agent.index("**Classify intent before gates**") < agent.index(
+        "**Verify managed self for operational work**"
     )
-    assert "launch interface mode (`tui` or `headless`)" in prepare_agents
-    assert "Treat unknown, missing, or contradictory TUI/headless launch mode facts" in (
-        prepare_agents
-    )
-    assert "| Agent | Participant | Launch mode | Credential | Skill groups | Workdir |" in (
-        prepare_agents
-    )
-    assert "Do not reimplement specialist creation" in prepare_agents
-    assert "credential-defaulting" in platform_boundaries
-    assert "Treat `houmao-mgr project ...` as its underlying CLI surface" in (platform_boundaries)
-
-
-def test_agent_loop_lite_packaged_asset_contract() -> None:
-    skill_root = _packaged_skill_asset_root("houmao-agent-loop-lite")
-    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
-    template_events = (skill_root / "subskills/reference/markdown-template-events.md").read_text(
-        encoding="utf-8"
-    )
-    direct_sqlite = (skill_root / "subskills/reference/direct-sqlite-state.md").read_text(
-        encoding="utf-8"
-    )
-    prepare_agents = (skill_root / "subskills/execution/prepare-agents.md").read_text(
-        encoding="utf-8"
-    )
-    validate_execplan = (skill_root / "subskills/authoring/validate-execplan.md").read_text(
-        encoding="utf-8"
-    )
-    scaffold_script = (skill_root / "scripts/scaffold.py").read_text(encoding="utf-8")
-    template_example = template_events.split("```markdown", maxsplit=1)[1].split(
-        "```",
-        maxsplit=1,
-    )[0]
-
-    assert "name: houmao-agent-loop-lite" in skill_text
-    assert "Use this Houmao skill only after the user explicitly selects" in skill_text
-    assert "Do not auto-route generic loop requests here" in skill_text
-    assert "<loop-dir>/intention/" in skill_text
-    assert "<loop-dir>/execplan/" in skill_text
-    assert "<loop-dir>/runs/" in skill_text
-    assert "Do not generate `execplan/harness/` or `execplan/docs/`" in skill_text
-    assert "Do not create JSON schemas, Jinja2 renderers" in skill_text
-    assert "subskills/authoring/init.md" in skill_text
-    assert "subskills/authoring/execplan-fast-forward.md" in skill_text
-    assert "subskills/execution/prepare-agents.md" in skill_text
-    assert "subskills/execution/validate-loop.md" in skill_text
-    assert "subskills/reference/direct-sqlite-state.md" in skill_text
-    assert (skill_root / "subskills/authoring/init.md").is_file()
-    assert (skill_root / "subskills/authoring/create-intention.md").is_file()
-    assert (skill_root / "subskills/authoring/clarify-intent.md").is_file()
-    assert (skill_root / "subskills/authoring/clarify-execplan.md").is_file()
-    assert (skill_root / "subskills/authoring/execplan-fast-forward.md").is_file()
-    assert (skill_root / "subskills/authoring/execplan-specs-process.md").is_file()
-    assert (skill_root / "subskills/authoring/execplan-specs-contract.md").is_file()
-    assert (skill_root / "subskills/authoring/execplan-skills.md").is_file()
-    assert (skill_root / "subskills/authoring/execplan-agent-bindings.md").is_file()
-    assert (skill_root / "subskills/authoring/execplan-finalize.md").is_file()
-    assert (skill_root / "subskills/authoring/validate-execplan.md").is_file()
-    assert (skill_root / "subskills/authoring/update-execplan.md").is_file()
-    assert (skill_root / "subskills/execution/prepare-agents.md").is_file()
-    assert (skill_root / "subskills/execution/prepare-workspace.md").is_file()
-    assert (skill_root / "subskills/execution/validate-loop.md").is_file()
-    assert (skill_root / "subskills/execution/launch-agents.md").is_file()
-    assert (skill_root / "subskills/execution/start.md").is_file()
-    assert (skill_root / "subskills/execution/status.md").is_file()
-    assert (skill_root / "subskills/execution/pause.md").is_file()
-    assert (skill_root / "subskills/execution/resume.md").is_file()
-    assert (skill_root / "subskills/execution/recover.md").is_file()
-    assert (skill_root / "subskills/execution/stop.md").is_file()
-    assert (skill_root / "subskills/reference/markdown-contract-defaults.md").is_file()
-    assert (skill_root / "subskills/reference/markdown-template-events.md").is_file()
-    assert (skill_root / "subskills/reference/direct-sqlite-state.md").is_file()
-    assert (skill_root / "assets/scaffolds/execplan/manifest.md.tmpl").is_file()
-    assert (skill_root / "assets/scaffolds/execplan/specs/templates/task-request.md.tmpl").is_file()
-    assert (skill_root / "assets/scaffolds/execplan/specs/state/schema.sql.tmpl").is_file()
-    assert (skill_root / "scripts/scaffold.py").is_file()
-    assert "execplan-harness" not in skill_text
-    assert "Loop-Template-Type" in skill_text
-    assert "Loop-Template-Version" in skill_text
-    assert "<placeholder work_item_id>" in template_events
-    assert "sender, receiver, subject, message id, thread id, timestamps" in (
-        template_events.lower()
-    )
-    assert "Always generate one shared guidance skill" in (
-        skill_root / "subskills/authoring/execplan-skills.md"
-    ).read_text(encoding="utf-8")
-    assert "Loop-Template-Type: task-request" in template_events
-    assert "unresolved `<placeholder` tokens before sending" in template_events
-    assert "execplan/specs/state/schema.sql" in direct_sqlite
-    assert "runs/<run-id>/state.sqlite3" in direct_sqlite
-    assert "BEGIN IMMEDIATE" in direct_sqlite
-    assert "Do not tell agents to sleep, poll, tail logs, or wait in-chat" in (
-        skill_root / "subskills/reference/runtime-mail-model.md"
-    ).read_text(encoding="utf-8")
-    assert "houmao-agent-email-comms" in skill_text
-    assert "houmao-agent-gateway" in skill_text
-    assert "houmao-agent-definition" in skill_text
-    assert "houmao-agent-instance" in skill_text
-    assert "launch interface mode (`tui` or `headless`)" in prepare_agents
-    assert "Treat unknown, missing, or contradictory TUI/headless launch mode facts" in (
-        prepare_agents
-    )
-    assert "| Agent | Participant | Launch mode | Credential | Skill groups | Workdir |" in (
-        prepare_agents
-    )
-    assert "JSON schema files, and Jinja2 renderer files are absent" in validate_execplan
-    assert "execplan-shell" in scaffold_script
-    for envelope_field in (
-        "sender",
-        "receiver",
-        "subject",
-        "message_id",
-        "thread_id",
-        "timestamp",
-    ):
-        assert f"<placeholder {envelope_field}" not in template_example
-
-
-def test_houmao_agent_messaging_prompt_admission_contract() -> None:
-    skill_root = _packaged_skill_asset_root("houmao-agent-messaging")
-    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
-    prompt_text = (skill_root / "actions/prompt.md").read_text(encoding="utf-8")
-    gateway_text = (skill_root / "actions/gateway-queue.md").read_text(encoding="utf-8")
-    matrix_text = (skill_root / "references/intent-matrix.md").read_text(encoding="utf-8")
-    combined = "\n".join((skill_text, prompt_text, gateway_text, matrix_text))
-
-    assert "--admission-policy ready-only" in prompt_text
-    assert "--admission-policy <ready-only|if-no-pending|always>" in gateway_text
-    assert "Pending `yes` or `unknown`" in matrix_text
-    assert "observational" in gateway_text
-    assert "gateway-durable" in matrix_text.lower()
-    assert "--force" not in combined
-
-
-def test_houmao_operator_messaging_packaged_asset_contract() -> None:
-    skill_root = _packaged_skill_asset_root(SYSTEM_SKILL_OPERATOR_MESSAGING)
-    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
-    clarify_text = (skill_root / "subskills/clarify.md").read_text(encoding="utf-8")
-    dispatch_text = (skill_root / "subskills/dispatch.md").read_text(encoding="utf-8")
-
-    assert (skill_root / "SKILL.md").is_file()
-    assert (skill_root / "agents/openai.yaml").is_file()
-    assert (skill_root / "subskills/clarify.md").is_file()
-    assert (skill_root / "subskills/dispatch.md").is_file()
-
-    assert "name: houmao-operator-messaging" in skill_text
-    assert "Manual invocation only" in skill_text
-    assert "Do not auto-route generic requests" in skill_text
-    assert "## Help" in skill_text
-    assert "Available functionality:" in skill_text
-    for operation_name in ("help", "clarify", "dispatch"):
-        assert f"`{operation_name}`" in skill_text
-    assert "`dispatch-one`" not in skill_text
-    assert "`dispatch-many`" not in skill_text
-    assert "subskills/clarify.md" in skill_text
-    assert "subskills/dispatch.md" in skill_text
-    assert "Default every packet to prompt delivery" in skill_text
-    assert "use ready-only target-gateway prompt control when available" in skill_text
-    assert "ready-only target-gateway prompt control" in skill_text
-    assert "`if-no-pending` or `always`" in skill_text
-    assert "--force" not in skill_text
-    assert "choose mailbox only from operator intent or chat context" in skill_text
-    assert "Do not depend on loop-internal pages" in skill_text
-
-    assert "must not send direct prompts, mailbox messages" in clarify_text
-    assert "Build an internal coverage map" in clarify_text
-    assert "default prompt delivery, operator-requested mailbox delivery" in clarify_text
-    assert "Ask one question at a time" in clarify_text
-    assert "at most five accepted clarification answers" in clarify_text
-    assert "Require an explicit path before writing" in clarify_text
-    assert "Do not invent a path" in clarify_text
-    assert "Default to chat memory" in clarify_text
-
-    assert "Packet Plan" in dispatch_text
-    assert "Do not ask the operator to choose a separate single-agent or multi-agent" in (
-        dispatch_text
-    )
-    assert "Default to prompt delivery" in dispatch_text
-    assert "If the target has a live gateway, use ready-only gateway-backed prompt delivery" in (
-        dispatch_text
-    )
-    assert "Select `if-no-pending` or `always`" in dispatch_text
-    assert "--force" not in dispatch_text
-    assert "Do not choose mailbox merely because the target has a mailbox" in dispatch_text
-    assert "Use `houmao-agent-messaging`" in dispatch_text
-    assert "Use `houmao-agent-email-comms`" in dispatch_text
-    assert "chat context says the dispatch should be delivered by mail" in dispatch_text
-    assert "operator-origin mailbox `post` path" in dispatch_text
-    assert "Do not invent per-operator mailbox identities" in dispatch_text
-    assert "If a required route is unavailable" in dispatch_text
-    assert "recommend `houmao-agent-loop-pro` or `houmao-agent-loop-lite`" in dispatch_text
-
-
-def test_retired_loop_skill_sources_are_legacy_only() -> None:
-    catalog = load_system_skill_catalog()
-    asset_root = Path(__file__).resolve().parents[3] / "src/houmao/agents/assets/system_skills"
-
-    assert "houmao-agent-loop-pro" in catalog.skills
-    assert "houmao-agent-loop-lite" in catalog.skills
-    for retired_name in RETIRED_LOOP_SKILLS:
-        assert retired_name in catalog.retired_skill_names
-        assert retired_name not in catalog.skills
-        assert not (asset_root / retired_name).exists()
-        assert (asset_root / "legacy" / retired_name / "SKILL.md").is_file()
-    assert RETIRED_AGENT_AG_UI_SKILL in catalog.retired_skill_names
-    assert RETIRED_AGENT_AG_UI_SKILL not in catalog.skills
-    assert not (asset_root / RETIRED_AGENT_AG_UI_SKILL).exists()
-    assert not (asset_root / "legacy" / RETIRED_AGENT_AG_UI_SKILL).exists()
-
-
-def test_houmao_system_input_questions_distinguish_required_and_optional_inputs() -> None:
-    definition_missing_inputs = (
-        _packaged_skill_asset_root("houmao-agent-definition") / "subskills/common/missing-inputs.md"
-    ).read_text(encoding="utf-8")
-    credential_skill = (_packaged_skill_asset_root("houmao-credential-mgr") / "SKILL.md").read_text(
-        encoding="utf-8"
-    )
-    workspace_skill = (
-        _packaged_skill_asset_root(SYSTEM_SKILL_UTILS_WORKSPACE_MGR) / "SKILL.md"
-    ).read_text(encoding="utf-8")
-    touring_question_style = (
-        _packaged_skill_asset_root("houmao-touring") / "references/question-style.md"
-    ).read_text(encoding="utf-8")
-
-    for text in (
-        definition_missing_inputs,
-        credential_skill,
-        workspace_skill,
-        touring_question_style,
-    ):
-        assert "`Required`" in text or "Required:" in text
-        assert "`Optional`" in text or "Optional:" in text
-
-    assert "Do not force this shape onto user-task or domain-intent questions" in (
-        definition_missing_inputs
-    )
-    assert "Optional: none for this step." in credential_skill
-    assert "## Required Inputs" in workspace_skill
-    assert "Optional: none for this step." in workspace_skill
-    assert "Do not use this format for the user's task/domain intent" in workspace_skill
-    assert "Do not force `Required`/`Optional` labels onto user-task" in (touring_question_style)
-
-
-def test_houmao_touring_packaged_guidance_contract() -> None:
-    skill_root = _packaged_skill_asset_root("houmao-touring")
-    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
-    openai_agent_text = (skill_root / "agents/openai.yaml").read_text(encoding="utf-8")
-    fast_paths = (skill_root / "branches/fast-paths.md").read_text(encoding="utf-8")
-    subsystem_exploration = (skill_root / "branches/subsystem-exploration.md").read_text(
-        encoding="utf-8"
-    )
-
-    assert "users who are not yet familiar with Houmao" in skill_text
-    assert "first-run users, re-orienting operators, and developers" in skill_text
-    assert 'A bare invocation such as `$houmao-touring` means "start orientation now"' in skill_text
-    assert "Never answer a bare invocation with only a generic activation acknowledgement" in (
-        skill_text
-    )
-    assert "scan for existing Houmao project state" in skill_text
-    assert "infer the user's likely starting intent from that state" in skill_text
-    assert "## Workflow" in skill_text
-    assert "Start here for every invocation" in skill_text
-    assert "First Look" in skill_text
-    assert "`## Entry Contract` | Classify every non-help request before command execution." in (
-        skill_text
-    )
+    assert "DO NOT invoke or delegate to `$houmao-admin-welcome`" in admin
     assert (
-        "`## No-Prompt Entrypoint` | Handle bare `$houmao-touring` and orientation requests"
-        in skill_text
+        "DO NOT run managed-self identity verification for an informational-only response" in agent
     )
-    assert "`## Branches` | Load exactly one named branch after the user selects a path." in (
-        skill_text
-    )
-    assert "`## Routing Guidance` | Route concrete setup, runtime, mail, memory, loop" in (
-        skill_text
-    )
-    assert "## No-Prompt Entrypoint" in skill_text
-    assert "### Intent Guess Matrix" in skill_text
-    assert "### No-Prompt Response Shape" in skill_text
-    assert "### No-Prompt Choice Menu" in skill_text
-    assert "No project overlay | The user needs project foundation before agent workflows." in (
-        skill_text
-    )
-    assert "Fast paths are project-ready choices" in skill_text
-    assert "Without a project overlay, show exactly the three blank-workspace choices" in (
-        skill_text
-    )
-    assert "Blank workspace, no Houmao project overlay" in skill_text
-    assert "Create Houmao Project" in skill_text
-    assert "In this state, show only these three choices" in skill_text
-    assert "Do not show `Fast Path Use Cases`" in skill_text
-    assert "Project-ready workspace, Houmao project overlay exists" in skill_text
-    assert "Do not collapse the project-ready menu into only fast path choices" in skill_text
-    assert "### Subsystem Exploration Choices" in skill_text
-    assert "No project overlay" in skill_text
-    assert "Multiple running agents" in skill_text
-    assert "Existing loop artifacts or topology hints" in skill_text
-    assert "Current Posture" in skill_text
-    assert "Likely Intent" in skill_text
-    assert "Required Input" in skill_text
-    assert "empty open-ended greeting" in skill_text
-    assert "Fast path use cases" in skill_text
-    assert "Subsystem exploration" in skill_text
-    assert "Help intent" in skill_text
-    assert "Orientation request" in skill_text
-    assert "Outcome request" in skill_text
-    assert "Subsystem-exploration request" in skill_text
-    assert "inspect current state before choosing a welcome shape" in skill_text
-    assert "Presentation Examples" in skill_text
-    assert "Keep tables at four columns or fewer" in skill_text
-    assert "Use `more detail`" in skill_text
-    assert "Route by user intent" in skill_text
-    assert "Do not duplicate detailed behavior" in skill_text
-    assert "users not yet familiar with Houmao" in openai_agent_text
-    assert "If the user invokes bare $houmao-touring" in openai_agent_text
-    assert "scan for existing Houmao project state first" in openai_agent_text
-    assert "infer the likely starting intent from that state" in openai_agent_text
-    assert "current posture, likely intent, next choices, and required input" in openai_agent_text
-    assert "show only three no-prompt choices: Create Houmao Project" in openai_agent_text
-    assert "do not show fast paths until a project overlay exists" in openai_agent_text
-    assert "include Subsystem Exploration by name as a visible no-prompt choice" in (
-        openai_agent_text
-    )
-    assert "Do not respond with only a generic skill-activation acknowledgement" in (
-        openai_agent_text
-    )
-    assert "empty how-can-I-help greeting" in openai_agent_text
-
-    for use_case in (
-        "Single Agent Full Run",
-        "Operator-Controlled Agent Team",
-        "Pro Agent Loop",
-    ):
-        assert use_case in skill_text
-        assert use_case in fast_paths
-
-    assert "Precondition: a Houmao project overlay must exist" in fast_paths
-    assert "Offer only `Create Houmao Project`, `Subsystem Exploration`, and `Inspect`" in (
-        fast_paths
-    )
-    assert "Route first to `houmao-agent-definition create-agent-fast-forward`" in fast_paths
-    assert "prepares mailbox-backed launch defaults" in fast_paths
-    assert "Launch from the fast-forward profile command" in fast_paths
-    assert "Try `create-agent-fast-forward` first" in fast_paths
-    assert "repair only the blockers it reports" in fast_paths
-
-    for subsystem_choice in (
-        "Project State",
-        "Runtime Control",
-        "Communication",
-        "Context and Evidence",
-        "Multi-Agent Structure",
-    ):
-        assert subsystem_choice in skill_text
-
-    assert "foreground-first gateway posture" in fast_paths
-    assert "mail-notifier" in fast_paths
-    assert "operator-origin mail" in fast_paths
-    assert "inter-agent mail" in fast_paths
-    assert "`tree-loop`" in fast_paths
-    assert "`generic-loop`" in fast_paths
-    assert "Do not duplicate pro-loop schemas" in fast_paths
-
-    for subsystem in (
-        "Project overlay",
-        "Agent definition",
-        "Managed runtime",
-        "Gateway",
-        "Messaging",
-        "Mailbox",
-        "Memory",
-        "Inspection",
-        "Workspace",
-        "Loop orchestration",
-    ):
-        assert subsystem in subsystem_exploration
-
-    assert "Boundary" in subsystem_exploration
-    assert "Required input" in subsystem_exploration
-    assert "Generated state" in subsystem_exploration
-    assert "Routes" in subsystem_exploration
-    assert "Next choices" in subsystem_exploration
-    assert "passive server" in subsystem_exploration
-    assert "`more detail`" in subsystem_exploration
+    assert "explicitly invokes $houmao-admin-welcome" in welcome
 
 
-def test_loop_skills_route_system_input_question_guidance() -> None:
-    skill_root = _packaged_skill_asset_root("houmao-agent-loop-pro")
-    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
-    question_ref = (skill_root / "subskills/reference/system-input-questions.md").read_text(
-        encoding="utf-8"
-    )
-    init_page = (skill_root / "subskills/authoring/init.md").read_text(encoding="utf-8")
-    clarify_protocol = (skill_root / "subskills/reference/clarification-protocol.md").read_text(
-        encoding="utf-8"
-    )
-    launch_agents = (skill_root / "subskills/execution/launch-agents.md").read_text(
-        encoding="utf-8"
-    )
+def test_manifest_rejects_any_other_implicit_activation_set(tmp_path: Path) -> None:
+    """Cross-reference validation fixes the two implicit and four explicit roots exactly."""
 
-    assert "subskills/reference/system-input-questions.md" in skill_text
-    assert "When asking for Houmao runtime or artifact-location inputs" in skill_text
-    assert "Do not force this shape onto user-task or domain-intent questions" in question_ref
-    assert "Required:" in question_ref
-    assert "Optional:" in question_ref
-    assert "`../reference/system-input-questions.md`" in init_page
-    assert "ask with `Required: <loop-dir>`" in init_page
-    assert "user-task or domain-intent questions" in clarify_protocol
-    assert "`../reference/system-input-questions.md`" in launch_agents
-
-
-def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> None:
-    catalog = load_system_skill_catalog()
-
-    resolved = resolve_system_skill_selection(
-        catalog,
-        set_names=(SYSTEM_SKILL_SET_CORE,),
-        skill_names=("houmao-agent-email-comms", "houmao-specialist-mgr"),
-    )
-
-    assert resolved == CORE_SYSTEM_SKILLS
-    assert resolve_auto_install_skill_selection(catalog, kind="managed_launch") == ALL_SYSTEM_SKILLS
-
-
-def test_resolve_system_skill_selection_all_tracks_current_catalog() -> None:
-    catalog = load_system_skill_catalog()
-
-    resolved = resolve_system_skill_selection(
-        catalog,
-        set_names=(SYSTEM_SKILL_SET_ALL,),
-    )
-
-    assert resolved == ALL_SYSTEM_SKILLS
-    assert SYSTEM_SKILL_SET_ALL not in catalog.auto_install.managed_launch_sets
-    assert SYSTEM_SKILL_SET_ALL not in catalog.auto_install.managed_join_sets
-    assert catalog.auto_install.managed_launch_sets == (
-        SYSTEM_SKILL_SET_CORE,
-        SYSTEM_SKILL_SET_EXTENSIONS,
-    )
-    assert catalog.auto_install.managed_join_sets == (
-        SYSTEM_SKILL_SET_CORE,
-        SYSTEM_SKILL_SET_EXTENSIONS,
-    )
-    assert catalog.auto_install.cli_default_sets == (SYSTEM_SKILL_SET_ALL,)
-    assert "houmao-utils-llm-wiki" not in resolved
-
-
-def test_resolve_system_skill_selection_cli_default_includes_agent_instance_messaging_and_gateway_skills() -> (
-    None
-):
-    catalog = load_system_skill_catalog()
-
-    resolved = resolve_auto_install_skill_selection(catalog, kind="cli_default")
-
-    assert resolved == ALL_SYSTEM_SKILLS
-
-
-def test_resolve_system_skill_selection_rejects_removed_llm_wiki_selector() -> None:
-    catalog = load_system_skill_catalog()
-
-    with pytest.raises(
-        SystemSkillCatalogError, match="Unknown system skill `houmao-utils-llm-wiki`"
-    ):
-        resolve_system_skill_selection(
-            catalog,
-            skill_names=("houmao-utils-llm-wiki",),
+    with pytest.raises(SystemSkillManifestError, match="only actor entrypoints"):
+        _load_modified_manifest(
+            tmp_path,
+            lambda text: text.replace(
+                'name = "houmao-admin-welcome"\nrole = "welcome"\nsource_path = "public/houmao-admin-welcome"\nactivation = "explicit"',
+                'name = "houmao-admin-welcome"\nrole = "welcome"\nsource_path = "public/houmao-admin-welcome"\nactivation = "narrow-implicit"',
+                1,
+            ),
         )
 
 
-def test_parse_system_skill_selection_policy_normalizes_and_serializes_selectors() -> None:
-    policy = parse_system_skill_selection_policy(
-        {
-            "mode": "extend",
-            "sets": [SYSTEM_SKILL_SET_CORE, SYSTEM_SKILL_SET_CORE],
-            "skills": [SYSTEM_SKILL_UTILS_WORKSPACE_MGR, SYSTEM_SKILL_UTILS_WORKSPACE_MGR],
-        },
-        allowed_modes=SOURCE_SYSTEM_SKILL_POLICY_MODES,
-        default_mode="default",
-        source="recipe.launch",
-    )
+def test_manifest_rejects_obsolete_composition_fields(tmp_path: Path) -> None:
+    """V4 schema does not accept any protected-mount declaration."""
 
-    assert policy == SystemSkillSelectionPolicy(
-        mode="extend",
-        set_names=(SYSTEM_SKILL_SET_CORE,),
-        skill_names=(SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
-    )
-    assert system_skill_selection_policy_to_payload(policy) == {
-        "mode": "extend",
-        "sets": [SYSTEM_SKILL_SET_CORE],
-        "skills": [SYSTEM_SKILL_UTILS_WORKSPACE_MGR],
-    }
-    assert (
-        parse_system_skill_selection_policy(
-            {},
-            allowed_modes=PROFILE_SYSTEM_SKILL_POLICY_MODES,
-            default_mode="inherit",
-            source="profile.defaults",
-        )
-        is None
-    )
-    assert system_skill_selection_policy_to_payload(None) == {}
-
-
-def test_parse_system_skill_selection_policy_rejects_invalid_modes_and_selectors() -> None:
-    with pytest.raises(SystemSkillPolicyError, match="mode `inherit` is not allowed"):
-        parse_system_skill_selection_policy(
-            {"mode": "inherit"},
-            allowed_modes=SOURCE_SYSTEM_SKILL_POLICY_MODES,
-            default_mode="default",
-            source="recipe.launch",
-        )
-
-    with pytest.raises(SystemSkillPolicyError, match="cannot be combined"):
-        parse_system_skill_selection_policy(
-            {"mode": "none", "skills": [SYSTEM_SKILL_UTILS_WORKSPACE_MGR]},
-            allowed_modes=PROFILE_SYSTEM_SKILL_POLICY_MODES,
-            default_mode="inherit",
-            source="profile.defaults",
-        )
-
-    with pytest.raises(SystemSkillPolicyError, match="requires at least one"):
-        parse_system_skill_selection_policy(
-            {"mode": "replace"},
-            allowed_modes=PROFILE_SYSTEM_SKILL_POLICY_MODES,
-            default_mode="inherit",
-            source="profile.defaults",
-        )
-
-    with pytest.raises(SystemSkillCatalogError, match="Unknown system-skill set `utilities`"):
-        parse_system_skill_selection_policy(
-            {"mode": "extend", "sets": ["utilities"]},
-            allowed_modes=SOURCE_SYSTEM_SKILL_POLICY_MODES,
-            default_mode="default",
-            source="recipe.launch",
-        )
-
-    with pytest.raises(SystemSkillCatalogError, match="Unknown system skill `not-a-skill`"):
-        parse_system_skill_selection_policy(
-            {"mode": "extend", "skills": ["not-a-skill"]},
-            allowed_modes=SOURCE_SYSTEM_SKILL_POLICY_MODES,
-            default_mode="default",
-            source="recipe.launch",
-        )
-
-    with pytest.raises(
-        SystemSkillCatalogError, match="Unknown system skill `houmao-utils-llm-wiki`"
-    ):
-        parse_system_skill_selection_policy(
-            {"mode": "extend", "skills": ["houmao-utils-llm-wiki"]},
-            allowed_modes=SOURCE_SYSTEM_SKILL_POLICY_MODES,
-            default_mode="default",
-            source="recipe.launch",
+    with pytest.raises(SystemSkillManifestError, match="Additional properties"):
+        _load_modified_manifest(
+            tmp_path,
+            lambda text: text.replace(
+                'auto_skill_name = "houmao-auto-system-prompt"',
+                'auto_skill_name = "houmao-auto-system-prompt"\nprotected_mounts = []',
+                1,
+            ),
         )
 
 
-def test_resolve_managed_system_skill_selection_applies_source_and_profile_modes() -> None:
-    catalog = load_system_skill_catalog()
+def test_pack_resolver_deduplicates_both_packs_in_first_occurrence_order() -> None:
+    """Overlapping static members occur once when both packs are selected."""
 
-    default_selection = resolve_managed_system_skill_selection(catalog=catalog)
-    source_additive = resolve_managed_system_skill_selection(
-        catalog=catalog,
-        source_policy=SystemSkillSelectionPolicy(
-            mode="extend",
-            skill_names=(SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
-        ),
-    )
-    profile_additive = resolve_managed_system_skill_selection(
-        catalog=catalog,
-        source_policy=SystemSkillSelectionPolicy(
-            mode="extend",
-            skill_names=(SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
-        ),
-        profile_policy=SystemSkillSelectionPolicy(
-            mode="extend",
-            set_names=(SYSTEM_SKILL_SET_CORE,),
-            skill_names=(SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
-        ),
-    )
-    profile_replace = resolve_managed_system_skill_selection(
-        catalog=catalog,
-        source_policy=SystemSkillSelectionPolicy(
-            mode="extend",
-            skill_names=(SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
-        ),
-        profile_policy=SystemSkillSelectionPolicy(
-            mode="replace",
-            set_names=(SYSTEM_SKILL_SET_ALL,),
-        ),
-    )
-    profile_disabled = resolve_managed_system_skill_selection(
-        catalog=catalog,
-        profile_policy=SystemSkillSelectionPolicy(mode="none"),
-    )
+    manifest = load_system_skill_manifest()
+    records = resolve_system_skill_pack_members(manifest, pack_ids=("admin", "agent", "admin"))
 
-    assert default_selection.selected_set_names == (
-        SYSTEM_SKILL_SET_CORE,
-        SYSTEM_SKILL_SET_EXTENSIONS,
+    assert tuple(record.name for record in records) == (
+        *ADMIN_MEMBERS,
+        "houmao-agent-entrypoint",
     )
-    assert default_selection.explicit_skill_names == ()
-    assert default_selection.resolved_skill_names == ALL_SYSTEM_SKILLS
-    assert source_additive.selected_set_names == (
-        SYSTEM_SKILL_SET_CORE,
-        SYSTEM_SKILL_SET_EXTENSIONS,
-    )
-    assert source_additive.explicit_skill_names == (SYSTEM_SKILL_UTILS_WORKSPACE_MGR,)
-    assert source_additive.resolved_skill_names == ALL_SYSTEM_SKILLS
-    assert profile_additive.selected_set_names == (
-        SYSTEM_SKILL_SET_CORE,
-        SYSTEM_SKILL_SET_EXTENSIONS,
-    )
-    assert profile_additive.explicit_skill_names == (SYSTEM_SKILL_UTILS_WORKSPACE_MGR,)
-    assert profile_additive.resolved_skill_names == ALL_SYSTEM_SKILLS
-    assert profile_replace.selected_set_names == (SYSTEM_SKILL_SET_ALL,)
-    assert profile_replace.explicit_skill_names == ()
-    assert profile_replace.resolved_skill_names == ALL_SYSTEM_SKILLS
-    assert profile_disabled.selected_set_names == ()
-    assert profile_disabled.explicit_skill_names == ()
-    assert profile_disabled.resolved_skill_names == ()
+    assert resolve_system_skill_pack_selection(
+        manifest,
+        pack_ids=("agent", "agent"),
+    ) == ("agent",)
+    with pytest.raises(SystemSkillManifestError, match="not a pack selector"):
+        resolve_system_skill_pack_selection(
+            manifest,
+            pack_ids=("houmao-shared-routines",),
+        )
 
 
-def test_packaged_core_set_is_closed_over_non_extension_skill_routing() -> None:
-    catalog = load_system_skill_catalog()
-    skill_name_pattern = re.compile(
-        r"(?<![A-Za-z0-9_])("
-        + "|".join(re.escape(name) for name in sorted(catalog.skills, key=len, reverse=True))
-        + r")(?![A-Za-z0-9_])"
-    )
-    asset_root = Path(__file__).resolve().parents[3] / "src/houmao/agents/assets/system_skills"
+def test_exact_skill_discovery_returns_six_roots_and_no_children() -> None:
+    """Exact SKILL.md discovery exposes only standalone roots."""
 
-    for set_name, set_record in catalog.sets.items():
-        if set_name == SYSTEM_SKILL_SET_EXTENSIONS:
-            continue
-        installed = set(set_record.skill_names)
-        for skill_name in set_record.skill_names:
-            skill_root = asset_root / catalog.skills[skill_name].asset_subpath
-            for markdown_path in skill_root.rglob("*.md"):
-                refs = set(skill_name_pattern.findall(markdown_path.read_text(encoding="utf-8")))
-                refs.discard(skill_name)
-                missing = refs - installed
-                assert not missing, (
-                    f"set `{set_name}` installs `{skill_name}` but "
-                    f"{markdown_path.relative_to(skill_root)} references missing skills "
-                    f"{sorted(missing)}"
+    discovered = tuple(sorted(path.parent.name for path in PUBLIC_ROOT.rglob("SKILL.md")))
+    child_entrypoints = tuple(
+        sorted(PUBLIC_ROOT.joinpath("houmao-shared-routines/subskills").rglob("SKILL-MAIN.md"))
+    )
+
+    assert discovered == tuple(sorted(EXPECTED_STANDALONE_SKILL_NAMES))
+    assert len(child_entrypoints) == 16
+    assert not any(path.with_name("SKILL.md").exists() for path in child_entrypoints)
+    assert not (ASSET_ROOT / "protected").exists()
+
+
+def test_static_source_has_complete_local_links_and_no_placeholders() -> None:
+    """Loading the manifest validates links, roles, metadata, and placeholders in place."""
+
+    manifest = load_system_skill_manifest()
+
+    assert all((PUBLIC_ROOT / name / "SKILL.md").is_file() for name in manifest.skill_names)
+    assert not any(
+        "<public-entrypoint>" in path.read_text(encoding="utf-8")
+        for path in PUBLIC_ROOT.rglob("*.md")
+    )
+
+
+def test_imsight_format_applies_to_entrypoints_and_command_pages() -> None:
+    """Every executable page has workflow fallback and each entrypoint has DO NOT rules."""
+
+    entrypoints = _entrypoint_paths()
+    assert len(entrypoints) == 22
+    for path in entrypoints:
+        text = path.read_text(encoding="utf-8")
+        assert re.search(r'(?m)^description:\s*["\']?Use when', text)
+        assert "## Subcommands" in text
+        workflow = _workflow_body(text)
+        assert re.search(r"(?m)^1\. ", workflow)
+        assert "native planning tool" in workflow
+        guardrail_match = re.search(
+            r"(?ms)^## Guardrails\s*$\n(?P<body>.*?)(?=^## |\Z)",
+            text,
+        )
+        assert guardrail_match is not None
+        bullets = re.findall(r"(?m)^- (.+)$", guardrail_match.group("body"))
+        assert bullets
+        assert all(item.startswith("DO NOT") for item in bullets)
+
+    command_pages = tuple(sorted(PUBLIC_ROOT.glob("*/commands/**/*.md"))) + tuple(
+        sorted(PUBLIC_ROOT.glob("*/subskills/*/commands/**/*.md"))
+    )
+    assert command_pages
+    for path in command_pages:
+        workflow = _workflow_body(path.read_text(encoding="utf-8"))
+        assert re.search(r"(?m)^1\. ", workflow)
+        assert "native planning tool" in workflow
+
+
+def test_route_tables_cover_actor_eligibility_and_top_level_loops() -> None:
+    """Admin, agent, and direct shared routers expose the fixed sibling matrix."""
+
+    manifest = load_system_skill_manifest()
+    admin = (PUBLIC_ROOT / "houmao-admin-entrypoint/SKILL.md").read_text(encoding="utf-8")
+    agent = (PUBLIC_ROOT / "houmao-agent-entrypoint/SKILL.md").read_text(encoding="utf-8")
+    shared = (PUBLIC_ROOT / "houmao-shared-routines/SKILL.md").read_text(encoding="utf-8")
+
+    for routine in manifest.shared_routines.values():
+        assert f"| `{routine.route_name}` |" in shared
+        if "admin" in routine.audiences:
+            assert f"| `{routine.route_name}` |" in admin
+        if "agent" in routine.audiences:
+            assert f"| `{routine.route_name}` |" in agent
+    for text in (admin, agent, shared):
+        assert "houmao-agent-loop-pro" in text
+        assert "houmao-agent-loop-lite" in text
+        assert "When to Route Here" in text
+    assert "subskills/houmao-agent-loop-pro" not in shared
+    assert "subskills/houmao-agent-loop-lite" not in shared
+    assert "specialist-mgr" in admin
+    assert "specialist-mgr" in shared
+    assert "process-emails-via-gateway" in agent
+    admin_subcommands = re.search(
+        r"(?ms)^## Subcommands\s*$\n(?P<body>.*?)(?=^## |\Z)",
+        admin,
+    )
+    assert admin_subcommands is not None
+    assert "| `process-emails-via-gateway` |" not in admin_subcommands.group("body")
+
+
+def test_semantic_preservation_fixture_matches_operations_aliases_and_help() -> None:
+    """The checked-in semantic ledger remains represented by the v4 owners."""
+
+    manifest = load_system_skill_manifest()
+    fixture = tomllib.loads(SEMANTIC_FIXTURE_PATH.read_text(encoding="utf-8"))
+
+    assert fixture["baseline_commit"] == "8f377c468bc7f87ff40dbf40c0a68327616112bd"
+    assert len(INVENTORY_FIXTURE_PATH.read_text(encoding="utf-8").splitlines()) == 291
+    assert len(fixture["skills"]) == 20
+    for item in fixture["skills"]:
+        source = item["source"]
+        if source in {"houmao-agent-loop-pro", "houmao-agent-loop-lite"}:
+            record = manifest.standalone_skills[source]
+            target_root = PUBLIC_ROOT / source
+        elif source == "houmao-touring":
+            record = manifest.standalone_skills["houmao-admin-welcome"]
+            target_root = PUBLIC_ROOT / "houmao-admin-welcome"
+        elif source == "houmao-specialist-mgr":
+            record = manifest.shared_routines["houmao-agent-definition"]
+            target_root = PUBLIC_ROOT / "houmao-shared-routines/subskills/houmao-agent-definition"
+        else:
+            record = manifest.shared_routines[source]
+            target_root = PUBLIC_ROOT / "houmao-shared-routines/subskills" / source
+        assert set(item["operations"]).issubset(record.commands)
+        assert set(item["aliases"]).issubset(record.aliases)
+        if default_operation := item.get("default_operation"):
+            assert default_operation in record.commands
+        target_text = "\n".join(
+            path.read_text(encoding="utf-8") for path in sorted(target_root.rglob("*.md"))
+        ).lower()
+        if default_operation:
+            _assert_semantic_phrase_evidence(
+                phrase=f"default {default_operation}",
+                target_text=target_text,
+                source=source,
+                field="default_operation",
+            )
+        for phrase in item.get("default_behavior", []):
+            _assert_semantic_phrase_evidence(
+                phrase=phrase,
+                target_text=target_text,
+                source=source,
+                field="default_behavior",
+            )
+        for field in (
+            "activation",
+            "inputs",
+            "outputs",
+            "gates",
+            "blockers",
+            "evidence_handoffs",
+            "target_rules",
+            "side_effects",
+            "stop_conditions",
+        ):
+            raw_values = item[field]
+            values = [raw_values] if isinstance(raw_values, str) else raw_values
+            for phrase in values:
+                _assert_semantic_phrase_evidence(
+                    phrase=phrase,
+                    target_text=target_text,
+                    source=source,
+                    field=field,
                 )
+        assert item["help_read_only"] is True
+        assert "help" in record.commands
 
 
-def test_non_extension_skills_do_not_route_to_graphing_extension() -> None:
-    catalog = load_system_skill_catalog()
-    asset_root = Path(__file__).resolve().parents[3] / "src/houmao/agents/assets/system_skills"
-    extension_skills = set(catalog.sets[SYSTEM_SKILL_SET_EXTENSIONS].skill_names)
+def _assert_semantic_phrase_evidence(
+    *,
+    phrase: str,
+    target_text: str,
+    source: str,
+    field: str,
+) -> None:
+    """Require source-ledger concepts to remain visible in the reformatted owner."""
 
-    for skill_name, skill_record in catalog.skills.items():
-        if skill_name in extension_skills:
-            continue
-        skill_root = asset_root / skill_record.asset_subpath
-        for markdown_path in skill_root.rglob("*.md"):
-            text = markdown_path.read_text(encoding="utf-8")
-            assert SYSTEM_SKILL_EXT_GRAPHING not in text, (
-                f"non-extension skill `{skill_name}` references graphing extension in "
-                f"{markdown_path.relative_to(skill_root)}"
-            )
-
-
-def test_current_packaged_system_skills_expose_help_contract() -> None:
-    """Guard the standard skill-level help contract for current catalog entries."""
-
-    catalog = load_system_skill_catalog()
-    asset_root = Path(__file__).resolve().parents[3] / "src/houmao/agents/assets/system_skills"
-    help_section_pattern = re.compile(r"(?ms)^## Help\n(?P<body>.*?)(?=^## |\Z)")
-
-    for skill_name, skill_record in catalog.skills.items():
-        skill_text = (asset_root / skill_record.asset_subpath / "SKILL.md").read_text(
-            encoding="utf-8"
-        )
-        help_match = help_section_pattern.search(skill_text)
-
-        assert help_match is not None, f"{skill_name} is missing a top-level help section"
-        help_body = help_match.group("body")
-        assert f"${skill_name} help" in help_body
-        assert (
-            "read-only help: do not run commands, mutate files, send mail, change gateway state, "
-            "or alter managed-agent lifecycle state"
-        ) in help_body
-        assert "Available functionality:" in help_body
-        assert "Common starting prompts:" in help_body
-        assert "Related skills and boundaries:" in help_body
-        assert "help me" in help_body
-
-
-def test_current_packaged_system_skills_route_explicit_help_before_workflows() -> None:
-    """Guard that help is treated as a narrow read-only meta operation."""
-
-    catalog = load_system_skill_catalog()
-    asset_root = Path(__file__).resolve().parents[3] / "src/houmao/agents/assets/system_skills"
-
-    for skill_name, skill_record in catalog.skills.items():
-        skill_text = (asset_root / skill_record.asset_subpath / "SKILL.md").read_text(
-            encoding="utf-8"
-        )
-        if "\n## Workflow\n" in skill_text:
-            assert "answer explicit skill-help intent from `## Help` and stop" in skill_text, (
-                f"{skill_name} workflow does not handle explicit help before routing"
-            )
-
-    operation_markers = {
-        "houmao-agent-definition": "| `help` |",
-        "houmao-agent-gateway": "- `help` (read-only meta operation)",
-        "houmao-agent-instance": "- `help` (read-only meta operation)",
-        "houmao-agent-inspect": "- `help` (read-only meta operation)",
-        SYSTEM_SKILL_OPERATOR_MESSAGING: "- `help`: explain this skill's purpose",
-        "houmao-agent-messaging": "- `help` (read-only meta operation)",
-        "houmao-mailbox-mgr": "- `help` (read-only meta operation)",
-        "houmao-memory-mgr": "- `help` (read-only meta operation)",
-        "houmao-project-mgr": "- `help` (read-only meta operation)",
-        "houmao-credential-mgr": "- `help` (read-only meta operation)",
-        "houmao-agent-loop-pro": "- `help`: explain this skill's purpose",
-        "houmao-agent-loop-lite": "- `help`: explain this skill's purpose",
-        SYSTEM_SKILL_UTILS_WORKSPACE_MGR: "- `help`: explain this skill's purpose",
-        SYSTEM_SKILL_EXT_GRAPHING: "- `help`: explain this skill's purpose",
+    stopwords = {
+        "admin",
+        "agent",
+        "current",
+        "explicit",
+        "houmao",
+        "only",
+        "operation",
+        "required",
+        "result",
+        "routine",
+        "selected",
+        "supported",
+        "target",
+        "through",
+        "when",
+        "with",
+        "work",
+        "workflow",
     }
-    for skill_name, marker in operation_markers.items():
-        skill_text = (_packaged_skill_asset_root(skill_name) / "SKILL.md").read_text(
-            encoding="utf-8"
+    tokens = {
+        token
+        for token in re.findall(r"[a-z0-9]+", phrase.lower())
+        if len(token) >= 4 and token not in stopwords
+    }
+    if not tokens:
+        tokens = {token for token in re.findall(r"[a-z0-9]+", phrase.lower()) if len(token) >= 4}
+    equivalent_terms = {
+        "recipient": {"recipient", "target"},
+        "recipients": {"recipient", "target"},
+    }
+    evidence_terms = {
+        equivalent
+        for token in tokens
+        for equivalent in equivalent_terms.get(token, {token, token.rstrip("s")})
+    }
+    assert any(term in target_text for term in evidence_terms), (
+        f"{source} lacks {field} evidence for {phrase!r}; expected one of {sorted(tokens)}"
+    )
+
+
+def test_system_skill_references_use_static_siblings() -> None:
+    """Reference helpers keep loops top-level and ordinary routines parent-qualified."""
+
+    assert system_skill_reference_for_name("houmao-agent-loop-pro") == "houmao-agent-loop-pro"
+    assert system_skill_reference_for_name("houmao-agent-inspect") == (
+        "houmao-shared-routines->houmao-agent-inspect"
+    )
+    assert system_skill_reference_for_name("houmao-specialist-mgr") == (
+        "houmao-shared-routines->houmao-agent-definition"
+    )
+
+
+def test_copy_staging_is_byte_identical_and_symlink_staging_is_direct(tmp_path: Path) -> None:
+    """Admin, agent, and combined staging copy bytes or directly link source roots."""
+
+    manifest = load_system_skill_manifest()
+    selections = (
+        (("admin",), ADMIN_MEMBERS),
+        (("agent",), AGENT_MEMBERS),
+        (("admin", "agent"), EXPECTED_STANDALONE_SKILL_NAMES),
+    )
+    for pack_ids, expected_names in selections:
+        label = "-".join(pack_ids)
+        copied = stage_system_skill_collection(
+            manifest,
+            pack_ids=pack_ids,
+            destination_root=tmp_path / f"copied-{label}",
+            projection_mode="copy",
         )
-        assert marker in skill_text
+        assert len(copied.skills) == len(expected_names)
+        assert {staged.name for staged in copied.skills} == set(expected_names)
+        for staged in copied.skills:
+            source = PUBLIC_ROOT / staged.name
+            assert not staged.path.is_symlink()
+            assert tree_content_digest(staged.path) == tree_content_digest(source)
+
+        linked = stage_system_skill_collection(
+            manifest,
+            pack_ids=pack_ids,
+            destination_root=tmp_path / f"linked-{label}",
+            projection_mode="symlink",
+        )
+        assert len(linked.skills) == len(expected_names)
+        assert {staged.name for staged in linked.skills} == set(expected_names)
+        for staged in linked.skills:
+            assert staged.path.is_symlink()
+            assert staged.path.resolve() == (PUBLIC_ROOT / staged.name).resolve()
 
 
-def test_houmao_utils_workspace_mgr_packaged_asset_shape() -> None:
-    skill_root = _packaged_skill_asset_root(SYSTEM_SKILL_UTILS_WORKSPACE_MGR)
-    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
-    in_repo_text = (skill_root / "subskills/in-repo-workspace.md").read_text(encoding="utf-8")
-    out_of_repo_text = (skill_root / "subskills/out-of-repo-workspace.md").read_text(
-        encoding="utf-8"
-    )
-    plan_text = (skill_root / "subskills/operations/plan.md").read_text(encoding="utf-8")
-    create_text = (skill_root / "subskills/operations/create.md").read_text(encoding="utf-8")
-    validate_text = (skill_root / "subskills/operations/validate.md").read_text(encoding="utf-8")
-    summarize_text = (skill_root / "subskills/operations/summarize.md").read_text(encoding="utf-8")
-    local_state_text = (skill_root / "subskills/reference/local-state-links.md").read_text(
-        encoding="utf-8"
-    )
-    submodules_text = (skill_root / "subskills/reference/submodules.md").read_text(encoding="utf-8")
-    memo_seeds_text = (skill_root / "subskills/reference/memo-seeds.md").read_text(encoding="utf-8")
-    contract_text = (skill_root / "subskills/reference/workspace-contract.md").read_text(
-        encoding="utf-8"
-    )
+def test_project_pack_to_destination_copies_all_static_agent_members(tmp_path: Path) -> None:
+    """Explicit projection is a normal complete-directory copy."""
 
-    assert (skill_root / "SKILL.md").is_file()
-    assert (skill_root / "subskills/in-repo-workspace.md").is_file()
-    assert (skill_root / "subskills/out-of-repo-workspace.md").is_file()
-    for operation_name in ("plan", "create", "validate", "summarize"):
-        assert (skill_root / f"subskills/operations/{operation_name}.md").is_file()
-    for reference_name in (
-        "local-state-links",
-        "memo-seeds",
-        "submodules",
-        "validation-checks",
-        "workspace-contract",
-    ):
-        assert (skill_root / f"subskills/reference/{reference_name}.md").is_file()
+    names = project_system_skills_to_destination(tmp_path / "skills", pack_id="agent")
 
-    assert "name: houmao-utils-workspace-mgr" in skill_text
-    assert len(skill_text.splitlines()) < 180
-    assert "## Operations" in skill_text
-    assert "## Routing" in skill_text
-    assert "## References" in skill_text
-    assert "`execute` is a compatibility alias for `create`" in skill_text
-    for operation_name in ("help", "plan", "create", "validate", "summarize"):
-        assert f"`{operation_name}`" in skill_text
-    assert "subskills/operations/validate.md" in skill_text
-    assert "subskills/reference/validation-checks.md" in skill_text
-    assert "Plan Mode" not in skill_text
-    assert "Execute Mode" not in skill_text
-    assert "Loop-Facing" not in skill_text
-    assert "houmao-agent-loop-pro" not in skill_text
-    assert "The repo root is the shared visibility surface." in in_repo_text
-    assert "Operators, scripts, or upstream plans may request additional task-scoped" in (
-        in_repo_text
-    )
-    assert "Loop execplans" not in in_repo_text
-    assert "loop-provided" not in in_repo_text
-    assert "loop contract" not in in_repo_text
-    assert "<repo-root>/houmao-ws/<task-name>/owner-states/<subdir>/..." in in_repo_text
-    assert "shared-kb/             # untracked cross-run task knowledge" in in_repo_text
-    assert "owner-states/          # untracked per-run task-owner bookkeeping" in in_repo_text
-    assert "Prefer writing that rule to `.git/info/exclude`" in in_repo_text
-    assert "The per-agent `repo/` worktree is the safe mutation surface for source changes" in (
-        in_repo_text
-    )
-    assert "recursive local-state symlink decisions" in in_repo_text
-    assert "hidden-path skips, symlink traversal skips, and tracked-content conflict skips" in (
-        in_repo_text
-    )
-    assert "## Create Steps" in in_repo_text
-    assert "For `create`:" in in_repo_text
-    assert "## Execute Steps" not in in_repo_text
-    assert "reference/local-state-links.md" in in_repo_text
-    assert "reference/submodules.md" in in_repo_text
-    assert "Resolve one `task-name` for the workspace team." in in_repo_text
-    assert "<repo-root>/houmao-ws/<task-name>" in in_repo_text
-    assert "houmao/<task-name>/<agent-name>/main" in in_repo_text
-    assert (
-        "| `<repo-root>/houmao-ws/<task-name>/<agent-name>/states/**` | yes | yes | yes | no |"
-        in (in_repo_text)
-    )
-    assert (
-        "| `<repo-root>/houmao-ws/<task-name>/shared-kb/**` | yes | yes when assigned | yes | yes when assigned |"
-        in (in_repo_text)
-    )
-    assert (
-        "| `<repo-root>/houmao-ws/workspaces.md` | yes | no by default | yes | no by default |"
-        in (in_repo_text)
-    )
-    assert "They are not Git merge surfaces." in in_repo_text
-    assert "shared-KB changes intended for Git merge" not in in_repo_text
-    assert "Update launch profiles so each agent cwd points at `<repo-root>`." in in_repo_text
-    assert "## Create Steps" in out_of_repo_text
-    assert "For `create`:" in out_of_repo_text
-    assert "Create or verify `ws-root` as a Git repo." in out_of_repo_text
-    assert "reference/local-state-links.md" in out_of_repo_text
-    assert "reference/submodules.md" in out_of_repo_text
-    assert "## Execute Steps" not in out_of_repo_text
-    assert "Plan Sections" in plan_text
-    assert "Validation plan" in plan_text
-    assert "Create Order" in create_text
-    assert "recommended `validate` command" in create_text
-    assert "Validation does not create worktrees" in validate_text
-    assert "explicit validation commands" in validate_text
-    assert "safe documented project commands" in validate_text
-    assert "Pixi" in validate_text
-    assert "Python env" in validate_text
-    assert "C or C++" in validate_text
-    assert "Package scripts" in validate_text
-    assert "In-project scripts" in validate_text
-    assert "instead of inventing one" in validate_text
-    assert "checks considered" in validate_text
-    assert "commands run" in validate_text
-    assert "commands skipped and why" in validate_text
-    assert "missing local-state links" in validate_text
-    assert "consumer-neutral" in summarize_text
-    assert "humans, scripts, or upstream planners" in summarize_text
-    assert "validation posture when validation has run" in summarize_text
-    assert "Loop-Facing" not in summarize_text
-    assert "Do not blindly reuse generic worktree symlink defaults" in local_state_text
-    assert "Never symlink these AI tool directories" in local_state_text
-    assert "reachable `.pixi/` directories, at any depth" in local_state_text
-    assert "explicitly local-only files or directories whose basename does not start with `.`" in (
-        local_state_text
-    )
-    assert "`.pixi/` is the only default dot-prefixed exception" in local_state_text
-    assert "`.hidden-parent/.pixi/` is skipped" in local_state_text
-    assert "Do not follow symlinked directories" in local_state_text
-    assert "skip if Git tracks any files under the source subtree" in local_state_text
-    assert "Python virtual environments such as `.venv/` are validation signals" in (
-        local_state_text
-    )
-    assert "Creation must not leave necessary project state unlinked" in local_state_text
-    assert "seeded-worktree" in submodules_text
-    assert "Do not copy the source submodule `.git` file or directory." in submodules_text
-    assert "Validation must report each tracked submodule considered" in submodules_text
-    assert "For `in-repo` memo seeds" in memo_seeds_text
-    assert "Task-local `shared-kb/`, task-local `owner-states/<subdir>/...`" not in skill_text
-    assert "Workspace summaries are consumer-neutral" in contract_text
-    assert "sibling bookkeeping directories and worktrees as read-only" in contract_text
+    assert names == AGENT_MEMBERS
+    assert all((tmp_path / "skills" / name / "SKILL.md").is_file() for name in names)
 
 
-def test_load_system_skill_catalog_rejects_unknown_set_member(tmp_path: Path) -> None:
-    catalog_path = tmp_path / "catalog.toml"
-    _write(
-        catalog_path,
-        """
-schema_version = 1
+def test_install_both_packs_records_shared_owner_sets_once(tmp_path: Path) -> None:
+    """One config record owns each deduplicated top-level destination."""
 
-[skills.houmao-agent-email-comms]
-asset_subpath = "houmao-agent-email-comms"
+    result = install_system_skill_packs_for_home(
+        tool="codex",
+        home_path=tmp_path,
+        pack_ids=("admin", "agent"),
+    )
+    inspection = inspect_system_skill_config(tool="codex", home_path=tmp_path)
 
-[sets.core]
-skills = ["houmao-agent-email-comms", "houmao-missing"]
+    assert result.selected_pack_ids == ("admin", "agent")
+    assert len(result.standalone_skill_names) == 6
+    assert result.owning_pack_ids_by_skill["houmao-shared-routines"] == (
+        "admin",
+        "agent",
+    )
+    assert inspection.status == "current"
+    assert inspection.config is not None
+    assert inspection.config.selected_pack_ids == ("admin", "agent")
+    assert len(inspection.config.skills) == 6
+    assert set(inspection.config.to_payload()) == {
+        "schema_version",
+        "houmao_version",
+        "projection_mode",
+        "skills",
+    }
+    assert all(
+        set(record.to_payload()) == {"name", "relative_path", "content_digest", "owning_pack_ids"}
+        for record in inspection.config.skills
+    )
+    assert "selected_packs" not in inspection.config.to_payload()
+    assert all((tmp_path / "skills" / name).is_dir() for name in EXPECTED_STANDALONE_SKILL_NAMES)
 
-[auto_install]
-managed_launch_sets = ["core"]
-managed_join_sets = ["core"]
-cli_default_sets = ["core"]
-""".strip()
-        + "\n",
+
+def test_symlink_install_targets_source_without_materialization(tmp_path: Path) -> None:
+    """Symlink mode has no config-owned hidden copy tree."""
+
+    install_system_skill_packs_for_home(
+        tool="kimi",
+        home_path=tmp_path,
+        pack_ids=("agent",),
+        projection_mode="symlink",
     )
 
-    with pytest.raises(
-        SystemSkillCatalogError,
-        match="references unknown system skill `houmao-missing`",
-    ):
-        load_system_skill_catalog_from_paths(
-            catalog_path=catalog_path,
-            schema_path=_packaged_catalog_schema_path(),
+    for name in AGENT_MEMBERS:
+        target = tmp_path / "skills" / name
+        assert target.is_symlink()
+        assert target.resolve() == (PUBLIC_ROOT / name).resolve()
+    assert not (tmp_path / ".houmao/system-skills/kimi/materialized").exists()
+
+
+def test_install_collision_fails_before_projection_or_config(tmp_path: Path) -> None:
+    """An untracked same-name destination blocks the complete transaction."""
+
+    collision = tmp_path / "skills/houmao-shared-routines"
+    collision.mkdir(parents=True)
+    (collision / "user.txt").write_text("mine", encoding="utf-8")
+
+    with pytest.raises(SystemSkillInstallError, match="Untracked.*collision"):
+        install_system_skill_packs_for_home(
+            tool="codex",
+            home_path=tmp_path,
+            pack_ids=("agent",),
         )
 
+    assert (collision / "user.txt").read_text(encoding="utf-8") == "mine"
+    assert not (tmp_path / "skills/houmao-agent-entrypoint").exists()
+    assert inspect_system_skill_config(tool="codex", home_path=tmp_path).status == "absent"
 
-def test_install_system_skills_for_home_projects_selected_skills_and_preserves_user_content(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
-    user_skill_path = home_path / "skills/custom-user-skill/SKILL.md"
-    retired_skill_path = home_path / "skills/houmao-agent-loop-pairwise-v3/SKILL.md"
-    retired_agent_ag_ui_path = home_path / f"skills/{RETIRED_AGENT_AG_UI_SKILL}/SKILL.md"
-    retired_graphing_path = home_path / f"skills/{RETIRED_GRAPHING_SKILL}/SKILL.md"
-    _write(user_skill_path, "custom user skill\n")
-    _write(retired_skill_path, "retired loop skill\n")
-    _write(retired_agent_ag_ui_path, "retired AG-UI skill\n")
-    _write(retired_graphing_path, "retired graphing skill\n")
 
-    result = install_system_skills_for_home(
+def test_install_blocks_drift_but_explicit_sync_repairs_it(tmp_path: Path) -> None:
+    """Additive install preserves drift while managed sync explicitly replaces it."""
+
+    install_system_skill_packs_for_home(
         tool="codex",
-        home_path=home_path,
-        set_names=(SYSTEM_SKILL_SET_CORE,),
-        skill_names=("houmao-agent-email-comms",),
+        home_path=tmp_path,
+        pack_ids=("agent",),
     )
+    drifted = tmp_path / "skills/houmao-shared-routines/SKILL.md"
+    drifted.write_text(drifted.read_text(encoding="utf-8") + "\nmodified\n", encoding="utf-8")
 
-    installed_records = discover_installed_system_skills(tool="codex", home_path=home_path)
-    project_mgr_path = home_path / "skills/houmao-project-mgr/SKILL.md"
-    project_mgr_actions = home_path / "skills/houmao-project-mgr/actions"
-    project_mgr_references = home_path / "skills/houmao-project-mgr/references"
-    manage_specialist_path = home_path / "skills/houmao-specialist-mgr/SKILL.md"
-    manage_credentials_path = home_path / "skills/houmao-credential-mgr/SKILL.md"
-    manage_credentials_actions = home_path / "skills/houmao-credential-mgr/actions"
-    manage_credentials_references = home_path / "skills/houmao-credential-mgr/references"
-    manage_credentials_subskills = home_path / "skills/houmao-credential-mgr/subskills"
-    memory_path = home_path / "skills/houmao-memory-mgr/SKILL.md"
-    manage_agent_definition_path = home_path / "skills/houmao-agent-definition/SKILL.md"
-    manage_agent_definition_agents = home_path / "skills/houmao-agent-definition/agents"
-    manage_agent_definition_actions = home_path / "skills/houmao-agent-definition/actions"
-    manage_agent_definition_subskills = home_path / "skills/houmao-agent-definition/subskills"
-    loop_pro_skill_path = home_path / "skills/houmao-agent-loop-pro/SKILL.md"
-    loop_pro_authoring = home_path / "skills/houmao-agent-loop-pro/subskills/authoring"
-    loop_pro_execution = home_path / "skills/houmao-agent-loop-pro/subskills/execution"
-    loop_pro_reference = home_path / "skills/houmao-agent-loop-pro/subskills/reference"
-    loop_lite_skill_path = home_path / "skills/houmao-agent-loop-lite/SKILL.md"
-    loop_lite_root = home_path / "skills/houmao-agent-loop-lite"
-    loop_lite_authoring = loop_lite_root / "subskills/authoring"
-    loop_lite_execution = loop_lite_root / "subskills/execution"
-    loop_lite_reference = loop_lite_root / "subskills/reference"
-
-    assert result.selected_set_names == (SYSTEM_SKILL_SET_CORE,)
-    assert result.resolved_skill_names == CORE_SYSTEM_SKILLS
-    assert result.removed_retired_skill_names == (
-        "houmao-agent-loop-pairwise-v3",
-        RETIRED_AGENT_AG_UI_SKILL,
-        RETIRED_GRAPHING_SKILL,
-    )
-    assert result.removed_retired_projected_relative_dirs == (
-        "skills/houmao-agent-loop-pairwise-v3",
-        f"skills/{RETIRED_AGENT_AG_UI_SKILL}",
-        f"skills/{RETIRED_GRAPHING_SKILL}",
-    )
-    assert set(record.name for record in installed_records) == set(result.resolved_skill_names)
-    assert tuple(record.projection_mode for record in installed_records) == ("copy",) * len(
-        CORE_SYSTEM_SKILLS
-    )
-    _assert_no_install_state_written(home_path)
-    assert user_skill_path.is_file()
-    assert not retired_skill_path.exists()
-    assert not retired_agent_ag_ui_path.exists()
-    assert not retired_graphing_path.exists()
-    assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
-    assert project_mgr_path.is_file()
-    assert manage_specialist_path.is_file()
-    assert manage_credentials_path.is_file()
-    assert memory_path.is_file()
-    assert manage_agent_definition_path.is_file()
-    assert loop_pro_skill_path.is_file()
-    assert loop_lite_skill_path.is_file()
-    assert (home_path / "skills/houmao-operator-messaging/SKILL.md").is_file()
-    assert (loop_pro_authoring / "init.md").is_file()
-    assert (loop_pro_authoring / "clarify-intent.md").is_file()
-    assert (loop_pro_authoring / "execplan-fast-forward.md").is_file()
-    assert (loop_pro_authoring / "execplan-specs-contract.md").is_file()
-    assert (loop_pro_authoring / "validate-execplan.md").is_file()
-    assert (loop_pro_execution / "prepare-agents.md").is_file()
-    assert (loop_pro_execution / "prepare-workspace.md").is_file()
-    assert (loop_pro_execution / "validate-loop.md").is_file()
-    assert (loop_pro_execution / "launch-agents.md").is_file()
-    assert (loop_pro_execution / "start.md").is_file()
-    assert (loop_pro_execution / "status.md").is_file()
-    assert (loop_pro_execution / "recover.md").is_file()
-    assert (loop_pro_reference / "runtime-mail-model.md").is_file()
-    assert (loop_lite_authoring / "init.md").is_file()
-    assert (loop_lite_authoring / "execplan-fast-forward.md").is_file()
-    assert (loop_lite_authoring / "validate-execplan.md").is_file()
-    assert (loop_lite_execution / "prepare-agents.md").is_file()
-    assert (loop_lite_execution / "prepare-workspace.md").is_file()
-    assert (loop_lite_execution / "validate-loop.md").is_file()
-    assert (loop_lite_execution / "launch-agents.md").is_file()
-    assert (loop_lite_execution / "start.md").is_file()
-    assert (loop_lite_execution / "status.md").is_file()
-    assert (loop_lite_execution / "recover.md").is_file()
-    assert (loop_lite_reference / "direct-sqlite-state.md").is_file()
-    assert (loop_lite_reference / "markdown-template-events.md").is_file()
-    assert (loop_lite_root / "assets/scaffolds/execplan/manifest.md.tmpl").is_file()
-    assert (loop_lite_root / "scripts/scaffold.py").is_file()
-    project_mgr_skill = project_mgr_path.read_text(encoding="utf-8")
-    manage_specialist_skill = manage_specialist_path.read_text(encoding="utf-8")
-    manage_credentials_skill = manage_credentials_path.read_text(encoding="utf-8")
-    memory_skill = memory_path.read_text(encoding="utf-8")
-    manage_agent_definition_skill = manage_agent_definition_path.read_text(encoding="utf-8")
-    loop_pro_skill = loop_pro_skill_path.read_text(encoding="utf-8")
-    loop_lite_skill = loop_lite_skill_path.read_text(encoding="utf-8")
-    loop_pro_init = (loop_pro_authoring / "init.md").read_text(encoding="utf-8")
-    loop_pro_clarify_intent = (loop_pro_authoring / "clarify-intent.md").read_text(encoding="utf-8")
-    loop_pro_clarify_execplan = (loop_pro_authoring / "clarify-execplan.md").read_text(
-        encoding="utf-8"
-    )
-    loop_lite_clarify_intent = (loop_lite_authoring / "clarify-intent.md").read_text(
-        encoding="utf-8"
-    )
-    loop_lite_clarify_execplan = (loop_lite_authoring / "clarify-execplan.md").read_text(
-        encoding="utf-8"
-    )
-    loop_pro_generate_execplan = (
-        (loop_pro_authoring / "execplan-fast-forward.md").read_text(encoding="utf-8")
-        + "\n"
-        + (loop_pro_authoring / "execplan-specs-contract.md").read_text(encoding="utf-8")
-    )
-    loop_pro_validate_execplan = (loop_pro_authoring / "validate-execplan.md").read_text(
-        encoding="utf-8"
-    )
-    loop_pro_prepare_agents = (loop_pro_execution / "prepare-agents.md").read_text(encoding="utf-8")
-    loop_pro_prepare_workspace = (loop_pro_execution / "prepare-workspace.md").read_text(
-        encoding="utf-8"
-    )
-    loop_pro_validate_loop = (loop_pro_execution / "validate-loop.md").read_text(encoding="utf-8")
-    loop_pro_launch_agents = (loop_pro_execution / "launch-agents.md").read_text(encoding="utf-8")
-    loop_pro_generated_defaults = (loop_pro_reference / "generated-contract-defaults.md").read_text(
-        encoding="utf-8"
-    )
-    loop_pro_platform_boundaries = (loop_pro_reference / "platform-boundaries.md").read_text(
-        encoding="utf-8"
-    )
-    loop_pro_git_worktree_readiness = (loop_pro_reference / "git-worktree-readiness.md").read_text(
-        encoding="utf-8"
-    )
-    project_init_action_path = project_mgr_actions / "init.md"
-    project_status_action_path = project_mgr_actions / "status.md"
-    project_launch_profiles_action_path = project_mgr_actions / "launch-profiles.md"
-    project_easy_instances_action_path = project_mgr_actions / "easy-instances.md"
-    project_overlay_reference_path = project_mgr_references / "overlay-resolution.md"
-    project_layout_reference_path = project_mgr_references / "project-layout.md"
-    project_effects_reference_path = project_mgr_references / "project-aware-effects.md"
-    project_routing_reference_path = project_mgr_references / "routing-boundaries.md"
-    definition_launcher_path = manage_agent_definition_subskills / "common/launcher.md"
-    definition_missing_inputs_path = manage_agent_definition_subskills / "common/missing-inputs.md"
-    definition_profile_lanes_path = manage_agent_definition_subskills / "common/profile-lanes.md"
-    definition_credential_routing_path = (
-        manage_agent_definition_subskills / "common/credential-routing.md"
-    )
-    definition_roles_path = manage_agent_definition_subskills / "low-level/roles.md"
-    definition_recipes_path = manage_agent_definition_subskills / "low-level/recipes.md"
-    definition_launch_profiles_path = (
-        manage_agent_definition_subskills / "low-level/launch-dossiers.md"
-    )
-    easy_specialists_path = manage_agent_definition_subskills / "easy/specialists.md"
-    easy_profiles_path = manage_agent_definition_subskills / "easy/profiles.md"
-    ready_profile_path = manage_agent_definition_subskills / "easy/create-agent-fast-forward.md"
-    easy_launch_path = manage_agent_definition_subskills / "easy/launch-instance.md"
-    easy_stop_path = manage_agent_definition_subskills / "easy/stop-instance.md"
-    project_init_action = project_init_action_path.read_text(encoding="utf-8")
-    project_status_action = project_status_action_path.read_text(encoding="utf-8")
-    project_launch_profiles_action = project_launch_profiles_action_path.read_text(encoding="utf-8")
-    project_easy_instances_action = project_easy_instances_action_path.read_text(encoding="utf-8")
-    project_overlay_reference = project_overlay_reference_path.read_text(encoding="utf-8")
-    project_layout_reference = project_layout_reference_path.read_text(encoding="utf-8")
-    project_effects_reference = project_effects_reference_path.read_text(encoding="utf-8")
-    project_routing_reference = project_routing_reference_path.read_text(encoding="utf-8")
-    definition_launcher = definition_launcher_path.read_text(encoding="utf-8")
-    definition_missing_inputs = definition_missing_inputs_path.read_text(encoding="utf-8")
-    definition_profile_lanes = definition_profile_lanes_path.read_text(encoding="utf-8")
-    definition_credential_routing = definition_credential_routing_path.read_text(encoding="utf-8")
-    definition_roles = definition_roles_path.read_text(encoding="utf-8")
-    definition_recipes = definition_recipes_path.read_text(encoding="utf-8")
-    definition_launch_profiles = definition_launch_profiles_path.read_text(encoding="utf-8")
-    easy_specialists = easy_specialists_path.read_text(encoding="utf-8")
-    easy_profiles = easy_profiles_path.read_text(encoding="utf-8")
-    ready_profile = ready_profile_path.read_text(encoding="utf-8")
-    easy_launch = easy_launch_path.read_text(encoding="utf-8")
-    easy_stop = easy_stop_path.read_text(encoding="utf-8")
-    credentials_list_action_path = manage_credentials_actions / "list.md"
-    credentials_get_action_path = manage_credentials_actions / "get.md"
-    credentials_add_action_path = manage_credentials_actions / "add.md"
-    credentials_set_action_path = manage_credentials_actions / "set.md"
-    credentials_login_action_path = manage_credentials_actions / "login.md"
-    credentials_remove_action_path = manage_credentials_actions / "remove.md"
-    credentials_kimi_login_subskill_path = (
-        manage_credentials_subskills / "kimi-code-login-handling.md"
-    )
-    definition_create_action_path = manage_agent_definition_actions / "create.md"
-    definition_list_action_path = manage_agent_definition_actions / "list.md"
-    definition_get_action_path = manage_agent_definition_actions / "get.md"
-    definition_set_action_path = manage_agent_definition_actions / "set.md"
-    definition_remove_action_path = manage_agent_definition_actions / "remove.md"
-    credentials_get_action = credentials_get_action_path.read_text(encoding="utf-8")
-    credentials_set_action = credentials_set_action_path.read_text(encoding="utf-8")
-    credentials_login_action = credentials_login_action_path.read_text(encoding="utf-8")
-    credentials_kimi_login_subskill = credentials_kimi_login_subskill_path.read_text(
-        encoding="utf-8"
-    )
-    definition_get_action = definition_get_action_path.read_text(encoding="utf-8")
-    definition_set_action = definition_set_action_path.read_text(encoding="utf-8")
-    assert "command -v houmao-mgr" in project_mgr_skill
-    assert "uv tool run --from houmao houmao-mgr" in project_mgr_skill
-    assert ".venv/bin/houmao-mgr" in project_mgr_skill
-    assert "pixi run houmao-mgr" in project_mgr_skill
-    assert "uv run houmao-mgr" in project_mgr_skill
-    assert "project init" in project_mgr_skill
-    assert "project status" in project_mgr_skill
-    assert "internals native-agent launch-dossiers ..." in project_mgr_skill
-    assert "project agents list|get|stop" in project_mgr_skill
-    assert "houmao-agent-definition" in project_mgr_skill
-    assert "houmao-agent-instance" in project_mgr_skill
-    assert "actions/init.md" in project_mgr_skill
-    assert "actions/status.md" in project_mgr_skill
-    assert "actions/easy-instances.md" in project_mgr_skill
-    assert "references/project-aware-effects.md" in project_mgr_skill
-    assert project_init_action_path.is_file()
-    assert project_status_action_path.is_file()
-    assert project_launch_profiles_action_path.is_file()
-    assert project_easy_instances_action_path.is_file()
-    assert project_overlay_reference_path.is_file()
-    assert project_layout_reference_path.is_file()
-    assert project_effects_reference_path.is_file()
-    assert project_routing_reference_path.is_file()
-    assert (
-        "Use the `houmao-mgr` launcher already chosen by the top-level skill."
-        in project_init_action
-    )
-    assert "<chosen houmao-mgr launcher>" in project_init_action
-    assert "--with-compatibility-profiles" not in project_init_action
-    assert "would_bootstrap_overlay" in project_status_action
-    assert "Launch Dossiers Have Moved" in project_launch_profiles_action
-    assert "houmao-agent-definition/subskills/low-level/launch-dossiers.md" in (
-        project_launch_profiles_action
-    )
-    assert "project agents list" in project_easy_instances_action
-    assert "project agents get --name <name>" in project_easy_instances_action
-    assert "project agents stop --name <name>" in project_easy_instances_action
-    assert "HOUMAO_PROJECT_OVERLAY_DIR" in project_overlay_reference
-    assert "HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE" in project_overlay_reference
-    assert "HOUMAO_NATIVE_AGENT_ROOT" in project_overlay_reference
-    assert "HOUMAO_AGENT_DEF_DIR" not in project_overlay_reference
-    assert "catalog.sqlite" in project_layout_reference
-    assert "content/" in project_layout_reference
-    assert "agents/" in project_layout_reference
-    assert "runtime/" in project_layout_reference
-    assert "jobs/" in project_layout_reference
-    assert "mailbox/" in project_layout_reference
-    assert "easy/" in project_layout_reference
-    assert "internals native-agent brain build" not in project_effects_reference
-    assert "builds brain homes internally" in project_effects_reference
-    assert "project agents launch" in project_effects_reference
-    assert "server start" not in project_effects_reference
-    assert "admin cleanup runtime" in project_effects_reference
-    assert "houmao-specialist-mgr" not in project_routing_reference
-    assert "houmao-credential-mgr" in project_routing_reference
-    assert "houmao-agent-definition" in project_routing_reference
-    assert "houmao-agent-instance" in project_routing_reference
-    assert "houmao-mailbox-mgr" in project_routing_reference
-    assert "Compatibility Wrapper" in manage_specialist_skill
-    assert "houmao-agent-definition/subskills/easy/specialists.md" in manage_specialist_skill
-    assert "create-agent-fast-forward" in manage_specialist_skill
-    assert "Do not run commands from this wrapper." in manage_specialist_skill
-    assert "command -v houmao-mgr" in definition_launcher
-    assert "uv tool run --from houmao houmao-mgr" in definition_launcher
-    assert ".venv/bin/houmao-mgr" in definition_launcher
-    assert "pixi run houmao-mgr" in definition_launcher
-    assert "uv run houmao-mgr" in definition_launcher
-    assert "user explicitly requests one launcher" in definition_launcher
-    assert "Ask the user for exactly the missing fields" in definition_missing_inputs
-    assert "Project Profile" in definition_profile_lanes
-    assert "Launch Dossier" in definition_profile_lanes
-    assert "loose `profile`, `agent profile`, `project profile`, or `ready profile`" in (
-        definition_profile_lanes
-    )
-    assert "project specialist create" in definition_credential_routing
-    assert "Explicit Auth Mode" in easy_specialists
-    assert "internals config-drafts generate" in easy_profiles
-    assert "project.profile" in easy_profiles
-    assert "project.specialist" in easy_specialists
-    assert "minimal opinionated drafts" in manage_agent_definition_skill
-    assert '`project.specialist`: `{"fields":{"name":"general-kimi"' in (
-        manage_agent_definition_skill
-    )
-    assert '`project.profile`: `{"fields":{"name":"reviewer-fast"' in (
-        manage_agent_definition_skill
-    )
-    assert '`internals.native-agent.launch-dossier`: `{"fields":{"name":"reviewer-native"' in (
-        manage_agent_definition_skill
-    )
-    assert '{"fields":{"name":"general-kimi","tool":"kimi","credential":"kimi-coding"}}' in (
-        easy_specialists
-    )
-    assert (
-        '{"fields":{"name":"reviewer-fast","specialist":"reviewer","credential":"reviewer-creds"}}'
-    ) in easy_profiles
-    assert "top-level `fields` object" in easy_specialists
-    assert "top-level `fields` object" in easy_profiles
-    assert "Do not remove and recreate a project specialist" in easy_specialists
-    assert "--prompt-overlay-mode append|replace" in easy_profiles
-    assert "Env Lookup Mode" in easy_specialists
-    assert "Directory Scan Mode" in easy_specialists
-    assert "Auto Credentials Mode" in easy_specialists
-    assert "No Discovery Mode" in easy_specialists
-    assert "Specialist Create Defaulting" in easy_specialists
-    assert "registered credentials exist: pick a matching registered credential" in (
-        easy_specialists
-    )
-    assert "Resolve the specialist tool and credential from the prompt" in (
-        definition_credential_routing
-    )
-    assert "Inventory registered credentials across supported tool lanes" in (
-        definition_credential_routing
-    )
-    assert "project [--project-dir <dir>] credentials <tool> list" in (
-        definition_credential_routing
-    )
-    assert "internals native-agent credentials <tool> list --native-agent-root <path>" in (
-        definition_credential_routing
-    )
-    assert "credential_records[].updated_at_utc" in definition_credential_routing
-    assert "choose the credential with the latest listed update time" in (
-        definition_credential_routing
-    )
-    assert "no target: initialize/select a Houmao project" in definition_credential_routing
-    assert "houmao-credential-mgr/references/claude-credential-kinds.md" in easy_specialists
-    assert "houmao-credential-mgr/references/codex-credential-kinds.md" in easy_specialists
-    assert "houmao-credential-mgr/references/kimi-credential-kinds.md" in easy_specialists
-    assert "--claude-oauth-token" in easy_specialists
-    assert "--claude-config-dir" in easy_specialists
-    assert "optional bootstrap state" in easy_specialists
-    assert "not a credential-providing method" in easy_specialists
-    assert (
-        "Do not scan env vars, directories, repo-local tool homes" in definition_credential_routing
-    )
-    deprecated_fixture_root = "/".join(("tests", "fixtures", "agents"))
-    assert deprecated_fixture_root not in easy_specialists
-    assert "project profile list" in easy_profiles
-    assert "project profile get --name <name>" in easy_profiles
-    assert "project profile remove --name <profile>" in easy_profiles
-    assert "project agents launch" in easy_launch
-    assert "project profile get --name <profile>" in easy_launch
-    assert "does not accept declarative mailbox fields such as `--mail-address`" in easy_launch
-    assert "`--name` seeds the managed-agent mailbox address and principal id" in easy_launch
-    assert "private filesystem mailbox directory outside the shared root" in easy_launch
-    assert (
-        "was preregistered manually already, launch-time safe registration can fail" in easy_launch
-    )
-    assert "project agents stop --name <name>" in easy_stop
-    assert "create-agent-fast-forward" in ready_profile
-    assert "Do not launch the managed agent." in ready_profile
-    assert "initializes default filesystem mailbox readiness" in ready_profile
-    assert "will create the agent mailbox at launch time" in ready_profile
-    assert "Prepare default project filesystem mailbox readiness" in ready_profile
-    assert "project mailbox init" in ready_profile
-    assert "--mail-transport filesystem" in ready_profile
-    assert "--mail-root <selected-root>" in ready_profile
-    assert "Do not manually preregister the same-root ordinary per-agent mailbox address" in (
-        ready_profile
-    )
-    assert "command -v houmao-mgr" in manage_credentials_skill
-    assert "uv tool run --from houmao houmao-mgr" in manage_credentials_skill
-    assert ".venv/bin/houmao-mgr" in manage_credentials_skill
-    assert "pixi run houmao-mgr" in manage_credentials_skill
-    assert "uv run houmao-mgr" in manage_credentials_skill
-    assert "actions/list.md" in manage_credentials_skill
-    assert "actions/get.md" in manage_credentials_skill
-    assert "actions/add.md" in manage_credentials_skill
-    assert "actions/set.md" in manage_credentials_skill
-    assert "actions/remove.md" in manage_credentials_skill
-    assert "subskills/kimi-code-login-handling.md" in manage_credentials_skill
-    assert "project credentials <tool> <verb>" in manage_credentials_skill
-    assert "internals native-agent credentials <tool> <verb>" in manage_credentials_skill
-    assert "project profile ..." in manage_credentials_skill
-    assert "internals native-agent launch-dossiers ..." in manage_credentials_skill
-    assert (
-        "Do not treat changing a project profile or native launch dossier `--auth` override"
-        in manage_credentials_skill
-    )
-    assert "Do not print raw secret values" in manage_credentials_skill
-    assert credentials_list_action_path.is_file()
-    assert credentials_get_action_path.is_file()
-    assert credentials_add_action_path.is_file()
-    assert credentials_set_action_path.is_file()
-    assert credentials_login_action_path.is_file()
-    assert credentials_remove_action_path.is_file()
-    assert credentials_kimi_login_subskill_path.is_file()
-    assert (
-        "Use the `houmao-mgr` launcher already chosen by the top-level skill."
-        in credentials_get_action
-    )
-    assert "<chosen houmao-mgr launcher>" in credentials_get_action
-    assert "project credentials <tool> get --name <credential>" in credentials_get_action
-    assert "internals native-agent credentials <tool> get" in credentials_get_action
-    assert "Do not bypass `get`" in credentials_get_action
-    assert "stored project-profile or launch-dossier `--auth` override" in credentials_get_action
-    assert "Do not invent unsupported clear flags" in credentials_set_action
-    assert (
-        "stored project-profile or launch-dossier `--auth` override change"
-        in credentials_set_action
-    )
-    assert (
-        "Do not continue with set when the user has not provided any explicit supported change"
-        in credentials_set_action
-    )
-    assert "dedicated tmux session" in credentials_login_action
-    assert "tmux new-session -d -s" in credentials_login_action
-    assert 'proxy_env_args+=(-e "${name}=${!name}")' in credentials_login_action
-    assert "Do not add `--inherit-auth-env` for ordinary proxy preservation" in (
-        credentials_login_action
-    )
-    assert "maintained Houmao credential login command owns temp-home creation" in (
-        credentials_login_action
-    )
-    assert "../subskills/kimi-code-login-handling.md" in credentials_login_action
-    assert "Do not run or invent a maintained Kimi login helper" in credentials_login_action
-    for proxy_name in (
-        "HTTP_PROXY",
-        "HTTPS_PROXY",
-        "ALL_PROXY",
-        "NO_PROXY",
-        "http_proxy",
-        "https_proxy",
-        "all_proxy",
-        "no_proxy",
-    ):
-        assert proxy_name in credentials_login_action
-        assert proxy_name in credentials_kimi_login_subskill
-    assert "command -v kimi || command -v kimi-code" in credentials_kimi_login_subskill
-    assert "KIMI_CODE_HOME" in credentials_kimi_login_subskill
-    assert "tmux new-session -d -s" in credentials_kimi_login_subskill
-    assert 'proxy_env_args+=(-e "${name}=${!name}")' in credentials_kimi_login_subskill
-    assert "kimi login" in credentials_kimi_login_subskill
-    assert "credentials/kimi-code.json" in credentials_kimi_login_subskill
-    assert "--code-home" in credentials_kimi_login_subskill
-    assert "KIMI_CODE_OAUTH_HOST" in credentials_kimi_login_subskill
-    assert "KIMI_OAUTH_HOST" in credentials_kimi_login_subskill
-    assert "KIMI_CODE_BASE_URL" in credentials_kimi_login_subskill
-    assert "kimi-code-env-<hash>.json" in credentials_kimi_login_subskill
-    assert "command -v houmao-mgr" in manage_agent_definition_skill
-    assert "uv tool run --from houmao houmao-mgr" in manage_agent_definition_skill
-    assert ".venv/bin/houmao-mgr" in manage_agent_definition_skill
-    assert "pixi run houmao-mgr" in manage_agent_definition_skill
-    assert "uv run houmao-mgr" in manage_agent_definition_skill
-    assert "subskills/low-level/roles.md" in manage_agent_definition_skill
-    assert "subskills/low-level/recipes.md" in manage_agent_definition_skill
-    assert "subskills/low-level/launch-dossiers.md" in manage_agent_definition_skill
-    assert "subskills/easy/specialists.md" in manage_agent_definition_skill
-    assert "subskills/easy/profiles.md" in manage_agent_definition_skill
-    assert "subskills/easy/create-agent-fast-forward.md" in manage_agent_definition_skill
-    assert "`launch-dossiers`" in manage_agent_definition_skill
-    assert "`profiles` as the default meaning" in manage_agent_definition_skill
-    assert "internals native-agent roles list" in definition_roles
-    assert "internals native-agent recipes list" in definition_recipes
-    assert "internals.native-agent.launch-dossier" in definition_launch_profiles
-    assert (
-        '{"fields":{"name":"reviewer-native","recipe":"reviewer-codex",'
-        '"credential":"reviewer-creds"}}'
-    ) in definition_launch_profiles
-    assert "top-level `fields` object" in definition_launch_profiles
-    assert "Do not pass memo seed fields to `internals config-drafts generate`" in (memory_skill)
-    assert "internals native-agent recipes ..." in definition_recipes
-    assert "houmao-credential-mgr" in manage_agent_definition_skill
-    assert "direct hand-editing under `.houmao/`" in manage_agent_definition_skill
-    assert (manage_agent_definition_agents / "openai.yaml").is_file()
-    assert definition_launcher_path.is_file()
-    assert definition_missing_inputs_path.is_file()
-    assert definition_profile_lanes_path.is_file()
-    assert definition_credential_routing_path.is_file()
-    assert definition_roles_path.is_file()
-    assert definition_recipes_path.is_file()
-    assert definition_launch_profiles_path.is_file()
-    assert easy_specialists_path.is_file()
-    assert easy_profiles_path.is_file()
-    assert ready_profile_path.is_file()
-    assert easy_launch_path.is_file()
-    assert easy_stop_path.is_file()
-    assert definition_create_action_path.is_file()
-    assert definition_list_action_path.is_file()
-    assert definition_get_action_path.is_file()
-    assert definition_set_action_path.is_file()
-    assert definition_remove_action_path.is_file()
-    assert (
-        "Use the `houmao-mgr` launcher already chosen by the top-level skill."
-        in definition_get_action
-    )
-    assert "<chosen houmao-mgr launcher>" in definition_get_action
-    assert (
-        "internals native-agent roles init --name <role>"
-        in definition_create_action_path.read_text(encoding="utf-8")
-    )
-    assert (
-        "internals native-agent recipes add --name <recipe> --role <role> --tool <tool>"
-        in definition_create_action_path.read_text(encoding="utf-8")
-    )
-    assert "internals native-agent roles list" in definition_list_action_path.read_text(
-        encoding="utf-8"
-    )
-    assert "internals native-agent recipes list" in definition_list_action_path.read_text(
-        encoding="utf-8"
-    )
-    assert "internals native-agent roles get --name <role> --include-prompt" in (
-        definition_get_action
-    )
-    assert "internals native-agent recipes get --name <recipe>" in definition_get_action
-    assert "internals native-agent roles set --name <role>" in definition_set_action
-    assert "internals native-agent recipes set --name <recipe>" in definition_set_action
-    assert "--clear-auth" in definition_set_action
-    assert "houmao-credential-mgr" in definition_set_action
-    assert "internals native-agent roles remove --name <role>" in (
-        definition_remove_action_path.read_text(encoding="utf-8")
-    )
-    assert (
-        "internals native-agent recipes remove --name <recipe>"
-        in definition_remove_action_path.read_text(encoding="utf-8")
-    )
-    assert "Use this Houmao skill only after the user explicitly selects it" in loop_pro_skill
-    assert "`houmao-agent-loop-pro`" in loop_pro_skill
-    assert "treat it as `init`" in loop_pro_skill
-    assert "<loop-dir>/intention/" in loop_pro_skill
-    assert "<loop-dir>/execplan/" in loop_pro_skill
-    assert "subskills/authoring/clarify-intent.md" in loop_pro_skill
-    assert "subskills/execution/prepare-agents.md" in loop_pro_skill
-    assert "Do not require `adrs/`" in loop_pro_skill
-    assert "Do not import policy from examples or reference plans as global behavior" in (
-        loop_pro_skill
-    )
-    assert (
-        "use `houmao-utils-workspace-mgr` through `prepare-workspace` for supported workspace "
-        "planning, creation, validation, and summaries" in loop_pro_skill
-    )
-    assert "MUST READ for mail-driven loops" in loop_pro_skill
-    assert "subskills/reference/runtime-mail-model.md" in loop_pro_skill
-    assert "subskills/reference/topology-modes.md" in loop_pro_skill
-    assert "subskills/reference/platform-boundaries.md" in loop_pro_skill
-    assert "Do not duplicate maintained Houmao platform-operation contracts" in loop_pro_skill
-    assert "tree-loop" in loop_pro_skill
-    assert "generic-loop" in loop_pro_skill
-    assert "name: houmao-agent-loop-lite" in loop_lite_skill
-    assert "Do not auto-route generic loop requests here" in loop_lite_skill
-    assert "Loop-Template-Type" in loop_lite_skill
-    assert "runs/<run-id>/state.sqlite3" in loop_lite_skill
-    assert "Do not generate `execplan/harness/` or `execplan/docs/`" in loop_lite_skill
-    assert "If `<loop-dir>` is missing, ask with `Required: <loop-dir>`" in loop_pro_init
-    assert "<loop-dir>/intention/README.md" in loop_pro_init
-    assert "<loop-dir>/intention/project-context.md" in loop_pro_init
-    assert "Show the provisional high-level Mermaid agent architecture" not in (
-        loop_pro_clarify_intent
-    )
-    assert "Use fenced `mermaid` code blocks." not in loop_pro_clarify_intent
-    assert "Show the provisional high-level ASCII/text agent architecture" in (
-        loop_pro_clarify_intent
-    )
-    assert "Do not use fenced `mermaid` code blocks for chat visual summaries" in (
-        loop_pro_clarify_intent
-    )
-    assert "generated execplan artifact requirements" in loop_pro_clarify_intent
-    assert "Do not paste generated Mermaid diagrams as fenced `mermaid` blocks" in (
-        loop_pro_clarify_execplan
-    )
-    assert "This chat-output rule does not change generated execplan artifact requirements" in (
-        loop_pro_clarify_execplan
-    )
-    assert "When showing participants, routes, phases, unknowns, coverage, or loop shape" in (
-        loop_lite_clarify_intent
-    )
-    assert "When showing generated Markdown, template, SQLite state" in (loop_lite_clarify_execplan)
-    assert "This chat-output rule does not change generated lite execplan artifact behavior" in (
-        loop_lite_clarify_intent
-    )
-    assert "This chat-output rule does not change generated lite execplan artifact behavior" in (
-        loop_lite_clarify_execplan
-    )
-    assert "Ask at most five accepted questions per session, exactly one at a time" in (
-        loop_pro_clarify_intent
-    )
-    assert "objective, agent communication, or loop process logic" in loop_pro_clarify_intent
-    assert "<loop-dir>/adrs/" in loop_pro_clarify_intent
-    assert "Do not generate, repair, or directly edit `execplan/`" in loop_pro_clarify_intent
-    assert "<loop-dir>/execplan/" in loop_pro_generate_execplan
-    assert "manifest.toml" in loop_pro_generate_execplan
-    assert "Do not create `execplan/adrs/` just to explain routine defaults" in (
-        loop_pro_generate_execplan
-    )
-    assert "defaulting to `in-repo`" in loop_pro_generate_execplan
-    assert "schema-validated payload plus human-readable rendering" in (loop_pro_generate_execplan)
-    assert "communication schemas, renderers, registry, and reply links" in (
-        loop_pro_generate_execplan
-    )
-    assert "notification prompt and trigger contracts" in loop_pro_generate_execplan
-    assert "templates.toml" in loop_pro_generate_execplan
-    assert "<message-family>.schema.json" in loop_pro_generate_execplan
-    assert "which on-event skill handles each received message family" in (
-        loop_pro_generate_execplan
-    )
-    assert "generated skills under `execplan/skills/*/SKILL.md`" in (loop_pro_validate_execplan)
-    assert (
-        "workspace setup contracts route workspace planning, creation, validation, and summaries"
-        in (loop_pro_validate_execplan)
-    )
-    assert "`prepare-workspace` guidance consumes prepared agent/profile facts" in (
-        loop_pro_validate_execplan
-    )
-    assert "planned, created, validated, summarized, missing, inconsistent, and custom/manual" in (
-        loop_pro_validate_execplan
-    )
-    assert "execplan/specs/comms/templates.toml" in loop_pro_validate_execplan
-    assert "houmao-email-metadata" in loop_pro_validate_execplan
-    assert "payload lifecycle contracts" in loop_pro_validate_execplan
-    assert "archive-after-success behavior" in loop_pro_validate_execplan
-    assert "houmao-utils-workspace-mgr" in loop_pro_prepare_agents
-    assert "houmao-agent-definition" in loop_pro_prepare_agents
-    assert "Do not launch live agents as normal preparation behavior; use `launch-agents`" in (
-        loop_pro_prepare_agents
-    )
-    assert "maintained mail support skills" in loop_pro_prepare_agents
-    assert "houmao-process-emails-via-gateway" in loop_pro_prepare_agents
-    assert "operation: `plan`, `create`, `validate`, or `summarize`" in (loop_pro_prepare_workspace)
-    assert (
-        "Treat legacy `execute` wording in older generated material or operator prompts as "
-        "workspace-manager `create`" in loop_pro_prepare_workspace
-    )
-    assert "report the normalized operation as `create`" in loop_pro_prepare_workspace
-    assert "A workspace-manager `plan` report alone is not launch-ready evidence" in (
-        loop_pro_prepare_workspace
-    )
-    for expected_workspace_fact in (
-        "planned facts",
-        "created facts",
-        "validated facts",
-        "summarized facts",
-        "missing facts",
-        "inconsistent facts",
-        "custom/manual facts",
-    ):
-        assert expected_workspace_fact in loop_pro_prepare_workspace
-    assert "task-local `shared-kb/`" in loop_pro_generate_execplan
-    assert "task-local `owner-states/<subdir>/...`" in loop_pro_generate_execplan
-    assert "per-agent `<task-root>/<agent-name>/states/`" in loop_pro_generate_execplan
-    assert "per-agent `<task-root>/<agent-name>/repo/`" in loop_pro_generate_execplan
-    assert "project-scope validation command inputs" in loop_pro_generate_execplan
-    assert "documented safe project commands" in loop_pro_generate_execplan
-    assert "Pixi, Python virtual environments, C or C++ build systems" in (
-        loop_pro_generate_execplan
-    )
-    assert "needs_kb" not in loop_pro_generate_execplan
-    assert "[workspace.bookkeeping]" not in loop_pro_generate_execplan
-    assert 'task_dirs = ["runs", "artifacts"]' not in loop_pro_generate_execplan
-    assert 'per_agent_dirs = ["artifacts"]' not in loop_pro_generate_execplan
-    assert 'per_agent_ignored_dirs = ["tmp"]' not in loop_pro_generate_execplan
-    assert "`plan`, `create`, `validate`, or `summarize` inputs" in (loop_pro_generated_defaults)
-    assert "validation commands" in loop_pro_generated_defaults
-    assert (
-        "Treat a workspace-manager `plan` alone as incomplete readiness" in loop_pro_validate_loop
-    )
-    assert "current validation evidence or summary" in loop_pro_launch_agents
-    assert (
-        "`houmao-utils-workspace-mgr`: workspace planning, creation, validation, and summaries"
-        in (loop_pro_platform_boundaries)
-    )
-    assert "Local-state completeness belongs to workspace-manager `validate` evidence" in (
-        loop_pro_git_worktree_readiness
-    )
-    assert "workspace-manager validation inputs" in loop_pro_git_worktree_readiness
-    assert "Do not create worktrees, repair local-only state" in (loop_pro_git_worktree_readiness)
-    assert "Symlink untracked source-repo directories into agent worktrees by default" not in (
-        loop_pro_git_worktree_readiness
-    )
-    assert "Repair missing local-only state from the source checkout" not in (
-        loop_pro_git_worktree_readiness
-    )
-    assert (
-        "Route workspace planning, creation, validation, or summaries through "
-        "`houmao-utils-workspace-mgr`" in loop_lite_skill
-    )
-    assert "workspace-manager `execute`" not in loop_lite_skill
-    assert easy_specialists_path.is_file()
-    assert easy_profiles_path.is_file()
-    assert easy_launch_path.is_file()
-
-    claude_reference_path = manage_credentials_references / "claude-credential-kinds.md"
-    codex_reference_path = manage_credentials_references / "codex-credential-kinds.md"
-    kimi_reference_path = manage_credentials_references / "kimi-credential-kinds.md"
-    assert claude_reference_path.is_file()
-    assert codex_reference_path.is_file()
-    assert kimi_reference_path.is_file()
-
-    claude_reference = claude_reference_path.read_text(encoding="utf-8")
-    codex_reference = codex_reference_path.read_text(encoding="utf-8")
-    kimi_reference = kimi_reference_path.read_text(encoding="utf-8")
-
-    assert "CLAUDE_CODE_OAUTH_TOKEN" in claude_reference
-    assert "claude setup-token" in claude_reference
-    assert "Long-Lived Claude Code OAuth Token (Preferred Default)" in claude_reference
-    assert "--oauth-token" in claude_reference
-    assert "Do not use `--auth-token` for `CLAUDE_CODE_OAUTH_TOKEN`." in claude_reference
-    assert "Auth Token (Bearer Token)" in claude_reference
-    assert "--config-dir" in claude_reference
-    assert ".credentials.json" in claude_reference
-    assert "optional bootstrap state" in claude_reference
-    assert "credential-providing method" in claude_reference
-    assert deprecated_fixture_root not in claude_reference
-
-    assert "auth.json" in codex_reference
-    assert "--auth-json" in codex_reference
-    assert "Cached Login State" in codex_reference
-    assert deprecated_fixture_root not in codex_reference
-
-    assert "Existing Kimi Code Home" in kimi_reference
-    assert "Fresh Default Kimi Code OAuth Login" in kimi_reference
-    assert "--code-home" in kimi_reference
-    assert "config.toml" in kimi_reference
-    assert "credential-json" in kimi_reference
-    assert "../subskills/kimi-code-login-handling.md" in kimi_reference
-    assert "Kimi Platform API key" in kimi_reference
-    assert "kimi-code-env-<hash>.json" in kimi_reference
-    assert deprecated_fixture_root not in kimi_reference
-
-
-def test_uninstall_system_skills_for_home_removes_current_dirs_symlinks_and_files(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
-    copied_skill_path = home_path / "skills/houmao-specialist-mgr/SKILL.md"
-    symlink_source = tmp_path / "symlink-source"
-    symlink_target = home_path / "skills/houmao-agent-email-comms"
-    file_target = home_path / "skills/houmao-adv-usage-pattern"
-    user_skill_path = home_path / "skills/custom-user-skill/SKILL.md"
-    unknown_houmao_path = home_path / "skills/houmao-user-owned/SKILL.md"
-    legacy_path = home_path / "skills/mailbox/houmao-agent-email-comms/SKILL.md"
-    retired_loop_path = home_path / "skills/houmao-agent-loop-pairwise-v5/SKILL.md"
-    obsolete_state_path = _obsolete_system_skill_state_path(home_path)
-    _write(copied_skill_path, "copied skill\n")
-    symlink_source.mkdir(parents=True)
-    symlink_target.parent.mkdir(parents=True, exist_ok=True)
-    symlink_target.symlink_to(symlink_source)
-    _write(file_target, "stale file skill\n")
-    _write(user_skill_path, "custom user skill\n")
-    _write(unknown_houmao_path, "not catalog owned\n")
-    _write(legacy_path, "legacy family path\n")
-    _write(retired_loop_path, "retired loop skill\n")
-    _write(obsolete_state_path, "{}\n")
-
-    result = uninstall_system_skills_for_home(tool="codex", home_path=home_path)
-
-    assert result.tool == "codex"
-    assert result.home_path == home_path
-    assert result.removed_skill_names == (
-        "houmao-agent-email-comms",
-        "houmao-adv-usage-pattern",
-        "houmao-specialist-mgr",
-    )
-    assert result.removed_projected_relative_dirs == (
-        "skills/houmao-agent-email-comms",
-        "skills/houmao-adv-usage-pattern",
-        "skills/houmao-specialist-mgr",
-    )
-    assert result.removed_retired_skill_names == ("houmao-agent-loop-pairwise-v5",)
-    assert result.removed_retired_projected_relative_dirs == (
-        "skills/houmao-agent-loop-pairwise-v5",
-    )
-    assert "houmao-process-emails-via-gateway" in result.absent_skill_names
-    assert "skills/houmao-process-emails-via-gateway" in result.absent_projected_relative_dirs
-    assert "houmao-agent-gateway" in result.absent_skill_names
-    assert not (home_path / "skills/houmao-specialist-mgr").exists()
-    assert not symlink_target.exists()
-    assert not symlink_target.is_symlink()
-    assert symlink_source.is_dir()
-    assert not file_target.exists()
-    assert not retired_loop_path.exists()
-    assert (home_path / "skills").is_dir()
-    assert user_skill_path.is_file()
-    assert unknown_houmao_path.is_file()
-    assert legacy_path.is_file()
-    assert obsolete_state_path.is_file()
-
-
-def test_uninstall_system_skills_for_home_does_not_create_missing_home(tmp_path: Path) -> None:
-    home_path = (tmp_path / "missing-codex-home").resolve()
-    catalog = load_system_skill_catalog()
-
-    result = uninstall_system_skills_for_home(tool="codex", home_path=home_path)
-
-    assert not home_path.exists()
-    assert result.removed_skill_names == ()
-    assert result.removed_projected_relative_dirs == ()
-    assert result.absent_skill_names == catalog.skill_names
-    assert result.absent_projected_relative_dirs == tuple(
-        f"skills/{skill_name}" for skill_name in catalog.skill_names
-    )
-    assert result.absent_retired_skill_names == catalog.retired_skill_names
-    assert result.absent_retired_projected_relative_dirs == tuple(
-        f"skills/{skill_name}" for skill_name in catalog.retired_skill_names
-    )
-
-
-def test_install_system_skills_for_home_cli_default_includes_agent_instance_messaging_and_gateway_skills(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
-
-    result = install_system_skills_for_home(
+    with pytest.raises(SystemSkillInstallError, match="drifted"):
+        install_system_skill_packs_for_home(
+            tool="codex",
+            home_path=tmp_path,
+            pack_ids=("admin",),
+        )
+    repaired = sync_system_skill_packs_for_home(
         tool="codex",
-        home_path=home_path,
-        use_cli_default=True,
+        home_path=tmp_path,
+        selected_pack_ids=("agent",),
     )
 
-    assert result.selected_set_names == (SYSTEM_SKILL_SET_ALL,)
-    assert result.projection_mode == "copy"
-    assert result.resolved_skill_names == ALL_SYSTEM_SKILLS
-    assert result.removed_retired_skill_names == ()
-    assert (home_path / "skills/houmao-agent-instance/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-agent-inspect/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-operator-messaging/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-agent-messaging/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-agent-gateway/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-mailbox-mgr/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-memory-mgr/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-adv-usage-pattern/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-touring/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-agent-loop-pro/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-agent-loop-lite/SKILL.md").is_file()
-    assert (
-        home_path / "skills/houmao-agent-loop-pro/subskills/reference/runtime-mail-model.md"
-    ).is_file()
-    assert (
-        home_path / "skills/houmao-agent-loop-pro/subskills/reference/topology-modes.md"
-    ).is_file()
-    assert (home_path / "skills/houmao-agent-loop-pro/subskills/authoring/init.md").is_file()
-    assert (
-        home_path / "skills/houmao-agent-loop-pro/subskills/authoring/execplan-fast-forward.md"
-    ).is_file()
-    assert (
-        home_path / "skills/houmao-agent-loop-pro/subskills/execution/prepare-agents.md"
-    ).is_file()
-    assert (
-        home_path / "skills/houmao-agent-loop-pro/subskills/execution/prepare-workspace.md"
-    ).is_file()
-    assert (
-        home_path / "skills/houmao-agent-loop-lite/subskills/authoring/execplan-fast-forward.md"
-    ).is_file()
-    assert (
-        home_path / "skills/houmao-agent-loop-lite/subskills/execution/prepare-agents.md"
-    ).is_file()
-    assert (
-        home_path / "skills/houmao-agent-loop-lite/subskills/reference/direct-sqlite-state.md"
-    ).is_file()
-    assert (
-        home_path / "skills/houmao-agent-loop-lite/assets/scaffolds/execplan/manifest.md.tmpl"
-    ).is_file()
-    assert (home_path / "skills/houmao-utils-workspace-mgr/SKILL.md").is_file()
-    assert (home_path / f"skills/{SYSTEM_SKILL_EXT_GRAPHING}/SKILL.md").is_file()
-
-    loop_pro_skill = (home_path / "skills/houmao-agent-loop-pro/SKILL.md").read_text(
-        encoding="utf-8"
+    assert repaired.selected_pack_ids == ("agent",)
+    assert "modified" not in drifted.read_text(encoding="utf-8")
+    assert inspect_system_skill_packs(tool="codex", home_path=tmp_path).packs[1].status == (
+        "complete"
     )
-    loop_lite_skill = (home_path / "skills/houmao-agent-loop-lite/SKILL.md").read_text(
-        encoding="utf-8"
-    )
-    advanced_usage_skill = (home_path / "skills/houmao-adv-usage-pattern/SKILL.md").read_text(
-        encoding="utf-8"
-    )
-    touring_skill = (home_path / "skills/houmao-touring/SKILL.md").read_text(encoding="utf-8")
-    touring_advanced_usage = (
-        home_path / "skills/houmao-touring/branches/advanced-usage.md"
-    ).read_text(encoding="utf-8")
-    touring_fast_paths = (home_path / "skills/houmao-touring/branches/fast-paths.md").read_text(
-        encoding="utf-8"
-    )
-    touring_subsystem_exploration = (
-        home_path / "skills/houmao-touring/branches/subsystem-exploration.md"
-    ).read_text(encoding="utf-8")
-    pairwise_edge_loop_pattern = (
-        home_path
-        / "skills/houmao-adv-usage-pattern/patterns/pairwise-edge-loop-via-gateway-and-mailbox.md"
-    ).read_text(encoding="utf-8")
-    relay_loop_pattern = (
-        home_path / "skills/houmao-adv-usage-pattern/patterns/relay-loop-via-gateway-and-mailbox.md"
-    ).read_text(encoding="utf-8")
-
-    assert "tree-loop" in loop_pro_skill
-    assert "generic-loop" in loop_pro_skill
-    assert "MUST READ for mail-driven loops" in loop_pro_skill
-    assert "subskills/reference/runtime-mail-model.md" in loop_pro_skill
-    assert "Markdown/direct-SQL" in loop_lite_skill
-    assert "Loop-Template-Type" in loop_lite_skill
-    assert "direct SQLite" in loop_lite_skill
-    assert "houmao-agent-loop-pro" in advanced_usage_skill
-    assert "houmao-agent-loop-lite" in advanced_usage_skill
-    assert "Choose `tree-loop` or `generic-loop` inside pro" in advanced_usage_skill
-    assert "users who are not yet familiar with Houmao" in touring_skill
-    assert "Fast path use cases" in touring_skill
-    assert "Subsystem exploration" in touring_skill
-    assert "Single Agent Full Run" in touring_fast_paths
-    assert "Operator-Controlled Agent Team" in touring_fast_paths
-    assert "Pro Agent Loop" in touring_fast_paths
-    assert "Project overlay" in touring_subsystem_exploration
-    assert "Loop orchestration" in touring_subsystem_exploration
-    assert "houmao-process-emails-via-gateway" in touring_skill
-    assert "houmao-memory-mgr" in touring_skill
-    assert "houmao-utils-workspace-mgr" in touring_skill
-    assert "Lite loop authoring" in touring_advanced_usage
-    assert "Pro loop authoring" in touring_advanced_usage
-    assert "Tree-loop mode in pro" in touring_advanced_usage
-    assert "Generic-loop mode in pro" in touring_advanced_usage
-    assert "Isolated multi-agent workspace management" in touring_advanced_usage
-    assert "Managed-agent memory" not in touring_advanced_usage
-    assert "Credential management" not in touring_advanced_usage
-    assert "houmao-utils-llm-wiki" not in touring_skill
-    assert "houmao-utils-llm-wiki" not in touring_advanced_usage
-    assert "Use `houmao-agent-loop-lite` instead" in pairwise_edge_loop_pattern
-    assert "Use `houmao-agent-loop-pro` in `tree-loop` mode" in pairwise_edge_loop_pattern
-    assert "Use `houmao-agent-loop-lite` instead" in relay_loop_pattern
-    assert "Use `houmao-agent-loop-pro` instead" in relay_loop_pattern
-
-    retired_names = load_system_skill_catalog().retired_skill_names
-    for retired_name in retired_names:
-        assert not (home_path / f"skills/{retired_name}").exists()
-        assert retired_name not in advanced_usage_skill
-        assert retired_name not in touring_skill
-        assert retired_name not in touring_advanced_usage
 
 
-def test_install_system_skills_for_home_supports_explicit_symlink_projection(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
+def test_status_detects_missing_shared_child_as_incomplete(tmp_path: Path) -> None:
+    """Shared-routines integrity includes all sixteen parent-scoped children."""
 
-    result = install_system_skills_for_home(
+    install_system_skill_packs_for_home(
         tool="codex",
-        home_path=home_path,
-        skill_names=("houmao-specialist-mgr",),
-        projection_mode="symlink",
+        home_path=tmp_path,
+        pack_ids=("agent",),
     )
-
-    installed_skill_dir = home_path / "skills/houmao-specialist-mgr"
-    installed_records = discover_installed_system_skills(tool="codex", home_path=home_path)
-
-    assert result.projection_mode == "symlink"
-    assert installed_skill_dir.is_symlink()
-    assert installed_skill_dir.readlink().is_absolute()
-    assert installed_skill_dir.readlink() == _packaged_skill_asset_root("houmao-specialist-mgr")
-    assert (installed_skill_dir / "SKILL.md").is_file()
-    assert tuple(record.name for record in installed_records) == ("houmao-specialist-mgr",)
-    assert tuple(record.projection_mode for record in installed_records) == ("symlink",)
-    _assert_no_install_state_written(home_path)
-
-
-def test_install_system_skills_for_home_projects_copilot_selected_skills_and_status(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "copilot-home").resolve()
-
-    result = install_system_skills_for_home(
-        tool="copilot",
-        home_path=home_path,
-        skill_names=("houmao-specialist-mgr",),
+    shutil.rmtree(
+        tmp_path / "skills/houmao-shared-routines/subskills/houmao-process-emails-via-gateway"
     )
+    status = inspect_system_skill_packs(tool="codex", home_path=tmp_path)
 
-    installed_records = discover_installed_system_skills(tool="copilot", home_path=home_path)
-
-    assert result.projected_relative_dirs == ("skills/houmao-specialist-mgr",)
-    assert result.projection_mode == "copy"
-    assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
-    assert tuple(record.name for record in installed_records) == ("houmao-specialist-mgr",)
-    assert tuple(record.projected_relative_dir for record in installed_records) == (
-        "skills/houmao-specialist-mgr",
+    shared = next(
+        record for record in status.members if record.name == SYSTEM_SKILL_SHARED_ROUTINES
     )
-    assert tuple(record.projection_mode for record in installed_records) == ("copy",)
-    _assert_no_install_state_written(home_path)
+    agent = next(record for record in status.packs if record.pack_id == SYSTEM_SKILL_PACK_AGENT)
+    assert shared.status == "incomplete"
+    assert agent.status == "incomplete"
 
 
-def test_install_system_skills_for_home_supports_copilot_symlink_projection(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "copilot-home").resolve()
-
-    result = install_system_skills_for_home(
-        tool="copilot",
-        home_path=home_path,
-        skill_names=("houmao-specialist-mgr",),
-        projection_mode="symlink",
-    )
-
-    installed_skill_dir = home_path / "skills/houmao-specialist-mgr"
-    installed_records = discover_installed_system_skills(tool="copilot", home_path=home_path)
-
-    assert result.projected_relative_dirs == ("skills/houmao-specialist-mgr",)
-    assert result.projection_mode == "symlink"
-    assert installed_skill_dir.is_symlink()
-    assert installed_skill_dir.readlink().is_absolute()
-    assert installed_skill_dir.readlink() == _packaged_skill_asset_root("houmao-specialist-mgr")
-    assert (installed_skill_dir / "SKILL.md").is_file()
-    assert tuple(record.name for record in installed_records) == ("houmao-specialist-mgr",)
-    assert tuple(record.projected_relative_dir for record in installed_records) == (
-        "skills/houmao-specialist-mgr",
-    )
-    assert tuple(record.projection_mode for record in installed_records) == ("symlink",)
-    _assert_no_install_state_written(home_path)
-
-
-def test_install_system_skills_for_home_projects_universal_selected_skills_and_status(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "agents-home").resolve()
-
-    result = install_system_skills_for_home(
-        tool="universal",
-        home_path=home_path,
-        skill_names=("houmao-specialist-mgr",),
-    )
-
-    installed_records = discover_installed_system_skills(tool="universal", home_path=home_path)
-
-    assert result.tool == "universal"
-    assert result.projected_relative_dirs == ("skills/houmao-specialist-mgr",)
-    assert result.projection_mode == "copy"
-    assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
-    assert tuple(record.name for record in installed_records) == ("houmao-specialist-mgr",)
-    assert tuple(record.projected_relative_dir for record in installed_records) == (
-        "skills/houmao-specialist-mgr",
-    )
-    assert tuple(record.projection_mode for record in installed_records) == ("copy",)
-    _assert_no_install_state_written(home_path)
-
-
-def test_install_system_skills_for_home_supports_universal_symlink_projection(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "agents-home").resolve()
-
-    result = install_system_skills_for_home(
-        tool="universal",
-        home_path=home_path,
-        skill_names=("houmao-specialist-mgr",),
-        projection_mode="symlink",
-    )
-
-    installed_skill_dir = home_path / "skills/houmao-specialist-mgr"
-    installed_records = discover_installed_system_skills(tool="universal", home_path=home_path)
-
-    assert result.projected_relative_dirs == ("skills/houmao-specialist-mgr",)
-    assert result.projection_mode == "symlink"
-    assert installed_skill_dir.is_symlink()
-    assert installed_skill_dir.readlink().is_absolute()
-    assert installed_skill_dir.readlink() == _packaged_skill_asset_root("houmao-specialist-mgr")
-    assert (installed_skill_dir / "SKILL.md").is_file()
-    assert tuple(record.name for record in installed_records) == ("houmao-specialist-mgr",)
-    assert tuple(record.projected_relative_dir for record in installed_records) == (
-        "skills/houmao-specialist-mgr",
-    )
-    assert tuple(record.projection_mode for record in installed_records) == ("symlink",)
-    _assert_no_install_state_written(home_path)
-
-
-def test_uninstall_system_skills_for_home_targets_universal_skills_root_only(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "agents-home").resolve()
-    universal_skill_path = home_path / "skills/houmao-specialist-mgr/SKILL.md"
-    universal_retired_path = home_path / f"skills/{RETIRED_AGENT_AG_UI_SKILL}/SKILL.md"
-    codex_skill_path = tmp_path / ".codex/skills/houmao-specialist-mgr/SKILL.md"
-    _write(universal_skill_path, "universal skill\n")
-    _write(universal_retired_path, "retired universal skill\n")
-    _write(codex_skill_path, "codex skill\n")
-
-    result = uninstall_system_skills_for_home(tool="universal", home_path=home_path)
-
-    assert result.tool == "universal"
-    assert result.removed_skill_names == ("houmao-specialist-mgr",)
-    assert result.removed_projected_relative_dirs == ("skills/houmao-specialist-mgr",)
-    assert result.removed_retired_skill_names == (RETIRED_AGENT_AG_UI_SKILL,)
-    assert result.removed_retired_projected_relative_dirs == (
-        f"skills/{RETIRED_AGENT_AG_UI_SKILL}",
-    )
-    assert not (home_path / "skills/houmao-specialist-mgr").exists()
-    assert not (home_path / f"skills/{RETIRED_AGENT_AG_UI_SKILL}").exists()
-    assert codex_skill_path.is_file()
-
-
-def test_install_system_skills_for_home_rejects_symlink_projection_without_filesystem_asset(
+def test_status_detects_packaged_source_digest_change(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
+    """A config from older static source reports drift even when its copy is untouched."""
 
-    def _raise_no_filesystem_root(asset_subpath: str) -> Path:
-        raise SystemSkillInstallError(
-            f"Packaged system-skill assets for `{asset_subpath}` are not filesystem-backed."
-        )
+    install_system_skill_packs_for_home(
+        tool="codex",
+        home_path=tmp_path,
+        pack_ids=("agent",),
+    )
+    packaged_digest = lifecycle_module.standalone_system_skill_content_digest
+
+    def changed_digest(
+        manifest: SystemSkillManifest,
+        record: StandaloneSystemSkillRecord,
+    ) -> str:
+        if record.name == "houmao-agent-entrypoint":
+            return "0" * 64
+        return packaged_digest(manifest, record)
 
     monkeypatch.setattr(
-        system_skills_module,
-        "_packaged_skill_filesystem_root",
-        _raise_no_filesystem_root,
+        lifecycle_module,
+        "standalone_system_skill_content_digest",
+        changed_digest,
     )
+    status = inspect_system_skill_packs(tool="codex", home_path=tmp_path)
 
-    with pytest.raises(SystemSkillInstallError, match="not filesystem-backed"):
-        install_system_skills_for_home(
-            tool="codex",
-            home_path=home_path,
-            skill_names=("houmao-specialist-mgr",),
-            projection_mode="symlink",
-        )
-
-
-def test_install_system_skills_for_home_reinstalls_between_copy_and_symlink_modes(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
-    installed_skill_dir = home_path / "skills/houmao-specialist-mgr"
-
-    install_system_skills_for_home(
-        tool="codex",
-        home_path=home_path,
-        skill_names=("houmao-specialist-mgr",),
+    entrypoint = next(
+        record for record in status.members if record.name == "houmao-agent-entrypoint"
     )
-    assert installed_skill_dir.is_dir()
-    assert not installed_skill_dir.is_symlink()
+    agent = next(record for record in status.packs if record.pack_id == SYSTEM_SKILL_PACK_AGENT)
+    assert entrypoint.status == "drifted"
+    assert agent.status == "drifted"
 
-    install_system_skills_for_home(
-        tool="codex",
-        home_path=home_path,
-        skill_names=("houmao-specialist-mgr",),
-        projection_mode="symlink",
-    )
-    assert installed_skill_dir.is_symlink()
-    assert installed_skill_dir.readlink() == _packaged_skill_asset_root("houmao-specialist-mgr")
-    assert (installed_skill_dir / "SKILL.md").is_file()
 
-    install_system_skills_for_home(
+def test_mode_change_replaces_the_whole_owned_union_transactionally(tmp_path: Path) -> None:
+    """One config-owned collection never mixes copy and symlink projections."""
+
+    install_system_skill_packs_for_home(
         tool="codex",
-        home_path=home_path,
-        skill_names=("houmao-specialist-mgr",),
+        home_path=tmp_path,
+        pack_ids=("admin",),
         projection_mode="copy",
     )
-    assert installed_skill_dir.is_dir()
-    assert not installed_skill_dir.is_symlink()
-    assert (installed_skill_dir / "SKILL.md").is_file()
-
-    installed_records = discover_installed_system_skills(tool="codex", home_path=home_path)
-    assert tuple(record.name for record in installed_records) == ("houmao-specialist-mgr",)
-    assert tuple(record.projection_mode for record in installed_records) == ("copy",)
-    _assert_no_install_state_written(home_path)
-
-
-def test_install_system_skills_for_home_overwrites_existing_current_skill_path_without_state(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
-    selected_skill_dir = home_path / "skills/houmao-agent-email-comms"
-    selected_skill_path = selected_skill_dir / "SKILL.md"
-    stale_child = selected_skill_dir / "stale.txt"
-    _write(selected_skill_path, "user-authored collision\n")
-    _write(stale_child, "stale child\n")
-
-    install_system_skills_for_home(
+    result = install_system_skill_packs_for_home(
         tool="codex",
-        home_path=home_path,
-        skill_names=("houmao-agent-email-comms",),
+        home_path=tmp_path,
+        pack_ids=("agent",),
+        projection_mode="symlink",
     )
+    config = inspect_system_skill_config(tool="codex", home_path=tmp_path).config
 
-    assert selected_skill_path.is_file()
-    assert selected_skill_path.read_text(encoding="utf-8") != "user-authored collision\n"
-    assert not stale_child.exists()
-    _assert_no_install_state_written(home_path)
+    assert result.selected_pack_ids == ("admin", "agent")
+    assert config is not None
+    assert config.projection_mode == "symlink"
+    assert all("projection_mode" not in record.to_payload() for record in config.skills)
+    assert all((tmp_path / record.relative_path).is_symlink() for record in config.skills)
 
 
-def test_install_system_skills_for_home_ignores_obsolete_state_version(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
-    state_path = _obsolete_system_skill_state_path(home_path)
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    stale_payload = {
-        "schema_version": 1,
-        "tool": "codex",
-        "installed_at": "2026-04-05T00:00:00Z",
-        "installed_skills": [
-            {
-                "name": "houmao-process-emails-via-gateway",
-                "asset_subpath": "mailbox/houmao-process-emails-via-gateway",
-                "projected_relative_dir": "skills/mailbox/houmao-process-emails-via-gateway",
-                "content_digest": "old-mailbox",
-            },
-        ],
-    }
-    state_path.write_text(json.dumps(stale_payload, indent=2) + "\n", encoding="utf-8")
+def test_uninstall_subtracts_owners_and_removes_only_last_owner(tmp_path: Path) -> None:
+    """Removing admin preserves the three members still owned by agent."""
 
-    install_system_skills_for_home(
+    install_system_skill_packs_for_home(
+        tool="claude",
+        home_path=tmp_path,
+        pack_ids=("admin", "agent"),
+    )
+    result = uninstall_system_skill_packs_for_home(
+        tool="claude",
+        home_path=tmp_path,
+        pack_ids=("admin",),
+    )
+    config = inspect_system_skill_config(tool="claude", home_path=tmp_path).config
+
+    assert result.removed_pack_ids == ("admin",)
+    assert result.retained_shared_skill_names == (
+        "houmao-shared-routines",
+        "houmao-agent-loop-pro",
+        "houmao-agent-loop-lite",
+    )
+    assert not (tmp_path / "skills/houmao-admin-welcome").exists()
+    assert not (tmp_path / "skills/houmao-admin-entrypoint").exists()
+    assert all((tmp_path / "skills" / name).exists() for name in AGENT_MEMBERS)
+    assert config is not None
+    assert config.selected_pack_ids == ("agent",)
+
+
+def test_uninstall_preserves_modified_final_owner_as_untracked_conflict(tmp_path: Path) -> None:
+    """A modified final-owner destination is never deleted."""
+
+    install_system_skill_packs_for_home(
         tool="codex",
-        home_path=home_path,
-        skill_names=("houmao-process-emails-via-gateway",),
+        home_path=tmp_path,
+        pack_ids=("agent",),
+    )
+    skill = tmp_path / "skills/houmao-agent-entrypoint/SKILL.md"
+    skill.write_text(skill.read_text(encoding="utf-8") + "\nuser edit\n", encoding="utf-8")
+    result = uninstall_system_skill_packs_for_home(
+        tool="codex",
+        home_path=tmp_path,
+        pack_ids=("agent",),
     )
 
-    assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
-    assert json.loads(state_path.read_text(encoding="utf-8")) == stale_payload
+    assert "skills/houmao-agent-entrypoint" in result.preserved_conflicting_paths
+    assert skill.is_file()
+    assert inspect_system_skill_config(tool="codex", home_path=tmp_path).status == "absent"
 
 
-def test_install_system_skills_for_home_preserves_unselected_legacy_unrelated_and_state(
+def test_transaction_rolls_back_paths_and_config_when_config_write_fails(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    home_path = (tmp_path / "kimi-home").resolve()
-    _write(
-        home_path / ".agents/skills/houmao-specialist-mgr/SKILL.md",
-        "old specialist path\n",
+    """Config-last failure restores the prior complete static collection."""
+
+    install_system_skill_packs_for_home(
+        tool="codex",
+        home_path=tmp_path,
+        pack_ids=("admin",),
     )
-    _write(
-        home_path / "skills/houmao-project-mgr/SKILL.md",
-        "unselected current skill\n",
+    config_path = tmp_path / ".houmao/system-skills/codex/houmao-skill-config.json"
+    config_before = config_path.read_bytes()
+
+    def fail_config(_config: object) -> None:
+        raise OSError("injected config failure")
+
+    monkeypatch.setattr(lifecycle_module, "_persist_config_atomic", fail_config)
+    with pytest.raises(OSError, match="injected"):
+        sync_system_skill_packs_for_home(
+            tool="codex",
+            home_path=tmp_path,
+            selected_pack_ids=("agent",),
+        )
+
+    assert config_path.read_bytes() == config_before
+    assert all((tmp_path / "skills" / name).is_dir() for name in ADMIN_MEMBERS)
+    assert not (tmp_path / "skills/houmao-agent-entrypoint").exists()
+
+
+def test_old_receipt_without_roots_is_ignored(tmp_path: Path) -> None:
+    """The breaking lifecycle neither reads nor removes a generic old receipt."""
+
+    receipt_path = tmp_path / ".houmao/system-skills/codex/receipt.json"
+    receipt_path.parent.mkdir(parents=True)
+    receipt_path.write_text("{not even valid json\n", encoding="utf-8")
+
+    inspection = inspect_system_skill_config(tool="codex", home_path=tmp_path)
+    status = inspect_system_skill_packs(tool="codex", home_path=tmp_path)
+
+    assert inspection.status == "absent"
+    assert status.config.status == "absent"
+    assert receipt_path.read_text(encoding="utf-8") == "{not even valid json\n"
+
+
+def test_old_receipt_does_not_authorize_overwriting_old_roots(tmp_path: Path) -> None:
+    """Old projected roots remain unowned collisions even beside an old receipt."""
+
+    receipt_path = tmp_path / ".houmao/system-skills/codex/receipt.json"
+    receipt_path.parent.mkdir(parents=True)
+    receipt_path.write_text("{}\n", encoding="utf-8")
+    old_root = tmp_path / "skills/houmao-agent-entrypoint"
+    old_root.parent.mkdir(parents=True)
+    shutil.copytree(PUBLIC_ROOT / "houmao-agent-entrypoint", old_root)
+
+    with pytest.raises(SystemSkillInstallError, match="Untracked.*collision"):
+        install_system_skill_packs_for_home(
+            tool="codex",
+            home_path=tmp_path,
+            pack_ids=("agent",),
+        )
+
+    assert old_root.is_dir()
+    assert receipt_path.is_file()
+    assert inspect_system_skill_config(tool="codex", home_path=tmp_path).status == "absent"
+
+
+def test_config_inspection_is_strict_and_classifies_unsupported_schema(tmp_path: Path) -> None:
+    """Malformed minimal fields are corrupt while future schemas are unsupported."""
+
+    install_system_skill_packs_for_home(
+        tool="codex",
+        home_path=tmp_path,
+        pack_ids=("agent",),
     )
-    _write(home_path / "notes/unrelated.txt", "unrelated\n")
-    state_path = _obsolete_system_skill_state_path(home_path)
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    stale_state = "obsolete state\n"
-    state_path.write_text(stale_state, encoding="utf-8")
+    config_path = tmp_path / ".houmao/system-skills/codex/houmao-skill-config.json"
+    original = json.loads(config_path.read_text(encoding="utf-8"))
 
-    install_system_skills_for_home(
-        tool="kimi",
-        home_path=home_path,
-        skill_names=("houmao-specialist-mgr",),
+    invalid_payloads: list[dict[str, object]] = []
+    with_extra = json.loads(json.dumps(original))
+    with_extra["selected_packs"] = ["agent"]
+    invalid_payloads.append(with_extra)
+    missing_version = json.loads(json.dumps(original))
+    del missing_version["houmao_version"]
+    invalid_payloads.append(missing_version)
+    missing_schema = json.loads(json.dumps(original))
+    del missing_schema["schema_version"]
+    invalid_payloads.append(missing_schema)
+    record_extra = json.loads(json.dumps(original))
+    record_extra["skills"][0]["role"] = "entrypoint"
+    invalid_payloads.append(record_extra)
+    unsafe_path = json.loads(json.dumps(original))
+    unsafe_path["skills"][0]["relative_path"] = "../escape"
+    invalid_payloads.append(unsafe_path)
+    empty_owners = json.loads(json.dumps(original))
+    empty_owners["skills"][0]["owning_pack_ids"] = []
+    invalid_payloads.append(empty_owners)
+
+    for payload in invalid_payloads:
+        config_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        assert inspect_system_skill_config(tool="codex", home_path=tmp_path).status == "corrupt"
+
+    config_path.write_text(
+        json.dumps({"schema_version": "houmao-skill-config.v99"}) + "\n",
+        encoding="utf-8",
     )
-
-    assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
-    assert (home_path / ".agents/skills/houmao-specialist-mgr/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-project-mgr/SKILL.md").read_text(
-        encoding="utf-8"
-    ) == "unselected current skill\n"
-    assert (home_path / "notes/unrelated.txt").read_text(encoding="utf-8") == "unrelated\n"
-    assert state_path.read_text(encoding="utf-8") == stale_state
+    assert inspect_system_skill_config(tool="codex", home_path=tmp_path).status == "unsupported"
 
 
-def test_sync_system_skills_for_home_removes_unselected_current_and_retired_paths(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
-    stale_removed_wiki_path = home_path / "skills/houmao-utils-llm-wiki/SKILL.md"
-    stale_project_mgr_path = home_path / "skills/houmao-project-mgr/SKILL.md"
-    user_skill_path = home_path / "skills/custom-user-skill/SKILL.md"
-    unknown_houmao_path = home_path / "skills/houmao-user-owned/SKILL.md"
-    retired_loop_path = home_path / "skills/houmao-agent-loop-pairwise-v5/SKILL.md"
-    retired_agent_ag_ui_path = home_path / f"skills/{RETIRED_AGENT_AG_UI_SKILL}/SKILL.md"
-    _write(stale_removed_wiki_path, "stale removed wiki\n")
-    _write(stale_project_mgr_path, "stale project manager\n")
-    _write(user_skill_path, "custom user skill\n")
-    _write(unknown_houmao_path, "not catalog owned\n")
-    _write(retired_loop_path, "retired loop skill\n")
-    _write(retired_agent_ag_ui_path, "retired AG-UI skill\n")
-    selection = resolve_managed_system_skill_selection(
+def test_managed_policy_defaults_to_complete_four_member_agent_pack() -> None:
+    """Omitted managed policy resolves the full static agent pack."""
+
+    default = resolve_managed_system_skill_selection()
+    disabled = resolve_managed_system_skill_selection(
         profile_policy=SystemSkillSelectionPolicy(mode="none")
     )
 
-    result = sync_system_skills_for_home(
+    assert default.selected_pack_ids == (SYSTEM_SKILL_PACK_AGENT,)
+    assert default.resolved_standalone_skill_names == AGENT_MEMBERS
+    assert disabled.selected_pack_ids == ()
+    assert disabled.resolved_standalone_skill_names == ()
+
+
+def test_install_result_agent_entrypoint_and_shared_are_top_level_siblings(tmp_path: Path) -> None:
+    """The complete managed pack never creates entrypoint-local shared content."""
+
+    result = install_system_skill_packs_for_home(
         tool="codex",
-        home_path=home_path,
-        selection=selection,
+        home_path=tmp_path,
+        pack_ids=(SYSTEM_SKILL_PACK_AGENT,),
     )
 
-    assert result.selected_set_names == ()
-    assert result.explicit_skill_names == ()
-    assert result.resolved_skill_names == ()
-    assert result.projected_relative_dirs == ()
-    assert result.removed_skill_names == ("houmao-project-mgr",)
-    assert result.removed_projected_relative_dirs == ("skills/houmao-project-mgr",)
-    assert result.removed_retired_skill_names == (
-        "houmao-agent-loop-pairwise-v5",
-        RETIRED_AGENT_AG_UI_SKILL,
-    )
-    assert result.removed_retired_projected_relative_dirs == (
-        "skills/houmao-agent-loop-pairwise-v5",
-        f"skills/{RETIRED_AGENT_AG_UI_SKILL}",
-    )
-    assert stale_removed_wiki_path.is_file()
-    assert not stale_project_mgr_path.exists()
-    assert not retired_loop_path.exists()
-    assert not retired_agent_ag_ui_path.exists()
-    assert user_skill_path.is_file()
-    assert unknown_houmao_path.is_file()
-    assert discover_installed_system_skills(tool="codex", home_path=home_path) == ()
-
-
-def test_sync_system_skills_for_home_projects_exact_replacement_selection(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
-    stale_project_mgr_path = home_path / "skills/houmao-project-mgr/SKILL.md"
-    _write(stale_project_mgr_path, "stale project manager\n")
-    selection = resolve_managed_system_skill_selection(
-        source_policy=SystemSkillSelectionPolicy(
-            mode="replace",
-            skill_names=(SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
-        )
-    )
-
-    result = sync_system_skills_for_home(
-        tool="codex",
-        home_path=home_path,
-        selection=selection,
-    )
-    installed_records = discover_installed_system_skills(tool="codex", home_path=home_path)
-
-    assert result.selected_set_names == ()
-    assert result.explicit_skill_names == (SYSTEM_SKILL_UTILS_WORKSPACE_MGR,)
-    assert result.resolved_skill_names == (SYSTEM_SKILL_UTILS_WORKSPACE_MGR,)
-    assert result.projected_relative_dirs == ("skills/houmao-utils-workspace-mgr",)
-    assert result.removed_skill_names == ("houmao-project-mgr",)
-    assert not stale_project_mgr_path.exists()
-    assert (home_path / "skills/houmao-utils-workspace-mgr/SKILL.md").is_file()
-    assert tuple(record.name for record in installed_records) == (SYSTEM_SKILL_UTILS_WORKSPACE_MGR,)
-
-
-def test_install_system_skills_for_home_ignores_superseded_skill_record(
-    tmp_path: Path,
-) -> None:
-    home_path = (tmp_path / "codex-home").resolve()
-    _write(
-        home_path / "skills/houmao-create-specialist/SKILL.md",
-        "old flat project-easy path\n",
-    )
-    state_path = _obsolete_system_skill_state_path(home_path)
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(
-        json.dumps(
-            {
-                "schema_version": 2,
-                "tool": "codex",
-                "installed_at": "2026-04-08T00:00:00Z",
-                "installed_skills": [
-                    {
-                        "name": "houmao-create-specialist",
-                        "asset_subpath": "houmao-create-specialist",
-                        "projected_relative_dir": "skills/houmao-create-specialist",
-                        "projection_mode": "copy",
-                        "content_digest": "old-flat-skill",
-                    }
-                ],
-            },
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    install_system_skills_for_home(
-        tool="codex",
-        home_path=home_path,
-        skill_names=("houmao-specialist-mgr",),
-    )
-
-    assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-create-specialist/SKILL.md").is_file()
-    assert state_path.is_file()
+    assert result.standalone_skill_names == AGENT_MEMBERS
+    assert (tmp_path / "skills" / SYSTEM_SKILL_AGENT_ENTRYPOINT / "SKILL.md").is_file()
+    assert (tmp_path / "skills" / SYSTEM_SKILL_SHARED_ROUTINES / "SKILL.md").is_file()
+    assert not (
+        tmp_path / "skills" / SYSTEM_SKILL_AGENT_ENTRYPOINT / "subskills/houmao-shared-routines"
+    ).exists()

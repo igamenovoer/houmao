@@ -1,0 +1,162 @@
+---
+name: houmao-process-emails-via-gateway
+description: Use when a verified Houmao-managed agent receives a notifier prompt with an exact gateway base URL and must process one bounded round of open inbox mail.
+license: MIT
+skill_invocation_notation: >
+  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+  accepted only as legacy input when SKILL-MAIN.md is absent.
+  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+  by parent subcommand parent. Intermediate subcommands act as object generators.
+  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+---
+
+# Houmao Process Emails Via Gateway
+
+## Actor Frame Gate
+
+This parent-scoped routine is agent-only and loads through `houmao-shared-routines`. Require `actor_kind=agent`, an entrypoint name accepted by the parent, freshly verified self identity, and the exact gateway base URL supplied by the notifier prompt for this round. Reject admin frames and fail closed when any required gateway context is absent.
+
+Use this Houmao skill when a notifier or operator prompt tells you there is open shared-mailbox inbox work to process through a live gateway facade and already provides the exact gateway base URL for the current round.
+
+This is the round-oriented workflow skill. Use `houmao-shared-routines->houmao-agent-email-comms` when you need the lower-level endpoint-discovery fallback, the exact `/v1/mail/*` request contract, or transport-local no-gateway guidance for ordinary mailbox actions inside the round.
+
+## Help
+
+When the user asks `$houmao-shared-routines process-emails-via-gateway help`, `help for houmao-process-emails-via-gateway`, `usage for houmao-process-emails-via-gateway`, `available functionality for houmao-process-emails-via-gateway`, or what this skill can do, answer from this section before checking gateway bootstrap, listing mail, creating reminders, sending replies, archiving mail, or collecting missing operational inputs. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me process this notifier round", route to the matching workflow instead of stopping at generic help.
+
+Purpose: process one gateway-notified shared-mailbox inbox round through a prompt-provided live gateway base URL.
+
+Available functionality:
+
+- `process-round`: process exactly one notifier-driven mail round and stop after the round.
+
+- Confirm prompt-provided gateway bootstrap for the current round.
+- List open inbox mail using notifier mode, then triage metadata before reading.
+- Continue stalled or interrupted open-mail work before unrelated new mail.
+- Read selected messages, complete work, reply after success, and archive only successfully processed mail.
+- Optionally harden required replies with one-off gateway reminders.
+
+Common starting prompts:
+
+- `$houmao-shared-routines process-emails-via-gateway help`
+- `$houmao-shared-routines process-emails-via-gateway process the notifier round at <gateway_base_url>`
+- `$houmao-shared-routines process-emails-via-gateway process unread_only open mail`
+- `$houmao-shared-routines process-emails-via-gateway process this mail round with reply hardening`
+
+Related skills and boundaries:
+
+- Use `houmao-shared-routines->houmao-agent-email-comms` for endpoint discovery, exact `/v1/mail/*` contracts, transport-local fallback, or ordinary mailbox actions.
+- Use `houmao-shared-routines->houmao-agent-gateway` for gateway lifecycle, notifier configuration, or reminder management outside this round.
+- Use `houmao-shared-routines->houmao-adv-usage-pattern` for designing notifier-driven loop posture beyond one round.
+- DO NOT rediscover a missing gateway base URL inside this workflow.
+
+## Subcommands
+
+| Subcommand | Route | Purpose |
+|---|---|---|
+| `help` | this top-level `## Help` section | Explain the bounded notifier-round workflow without taking operational action. |
+| `process-round` | the workflow below | Process exactly one prompt-bootstrapped notifier round, then stop. |
+
+## Workflow
+
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
+
+1. Confirm the current prompt or mailbox context already provides the exact gateway base URL for this round.
+2. If that base URL is missing, stop and report that the notifier round is missing required gateway bootstrap. Do not rediscover it inside this workflow.
+3. Use `GET /v1/mail/status` when you need to confirm mailbox identity or current gateway availability for the round.
+4. Read the prompt-provided notifier mode when present. In `any_inbox` mode, list open inbox mail including read or answered unarchived mail; in `unread_only` mode, start from unread unarchived inbox mail.
+5. Use `POST /v1/mail/list` to list the current mailbox state for the round with the read filter implied by that mode.
+6. Start from mail metadata such as sender identity, subject, timestamps, `message_ref`, `thread_ref`, read state, and answered state.
+7. Check whether any open emails correspond to work you already started in an earlier round but left stalled or interrupted.
+8. When such stalled or interrupted work exists, continue that work in this round before treating unrelated open mail as new work.
+9. Decide which open emails are relevant to process in this round.
+10. Inspect only the selected emails needed to decide and perform the work for this round.
+11. For each selected email, determine up front whether it needs a reply and remember the reply-required `message_ref`.
+12. If the current prompt requests reply hardening, create one lowest-priority one-off gateway reminder for each reply-required email and remember its `reminder_id`.
+13. Complete the requested work for the selected emails.
+14. For selected emails that need a reply, send the reply through `POST /v1/mail/reply` only after the requested work succeeds.
+15. When a reply succeeds through the normal end-of-round path, remove any not-yet-fired reply-hardening reminder for that email.
+16. Archive only the successfully processed selected emails, and only after any required reply for that email succeeds.
+17. Stop after the round and wait for the next notification. Do not proactively poll for more mail on your own.
+
+
+If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+## Selection Guidance
+
+- Start with metadata-first triage. Do not treat every open inbox email as automatically in scope for the current round.
+- If one or more open emails represent work you were already handling before you stalled or were interrupted, treat those emails as continuation candidates first.
+- In `unread_only` mode, read-but-unarchived inbox mail will not trigger another notifier prompt by itself. Process it only when it is part of the selected context for this round or explicitly requested by the operator.
+- It is acceptable to continue multiple interrupted email-driven tasks in the same round when they are all still relevant and feasible.
+- It is acceptable to defer unrelated open emails for a later round.
+- Track reply-required emails separately from archive updates so required replies are sent after work completion and before archive.
+- The notifier prompt tells you open inbox work exists; use the shared gateway mailbox API to list the actual open set for this round.
+- If you need the exact gateway route contract for `status`, `list`, `peek`, `read`, `send`, `reply`, `mark`, `move`, or `archive`, use the installed Houmao skill `houmao-shared-routines->houmao-agent-email-comms`.
+- Use the transport-local guidance inside `houmao-shared-routines->houmao-agent-email-comms` only for transport-specific context or no-gateway fallback.
+
+## Reply Hardening
+
+Use reply hardening when the current prompt asks for extra assurance around replying, for example: "must remember to reply", "harden reply action", "use reminder to make sure you remember to reply", or similar wording.
+
+When reply hardening is requested:
+
+1. After identifying a selected email as reply-required, create a gateway reminder for that email before doing the longer processing work and remember the returned `reminder_id`.
+2. Use a one-off prompt reminder, not a repeat reminder.
+3. Use `start_after_seconds=15` by default unless the prompt specifies a different reminder delay.
+4. Append the reminder to the current reminder set as lowest priority. With the managed CLI surface, use `--after-all`. With direct gateway HTTP, first inspect current reminders and set `ranking` to one greater than the current maximum ranking.
+5. Include enough email context in the reminder prompt to identify the required reply: `message_ref`, `thread_ref` when available, sender, subject, and the intended reply obligation.
+6. Make the reminder prompt explicitly re-check whether the email has already been replied to; if it has not, send the reply through `POST /v1/mail/reply`; if it has already been replied to, do not send a duplicate reply.
+7. If the normal end-of-round path sends the reply before the reminder fires, remove the hardening reminder with `houmao-mgr agents self gateway reminders remove --reminder-id <reminder_id>` or `DELETE /v1/reminders/{reminder_id}`.
+8. Keep the reminder scoped to reply assurance only. It must not archive the message unless the work and any required reply have succeeded.
+
+## Reply-Hardening Reminder Template
+
+Use this prompt template for each hardening reminder. Fill every bracketed field that is known at creation time and keep unknown optional fields explicit as `unknown`.
+
+```text
+Reply hardening reminder.
+
+Mail: <message_ref>; thread: <thread_ref or unknown>; from: <sender>; subject: <subject>
+Reply to: <reply recipient>
+
+If this mail is still being processed and the work is not done, set this same one-off reminder again through the gateway with 15s and continue processing the email.
+
+If this mail is already processed, reply to mail <message_ref>.
+```
+
+For direct gateway creation, use this one-off prompt reminder shape and replace `1001` with a ranking that appends after all current reminders:
+
+```json
+{
+  "schema_version": 1,
+  "reminders": [
+    {
+      "title": "Reply required: <subject>",
+      "mode": "one_off",
+      "prompt": "<filled reminder prompt from the template above>",
+      "ranking": 1001,
+      "paused": false,
+      "start_after_seconds": 15
+    }
+  ]
+}
+```
+
+## Guardrails
+
+- DO NOT guess the gateway host or port; use the exact gateway base URL provided in the current round context.
+- DO NOT switch to `houmao-mgr agents self mail resolve-live` inside this notifier-round workflow when the base URL is missing; treat that as a contract failure for the current round.
+- DO NOT archive an email before the corresponding work succeeds.
+- DO NOT archive a reply-required email before its reply succeeds.
+- DO NOT create repeat reminders for reply hardening; use one-off reminders only.
+- DO NOT use repeat-reminder `interval_seconds` for reply hardening; use one-off reminder timing with `start_after_seconds`, defaulting to `15` unless the prompt specifies otherwise.
+- DO NOT replace or rerank existing reminders when reply hardening asks for append behavior; append after all existing reminders.
+- DO NOT send a duplicate reply from a hardening reminder without first checking whether the reply has already been sent.
+- DO NOT leave a not-yet-fired reply-hardening reminder live after the normal path successfully sends the reply.
+- DO NOT archive deferred, skipped, or unfinished emails.
+- DO NOT abandon open continuation work merely because newer unrelated open mail also exists.
+- DO NOT keep polling for more mail after the round completes; wait for the next gateway notification.
+- DO NOT continue into upstream gateway polling, open-mail snapshot updates, or mailbox-selection work after the current round completes.
