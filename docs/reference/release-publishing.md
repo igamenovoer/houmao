@@ -39,7 +39,7 @@ The release workflow copies the complete public directories, removes obsolete ro
 
 ```bash
 npx skills add https://github.com/igamenovoer/houmao-skills
-npx skills add https://github.com/igamenovoer/houmao-skills#v2.0.0
+npx skills add https://github.com/igamenovoer/houmao-skills#v2.1.0
 ```
 
 Before a release, confirm that the deploy key and secret still exist:

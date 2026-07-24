@@ -1,6 +1,6 @@
 ---
 name: houmao-admin-entrypoint
-houmao_version: "2.0.0"
+houmao_version: "2.1.0"
 description: Use when any semantically Houmao-related request reaches an assistant acting for a human operator, including information, command or route learning, incomplete tasks, state inspection, operations, and explicit loop work. Do not trigger for an incidental Houmao token in otherwise unrelated material; explicit $houmao-* handles take precedence.
 license: MIT
 skill_invocation_notation: >

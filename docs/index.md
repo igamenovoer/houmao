@@ -8,7 +8,7 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 | **From-source developer** (`pixi install`) | [Quickstart](getting-started/quickstart.md) - agent-driven first-run guide with source-checkout `pixi run houmao-mgr ...` launcher notes |
 | **Contributor to Houmao** | [CLAUDE.md](https://github.com/igamenovoer/houmao/blob/main/CLAUDE.md) or [AGENTS.md](https://github.com/igamenovoer/houmao/blob/main/AGENTS.md) for repo conventions and development commands |
 
-The public system-skill collection has six static roots: admin welcome, both actor entrypoints, shared routines, and the pro and lite loops. Actor entrypoints delegate ordinary work to the shared sibling; both loops remain top-level manual skills. The unqualified `houmao-skills` repository URL tracks the latest stable release, while a fragment such as `#v2.0.0` selects the matching version explicitly. Use `houmao-mgr system-skills install` for package-local, offline, or config-managed pack installation.
+The public system-skill collection has six static roots: admin welcome, both actor entrypoints, shared routines, and the pro and lite loops. Actor entrypoints delegate ordinary work to the shared sibling; both loops remain top-level manual skills. The unqualified `houmao-skills` repository URL tracks the latest stable release, while a fragment such as `#v2.1.0` selects the matching version explicitly. Use `houmao-mgr system-skills install` for package-local, offline, or config-managed pack installation.
 
 ## Getting Started
 

@@ -4,6 +4,22 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [2.1.0] - 2026-07-24
+
+### Added
+
+- **Reusable agent definition deployments**: operators can deploy predefined agent blueprints from the repository through a managed lifecycle.
+- **Predefined blueprint proposal**: the operator path can propose a new agent blueprint before it is added to the reusable deployment catalog.
+
+### Docs
+
+- **Agent definition OpenSpec change split**: the agent definition OpenSpec change was reorganized into focused artifacts.
+- **Agent loop correctness evaluator feature design**: drafted the feature requirement for a future `houmao-agent-loop-evaluator` skill that teaches operators to design and run bounded correctness tests for agent loops.
+
+### Notes
+
+- This release bumps the minor segment for new agent-definition deployment capabilities and supporting design work.
+
 ## [2.0.0] - 2026-07-22
 
 ### Added

@@ -62,7 +62,7 @@ npx skills add https://github.com/igamenovoer/houmao-skills --list
 Install all six from a specific release:
 
 ```bash
-npx skills add https://github.com/igamenovoer/houmao-skills#v2.0.0 --agent codex --skill '*' --yes
+npx skills add https://github.com/igamenovoer/houmao-skills#v2.1.0 --agent codex --skill '*' --yes
 ```
 
 Install the complete five-member admin surface:
