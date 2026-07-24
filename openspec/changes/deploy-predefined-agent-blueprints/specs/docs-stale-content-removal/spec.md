@@ -1,13 +1,12 @@
 ## ADDED Requirements
 
-### Requirement: Agent blueprint documentation does not revive the retired blueprint layout
+### Requirement: Agent Definition documentation uses the current lifecycle
+Documentation SHALL describe source intent, derived interpretation, immutable Agent Definition Revisions, Deployment Requests, Deployment Plans, project Agent Deployments, and separate managed-agent launch.
 
-Documentation MAY use the term **agent blueprint** for the versioned portable `blueprint.toml` package consumed by `houmao-mgr project agent-blueprints` and `agent-deployments`.
+#### Scenario: Reader follows the authoring guide
+- **WHEN** a reader creates a reusable individual agent
+- **THEN** the guide SHALL start from `agent-def-overview.md` and SHALL not direct the reader to the retired native-agent `blueprints/` layout
 
-Documentation SHALL distinguish that package from the retired native-agent `blueprints/`, brains, brain-recipes, config-profile, and credential-profile layouts. It SHALL NOT describe those retired paths or shapes as inputs to the new deployment workflow.
-
-#### Scenario: New blueprint guide uses the current package contract
-
-- **WHEN** an operator reads the agent blueprint authoring or deployment documentation
-- **THEN** the guide describes `blueprint.toml`, typed task inputs, declared output templates, and current project commands
-- **AND THEN** it does not direct the operator to create the retired native-agent `blueprints/` tree
+#### Scenario: Reader follows the deployment guide
+- **WHEN** a reader deploys a materialized revision
+- **THEN** the guide SHALL distinguish deployment input collection, planning, apply, and later launch
