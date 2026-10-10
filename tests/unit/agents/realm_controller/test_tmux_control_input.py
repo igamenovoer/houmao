@@ -130,13 +130,12 @@ def _make_kimi_local_interactive_session(tmp_path: Path) -> LocalInteractiveSess
         working_directory=tmp_path,
         home_env_var="KIMI_CODE_HOME",
         home_path=tmp_path / "kimi-home",
-        env={"KIMI_CODE_NO_AUTO_UPDATE": "1"},
-        env_var_names=["KIMI_CODE_NO_AUTO_UPDATE"],
+        env={"KIMI_CODE_LEGACY_FLAG": "0", "KIMI_CODE_NO_AUTO_UPDATE": "1"},
+        env_var_names=["KIMI_CODE_LEGACY_FLAG", "KIMI_CODE_NO_AUTO_UPDATE"],
         role_injection=RoleInjectionPlan(
-            method="bootstrap_message",
+            method="native_home_system_prompt",
             role_name="gpu-kernel-coder",
             prompt="role prompt",
-            bootstrap_message="bootstrap",
         ),
         metadata={},
     )
@@ -391,7 +390,7 @@ def test_kimi_local_interactive_send_prompt_uses_semantic_submit_path(
     assert sent_sequences == ["<[Enter]>"]
 
 
-def test_kimi_unattended_startup_uses_native_auto_before_role_bootstrap(
+def test_kimi_unattended_startup_uses_native_auto_without_role_bootstrap(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -410,13 +409,10 @@ def test_kimi_unattended_startup_uses_native_auto_before_role_bootstrap(
     session._launch_provider_surface()  # noqa: SLF001
     session._apply_startup_bootstrap()  # noqa: SLF001
 
-    assert [event for event in events if event[0] in {"ready", "submit"}] == [
-        ("ready", None),
-        ("submit", "bootstrap"),
-    ]
+    assert [event for event in events if event[0] in {"ready", "submit"}] == [("ready", None)]
     tmux_event = next(event for event in events if event[0] == "tmux")
     assert "--auto" in str(tmux_event[1])
-    assert session._state.role_bootstrap_applied is True  # noqa: SLF001
+    assert session._state.role_bootstrap_applied is False  # noqa: SLF001
 
 
 def test_kimi_unattended_resumed_relaunch_keeps_native_auto_without_bootstrap(
@@ -451,7 +447,7 @@ def test_kimi_tui_rejects_auto_with_yolo(tmp_path: Path) -> None:
         session._build_launch_command()  # noqa: SLF001
 
 
-def test_kimi_startup_does_not_send_policy_command_before_bootstrap(
+def test_kimi_startup_does_not_send_any_bootstrap_prompt(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -470,7 +466,7 @@ def test_kimi_startup_does_not_send_policy_command_before_bootstrap(
     session._launch_provider_surface()  # noqa: SLF001
     session._apply_startup_bootstrap()  # noqa: SLF001
 
-    assert [event for event in events if event[0] == "submit"] == [("submit", "bootstrap")]
+    assert [event for event in events if event[0] == "submit"] == []
 
 
 def test_local_interactive_send_mail_prompt_observes_sentinel_result(
@@ -1027,10 +1023,10 @@ def test_kimi_local_interactive_relaunch_keeps_model_selection_with_exact_sessio
         working_directory=tmp_path,
         home_env_var="KIMI_CODE_HOME",
         home_path=tmp_path / "home",
-        env={"KIMI_CODE_NO_AUTO_UPDATE": "1"},
-        env_var_names=["KIMI_CODE_NO_AUTO_UPDATE"],
+        env={"KIMI_CODE_LEGACY_FLAG": "0", "KIMI_CODE_NO_AUTO_UPDATE": "1"},
+        env_var_names=["KIMI_CODE_LEGACY_FLAG", "KIMI_CODE_NO_AUTO_UPDATE"],
         role_injection=RoleInjectionPlan(
-            method="bootstrap_message",
+            method="native_home_system_prompt",
             role_name="gpu-kernel-coder",
             prompt="",
         ),
@@ -1052,10 +1048,10 @@ def test_kimi_local_interactive_new_relaunch_uses_no_session_picker_args(tmp_pat
         working_directory=tmp_path,
         home_env_var="KIMI_CODE_HOME",
         home_path=tmp_path / "home",
-        env={"KIMI_CODE_NO_AUTO_UPDATE": "1"},
-        env_var_names=["KIMI_CODE_NO_AUTO_UPDATE"],
+        env={"KIMI_CODE_LEGACY_FLAG": "0", "KIMI_CODE_NO_AUTO_UPDATE": "1"},
+        env_var_names=["KIMI_CODE_LEGACY_FLAG", "KIMI_CODE_NO_AUTO_UPDATE"],
         role_injection=RoleInjectionPlan(
-            method="bootstrap_message",
+            method="native_home_system_prompt",
             role_name="gpu-kernel-coder",
             prompt="",
         ),
@@ -1089,10 +1085,10 @@ def test_kimi_local_interactive_relaunch_accepts_current_resume_options(
         working_directory=tmp_path,
         home_env_var="KIMI_CODE_HOME",
         home_path=tmp_path / "home",
-        env={"KIMI_CODE_NO_AUTO_UPDATE": "1"},
-        env_var_names=["KIMI_CODE_NO_AUTO_UPDATE"],
+        env={"KIMI_CODE_LEGACY_FLAG": "0", "KIMI_CODE_NO_AUTO_UPDATE": "1"},
+        env_var_names=["KIMI_CODE_LEGACY_FLAG", "KIMI_CODE_NO_AUTO_UPDATE"],
         role_injection=RoleInjectionPlan(
-            method="bootstrap_message",
+            method="native_home_system_prompt",
             role_name="gpu-kernel-coder",
             prompt="",
         ),

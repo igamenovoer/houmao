@@ -307,27 +307,18 @@ class _BaseKimiCodeSignalDetector(BaseTrackedTurnSignalDetector):
         )
 
 
-class KimiCodeSignalDetectorV0_11_X(_BaseKimiCodeSignalDetector):
-    """Tracked-TUI detector for observed Kimi Code `0.11.x` surfaces."""
+class KimiCodeSignalDetectorV0_34_PLUS(_BaseKimiCodeSignalDetector):
+    """Tracked-TUI detector candidate for Kimi Code 0.34 and later."""
 
     def __init__(self) -> None:
-        """Initialize the `0.11.x` Kimi detector family."""
-
-        super().__init__(detector_version="0.11.x")
-
-
-class KimiCodeSignalDetectorV0_23_X(_BaseKimiCodeSignalDetector):
-    """Tracked-TUI detector for recorded Kimi Code `0.23.x` surfaces."""
-
-    def __init__(self) -> None:
-        """Initialize the `0.23.x` Kimi detector family."""
+        """Initialize the minimum-only Kimi 0.34-or-later detector family."""
 
         super().__init__(
-            detector_version="0.23.x",
+            detector_version=">=0.34.0",
             activity_window_lines=4,
             temporal_window_seconds=0.0,
             enable_temporal_growth=False,
-            profile_notes=("source_profile=kimi-code-0.23.x",),
+            profile_notes=("source_profile=kimi-code-0.34.x-qualification-pending",),
         )
 
 
@@ -653,4 +644,4 @@ def _ready_posture_state(
     return "unknown"
 
 
-KimiCodeSignalDetector = KimiCodeSignalDetectorV0_11_X
+KimiCodeSignalDetector = KimiCodeSignalDetectorV0_34_PLUS

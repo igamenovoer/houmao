@@ -53,3 +53,28 @@ Orientation intended for a human operator SHALL identify the admin pack rather t
 - **THEN** the entrypoint identifies `houmao-admin-welcome` as part of the separately installed admin pack
 - **AND THEN** it does not switch actor or execute the tour inside the agent route
 
+### Requirement: Agent entrypoint routes verified-self runtime-variable reads
+The agent entrypoint SHALL route declared runtime-variable lookup through verified-self commands and SHALL expose no self mutation.
+
+#### Scenario: Static skill requests current value
+- **WHEN** a managed agent invokes the maintained lookup from a current supported runtime
+- **THEN** the route SHALL return the verified agent's current value revision
+
+### Requirement: Agent entrypoint routes verified-self mindset snapshots
+The agent entrypoint SHALL route a required named mindset to one verified-self immutable snapshot and SHALL fail closed when it is unavailable.
+
+#### Scenario: Prompt text claims a different identity
+- **WHEN** the prompt names another agent while runtime authority identifies self
+- **THEN** the route SHALL use runtime authority and SHALL not expose the other agent's record
+
+### Requirement: Agent entrypoint routes verified-self semantic path reads
+The agent entrypoint SHALL route semantic path lookup through verified-self authority and SHALL not expose workspace mutation.
+
+#### Scenario: Project-root agent asks for a private path
+- **WHEN** the verified agent has no active private workspace
+- **THEN** the route SHALL report that the semantic path is unavailable without creating it
+
+#### Scenario: Private agent asks for a declared path
+- **WHEN** its manifest and SQLite identity validate
+- **THEN** the route SHALL return the current confined path
+

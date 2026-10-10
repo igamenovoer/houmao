@@ -34,7 +34,7 @@ Available functionality:
 
 - `roles`, `recipes`, and `launch-dossiers` for low-level reusable agent-definition material.
 - `specialists` and `profiles` for project authoring.
-- `definition-authoring` for `intent/src` initialization, interpretation, approval, immutable materialization, and revision validation.
+- `definition-authoring` for `intent/src` initialization, interpretation, root `README.md` orientation, approval, immutable materialization, and revision validation.
 - `definition-deployment` for typed deploy-time bindings, single-instance plan/apply, inspection, doctor, update, and safe removal.
 - `definition-batch` for one-definition multi-instance planning and all-or-no-visible deployment.
 - `create-agent-fast-forward` for one-pass specialist plus project profile preparation.
@@ -96,7 +96,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - launch dossier or exact `internals native-agent launch-dossiers` work -> `launch-dossiers`
    - specialist template work -> `specialists`
    - profile, agent profile, project profile, or ready profile work without native launch-dossier context -> `profiles`
-   - authoring intent, derived interpretation, approval, materialization, or revision validation -> `definition-authoring`
+   - authoring intent, root README orientation, derived interpretation, approval, materialization, or revision validation -> `definition-authoring`
    - one definition-backed deployment, deploy-time parameter binding, update, doctor, or removal -> `definition-deployment`
    - N instances from one immutable definition revision -> `definition-batch`
    - one-pass specialist plus project profile preparation -> `create-agent-fast-forward`
@@ -139,7 +139,7 @@ If the request does not map cleanly to this workflow, use the native planning to
 
 - Use `profiles` as the default meaning of `profile`, `agent profile`, `project profile`, and `ready profile`.
 - Use `launch-dossiers` only when the user explicitly says `launch-dossiers`, launch dossier, or `internals native-agent launch-dossiers`.
-- Use `definition-authoring` for the `intent/src -> intent/derived -> materialization` lifecycle. Initialize only `intent/src/agent-def-overview.md`; follow links from that overview rather than imposing more source files.
+- Use `definition-authoring` for the `intent/src -> intent/derived -> materialization` lifecycle. Initialize only `intent/src/agent-def-overview.md`; follow links from that overview rather than imposing more source files. Maintain `<authoring-dir>/README.md` as non-authoritative orientation at every user-facing boundary, and use the default `<authoring-dir>/agent-definition` output unless the user explicitly chooses another root.
 - Use `definition-deployment` only after an exact immutable revision is available. Planning resolves typed inputs and placeholders without launching; applying registers durable project objects and returns an explicit launch handoff.
 - Use `definition-batch` when one request expands one immutable revision into multiple members. Require an explicit delegation policy before selecting missing names, tools, or credentials.
 - Use `create-agent-fast-forward` when the user wants the skill to create or select a specialist and then create or update the project profile in one pass.
@@ -154,6 +154,7 @@ If the request does not map cleanly to this workflow, use the native planning to
 - DO NOT mutate credential bundle contents through this skill; route secret and auth-file edits to `houmao-shared-routines->houmao-credential-mgr`.
 - DO NOT place secrets in reusable definition inputs, runtime-variable defaults, immutable definition revisions, plans, or batch overrides.
 - DO NOT skip the derived interpretation, approval digest, preview, revision validation, deployment plan, or explicit apply boundary.
+- DO NOT treat the authoring-root README as source intent, derived authority, approval evidence, or immutable revision content.
 - DO NOT claim that a successful definition deployment launches the returned agents.
 - DO NOT guess batch member names, tools, or credentials unless the request grants that exact delegation.
 - DO NOT treat an individual definition-owned private workspace as the multi-agent topology owned by `houmao-utils-workspace-mgr`.

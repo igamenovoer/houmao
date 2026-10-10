@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import tomllib
 from typing import Any
 
 import pytest
 
-from houmao.agents.auto_skills import AUTO_SKILL_SYSTEM_PROMPT, prompt_sha256
+from houmao.agents.kimi_workspace_trust import kimi_workdir_key
+
 from houmao.agents.launch_policy.models import (
     LaunchPolicyStrategy,
     MinimalInputContract,
+    NativeSystemPromptContract,
+    NativeSystemPromptMethod,
     SupportedVersionSpec,
-    SystemPromptBootstrapCapabilities,
 )
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.realm_controller.launch_plan import (
@@ -36,11 +39,8 @@ def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def _strategy_with_system_prompt_capabilities(
-    *,
-    native_system_prompt: bool,
-    provider_skills: bool,
-    startup_visible_skill_metadata: bool,
+def _strategy_with_system_prompt_method(
+    *, method: NativeSystemPromptMethod
 ) -> LaunchPolicyStrategy:
     return LaunchPolicyStrategy(
         strategy_id="test-strategy",
@@ -52,15 +52,32 @@ def _strategy_with_system_prompt_capabilities(
             requires_user_prepared_state=False,
             notes=(),
         ),
-        system_prompt_bootstrap=SystemPromptBootstrapCapabilities(
-            native_system_prompt=native_system_prompt,
-            provider_skills=provider_skills,
-            startup_visible_skill_metadata=startup_visible_skill_metadata,
+        system_prompt=NativeSystemPromptContract(
+            method=method,
+            owned_surface="test",
+            precedence_conflicts=(),
+            required_engine_env={},
         ),
         evidence=(),
         owned_paths=(),
         actions=(),
     )
+
+
+def _stub_tool_version(monkeypatch: pytest.MonkeyPatch, version: str = "0.34.0") -> None:
+    """Stub provider version detection for launch-plan tests."""
+
+    def _fake_version(
+        command: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+    ) -> object:
+        del check, capture_output, text
+        return type("_Completed", (), {"stdout": version, "stderr": "", "args": command})()
+
+    monkeypatch.setattr("houmao.agents.launch_policy.engine.subprocess.run", _fake_version)
 
 
 def _manifest(
@@ -192,11 +209,11 @@ def test_plan_role_injection_native_vs_bootstrap() -> None:
 
     assert codex.method == "native_developer_instructions"
     assert claude.method == "native_append_system_prompt"
-    assert kimi.method == "bootstrap_message"
-    assert kimi.bootstrap_message is not None
+    assert kimi.method == "native_home_system_prompt"
+    assert kimi.bootstrap_message is None
     assert claude_local.method == "native_append_system_prompt"
-    assert kimi_local.method == "bootstrap_message"
-    assert kimi_local.bootstrap_message is not None
+    assert kimi_local.method == "native_home_system_prompt"
+    assert kimi_local.bootstrap_message is None
 
 
 def test_plan_role_injection_empty_prompt_skips_bootstrap_message() -> None:
@@ -218,7 +235,7 @@ def test_plan_role_injection_empty_prompt_skips_bootstrap_message() -> None:
     )
 
     assert claude.bootstrap_message == ""
-    assert kimi.bootstrap_message == ""
+    assert kimi.bootstrap_message is None
     assert claude_local.bootstrap_message == ""
 
 
@@ -228,10 +245,8 @@ def test_plan_role_injection_strategy_prefers_native_prompt_support() -> None:
         tool="codex",
         role_name="r",
         role_prompt="prompt",
-        strategy=_strategy_with_system_prompt_capabilities(
-            native_system_prompt=True,
-            provider_skills=True,
-            startup_visible_skill_metadata=True,
+        strategy=_strategy_with_system_prompt_method(
+            method="native_developer_instructions",
         ),
     )
 
@@ -239,32 +254,28 @@ def test_plan_role_injection_strategy_prefers_native_prompt_support() -> None:
     assert plan.bootstrap_message is None
 
 
-def test_plan_role_injection_strategy_requires_startup_visible_skill_metadata() -> None:
-    auto_skill_plan = plan_role_injection(
+def test_plan_role_injection_strategy_requires_matching_native_method() -> None:
+    native_home_plan = plan_role_injection(
         backend="local_interactive",
         tool="kimi",
         role_name="r",
         role_prompt="prompt",
-        strategy=_strategy_with_system_prompt_capabilities(
-            native_system_prompt=False,
-            provider_skills=True,
-            startup_visible_skill_metadata=True,
+        strategy=_strategy_with_system_prompt_method(
+            method="native_home_system_prompt",
         ),
     )
 
-    assert auto_skill_plan.method == "auto_skill_system_prompt"
-    assert auto_skill_plan.bootstrap_message is None
+    assert native_home_plan.method == "native_home_system_prompt"
+    assert native_home_plan.bootstrap_message is None
 
-    with pytest.raises(LaunchPlanError, match="No supported system-prompt injection method"):
+    with pytest.raises(LaunchPlanError, match="no applicable native system-prompt method"):
         plan_role_injection(
             backend="local_interactive",
             tool="future-tool",
             role_name="r",
             role_prompt="prompt",
-            strategy=_strategy_with_system_prompt_capabilities(
-                native_system_prompt=False,
-                provider_skills=True,
-                startup_visible_skill_metadata=False,
+            strategy=_strategy_with_system_prompt_method(
+                method="native_home_system_prompt",
             ),
         )
 
@@ -645,6 +656,7 @@ def test_parse_allowlisted_env_selects_claude_model_selection_vars(
     ],
 )
 def test_build_launch_plan_keeps_optional_args_separate_from_protocol_args(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     tool: str,
     backend: str,
@@ -652,6 +664,8 @@ def test_build_launch_plan_keeps_optional_args_separate_from_protocol_args(
     expected_arg: str,
     protocol_arg: str,
 ) -> None:
+    if tool == "kimi":
+        _stub_tool_version(monkeypatch)
     env_file = tmp_path / "vars.env"
     env_file.write_text("A=1\n", encoding="utf-8")
     _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
@@ -867,8 +881,10 @@ def test_build_launch_plan_adds_claude_model_selection_cli_args(
 
 
 def test_build_launch_plan_local_interactive_kimi_projects_tui_model_and_env(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    _stub_tool_version(monkeypatch)
     env_file = tmp_path / "vars.env"
     env_file.write_text("\n", encoding="utf-8")
     _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
@@ -902,7 +918,11 @@ def test_build_launch_plan_local_interactive_kimi_projects_tui_model_and_env(
         )
     )
 
-    assert plan.role_injection.method == "bootstrap_message"
+    assert plan.role_injection.method == "native_home_system_prompt"
+    assert (tmp_path / "home/SYSTEM.md").read_text(encoding="utf-8") == (
+        "${base_prompt}\n\nprompt\n"
+    )
+    assert plan.env["KIMI_CODE_LEGACY_FLAG"] == "0"
     assert plan.env["KIMI_CODE_NO_AUTO_UPDATE"] == "1"
     assert "KIMI_CODE_NO_AUTO_UPDATE" in plan.env_var_names
     assert plan.args == ["--temperature", "0", "--model", "kimi-code/kimi-for-coding"]
@@ -926,24 +946,7 @@ def test_build_launch_plan_local_interactive_kimi_unattended_uses_native_auto(
         'default_permission_mode = "manual"\nextra_skill_dirs = ["/project/skills"]\n',
     )
 
-    def _fake_version(
-        command: list[str],
-        *,
-        check: bool,
-        capture_output: bool,
-        text: bool,
-    ) -> object:
-        del check, capture_output, text
-        return type(
-            "_Completed",
-            (),
-            {"stdout": "0.23.4", "stderr": "", "args": command},
-        )()
-
-    monkeypatch.setattr(
-        "houmao.agents.launch_policy.engine.subprocess.run",
-        _fake_version,
-    )
+    _stub_tool_version(monkeypatch)
 
     manifest = _manifest(
         tool="kimi",
@@ -976,31 +979,21 @@ def test_build_launch_plan_local_interactive_kimi_unattended_uses_native_auto(
         )
     )
     payload = tomllib.loads((home_path / "config.toml").read_text(encoding="utf-8"))
-    managed_skill_root = str((home_path / "skills").resolve())
-
     assert plan.args == ["--auto", "--model", "kimi-code/kimi-for-coding"]
-    assert plan.role_injection.method == "auto_skill_system_prompt"
+    assert plan.role_injection.method == "native_home_system_prompt"
     assert plan.role_injection.bootstrap_message is None
-    assert (home_path / f"skills/{AUTO_SKILL_SYSTEM_PROMPT}/SKILL.md").is_file()
+    assert (home_path / "SYSTEM.md").read_text(encoding="utf-8") == ("${base_prompt}\n\nprompt\n")
     assert plan.launch_policy_provenance is not None
-    assert plan.launch_policy_provenance.selected_strategy_id == "kimi-tui-unattended-0.23.x"
-    assert plan.metadata["auto_skills"]["selected_skill_names"] == [AUTO_SKILL_SYSTEM_PROMPT]
-    assert plan.metadata["auto_skills"]["applied"] is False
-    assert plan.metadata["auto_skills"]["prompt_reference"] == "launch_plan.role_injection.prompt"
-    assert plan.metadata["auto_skills"]["prompt_sha256"] == prompt_sha256("prompt")
-    assert plan.metadata["auto_skill_provider_discovery"] == {
-        "path": str(home_path / "config.toml"),
-        "key_path": ["extra_skill_dirs"],
-        "projected_skill_root": managed_skill_root,
-        "added": True,
-        "value": ["/project/skills", managed_skill_root],
-    }
+    assert plan.launch_policy_provenance.selected_strategy_id == "kimi-tui-unattended-0.34-plus"
+    assert plan.metadata["native_system_prompt"]["validation"] == "passed"
+    assert plan.metadata["native_system_prompt"]["relative_path"] == "SYSTEM.md"
+    assert plan.metadata["native_system_prompt"]["supported_versions"] == ">=0.34.0"
     assert "kimi_tui_auto_mode_refresh" not in plan.metadata
     assert payload["default_permission_mode"] == "auto"
-    assert payload["extra_skill_dirs"] == ["/project/skills", managed_skill_root]
+    assert payload["extra_skill_dirs"] == ["/project/skills"]
 
 
-def test_build_launch_plan_kimi_headless_unattended_uses_auto_skill_without_chat_bootstrap(
+def test_build_launch_plan_kimi_headless_unattended_uses_native_prompt_without_chat_bootstrap(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1010,24 +1003,7 @@ def test_build_launch_plan_kimi_headless_unattended_uses_auto_skill_without_chat
     home_path = tmp_path / "home"
     _write(home_path / "config.toml", 'default_model = "kimi-code/default"\n')
 
-    def _fake_version(
-        command: list[str],
-        *,
-        check: bool,
-        capture_output: bool,
-        text: bool,
-    ) -> object:
-        del check, capture_output, text
-        return type(
-            "_Completed",
-            (),
-            {"stdout": "0.23.4", "stderr": "", "args": command},
-        )()
-
-    monkeypatch.setattr(
-        "houmao.agents.launch_policy.engine.subprocess.run",
-        _fake_version,
-    )
+    _stub_tool_version(monkeypatch)
 
     manifest = _manifest(
         tool="kimi",
@@ -1048,21 +1024,153 @@ def test_build_launch_plan_kimi_headless_unattended_uses_auto_skill_without_chat
             working_directory=tmp_path,
         )
     )
-    payload = tomllib.loads((home_path / "config.toml").read_text(encoding="utf-8"))
-    managed_skill_root = str((home_path / "skills").resolve())
-
-    assert plan.role_injection.method == "auto_skill_system_prompt"
+    assert plan.role_injection.method == "native_home_system_prompt"
     assert plan.role_injection.prompt == "prompt"
     assert plan.role_injection.bootstrap_message is None
-    assert (home_path / f"skills/{AUTO_SKILL_SYSTEM_PROMPT}/SKILL.md").is_file()
-    assert payload["extra_skill_dirs"] == [managed_skill_root]
-    assert plan.metadata["auto_skills"]["state"] == "projected"
-    assert plan.metadata["auto_skills"]["applied"] is False
-    assert plan.metadata["auto_skills"]["projected_relative_dirs"] == [
-        f"skills/{AUTO_SKILL_SYSTEM_PROMPT}"
-    ]
-    assert plan.metadata["auto_skills"]["prompt_sha256"] == prompt_sha256("prompt")
-    assert plan.metadata["auto_skill_provider_discovery"]["value"] == [managed_skill_root]
+    assert (home_path / "SYSTEM.md").read_text(encoding="utf-8") == ("${base_prompt}\n\nprompt\n")
+    assert plan.metadata["native_system_prompt"]["state"] == "projected"
+    assert plan.env["KIMI_CODE_LEGACY_FLAG"] == "0"
+
+
+def test_build_launch_plan_kimi_repairs_native_prompt_drift_before_provider_start(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("\n", encoding="utf-8")
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+    home_path = tmp_path / "home"
+    _write(home_path / "config.toml", 'default_model = "kimi-code/default"\n')
+    _stub_tool_version(monkeypatch)
+    manifest = _manifest(
+        tool="kimi",
+        executable="kimi",
+        home_env_var="KIMI_CODE_HOME",
+        home_path=home_path,
+        env_file=env_file,
+        allowlisted_env_vars=[],
+        launch_policy={"operator_prompt_mode": "unattended"},
+    )
+    role = load_role_package(tmp_path / "repo", "r")
+    request = LaunchPlanRequest(
+        brain_manifest=manifest,
+        role_package=role,
+        backend="kimi_headless",
+        working_directory=tmp_path,
+    )
+
+    build_launch_plan(request)
+    (home_path / "SYSTEM.md").write_text("drifted\n", encoding="utf-8")
+    repaired_plan = build_launch_plan(request)
+
+    assert (home_path / "SYSTEM.md").read_text(encoding="utf-8") == ("${base_prompt}\n\nprompt\n")
+    assert repaired_plan.metadata["native_system_prompt"]["changed"] is True
+    assert repaired_plan.metadata["native_system_prompt"]["validation"] == "passed"
+
+
+@pytest.mark.parametrize("backend", ["local_interactive", "kimi_headless"])
+def test_build_launch_plan_kimi_unattended_preseeds_workspace_trust(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    backend: str,
+) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("\n", encoding="utf-8")
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+    home_path = tmp_path / "home"
+    _write(home_path / "config.toml", 'default_model = "kimi-code/default"\n')
+    _stub_tool_version(monkeypatch)
+    manifest = _manifest(
+        tool="kimi",
+        executable="kimi",
+        home_env_var="KIMI_CODE_HOME",
+        home_path=home_path,
+        env_file=env_file,
+        allowlisted_env_vars=[],
+        launch_policy={"operator_prompt_mode": "unattended"},
+    )
+    role = load_role_package(tmp_path / "repo", "r")
+
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role,
+            backend=backend,
+            working_directory=tmp_path,
+        )
+    )
+
+    expected_key = kimi_workdir_key(tmp_path.resolve())
+    record_path = home_path / "workspace-trust" / expected_key
+    assert record_path.is_file()
+    payload = json.loads(record_path.read_text(encoding="utf-8"))
+    assert payload["root"] == str(tmp_path.resolve())
+    assert plan.metadata["workspace_trust"]["workspace_key"] == expected_key
+    assert plan.metadata["workspace_trust"]["state"] == "projected"
+
+    # Provider-start re-planning leaves a matching record untouched.
+    replayed = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role,
+            backend=backend,
+            working_directory=tmp_path,
+        )
+    )
+    assert replayed.metadata["workspace_trust"]["state"] == "unchanged"
+
+    # Relaunch into a different working directory asserts a second record.
+    other_workdir = tmp_path / "elsewhere"
+    other_workdir.mkdir()
+    moved = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role,
+            backend=backend,
+            working_directory=other_workdir,
+        )
+    )
+    other_key = kimi_workdir_key(other_workdir.resolve())
+    assert other_key != expected_key
+    assert (home_path / "workspace-trust" / other_key).is_file()
+    assert moved.metadata["workspace_trust"]["workspace_key"] == other_key
+
+
+@pytest.mark.parametrize("backend", ["local_interactive", "kimi_headless"])
+def test_build_launch_plan_kimi_as_is_does_not_preseed_workspace_trust(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    backend: str,
+) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("\n", encoding="utf-8")
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+    home_path = tmp_path / "home"
+    _write(home_path / "config.toml", 'default_model = "kimi-code/default"\n')
+    _stub_tool_version(monkeypatch)
+    manifest = _manifest(
+        tool="kimi",
+        executable="kimi",
+        home_env_var="KIMI_CODE_HOME",
+        home_path=home_path,
+        env_file=env_file,
+        allowlisted_env_vars=[],
+        launch_policy={"operator_prompt_mode": "as_is"},
+    )
+    role = load_role_package(tmp_path / "repo", "r")
+
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role,
+            backend=backend,
+            working_directory=tmp_path,
+        )
+    )
+
+    assert plan.role_injection.method == "native_home_system_prompt"
+    assert "workspace_trust" not in plan.metadata
+    assert not (home_path / "workspace-trust").exists()
 
 
 def test_build_launch_plan_replaces_conflicting_claude_adapter_model_selection_args(

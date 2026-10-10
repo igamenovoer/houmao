@@ -15,7 +15,7 @@ If a provider hides sibling selection, use the native planning tool to judge act
 
 - Case revision: `2` for `ADM-002`; `1` for every other listed case.
 - Providers: `claude`, `codex`, `kimi`.
-- Context: `raw-admin`; pack `admin`; auto skill `absent-required` unless the case says otherwise.
+- Context: `raw-admin`; pack `admin`; native system prompt `absent-required` unless the case says otherwise.
 - Activation: `explicit`; repetitions `3`; timeout `180` seconds.
 - Driver invocation: `manual` from `driving-agent` for every listed case.
 - Permitted effects: read-only discovery unless a case explicitly names a disposable mutation or join transition.

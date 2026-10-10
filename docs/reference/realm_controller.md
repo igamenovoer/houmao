@@ -135,8 +135,8 @@ Role injection is backend-specific and handled during launch plan construction i
 |---|---|
 | `codex_headless` / `codex_app_server` | Native developer instructions when the role prompt is non-empty |
 | `claude_headless` | Native appended system prompt plus a bootstrap message when the role prompt is non-empty |
-| `kimi_headless` | Bootstrap message when the role prompt is non-empty |
-| `local_interactive` | Tool-dependent native injection or bootstrap, skipped when the role prompt is empty |
+| `kimi_headless` | Native managed-home `SYSTEM.md` for Kimi Code 0.34.0 or later; an empty prompt removes the file |
+| `local_interactive` | Tool-dependent native injection; Kimi uses managed-home `SYSTEM.md` |
 
 The role content comes from the role package (`roles/<role>/system-prompt.md`) in the agent definition directory.
 
@@ -144,7 +144,7 @@ The role content comes from the role package (`roles/<role>/system-prompt.md`) i
 
 Unattended startup is a versioned launch policy resolved at launch time against the installed CLI version of the target tool. If the installed version does not match a known launch policy, the session fails closed rather than guessing a bootstrap strategy. This prevents silent behavioral drift when CLI tools update their interfaces.
 
-For Kimi Code 0.23.x, the versioned policy has separate headless and TUI contracts. Headless prompt mode owns `kimi -p` placement. Local-interactive TUI unattended writes the migration marker and config fallback, then launches fresh or resumed sessions with one strategy-owned native `--auto` argument.
+For Kimi Code 0.34.0 or later, with no upper version limit, the versioned policy has separate headless and TUI contracts. Headless prompt mode owns `kimi -p` placement. Both contracts verify managed `$KIMI_CODE_HOME/SYSTEM.md` and the v2 engine before process start. Local-interactive TUI unattended writes the migration marker and config fallback, then launches fresh or resumed sessions with one strategy-owned native `--auto` argument.
 
 ## CLI Surface
 

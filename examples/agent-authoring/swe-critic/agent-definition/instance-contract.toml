@@ -1,0 +1,18 @@
+schema_version = "houmao-agent-instance-contract.v1"
+contract_digest = "sha256:b3cf3a6f6eac7cce388e1051425b5ee11bedb7098112dac18f27091f894eb30b"
+runtime_variables = []
+mindsets = []
+
+[private_workspace]
+mode = "optional"
+default_enabled = false
+workdir_mode = "project-root"
+tracked_by_default = false
+
+[[private_workspace.directories]]
+key = "workspace.reports"
+default_path = "reports"
+description = "Review reports and supporting evidence."
+path_kind = "directory"
+required = true
+materialize = true

@@ -2,6 +2,7 @@
   "schema_version": 1,
   "provider": "kimi",
   "calibrated_version": "0.23.6",
+  "qualification_status": "historical_pre_0.34_excluded",
   "patterns": {
     "ready": {
       "regex": "(Welcome to Kimi Code!|@: mention files|> )",

@@ -16,6 +16,11 @@ from houmao.agents.codex_cli_config import (
     CodexCliConfigOverride,
     append_or_replace_codex_config_overrides,
 )
+from houmao.agents.kimi_system_prompt import (
+    KimiSystemPromptError,
+    validate_kimi_native_prompt_launch,
+    validate_kimi_v2_engine_env,
+)
 from houmao.agents.launch_policy.models import LaunchPolicyError, LaunchPolicyRequest
 
 _CLAUDE_RUNTIME_STATE_FILENAME = ".claude.json"
@@ -67,6 +72,9 @@ def run_provider_hook(
         return
     if hook_id == "kimi.canonicalize_unattended_tui_launch_inputs":
         _kimi_canonicalize_unattended_tui_launch_inputs(request, args)
+        return
+    if hook_id == "kimi.validate_native_system_prompt_contract":
+        _kimi_validate_native_system_prompt_contract(request, args)
         return
     raise LaunchPolicyError(f"Unknown provider hook `{hook_id}`.")
 
@@ -526,6 +534,23 @@ def _kimi_canonicalize_unattended_tui_launch_inputs(
     if args is not None:
         canonicalize_kimi_tui_unattended_launch_args(args)
     _atomic_write_text(request.home_path / _KIMI_SKIP_LEGACY_MIGRATION_FILENAME, "")
+
+
+def _kimi_validate_native_system_prompt_contract(
+    request: LaunchPolicyRequest,
+    args: list[str] | None,
+) -> None:
+    """Validate Kimi engine and prompt-precedence inputs before provider start."""
+
+    try:
+        validate_kimi_v2_engine_env(request.env)
+        validate_kimi_native_prompt_launch(
+            launch_args=args or [],
+            working_directory=request.working_directory,
+            home_path=request.home_path,
+        )
+    except KimiSystemPromptError as exc:
+        raise LaunchPolicyError(str(exc)) from exc
 
 
 def _codex_validate_credential_readiness(request: LaunchPolicyRequest) -> None:

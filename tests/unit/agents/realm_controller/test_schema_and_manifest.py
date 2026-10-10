@@ -211,6 +211,30 @@ def test_manifest_write_validation_fails_with_field_path(tmp_path: Path) -> None
         write_session_manifest(tmp_path / "session.json", payload)
 
 
+def test_manifest_write_rejects_retired_auto_skill_role_injection(tmp_path: Path) -> None:
+    """Current boundaries reject persisted auto-skill prompt delivery."""
+
+    payload = build_session_manifest_payload(
+        SessionManifestRequest(
+            launch_plan=_sample_plan(tmp_path),
+            role_name="gpu-kernel-coder",
+            brain_manifest_path=tmp_path / "brain.yaml",
+            **_identity_fields("HOUMAO-claude"),
+            backend_state={
+                "session_id": "sess-1",
+                "turn_index": 0,
+                "role_bootstrap_applied": False,
+                "working_directory": str(tmp_path),
+                "tmux_session_name": "HOUMAO-claude",
+            },
+        )
+    )
+    payload["launch_plan"]["role_injection"]["method"] = "auto_skill_system_prompt"
+
+    with pytest.raises(SessionManifestError, match=r"role_injection\.method"):
+        write_session_manifest(tmp_path / "session.json", payload)
+
+
 def test_manifest_load_rejects_v3_manifest_without_upgrade(tmp_path: Path) -> None:
     path = tmp_path / "session.json"
     agent_id = derive_agent_id_from_name("HOUMAO-r")

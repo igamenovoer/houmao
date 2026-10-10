@@ -1,0 +1,6 @@
+schema_version = "houmao-agent-derivation-approval.v1"
+approved = true
+approved_by = "huangzhe"
+approved_at = "2026-07-24T13:55:02.028455+00:00"
+source_digest = "sha256:5e444b0c3028e56b4923d2a5dd3e517f37362635ee509fe346b34d0b18a6500e"
+derived_digest = "sha256:48f0f2f97bbff05e05851e6e556623e87702947048f7410ca288010140181fe3"

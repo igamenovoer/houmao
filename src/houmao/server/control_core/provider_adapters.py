@@ -9,6 +9,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from houmao.agents.kimi_system_prompt import KimiSystemPromptError, render_kimi_system_prompt
 from houmao.cao.models import CaoTerminalStatus
 
 from .models import CompatibilityAgentProfile, CompatibilityTerminalStatus
@@ -342,24 +343,23 @@ class KimiCompatibilityProvider(CompatibilityProviderAdapter):
     ) -> str:
         """Return the Kimi startup command."""
 
-        del terminal_id, working_directory
-        command_parts = ["kimi", "--yolo"]
+        del profile_name, terminal_id, working_directory
+        command_parts = ["kimi", "--auto"]
         temp_dir = Path(tempfile.mkdtemp(prefix="houmao_kimi_"))
         system_prompt = (profile.system_prompt or "").strip()
         if system_prompt:
-            prompt_file = temp_dir / "system.md"
-            prompt_file.write_text(system_prompt + "\n", encoding="utf-8")
-            agent_file = temp_dir / "agent.yaml"
+            try:
+                rendered_prompt = render_kimi_system_prompt(system_prompt)
+            except KimiSystemPromptError as exc:
+                raise CompatibilityProviderError(str(exc)) from exc
+            agent_file = temp_dir / "agent.md"
             agent_file.write_text(
-                "\n".join(
-                    (
-                        "version: 1",
-                        "agent:",
-                        "  extend: default",
-                        "  system_prompt_path: ./system.md",
-                        "",
-                    )
-                ),
+                "---\n"
+                "name: houmao-cao-profile\n"
+                "description: Temporary Houmao CAO compatibility profile\n"
+                "override: true\n"
+                "---\n\n"
+                f"{rendered_prompt}",
                 encoding="utf-8",
             )
             command_parts.extend(["--agent-file", str(agent_file)])

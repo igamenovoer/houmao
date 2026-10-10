@@ -166,9 +166,9 @@ The optional relaunch chat-session selector controls provider-native startup beh
 
 For local interactive TUI sessions, the selector is translated into startup arguments before the provider process is respawned in tmux window `0`. The maintained mappings are Claude Code `--continue` or `--resume <session_id>`, Codex `resume --last` or `resume <session_id>`, and Kimi Code `--continue` or `--session <session_id>`. For native headless sessions, the selector is stored as the startup/default chat-session policy for the next managed headless prompt; relaunch itself does not send a provider turn.
 
-When a local interactive relaunch resumes an existing provider chat, the runtime does not replay bootstrap-message role injection into that resumed chat.
+When a local interactive relaunch resumes an existing provider chat, the runtime does not replay bootstrap-message role injection into that resumed chat. For Kimi, it verifies and repairs the managed native system prompt before respawning the provider, without submitting any role turn.
 
-For Kimi Code 0.23.x, resumed startup accepts native `--auto` with `--continue` or `--session <session_id>`. Houmao canonicalizes caller permission flags, preserves the selected resume selector, and appends exactly one strategy-owned `--auto`; `--model <alias>` remains valid.
+For Kimi Code 0.34.0 or later, resumed startup accepts native `--auto` with `--continue` or `--session <session_id>`. Houmao canonicalizes caller permission flags, preserves the selected resume selector, validates prompt precedence, repairs `$KIMI_CODE_HOME/SYSTEM.md` when needed, and appends exactly one strategy-owned `--auto`; `--model <alias>` remains valid.
 
 For Kimi Code local-interactive sessions built with `operator_prompt_mode = unattended`, both fresh and resumed launches reach initial readiness in native auto mode. The runtime does not send `/auto on`. `as_is` relaunch leaves the provider's approval behavior unchanged.
 

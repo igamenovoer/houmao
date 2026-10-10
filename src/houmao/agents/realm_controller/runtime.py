@@ -38,6 +38,10 @@ from houmao.agents.managed_prompt_header import (
     resolve_managed_prompt_header_decision,
 )
 from houmao.agents.managed_launch_force import ManagedLaunchForceMode
+from houmao.agents.kimi_system_prompt import (
+    KimiSystemPromptError,
+    validate_kimi_v2_engine_env,
+)
 from houmao.agents.model_selection import (
     ModelConfig,
     extract_resolved_model_config_from_brain_manifest,
@@ -2815,6 +2819,11 @@ def _launch_plan_with_transient_env_overrides(
     base_env_names = set(launch_plan.env_var_names)
     updated_env = dict(launch_plan.env)
     updated_env.update(env_overrides)
+    if launch_plan.tool == "kimi":
+        try:
+            validate_kimi_v2_engine_env(updated_env)
+        except KimiSystemPromptError as exc:
+            raise SessionManifestError(str(exc)) from exc
     transient_names = frozenset(
         {
             *launch_plan.transient_env_var_names,

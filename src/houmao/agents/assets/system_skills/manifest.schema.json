@@ -4,7 +4,6 @@
   "additionalProperties": false,
   "required": [
     "schema_version",
-    "auto_skill_name",
     "defaults",
     "packs",
     "standalone_skills",
@@ -12,8 +11,7 @@
     "legacy_skills"
   ],
   "properties": {
-    "schema_version": {"const": "houmao-system-skills.v4"},
-    "auto_skill_name": {"const": "houmao-auto-system-prompt"},
+    "schema_version": {"const": "houmao-system-skills.v5"},
     "defaults": {
       "type": "object",
       "additionalProperties": false,

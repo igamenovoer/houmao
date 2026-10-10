@@ -694,10 +694,10 @@ def test_analyze_terminal_record_selects_versioned_kimi_profile(tmp_path: Path) 
         encoding="utf-8",
     )
 
-    analyze_terminal_record(run_root=run_root, tool=None, observed_version="0.23.4")
+    analyze_terminal_record(run_root=run_root, tool=None, observed_version="0.34.0")
 
     state_payload = _read_ndjson(paths.state_observed_path)[0]
-    assert state_payload["detector_version"] == "0.23.x"
+    assert state_payload["detector_version"] == ">=0.34.0"
     assert state_payload["turn_phase"] == "ready"
     assert state_payload["surface_accepting_input"] == "yes"
     assert state_payload["surface_ready_posture"] == "yes"

@@ -15,7 +15,7 @@ If the case deliberately invalidates identity authority, use the native planning
 
 - Case revision: `1` for every listed case.
 - Providers: `claude`, `codex`, `kimi`.
-- Context: `managed-agent`; pack `agent`; auto skill `present-required`.
+- Context: `managed-agent`; pack `agent`; native system prompt `native-required`.
 - Activation: `explicit`; repetitions `3`; timeout `180` seconds.
 - Driver invocation: `manual` from `driving-agent` for every listed case.
 - Permitted effects: read-only self/peer evidence unless a case says otherwise.

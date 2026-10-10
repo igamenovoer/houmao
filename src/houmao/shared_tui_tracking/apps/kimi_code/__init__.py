@@ -3,8 +3,7 @@
 from houmao.shared_tui_tracking.apps.kimi_code.profile import (
     FallbackKimiCodeSignalDetector,
     KimiCodeSignalDetector,
-    KimiCodeSignalDetectorV0_11_X,
-    KimiCodeSignalDetectorV0_23_X,
+    KimiCodeSignalDetectorV0_34_PLUS,
     KimiSurfaceAnalysis,
     analyze_kimi_surface,
 )
@@ -12,8 +11,7 @@ from houmao.shared_tui_tracking.apps.kimi_code.profile import (
 __all__ = [
     "FallbackKimiCodeSignalDetector",
     "KimiCodeSignalDetector",
-    "KimiCodeSignalDetectorV0_11_X",
-    "KimiCodeSignalDetectorV0_23_X",
+    "KimiCodeSignalDetectorV0_34_PLUS",
     "KimiSurfaceAnalysis",
     "analyze_kimi_surface",
 ]

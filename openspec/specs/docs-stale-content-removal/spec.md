@@ -2,9 +2,7 @@
 
 ## Purpose
 Define the requirements for removing retired and stale documentation content.
-
 ## Requirements
-
 ### Requirement: Retired CAO reference docs deleted
 
 The following files SHALL be deleted from `docs/reference/`: `cao_interactive_demo.md`, `cao_server_launcher.md`, `cao_shadow_parser_troubleshooting.md`, `cao_claude_shadow_parsing.md`. These are already marked as RETIRED and describe removed workflows.
@@ -169,3 +167,14 @@ The earlier `docs-stale-content-removal` requirement to remove `agentsys` refere
 
 - **WHEN** searching all `.md` files under `docs/` for `agentsys`
 - **THEN** zero matches are found
+
+### Requirement: Agent Definition documentation uses the current lifecycle
+Documentation SHALL describe source intent, derived interpretation, immutable Agent Definition Revisions, Deployment Requests, Deployment Plans, project Agent Deployments, and separate managed-agent launch.
+
+#### Scenario: Reader follows the authoring guide
+- **WHEN** a reader creates a reusable individual agent
+- **THEN** the guide SHALL start from `agent-def-overview.md` and SHALL not direct the reader to the retired native-agent `blueprints/` layout
+
+#### Scenario: Reader follows the deployment guide
+- **WHEN** a reader deploys a materialized revision
+- **THEN** the guide SHALL distinguish deployment input collection, planning, apply, and later launch

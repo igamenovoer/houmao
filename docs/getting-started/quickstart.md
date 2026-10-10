@@ -23,14 +23,14 @@ npx skills add https://github.com/igamenovoer/houmao-skills
 Append the tag matching your installed `houmao-mgr` for a reproducible install. Use `houmao-mgr system-skills` instead when `npx` or internet access is unavailable, or when you need package-local content, automatic pack closure, explicit homes, config-backed ownership, upgrade, or uninstall:
 
 ```bash
-npx skills add https://github.com/igamenovoer/houmao-skills#v2.1.0
+npx skills add https://github.com/igamenovoer/houmao-skills#v2.2.0
 houmao-mgr system-skills install --tool codex --pack admin
 houmao-mgr system-skills install --tool claude,codex,kimi,copilot,universal --pack admin
 houmao-mgr system-skills install --tool codex --home ~/.codex --pack admin --pack agent
 houmao-mgr system-skills upgrade --tool codex --home ~/.codex --pack admin
 ```
 
-Maintained Kimi Code 0.23.x unattended TUI launches start in native `--auto` mode. Managed role context uses bootstrap or auto-skill workflows; invoke the projected `houmao-auto-system-prompt` skill before substantive chat if Kimi has not confirmed that role context is loaded.
+Maintained Kimi Code launches require version 0.34.0 or later, with no upper version limit. Unattended TUI launches start in native `--auto` mode. Houmao delivers managed role context through `$KIMI_CODE_HOME/SYSTEM.md` before the provider starts and preserves Kimi's built-in prompt with `${base_prompt}`; no manual skill invocation or role-bootstrap chat turn is part of this flow.
 
 From a source checkout, run Python-based Houmao commands through Pixi. Installed-user examples such as `houmao-mgr project status` become `pixi run houmao-mgr project status`. Source checkout setup is:
 

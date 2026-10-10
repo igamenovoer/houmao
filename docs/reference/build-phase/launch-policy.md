@@ -22,6 +22,7 @@ A `LaunchPolicyStrategy` is the core unit of the policy engine. Each strategy co
 - **backends**: List of supported launch surfaces (e.g., `raw_launch`, `claude_headless`, `codex_headless`). Note: `LaunchSurface` (build-phase) includes `raw_launch` for generic local execution, while the run-phase `BackendKind` type uses `local_interactive` instead; `raw_launch` maps to `local_interactive` at runtime.
 - **supported_versions**: PEP 440-style version specifier for tool version compatibility (e.g., `>=2.1.81`).
 - **minimal_inputs**: Contract requirements — acceptable credential forms, whether user-prepared state is needed.
+- **system_prompt**: Explicit provider-native prompt method, owned surface, precedence conflicts, required engine environment, and source evidence.
 - **owned_paths**: File paths and keys the strategy manages to avoid conflicts with user configuration.
 - **actions**: Ordered list of mutations to apply to the launch environment.
 
@@ -64,21 +65,26 @@ Provider hooks are named actions within a strategy that perform provider-specifi
 |---|---|
 | `kimi.canonicalize_unattended_launch_inputs` | Strips caller-supplied Kimi prompt-mode-owned args such as `-p`, `--prompt`, `--output-format`, `--session`, `--continue`, `--skills-dir`, `--auto`, `--yolo`, and `--plan` before the `kimi_headless` backend builds the final command. |
 | `kimi.canonicalize_unattended_tui_launch_inputs` | Strips caller-supplied permission and session-startup flags before the `raw_launch` strategy restores its selected session selector and appends exactly one strategy-owned native `--auto`. |
+| `kimi.validate_native_system_prompt_contract` | Requires the v2 engine and rejects launch or project agent selection that would outrank the managed native prompt. |
 
 Hooks run within a provider state mutation lock for thread-safe file access.
 
 ## Kimi Unattended Posture
 
-Maintained Kimi unattended startup is version-scoped to Kimi Code 0.23.x and has two backend contracts:
+Maintained Kimi unattended startup requires Kimi Code 0.34.0 or later, with no upper version limit, and has two backend contracts:
 
 - `kimi_headless` owns prompt-mode command placement. Exact resume uses `--session <session_id>`, latest resume uses `--continue`, the prompt value follows `-p`, output format is `stream-json`, and managed skills use `--skills-dir <KIMI_CODE_HOME>/skills`. Prompt mode removes TUI permission flags because `-p` is already non-interactive.
 - Kimi TUI launch uses the `raw_launch` surface, which maps to `local_interactive`. The strategy strips caller-owned permission and session selectors, restores the selected fresh/latest/exact session selector, writes `.skip-migration-from-kimi-cli`, keeps `default_permission_mode = "auto"` as a managed-home fallback, and appends one native `--auto` argument.
 
-Kimi Code 0.23.x accepts native `--auto` with fresh, `--continue`, and `--session <session_id>` TUI startup. Houmao no longer sends a post-readiness `/auto on` command. `as_is` launches preserve native approval behavior and do not receive the strategy-owned `--auto` argument.
+Kimi Code 0.34.0 or later accepts native `--auto` with fresh, `--continue`, and `--session <session_id>` TUI startup. Houmao sends no post-readiness permission command. `as_is` launches preserve native approval behavior and do not receive the strategy-owned `--auto` argument.
 
 Kimi auto permission mode is the provider-native no-question posture: normal tool approvals are automatic and `AskUserQuestion` requests are denied so the agent must decide and continue. It does not bypass explicit Kimi hard-deny policies or user-configured deny rules.
 
-Kimi Code 0.23.x managed role delivery uses bootstrap or auto-skill workflows. Houmao can project `houmao-auto-system-prompt` into managed Kimi homes; users may need to invoke it before substantive chat when automatic skill startup does not run first.
+Unattended Kimi launches also pre-seed the provider workspace-trust record before provider start. Kimi Code 0.34.0 or later gates project-level MCP config behind per-workspace trust and otherwise opens a blocking "Trust this folder?" modal at TUI startup, which unattended mode cannot answer. The trust check is presence-only state in the provider home, so provider-start planning writes `$KIMI_CODE_HOME/workspace-trust/<workdir-key>` for the actual launch working directory on fresh headless starts, fresh TUI starts, and relaunches, repairs a missing or drifted record, and records the workspace key in launch provenance. `as_is` launches receive no pre-seed and keep Kimi's native trust interaction.
+
+Kimi managed role delivery uses the `native_home_system_prompt` contract. Brain construction writes the complete composed prompt to `$KIMI_CODE_HOME/SYSTEM.md` as `${base_prompt}`, a blank line, and the effective Houmao prompt. Provider-start planning locks the home, checks and repairs those canonical bytes, records effective and rendered SHA-256 digests, and forces `KIMI_CODE_LEGACY_FLAG=0` after other environment layers.
+
+Kimi expands `${identifier}` tokens in the system template. Houmao therefore rejects every such token in role-authored effective prompt text; a literal dollar sign without that shape remains valid. Managed launch also rejects `--agent`, `--agent-file`, a project default `agent` profile with `override: true`, and the equivalent profile in configured `extra_agent_dirs`, because those surfaces outrank the managed home prompt. Houmao reports project-owned conflicts without editing them.
 
 ## Current Reasoning Projection
 

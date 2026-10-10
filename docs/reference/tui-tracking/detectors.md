@@ -15,7 +15,7 @@ flowchart TD
     VM["Version matching"]
     CCD["ClaudeCodeSignalDetectorV2_1_X"]
     CXD["Codex 0.116.x / 0.144.x profiles"]
-    KMD["Kimi 0.11.x / 0.23.x profiles"]
+    KMD["Kimi >=0.34.0 profile<br/>no upper bound"]
     BEST["Best detector for<br/>observed CLI version"]
 
     TOOL --> AID
@@ -66,9 +66,10 @@ Derives lifecycle hints from a window of recent temporal frames. These hints inf
 
 ### Kimi Code Detectors
 
-- **`KimiCodeSignalDetectorV0_11_X`** — Kimi Code detector targeting the observed `0.11.x` pi-tui surface. It recognizes the bordered editor prompt, typed draft posture, current-turn activity spinner/temporal growth, bounded approval panels, interruption notices, and footer model `thinking` metadata that must not imply activity by itself.
-- **`KimiCodeSignalDetectorV0_23_X`** — Kimi 0.23.x profile validated against five development and three held-out unattended recordings. It limits spinner activity to the live edge, ignores historical moon rows and footer `thinking` metadata after completion, and relies on the current spinner-to-editor relationship instead of 0.11-era temporal growth.
+- **`KimiCodeSignalDetectorV0_34_PLUS`** — Kimi Code profile candidate selected for every observed version at or above 0.34.0. It limits spinner activity to the live edge, ignores historical moon rows and footer `thinking` metadata after completion, and relies on the current spinner-to-editor relationship. The version range has no upper bound. Fresh labeled 0.34.x capture and replay evidence remains required before calling the detector qualified.
 - **`FallbackKimiCodeSignalDetector`** — Conservative Kimi fallback for unmatched versions.
+
+Pre-0.34 Kimi recordings are historical evidence only. They do not register a selectable maintained detector profile and do not qualify current Kimi support.
 
 ### Fallback Detectors
 
@@ -92,12 +93,12 @@ A registration entry in the registry.
 | `detector_name` | `str` | Human-readable detector name |
 | `detector_version` | `str` | Detector version string |
 | `minimum_supported_version` | `str` | Minimum CLI version this detector supports |
-| `maximum_supported_version` | `str` | Exclusive upper bound for the evidence-backed compatibility interval |
+| `maximum_supported_version` | `str \| None` | Exclusive upper bound for bounded evidence intervals, or `None` for a maintained minimum-only registration |
 | `profile_factory` | callable | Factory that produces a configured detector profile |
 
 ### ResolvedDetectorProfile
 
-The resolved profile for one tracker session, selected only when the observed version lies inside a maintained half-open interval. Version gaps, missing versions, and newer unvalidated releases use the app-specific fallback. Tests may request an exact registered detector-version override for recorded experiments.
+The resolved profile for one tracker session, selected only when the observed version lies inside a maintained bounded interval or at or above a maintained minimum-only registration. Version gaps and missing versions use the app-specific fallback. Tests may request an exact registered detector-version override for recorded experiments.
 
 ### `app_id_from_tool(tool: str) -> str`
 
@@ -117,7 +118,7 @@ Codex TUI signal detection with temporal hint logic. Includes versioned detector
 
 ### `kimi_code/`
 
-Kimi Code signal detection for the pi-tui surface. The maintained profile is evidence-first: rules are backed by recorded Kimi sessions and source inspection under `extern/orphan/kimi-code`. It scopes activity to the current turn/live edge and treats approval detection as bounded panel structure, not a full exact string match.
+Kimi Code signal detection for the pi-tui surface. The selected 0.34-or-later candidate uses source inspection under `extern/orphan/kimi-code` and carries forward rules that still require fresh 0.34.x recorded qualification. It scopes activity to the current turn/live edge and treats approval detection as bounded panel structure, not a full exact string match.
 
 ### `unsupported_tool/`
 

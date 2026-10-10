@@ -93,7 +93,9 @@ The `env` dictionary contains secret values (API keys, tokens) resolved at launc
 
 ### Kimi TUI unattended launch ownership
 
-When a Kimi Code 0.23.x launch targets `local_interactive` with `operator_prompt_mode = unattended`, launch-policy projection produces the final native `--auto` command before `build_launch_plan()` returns. The plan contains no post-readiness auto-refresh metadata, and the local-interactive backend sends no synthetic permission command. Kimi `as_is` plans preserve provider-native approval behavior.
+When a Kimi Code 0.34.0-or-later launch targets `local_interactive` with `operator_prompt_mode = unattended`, launch-policy projection produces the final native `--auto` command before `build_launch_plan()` returns. The plan contains no post-readiness permission metadata, and the local-interactive backend sends no synthetic permission command. Kimi `as_is` plans preserve provider-native approval behavior.
+
+For both `kimi_headless` and Kimi `local_interactive`, provider-start planning verifies `$KIMI_CODE_HOME/SYSTEM.md` immediately before launch and repairs drift to the canonical `${base_prompt}` plus complete effective-prompt form. `metadata.native_system_prompt` records the method, relative path, projection state, effective and rendered hashes, built-in-prompt preservation, engine requirement, detected provider version, and validation result. The final environment always contains `KIMI_CODE_LEGACY_FLAG=0`; a later truthy runtime override fails before process start.
 
 ## backend_for_tool
 

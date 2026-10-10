@@ -347,7 +347,7 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
                 'exec "$idle_shell" -l',
             ]
         )
-        pane_command = f"sh -lc {shlex.quote(script)}"
+        pane_command = f"bash -lc {shlex.quote(script)}"
 
         try:
             result = run_tmux_shared(["respawn-pane", "-k", "-t", pane_target, pane_command])

@@ -4,6 +4,27 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [2.2.0] - 2026-08-09
+
+### Added
+
+- **Native Kimi system prompts**: managed Kimi launches now use Kimi Code's native system prompt instead of a Houmao-managed replacement, keeping role behavior aligned with the tool's own prompt evolution.
+- **Kimi workspace-trust pre-seeding for unattended launches**: Houmao writes the provider workspace-trust record during launch planning for unattended Kimi launches, so a fresh headless or TUI launch in a never-seen workdir no longer blocks on the interactive "Trust this folder?" modal. `as_is` launches keep the native trust UX.
+- **Houmao development install skill**: the new `houmao-dev-install` development skill installs the current checkout as an editable user-space uv tool with a commit-stamped local version and refreshes packaged Houmao system skills and development-skill copies in a project.
+- **Agent definition authoring guidance**: the agent-definition routine now ships authoring readmes, including a complete `swe-critic` example with intent source, derived materialization, and deploy contracts.
+
+### Fixed
+
+- **tmux pane commands run through a bash login shell**: the headless runner and local-interactive backend wrap pane commands in `bash -lc` instead of `sh -lc`, fixing pane startup failures and headless turn hangs on systems where `/bin/sh` is dash and the login profile chain contains bash-only syntax.
+
+### Docs
+
+- Archived the completed agent definition and Kimi native-prompt OpenSpec changes.
+
+### Notes
+
+- This release bumps the minor segment for the Kimi launch-runtime capabilities and the new development-install and agent-authoring surfaces.
+
 ## [2.1.0] - 2026-07-24
 
 ### Added

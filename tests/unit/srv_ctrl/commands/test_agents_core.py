@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import click
-from click.testing import CliRunner
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-import houmao.srv_ctrl.commands.agents.core as agents_core
-from houmao.agents.auto_skills import AUTO_SKILL_SYSTEM_PROMPT
 from houmao.agents.managed_prompt_header import compose_managed_launch_prompt
 from houmao.agents.mailbox_runtime_models import (
     FilesystemMailboxDeclarativeConfig,
@@ -20,19 +17,12 @@ from houmao.agents.realm_controller.gateway_storage import (
     gateway_paths_from_manifest_path,
     read_gateway_mail_notifier_record,
 )
-from houmao.agents.realm_controller.manifest import (
-    SessionManifestRequest,
-    build_session_manifest_payload,
-    default_manifest_path,
-    write_session_manifest,
-)
-from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
+from houmao.agents.realm_controller.manifest import default_manifest_path
 from houmao.agents.system_skills import SystemSkillSelectionPolicy
 from houmao.project.catalog import ManagedContentRef
 from houmao.project.launch_profiles import ResolvedLaunchProfileMemoSeed
 from houmao.srv_ctrl.commands.agents.core import (
     _resolve_launch_profile_system_skill_policy_or_click,
-    agents_group,
     launch_managed_agent_locally,
 )
 
@@ -141,148 +131,6 @@ def _install_basic_launch_patches(
         "houmao.srv_ctrl.commands.agents.core.backend_for_tool",
         lambda tool, prefer_local_interactive: "codex",
     )
-
-
-def _write_self_system_prompt_manifest(
-    tmp_path: Path,
-    *,
-    prompt_text: str | None,
-) -> Path:
-    """Write one validated session manifest for self system-prompt command tests."""
-
-    agent_name = "HOUMAO-worker"
-    agent_id = derive_agent_id_from_name(agent_name)
-    launch_plan = LaunchPlan(
-        backend="local_interactive",
-        tool="kimi",
-        executable="kimi",
-        args=[],
-        working_directory=tmp_path,
-        home_env_var="KIMI_CODE_HOME",
-        home_path=tmp_path / "home",
-        env={},
-        env_var_names=[],
-        role_injection=RoleInjectionPlan(
-            method="auto_skill_system_prompt",
-            role_name="researcher",
-            prompt=prompt_text or "",
-            bootstrap_message=None,
-        ),
-        metadata={},
-    )
-    payload = build_session_manifest_payload(
-        SessionManifestRequest(
-            launch_plan=launch_plan,
-            role_name="researcher",
-            brain_manifest_path=tmp_path / "brain.yaml",
-            agent_name=agent_name,
-            agent_id=agent_id,
-            tmux_session_name=agent_name,
-            backend_state={
-                "turn_index": 0,
-                "role_bootstrap_applied": False,
-                "working_directory": str(tmp_path),
-                "tmux_session_name": agent_name,
-            },
-        )
-    )
-    if prompt_text is None:
-        payload.pop("system_prompt", None)
-    manifest_path = tmp_path / "session.json"
-    write_session_manifest(manifest_path, payload)
-    return manifest_path
-
-
-def test_agents_self_system_prompt_show_reads_current_session_prompt(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    manifest_path = _write_self_system_prompt_manifest(
-        tmp_path,
-        prompt_text="Follow the managed Houmao role prompt.",
-    )
-    resolved_sessions: list[str] = []
-
-    monkeypatch.setattr(
-        agents_core,
-        "_require_current_tmux_session_name",
-        lambda: "HOUMAO-worker",
-    )
-
-    def _fake_resolve_current_session_manifest(*, session_name: str) -> SimpleNamespace:
-        resolved_sessions.append(session_name)
-        return SimpleNamespace(manifest_path=manifest_path)
-
-    monkeypatch.setattr(
-        agents_core,
-        "_resolve_current_session_manifest",
-        _fake_resolve_current_session_manifest,
-    )
-
-    result = CliRunner().invoke(
-        agents_group,
-        ["self", "system-prompt", "show", "--format", "text"],
-    )
-
-    assert result.exit_code == 0
-    assert result.output == "Follow the managed Houmao role prompt."
-    assert resolved_sessions == ["HOUMAO-worker"]
-
-
-def test_agents_self_system_prompt_show_rejects_explicit_selector() -> None:
-    result = CliRunner().invoke(
-        agents_group,
-        ["self", "system-prompt", "show", "--agent-name", "worker", "--format", "text"],
-    )
-
-    assert result.exit_code != 0
-    assert "explicit `--agent-id` and `--agent-name` selectors are not supported" in result.output
-
-
-def test_agents_self_system_prompt_show_fails_outside_managed_session(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        agents_core,
-        "_require_current_tmux_session_name",
-        lambda: (_ for _ in ()).throw(
-            click.ClickException("current-session managed-agent identity is required")
-        ),
-    )
-
-    result = CliRunner().invoke(
-        agents_group,
-        ["self", "system-prompt", "show", "--format", "text"],
-    )
-
-    assert result.exit_code != 0
-    assert "current-session managed-agent identity is required" in result.output
-
-
-def test_agents_self_system_prompt_show_fails_when_prompt_state_is_missing(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    manifest_path = _write_self_system_prompt_manifest(tmp_path, prompt_text=None)
-
-    monkeypatch.setattr(
-        agents_core,
-        "_require_current_tmux_session_name",
-        lambda: "HOUMAO-worker",
-    )
-    monkeypatch.setattr(
-        agents_core,
-        "_resolve_current_session_manifest",
-        lambda *, session_name: SimpleNamespace(manifest_path=manifest_path),
-    )
-
-    result = CliRunner().invoke(
-        agents_group,
-        ["self", "system-prompt", "show", "--format", "text"],
-    )
-
-    assert result.exit_code != 0
-    assert "missing effective system-prompt state" in result.output
 
 
 def test_launch_managed_agent_locally_merges_launch_profile_skill_overlays(
@@ -405,7 +253,7 @@ def test_launch_managed_agent_locally_merges_launch_profile_skill_overlays(
     }
 
 
-def test_launch_managed_agent_locally_requests_kimi_auto_system_prompt_skill(
+def test_launch_managed_agent_locally_passes_complete_kimi_prompt_to_builder(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -500,7 +348,9 @@ def test_launch_managed_agent_locally_requests_kimi_auto_system_prompt_skill(
     )
 
     build_request = captured["build_request"]
-    assert build_request.required_auto_skill_names == (AUTO_SKILL_SYSTEM_PROMPT,)
+    assert build_request.role_prompt_override
+    assert "You are a precise repo researcher." in build_request.role_prompt_override
+    assert not hasattr(build_request, "required_auto_skill_names")
 
 
 def test_launch_profile_policy_rejects_removed_individual_system_skill_selector() -> None:

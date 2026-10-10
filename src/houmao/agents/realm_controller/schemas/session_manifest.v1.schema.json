@@ -249,6 +249,7 @@
           "enum": [
             "native_developer_instructions",
             "native_append_system_prompt",
+            "native_home_system_prompt",
             "bootstrap_message",
             "cao_profile"
           ],

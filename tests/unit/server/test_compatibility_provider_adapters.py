@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import shlex
+from pathlib import Path
+
+import pytest
+
+from houmao.server.control_core.models import CompatibilityAgentProfile
 from houmao.server.control_core.provider_adapters import (
     ClaudeCompatibilityProvider,
+    CompatibilityProviderError,
     CodexCompatibilityProvider,
+    KimiCompatibilityProvider,
     supported_provider_ids,
 )
 
@@ -68,3 +76,50 @@ def test_claude_provider_exit_terminal_uses_escape() -> None:
     adapter.exit_terminal(tmux=_FakeTmux(), window_id="@9")  # type: ignore[arg-type]
 
     assert calls == [("@9", "Escape")]
+
+
+def test_kimi_compatibility_provider_writes_v034_markdown_agent_file(tmp_path: Path) -> None:
+    """Deprecated CAO compatibility uses Kimi's current Markdown profile syntax."""
+
+    adapter = KimiCompatibilityProvider()
+    command = adapter.build_command(
+        profile=CompatibilityAgentProfile(
+            name="researcher",
+            description="Research profile",
+            system_prompt="Follow the compatibility role.",
+        ),
+        profile_name="researcher",
+        terminal_id="terminal-1",
+        working_directory=tmp_path,
+    )
+
+    command_parts = shlex.split(command)
+    assert "--auto" in command_parts
+    assert "--yolo" not in command_parts
+    agent_path = Path(command_parts[command_parts.index("--agent-file") + 1])
+    assert agent_path.name == "agent.md"
+    assert agent_path.read_text(encoding="utf-8") == (
+        "---\n"
+        "name: houmao-cao-profile\n"
+        "description: Temporary Houmao CAO compatibility profile\n"
+        "override: true\n"
+        "---\n\n"
+        "${base_prompt}\n\n"
+        "Follow the compatibility role.\n"
+    )
+
+
+def test_kimi_compatibility_provider_rejects_prompt_placeholders(tmp_path: Path) -> None:
+    """CAO compatibility shares the all-placeholder rejection contract."""
+
+    with pytest.raises(CompatibilityProviderError, match=r"\$\{cwd\}"):
+        KimiCompatibilityProvider().build_command(
+            profile=CompatibilityAgentProfile(
+                name="researcher",
+                description="Research profile",
+                system_prompt="Literal ${cwd} is unsafe.",
+            ),
+            profile_name="researcher",
+            terminal_id="terminal-1",
+            working_directory=tmp_path,
+        )

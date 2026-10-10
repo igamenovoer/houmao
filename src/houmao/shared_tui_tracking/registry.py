@@ -15,8 +15,7 @@ from houmao.shared_tui_tracking.detectors import (
     FallbackCodexTuiSignalDetector,
     FallbackTrackedTurnSignalDetector,
     FallbackKimiCodeSignalDetector,
-    KimiCodeSignalDetectorV0_11_X,
-    KimiCodeSignalDetectorV0_23_X,
+    KimiCodeSignalDetectorV0_34_PLUS,
 )
 
 
@@ -41,11 +40,10 @@ class DetectorProfileRegistration:
             if self.maximum_supported_version is not None:
                 raise ValueError("Fallback detector registrations cannot define a maximum version.")
             return
-        if self.maximum_supported_version is None:
-            raise ValueError(
-                "Maintained detector registrations require an exclusive maximum version."
-            )
-        if self.maximum_supported_version <= self.minimum_supported_version:
+        if (
+            self.maximum_supported_version is not None
+            and self.maximum_supported_version <= self.minimum_supported_version
+        ):
             raise ValueError("Detector maximum version must be greater than its minimum version.")
 
 
@@ -122,18 +120,10 @@ class DetectorProfileRegistry:
                 DetectorProfileRegistration(
                     app_id="kimi_code",
                     detector_name="kimi_code",
-                    detector_version="0.11.x",
-                    minimum_supported_version=(0, 11, 0),
-                    maximum_supported_version=(0, 12, 0),
-                    profile_factory=KimiCodeSignalDetectorV0_11_X,
-                ),
-                DetectorProfileRegistration(
-                    app_id="kimi_code",
-                    detector_name="kimi_code",
-                    detector_version="0.23.x",
-                    minimum_supported_version=(0, 23, 0),
-                    maximum_supported_version=(0, 24, 0),
-                    profile_factory=KimiCodeSignalDetectorV0_23_X,
+                    detector_version=">=0.34.0",
+                    minimum_supported_version=(0, 34, 0),
+                    maximum_supported_version=None,
+                    profile_factory=KimiCodeSignalDetectorV0_34_PLUS,
                 ),
                 DetectorProfileRegistration(
                     app_id="kimi_code",

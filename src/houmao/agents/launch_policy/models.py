@@ -21,6 +21,11 @@ LaunchSurface = Literal[
 ]
 LaunchPolicySelectionSource = Literal["registry", "env_override"]
 LaunchPolicyApplicationKind = Literal["provider_start", "resume_control"]
+NativeSystemPromptMethod = Literal[
+    "native_developer_instructions",
+    "native_append_system_prompt",
+    "native_home_system_prompt",
+]
 
 
 class LaunchPolicyError(RuntimeError):
@@ -152,21 +157,23 @@ class MinimalInputContract:
 
 
 @dataclass(frozen=True)
-class SystemPromptBootstrapCapabilities:
-    """Declared provider capability for managed system-prompt bootstrap."""
+class NativeSystemPromptContract:
+    """Qualified native system-prompt method for one provider strategy."""
 
-    native_system_prompt: bool
-    provider_skills: bool
-    startup_visible_skill_metadata: bool
+    method: NativeSystemPromptMethod
+    owned_surface: str
+    precedence_conflicts: tuple[str, ...]
+    required_engine_env: Mapping[str, str]
     evidence: tuple[StrategyEvidence, ...] = ()
 
     def to_payload(self) -> dict[str, Any]:
         """Return a JSON-serializable payload."""
 
         return {
-            "native_system_prompt": self.native_system_prompt,
-            "provider_skills": self.provider_skills,
-            "startup_visible_skill_metadata": self.startup_visible_skill_metadata,
+            "method": self.method,
+            "owned_surface": self.owned_surface,
+            "precedence_conflicts": list(self.precedence_conflicts),
+            "required_engine_env": dict(self.required_engine_env),
             "evidence": [item.to_payload() for item in self.evidence],
         }
 
@@ -208,7 +215,7 @@ class LaunchPolicyStrategy:
     backends: tuple[LaunchSurface, ...]
     supported_versions: SupportedVersionSpec
     minimal_inputs: MinimalInputContract
-    system_prompt_bootstrap: SystemPromptBootstrapCapabilities
+    system_prompt: NativeSystemPromptContract
     evidence: tuple[StrategyEvidence, ...]
     owned_paths: tuple[OwnedPathSpec, ...]
     actions: tuple[LaunchPolicyAction, ...]
@@ -222,7 +229,7 @@ class LaunchPolicyStrategy:
             "backends": list(self.backends),
             "supported_versions": self.supported_versions.to_payload(),
             "minimal_inputs": self.minimal_inputs.to_payload(),
-            "system_prompt_bootstrap": self.system_prompt_bootstrap.to_payload(),
+            "system_prompt": self.system_prompt.to_payload(),
             "evidence": [item.to_payload() for item in self.evidence],
             "owned_paths": [item.to_payload() for item in self.owned_paths],
         }

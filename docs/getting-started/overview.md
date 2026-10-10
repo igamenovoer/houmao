@@ -2,7 +2,15 @@
 
 Houmao orchestrates CLI-based agents (Claude, Codex, Kimi) as real tmux-backed processes with isolated runtime homes. The lifecycle still has two phases. The reusable source model is `recipe + setup + auth`, and reusable birth-time launch configuration lives separately as **launch profiles** that compose with recipe defaults during build. In project overlays, auth selection is user-facing by display name while the catalog owns the stable underlying auth identity. Managed launches also prepend one short Houmao-owned prompt header by default after any prompt-overlay resolution and before backend-specific prompt injection. For the shared conceptual model that ties project profiles and native launch dossiers together, see [Launch Profiles](launch-profiles.md).
 
-Kimi Code 0.23.x is the maintained launch family. Unattended TUI launches use one strategy-owned native `--auto` argument for fresh and resumed sessions, while managed role context uses bootstrap or auto-skill workflows. Houmao projects `houmao-auto-system-prompt` into managed Kimi homes; invoke it before substantive chat if the role prompt is not confirmed loaded.
+Kimi Code 0.34.0 or later is the maintained launch family, with no upper version limit. Unattended TUI launches use one strategy-owned native `--auto` argument for fresh and resumed sessions. Before Kimi starts, Houmao writes the complete composed role prompt to `$KIMI_CODE_HOME/SYSTEM.md` after `${base_prompt}`, verifies the projection, and forces the v2 engine with `KIMI_CODE_LEGACY_FLAG=0`. Kimi receives no role-bootstrap chat turn.
+
+## Breaking Kimi Migration
+
+This boundary requires a clean managed brain and a fresh provider session. Stop Kimi agents built by the earlier Houmao release, then launch a clean replacement without `--reuse-home`; when replacing the same managed identity, use the supported `--force clean` launch posture. Do not relaunch or resume provider history under a session manifest created by the earlier prompt-delivery contract.
+
+A home containing `skills/houmao-auto-system-prompt` is stale and must be rebuilt, not repaired in place. A session manifest whose `launch_plan.role_injection.method` is `auto_skill_system_prompt` is deliberately rejected by current schema validation. The former `houmao-mgr agents self system-prompt show` command is removed; current manifests expose secret-free native method, path, validation state, and prompt digests instead of prompt text.
+
+Rollback is release-level only. Restore the previous Houmao release together with the homes and sessions it created, or keep the current release with newly built native-prompt homes and sessions. Mixing old homes or manifests with current code is unsupported.
 
 ## Two-Phase Lifecycle
 

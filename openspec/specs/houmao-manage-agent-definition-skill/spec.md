@@ -391,3 +391,71 @@ The unified agent-definition skill SHALL contain no Gemini credential routing, s
 #### Scenario: Agent-definition provider routing excludes Gemini
 - **WHEN** an agent uses the packaged definition skill to choose a provider lane
 - **THEN** the guidance routes only to maintained Claude, Codex, or Kimi instructions
+
+### Requirement: The existing Agent Definition routine owns authoring and deployment
+`houmao-shared-routines->houmao-agent-definition` SHALL provide one command family for initialization, derivation, clarification, approval, materialization, validation, planning, apply, inspection, doctor, update, and removal.
+
+#### Scenario: Human starts from requirements
+- **WHEN** an admin invokes the routine with prose for a new reusable agent
+- **THEN** it SHALL initialize or update `agent-def-overview.md` and SHALL stop at each requested review boundary
+
+#### Scenario: Human starts from a materialized revision
+- **WHEN** an admin asks to deploy an existing revision
+- **THEN** the routine SHALL skip authoring and SHALL collect only the revision's declared deployment inputs
+
+### Requirement: The routine delegates durable work to maintained commands
+The routine SHALL use maintained `houmao-mgr` commands for validation, materialization, planning, apply, doctor, update, and removal.
+
+#### Scenario: Deployment is confirmed
+- **WHEN** the human approves a Deployment Plan
+- **THEN** the routine SHALL invoke maintained apply and SHALL not reproduce filesystem or catalog mutation in skill instructions
+
+### Requirement: The routine does not invent semantic edit authority
+The routine SHALL bind only declared deployment inputs. It SHALL route undeclared content changes back to authoring and rematerialization.
+
+#### Scenario: Task requires changing core behavior
+- **WHEN** a request cannot fit declared bindings
+- **THEN** the routine SHALL explain the conflict and SHALL not patch the revision during deployment
+
+### Requirement: Definition administration remains admin-only and pre-launch
+The routine SHALL reject managed-agent posture for authoring and deployment. Successful deployment SHALL report but SHALL not execute the launch command.
+
+#### Scenario: Managed agent invokes definition deployment
+- **WHEN** verified actor posture is managed agent
+- **THEN** the routine SHALL reject the operation
+
+### Requirement: Agent Definition routine supports bounded plural deployment
+The existing Agent Definition routine SHALL collect count, shared inputs, member overrides, and explicit delegation before creating a Batch Request.
+
+#### Scenario: Human delegates three selection categories
+- **WHEN** the human asks for `N` deployments and explicitly delegates names, tools, and credential references
+- **THEN** the routine SHALL propose bounded selections and SHALL preview every member before apply
+
+### Requirement: The routine uses maintained batch commands
+The routine SHALL delegate validation, planning, apply, recovery, and doctor to maintained `houmao-mgr` batch commands.
+
+#### Scenario: Human confirms the batch plan
+- **WHEN** every member is valid and the human confirms
+- **THEN** the routine SHALL call one maintained batch apply command
+
+### Requirement: The packaged authoring route maintains workspace orientation
+
+The packaged `houmao-shared-routines->houmao-agent-definition` skill SHALL tell an admin authoring an Agent Definition to create and refresh `<authoring-dir>/README.md` according to the Agent Definition authoring README contract. The route SHALL keep README maintenance inside `definition-authoring` and SHALL preserve initialization, derivation, approval, preview, materialization, and validation as separate phases.
+
+#### Scenario: Manual authoring stops before approval
+
+- **WHEN** an admin explicitly asks the route to initialize and derive an authoring workspace but stop before approval
+- **THEN** the route creates or refreshes the root README after derivation
+- **AND THEN** it still stops before approval, preview, and immutable revision write
+
+#### Scenario: Natural-language authoring activates the admin route
+
+- **WHEN** a human operator naturally asks to turn an existing overview into a reusable Houmao Agent Definition
+- **THEN** the admin entrypoint routes to `definition-authoring`
+- **AND THEN** the authoring route refreshes the root README before returning derivation findings
+
+#### Scenario: README does not replace maintained commands
+
+- **WHEN** the authoring route generates or refreshes workspace orientation
+- **THEN** it continues using maintained `houmao-mgr` commands for initialization, derivation, approval, materialization, and validation
+- **AND THEN** it does not claim that README generation is a `houmao-mgr` subcommand

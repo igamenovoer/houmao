@@ -1,4 +1,4 @@
-"""Typed v4 manifest and static staging for Houmao system skills."""
+"""Typed v5 manifest and static staging for Houmao system skills."""
 
 from __future__ import annotations
 
@@ -24,8 +24,7 @@ SYSTEM_SKILLS_PACKAGE = "houmao.agents.assets.system_skills"
 SYSTEM_SKILL_MANIFEST_FILENAME = "manifest.toml"
 SYSTEM_SKILL_MANIFEST_SCHEMA_FILENAME = "manifest.schema.json"
 LEGACY_SYSTEM_SKILL_CATALOG_FILENAME = "legacy/catalog.v1.toml"
-SYSTEM_SKILL_MANIFEST_SCHEMA_VERSION = "houmao-system-skills.v4"
-SYSTEM_SKILL_AUTO_PROMPT_NAME = "houmao-auto-system-prompt"
+SYSTEM_SKILL_MANIFEST_SCHEMA_VERSION = "houmao-system-skills.v5"
 SYSTEM_SKILL_ACTOR_FRAME_HEADING = "## Actor Frame Gate"
 SYSTEM_SKILL_PUBLIC_ENTRYPOINT_FILENAME = "SKILL.md"
 SYSTEM_SKILL_PARENT_SCOPED_ENTRYPOINT_FILENAME = "SKILL-MAIN.md"
@@ -203,10 +202,9 @@ class SystemSkillDefaults:
 
 @dataclass(frozen=True)
 class SystemSkillManifest:
-    """Validated v4 static collection manifest."""
+    """Validated v5 static collection manifest."""
 
     schema_version: str
-    auto_skill_name: str
     defaults: SystemSkillDefaults
     packs: dict[str, SystemSkillPackRecord]
     standalone_skills: dict[str, StandaloneSystemSkillRecord]
@@ -692,7 +690,6 @@ def _parse_system_skill_manifest(
 
     manifest = SystemSkillManifest(
         schema_version=payload["schema_version"],
-        auto_skill_name=payload["auto_skill_name"],
         defaults=defaults,
         packs=packs,
         standalone_skills=standalone_skills,
@@ -714,8 +711,6 @@ def _validate_manifest_cross_references(
 
     if manifest.schema_version != SYSTEM_SKILL_MANIFEST_SCHEMA_VERSION:
         raise SystemSkillManifestError(f"{source}: unsupported manifest schema version.")
-    if manifest.auto_skill_name != SYSTEM_SKILL_AUTO_PROMPT_NAME:
-        raise SystemSkillManifestError(f"{source}: auto-skill ownership changed unexpectedly.")
     if tuple(manifest.standalone_skills) != EXPECTED_STANDALONE_SKILL_NAMES:
         raise SystemSkillManifestError(f"{source}: standalone skill inventory is not canonical.")
     if set(manifest.shared_routines) != set(EXPECTED_SHARED_ROUTINE_IDS):

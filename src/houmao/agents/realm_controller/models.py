@@ -27,7 +27,7 @@ CaoParsingMode = Literal["cao_only", "shadow_only"]
 RoleInjectionMethod = Literal[
     "native_developer_instructions",
     "native_append_system_prompt",
-    "auto_skill_system_prompt",
+    "native_home_system_prompt",
     "bootstrap_message",
     "cao_profile",
 ]
@@ -113,7 +113,8 @@ class RoleInjectionPlan:
     role_name:
         Repository role package name.
     prompt:
-        Raw role prompt text loaded from `roles/<role>/system-prompt.md`.
+        Complete effective launch prompt after managed headers and other
+        composition layers have been applied.
     bootstrap_message:
         Optional derived first-turn message used for fallback bootstrap mode.
     """

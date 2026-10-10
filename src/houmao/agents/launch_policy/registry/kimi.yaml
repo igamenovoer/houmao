@@ -1,11 +1,11 @@
 schema_version: 1
 tool: kimi
 strategies:
-  - strategy_id: kimi-unattended-0.23.x
+  - strategy_id: kimi-unattended-0.34-plus
     operator_prompt_mode: unattended
     backends:
       - kimi_headless
-    supported_versions: ">=0.23.0"
+    supported_versions: ">=0.34.0"
     minimal_inputs:
       credential_forms:
         - projected config.toml with managed:kimi-code OAuth provider and credentials/kimi-code.json token storage
@@ -15,14 +15,20 @@ strategies:
         - This strategy declares Kimi prompt-mode startup compatibility; credential readiness stays owned by the managed auth-bundle projection.
         - Kimi prompt mode internally uses auto permission handling and rejects --auto, --yolo, and --plan when combined with -p.
         - Houmao owns prompt placement, output format, session selectors, and managed --skills-dir injection for kimi_headless turns.
-    system_prompt_bootstrap:
-      native_system_prompt: false
-      provider_skills: true
-      startup_visible_skill_metadata: true
+    system_prompt:
+      method: native_home_system_prompt
+      owned_surface: SYSTEM.md
+      precedence_conflicts:
+        - --agent
+        - --agent-file
+        - project default-agent override
+        - configured extra-agent default override
+      required_engine_env:
+        KIMI_CODE_LEGACY_FLAG: "0"
       evidence:
         - kind: source_reference
-          ref: extern/orphan/kimi-code/packages/agent-core/src/skill/registry.ts
-          note: Kimi startup prompt lists discovered skill metadata, which gives Houmao auto skills a startup-visible trigger channel.
+          ref: extern/orphan/kimi-code/packages/agent-core-v2/src/workspace/workspaceAgentProfileLoader/internal/systemFile.ts
+          note: Kimi Code 0.34 loads SYSTEM.md from KIMI_CODE_HOME and expands base_prompt before the first user turn.
     evidence:
       - kind: source_reference
         ref: extern/orphan/kimi-code/apps/kimi-code/src/cli/commands.ts
@@ -32,7 +38,7 @@ strategies:
         note: Local Kimi source emits session.resume_hint meta events and resolves exact or latest prompt sessions by working directory.
       - kind: live_probe
         ref: /home/huangzhe/.kimi-code/bin/kimi --version
-        note: Installed Kimi Code 0.23.4 exposes -p, --output-format stream-json, and --skills-dir prompt-mode options matching the current local source contract.
+        note: Installed Kimi Code 0.34.0 exposes maintained prompt-mode options and the native SYSTEM.md contract.
     owned_paths:
       - path: config.toml
         keys:
@@ -48,11 +54,14 @@ strategies:
       - kind: provider_hook.call
         params:
           hook_id: kimi.canonicalize_unattended_launch_inputs
-  - strategy_id: kimi-tui-unattended-0.23.x
+      - kind: provider_hook.call
+        params:
+          hook_id: kimi.validate_native_system_prompt_contract
+  - strategy_id: kimi-tui-unattended-0.34-plus
     operator_prompt_mode: unattended
     backends:
       - raw_launch
-    supported_versions: ">=0.23.0"
+    supported_versions: ">=0.34.0"
     minimal_inputs:
       credential_forms:
         - projected config.toml with managed:kimi-code OAuth provider and credentials/kimi-code.json token storage
@@ -62,14 +71,20 @@ strategies:
         - This strategy declares Kimi TUI startup compatibility; credential readiness stays owned by the managed auth-bundle projection.
         - Kimi TUI unattended launch uses the native --auto flag for both fresh and resumed sessions; default_permission_mode = auto remains inspectable fallback state.
         - Houmao owns low-level Kimi permission and provider-session startup flags for unattended local-interactive launch; relaunch policy appends --continue or --session only when needed and does not submit a policy-changing chat command.
-    system_prompt_bootstrap:
-      native_system_prompt: false
-      provider_skills: true
-      startup_visible_skill_metadata: true
+    system_prompt:
+      method: native_home_system_prompt
+      owned_surface: SYSTEM.md
+      precedence_conflicts:
+        - --agent
+        - --agent-file
+        - project default-agent override
+        - configured extra-agent default override
+      required_engine_env:
+        KIMI_CODE_LEGACY_FLAG: "0"
       evidence:
         - kind: source_reference
-          ref: extern/orphan/kimi-code/packages/agent-core/src/skill/registry.ts
-          note: Kimi startup prompt lists discovered skill metadata, which gives Houmao auto skills a startup-visible trigger channel.
+          ref: extern/orphan/kimi-code/packages/agent-core-v2/src/workspace/workspaceAgentProfileLoader/internal/systemFile.ts
+          note: Kimi Code 0.34 loads SYSTEM.md from KIMI_CODE_HOME and preserves the builtin prompt through base_prompt.
     evidence:
       - kind: source_reference
         ref: extern/orphan/kimi-code/apps/kimi-code/src/cli/commands.ts
@@ -85,7 +100,7 @@ strategies:
         note: Local Kimi source denies AskUserQuestion while auto permission mode is active.
       - kind: live_probe
         ref: /home/huangzhe/.kimi-code/bin/kimi --version
-        note: Installed Kimi Code 0.23.4 accepts native --auto startup with current TUI session selectors.
+        note: Installed Kimi Code 0.34.0 accepts native --auto startup with current TUI session selectors and the v2 SYSTEM.md prompt surface.
     owned_paths:
       - path: config.toml
         keys:
@@ -103,3 +118,6 @@ strategies:
           key_path:
             - default_permission_mode
           value: auto
+      - kind: provider_hook.call
+        params:
+          hook_id: kimi.validate_native_system_prompt_contract

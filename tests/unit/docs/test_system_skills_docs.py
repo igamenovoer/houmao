@@ -103,7 +103,7 @@ def test_system_skill_docs_cover_installation_choices_and_invocation() -> None:
     assert "houmao-mgr system-skills install --tool <tool> --pack admin" in readme
     assert "houmao-mgr system-skills install --tool codex --pack agent" in combined
     assert "npx skills add https://github.com/igamenovoer/houmao-skills --list" in combined
-    assert "https://github.com/igamenovoer/houmao-skills#v2.1.0" in combined
+    assert "https://github.com/igamenovoer/houmao-skills#v2.2.0" in combined
     for onboarding_doc in (readme, quickstart, docs_index):
         assert "https://github.com/igamenovoer/houmao-skills" in onboarding_doc
     assert "Without `npx` or internet access" in readme
@@ -168,7 +168,7 @@ def test_system_skill_docs_cover_actor_welcome_and_static_lifecycle() -> None:
     assert "houmao-system-skills-receipt" not in cli_reference
     assert "`receipt_path`" not in cli_reference
     assert "`specialist-mgr` remains" in cli_reference
-    assert "`houmao-auto-system-prompt`" in overview
+    assert "houmao-auto-system-prompt" not in overview
     assert "only public roots eligible for implicit selection" in overview
     assert "Only an explicit `$houmao-admin-welcome ...` invocation selects it" in overview
     assert "Informational managed-agent requests stay local" in overview

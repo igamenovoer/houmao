@@ -53,3 +53,64 @@ After successful adoption it SHALL stop admin routing, refresh skill discovery w
 - **THEN** the admin entrypoint reports the actor transition
 - **AND THEN** subsequent managed self work enters through `houmao-agent-entrypoint`
 
+### Requirement: Admin entrypoint distinguishes authoring from deployment
+The admin entrypoint SHALL route human requirements for a reusable agent to Agent Definition authoring and SHALL route an existing materialized revision plus a target project to deployment.
+
+#### Scenario: Requirements have no materialized revision
+- **WHEN** the human describes what a reusable agent should be
+- **THEN** the entrypoint SHALL route to `houmao-agent-definition init-intent` or derivation rather than project deployment
+
+#### Scenario: Materialized revision is supplied
+- **WHEN** the human asks to deploy a specific revision
+- **THEN** the entrypoint SHALL route to deployment input collection and planning
+
+### Requirement: Admin entrypoint keeps deployment separate from launch
+The entrypoint SHALL not interpret “deploy this definition” as authority to start a managed agent.
+
+#### Scenario: Deployment succeeds
+- **WHEN** apply returns a launch handoff
+- **THEN** the entrypoint SHALL present the command and wait for a separate launch instruction
+
+### Requirement: Admin entrypoint routes explicit-instance state operations
+The admin entrypoint SHALL route runtime-variable and mindset inspection or mutation through the existing agent-instance routine and SHALL require one explicit target.
+
+#### Scenario: Human revises a mindset by name
+- **WHEN** the human names an agent and mindset
+- **THEN** the entrypoint SHALL route to operator-targeted mindset revision
+
+#### Scenario: Human omits the target
+- **WHEN** a mutation request does not identify one agent
+- **THEN** the entrypoint SHALL ask for the target rather than treating the operator as self
+
+### Requirement: Launch requests collect instance values
+The admin entrypoint SHALL distinguish deployment inputs from per-instance launch values.
+
+#### Scenario: Human supplies runtime values during launch
+- **WHEN** a profile declares runtime variables
+- **THEN** the entrypoint SHALL route those values to managed-launch preparation and SHALL not rewrite the project deployment
+
+### Requirement: Admin entrypoint routes explicit-instance workspace operations
+The admin entrypoint SHALL route workspace inspection, validation, remapping, materialization, tracking, projection, and cleanup through the existing agent-instance routine.
+
+#### Scenario: Human remaps one semantic label
+- **WHEN** the human names one agent, label, and relative path
+- **THEN** routing SHALL use explicit-target admin mutation
+
+#### Scenario: Human requests cleanup
+- **WHEN** the human asks to delete a private workspace
+- **THEN** routing SHALL identify the destructive operation and require maintained drift checks
+
+### Requirement: Admin entrypoint routes plural definition deployment
+The admin entrypoint SHALL route a request for multiple project deployments from one materialized definition to the Agent Definition batch route.
+
+#### Scenario: Human requests several agents
+- **WHEN** the request names a definition, target project, and positive count
+- **THEN** the entrypoint SHALL preserve explicit delegation and SHALL not route to repeated live launches
+
+### Requirement: Plural deployment does not imply launch
+The admin entrypoint SHALL present member launch handoffs after apply and SHALL wait for separate launch instructions.
+
+#### Scenario: Batch apply succeeds
+- **WHEN** all members are created
+- **THEN** the entrypoint SHALL not start any member
+

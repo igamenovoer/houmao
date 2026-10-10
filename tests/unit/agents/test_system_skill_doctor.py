@@ -63,14 +63,13 @@ def test_six_source_roots_have_versions_and_children_remain_unversioned() -> Non
 
     assert result.healthy
     assert result.checked_skill_names == EXPECTED_STANDALONE_SKILL_NAMES
-    assert result.project_version == "2.1.0"
+    assert result.project_version == "2.2.0"
     children = tuple((PUBLIC_ROOT / "houmao-shared-routines/subskills").glob("*/SKILL-MAIN.md"))
     assert len(children) == 16
     assert all("houmao_version:" not in path.read_text(encoding="utf-8") for path in children)
-    auto_skill = (
-        REPO_ROOT / "src/houmao/agents/assets/auto_skills/houmao-auto-system-prompt/SKILL.md"
-    )
-    assert "houmao_version:" not in auto_skill.read_text(encoding="utf-8")
+    auto_skill_root = REPO_ROOT / "src/houmao/agents/assets/auto_skills"
+    assert not (auto_skill_root / "__init__.py").exists()
+    assert not (auto_skill_root / "houmao-auto-system-prompt/SKILL.md").exists()
 
 
 def test_frontmatter_parser_preserves_exact_version_string(tmp_path: Path) -> None:
@@ -160,7 +159,7 @@ def test_source_check_fails_project_version_drift_without_rewriting_sources(
 
     assert not result.healthy
     assert len(result.issues) == 6
-    assert {issue.observed_version for issue in result.issues} == {"2.1.0"}
+    assert {issue.observed_version for issue in result.issues} == {"2.2.0"}
     assert {issue.expected_version for issue in result.issues} == {"9.9.9"}
     assert before == {
         name: (PUBLIC_ROOT / name / "SKILL.md").read_bytes()
@@ -217,7 +216,7 @@ def test_doctor_separates_missing_incomplete_drift_and_version_mismatch(
     lite = home / "skills/houmao-agent-loop-lite/SKILL.md"
     lite.write_text(
         lite.read_text(encoding="utf-8").replace(
-            'houmao_version: "2.1.0"',
+            'houmao_version: "2.2.0"',
             'houmao_version: "1.2.1"',
         ),
         encoding="utf-8",
@@ -248,7 +247,7 @@ def test_doctor_reports_unknown_running_version_without_losing_observed_value(
     )
 
     assert not result.healthy
-    assert {member.observed_version for member in result.members} == {"2.1.0"}
+    assert {member.observed_version for member in result.members} == {"2.2.0"}
     assert {member.version_status for member in result.members} == {"unavailable"}
 
 
@@ -273,7 +272,7 @@ def test_corrupt_config_stays_separate_from_direct_health(tmp_path: Path) -> Non
         (
             {
                 "schema_version": "houmao-skill-config.v1",
-                "houmao_version": "2.1.0",
+                "houmao_version": "2.2.0",
                 "projection_mode": "copy",
                 "skills": [],
             },
@@ -315,7 +314,7 @@ def test_config_version_and_digest_do_not_replace_installed_evidence(
     assert result.config.status == "current"
     assert result.config.houmao_version == "0.1.0"
     first = result.members[0]
-    assert first.observed_version == "2.1.0"
+    assert first.observed_version == "2.2.0"
     assert first.version_status == "match"
     assert first.config.content_digest == "0" * 64
 
@@ -346,7 +345,7 @@ def test_manifest_loading_does_not_require_version_metadata(tmp_path: Path) -> N
     shutil.copytree(source_root, copied_root)
     entrypoint = copied_root / "public/houmao-agent-entrypoint/SKILL.md"
     entrypoint.write_text(
-        entrypoint.read_text(encoding="utf-8").replace('houmao_version: "2.1.0"\n', ""),
+        entrypoint.read_text(encoding="utf-8").replace('houmao_version: "2.2.0"\n', ""),
         encoding="utf-8",
     )
 
@@ -361,7 +360,7 @@ def test_manifest_loading_does_not_require_version_metadata(tmp_path: Path) -> N
         destination_root=tmp_path / "staged",
     )
 
-    assert manifest.schema_version == "houmao-system-skills.v4"
+    assert manifest.schema_version == "houmao-system-skills.v5"
     assert loaded.schema_version == manifest.schema_version
     staged_entrypoint = staged.skills[0].path / "SKILL.md"
     assert "houmao_version:" not in staged_entrypoint.read_text(encoding="utf-8")

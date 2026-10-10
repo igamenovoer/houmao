@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,7 @@ from houmao.project.agent_definitions import (
     materialize_revision,
     plan_deployment,
     remove_agent_deployment,
+    source_set,
     validate_revision,
 )
 from houmao.agents.instance_state import prepare_instance_state
@@ -28,7 +30,11 @@ from houmao.project.catalog import ProjectCatalog
 from houmao.project.overlay import bootstrap_project_overlay_at_root
 
 
-def _author_revision(tmp_path: Path) -> Path:
+REPO_ROOT = Path(__file__).resolve().parents[3]
+EXAMPLE_AUTHORING_ROOT = REPO_ROOT / "examples" / "agent-authoring" / "swe-critic"
+
+
+def _author_revision(tmp_path: Path, *, root_readme: str | None = None) -> Path:
     """Create one validating revision through the complete authoring lifecycle."""
 
     workspace_root = tmp_path / "authoring"
@@ -73,8 +79,58 @@ def _author_revision(tmp_path: Path) -> Path:
         source_skill_roots=(skill,),
     )
     approve_derivation(workspace, approved_by="test-operator")
+    if root_readme is not None:
+        readme_path = workspace.root / "README.md"
+        readme_path.write_text("# Initial orientation\n", encoding="utf-8")
+        readme_path.write_text(root_readme, encoding="utf-8")
     materialize_revision(workspace)
     return workspace.definition_root
+
+
+def test_authoring_root_readme_is_outside_all_definition_digest_boundaries(
+    tmp_path: Path,
+) -> None:
+    """Creating and refreshing root orientation preserves approval and revision identity."""
+
+    without_readme = validate_revision(_author_revision(tmp_path / "without-readme"))
+    with_readme_root = tmp_path / "with-readme"
+    with_readme = validate_revision(
+        _author_revision(
+            with_readme_root,
+            root_readme="# Current orientation\n\nThis text can be refreshed.\n",
+        )
+    )
+    workspace = AgentDefinitionWorkspace(with_readme_root / "authoring")
+
+    assert workspace.root.joinpath("README.md").is_file()
+    assert workspace.root.joinpath("README.md") not in source_set(workspace)
+    assert with_readme.revision_digest == without_readme.revision_digest
+    assert with_readme.instance_contract_digest == without_readme.instance_contract_digest
+
+
+def test_packaged_authoring_example_readme_is_complete_and_portable() -> None:
+    """The maintained example inventories every file through confined relative links."""
+
+    readme_path = EXAMPLE_AUTHORING_ROOT / "README.md"
+    text = readme_path.read_text(encoding="utf-8")
+    linked_files = {match.split("#", 1)[0] for match in re.findall(r"\[[^\]]+\]\(([^)]+)\)", text)}
+    actual_files = {
+        path.relative_to(EXAMPLE_AUTHORING_ROOT).as_posix()
+        for path in EXAMPLE_AUTHORING_ROOT.rglob("*")
+        if path.is_file()
+    }
+
+    assert linked_files == actual_files
+    assert all(
+        not Path(link).is_absolute() and ".." not in Path(link).parts for link in linked_files
+    )
+    assert "/data/" not in text
+    assert "generated orientation" in text
+    assert "Editing it does not change the agent definition" in text
+    assert "sha256:11ee9142bd928ff75769b2c50ec47d9274a5c387a38a0a183d21598d0f9bb5b1" in text
+    assert "sha256:b3cf3a6f6eac7cce388e1051425b5ee11bedb7098112dac18f27091f894eb30b" in text
+    assert "Share this full workspace" in text
+    assert "Share only `agent-definition/`" in text
 
 
 def test_authoring_is_digest_bound_and_revision_is_portable(tmp_path: Path) -> None:

@@ -1,0 +1,35 @@
+schema_version = "houmao-agent-materialization.v1"
+definition_id = "swe-critic"
+revision_id = "1.0.0"
+purpose = "Review a software project's codebase and design, demo or production level, for extensibility, ease of understanding, responsibility division, and coherence versus coupling, reporting evidence-backed findings."
+role_prompt_source = "prompts/system.md"
+memo_seed_source = "memo/houmao-memo.md"
+role_prompt = "materials/prompts/system.md"
+memo_seed = "materials/memo/houmao-memo.md"
+skills = ["materials/skills/swe-critic-review"]
+
+[[deploy_inputs]]
+key = "task_objective"
+value_type = "string"
+required = true
+bindings = [
+  { target = "role_prompt", mode = "text", marker = "{{houmao.deploy.task_objective}}" },
+  { target = "memo_seed", mode = "text", marker = "{{houmao.deploy.task_objective}}" },
+]
+
+[instance]
+schema_version = "houmao-agent-instance-contract.v1"
+
+[instance.private_workspace]
+mode = "optional"
+default_enabled = false
+workdir_mode = "project-root"
+tracked_by_default = false
+
+[[instance.private_workspace.directories]]
+key = "workspace.reports"
+default_path = "reports"
+description = "Review reports and supporting evidence."
+path_kind = "directory"
+required = true
+materialize = true

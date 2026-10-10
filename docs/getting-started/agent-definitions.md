@@ -27,6 +27,8 @@ flowchart LR
 
 `intent/derived` contains the operator agent's interpretation, normalized materialization mapping, confined copies of source materials, validation evidence, and digest-bound approval. Editing source or derived material invalidates prior approval. The packaged `builtin:reference-reviewer` revision provides a validation and deployment example without becoming mutable project state.
 
+The packaged authoring skill also maintains `<authoring-dir>/README.md`. This generated, non-authoritative orientation describes the current lifecycle state, actual directory tree, every regular file, ownership boundaries, revision digests, and next commands. The skill refreshes it before each user-facing authoring stop or handoff. Direct `houmao-mgr` callers do not receive this file automatically.
+
 An **Agent Definition Revision** contains:
 
 - `definition.toml`, which identifies the definition and immutable revision;
@@ -35,7 +37,7 @@ An **Agent Definition Revision** contains:
 - `assets/`, which contains prompts, memo material, and complete Agent Skill directories;
 - `provenance/`, which records materialization evidence.
 
-The revision digest covers the semantic contents. A materialized revision is never edited in place. Change the intent, derive again, approve the new interpretation, and write another revision.
+The revision digest covers the semantic contents. The authoring-root README is outside source, derived, approval, and revision digest boundaries; changing it does not change the definition. A materialized revision is never edited in place. Change `intent/src`, derive again, approve the new interpretation, and write another revision.
 
 ## Authoring Commands
 
@@ -54,14 +56,18 @@ houmao-mgr project agent-definitions derive ./review-agent \
   --skill /work/reviewer-materials/skills/review-checklist
 ```
 
-The normalized materialization file maps role and memo sources under `intent/src`, declares definition, deployment, and instance contracts, and lists each derived skill destination. Review the derived files, approve their exact digests, preview, write one exact immutable revision root, and validate it:
+The normalized materialization file maps role and memo sources under `intent/src`, declares definition, deployment, and instance contracts, and lists each derived skill destination. Review the derived files, approve their exact digests, preview, write the workspace-local immutable revision, and validate it:
 
 ```bash
 houmao-mgr project agent-definitions approve ./review-agent --approved-by operator
 houmao-mgr project agent-definitions materialize ./review-agent --preview
-houmao-mgr project agent-definitions materialize ./review-agent --output ./definitions/review-agent-1.0.0
-houmao-mgr project agent-definitions validate ./definitions/review-agent-1.0.0
+houmao-mgr project agent-definitions materialize ./review-agent
+houmao-mgr project agent-definitions validate ./review-agent/agent-definition
 ```
+
+The packaged skill uses `./review-agent/agent-definition` by default so the authoring workspace remains self-contained. Use `--output <revision-root>` only when the user explicitly requests an external immutable root. In that case, the README records portable identity and digest facts without embedding the external absolute path or claiming that the revision is bundled.
+
+Distribute the full authoring workspace when the recipient needs source intent, operator interpretation, approval evidence, and continuation guidance. Distribute only `agent-definition/` when the recipient needs the validated portable revision for deployment. The README inventories only files that exist, uses relative links, and must not contain credentials, secret values, or machine-local paths.
 
 Reusable definition material is non-secret. Keep credentials in the project credential catalog and bind them by existing name at deployment time.
 

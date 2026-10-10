@@ -22,9 +22,10 @@ from houmao.agents.launch_policy.models import (
     LaunchPolicyStrategy,
     LaunchSurface,
     MinimalInputContract,
+    NativeSystemPromptContract,
+    NativeSystemPromptMethod,
     OperatorPromptMode,
     OwnedPathSpec,
-    SystemPromptBootstrapCapabilities,
     SupportedVersionSpec,
     StrategyEvidence,
     ToolVersion,
@@ -307,12 +308,12 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
         notes=tuple(notes_payload),
     )
 
-    system_prompt_bootstrap_payload = payload.get("system_prompt_bootstrap")
-    if not isinstance(system_prompt_bootstrap_payload, dict):
-        raise LaunchPolicyError(f"{source}.system_prompt_bootstrap must be a mapping.")
-    system_prompt_bootstrap = _parse_system_prompt_bootstrap(
-        payload=system_prompt_bootstrap_payload,
-        source=f"{source}.system_prompt_bootstrap",
+    system_prompt_payload = payload.get("system_prompt")
+    if not isinstance(system_prompt_payload, dict):
+        raise LaunchPolicyError(f"{source}.system_prompt must be a mapping.")
+    system_prompt = _parse_native_system_prompt_contract(
+        payload=system_prompt_payload,
+        source=f"{source}.system_prompt",
     )
 
     evidence_payload = payload.get("evidence")
@@ -343,30 +344,42 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
         backends=backends,
         supported_versions=supported_versions,
         minimal_inputs=minimal_inputs,
-        system_prompt_bootstrap=system_prompt_bootstrap,
+        system_prompt=system_prompt,
         evidence=evidence,
         owned_paths=owned_paths,
         actions=actions,
     )
 
 
-def _parse_system_prompt_bootstrap(
+def _parse_native_system_prompt_contract(
     *,
     payload: Mapping[str, Any],
     source: str,
-) -> SystemPromptBootstrapCapabilities:
-    """Parse system-prompt bootstrap capability metadata."""
+) -> NativeSystemPromptContract:
+    """Parse one qualified native system-prompt contract."""
 
-    native_system_prompt = payload.get("native_system_prompt")
-    provider_skills = payload.get("provider_skills")
-    startup_visible_skill_metadata = payload.get("startup_visible_skill_metadata")
-    for key, value in (
-        ("native_system_prompt", native_system_prompt),
-        ("provider_skills", provider_skills),
-        ("startup_visible_skill_metadata", startup_visible_skill_metadata),
+    method_raw = _require_non_blank_str(payload, "method", source=source)
+    supported_methods = {
+        "native_developer_instructions",
+        "native_append_system_prompt",
+        "native_home_system_prompt",
+    }
+    if method_raw not in supported_methods:
+        raise LaunchPolicyError(f"{source}.method is unsupported: `{method_raw}`.")
+    owned_surface = _require_non_blank_str(payload, "owned_surface", source=source)
+
+    conflicts_payload = payload.get("precedence_conflicts", [])
+    if not isinstance(conflicts_payload, list) or not all(
+        isinstance(item, str) and item.strip() for item in conflicts_payload
     ):
-        if not isinstance(value, bool):
-            raise LaunchPolicyError(f"{source}.{key} must be a boolean.")
+        raise LaunchPolicyError(f"{source}.precedence_conflicts must be a list of strings.")
+
+    engine_env_payload = payload.get("required_engine_env", {})
+    if not isinstance(engine_env_payload, dict) or not all(
+        isinstance(key, str) and key.strip() and isinstance(value, str)
+        for key, value in engine_env_payload.items()
+    ):
+        raise LaunchPolicyError(f"{source}.required_engine_env must map strings to strings.")
 
     evidence_payload = payload.get("evidence", [])
     if not isinstance(evidence_payload, list):
@@ -374,15 +387,14 @@ def _parse_system_prompt_bootstrap(
     evidence = tuple(
         _parse_evidence(item=item, source=f"{source}.evidence") for item in evidence_payload
     )
-    if startup_visible_skill_metadata and not evidence:
-        raise LaunchPolicyError(
-            f"{source}.evidence must describe startup-visible skill metadata support."
-        )
+    if not evidence:
+        raise LaunchPolicyError(f"{source}.evidence must describe the native prompt surface.")
 
-    return SystemPromptBootstrapCapabilities(
-        native_system_prompt=cast(bool, native_system_prompt),
-        provider_skills=cast(bool, provider_skills),
-        startup_visible_skill_metadata=cast(bool, startup_visible_skill_metadata),
+    return NativeSystemPromptContract(
+        method=cast(NativeSystemPromptMethod, method_raw),
+        owned_surface=owned_surface,
+        precedence_conflicts=tuple(item.strip() for item in conflicts_payload),
+        required_engine_env={str(key): str(value) for key, value in engine_env_payload.items()},
         evidence=evidence,
     )
 

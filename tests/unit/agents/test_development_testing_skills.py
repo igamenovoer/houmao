@@ -51,7 +51,7 @@ EXPECTED_TUI_COMMANDS = {
 }
 EXPECTED_CASE_IDS = {
     *(f"ACT-{index:03d}" for index in range(1, 7)),
-    *(f"AUTO-{index:03d}" for index in range(1, 3)),
+    *(f"NSP-{index:03d}" for index in range(1, 5)),
     *(f"ADM-{index:03d}" for index in range(1, 9)),
     *(f"AGT-{index:03d}" for index in range(1, 9)),
     *(f"SHR-{index:03d}" for index in range(1, 10)),
@@ -71,9 +71,14 @@ EXPECTED_AREA_CASE_PROFILES = {
             "ACT-006": "extended",
         },
     },
-    "managed-bootstrap.md": {
-        "area": "managed-bootstrap",
-        "cases": {"AUTO-001": "minimal", "AUTO-002": "extended"},
+    "native-prompt.md": {
+        "area": "native-prompt",
+        "cases": {
+            "NSP-001": "minimal",
+            "NSP-002": "normal",
+            "NSP-003": "extended",
+            "NSP-004": "complete",
+        },
     },
     "admin-routing.md": {
         "area": "admin-entrypoint",
@@ -152,7 +157,7 @@ EXPECTED_AREA_CASE_PROFILES = {
         },
     },
 }
-EXPECTED_PROFILE_TOTALS = {"minimal": 15, "normal": 30, "extended": 52, "complete": 54}
+EXPECTED_PROFILE_TOTALS = {"minimal": 15, "normal": 31, "extended": 53, "complete": 56}
 EXPECTED_TAG_CASES = {
     "critical": {
         "ACT-001",
@@ -160,7 +165,8 @@ EXPECTED_TAG_CASES = {
         "ACT-003",
         "ACT-004",
         "ACT-005",
-        "AUTO-001",
+        "NSP-001",
+        "NSP-002",
         "ADM-003",
         "ADM-004",
         "ADM-006",
@@ -236,7 +242,7 @@ EXPECTED_CASE_VARIANTS = {
     },
     "ACT-005": {"informational", "operational"},
     "ACT-006": {"raw-operator", "genuine-managed"},
-    "AUTO-002": {"resume", "relaunch", "compaction"},
+    "NSP-004": {"rebuild", "relaunch"},
     "SHR-003": {"admin-entrypoint", "agent-entrypoint"},
     "SHR-009": {"admin", "managed-agent"},
     "LOOP-004": {"pro-admin", "pro-agent", "lite-admin", "lite-agent"},
@@ -249,6 +255,18 @@ EXPECTED_CASE_VARIANTS = {
 VERSION_3_NEW_CASE_IDS = {"ACT-005", "ACT-006", "SHR-009", "LOOP-008"}
 VERSION_3_REVISION_2_CASE_IDS = {"ACT-001", "ACT-003", "ADM-002", "LOOP-001"}
 VERSION_4_NEW_CASE_IDS = {f"ADF-{index:03d}" for index in range(1, 9)}
+VERSION_5_REVISION_2_CASE_IDS = {"ADF-001", "ADF-002"}
+VERSION_6_NEW_CASE_IDS = {f"NSP-{index:03d}" for index in range(1, 5)}
+VERSION_4_AGENT_DEFINITION_SEMANTIC_DIGESTS = {
+    "ADF-001": "caa38e1fefecdd27b965838cfb03bbbb271edf4bb2e3a12eeb96567bcbec23a4",
+    "ADF-002": "1375921ddd72b2c81d75df0bbd8d665b8e6bbb8c2160ff147518e7f0db9a8d10",
+    "ADF-003": "2681bba6ea7cb77dbd23dbe26417c95a70c21dcafec36daabbdf45e7b8d6b210",
+    "ADF-004": "98d16687ec4a8b59a4f2874b949e07b54ca0a540683f434d5fa9777853164cdf",
+    "ADF-005": "4062faf34d16f48617b31c2e81da673d29bae52188a35cd9dcc26f447d155ea2",
+    "ADF-006": "db62460f0cba5ec50e2bb1680c86f699baab810652ae0e9ae8cc667da6acde0f",
+    "ADF-007": "b3579b4591cdab76e4947697d325fc437736256d6c690a0793d19247b374c133",
+    "ADF-008": "a05da2489fab862adacf7007a43c104c47566fc16fff4bfdeace12e9922ef5d2",
+}
 VERSION_2_CASE_SEMANTIC_DIGESTS = {
     "ACT-001": "acb0de95c879d01cd190c6e25c095f26dabf1f3c012efbb518dc6e7c2ed8341b",
     "ACT-002": "f7c631eb47b731d90529e67effddb3667f54c903d3137d2bb11cdb7089d3d977",
@@ -270,8 +288,6 @@ VERSION_2_CASE_SEMANTIC_DIGESTS = {
     "AGT-006": "b641cc4b610254ebfd15f31f2898dcb774a543b9d998ae2dbbfadc40657ed396",
     "AGT-007": "ae617d639e45d5181d74f96d00d263ae073305c89b41ff287a2ea0e7cd5ed05e",
     "AGT-008": "d1a340a33aa76ba3ff830377b5165c12cc15de780120282c4c247b272723ab29",
-    "AUTO-001": "20e1c110753cf91cbd966b1471dab94b2c255e10bd2289c50d3322bc2ad2a600",
-    "AUTO-002": "e50f67c298b52bf23c0f10ac929c4b1e28a1e758f7b00888255ca8693694b7e6",
     "LOOP-001": "aa67b777ae88263d8d6de9f7200939399994ee4db32791e67577a030f55eaa1c",
     "LOOP-002": "277b207b7575160634e7fb24e48d21f278896990e6ab03d0c5d9c582fd1e45ba",
     "LOOP-003": "b87982e8bd4f0599a2037922372a31f3fb3cc6c2f7fb999b84d9353011bd89d3",
@@ -353,7 +369,7 @@ def _behavior_semantic_digests(
     """Hash each case's version 2 semantic columns independently."""
     result: dict[str, str] = {}
     for case_id, (_, cells) in rows.items():
-        if case_id.startswith(("ACT-", "AUTO-")):
+        if case_id.startswith(("ACT-", "NSP-")):
             semantic = (cells[3], cells[4], cells[5], cells[6])
         elif case_id.startswith("ADM-") or case_id == "PRM-005":
             semantic = (cells[2], cells[3], cells[4], cells[5])
@@ -366,7 +382,7 @@ def _behavior_semantic_digests(
 def _case_stimulus(case_id: str, cells: list[str]) -> str:
     """Return the exact-stimulus or stimulus-authority column for one case row."""
 
-    if case_id.startswith(("ACT-", "AUTO-")):
+    if case_id.startswith(("ACT-", "NSP-")):
         return cells[3]
     return cells[2]
 
@@ -426,7 +442,7 @@ def test_development_testing_skill_links_resolve() -> None:
 def test_behavior_catalog_declares_every_required_case_and_functional_area() -> None:
     """The versioned catalog owns all stable cases through eight functional areas."""
     catalog = (BEHAVIOR_ROOT / "references" / "case-catalog.md").read_text(encoding="utf-8")
-    assert "houmao-dev-behavior-cases.v4" in catalog
+    assert "houmao-dev-behavior-cases.v6" in catalog
 
     expected_area_paths = set(EXPECTED_AREA_CASE_PROFILES)
     actual_area_paths = {
@@ -451,14 +467,15 @@ def test_behavior_catalog_declares_every_required_case_and_functional_area() -> 
     assert "Case revision: `2` for `ACT-001` and `ACT-003`" in combined
     assert "Case revision: `2` for `ADM-002`" in combined
     assert "Case revision: `2` for `LOOP-001`" in combined
+    assert "Case revision: `2` for `ADF-001` and `ADF-002`" in combined
 
 
-def test_behavior_case_semantics_change_only_for_declared_version_3_cases() -> None:
-    """Version 4 preserves version 3 semantic oracles while adding definition cases."""
+def test_behavior_case_semantics_change_only_for_declared_case_revisions() -> None:
+    """Version 6 preserves old oracles outside declared revisions and new native cases."""
 
     actual = _behavior_semantic_digests(_behavior_case_rows())
     assert set(VERSION_2_CASE_SEMANTIC_DIGESTS) == (
-        EXPECTED_CASE_IDS - VERSION_3_NEW_CASE_IDS - VERSION_4_NEW_CASE_IDS
+        EXPECTED_CASE_IDS - VERSION_3_NEW_CASE_IDS - VERSION_4_NEW_CASE_IDS - VERSION_6_NEW_CASE_IDS
     )
     unchanged = set(VERSION_2_CASE_SEMANTIC_DIGESTS) - VERSION_3_REVISION_2_CASE_IDS
     assert {case_id: actual[case_id] for case_id in unchanged} == {
@@ -466,6 +483,15 @@ def test_behavior_case_semantics_change_only_for_declared_version_3_cases() -> N
     }
     for case_id in VERSION_3_REVISION_2_CASE_IDS:
         assert actual[case_id] != VERSION_2_CASE_SEMANTIC_DIGESTS[case_id]
+    unchanged_agent_definitions = (
+        set(VERSION_4_AGENT_DEFINITION_SEMANTIC_DIGESTS) - VERSION_5_REVISION_2_CASE_IDS
+    )
+    assert {case_id: actual[case_id] for case_id in unchanged_agent_definitions} == {
+        case_id: VERSION_4_AGENT_DEFINITION_SEMANTIC_DIGESTS[case_id]
+        for case_id in unchanged_agent_definitions
+    }
+    for case_id in VERSION_5_REVISION_2_CASE_IDS:
+        assert actual[case_id] != VERSION_4_AGENT_DEFINITION_SEMANTIC_DIGESTS[case_id]
 
 
 def test_behavior_profiles_are_cumulative_and_match_committed_counts() -> None:
@@ -484,7 +510,7 @@ def test_behavior_profiles_are_cumulative_and_match_committed_counts() -> None:
     assert resolved_profiles["complete"] == EXPECTED_CASE_IDS
 
     catalog = (BEHAVIOR_ROOT / "references" / "case-catalog.md").read_text(encoding="utf-8")
-    assert "| `all` | 15 | 30 | 52 | 54 |" in catalog
+    assert "| `all` | 15 | 31 | 53 | 56 |" in catalog
     for selector in (
         "<area>/<profile>",
         "<area>/<manual|automatic>/<profile>",
@@ -569,7 +595,7 @@ def test_behavior_generated_and_combined_context_cases_keep_distinct_provenance(
     """Generated/lifecycle origins and combined-pack actors remain explicit contracts."""
 
     rows = _behavior_case_rows()
-    for case_id in {"AUTO-001", "AUTO-002", "PRM-001", "PRM-002", "PRM-003"}:
+    for case_id in {"NSP-001", "NSP-002", "NSP-003", "NSP-004", "PRM-001", "PRM-002", "PRM-003"}:
         driver_mode, origin, _, _, _, _ = _invocation_fields(rows[case_id][1])
         assert driver_mode == "not-applicable"
         assert origin in {"generated-prompt", "lifecycle"}
@@ -588,11 +614,11 @@ def test_behavior_generated_and_combined_context_cases_keep_distinct_provenance(
     generated = (BEHAVIOR_ROOT / "references/cases/generated-prompts.md").read_text(
         encoding="utf-8"
     )
-    bootstrap = (BEHAVIOR_ROOT / "references/cases/managed-bootstrap.md").read_text(
+    native_prompt = (BEHAVIOR_ROOT / "references/cases/native-prompt.md").read_text(
         encoding="utf-8"
     )
     assert "DO NOT report generated prompt delivery as automatic driver-origin" in generated
-    assert "DO NOT report lifecycle prompt loading as automatic driver-origin" in bootstrap
+    assert "DO NOT report lifecycle prompt projection as automatic driver-origin" in native_prompt
 
 
 def test_behavior_tags_and_matrix_variants_are_stable() -> None:
@@ -600,7 +626,7 @@ def test_behavior_tags_and_matrix_variants_are_stable() -> None:
     catalog = (BEHAVIOR_ROOT / "references" / "case-catalog.md").read_text(encoding="utf-8")
     for tag, expected_cases in EXPECTED_TAG_CASES.items():
         line = next(line for line in catalog.splitlines() if line.startswith(f"- `{tag}`:"))
-        actual_cases = set(re.findall(r"`((?:ACT|AUTO|ADM|AGT|SHR|LOOP|PRM|ADF)-\d{3})`", line))
+        actual_cases = set(re.findall(r"`((?:ACT|NSP|ADM|AGT|SHR|LOOP|PRM|ADF)-\d{3})`", line))
         assert actual_cases == expected_cases
 
     area_text = "\n".join(

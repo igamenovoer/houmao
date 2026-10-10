@@ -143,7 +143,7 @@ def test_headless_runner_preserves_current_provider_raw_records_while_canonicali
     def _fake_run_tmux(args: list[str]) -> subprocess.CompletedProcess[str]:
         if args[:1] == ["respawn-pane"]:
             subprocess.run(
-                ["sh", "-lc", str(args[-1])],
+                ["bash", "-lc", str(args[-1])],
                 cwd=tmp_path,
                 env={**os.environ, "SHELL": str(idle_shell)},
                 text=True,
@@ -208,7 +208,7 @@ def test_headless_runner_tmux_persists_process_metadata(
         tmux_calls.append(list(args))
         if args[:1] == ["respawn-pane"]:
             subprocess.Popen(
-                ["sh", "-lc", str(args[-1])],
+                ["bash", "-lc", str(args[-1])],
                 cwd=tmp_path,
                 env={**os.environ, "SHELL": str(idle_shell)},
                 stdout=subprocess.DEVNULL,
@@ -286,7 +286,7 @@ def test_headless_runner_tmux_mirrors_output_to_console_and_files(
         tmux_calls.append(list(args))
         if args[:1] == ["respawn-pane"]:
             result = subprocess.run(
-                ["sh", "-lc", str(args[-1])],
+                ["bash", "-lc", str(args[-1])],
                 cwd=tmp_path,
                 env={**os.environ, "SHELL": str(idle_shell)},
                 text=True,
@@ -355,7 +355,7 @@ def test_headless_runner_tmux_reuses_stable_agent_pane_across_turns(
         if args[:1] == ["respawn-pane"]:
             respawn_targets.append(args[3])
             subprocess.run(
-                ["sh", "-lc", str(args[-1])],
+                ["bash", "-lc", str(args[-1])],
                 cwd=tmp_path,
                 env={**os.environ, "SHELL": str(idle_shell)},
                 text=True,
@@ -439,7 +439,7 @@ def test_headless_runner_tmux_bridge_preserves_raw_stdout_and_writes_canonical_e
     def _fake_run_tmux(args: list[str]) -> subprocess.CompletedProcess[str]:
         if args[:1] == ["respawn-pane"]:
             result = subprocess.run(
-                ["sh", "-lc", str(args[-1])],
+                ["bash", "-lc", str(args[-1])],
                 cwd=tmp_path,
                 env={**os.environ, "SHELL": str(idle_shell)},
                 text=True,

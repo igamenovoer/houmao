@@ -118,7 +118,7 @@ def test_system_skills_list_reports_static_collection_and_shared_routines() -> N
     assert len(shared) == 16
     assert all(record["invocation"].startswith("houmao-shared-routines->") for record in shared)
     assert "protected_routines" not in payload
-    assert payload["auto_skill_separate"] == "houmao-auto-system-prompt"
+    assert "auto_skill_separate" not in payload
 
 
 def test_system_skills_install_defaults_to_admin_pack(tmp_path: Path) -> None:

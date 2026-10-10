@@ -134,15 +134,15 @@ def test_detector_profile_registry_resolves_codex_version_family_and_fallback() 
 def test_detector_profile_registry_resolves_refreshed_kimi_family() -> None:
     registry = DetectorProfileRegistry.default()
 
-    refreshed_family = registry.resolve(app_id="kimi_code", observed_version="0.23.4")
-    prior_gap = registry.resolve(app_id="kimi_code", observed_version="0.22.9")
-    future_family = registry.resolve(app_id="kimi_code", observed_version="0.24.0")
+    refreshed_family = registry.resolve(app_id="kimi_code", observed_version="0.34.0")
+    prior_gap = registry.resolve(app_id="kimi_code", observed_version="0.33.9")
+    future_family = registry.resolve(app_id="kimi_code", observed_version="8.1.0")
 
-    assert refreshed_family.detector_version == "0.23.x"
-    assert refreshed_family.minimum_supported_version == (0, 23, 0)
-    assert refreshed_family.maximum_supported_version == (0, 24, 0)
+    assert refreshed_family.detector_version == ">=0.34.0"
+    assert refreshed_family.minimum_supported_version == (0, 34, 0)
+    assert refreshed_family.maximum_supported_version is None
     assert prior_gap.detector_version == "fallback"
-    assert future_family.detector_version == "fallback"
+    assert future_family.detector_version == ">=0.34.0"
 
 
 def test_detector_profile_registry_rejects_unknown_experimental_override() -> None:
@@ -151,8 +151,8 @@ def test_detector_profile_registry_rejects_unknown_experimental_override() -> No
     with pytest.raises(ValueError, match="is not registered"):
         registry.resolve(
             app_id="kimi_code",
-            observed_version="0.23.4",
-            detector_version_override="0.23.x-experimental",
+            observed_version="0.34.0",
+            detector_version_override="0.34.x-experimental",
         )
 
 

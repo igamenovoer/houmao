@@ -22,9 +22,9 @@ houmao-mgr --print-json system-skills doctor --agent-id <id>
 
 There is no `system-skills help` subcommand. Skill-level help comes from `$houmao-admin-welcome help`, `$houmao-admin-entrypoint help`, `$houmao-agent-entrypoint help`, `$houmao-shared-routines help`, or either top-level loop's `help` operation.
 
-## V4 Static Collection and Pack Membership
+## V5 Static Collection and Pack Membership
 
-The `houmao-system-skills.v4` manifest records six standalone source directories. Each one has a role, activation posture, pack owners, commands, aliases, dependencies, and a complete source path. It also records sixteen parent-scoped children owned by shared routines, including actor eligibility, route name, dependencies, commands, and aliases.
+The `houmao-system-skills.v5` manifest records six standalone source directories. Each one has a role, activation posture, pack owners, commands, aliases, dependencies, and a complete source path. It also records sixteen parent-scoped children owned by shared routines, including actor eligibility, route name, dependencies, commands, and aliases.
 
 | Pack | Audience | Static Top-Level Members | Default Lane |
 |---|---|---|---|
@@ -35,13 +35,13 @@ The `houmao-system-skills.v4` manifest records six standalone source directories
 
 The two actor entrypoints use narrow implicit activation. `houmao-admin-entrypoint` handles semantically Houmao-related requests in a raw human-operator context, and `houmao-agent-entrypoint` handles them in a genuine managed-agent context. `houmao-admin-welcome`, `houmao-shared-routines`, and both loop roots remain explicit-only. Exact `$houmao-*` handles take precedence over implicit discovery. In a combined installation, current execution context selects the actor entrypoint; prompt claims cannot turn a raw operator into managed self or a managed agent into admin.
 
-The sixteen shared children use `SKILL-MAIN.md` below `houmao-shared-routines/subskills/`. They are route targets, not top-level install members. `houmao-auto-system-prompt` is a separate managed auto skill and never appears in the v4 manifest, skill config, or public-root inventory.
+The sixteen shared children use `SKILL-MAIN.md` below `houmao-shared-routines/subskills/`. They are route targets, not top-level install members. The v5 manifest has no generated or separate prompt-delivery skill category.
 
 ## Top-Level Release Metadata
 
 Each of the six standalone public `SKILL.md` roots declares one quoted `houmao_version` equal to the Houmao project release. The value identifies the checked-in static tree that a copy-paste installer, Skills CLI, or Houmao lifecycle projects without rendering. Release validation compares all six source values with `[project].version` before local distribution builds and tagged publication.
 
-The sixteen `SKILL-MAIN.md` children do not declare independent versions. `houmao-shared-routines/SKILL.md` is the release authority for the complete shared tree. Legacy skills, generated execplan skills, project-authored skills, and the separate `houmao-auto-system-prompt` asset remain outside this contract.
+The sixteen `SKILL-MAIN.md` children do not declare independent versions. `houmao-shared-routines/SKILL.md` is the release authority for the complete shared tree. Legacy skills, generated execplan skills, and project-authored skills remain outside this contract.
 
 Three values answer different questions:
 
@@ -55,11 +55,11 @@ Version metadata is diagnostic only. Install, sync, status, upgrade, managed lau
 
 ## Standard External Installation
 
-The dedicated [`houmao-skills`](https://github.com/igamenovoer/houmao-skills) repository is a valid static Agent Skills collection whose skill directories live at repository root. Its unqualified URL selects the latest stable release from `main`; append a matching release tag such as `#v2.1.0` to install the system skills for a specific `houmao-mgr` version. A standard Skills CLI can list or install it without running Houmao's manager:
+The dedicated [`houmao-skills`](https://github.com/igamenovoer/houmao-skills) repository is a valid static Agent Skills collection whose skill directories live at repository root. Its unqualified URL selects the latest stable release from `main`; append a matching release tag such as `#v2.2.0` to install the system skills for a specific `houmao-mgr` version. A standard Skills CLI can list or install it without running Houmao's manager:
 
 ```bash
 npx skills add https://github.com/igamenovoer/houmao-skills --list
-npx skills add https://github.com/igamenovoer/houmao-skills#v2.1.0 --agent codex --skill '*' --yes
+npx skills add https://github.com/igamenovoer/houmao-skills#v2.2.0 --agent codex --skill '*' --yes
 ```
 
 Select all five admin siblings explicitly:
@@ -96,20 +96,19 @@ Kimi discovers projected skills when a later launch uses the same `KIMI_CODE_HOM
 
 ## `list`
 
-`list` reads the v4 manifest and reports:
+`list` reads the v5 manifest and reports:
 
 - each pack's id, audience, description, complete standalone membership, and default lanes;
 - each of the six standalone skills with role, activation posture, pack owners, commands, aliases, and dependencies;
 - each of the sixteen shared children with route, audiences, dependencies, commands, aliases, and parent-qualified invocation;
-- the three overlapping standalone members;
-- the separate auto-skill name.
+- the three overlapping standalone members.
 
 ```bash
 houmao-mgr system-skills list
 houmao-mgr --print-json system-skills list
 ```
 
-JSON output contains `schema_version`, `packs`, `standalone_skills`, `shared_routines`, `overlapping_standalone_skills`, `defaults`, and `auto_skill_separate`.
+JSON output contains `schema_version`, `packs`, `standalone_skills`, `shared_routines`, `overlapping_standalone_skills`, and `defaults`.
 
 ## `install`
 
@@ -342,7 +341,7 @@ Old names remain only in migration evidence and the read-only legacy digest inve
 - Untracked selected-path collisions fail preflight and remain unchanged.
 - Corrupt or future-version configs block lifecycle mutation but remain inspectable through status.
 - Old receipt-era roots remain unowned collisions until the user performs a clean reinstall.
-- Standalone names, child logical ids, and `houmao-auto-system-prompt` cannot be used as manager pack selectors.
+- Standalone names and child logical ids cannot be used as manager pack selectors.
 
 ## See Also
 

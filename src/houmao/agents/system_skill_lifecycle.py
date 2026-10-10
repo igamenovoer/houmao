@@ -488,11 +488,7 @@ def inspect_legacy_system_skill_paths(
         )
     if skill_root.is_dir():
         for path in sorted(skill_root.glob("houmao-*")):
-            if (
-                path.name in known_names
-                or path.name in standalone_names
-                or path.name == manifest.auto_skill_name
-            ):
+            if path.name in known_names or path.name in standalone_names:
                 continue
             paths.append(
                 LegacySystemSkillPathStatus(

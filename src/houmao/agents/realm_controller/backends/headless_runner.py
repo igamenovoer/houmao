@@ -380,7 +380,7 @@ class HeadlessCliRunner:
                 'exec "$idle_shell" -l',
             ]
         )
-        pane_command = f"sh -lc {shlex.quote(script)}"
+        pane_command = f"bash -lc {shlex.quote(script)}"
 
         if pane_target is None:
             try:
@@ -562,7 +562,7 @@ class HeadlessCliRunner:
                 'exec "$idle_shell" -l',
             ]
         )
-        pane_command = f"sh -lc {shlex.quote(script)}"
+        pane_command = f"bash -lc {shlex.quote(script)}"
 
         if pane_target is None:
             try:

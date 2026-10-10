@@ -62,7 +62,7 @@ npx skills add https://github.com/igamenovoer/houmao-skills --list
 Install all six from a specific release:
 
 ```bash
-npx skills add https://github.com/igamenovoer/houmao-skills#v2.1.0 --agent codex --skill '*' --yes
+npx skills add https://github.com/igamenovoer/houmao-skills#v2.2.0 --agent codex --skill '*' --yes
 ```
 
 Install the complete five-member admin surface:
@@ -200,7 +200,7 @@ Use `$houmao-admin-entrypoint help`, `$houmao-agent-entrypoint help`, or `$houma
 
 Managed memory remains the fixed `houmao-memo.md` plus contained `pages/` data. The memory route preserves authored memo links through relaunch, reset, and `recover_and_continue` flows.
 
-## Pack Policy and Auto Skill Separation
+## Pack Policy
 
 Stored source and profile policy selects complete packs:
 
@@ -214,9 +214,7 @@ launch:
 
 Source policy supports `default`, `extend`, `replace`, and `none`. An omitted or `default` source policy selects the managed `agent` default. Profile policy supports `inherit`, `extend`, `replace`, and `none`; an omitted profile policy inherits the source result. `replace` requires at least one pack, while `none` disables the collection. Individual skill selectors and the former `core`, `extensions`, and `all` set selectors are removed; complete packs are the only stored selection unit.
 
-On reused homes, Houmao synchronizes the complete config-owned selection and preserves unrelated user skills. Shared routines and loops remain when either selected pack still owns them.
-
-`houmao-auto-system-prompt` stays in `assets/auto_skills`. It has separate projection, collision, and provenance rules and never appears among the six roots, in a pack selector, or in a system-skills config.
+On reused homes, Houmao synchronizes the complete config-owned selection and preserves unrelated user skills. Shared routines and loops remain when either selected pack still owns them. The static source manifest uses schema `houmao-system-skills.v5`; it contains only pack-owned public roots and shared children.
 
 ## Projection and Tool Discovery
 

@@ -18,13 +18,13 @@ If a new case needs a field the schema cannot represent, use the native planning
 | `case_id` | Stable uppercase prefix and three digits, such as `ADM-003`; the prefix does not determine functional ownership |
 | `case_revision` | Positive integer incremented when stimulus or semantic oracle changes |
 | `title` | Short human-readable scenario name |
-| `function_area` | `activation`, `managed-bootstrap`, `admin-entrypoint`, `agent-entrypoint`, `shared-routines`, `agent-loops`, `generated-prompts`, or `agent-definitions` |
+| `function_area` | `activation`, `native-prompt`, `admin-entrypoint`, `agent-entrypoint`, `shared-routines`, `agent-loops`, `generated-prompts`, or `agent-definitions` |
 | `introduced_at` | `minimal`, `normal`, `extended`, or `complete`; higher profiles include lower tiers |
 | `tags` | Zero or more committed cross-cutting views; current names are `critical`, `actor-boundaries`, and `route-coverage` |
 | `providers` | Explicit subset of `claude`, `codex`, and `kimi`, or a recorded unsupported reason |
 | `context_type` | One named fixture context from `fixture-contexts.md` |
 | `required_pack` | `admin`, `agent`, `admin+agent`, or `none` |
-| `auto_skill_posture` | `present-required`, `absent-required`, or `not-applicable` |
+| `native_system_prompt_posture` | `native-required`, `absent-required`, or `not-applicable`; native-required records the provider method and projection digests when the provider owns a file surface |
 | `driver_invocation_mode` | `manual`, `automatic`, or `not-applicable` under the catalog contract |
 | `stimulus_origin` | `driving-agent`, `generated-prompt`, or `lifecycle`; `not-applicable` driver mode is valid only for the latter two origins |
 | `activation_mode` | `implicit`, `explicit`, `generated-prompt`, or `lifecycle` |
@@ -60,7 +60,7 @@ Variant records inherit the case id, revision, functional area, introduced profi
 | Field | Contract |
 | --- | --- |
 | `requested_selectors` | Exact ordered selector strings supplied by the maintainer |
-| `catalog_version` | `houmao-dev-behavior-cases.v4` |
+| `catalog_version` | `houmao-dev-behavior-cases.v6` |
 | `catalog_digest` | Digest of the committed catalog and selected area resources |
 | `resolved_cells` | Stable catalog-order records containing case id, revision, variant id, area, introduced profile, driver invocation mode, stimulus origin, exact stimulus digest, initial-root oracle, delegated-root oracle, route oracle, and contributing selectors |
 | `explicit_exclusions` | Any requested exclusions with a reason; absence is explicit |
@@ -72,7 +72,7 @@ Composite selectors form a union. Retain the first catalog-order occurrence of e
 
 ## Inheritance
 
-A functional-area page may declare common providers, context, pack, auto-skill posture, driver invocation mode, stimulus origin, activation mode, repetitions, timeout, evidence requirements, permitted root, and cleanup. A case table cell may say `area default`, but the planned `run-manifest.json` must contain the expanded value. Stimulus, expected initial root, expected delegated roots, expected route, required behavior, and forbidden behavior are never inherited from another case.
+A functional-area page may declare common providers, context, pack, native system-prompt posture, driver invocation mode, stimulus origin, activation mode, repetitions, timeout, evidence requirements, permitted root, and cleanup. A case table cell may say `area default`, but the planned `run-manifest.json` must contain the expanded value. Stimulus, expected initial root, expected delegated roots, expected route, required behavior, and forbidden behavior are never inherited from another case.
 
 ## Revision Rules
 
@@ -81,6 +81,10 @@ Increment `case_revision` when the exact stimulus, expected initial root, delega
 Version 3 intentionally advances `ACT-001`, `ACT-003`, `ADM-002`, and `LOOP-001` to revision 2. It adds `ACT-005`, `ACT-006`, `SHR-009`, and `LOOP-008` at revision 1. Every other version 2 case retains its exact stimulus and semantic oracle.
 
 Version 4 adds the `agent-definitions` functional area and `ADF-001` through `ADF-008` at revision 1. Every version 3 case retains its exact stimulus and semantic oracle.
+
+Version 5 advances `ADF-001` and `ADF-002` to revision 2 so manual and automatic authoring routes require a current authoring-root README. Every other version 4 case retains its exact stimulus and semantic oracle.
+
+Version 6 replaces the retired prompt-workaround area with native provider system-prompt lifecycle cases. It changes the context field to `native_system_prompt_posture` and adds `NSP-001` through `NSP-004` at revision 1. Other case stimuli and semantic oracles remain unchanged.
 
 ## Guardrails
 

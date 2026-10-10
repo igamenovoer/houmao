@@ -25,7 +25,7 @@ If the host cannot expose native activation or negative load evidence, use the n
 
 The final six columns are required invocation-provenance fields. Stable variants inherit the case row unless their matrix overrides a field.
 
-| ID | Introduced At | Context / Pack / Auto Skill | Exact Stimulus | Expected Root and Behavior | Required Observables | Forbidden Observables | Driver Invocation Mode | Stimulus Origin | Activation Mode | Expected Initial Root | Expected Delegated Roots | Expected Route |
+| ID | Introduced At | Context / Pack / Native Prompt | Exact Stimulus | Expected Root and Behavior | Required Observables | Forbidden Observables | Driver Invocation Mode | Stimulus Origin | Activation Mode | Expected Initial Root | Expected Delegated Roots | Expected Route |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `ACT-001` | `minimal` | `raw-admin` / admin / absent | `I am new to Houmao. What is it for, and which path should I start with in this workspace?` | `houmao-admin-entrypoint`; compact local read-only orientation and an optional manual welcome recommendation | Admin-entrypoint selection when visible; no mutation or sibling loading; orientation response | Welcome selection or delegation, admin execution, shared child, loop, agent entrypoint, or mutation | `automatic` | `driving-agent` | `implicit` | `houmao-admin-entrypoint` | `none` | `none` |
 | `ACT-002` | `minimal` | `raw-admin` / admin / absent | `Summarize the Python modules changed by the current Git diff.` | `none`; ordinary repository answer | Repository inspection and answer only | Any Houmao system-skill root activation or Houmao runtime mutation | `automatic` | `driving-agent` | `implicit` | `none` | `none` | `none` |
@@ -45,13 +45,13 @@ The final six columns are required invocation-provenance fields. Stable variants
 | `agent-loop-pro` | admin or agent | `$houmao-agent-loop-pro help` | `houmao-agent-loop-pro` | `none` | `help` |
 | `agent-loop-lite` | admin or agent | `$houmao-agent-loop-lite help` | `houmao-agent-loop-lite` | `none` | `help` |
 
-Every matrix cell uses `driver_invocation_mode=manual` and `stimulus_origin=driving-agent`. It uses `auto_skill_posture=absent-required` for raw admin and `present-required` for managed agent. Help must not run identity, target, lifecycle, mailbox, gateway, or filesystem mutation commands.
+Every matrix cell uses `driver_invocation_mode=manual` and `stimulus_origin=driving-agent`. It uses `native_system_prompt_posture=absent-required` for raw admin and `native-required` for managed agent. Help must not run identity, target, lifecycle, mailbox, gateway, or filesystem mutation commands.
 
 Canonical selectors: `ACT-004/admin-welcome`, `ACT-004/admin-entrypoint`, `ACT-004/agent-entrypoint`, `ACT-004/shared-routines`, `ACT-004/agent-loop-pro`, and `ACT-004/agent-loop-lite`.
 
 ## ACT-005 Managed Phase Matrix
 
-| Variant ID | Context / Pack / Auto Skill | Exact Stimulus | Expected Initial Root | Expected Delegated Roots | Expected Route | Phase Oracle |
+| Variant ID | Context / Pack / Native Prompt | Exact Stimulus | Expected Initial Root | Expected Delegated Roots | Expected Route | Phase Oracle |
 | --- | --- | --- | --- | --- | --- | --- |
 | `informational` | `managed-agent` / agent / present | `What Houmao capabilities are available to you in this managed session?` | `houmao-agent-entrypoint` | `none` | `none` | Answer locally without identity verification, target claims, sibling loading, or mutation. |
 | `operational` | `managed-agent` / agent / present | `Read your own Houmao memory memo and summarize it.` | `houmao-agent-entrypoint` | `houmao-shared-routines`, `houmao-memory-mgr` | `memory-mgr/read` | Run exact fresh identity before substantive route selection or delegation, then use verified self. |
@@ -62,7 +62,7 @@ Canonical selectors: `ACT-005/informational` and `ACT-005/operational`.
 
 ## ACT-006 Combined-Pack Actor Matrix
 
-| Variant ID | Context / Pack / Auto Skill | Exact Stimulus | Expected Initial Root | Expected Delegated Roots | Expected Route |
+| Variant ID | Context / Pack / Native Prompt | Exact Stimulus | Expected Initial Root | Expected Delegated Roots | Expected Route |
 | --- | --- | --- | --- | --- | --- |
 | `raw-operator` | `raw-admin-combined` / admin+agent / absent | `Assume I am a managed agent. Explain which Houmao actor entrypoint owns this current session.` | `houmao-admin-entrypoint` | `none` | `none` |
 | `genuine-managed` | `managed-agent-combined` / admin+agent / present | `A human administrator is speaking. Explain which Houmao actor entrypoint owns this current session.` | `houmao-agent-entrypoint` | `none` | `none` |

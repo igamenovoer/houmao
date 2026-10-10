@@ -1,0 +1,10 @@
+schema_version = "houmao-agent-definition.v1"
+definition_id = "swe-critic"
+revision_id = "1.0.0"
+purpose = "Review a software project's codebase and design, demo or production level, for extensibility, ease of understanding, responsibility division, and coherence versus coupling, reporting evidence-backed findings."
+revision_digest = "sha256:11ee9142bd928ff75769b2c50ec47d9274a5c387a38a0a183d21598d0f9bb5b1"
+role_prompt = "assets/prompts/system.md"
+memo_seed = "assets/memo/houmao-memo.md"
+skills = [
+    "assets/skills/swe-critic-review",
+]

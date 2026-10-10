@@ -73,3 +73,57 @@ The refactor SHALL preserve the maintained behavior of each current non-retired 
 - **THEN** it provides the matching public entrypoint route when one exists
 - **AND THEN** it does not reinstall the old public wrapper
 
+### Requirement: Shared routines exposes one Agent Definition route
+The public shared-routines skill SHALL list authoring and deployment as subcommands of the existing `houmao-agent-definition` child.
+
+#### Scenario: Advanced admin invokes authoring directly
+- **WHEN** an admin explicitly invokes `houmao-shared-routines->houmao-agent-definition`
+- **THEN** the skill SHALL expose the maintained authoring and deployment command family
+
+### Requirement: Agent posture cannot administer definitions
+The `as-agent` qualifier SHALL reject Agent Definition authoring, materialization, deployment, update, and removal after identity verification.
+
+#### Scenario: Managed agent requests deployment
+- **WHEN** the shared routine resolves managed-agent actor posture
+- **THEN** it SHALL reject the definition administration route
+
+### Requirement: Shared routines exposes actor-scoped instance state
+The public shared-routines skill SHALL expose runtime-variable and mindset operations through the existing `houmao-agent-instance` child.
+
+#### Scenario: Admin invokes state mutation
+- **WHEN** actor posture is admin and one target is explicit
+- **THEN** the child SHALL expose inspection and mutation commands
+
+#### Scenario: Managed agent invokes state access
+- **WHEN** the `as-agent` qualifier verifies a current managed runtime
+- **THEN** the child SHALL expose self read and snapshot commands only
+
+### Requirement: Shared routines exposes actor-scoped private workspace operations
+The public shared-routines skill SHALL expose private workspace operations through the existing `houmao-agent-instance` child.
+
+#### Scenario: Admin invokes workspace management
+- **WHEN** actor posture is admin and one target is explicit
+- **THEN** the child SHALL expose inspection and maintained mutation commands
+
+#### Scenario: Managed agent invokes workspace access
+- **WHEN** `as-agent` verifies the current runtime
+- **THEN** the child SHALL expose semantic path reads only
+
+### Requirement: Custom private workspaces do not route to the team workspace manager
+Routing SHALL keep instance-owned private workspace contracts separate from standard multi-agent workspace topology.
+
+#### Scenario: Agent definition declares semantic directories
+- **WHEN** the directories belong to one managed-agent instance
+- **THEN** shared routines SHALL use `houmao-agent-instance`, not `houmao-utils-workspace-mgr`
+
+### Requirement: Shared routines exposes plural deployment under admin posture
+The public shared-routines skill SHALL expose batch deployment as a subcommand of `houmao-agent-definition` and SHALL reject it under `as-agent`.
+
+#### Scenario: Advanced admin invokes batch deployment
+- **WHEN** actor posture is admin
+- **THEN** the route SHALL expose Batch Request, plan, and apply guidance
+
+#### Scenario: Managed agent invokes batch deployment
+- **WHEN** actor posture is managed agent
+- **THEN** the route SHALL reject the operation
+

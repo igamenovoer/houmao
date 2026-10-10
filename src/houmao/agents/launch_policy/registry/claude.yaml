@@ -20,10 +20,11 @@ strategies:
         - Runtime-owned settings.json and .claude.json state may be created or patched in a fresh isolated CLAUDE_CONFIG_DIR.
         - Projected Claude vendor login files are preserved; provider state mutation owns only unattended bootstrap and trust keys.
         - Template-derived .claude.json content is optional and preserved when present.
-    system_prompt_bootstrap:
-      native_system_prompt: true
-      provider_skills: true
-      startup_visible_skill_metadata: false
+    system_prompt:
+      method: native_append_system_prompt
+      owned_surface: --append-system-prompt
+      precedence_conflicts: []
+      required_engine_env: {}
       evidence:
         - kind: live_probe
           ref: claude --help

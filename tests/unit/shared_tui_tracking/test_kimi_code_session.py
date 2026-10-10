@@ -8,7 +8,7 @@ from houmao.shared_tui_tracking import TrackerConfig, TuiTrackerSession, app_id_
 from houmao.shared_tui_tracking.apps.kimi_code.profile import (
     FallbackKimiCodeSignalDetector,
     KimiCodeSignalDetector,
-    KimiCodeSignalDetectorV0_23_X,
+    KimiCodeSignalDetectorV0_34_PLUS,
     analyze_kimi_surface,
 )
 
@@ -39,7 +39,7 @@ _KIMI_FRESH_RESTART = f"{_KIMI_STALE_RESTART}│ > \nkimi-for-coding kimi-k2.5 t
 def _kimi_session(*, scheduler: TestScheduler) -> TuiTrackerSession:
     return TuiTrackerSession.from_config(
         app_id="kimi_code",
-        observed_version="0.11.0",
+        observed_version="0.34.0",
         config=TrackerConfig(settle_seconds=1.0, stability_threshold_seconds=0.0),
         scheduler=scheduler,
     )
@@ -135,8 +135,8 @@ def test_kimi_rejected_command_fixture_is_ready_not_known_failure() -> None:
     assert state.last_turn_result == "none"
 
 
-def test_kimi_023_detector_ignores_historical_moon_spinner_after_completion() -> None:
-    detector = KimiCodeSignalDetectorV0_23_X()
+def test_kimi_floor_detector_ignores_historical_moon_spinner_after_completion() -> None:
+    detector = KimiCodeSignalDetectorV0_34_PLUS()
     completed = (
         "🌗 · Tip: ctrl+s: steer mid-turn\n\n"
         "● Finished the requested task.\n\n"
@@ -155,8 +155,8 @@ def test_kimi_023_detector_ignores_historical_moon_spinner_after_completion() ->
     assert "footer_thinking_metadata_ignored" in signals.notes
 
 
-def test_kimi_023_detector_tracks_live_edge_moon_spinner() -> None:
-    detector = KimiCodeSignalDetectorV0_23_X()
+def test_kimi_floor_detector_tracks_live_edge_moon_spinner() -> None:
+    detector = KimiCodeSignalDetectorV0_34_PLUS()
     active = (
         "✨ Inspect the repository.\n\n"
         "🌑 · Tip: ctrl+s: steer mid-turn\n"
@@ -173,8 +173,8 @@ def test_kimi_023_detector_tracks_live_edge_moon_spinner() -> None:
     assert signals.ready_posture == "no"
 
 
-def test_kimi_023_detector_tracks_streaming_queue_when_spinner_is_displaced() -> None:
-    detector = KimiCodeSignalDetectorV0_23_X()
+def test_kimi_floor_detector_tracks_streaming_queue_when_spinner_is_displaced() -> None:
+    detector = KimiCodeSignalDetectorV0_34_PLUS()
     active = (
         "🌑 · Tip: ctrl+s: steer mid-turn\n"
         "────────────────────────────────────────\n"
@@ -198,8 +198,8 @@ def test_kimi_023_detector_tracks_streaming_queue_when_spinner_is_displaced() ->
     assert signals.pending_input == "yes"
 
 
-def test_kimi_023_detector_tracks_each_deferred_queue_mode() -> None:
-    detector = KimiCodeSignalDetectorV0_23_X()
+def test_kimi_floor_detector_tracks_each_deferred_queue_mode() -> None:
+    detector = KimiCodeSignalDetectorV0_34_PLUS()
 
     for hint in (
         "↑ to edit · will send after current task",
@@ -224,8 +224,8 @@ def test_kimi_023_detector_tracks_each_deferred_queue_mode() -> None:
         assert signals.pending_input == "yes"
 
 
-def test_kimi_023_detector_ignores_historical_queue_after_settled_response() -> None:
-    detector = KimiCodeSignalDetectorV0_23_X()
+def test_kimi_floor_detector_ignores_historical_queue_after_settled_response() -> None:
+    detector = KimiCodeSignalDetectorV0_34_PLUS()
     historical = (
         "  ↑ to edit · ctrl-s to steer immediately\n"
         + "\n".join(f"● settled response line {index}" for index in range(30))
@@ -243,7 +243,7 @@ def test_kimi_023_detector_ignores_historical_queue_after_settled_response() -> 
 
 
 def test_kimi_pending_input_remains_binary_for_one_two_or_three_rows() -> None:
-    detector = KimiCodeSignalDetectorV0_23_X()
+    detector = KimiCodeSignalDetectorV0_34_PLUS()
 
     for count in (1, 2, 3):
         rows = "\n".join(f"  ❯ queued follow-up {index}" for index in range(1, count + 1))
@@ -261,7 +261,7 @@ def test_kimi_pending_input_remains_binary_for_one_two_or_three_rows() -> None:
 
 
 def test_kimi_pending_input_handles_wrapping_consumption_and_incomplete_capture() -> None:
-    detector = KimiCodeSignalDetectorV0_23_X()
+    detector = KimiCodeSignalDetectorV0_34_PLUS()
     wrapped = (
         "  ❯ queued follow-up with a wrapped body\n"
         "    continuing on a resized pane\n"
@@ -290,7 +290,7 @@ def test_kimi_maintained_and_fallback_profiles_carry_pending_input() -> None:
 
     for detector in (
         KimiCodeSignalDetector(),
-        KimiCodeSignalDetectorV0_23_X(),
+        KimiCodeSignalDetectorV0_34_PLUS(),
         FallbackKimiCodeSignalDetector(),
     ):
         assert detector.detect(output_text=queued).pending_input == "yes"
@@ -299,7 +299,7 @@ def test_kimi_maintained_and_fallback_profiles_carry_pending_input() -> None:
 def test_kimi_restart_does_not_reuse_prompt_above_latest_shell_launch() -> None:
     """Kimi readiness belongs to provider chrome below the replacement launch."""
 
-    detector = KimiCodeSignalDetectorV0_23_X()
+    detector = KimiCodeSignalDetectorV0_34_PLUS()
 
     stale = detector.detect(output_text=_KIMI_STALE_RESTART)
     fresh = detector.detect(output_text=_KIMI_FRESH_RESTART)

@@ -43,13 +43,10 @@ from houmao.agents.launch_policy.provider_hooks import (
     load_toml_state,
     set_toml_key,
 )
-from houmao.agents.auto_skills import (
-    AUTO_SKILL_SYSTEM_PROMPT_REASON,
-    AutoSkillCatalog,
-    AutoSkillProjectionResult,
-    load_auto_skill_catalog,
-    project_auto_skills_for_home,
-    prompt_sha256,
+from houmao.agents.kimi_system_prompt import (
+    KimiSystemPromptError,
+    ensure_kimi_system_prompt,
+    force_kimi_v2_engine_env,
 )
 from houmao.owned_paths import resolve_runtime_root
 from houmao.agents.mailbox_runtime_support import (
@@ -131,7 +128,6 @@ class BuildRequest:
     source_system_skill_policy: SystemSkillSelectionPolicy | None = None
     launch_profile_system_skill_policy: SystemSkillSelectionPolicy | None = None
     role_prompt_override: str | None = None
-    required_auto_skill_names: tuple[str, ...] = ()
     managed_prompt_header: dict[str, Any] | None = None
     houmao_system_prompt_layout: dict[str, Any] | None = None
     launch_profile_provenance: dict[str, Any] | None = None
@@ -459,34 +455,6 @@ def _validate_project_skill_system_skill_collisions(
     )
 
 
-def _validate_project_skill_auto_skill_collisions(
-    *,
-    selected_skills: list[str],
-    private_skills: tuple[PrivateSkillProjection, ...],
-    catalog: AutoSkillCatalog,
-) -> None:
-    """Reject project/private skills that collide with reserved auto-skill names."""
-
-    auto_skill_names = set(catalog.skill_names)
-    registered_collisions = sorted(set(selected_skills).intersection(auto_skill_names))
-    private_collisions = sorted(
-        {private_skill.name for private_skill in private_skills}.intersection(auto_skill_names)
-    )
-    if not registered_collisions and not private_collisions:
-        return
-
-    collision_parts: list[str] = []
-    if registered_collisions:
-        collision_parts.append(f"registered project skills: {', '.join(registered_collisions)}")
-    if private_collisions:
-        collision_parts.append(f"profile-private skills: {', '.join(private_collisions)}")
-    raise BuildError(
-        "Project/private skill names cannot collide with reserved Houmao auto-skill names "
-        f"({'; '.join(collision_parts)}). Rename the project/private skill because Houmao "
-        "owns these names for managed-launch bootstrap behavior."
-    )
-
-
 def _generate_home_id(tool: str) -> str:
     timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%SZ")
     short_uuid = uuid.uuid4().hex[:6]
@@ -599,30 +567,6 @@ def _build_launch_helper(
     return shlex.quote(str(helper_path))
 
 
-def _project_required_auto_skills_for_build(
-    *,
-    request: BuildRequest,
-    home_path: Path,
-) -> AutoSkillProjectionResult | None:
-    """Project required managed auto skills for one build request."""
-
-    if not request.required_auto_skill_names:
-        return None
-
-    return project_auto_skills_for_home(
-        tool=request.tool,
-        home_path=home_path,
-        skill_names=request.required_auto_skill_names,
-        reason=AUTO_SKILL_SYSTEM_PROMPT_REASON,
-        prompt_reference="brain_manifest.inputs.role_prompt_text",
-        prompt_sha256=(
-            prompt_sha256(request.role_prompt_override)
-            if request.role_prompt_override is not None
-            else None
-        ),
-    )
-
-
 def build_brain_home(request: BuildRequest) -> BuildResult:
     agent_def_dir = request.agent_def_dir.resolve()
     runtime_root = resolve_runtime_root(explicit_root=request.runtime_root)
@@ -689,12 +633,6 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         private_skills=request.private_skills,
         catalog=system_skill_catalog,
     )
-    auto_skill_catalog = load_auto_skill_catalog()
-    _validate_project_skill_auto_skill_collisions(
-        selected_skills=request.skills,
-        private_skills=request.private_skills,
-        catalog=auto_skill_catalog,
-    )
     managed_system_skill_selection = resolve_managed_system_skill_selection(
         source_policy=request.source_system_skill_policy,
         profile_policy=request.launch_profile_system_skill_policy,
@@ -749,10 +687,6 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         home_path=home_path,
         selection=managed_system_skill_selection,
     )
-    auto_skill_projection_result = _project_required_auto_skills_for_build(
-        request=request,
-        home_path=home_path,
-    )
     for private_skill in request.private_skills:
         destination = skill_destination_dir / private_skill.name
         _project_path(private_skill.source_path, destination, mode=private_skill.mode)
@@ -788,6 +722,15 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
                 "required": mapping.required,
             }
         )
+    kimi_system_prompt_projection = None
+    if request.tool == "kimi":
+        try:
+            kimi_system_prompt_projection = ensure_kimi_system_prompt(
+                home_path=home_path,
+                effective_prompt=request.role_prompt_override or "",
+            )
+        except KimiSystemPromptError as exc:
+            raise BuildError(str(exc)) from exc
     kimi_extra_skill_dirs_projection = _ensure_kimi_extra_skill_dirs(
         tool=request.tool,
         home_path=home_path,
@@ -796,10 +739,6 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             request.skills
             or request.private_skills
             or system_skill_sync_result.standalone_skill_names
-            or (
-                auto_skill_projection_result is not None
-                and auto_skill_projection_result.projected_relative_dirs
-            )
         ),
     )
 
@@ -824,6 +763,11 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         **derived_launch_env_records,
         **persistent_env_records,
     }
+    if request.tool == "kimi":
+        try:
+            effective_launch_env_records = force_kimi_v2_engine_env(effective_launch_env_records)
+        except KimiSystemPromptError as exc:
+            raise BuildError(str(exc)) from exc
     baseline_model_config = _extract_native_model_config_baseline(
         tool=request.tool,
         home_path=home_path,
@@ -929,6 +873,14 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         ]
     if kimi_extra_skill_dirs_projection is not None:
         construction_provenance["kimi_extra_skill_dirs"] = kimi_extra_skill_dirs_projection
+    if kimi_system_prompt_projection is not None:
+        construction_provenance["native_system_prompt"] = {
+            **kimi_system_prompt_projection.to_payload(),
+            "method": "native_home_system_prompt",
+            "relative_path": "SYSTEM.md",
+            "validation": "passed",
+            "supported_versions": ">=0.34.0",
+        }
     construction_provenance["system_skills"] = {
         "source_policy": system_skill_selection_policy_to_payload(
             request.source_system_skill_policy
@@ -950,17 +902,6 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         ),
         "projection_mode": system_skill_sync_result.projection_mode,
     }
-    construction_provenance["auto_skills"] = (
-        auto_skill_projection_result.to_payload()
-        if auto_skill_projection_result is not None
-        else {
-            "state": "not_selected",
-            "applied": False,
-            "selected_skill_names": [],
-            "projected_relative_dirs": [],
-        }
-    )
-
     manifest: dict[str, Any] = {
         "schema_version": 3,
         "built_at_utc": datetime.now(UTC).isoformat(),

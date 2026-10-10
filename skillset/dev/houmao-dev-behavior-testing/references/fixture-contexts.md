@@ -25,18 +25,18 @@ Skills CLI installation does not resolve Houmao packs. Select every required sta
 
 | Context Type | Purpose | Skill Posture | Launch Authority |
 | --- | --- | --- | --- |
-| `raw-admin` | Human-operator welcome, explicit entrypoint, direct shared, and direct loop cases | Isolated admin pack; no auto skill | Matching `$houmao-dev-launch-agents` provider subcommand |
-| `raw-admin-combined` | Combined-pack actor disambiguation from a human-operator session | Isolated admin+agent packs; no auto skill | Matching `$houmao-dev-launch-agents` provider subcommand |
-| `managed-agent` | Verified-self, agent entrypoint, generated prompt, and auto-prompt cases | Agent pack plus Houmao auto skill | Supported `houmao-mgr` managed launch or join |
-| `managed-agent-combined` | Combined-pack actor disambiguation from genuine managed context | Admin+agent packs plus Houmao auto skill | Supported `houmao-mgr` managed launch or join with an explicit combined-pack override |
+| `raw-admin` | Human-operator welcome, explicit entrypoint, direct shared, and direct loop cases | Isolated admin pack; no managed native prompt | Matching `$houmao-dev-launch-agents` provider subcommand |
+| `raw-admin-combined` | Combined-pack actor disambiguation from a human-operator session | Isolated admin+agent packs; no managed native prompt | Matching `$houmao-dev-launch-agents` provider subcommand |
+| `managed-agent` | Verified-self, agent entrypoint, generated prompt, and native-prompt cases | Agent pack plus the provider-native Houmao prompt method | Supported `houmao-mgr` managed launch or join |
+| `managed-agent-combined` | Combined-pack actor disambiguation from genuine managed context | Admin+agent packs plus the provider-native Houmao prompt method | Supported `houmao-mgr` managed launch or join with an explicit combined-pack override |
 | `managed-identity-failure` | Fail-closed identity cases | Agent pack plus deliberately unavailable self authority | Supported disposable managed setup followed by bounded authority removal or invalidation |
 | `missing-dependency` | Missing sibling or generated-prompt dependency cases | Deliberately incomplete disposable projection recorded as such | Raw or managed launch selected by the case |
 | `joined-session` | Admin-to-agent adoption transition | Admin frame before supported join; agent pack/identity after success | Supported join workflow in a disposable session |
-| `lifecycle-reload` | Auto-prompt resume, relaunch, or compaction cases | Agent pack plus auto skill | Managed lifecycle operation named by the case |
+| `lifecycle-reload` | Native-prompt rebuild and relaunch cases | Agent pack plus the provider-native Houmao prompt method | Managed lifecycle operation named by the case |
 
 ## Provider and Credential Defaults
 
-The initial live matrix is Claude Code, Codex, and Kimi Code. Use unattended posture unless a case explicitly tests permission UI. Prefer repository fixture bundles documented in `AGENTS.md`: `tests/fixtures/auth-bundles/claude/kimi-coding/` for Claude Code and `tests/fixtures/auth-bundles/codex/yunwu-openai/` for Codex. Kimi uses the secret-safe native-auto resolution owned by `houmao-dev-launch-agents` until a repository fixture is designated.
+The initial live matrix is Claude Code, Codex, and Kimi Code. Use unattended posture unless a case explicitly tests permission UI. Prefer repository fixture bundles documented in `AGENTS.md`: `tests/fixtures/auth-bundles/claude/kimi-coding/` for Claude Code, `tests/fixtures/auth-bundles/codex/yunwu-openai/` for Codex, and `tests/fixtures/auth-bundles/kimi/personal-a-default/` for Kimi when the host-local bundle exists. Kimi requires version 0.34.0 or later and uses the same maintained native launch-policy resolution as managed operation.
 
 Record the fixture or strategy name, source path, provider version, and selected non-secret launcher identifier. Never include credential JSON, API-key values, cookies, bearer headers, or secret-bearing environment contents.
 

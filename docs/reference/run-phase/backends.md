@@ -57,13 +57,13 @@ The primary backend for interactive agent sessions. The agent runs as a real int
 Kimi local interactive support starts the interactive `kimi` TUI under backend `local_interactive`; it does not reuse or rename `kimi_headless`.
 
 - **Process recognition:** live process inspection treats both `kimi-code` and `kimi` as supported Kimi TUI process names.
-- **Role injection:** Kimi TUI uses bootstrap-message or managed auto-skill system-prompt workflows. Houmao does not add an unverified Kimi TUI system-prompt flag.
+- **Role injection:** Kimi Code 0.34.0 or later loads the complete composed Houmao prompt from managed `$KIMI_CODE_HOME/SYSTEM.md` before TUI startup. Houmao preserves Kimi's built-in prompt with `${base_prompt}` and does not submit a role chat turn.
 - **Model selection:** launch-owned Kimi model selection is projected as `--model <alias>` for fresh and resumed Kimi TUI startup.
 - **Update suppression:** managed Kimi TUI launches set `KIMI_CODE_NO_AUTO_UPDATE=1` so startup does not stop on the interactive update preflight.
 - **Managed skills:** Houmao does not add managed `--skills-dir` arguments to Kimi TUI launches. The maintained `--skills-dir <KIMI_CODE_HOME>/skills` projection remains Kimi headless prompt-mode behavior.
-- **Unattended prompt mode:** for maintained Kimi Code 0.23.x, launch policy writes the migration marker and `default_permission_mode = "auto"` fallback, canonicalizes permission inputs, and appends one native `--auto`. The ready TUI is already unattended; `as_is` leaves provider approval behavior unchanged.
+- **Unattended prompt mode:** for maintained Kimi Code 0.34.0 or later, launch policy writes the migration marker and `default_permission_mode = "auto"` fallback, canonicalizes permission inputs, appends one native `--auto`, and pre-seeds the provider workspace-trust record for the launch working directory so startup does not stop on the "Trust this folder?" modal. The ready TUI is already unattended; `as_is` leaves provider approval and trust behavior unchanged.
 - **Relaunch continuation:** `tool_last_or_new` maps to `kimi --continue`; `exact` maps to `kimi --session <session_id>`. The runtime never uses bare `kimi --session` for managed relaunch because that opens Kimi's interactive picker.
-- **Resume behavior:** Kimi Code 0.23.x accepts native `--auto` with `--continue` and `--session <session_id>`. Houmao strips conflicting caller permission flags, preserves the resolved resume selector, and appends one strategy-owned `--auto`; `--model <alias>` remains allowed.
+- **Resume behavior:** Kimi Code 0.34.0 or later accepts native `--auto` with `--continue` and `--session <session_id>`. Houmao strips conflicting caller permission flags, preserves the resolved resume selector, verifies and repairs `SYSTEM.md`, and appends one strategy-owned `--auto`; `--model <alias>` remains allowed.
 
 ### claude_headless
 
@@ -97,16 +97,17 @@ Runs Kimi Code CLI in prompt mode (`kimi -p <prompt> --output-format stream-json
 - **Auth lanes:** managed Kimi homes use `KIMI_CODE_HOME` and support OAuth material through projected `config.toml` plus `credentials/kimi-code.json`, or env-model material through allowlisted `KIMI_MODEL_*` values.
 - **Managed skills:** Houmao-owned Kimi skills project into top-level `skills`, and managed launches pass `--skills-dir <KIMI_CODE_HOME>/skills` so they do not depend on user-global skill discovery.
 - **Resume:** `--continue` asks Kimi to continue the latest stored session for the working directory; `--session <session_id>` resumes an exact provider session. Resume stays bound to the same recorded working directory/project context.
-- **Role injection:** bootstrap-message or managed auto-skill system-prompt workflow, depending on the resolved launch policy.
+- **Role injection:** managed-home native `SYSTEM.md`, verified before each fresh or resumed provider start. A promptless build removes a stale file.
 - **Use case:** automated pipelines and non-interactive agent orchestration for Kimi Code.
 
-Kimi Code 0.23.x managed role delivery uses bootstrap or auto-skill workflows. Houmao projects `houmao-auto-system-prompt` into managed Kimi homes; users may need to invoke it before substantive chat when automatic skill startup has not loaded the role prompt.
+Managed Kimi support starts at version 0.34.0 and has no upper version limit. Both Kimi backends force `KIMI_CODE_LEGACY_FLAG=0`, reject explicit or project agent profiles that outrank `SYSTEM.md`, and reject any `${identifier}` token in the complete effective prompt before provider launch.
 
 #### Kimi validation checklist
 
 - OAuth lane: create or import a Kimi auth bundle with `config.toml` and `credentials/kimi-code.json`, build or launch a managed Kimi home, and confirm `KIMI_CODE_HOME` points at that constructed home.
 - Env-model lane: create a Kimi auth bundle with `KIMI_MODEL_NAME` and `KIMI_MODEL_API_KEY`, build or launch a managed Kimi home, and confirm those env vars are exported without depending on user-global `~/.kimi-code`.
 - Skill projection: inspect the constructed home and confirm selected and Houmao-owned skills land under `skills/`.
+- Native prompt projection: inspect `SYSTEM.md`, confirm it starts with `${base_prompt}`, compare its recorded effective and rendered SHA-256 digests, and confirm the first user prompt is substantive work rather than role delivery.
 - First-turn capture: verify the first `stream-json` Kimi turn emits a `session.resume_hint` event and that Houmao persists its `session_id` into the managed session manifest.
 - Resume behavior: send a follow-up Kimi prompt from the same working directory and confirm Houmao launches `kimi --session <persisted-session-id> -p <prompt> --output-format stream-json`; changing the working directory should fail explicitly.
 - Local-interactive unattended posture: launch fresh, latest-resume, and exact-resume Kimi TUI sessions with `operator_prompt_mode = unattended`; confirm each effective command contains one strategy-owned `--auto`, the migration picker is suppressed, and no confirmation appears before managed prompts.

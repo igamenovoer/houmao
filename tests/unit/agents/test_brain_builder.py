@@ -7,11 +7,6 @@ import tomllib
 import pytest
 import yaml
 
-from houmao.agents.auto_skills import (
-    AUTO_SKILL_SYSTEM_PROMPT,
-    AUTO_SKILL_SYSTEM_PROMPT_REASON,
-    prompt_sha256,
-)
 from houmao.agents.brain_builder import (
     BuildError,
     BuildRequest,
@@ -20,6 +15,7 @@ from houmao.agents.brain_builder import (
     build_brain_home,
     load_brain_recipe,
 )
+from houmao.agents.kimi_system_prompt import prompt_sha256
 from houmao.agents.launch_overrides import LaunchArgsSection, LaunchOverrides
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxDeclarativeConfig
 from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig
@@ -597,47 +593,6 @@ def test_build_brain_home_rejects_private_system_skill_name_collision(tmp_path: 
         )
 
 
-@pytest.mark.parametrize("collision_kind", ["registered", "private"])
-def test_build_brain_home_rejects_auto_skill_name_collisions(
-    tmp_path: Path,
-    collision_kind: str,
-) -> None:
-    agent_def_dir = tmp_path / "repo"
-    agent_def_dir.mkdir(parents=True)
-    _seed_repo(agent_def_dir)
-    private_skills: tuple[PrivateSkillProjection, ...] = ()
-    selected_skills = ["skill-a"]
-    if collision_kind == "registered":
-        _write(agent_def_dir / f"skills/{AUTO_SKILL_SYSTEM_PROMPT}/SKILL.md", "# collision\n")
-        selected_skills = [AUTO_SKILL_SYSTEM_PROMPT]
-    else:
-        private_skill = tmp_path / "private" / AUTO_SKILL_SYSTEM_PROMPT
-        _write(private_skill / "SKILL.md", "# collision\n")
-        private_skills = (
-            PrivateSkillProjection(
-                name=AUTO_SKILL_SYSTEM_PROMPT,
-                source_path=private_skill,
-                mode="copy",
-            ),
-        )
-
-    with pytest.raises(BuildError, match="reserved Houmao auto-skill names"):
-        build_brain_home(
-            BuildRequest(
-                agent_def_dir=agent_def_dir,
-                runtime_root=agent_def_dir / "tmp/agents-runtime",
-                tool="codex",
-                skills=selected_skills,
-                private_skills=private_skills,
-                config_profile="default",
-                credential_profile="personal-a",
-                required_auto_skill_names=(AUTO_SKILL_SYSTEM_PROMPT,),
-                role_prompt_override="Managed prompt.",
-                home_id=f"codex-home-auto-skill-collision-{collision_kind}",
-            )
-        )
-
-
 def test_build_brain_home_copies_selected_setup_bundle_verbatim(
     tmp_path: Path,
 ) -> None:
@@ -1172,7 +1127,7 @@ def test_build_brain_home_projects_kimi_oauth_files_and_skills(tmp_path: Path) -
         ),
     ],
 )
-def test_build_brain_home_projects_required_auto_skill_independent_from_system_skill_policy(
+def test_build_brain_home_projects_native_kimi_prompt_independent_from_system_skill_policy(
     tmp_path: Path,
     profile_policy: SystemSkillSelectionPolicy,
     expected_standalone_skill_names: tuple[str, ...],
@@ -1191,9 +1146,8 @@ def test_build_brain_home_projects_required_auto_skill_independent_from_system_s
             config_profile="default",
             credential_profile="oauth",
             launch_profile_system_skill_policy=profile_policy,
-            required_auto_skill_names=(AUTO_SKILL_SYSTEM_PROMPT,),
             role_prompt_override=prompt_text,
-            home_id=f"kimi-home-auto-skill-{profile_policy.mode}",
+            home_id=f"kimi-home-native-prompt-{profile_policy.mode}",
         )
     )
 
@@ -1201,33 +1155,70 @@ def test_build_brain_home_projects_required_auto_skill_independent_from_system_s
     config_payload = tomllib.loads((result.home_path / "config.toml").read_text(encoding="utf-8"))
     manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
     construction_provenance = manifest["runtime"]["launch_contract"]["construction_provenance"]
-    auto_skill_provenance = construction_provenance["auto_skills"]
+    native_prompt_provenance = construction_provenance["native_system_prompt"]
     system_skill_provenance = construction_provenance["system_skills"]
 
-    assert (result.home_path / f"skills/{AUTO_SKILL_SYSTEM_PROMPT}/SKILL.md").is_file()
-    assert config_payload["extra_skill_dirs"] == [managed_skill_root]
-    assert construction_provenance["kimi_extra_skill_dirs"] == {
-        "path": str(result.home_path / "config.toml"),
-        "key_path": ["extra_skill_dirs"],
-        "projected_skill_root": managed_skill_root,
-        "added": True,
-        "value": [managed_skill_root],
-    }
-    assert auto_skill_provenance["state"] == "projected"
-    assert auto_skill_provenance["applied"] is False
-    assert auto_skill_provenance["selected_skill_names"] == [AUTO_SKILL_SYSTEM_PROMPT]
-    assert auto_skill_provenance["reason"] == AUTO_SKILL_SYSTEM_PROMPT_REASON
-    assert auto_skill_provenance["projected_relative_dirs"] == [
-        f"skills/{AUTO_SKILL_SYSTEM_PROMPT}"
-    ]
-    assert auto_skill_provenance["destination_root"] == "skills"
-    assert auto_skill_provenance["prompt_reference"] == "brain_manifest.inputs.role_prompt_text"
-    assert auto_skill_provenance["prompt_sha256"] == prompt_sha256(prompt_text)
+    assert (result.home_path / "SYSTEM.md").read_text(encoding="utf-8") == (
+        f"${{base_prompt}}\n\n{prompt_text}\n"
+    )
+    expected_extra_skill_dirs = [managed_skill_root] if expected_standalone_skill_names else None
+    assert config_payload.get("extra_skill_dirs") == expected_extra_skill_dirs
+    if expected_standalone_skill_names:
+        assert construction_provenance["kimi_extra_skill_dirs"] == {
+            "path": str(result.home_path / "config.toml"),
+            "key_path": ["extra_skill_dirs"],
+            "projected_skill_root": managed_skill_root,
+            "added": True,
+            "value": [managed_skill_root],
+        }
+    else:
+        assert "kimi_extra_skill_dirs" not in construction_provenance
+    assert native_prompt_provenance["state"] == "projected"
+    assert native_prompt_provenance["method"] == "native_home_system_prompt"
+    assert native_prompt_provenance["relative_path"] == "SYSTEM.md"
+    assert native_prompt_provenance["effective_prompt_sha256"] == prompt_sha256(prompt_text)
+    assert native_prompt_provenance["base_prompt_preserved"] is True
+    assert manifest["runtime"]["launch_contract"]["env_records"]["KIMI_CODE_LEGACY_FLAG"] == "0"
     assert system_skill_provenance["standalone_skills"] == list(expected_standalone_skill_names)
     for skill_name in expected_standalone_skill_names:
         assert (result.home_path / f"skills/{skill_name}/SKILL.md").is_file()
     if not expected_standalone_skill_names:
         assert not (result.home_path / f"skills/{SYSTEM_SKILL_AGENT_ENTRYPOINT}").exists()
+
+
+def test_build_brain_home_removes_stale_kimi_system_file_for_empty_role_prompt(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_kimi_repo(agent_def_dir)
+    _write(
+        agent_def_dir / "tools/kimi/setups/default/SYSTEM.md",
+        "stale setup-owned prompt\n",
+    )
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="kimi",
+            skills=[],
+            config_profile="default",
+            credential_profile="oauth",
+            role_prompt_override="",
+            home_id="kimi-home-empty-native-prompt",
+        )
+    )
+
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    native_prompt = manifest["runtime"]["launch_contract"]["construction_provenance"][
+        "native_system_prompt"
+    ]
+    assert not (result.home_path / "SYSTEM.md").exists()
+    assert native_prompt["state"] == "removed"
+    assert native_prompt["changed"] is True
+    assert native_prompt["effective_prompt_sha256"] is None
+    assert manifest["inputs"]["role_prompt_text"] == ""
 
 
 def test_build_brain_home_preserves_kimi_extra_skill_dirs_without_duplicates(

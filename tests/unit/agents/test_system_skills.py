@@ -92,12 +92,12 @@ def _workflow_body(text: str) -> str:
     return match.group("body")
 
 
-def test_manifest_v4_declares_exact_static_collection() -> None:
+def test_manifest_v5_declares_exact_static_collection() -> None:
     """The manifest exposes the fixed six roots and sixteen owned children."""
 
     manifest = load_system_skill_manifest()
 
-    assert manifest.schema_version == "houmao-system-skills.v4"
+    assert manifest.schema_version == "houmao-system-skills.v5"
     assert manifest.standalone_skill_names == EXPECTED_STANDALONE_SKILL_NAMES
     assert set(manifest.shared_logical_ids) == set(EXPECTED_SHARED_ROUTINE_IDS)
     assert manifest.packs["admin"].standalone_skill_names == ADMIN_MEMBERS
@@ -105,7 +105,7 @@ def test_manifest_v4_declares_exact_static_collection() -> None:
     assert manifest.defaults.cli == ("admin",)
     assert manifest.defaults.managed_launch == ("agent",)
     assert manifest.defaults.managed_join == ("agent",)
-    assert manifest.auto_skill_name == "houmao-auto-system-prompt"
+    assert not hasattr(manifest, "auto_skill_name")
     assert tuple(
         record.name
         for record in manifest.standalone_skills.values()
@@ -163,14 +163,14 @@ def test_manifest_rejects_any_other_implicit_activation_set(tmp_path: Path) -> N
 
 
 def test_manifest_rejects_obsolete_composition_fields(tmp_path: Path) -> None:
-    """V4 schema does not accept any protected-mount declaration."""
+    """V5 schema does not accept any protected-mount declaration."""
 
     with pytest.raises(SystemSkillManifestError, match="Additional properties"):
         _load_modified_manifest(
             tmp_path,
             lambda text: text.replace(
-                'auto_skill_name = "houmao-auto-system-prompt"',
-                'auto_skill_name = "houmao-auto-system-prompt"\nprotected_mounts = []',
+                'schema_version = "houmao-system-skills.v5"',
+                'schema_version = "houmao-system-skills.v5"\nprotected_mounts = []',
                 1,
             ),
         )
@@ -283,6 +283,24 @@ def test_route_tables_cover_actor_eligibility_and_top_level_loops() -> None:
     )
     assert admin_subcommands is not None
     assert "| `process-emails-via-gateway` |" not in admin_subcommands.group("body")
+
+
+def test_agent_definition_authoring_route_maintains_workspace_readme() -> None:
+    """The authoring route owns portable orientation without inventing a CLI command."""
+
+    routine_root = PUBLIC_ROOT / "houmao-shared-routines/subskills/houmao-agent-definition"
+    entrypoint = (routine_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
+    authoring = (routine_root / "commands/agent-definitions/authoring.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "create or refresh `<workspace>/README.md`" in authoring
+    assert "immediately before every user-facing stop" in authoring
+    assert "exhaustive inventory of every regular file" in authoring
+    assert "not a `houmao-mgr` subcommand" in authoring
+    assert "default `<authoring-dir>/agent-definition` output" in entrypoint
+    assert "DO NOT treat the authoring-root README as source intent" in entrypoint
+    assert "READMD.md" not in authoring
 
 
 def test_semantic_preservation_fixture_matches_operations_aliases_and_help() -> None:

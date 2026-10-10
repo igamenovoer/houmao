@@ -1,0 +1,6 @@
+interface:
+  display_name: "Houmao Dev Install"
+  short_description: "Install editable Houmao and refresh project skills"
+  default_prompt: "Use $houmao-dev-install to install the current checkout into user-space uv or refresh project-local agent skills."
+policy:
+  allow_implicit_invocation: false

@@ -56,7 +56,7 @@ Canonical selectors: `LOOP-004/pro-admin`, `LOOP-004/pro-agent`, `LOOP-004/lite-
 
 ## LOOP-008 Automatic Actor and Loop Variants
 
-| Variant ID | Context / Pack / Auto Skill | Exact Stimulus | Expected Initial Root | Expected Delegated Roots | Identity Oracle |
+| Variant ID | Context / Pack / Native Prompt | Exact Stimulus | Expected Initial Root | Expected Delegated Roots | Identity Oracle |
 | --- | --- | --- | --- | --- | --- |
 | `admin-pro` | `raw-admin` / admin / absent | `Check the status of the Houmao pro agent loop at tmp/behavior-loop.` | `houmao-admin-entrypoint` | `houmao-agent-loop-pro` | Preserve admin frame; do not run self identity. |
 | `agent-lite` | `managed-agent` / agent / present | `Check the status of the Houmao lite agent loop at tmp/behavior-loop.` | `houmao-agent-entrypoint` | `houmao-agent-loop-lite` | Run exact fresh self identity before loop delegation. |

@@ -9,7 +9,7 @@ from houmao.shared_tui_tracking.detectors import (
     FallbackKimiCodeSignalDetector,
     FallbackTrackedTurnSignalDetector,
     KimiCodeSignalDetector,
-    KimiCodeSignalDetectorV0_11_X,
+    KimiCodeSignalDetectorV0_34_PLUS,
     select_claude_detector,
     select_tracked_turn_signal_detector,
 )
@@ -63,7 +63,7 @@ __all__ = [
     "FallbackKimiCodeSignalDetector",
     "FallbackTrackedTurnSignalDetector",
     "KimiCodeSignalDetector",
-    "KimiCodeSignalDetectorV0_11_X",
+    "KimiCodeSignalDetectorV0_34_PLUS",
     "ParseStatus",
     "ParsedSurfaceContext",
     "ProcessState",

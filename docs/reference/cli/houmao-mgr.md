@@ -88,7 +88,7 @@ For dedicated coverage of complex nested command families, see:
 - `agents single relaunch` has selected-agent recovery authority. It may refresh an active tmux-backed surface, revive stopped relaunchable records, and recover degraded or stale active records where the runtime supports those paths.
 - `agents self join` adopts the current tmux session as one managed-agent identity. `join` may accept identity creation fields such as `--agent-name`; those fields do not select another existing agent.
 - `agents self` follow-up commands resolve the target from the caller's current managed tmux session and do not accept `--agent-id`, `--agent-name`, or `--current-session`.
-- `agents self` exposes `identity`, `state`, `prompt`, `interrupt`, `relaunch`, `gateway`, `mail`, `mailbox`, `memory`, and `turn`. It intentionally does not expose `stop` or `cleanup`.
+- `agents self` exposes `identity`, `state`, `prompt`, `interrupt`, `relaunch`, `gateway`, `mail`, `mailbox`, `memory`, and `turn`. It intentionally does not expose `stop`, `cleanup`, or an effective-system-prompt retrieval command. Inspect secret-free prompt method and digest provenance in maintained manifests instead of retrieving prompt text through the manager.
 - `agents self relaunch` is active-current-session refresh only. Selected-agent stopped-record revival and degraded/stale recovery remain under `agents single --agent-id <id> relaunch` or `agents single --agent-name <name> relaunch`.
 - `agents external` manages remotely owned or communication-only references. It does not expose local lifecycle commands such as `prompt`, `interrupt`, `stop`, `relaunch`, `gateway`, `turn`, or `cleanup` under the `external` group.
 

@@ -120,7 +120,6 @@ def list_system_skills_command() -> None:
             "managed_launch": list(manifest.defaults.managed_launch),
             "managed_join": list(manifest.defaults.managed_join),
         },
-        "auto_skill_separate": manifest.auto_skill_name,
     }
     emit(payload, plain_renderer=_render_list_plain)
 
@@ -540,7 +539,6 @@ def _render_list_plain(payload: object) -> None:
     click.echo(f"Shared parent-scoped routines: {len(shared)}")
     for record in shared:
         click.echo(f"  - {record.get('logical_id')}: {record.get('invocation')}")
-    click.echo("Managed auto skill remains separate: houmao-auto-system-prompt")
 
 
 def _render_install_plain(payload: object) -> None:

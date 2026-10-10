@@ -546,34 +546,35 @@ def test_codex_registry_declares_final_cli_config_override_hook() -> None:
     assert strategy.actions[-1].params == {"hook_id": "codex.append_unattended_cli_overrides"}
 
 
-def test_kimi_registry_declares_startup_visible_auto_skill_bootstrap() -> None:
+def test_kimi_registry_declares_native_home_system_prompt() -> None:
     documents = load_registry_documents(tool="kimi")
 
     assert len(documents) == 1
     assert {strategy.strategy_id for strategy in documents[0].strategies} == {
-        "kimi-unattended-0.23.x",
-        "kimi-tui-unattended-0.23.x",
+        "kimi-unattended-0.34-plus",
+        "kimi-tui-unattended-0.34-plus",
     }
     for strategy in documents[0].strategies:
-        capabilities = strategy.system_prompt_bootstrap
-        assert capabilities.native_system_prompt is False
-        assert capabilities.provider_skills is True
-        assert capabilities.startup_visible_skill_metadata is True
-        assert capabilities.evidence
-        assert any("skill" in item.note.lower() for item in capabilities.evidence)
-        assert strategy.to_metadata_payload()["system_prompt_bootstrap"] == (
-            capabilities.to_payload()
-        )
+        contract = strategy.system_prompt
+        assert contract.method == "native_home_system_prompt"
+        assert contract.owned_surface == "SYSTEM.md"
+        assert contract.required_engine_env == {"KIMI_CODE_LEGACY_FLAG": "0"}
+        assert contract.evidence
+        assert strategy.supported_versions.to_payload() == ">=0.34.0"
+        assert strategy.to_metadata_payload()["system_prompt"] == contract.to_payload()
 
 
 @pytest.mark.parametrize("tool", ["claude", "codex"])
-def test_native_prompt_registries_declare_native_bootstrap(tool: str) -> None:
+def test_native_prompt_registries_declare_explicit_native_method(tool: str) -> None:
     documents = load_registry_documents(tool=tool)
 
     assert len(documents) == 1
     for strategy in documents[0].strategies:
-        assert strategy.system_prompt_bootstrap.native_system_prompt is True
-        assert strategy.system_prompt_bootstrap.startup_visible_skill_metadata is False
+        assert strategy.system_prompt.method in {
+            "native_developer_instructions",
+            "native_append_system_prompt",
+        }
+        assert strategy.system_prompt.owned_surface
 
 
 def test_toml_rewrite_preserves_float_scalars(tmp_path: Path) -> None:
@@ -603,7 +604,7 @@ def test_kimi_unattended_strategy_canonicalizes_prompt_mode_conflicts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="0.23.4")
+    _stub_version(monkeypatch, output="0.34.0")
     home = tmp_path / "kimi-home"
     home.mkdir()
 
@@ -630,16 +631,19 @@ def test_kimi_unattended_strategy_canonicalizes_prompt_mode_conflicts(
             requested_operator_prompt_mode="unattended",
             working_directory=tmp_path / "workspace",
             home_path=home,
-            env={},
+            env={"KIMI_CODE_LEGACY_FLAG": "0"},
         )
     )
 
     assert result.args == ("--model", "kimi-code/kimi-for-coding")
     assert result.provenance is not None
-    assert result.provenance.selected_strategy_id == "kimi-unattended-0.23.x"
+    assert result.provenance.selected_strategy_id == "kimi-unattended-0.34-plus"
     assert result.strategy is not None
     assert result.strategy.backends == ("kimi_headless",)
-    assert [action.kind for action in result.strategy.actions] == ["provider_hook.call"]
+    assert [action.kind for action in result.strategy.actions] == [
+        "provider_hook.call",
+        "provider_hook.call",
+    ]
     assert not (home / "config.toml").exists()
 
 
@@ -647,7 +651,7 @@ def test_kimi_raw_launch_unattended_sets_auto_config_and_strips_tui_conflicts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="0.23.4")
+    _stub_version(monkeypatch, output="0.34.0")
     home = tmp_path / "kimi-home"
     home.mkdir()
     (home / "config.toml").write_text(
@@ -689,7 +693,7 @@ enabled = false
             requested_operator_prompt_mode="unattended",
             working_directory=tmp_path / "workspace",
             home_path=home,
-            env={},
+            env={"KIMI_CODE_LEGACY_FLAG": "0"},
         )
     )
 
@@ -702,7 +706,7 @@ enabled = false
         "--auto",
     )
     assert result.provenance is not None
-    assert result.provenance.selected_strategy_id == "kimi-tui-unattended-0.23.x"
+    assert result.provenance.selected_strategy_id == "kimi-tui-unattended-0.34-plus"
     assert result.strategy is not None
     assert result.strategy.backends == ("raw_launch",)
     assert result.strategy.owned_paths[0].path == "config.toml"
@@ -746,19 +750,89 @@ def test_kimi_registry_declares_separate_headless_and_tui_unattended_strategies(
     documents = load_registry_documents(tool="kimi")
 
     strategies = {strategy.strategy_id: strategy for strategy in documents[0].strategies}
-    assert strategies["kimi-unattended-0.23.x"].backends == ("kimi_headless",)
-    assert strategies["kimi-tui-unattended-0.23.x"].backends == ("raw_launch",)
-    assert [action.kind for action in strategies["kimi-tui-unattended-0.23.x"].actions] == [
+    assert strategies["kimi-unattended-0.34-plus"].backends == ("kimi_headless",)
+    assert strategies["kimi-tui-unattended-0.34-plus"].backends == ("raw_launch",)
+    assert [action.kind for action in strategies["kimi-tui-unattended-0.34-plus"].actions] == [
         "provider_hook.call",
         "toml.set",
+        "provider_hook.call",
     ]
+
+
+@pytest.mark.parametrize("version", ["0.34.0", "0.34.9", "7.2.1"])
+def test_kimi_minimum_only_strategy_accepts_baseline_and_newer_versions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    version: str,
+) -> None:
+    """The Kimi strategy has a floor and intentionally has no upper bound."""
+
+    _stub_version(monkeypatch, output=version)
+    home = tmp_path / "kimi-home"
+    home.mkdir()
+
+    result = apply_launch_policy(
+        LaunchPolicyRequest(
+            tool="kimi",
+            backend="kimi_headless",
+            executable="kimi",
+            base_args=(),
+            requested_operator_prompt_mode="unattended",
+            working_directory=tmp_path,
+            home_path=home,
+            env={"KIMI_CODE_LEGACY_FLAG": "0"},
+        )
+    )
+
+    assert result.provenance is not None
+    assert result.provenance.detected_tool_version == version
+    assert result.provenance.selected_strategy_id == "kimi-unattended-0.34-plus"
+
+
+def test_kimi_native_prompt_hook_rejects_engine_and_agent_conflicts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Provider-start hooks fail before a selector or legacy engine bypasses SYSTEM.md."""
+
+    _stub_version(monkeypatch, output="0.34.0")
+    home = tmp_path / "kimi-home"
+    home.mkdir()
+
+    with pytest.raises(LaunchPolicyError, match="legacy engine"):
+        apply_launch_policy(
+            LaunchPolicyRequest(
+                tool="kimi",
+                backend="kimi_headless",
+                executable="kimi",
+                base_args=(),
+                requested_operator_prompt_mode="unattended",
+                working_directory=tmp_path,
+                home_path=home,
+                env={"KIMI_CODE_LEGACY_FLAG": "1"},
+            )
+        )
+
+    with pytest.raises(LaunchPolicyError, match="higher-priority launch option"):
+        apply_launch_policy(
+            LaunchPolicyRequest(
+                tool="kimi",
+                backend="kimi_headless",
+                executable="kimi",
+                base_args=("--agent-file=other.md",),
+                requested_operator_prompt_mode="unattended",
+                working_directory=tmp_path,
+                home_path=home,
+                env={"KIMI_CODE_LEGACY_FLAG": "0"},
+            )
+        )
 
 
 def test_kimi_unattended_strategy_fails_closed_for_unknown_version(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="0.22.0")
+    _stub_version(monkeypatch, output="0.33.9")
     home = tmp_path / "kimi-home"
     home.mkdir()
 

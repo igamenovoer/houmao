@@ -17,7 +17,7 @@ If a route lacks a safe read-only probe, use the native planning tool to run it 
 - Case revision: `1` for every listed case.
 - Providers: `claude`, `codex`, `kimi`.
 - Pack: admin for direct admin/inherited admin; agent for `as-agent` and inherited agent.
-- Auto skill: absent for raw admin, present for managed agent.
+- Native system prompt: absent for raw admin, required for managed agent.
 - Repetitions: `3`; timeout `180` seconds.
 - Evidence: initial root event, inherited or fresh actor evidence, delegated shared root and selected child access, commands, response, and bounded effects.
 - Cleanup: remove all isolated resources after evidence freeze.
@@ -49,7 +49,7 @@ Canonical selectors: `SHR-003/admin-entrypoint` and `SHR-003/agent-entrypoint`.
 
 ## SHR-009 Automatic Actor Variants
 
-| Variant ID | Exact Stimulus | Context / Pack / Auto Skill | Expected Initial Root | Identity Oracle |
+| Variant ID | Exact Stimulus | Context / Pack / Native Prompt | Expected Initial Root | Identity Oracle |
 | --- | --- | --- | --- | --- |
 | `admin` | `Inspect the managed Houmao agent named behavior-fixture-agent and tell me whether it is alive.` | `raw-admin` / admin / absent | `houmao-admin-entrypoint` | Admin frame; no self-identity command. |
 | `managed-agent` | `Inspect yourself and tell me whether your managed Houmao agent is alive.` | `managed-agent` / agent / present | `houmao-agent-entrypoint` | Exact fresh self identity before shared delegation. |

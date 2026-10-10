@@ -1,5 +1,4 @@
-schema_version = "houmao-system-skills.v4"
-auto_skill_name = "houmao-auto-system-prompt"
+schema_version = "houmao-system-skills.v5"
 
 [defaults]
 cli = ["admin"]

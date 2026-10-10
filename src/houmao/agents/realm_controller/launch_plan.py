@@ -7,14 +7,17 @@ import os
 from pathlib import Path
 from typing import Any, Final, Literal, cast
 
-from houmao.agents.auto_skills import (
-    AUTO_SKILL_SYSTEM_PROMPT,
-    AUTO_SKILL_SYSTEM_PROMPT_REASON,
-    ensure_auto_skill_provider_discovery,
-    project_auto_skills_for_home,
-    prompt_sha256,
+from houmao.agents.kimi_system_prompt import (
+    KimiSystemPromptError,
+    ensure_kimi_system_prompt,
+    force_kimi_v2_engine_env,
+    validate_kimi_native_prompt_launch,
 )
-from houmao.agents.launch_policy import apply_launch_policy
+from houmao.agents.kimi_workspace_trust import (
+    KimiWorkspaceTrustError,
+    ensure_kimi_workspace_trust,
+)
+from houmao.agents.launch_policy import apply_launch_policy, detect_tool_version
 from houmao.agents.launch_policy.models import (
     LaunchPolicyApplicationKind,
     LaunchPolicyCompatibilityError,
@@ -22,7 +25,10 @@ from houmao.agents.launch_policy.models import (
     LaunchPolicyRequest,
     OperatorPromptMode,
     LaunchPolicyStrategy,
+    SupportedVersionSpec,
+    ToolVersion,
 )
+from houmao.agents.launch_policy.provider_hooks import provider_state_mutation_lock
 from houmao.agents.launch_overrides import (
     LaunchDefaults,
     LaunchOverrides,
@@ -105,6 +111,12 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     persistent_env_records = _persistent_launch_env_records(launch_contract)
     env_values.update(persistent_env_records)
     env_var_names = sorted({*env_var_names, *persistent_env_records.keys()})
+    if tool == "kimi":
+        try:
+            env_values = force_kimi_v2_engine_env(env_values)
+        except KimiSystemPromptError as exc:
+            raise LaunchPlanError(str(exc)) from exc
+        env_var_names = sorted({*env_var_names, "KIMI_CODE_LEGACY_FLAG"})
     if request.backend == "local_interactive" and tool == "kimi":
         env_values[_KIMI_TUI_NO_AUTO_UPDATE_ENV_VAR] = "1"
         env_var_names = sorted({*env_var_names, _KIMI_TUI_NO_AUTO_UPDATE_ENV_VAR})
@@ -187,16 +199,6 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         role_prompt=request.role_package.system_prompt,
         strategy=launch_policy_result.strategy,
     )
-    auto_skill_projection = _ensure_role_injection_auto_skills(
-        tool=tool,
-        home_path=home_path,
-        role_injection=role_injection,
-    )
-    if auto_skill_projection is not None:
-        metadata["auto_skills"] = auto_skill_projection["projection"]
-        discovery_payload = auto_skill_projection.get("provider_discovery")
-        if discovery_payload is not None:
-            metadata["auto_skill_provider_discovery"] = discovery_payload
     codex_cli_config_args = _codex_cli_config_args_from_contract(
         tool=tool,
         backend=request.backend,
@@ -220,6 +222,24 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         )
     args.extend(codex_cli_config_args)
     args.extend(provider_model_selection_cli_args)
+    if tool == "kimi" and request.backend in {"local_interactive", "kimi_headless"}:
+        metadata["native_system_prompt"] = _ensure_kimi_native_system_prompt_for_start(
+            executable=executable,
+            args=args,
+            working_directory=request.working_directory,
+            home_path=home_path,
+            role_injection=role_injection,
+            detected_version=(
+                launch_policy_result.provenance.detected_tool_version
+                if launch_policy_result.provenance is not None
+                else None
+            ),
+        )
+        if requested_operator_prompt_mode == "unattended":
+            metadata["workspace_trust"] = _ensure_kimi_workspace_trust_for_start(
+                working_directory=request.working_directory,
+                home_path=home_path,
+            )
     if launch_policy_result.strategy is not None:
         metadata["launch_policy"] = launch_policy_result.strategy.to_metadata_payload()
     metadata["launch_policy_request"] = {
@@ -254,35 +274,75 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     )
 
 
-def _ensure_role_injection_auto_skills(
+def _ensure_kimi_native_system_prompt_for_start(
     *,
-    tool: str,
+    executable: str,
+    args: list[str],
+    working_directory: Path,
     home_path: Path,
     role_injection: RoleInjectionPlan,
-) -> dict[str, Any] | None:
-    """Project auto skills required by the selected role-injection method."""
+    detected_version: str | None,
+) -> dict[str, Any]:
+    """Validate and repair Kimi's native prompt immediately before start."""
 
-    if role_injection.method != "auto_skill_system_prompt":
-        return None
+    if role_injection.method != "native_home_system_prompt":
+        raise LaunchPlanError(
+            "Maintained Kimi provider starts require role injection method "
+            f"`native_home_system_prompt`, got `{role_injection.method}`."
+        )
+    try:
+        version = detect_tool_version(executable=executable) if detected_version is None else None
+        version_text = detected_version or (version.raw if version is not None else "")
+        if not SupportedVersionSpec.parse(">=0.34.0").contains(
+            version if version is not None else ToolVersion.parse(version_text)
+        ):
+            raise LaunchPlanError(
+                "Maintained Kimi native prompt support requires Kimi Code >=0.34.0 with no "
+                f"upper version limit; detected {version_text!r}."
+            )
+        with provider_state_mutation_lock(home_path):
+            validate_kimi_native_prompt_launch(
+                launch_args=args,
+                working_directory=working_directory,
+                home_path=home_path,
+            )
+            projection = ensure_kimi_system_prompt(
+                home_path=home_path,
+                effective_prompt=role_injection.prompt,
+            )
+    except KimiSystemPromptError as exc:
+        raise LaunchPlanError(str(exc)) from exc
+    return {
+        **projection.to_payload(),
+        "method": role_injection.method,
+        "relative_path": "SYSTEM.md",
+        "validation": "passed",
+        "supported_versions": ">=0.34.0",
+        "detected_version": version_text,
+    }
 
-    projection = project_auto_skills_for_home(
-        tool=tool,
-        home_path=home_path,
-        skill_names=(AUTO_SKILL_SYSTEM_PROMPT,),
-        reason=AUTO_SKILL_SYSTEM_PROMPT_REASON,
-        prompt_reference="launch_plan.role_injection.prompt",
-        prompt_sha256=prompt_sha256(role_injection.prompt),
-    )
-    discovery = ensure_auto_skill_provider_discovery(
-        tool=tool,
-        home_path=home_path,
-        destination_root=projection.destination_root,
-        has_projected_auto_skills=bool(projection.projected_relative_dirs),
-    )
-    payload: dict[str, Any] = {"projection": projection.to_payload()}
-    if discovery is not None:
-        payload["provider_discovery"] = discovery
-    return payload
+
+def _ensure_kimi_workspace_trust_for_start(
+    *,
+    working_directory: Path,
+    home_path: Path,
+) -> dict[str, Any]:
+    """Pre-seed Kimi's workspace trust for the launch workdir before start.
+
+    Unattended launches must not surface Kimi's "Trust this folder?" modal;
+    the provider's trust check is presence-only, so the managed home receives
+    the deterministic record for the actual launch working directory here.
+    """
+
+    try:
+        with provider_state_mutation_lock(home_path):
+            projection = ensure_kimi_workspace_trust(
+                home_path=home_path,
+                working_directory=working_directory,
+            )
+    except KimiWorkspaceTrustError as exc:
+        raise LaunchPlanError(str(exc)) from exc
+    return projection.to_payload()
 
 
 def plan_role_injection(
@@ -344,50 +404,22 @@ def _plan_role_injection_from_strategy(
             prompt=role_prompt,
         )
 
-    capabilities = strategy.system_prompt_bootstrap
-    if capabilities.native_system_prompt:
-        method = _native_role_injection_method(backend=backend, tool=tool)
-        if method is None:
-            raise LaunchPlanError(
-                "Launch policy declares native system-prompt support, but Houmao has no "
-                f"native role-injection method for backend={backend!r}, tool={tool!r}."
-            )
-        return RoleInjectionPlan(
-            method=method,
-            role_name=role_name,
-            prompt=role_prompt,
-            bootstrap_message=(
-                _bootstrap_message(role_name, role_prompt)
-                if method == "native_append_system_prompt"
-                else None
-            ),
-        )
-
-    if capabilities.startup_visible_skill_metadata:
-        if not capabilities.provider_skills:
-            raise LaunchPlanError(
-                "Launch policy declares startup-visible skill metadata without provider "
-                f"skill support for backend={backend!r}, tool={tool!r}."
-            )
-        return RoleInjectionPlan(
-            method="auto_skill_system_prompt",
-            role_name=role_name,
-            prompt=role_prompt,
-            bootstrap_message=None,
-        )
-
-    if role_prompt.strip():
+    method = _native_role_injection_method(backend=backend, tool=tool)
+    if method is None or strategy.system_prompt.method != method:
         raise LaunchPlanError(
-            "No supported system-prompt injection method exists for "
-            f"backend={backend!r}, tool={tool!r}, strategy={strategy.strategy_id!r}: "
-            "native_system_prompt=false and startup_visible_skill_metadata=false."
+            "Launch policy has no applicable native system-prompt method for "
+            f"backend={backend!r}, tool={tool!r}, strategy={strategy.strategy_id!r}; "
+            f"declared={strategy.system_prompt.method!r}, expected={method!r}."
         )
-
     return RoleInjectionPlan(
-        method="bootstrap_message",
+        method=method,
         role_name=role_name,
         prompt=role_prompt,
-        bootstrap_message="",
+        bootstrap_message=(
+            _bootstrap_message(role_name, role_prompt)
+            if method == "native_append_system_prompt"
+            else None
+        ),
     )
 
 
@@ -395,7 +427,14 @@ def _native_role_injection_method(
     *,
     backend: BackendKind,
     tool: str | None,
-) -> Literal["native_developer_instructions", "native_append_system_prompt"] | None:
+) -> (
+    Literal[
+        "native_developer_instructions",
+        "native_append_system_prompt",
+        "native_home_system_prompt",
+    ]
+    | None
+):
     """Return the maintained native role-injection method for one backend/tool pair."""
 
     if backend in {"codex_app_server", "codex_headless"}:
@@ -406,6 +445,10 @@ def _native_role_injection_method(
         return "native_append_system_prompt"
     if backend == "local_interactive" and tool == "claude":
         return "native_append_system_prompt"
+    if backend == "kimi_headless":
+        return "native_home_system_prompt"
+    if backend == "local_interactive" and tool == "kimi":
+        return "native_home_system_prompt"
     return None
 
 
@@ -441,10 +484,9 @@ def _plan_legacy_role_injection(
             )
         if tool == "kimi":
             return RoleInjectionPlan(
-                method="bootstrap_message",
+                method="native_home_system_prompt",
                 role_name=role_name,
                 prompt=role_prompt,
-                bootstrap_message=_bootstrap_message(role_name, role_prompt),
             )
         raise LaunchPlanError(
             "backend=local_interactive requires a supported tool-specific role injection plan."
@@ -460,10 +502,9 @@ def _plan_legacy_role_injection(
 
     if backend == "kimi_headless":
         return RoleInjectionPlan(
-            method="bootstrap_message",
+            method="native_home_system_prompt",
             role_name=role_name,
             prompt=role_prompt,
-            bootstrap_message=_bootstrap_message(role_name, role_prompt),
         )
 
     if backend in {"cao_rest", "houmao_server_rest"}:
