@@ -85,7 +85,7 @@ tests:
       ops:
         - {name: submit-question, kind: submit_text, text: "Ask me exactly one multiple-choice question about which boltons module to document first, using your question tool. Do not proceed until I answer.", meaning: force the question dialog}
         - {name: wait-dialog, kind: wait_for_pattern, pattern: "esc cancel", timeout_s: 180, meaning: question dialog rendered (hint text is source-backed, components/dialogs/question-dialog.ts)}
-        - {name: hold-dialog, kind: wait_seconds, seconds: 3, meaning: question dialog span; title " question" and [N] options visible}
+        - {name: hold-dialog, kind: wait_seconds, seconds: 3, meaning: "question dialog span; title ' question' and [N] options visible"}
         - {name: cancel-dialog, kind: send_key, key: Escape, meaning: cancel the dialog}
         - {name: settle, kind: wait_seconds, seconds: 10, meaning: post-cancel resolution}
     assert:
