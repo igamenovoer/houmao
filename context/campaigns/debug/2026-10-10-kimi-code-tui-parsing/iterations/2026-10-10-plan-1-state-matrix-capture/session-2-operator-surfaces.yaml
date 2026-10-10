@@ -1,0 +1,94 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: Iteration 1 Session 2 — kimi-code 2.1.1 operator-interaction surfaces (manual permission mode, 5 fps recording, trusted Boltons copy)
+
+prompts:
+  # Schema-required placeholder; the python provider drives vars.ops and ignores prompt text.
+  - "tui-scenario"
+
+providers:
+  - id: python:drivers/tui_driver.py:call_api
+    config:
+      profile: kimi-tui-manual # bare launch, no --auto/--yolo; approvals render by design
+      fixture: tests/fixtures/test-projects/boltons
+      workdir_policy: trusted # pre-trusted during driver setup; no trust modal in this session
+      record_mode: active
+      sample_interval_seconds: 0.2 # 5 fps per campaign directive
+      observed_version: "2.1.1"
+
+evaluateOptions:
+  maxConcurrency: 1 # sequential legs of one recorded session
+
+defaultTest:
+  assert:
+    - type: python
+      value: file://asserts/recording_integrity.py # gate: plan G1/G5
+    - type: python
+      value: file://asserts/label_integrity.py # gate: plan G3
+    - type: python
+      value: file://asserts/field_agreement.py # measure: per-field detector-vs-GT agreement
+    - type: python
+      value: file://asserts/signal_audit.py # measure: per-signal survival rows
+
+tests:
+  - description: s2-bash-approval-reject-feedback — Run this command? panel with the 2.1 option labels; reject with inline feedback
+    vars:
+      case_id: s2-bash-approval-reject-feedback
+      ops:
+        - {name: submit-bash, kind: submit_text, text: "Use the Bash tool to run exactly: git status --short. Then stop.", meaning: force one Bash approval}
+        - {name: wait-approval, kind: wait_for_pattern, pattern: "Run this command?", timeout_s: 180, meaning: approval panel replaced the editor}
+        - {name: hold-approval, kind: wait_seconds, seconds: 3, meaning: approval span; options 1. Approve once … 4. Reject with feedback visible}
+        - {name: choose-reject-feedback, kind: send_key, key: "4", meaning: number-key choose "Reject with feedback"}
+        - {name: type-feedback, kind: type_text, text: "Not needed for this test.", meaning: inline feedback row (Type feedback · ↵ submit)}
+        - {name: submit-feedback, kind: send_key, key: Enter, meaning: submit rejection feedback}
+        - {name: settle, kind: wait_seconds, seconds: 20, meaning: post-rejection turn resolution}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [approval_modal, ready], min_span_samples: 3}
+
+  - description: s2-write-approval-reject — Write this file? panel; plain reject
+    vars:
+      case_id: s2-write-approval-reject
+      ops:
+        - {name: submit-write, kind: submit_text, text: "Create the file docs/houmao-campaign-note.md containing exactly one sentence. Then stop.", meaning: force one Write approval}
+        - {name: wait-approval, kind: wait_for_pattern, pattern: "Write this file?", timeout_s: 180, meaning: write approval panel visible}
+        - {name: hold-approval, kind: wait_seconds, seconds: 3, meaning: approval span}
+        - {name: choose-reject, kind: send_key, key: "3", meaning: number-key choose "Reject"}
+        - {name: settle, kind: wait_seconds, seconds: 15, meaning: post-rejection resolution}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [approval_modal, ready], min_span_samples: 3}
+
+  - description: s2-plan-review-revise — plan mode, Ready to build with this plan? with Approve/Reject/Revise; choose Revise
+    vars:
+      case_id: s2-plan-review-revise
+      ops:
+        - {name: toggle-plan, kind: send_key, key: BTab, meaning: shift-tab toggles plan mode (footer plan badge)}
+        - {name: hold-plan-on, kind: wait_seconds, seconds: 1, meaning: plan mode indicator span}
+        - {name: submit-plan, kind: submit_text, text: "Plan how you would add a docstring example for windowed in boltons/iterutils.py. Do not edit any files.", meaning: produce a small plan, ending in ExitPlanMode}
+        - {name: wait-plan-panel, kind: wait_for_pattern, pattern: "Ready to build with this plan?", timeout_s: 240, meaning: plan approval panel visible}
+        - {name: hold-plan-panel, kind: wait_seconds, seconds: 3, meaning: plan approval span}
+        - {name: choose-revise, kind: send_key, key: "3", meaning: select the final "Revise" option; index verified against the captured panel at execution}
+        - {name: type-revision, kind: type_text, text: "Keep it shorter.", meaning: revision feedback row}
+        - {name: submit-revision, kind: send_key, key: Enter, meaning: send plan back for revision}
+        - {name: settle, kind: wait_seconds, seconds: 20, meaning: revision turn runs}
+        - {name: untoggle-plan, kind: send_key, key: BTab, meaning: leave plan mode}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [approval_modal, ready], min_span_samples: 3}
+
+  - description: s2-ask-user-question — agent opens the AskUserQuestion dialog; operator cancels with Esc
+    vars:
+      case_id: s2-ask-user-question
+      ops:
+        - {name: submit-question, kind: submit_text, text: "Ask me exactly one multiple-choice question about which boltons module to document first, using your question tool. Do not proceed until I answer.", meaning: force the question dialog}
+        - {name: wait-dialog, kind: wait_for_pattern, pattern: "esc cancel", timeout_s: 180, meaning: question dialog rendered (hint text is source-backed, components/dialogs/question-dialog.ts)}
+        - {name: hold-dialog, kind: wait_seconds, seconds: 3, meaning: question dialog span; title " question" and [N] options visible}
+        - {name: cancel-dialog, kind: send_key, key: Escape, meaning: cancel the dialog}
+        - {name: settle, kind: wait_seconds, seconds: 10, meaning: post-cancel resolution}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [question_dialog, ready], min_span_samples: 3}
