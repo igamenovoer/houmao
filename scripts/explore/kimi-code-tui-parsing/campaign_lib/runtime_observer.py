@@ -143,6 +143,10 @@ def _find_supported_process(*, pane_pid: int | None, marker: str) -> tuple[int |
         if not (pid_text.isdigit() and ppid_text.isdigit()):
             continue
         children.setdefault(int(ppid_text), []).append((int(pid_text), args))
+    # The pane command is exec'd, so the pane process itself may be the tool.
+    own_args = _read_proc_args(pane_pid)
+    if own_args and marker in own_args:
+        return pane_pid, True
     stack = [pane_pid]
     while stack:
         current = stack.pop()
@@ -151,3 +155,13 @@ def _find_supported_process(*, pane_pid: int | None, marker: str) -> tuple[int |
                 return child_pid, True
             stack.append(child_pid)
     return None, False
+
+
+def _read_proc_args(pid: int) -> str | None:
+    """Return one process's command line from /proc, when readable."""
+
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        return None
+    return raw.replace(b"\0", b" ").decode("utf-8", errors="replace").strip() or None

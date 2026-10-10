@@ -29,6 +29,7 @@ _OP_KINDS = frozenset(
         "send_key",
         "wait_seconds",
         "wait_for_pattern",
+        "wait_for_absence",
         "catalog_operation",
     }
 )

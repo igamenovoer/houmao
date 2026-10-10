@@ -79,6 +79,10 @@ class TmuxDriver:
                 self.wait_for_pattern(
                     str(op["pattern"]), timeout_seconds=float(op.get("timeout_s") or 60)
                 )
+            elif kind == "wait_for_absence":
+                self.wait_for_absence(
+                    str(op["pattern"]), timeout_seconds=float(op.get("timeout_s") or 60)
+                )
             else:
                 raise DriveError(f"Unsupported expanded op kind {kind!r}")
         except Exception as exc:
@@ -135,6 +139,17 @@ class TmuxDriver:
             time.sleep(0.4)
         raise DriveError(f"Pattern {pattern!r} not visible within {timeout_seconds}s")
 
+    def wait_for_absence(self, pattern: str, *, timeout_seconds: float) -> None:
+        """Poll the plain visible pane until one documented pattern disappears."""
+
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            capture = run_tmux(["capture-pane", "-p", "-t", self.m_pane_id])
+            if capture.returncode == 0 and pattern not in capture.stdout:
+                return
+            time.sleep(0.4)
+        raise DriveError(f"Pattern {pattern!r} still visible after {timeout_seconds}s")
+
     def capture_visible_text(self) -> str:
         """Return the current plain visible pane text (diagnostics only)."""
 
@@ -182,7 +197,7 @@ def _op_detail(op: dict[str, Any]) -> str:
         parts.append(f"meaning={op['meaning']}")
     if op.get("catalog_ref"):
         parts.append(f"ref={op['catalog_ref']}")
-    if op["kind"] == "wait_for_pattern":
+    if op["kind"] in {"wait_for_pattern", "wait_for_absence"}:
         parts.append(f"pattern={op.get('pattern')!r}")
     if op["kind"] == "wait_seconds":
         parts.append(f"seconds={op.get('seconds')}")

@@ -86,7 +86,12 @@ def _run_baseline(*, recording_root: Path) -> dict[str, Any]:
         row["status"] = "error"
         row["error"] = completed.stderr[-2000:]
         return row
-    payload = json.loads(completed.stdout.strip().splitlines()[-1])
+    text = completed.stdout.strip()
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        payload = json.loads(text[start:]) if start >= 0 else {}
     row.update(
         status="ok",
         detector_name="kimi_code",

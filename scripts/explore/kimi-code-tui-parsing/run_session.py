@@ -169,6 +169,7 @@ def main() -> int:
         )
         if stop.returncode != 0:
             print(f"WARNING: recorder stop failed: {stop.stderr[-400:]}", file=sys.stderr)
+        _teardown_recorder_session(recording_root, session_name=session_name)
         _wait_quiescence(recording_root)
 
     frozen = freeze_run(run_root=run_root)
@@ -223,6 +224,34 @@ def _write_definitions(*, run_root: Path, spec) -> None:
     (definitions / "scenario.json").write_text(
         json.dumps(scenario, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
+
+
+def _teardown_recorder_session(recording_root: Path, *, session_name: str) -> None:
+    """Ensure the recorder session and its asciinema attach are fully gone.
+
+    The maintained controller can leave the asciinema attach client alive
+    after ``stop`` finalizes, which keeps ``session.cast`` growing past the
+    freeze. Poll for the recorder session, kill it if needed, then detach any
+    remaining clients of the target session so the cast reaches finality
+    before digests are taken.
+    """
+
+    from houmao.agents.realm_controller.backends.tmux_runtime import run_tmux
+
+    try:
+        manifest = json.loads((recording_root / "manifest.json").read_text(encoding="utf-8"))
+        recorder_session = manifest.get("recorder_session_name")
+    except (OSError, json.JSONDecodeError):
+        recorder_session = None
+    if recorder_session:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if run_tmux(["has-session", "-t", recorder_session]).returncode != 0:
+                break
+            time.sleep(0.3)
+        if run_tmux(["has-session", "-t", recorder_session]).returncode == 0:
+            run_tmux(["kill-session", "-t", recorder_session])
+    run_tmux(["detach-client", "-s", session_name])
 
 
 def _wait_quiescence(recording_root: Path, timeout_seconds: float = 30.0) -> None:

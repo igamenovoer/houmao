@@ -1,6 +1,6 @@
 # Debug Intent: Kimi Code TUI Parsing
 
-Date: 2026-10-10. Updated: 2026-10-10. Status: iteration 1 planned. Campaign directory: `context/campaigns/debug/2026-10-10-kimi-code-tui-parsing/`.
+Date: 2026-10-10. Updated: 2026-10-10. Status: iteration 1 complete (KQ-1 resolved); KQ-2/KQ-3 disposition pending. Campaign directory: `context/campaigns/debug/2026-10-10-kimi-code-tui-parsing/`.
 
 ## Problem Statement
 
@@ -84,7 +84,7 @@ This campaign is an isolated diagnostic. It does not authorize changing producti
 
 ## Key Questions and Iterations
 
-- [KQ-1: Which text-scraping signals survive on kimi-code 2.1.1?](key-questions/KQ-1-signal-survival.md) — planned; propositions KQ-1.1–1.5 cover prompt detection, activity labels, approval/question dialogs, queue/interrupt strings, and footer markers.
-- [Iteration 1: kimi-code 2.1.1 state-matrix capture and detector gap analysis](iterations/2026-10-10-plan-1-state-matrix-capture.md) — planned; two recorded 5 fps sessions (turn-lifecycle states under `--auto`, operator-interaction states in manual mode), Arms A (detector replay vs blind ground truth) and B (escape-sequence audit) over one frozen recording.
+- [KQ-1: Which text-scraping signals survive on kimi-code 2.1.1?](key-questions/KQ-1-signal-survival.md) — resolved 2026-10-10; see the answer and the two evidence docs under `evidences/`.
+- [Iteration 1: kimi-code 2.1.1 state-matrix capture and detector gap analysis](iterations/2026-10-10-plan-1-state-matrix-capture.md) — complete; all gates passed with two declared coverage gaps (compaction, tui_down).
 
-Remaining candidate key questions, not yet opened: KQ-2 — do OSC 133 / OSC 9;4 sequences survive tmux capture and track busy/idle reliably (Arm B feasibility, seeded by iteration 1's audit); KQ-3 — can hooks or print-mode stream-json serve as the ground-truth oracle for labeling captures (Arm C feasibility).
+Remaining candidate key questions: KQ-2 (OSC 133 / OSC 9;4 survival) is answered negatively by iteration 1's Arm B audit without a dedicated iteration (zero occurrences in 2706 escape-preserving samples; only OSC 8 hyperlinks survive) and can be closed as infeasible via tmux capture; KQ-3 (hooks / stream-json as ground-truth oracle, Arm C) remains unopened.

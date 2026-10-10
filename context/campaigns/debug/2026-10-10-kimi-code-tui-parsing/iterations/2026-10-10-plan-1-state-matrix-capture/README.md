@@ -14,7 +14,7 @@ Both session files are **promptfoo-format configs** (`TestSuiteConfig`, schema `
 
 ## Ops vocabulary
 
-Tracker-blind actions only (per `houmao-dev-tui-testing` record rules): `type_text` (no submit), `submit_text`, `send_key` (with optional `repeat`), `wait_seconds` (fixed holds), `wait_for_pattern` (documented literal surface pattern), `catalog_operation` (resolve a reviewed op verbatim from `scripts/demo/shared-tui-tracking-demo-pack/long-horizon/suite.json` by `"<procedure>:op<NN>"`). Every op has a unique `name` and a `meaning` recorded separately from any raw pattern, so later UI wording changes stay visible. The `{{SAFE}}` token in catalog texts expands with the suite's `safe_prefix`. Never use detector-owned waits (`wait_for_ready`, `wait_for_active`).
+Tracker-blind actions only (per `houmao-dev-tui-testing` record rules): `type_text` (no submit), `submit_text`, `send_key` (with optional `repeat`), `wait_seconds` (fixed holds), `wait_for_pattern` and `wait_for_absence` (documented literal surface pattern present/absent), `catalog_operation` (resolve a reviewed op verbatim from `scripts/demo/shared-tui-tracking-demo-pack/long-horizon/suite.json` by `"<procedure>:op<NN>"`). Every op has a unique `name` and a `meaning` recorded separately from any raw pattern, so later UI wording changes stay visible. The `{{SAFE}}` token in catalog texts expands with the suite's `safe_prefix`. Never use detector-owned waits (`wait_for_ready`, `wait_for_active`).
 
 ## Timing constants (UC-04 at 5 fps)
 

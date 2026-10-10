@@ -50,7 +50,9 @@ tests:
     vars:
       case_id: s2-write-approval-reject
       ops:
-        - {name: submit-write, kind: submit_text, text: "Create the file docs/houmao-campaign-note.md containing exactly one sentence. Then stop.", meaning: force one Write approval}
+        # Write inside a git-worktree workspace is auto-approved by kimi's
+        # git-cwd-write-approve policy; an absolute /tmp path forces fallback-ask.
+        - {name: submit-write, kind: submit_text, text: "Create the file /tmp/houmao-campaign-note-s2.md containing exactly one sentence, using your Write tool. Then stop.", meaning: force one Write approval outside the workspace}
         - {name: wait-approval, kind: wait_for_pattern, pattern: "Write this file?", timeout_s: 180, meaning: write approval panel visible}
         - {name: hold-approval, kind: wait_seconds, seconds: 3, meaning: approval span}
         - {name: choose-reject, kind: send_key, key: "3", meaning: number-key choose "Reject"}
@@ -60,7 +62,7 @@ tests:
         value: file://asserts/coverage_spans.py
         config: {required_spans: [approval_modal, ready], min_span_samples: 3}
 
-  - description: s2-plan-review-revise — plan mode, Ready to build with this plan? with Approve/Reject/Revise; choose Revise
+  - description: s2-plan-review-revise — plan mode, Ready to build with this plan? with Approve/Reject/Revise; choose Revise, then reject the revised plan
     vars:
       case_id: s2-plan-review-revise
       ops:
@@ -69,11 +71,16 @@ tests:
         - {name: submit-plan, kind: submit_text, text: "Plan how you would add a docstring example for windowed in boltons/iterutils.py. Do not edit any files.", meaning: produce a small plan, ending in ExitPlanMode}
         - {name: wait-plan-panel, kind: wait_for_pattern, pattern: "Ready to build with this plan?", timeout_s: 240, meaning: plan approval panel visible}
         - {name: hold-plan-panel, kind: wait_seconds, seconds: 3, meaning: plan approval span}
-        - {name: choose-revise, kind: send_key, key: "3", meaning: select the final "Revise" option; index verified against the captured panel at execution}
+        - {name: choose-revise, kind: send_key, key: "3", meaning: "select the final 'Revise' option (adapter.ts PLAN_REJECT_CHOICES order 1 Approve once, 2 Reject, 3 Revise)"}
         - {name: type-revision, kind: type_text, text: "Keep it shorter.", meaning: revision feedback row}
         - {name: submit-revision, kind: send_key, key: Enter, meaning: send plan back for revision}
-        - {name: settle, kind: wait_seconds, seconds: 20, meaning: revision turn runs}
-        - {name: untoggle-plan, kind: send_key, key: BTab, meaning: leave plan mode}
+        - {name: wait-panel-close, kind: wait_for_absence, pattern: "Ready to build with this plan?", timeout_s: 30, meaning: revision accepted; panel dismissed while the agent revises}
+        - {name: wait-revised-panel, kind: wait_for_pattern, pattern: "Ready to build with this plan?", timeout_s: 240, meaning: revised plan re-presented}
+        - {name: hold-revised, kind: wait_seconds, seconds: 3, meaning: revised plan approval span}
+        - {name: choose-reject-plan, kind: send_key, key: "2", meaning: reject the revised plan outright (no feedback) so no execution follows}
+        - {name: settle, kind: wait_seconds, seconds: 10, meaning: post-rejection resolution; no build starts}
+        - {name: dismiss-leftovers, kind: send_key, key: Escape, meaning: close any residual surface before the next case}
+        - {name: settle-2, kind: wait_seconds, seconds: 3, meaning: settle after dismiss}
     assert:
       - type: python
         value: file://asserts/coverage_spans.py

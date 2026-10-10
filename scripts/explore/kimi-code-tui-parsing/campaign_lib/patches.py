@@ -88,8 +88,10 @@ class KimiCodeSignalDetectorV2_1_XCandidate(_BaseKimiCodeSignalDetector):
         """Return base signals repaired for kimi-code 2.1.x surfaces."""
 
         base = super().detect(output_text=output_text, parsed_surface=parsed_surface)
-        text = output_text or ""
-        live_lines = _live_edge_lines(text)
+        # Detector semantics operate on the stripped surface (SurfaceView); raw
+        # escapes would break dialog and bullet matching.
+        stripped_text = "\n".join(SurfaceView.from_text(output_text or "").stripped_lines)
+        live_lines = _live_edge_lines(output_text or "")
 
         reasons = list(base.active_reasons)
         active = base.active_evidence
@@ -102,15 +104,17 @@ class KimiCodeSignalDetectorV2_1_XCandidate(_BaseKimiCodeSignalDetector):
                 reasons.append("compaction")
             active = True
 
-        question_dialog = _question_dialog_present(text)
-        goal_prompt = _GOAL_PROMPT_NEEDLE in text
+        question_dialog = _question_dialog_present(stripped_text)
+        goal_prompt = _GOAL_PROMPT_NEEDLE in stripped_text
         modal = base.ambiguous_interactive_surface or question_dialog or goal_prompt
         if question_dialog:
             reasons.append("question_dialog")
         if goal_prompt:
             reasons.append("goal_start_prompt")
 
-        interrupted = base.interrupted
+        # Interrupt notices persist in scrollback while later turns run; only a
+        # notice with no concurrent activity marks an interrupted surface.
+        interrupted = base.interrupted and not active
         active_evidence = active and not interrupted
         prompt_visible = base.prompt_visible
         prompt_empty = not (base.prompt_text or "").strip()
@@ -136,6 +140,7 @@ class KimiCodeSignalDetectorV2_1_XCandidate(_BaseKimiCodeSignalDetector):
             ready_posture=ready_posture,
             active_evidence=active_evidence,
             active_reasons=tuple(dict.fromkeys(reasons)),
+            interrupted=interrupted,
             ambiguous_interactive_surface=modal,
             success_candidate=bool(
                 prompt_visible and ready_posture == "yes" and prompt_empty and not interrupted
@@ -181,7 +186,7 @@ def kimi_2_1_x_patch() -> Iterator[None]:
         """Extend the recorder kimi parser mapping with 2.1 modal surfaces."""
 
         payload = original_payload_parser(snapshot)
-        text = snapshot.output_text or ""
+        text = "\n".join(SurfaceView.from_text(snapshot.output_text or "").stripped_lines)
         if payload["business_state"] in {"unknown", "idle"}:
             if _TRUST_MODAL_NEEDLE in text.lower():
                 payload.update(
