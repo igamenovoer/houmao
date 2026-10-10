@@ -107,6 +107,10 @@ Decision rules (predeclared):
 - [ ] Write evidence docs under `../evidences/` (one per session), update KQ-1 answer and `../debug-intent.md` status
 - [ ] Clean up provider-credential-adjacent temp material per the artifact contract; record cleanup status
 
+## Corrections
+
+- 2026-10-10 (post-merge 8ad0854b): the Frozen Workload "Detector under test" row is superseded. The `main` → `devel` merge replaced the 0.11.x/0.23.x profiles with `KimiCodeSignalDetectorV0_34_PLUS` (`registry.py:120-127`, `detector_version=">=0.34.0"`, `activity_window_lines=4`, temporal growth disabled), and kimi 2.1.1 now resolves to it (verified via `DetectorProfileRegistry.default().resolve(app_id="kimi_code", observed_version="2.1.1")`). The detector under test is the `>=0.34.0` profile, and G4's recorded detector identity should read `kimi_code` / `>=0.34.0`, not `kimi_code` / `fallback`. The same merge set the parser preset to `">=0.34.0"` (`parser.py:142`), so the plan's hardcoded-preset finding refers to the pre-merge value. All other predeclarations (scenario, gates, decision rules, arms) are unaffected.
+
 ## Result
 
 To be added after completion. Corrections to this plan, if any, will be appended with dates; the original text stays.
