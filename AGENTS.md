@@ -1,14 +1,24 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-Core runtime code lives in `src/houmao/` (CLI entrypoints, launch/runtime logic, and CAO integration). Tests are under `tests/` and split by intent:
-- `tests/unit/` for fast hermetic tests
-- `tests/integration/` for multi-component or external dependency tests
-- `tests/manual/` for non-CI manual scripts
+Classify every new file by purpose before placing it: `distro` (part of the released product), `CI` (quality control for production code), `utility` (development, testing, migration, or operational tooling), or `temp` (disposable state for a one-off test or experiment). Place it in the matching location below; this map is the single reference for path-to-purpose decisions.
 
-Supporting material is organized as: `docs/` (reference and migration docs), `scripts/` (automation and helper CLIs), `openspec/` (spec-driven change artifacts), and `config/` (project configuration assets).
-External code lives under `extern/`: use `extern/tracked/` for tracked dependencies and `extern/orphan/` for local reference-only checkouts. The RxPY source reference cloned for this workspace is at `extern/orphan/RxPY/`.
-When a task involves a library, tool, or integration that has a source reference under `extern/orphan/`, inspect that local source checkout first and use it as the primary reference for behavior, APIs, config, and implementation details. Only fall back to online documentation or web search after checking the in-repo source, or when you need newer upstream context that is not present in the local checkout. Current examples under `extern/orphan/` include `RxPY`, `filestash`, `codex`, `asciinema`, `cypht`, and `stalwart`.
+- `src/houmao/` (`distro`): core runtime code — CLI entrypoints, launch/runtime logic, and CAO integration, plus stable reusable infrastructure maintained as supported package code.
+- `tests/` (`CI`): the pytest suite, split by intent — `tests/unit/` fast hermetic tests, `tests/integration/` multi-component or external dependency tests, `tests/workflow/` end-to-end workflow suites, `tests/manual/` non-CI manual scripts, `tests/fixtures/` shared fixtures and auth bundles. Production modules must remain independent of test-only trees.
+- `scripts/` (`utility`): automation and helper CLIs, grouped in purpose-specific subdirectories (`agents/`, `demo/`, `explore/`, `openspec/`, `parity/`, `qualification/`).
+- `tools/` (`utility`): development and operational tooling such as `tools/terminal_record/`.
+- `apps/` (standalone, not packaged): developer applications outside the Houmao Python package (for example `apps/ag-ui-workbench/`); each app owns its JavaScript dependencies, lockfile, build scripts, and tests. Do not add `apps/` to Python package include rules or runtime imports.
+- `docs/`: reference and migration documentation.
+- `openspec/`: spec-driven change artifacts (`specs/`, `changes/`).
+- `examples/`: example deployments such as `examples/writer-team/`.
+- `dockers/`: project-local Docker services (`dev-helpers/`, `email-system/`).
+- `context/`: project context and working notes for agent workflows (plans, issues, summaries, roles, and similar artifacts).
+- `magic-context/`: shared agent instruction and skill assets (see "Python Style (magic-context)" below).
+- `skillset/`: Houmao skillsets — `dev/` contributor skills (not published), `runtime/` a symlink to the packaged runtime skills at `src/houmao/agents/assets/system_skills/`; edit at that source location.
+- `extern/`: external code — `extern/tracked/` for tracked dependencies and `extern/orphan/` for local reference-only checkouts (current examples: `RxPY`, `filestash`, `codex`, `asciinema`, `cypht`, `stalwart`). When a task involves a library, tool, or integration that has a source reference under `extern/orphan/`, inspect that local source checkout first and use it as the primary reference for behavior, APIs, config, and implementation details; fall back to online documentation or web search only after checking the in-repo source, or when you need newer upstream context that is not present locally.
+- `temp` files belong in an ignored scratch tree such as `tmp/<purpose-dir>/`. They may be deleted at any time, must not be tracked by Git, and must not be required by production code, committed tests, or durable workflows.
+
+If no suitable directory exists, create a purpose-specific location consistent with these conventions and update ignore, packaging, or build configuration as required by the classification. Do not create uncategorized code at the repository root, introduce a conventional directory when an equivalent project-specific home already exists, or add files directly under a broad tooling or temporary directory when a purpose-specific subdirectory is appropriate.
 
 ## Build, Test, and Development Commands
 Use Pixi as the default workflow:
