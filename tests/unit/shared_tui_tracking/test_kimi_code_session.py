@@ -6,10 +6,10 @@ from reactivex.testing import TestScheduler
 
 from houmao.shared_tui_tracking import TrackerConfig, TuiTrackerSession, app_id_from_tool
 from houmao.shared_tui_tracking.apps.kimi_code.profile import (
-    FallbackKimiCodeSignalDetector,
     KimiCodeSignalDetector,
-    KimiCodeSignalDetectorV0_34_PLUS,
+    KimiCodeSignalDetectorV2_1_X,
     analyze_kimi_surface,
+    kimi_trust_modal_present,
 )
 
 
@@ -19,27 +19,28 @@ _FIXTURE_ROOT = (
 
 
 def _fixture(name: str) -> str:
-    """Return one recorded Kimi visible-surface fixture."""
+    """Return one recorded Kimi 2.1.1 visible-surface fixture."""
 
     return (_FIXTURE_ROOT / name).read_text(encoding="utf-8")
 
 
-_KIMI_READY_WITH_FOOTER_THINKING = _fixture("footer_thinking_ready_prompt.txt")
-_KIMI_DRAFT = (
-    "╭────────────────────────────────────────╮\n"
-    "│ > summarize the current status         │\n"
-    "╰────────────────────────────────────────╯\n"
-)
-_KIMI_ACTIVE = _fixture("active_response.txt")
-_KIMI_APPROVAL = _fixture("command_approval.txt")
-_KIMI_STALE_RESTART = f"{_KIMI_READY_WITH_FOOTER_THINKING}\nbash-5.2$ /tmp/kimi-launch.sh\n"
-_KIMI_FRESH_RESTART = f"{_KIMI_STALE_RESTART}│ > \nkimi-for-coding kimi-k2.5 thinking\n"
+_KIMI_IDLE_READY = _fixture("idle_ready.txt")
+_KIMI_EDITING_DRAFT = _fixture("editing_draft.txt")
+_KIMI_BUSY_THINKING = _fixture("busy_thinking.txt")
+_KIMI_BUSY_TOOL_MOON = _fixture("busy_tool_moon.txt")
+_KIMI_APPROVAL = _fixture("approval_panel.txt")
+_KIMI_PLAN_REVIEW = _fixture("plan_review.txt")
+_KIMI_QUESTION_DIALOG = _fixture("question_dialog.txt")
+_KIMI_TRUST_MODAL = _fixture("startup_trust_modal.txt")
+_KIMI_QUEUE_PENDING = _fixture("queue_pending.txt")
+_KIMI_INTERRUPT_RESUME = _fixture("interrupt_resume.txt")
+_KIMI_SUBAGENT_RUNNING = _fixture("subagent_running.txt")
 
 
 def _kimi_session(*, scheduler: TestScheduler) -> TuiTrackerSession:
     return TuiTrackerSession.from_config(
         app_id="kimi_code",
-        observed_version="0.34.0",
+        observed_version="2.1.1",
         config=TrackerConfig(settle_seconds=1.0, stability_threshold_seconds=0.0),
         scheduler=scheduler,
     )
@@ -49,28 +50,34 @@ def test_app_id_from_tool_maps_kimi_to_kimi_code() -> None:
     assert app_id_from_tool(tool="kimi") == "kimi_code"
 
 
-def test_kimi_ready_footer_thinking_does_not_mark_active() -> None:
+def test_kimi_detector_alias_points_at_maintained_profile() -> None:
+    assert KimiCodeSignalDetector is KimiCodeSignalDetectorV2_1_X
+    assert KimiCodeSignalDetectorV2_1_X.qualified_through_version == "2.1.1"
+
+
+def test_kimi_idle_ready_fixture_reads_ready_and_accepting() -> None:
     scheduler = TestScheduler()
     session = _kimi_session(scheduler=scheduler)
 
     scheduler.advance_to(1.0)
-    session.on_snapshot(_KIMI_READY_WITH_FOOTER_THINKING)
+    session.on_snapshot(_KIMI_IDLE_READY)
     state = session.current_state()
 
     assert state.detector_name == "kimi_code"
+    assert state.detector_version == "2.1.x"
     assert state.turn_phase == "ready"
     assert state.surface_accepting_input == "yes"
+    assert state.surface_editing_input == "no"
     assert state.surface_ready_posture == "yes"
     assert state.surface_pending_input == "no"
-    assert "footer_thinking_metadata_ignored" in state.notes
 
 
-def test_kimi_draft_marks_editing_without_active_turn() -> None:
+def test_kimi_editing_draft_marks_editing_without_active_turn() -> None:
     scheduler = TestScheduler()
     session = _kimi_session(scheduler=scheduler)
 
     scheduler.advance_to(1.0)
-    session.on_snapshot(_KIMI_DRAFT)
+    session.on_snapshot(_KIMI_EDITING_DRAFT)
     state = session.current_state()
 
     assert state.turn_phase == "ready"
@@ -79,20 +86,41 @@ def test_kimi_draft_marks_editing_without_active_turn() -> None:
     assert state.last_turn_result == "none"
 
 
-def test_kimi_activity_spinner_marks_turn_active() -> None:
+def test_kimi_braille_thinking_phase_marks_turn_active() -> None:
     scheduler = TestScheduler()
     session = _kimi_session(scheduler=scheduler)
 
     scheduler.advance_to(1.0)
-    session.on_snapshot(_KIMI_ACTIVE)
+    session.on_snapshot(_KIMI_BUSY_THINKING)
     state = session.current_state()
 
     assert state.turn_phase == "active"
-    assert state.surface_accepting_input == "no"
-    assert "braille_spinner" in state.active_reasons
+    assert state.surface_ready_posture == "no"
+    assert "activity_2_1_label" in state.active_reasons
 
 
-def test_kimi_approval_panel_marks_operator_blocked_active_turn() -> None:
+def test_kimi_composer_accepts_input_while_turn_is_active() -> None:
+    detector = KimiCodeSignalDetectorV2_1_X()
+
+    signals = detector.detect(output_text=_KIMI_BUSY_THINKING)
+
+    assert signals.active_evidence is True
+    assert signals.accepting_input == "yes"
+    assert signals.ready_posture == "no"
+
+
+def test_kimi_moon_spinner_tool_phase_marks_turn_active() -> None:
+    detector = KimiCodeSignalDetectorV2_1_X()
+
+    signals = detector.detect(output_text=_KIMI_BUSY_TOOL_MOON)
+
+    assert signals.active_evidence is True
+    assert "moon_spinner" in signals.active_reasons
+    assert signals.accepting_input == "yes"
+    assert signals.ready_posture == "no"
+
+
+def test_kimi_approval_panel_reports_modal_blocked_active_turn() -> None:
     scheduler = TestScheduler()
     session = _kimi_session(scheduler=scheduler)
 
@@ -102,148 +130,93 @@ def test_kimi_approval_panel_marks_operator_blocked_active_turn() -> None:
     analysis = analyze_kimi_surface(_KIMI_APPROVAL)
 
     assert analysis.approval_visible is True
-    assert analysis.approval_choice_count == 4
     assert state.turn_phase == "active"
-    assert state.surface_accepting_input == "no"
-    assert state.surface_ready_posture == "no"
+    assert "modal_blocked" in state.active_reasons
     assert "approval_panel" in state.active_reasons
+    assert state.surface_accepting_input == "no"
+    assert state.surface_editing_input == "no"
+    assert state.surface_ready_posture == "no"
+    assert state.surface_pending_input == "no"
 
 
-def test_kimi_completed_response_fixture_marks_ready_success_candidate() -> None:
-    scheduler = TestScheduler()
-    session = _kimi_session(scheduler=scheduler)
+def test_kimi_plan_review_reports_modal_blocked_active_turn() -> None:
+    detector = KimiCodeSignalDetectorV2_1_X()
 
-    scheduler.advance_to(1.0)
-    session.on_snapshot(_fixture("completed_response.txt"))
-    state = session.current_state()
+    signals = detector.detect(output_text=_KIMI_PLAN_REVIEW)
 
-    assert state.turn_phase == "ready"
-    assert state.surface_accepting_input == "yes"
-    assert state.surface_ready_posture == "yes"
-
-
-def test_kimi_rejected_command_fixture_is_ready_not_known_failure() -> None:
-    scheduler = TestScheduler()
-    session = _kimi_session(scheduler=scheduler)
-
-    scheduler.advance_to(1.0)
-    session.on_snapshot(_fixture("rejected_command.txt"))
-    state = session.current_state()
-
-    assert state.turn_phase == "ready"
-    assert state.surface_accepting_input == "yes"
-    assert state.last_turn_result == "none"
-
-
-def test_kimi_floor_detector_ignores_historical_moon_spinner_after_completion() -> None:
-    detector = KimiCodeSignalDetectorV0_34_PLUS()
-    completed = (
-        "🌗 · Tip: ctrl+s: steer mid-turn\n\n"
-        "● Finished the requested task.\n\n"
-        "╭────────────────────────────────────────╮\n"
-        "│ >                                      │\n"
-        "╰────────────────────────────────────────╯\n"
-        "auto  kimi-for-coding-highspeed thinking\n"
-        "context: 10.0%\n"
-    )
-
-    signals = detector.detect(output_text=completed)
-
-    assert signals.active_evidence is False
-    assert signals.ready_posture == "yes"
-    assert signals.accepting_input == "yes"
-    assert "footer_thinking_metadata_ignored" in signals.notes
-
-
-def test_kimi_floor_detector_tracks_live_edge_moon_spinner() -> None:
-    detector = KimiCodeSignalDetectorV0_34_PLUS()
-    active = (
-        "✨ Inspect the repository.\n\n"
-        "🌑 · Tip: ctrl+s: steer mid-turn\n"
-        "╭────────────────────────────────────────╮\n"
-        "│ >                                      │\n"
-        "╰────────────────────────────────────────╯\n"
-        "auto  kimi-for-coding-highspeed thinking  context: 0.0%\n"
-    )
-
-    signals = detector.detect(output_text=active)
-
+    assert signals.ambiguous_interactive_surface is True
     assert signals.active_evidence is True
-    assert "moon_spinner" in signals.active_reasons
+    assert "modal_blocked" in signals.active_reasons
+    assert signals.accepting_input == "no"
     assert signals.ready_posture == "no"
 
 
-def test_kimi_floor_detector_tracks_streaming_queue_when_spinner_is_displaced() -> None:
-    detector = KimiCodeSignalDetectorV0_34_PLUS()
-    active = (
-        "🌑 · Tip: ctrl+s: steer mid-turn\n"
-        "────────────────────────────────────────\n"
-        "  ❯ queued follow-up\n"
-        "  ↑ to edit · ctrl-s to steer immediately\n"
-        "╭────────────────────────────────────────╮\n"
-        "│ >                                      │\n"
-        "╰────────────────────────────────────────╯\n"
-        "auto  kimi-for-coding-highspeed thinking  context: 1.0%\n"
-    )
+def test_kimi_question_dialog_reports_modal_blocked_active_turn() -> None:
+    detector = KimiCodeSignalDetectorV2_1_X()
 
-    signals = detector.detect(output_text=active)
-    analysis = analyze_kimi_surface(active, activity_window_lines=4)
+    signals = detector.detect(output_text=_KIMI_QUESTION_DIALOG)
 
-    assert analysis.queue_visible is True
-    assert analysis.queue_hint == "↑ to edit · ctrl-s to steer immediately"
+    assert signals.ambiguous_interactive_surface is True
     assert signals.active_evidence is True
-    assert signals.active_reasons == ("queued_message",)
+    assert "question_dialog" in signals.active_reasons
+    assert "modal_blocked" in signals.active_reasons
+    assert signals.accepting_input == "no"
+    assert signals.editing_input == "no"
     assert signals.ready_posture == "no"
-    assert signals.success_blocked is True
-    assert signals.pending_input == "yes"
-
-
-def test_kimi_floor_detector_tracks_each_deferred_queue_mode() -> None:
-    detector = KimiCodeSignalDetectorV0_34_PLUS()
-
-    for hint in (
-        "↑ to edit · will send after current task",
-        "↑ to edit · will send after compaction",
-    ):
-        surface = (
-            "● Current task output\n"
-            "────────────────────────────────────────\n"
-            "  ❯ queued follow-up\n"
-            f"  {hint}\n"
-            "╭────────────────────────────────────────╮\n"
-            "│ >                                      │\n"
-            "╰────────────────────────────────────────╯\n"
-            "auto  kimi-for-coding-highspeed thinking  context: 1.0%\n"
-        )
-
-        signals = detector.detect(output_text=surface)
-
-        assert signals.active_evidence is True
-        assert "queued_message" in signals.active_reasons
-        assert signals.ready_posture == "no"
-        assert signals.pending_input == "yes"
-
-
-def test_kimi_floor_detector_ignores_historical_queue_after_settled_response() -> None:
-    detector = KimiCodeSignalDetectorV0_34_PLUS()
-    historical = (
-        "  ↑ to edit · ctrl-s to steer immediately\n"
-        + "\n".join(f"● settled response line {index}" for index in range(30))
-        + "\n╭────────────────────────────────────────╮\n"
-        "│ >                                      │\n"
-        "╰────────────────────────────────────────╯\n"
-        "auto  kimi-for-coding-highspeed thinking  context: 2.0%\n"
-    )
-
-    signals = detector.detect(output_text=historical)
-
-    assert signals.active_evidence is False
-    assert signals.ready_posture == "yes"
     assert signals.pending_input == "no"
 
 
+def test_kimi_trust_modal_reports_startup_modal_blocked() -> None:
+    detector = KimiCodeSignalDetectorV2_1_X()
+
+    signals = detector.detect(output_text=_KIMI_TRUST_MODAL)
+
+    assert kimi_trust_modal_present(_KIMI_TRUST_MODAL) is True
+    assert signals.ambiguous_interactive_surface is True
+    assert signals.active_evidence is True
+    assert "trust_modal" in signals.active_reasons
+    assert "modal_blocked" in signals.active_reasons
+    assert signals.accepting_input == "no"
+    assert signals.editing_input == "no"
+    assert signals.ready_posture == "no"
+    assert signals.pending_input == "no"
+
+
+def test_kimi_queue_hint_marks_pending_input_and_active_turn() -> None:
+    detector = KimiCodeSignalDetectorV2_1_X()
+
+    signals = detector.detect(output_text=_KIMI_QUEUE_PENDING)
+    analysis = analyze_kimi_surface(_KIMI_QUEUE_PENDING, activity_window_lines=4)
+
+    assert analysis.queue_visible is True
+    assert signals.active_evidence is True
+    assert "queued_message" in signals.active_reasons
+    assert signals.pending_input == "yes"
+    assert signals.accepting_input == "yes"
+    assert signals.ready_posture == "no"
+
+
+def test_kimi_stale_interrupt_notice_does_not_outrank_resumed_activity() -> None:
+    detector = KimiCodeSignalDetectorV2_1_X()
+
+    signals = detector.detect(output_text=_KIMI_INTERRUPT_RESUME)
+
+    assert signals.interrupted is False
+    assert signals.active_evidence is True
+    assert signals.ready_posture == "no"
+
+
+def test_kimi_subagent_running_row_is_busy_evidence() -> None:
+    detector = KimiCodeSignalDetectorV2_1_X()
+
+    signals = detector.detect(output_text=_KIMI_SUBAGENT_RUNNING)
+
+    assert signals.active_evidence is True
+    assert signals.ready_posture == "no"
+
+
 def test_kimi_pending_input_remains_binary_for_one_two_or_three_rows() -> None:
-    detector = KimiCodeSignalDetectorV0_34_PLUS()
+    detector = KimiCodeSignalDetectorV2_1_X()
 
     for count in (1, 2, 3):
         rows = "\n".join(f"  ❯ queued follow-up {index}" for index in range(1, count + 1))
@@ -261,7 +234,7 @@ def test_kimi_pending_input_remains_binary_for_one_two_or_three_rows() -> None:
 
 
 def test_kimi_pending_input_handles_wrapping_consumption_and_incomplete_capture() -> None:
-    detector = KimiCodeSignalDetectorV0_34_PLUS()
+    detector = KimiCodeSignalDetectorV2_1_X()
     wrapped = (
         "  ❯ queued follow-up with a wrapped body\n"
         "    continuing on a resized pane\n"
@@ -279,30 +252,15 @@ def test_kimi_pending_input_handles_wrapping_consumption_and_incomplete_capture(
     assert detector.detect(output_text="│ >\n").pending_input == "unknown"
 
 
-def test_kimi_maintained_and_fallback_profiles_carry_pending_input() -> None:
-    queued = (
-        "  ❯ queued follow-up\n"
-        "  ↑ to edit · will send after current task\n"
-        "╭────────────────────────╮\n"
-        "│ >                      │\n"
-        "╰────────────────────────╯\n"
-    )
-
-    for detector in (
-        KimiCodeSignalDetector(),
-        KimiCodeSignalDetectorV0_34_PLUS(),
-        FallbackKimiCodeSignalDetector(),
-    ):
-        assert detector.detect(output_text=queued).pending_input == "yes"
-
-
 def test_kimi_restart_does_not_reuse_prompt_above_latest_shell_launch() -> None:
     """Kimi readiness belongs to provider chrome below the replacement launch."""
 
-    detector = KimiCodeSignalDetectorV0_34_PLUS()
+    detector = KimiCodeSignalDetectorV2_1_X()
+    stale_surface = f"{_KIMI_IDLE_READY}\nbash-5.2$ /tmp/kimi-launch.sh\n"
+    fresh_surface = f"{stale_surface}│ > \nkimi-for-coding kimi-k2.5 thinking\n"
 
-    stale = detector.detect(output_text=_KIMI_STALE_RESTART)
-    fresh = detector.detect(output_text=_KIMI_FRESH_RESTART)
+    stale = detector.detect(output_text=stale_surface)
+    fresh = detector.detect(output_text=fresh_surface)
 
     assert stale.ready_posture == "unknown"
     assert stale.accepting_input == "unknown"

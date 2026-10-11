@@ -49,11 +49,12 @@ def test_sweep_infers_kimi_from_fixture_path() -> None:
 def test_kimi_tool_resolves_shared_tracking_profile() -> None:
     profile = DetectorProfileRegistry.default().resolve(
         app_id=app_id_from_tool(tool="kimi"),
-        observed_version=None,
+        observed_version="2.1.1",
     )
 
     assert profile.app_id == "kimi_code"
     assert profile.profile.detector_name == "kimi_code"
+    assert profile.detector_version == "2.1.x"
 
 
 def test_find_supported_process_pid_matches_kimi_executables(

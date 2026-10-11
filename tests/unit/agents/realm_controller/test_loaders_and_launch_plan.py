@@ -64,7 +64,7 @@ def _strategy_with_system_prompt_method(
     )
 
 
-def _stub_tool_version(monkeypatch: pytest.MonkeyPatch, version: str = "0.34.0") -> None:
+def _stub_tool_version(monkeypatch: pytest.MonkeyPatch, version: str = "2.1.1") -> None:
     """Stub provider version detection for launch-plan tests."""
 
     def _fake_version(
@@ -984,10 +984,10 @@ def test_build_launch_plan_local_interactive_kimi_unattended_uses_native_auto(
     assert plan.role_injection.bootstrap_message is None
     assert (home_path / "SYSTEM.md").read_text(encoding="utf-8") == ("${base_prompt}\n\nprompt\n")
     assert plan.launch_policy_provenance is not None
-    assert plan.launch_policy_provenance.selected_strategy_id == "kimi-tui-unattended-0.34-plus"
+    assert plan.launch_policy_provenance.selected_strategy_id == "kimi-tui-unattended-2.1-plus"
     assert plan.metadata["native_system_prompt"]["validation"] == "passed"
     assert plan.metadata["native_system_prompt"]["relative_path"] == "SYSTEM.md"
-    assert plan.metadata["native_system_prompt"]["supported_versions"] == ">=0.34.0"
+    assert plan.metadata["native_system_prompt"]["supported_versions"] == ">=2.1.1"
     assert "kimi_tui_auto_mode_refresh" not in plan.metadata
     assert payload["default_permission_mode"] == "auto"
     assert payload["extra_skill_dirs"] == ["/project/skills"]

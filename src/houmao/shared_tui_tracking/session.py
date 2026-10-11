@@ -131,6 +131,7 @@ class TuiTrackerSession:
                 "app_id": self.m_resolved_profile.app_id,
                 "detector_name": self.m_state.detector_name,
                 "detector_version": self.m_state.detector_version,
+                "qualified_through_version": self.m_resolved_profile.qualified_through_version,
             },
         )
 

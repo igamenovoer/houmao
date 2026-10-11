@@ -879,7 +879,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             "method": "native_home_system_prompt",
             "relative_path": "SYSTEM.md",
             "validation": "passed",
-            "supported_versions": ">=0.34.0",
+            "supported_versions": ">=2.1.1",
         }
     construction_provenance["system_skills"] = {
         "source_policy": system_skill_selection_policy_to_payload(

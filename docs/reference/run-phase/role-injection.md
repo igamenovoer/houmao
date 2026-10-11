@@ -72,8 +72,8 @@ The runtime does not ask providers to interpret those tags. Backends receive one
 | `claude_headless` | `native_append_system_prompt` | When the effective launch prompt is non-empty, Houmao passes `--append-system-prompt <prompt>` and sends one bootstrap message on the first turn. Empty effective prompts skip both. |
 | `codex_headless` | `native_developer_instructions` | When the effective launch prompt is non-empty, Houmao passes `-c developer_instructions=<prompt>`. Empty effective prompts skip this startup input entirely. |
 | `codex_app_server` | `native_developer_instructions` | Same semantics as `codex_headless`, but applied to the `thread/start` request payload. |
-| `kimi_headless` | `native_home_system_prompt` | For Kimi Code 0.34.0 or later, Houmao writes and verifies `$KIMI_CODE_HOME/SYSTEM.md` before the first process starts. Empty effective prompts remove the file. |
-| `local_interactive` | tool-dependent | Codex uses native developer instructions, Claude uses native appended system prompt, and Kimi 0.34.0 or later uses managed-home `SYSTEM.md`. Empty effective prompts suppress or remove those startup inputs. |
+| `kimi_headless` | `native_home_system_prompt` | For Kimi Code 2.1.1 or later, Houmao writes and verifies `$KIMI_CODE_HOME/SYSTEM.md` before the first process starts. Empty effective prompts remove the file. |
+| `local_interactive` | tool-dependent | Codex uses native developer instructions, Claude uses native appended system prompt, and Kimi 2.1.1 or later uses managed-home `SYSTEM.md`. Empty effective prompts suppress or remove those startup inputs. |
 | `cao_rest` | `cao_profile` | Legacy/internal: retained only for old manifests and explicit rejection paths. |
 | `houmao_server_rest` | `cao_profile` | Legacy/internal: retired old-server backend identity, rejected for new sessions. |
 
@@ -89,11 +89,11 @@ Role injection is intentionally backend-specific rather than using a single univ
 
 1. **Native injection is preferred** when available. Tools like Codex and Claude provide dedicated CLI flags for developer instructions and system prompts, respectively. Using these native mechanisms ensures the role prompt is handled by the tool's own context management, which is more reliable than conversational priming.
 
-2. **Native home surfaces are first-class.** A provider does not need a prompt CLI flag to support native delivery. Kimi Code 0.34.0 or later loads managed `$KIMI_CODE_HOME/SYSTEM.md`, so Houmao can preserve Kimi's built-in prompt and deliver the role before the first conversational turn.
+2. **Native home surfaces are first-class.** A provider does not need a prompt CLI flag to support native delivery. Kimi Code 2.1.1 or later loads managed `$KIMI_CODE_HOME/SYSTEM.md`, so Houmao can preserve Kimi's built-in prompt and deliver the role before the first conversational turn.
 
 3. **Legacy backends are not public launch targets.** `cao_rest` and `houmao_server_rest` may still appear in old manifests or internal compatibility code, but new user-facing launches fail fast before relying on their profile mechanism.
 
-Kimi's canonical file starts with `${base_prompt}`, followed by a blank line and the complete effective Houmao prompt. Houmao rejects every `${identifier}` token in authored prompt text because Kimi would expand it as a provider template variable. Before fresh headless startup, fresh TUI startup, or relaunch, Houmao rejects higher-priority agent selectors, repairs file drift atomically, and verifies prompt hashes under the provider-state lock. This contract requires `KIMI_CODE_LEGACY_FLAG=0` and supports Kimi Code from 0.34.0 onward without an upper limit.
+Kimi's canonical file starts with `${base_prompt}`, followed by a blank line and the complete effective Houmao prompt. Houmao rejects every `${identifier}` token in authored prompt text because Kimi would expand it as a provider template variable. Before fresh headless startup, fresh TUI startup, or relaunch, Houmao rejects higher-priority agent selectors, repairs file drift atomically, and verifies prompt hashes under the provider-state lock. This contract requires `KIMI_CODE_LEGACY_FLAG=0` and supports Kimi Code from 2.1.1 onward without an upper limit.
 
 ## See also
 

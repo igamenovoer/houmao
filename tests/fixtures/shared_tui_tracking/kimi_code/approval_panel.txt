@@ -1,0 +1,40 @@
+
+ [38;2;79;168;255m╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+ [38;2;79;168;255m│[39m                                                                                                                [38;2;79;168;255m│[39m
+ [38;2;79;168;255m│[39m  [38;2;79;168;255m▐█▛█▛█▌[39m  [1m[38;2;79;168;255mWelcome to Kimi Code![0m                                                                                [38;2;79;168;255m│[39m
+ [38;2;79;168;255m│[39m  [38;2;79;168;255m▐█████▌[39m  [38;2;136;136;136mSend /help for help information.[39m                                                                     [38;2;79;168;255m│[39m
+ [38;2;79;168;255m│[39m                                                                                                                [38;2;79;168;255m│[39m
+ [38;2;79;168;255m│[39m  [1m[38;2;136;136;136mDirectory: [0m/data/huangzhe/code/houmao/tmp/houmao-dev-tui-testing/2026-10-10-kimi-2.1.1-session2-attempt-002/w…[38;2;79;168;255m│[39m
+ [38;2;79;168;255m│[39m  [1m[38;2;136;136;136mSession:   [0msession_a46517ba-3650-48a3-ba86-71a75dc62eb3                                                       [38;2;79;168;255m│[39m
+ [38;2;79;168;255m│[39m  [1m[38;2;136;136;136mModel:     [0mK3                                                                                                 [38;2;79;168;255m│[39m
+ [38;2;79;168;255m│[39m  [1m[38;2;136;136;136mVersion:   [0m2.1.1                                                                                              [38;2;79;168;255m│[39m
+ [38;2;79;168;255m│[39m                                                                                                                [38;2;79;168;255m│[39m
+ [38;2;79;168;255m╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+
+ [1m[38;2;79;168;255m✦ Kimi Code Desktop is here[0m [1m[38;2;245;245;245m— Everything you love about Kimi Code, now on desktop[0m
+   [38;2;136;136;136mRun /desktop or visit https://www.kimi.com/code to install[39m
+
+   [38;2;136;136;136mNo session yet — one will be created on your first message.[39m
+   [38;2;232;168;56mtmux extended-keys is off. Modified Enter keys may not work. Add `set -g extended-keys on` to ~/.tmux.conf and  [39m
+ [38;2;232;168;56mrestart tmux.[39m
+
+ [1m[38;2;255;203;107m✨ Use the Bash tool to run exactly: git status --short. Then stop.[0m
+
+ [38;2;136;136;136m● [3mThe user asked to run exactly `git status --short` and then stop. Simple.[0m
+
+ [38;2;224;224;224m● [1m[38;2;79;168;255mRunning a command[0;2m · $ git status --short[0m
+ [38;2;232;168;56m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+   [1m[38;2;232;168;56m▶[0m [1m[38;2;232;168;56mRun this command?[0m
+
+   [38;2;136;136;136mcwd: /data/huangzhe/code/houmao/tmp/houmao-dev-tui-testing/2026-10-10-kimi-2.1.1-session2-attempt-002/workdir[39m...
+   [38;2;91;192;190m$[39m [38;2;245;245;245mgit status --short[39m
+
+   [1m[38;2;91;192;190m▶[0m [1m[38;2;91;192;190m1. Approve once[0m
+   [38;2;245;245;245m  2. Approve for this session[39m
+   [38;2;245;245;245m  3. Reject[39m
+   [38;2;245;245;245m  4. Reject with feedback[39m
+
+   [38;2;136;136;136m↑/↓ select · 1/2/3/4 choose · ↵ confirm[39m
+ [38;2;232;168;56m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+ [38;2;224;224;224mK3 thinking: high[39m  [38;2;136;136;136m…/2026-10-10-kimi-2.1.1-session2-attempt-002/workdir/boltons[39m  [38;2;136;136;136mmaster[39m              [38;2;136;136;136mctrl+o expand[39m
+                                                                                             [38;2;224;224;224mcontext: 3% (23.1k/1M)[39m

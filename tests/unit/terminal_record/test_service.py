@@ -650,7 +650,7 @@ def test_analyze_terminal_record_accepts_kimi_snapshots(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    result = analyze_terminal_record(run_root=run_root, tool=None)
+    result = analyze_terminal_record(run_root=run_root, tool=None, observed_version="2.1.1")
 
     parser_payload = _read_ndjson(paths.parser_observed_path)[0]
     state_payload = _read_ndjson(paths.state_observed_path)[0]
@@ -659,6 +659,7 @@ def test_analyze_terminal_record_accepts_kimi_snapshots(tmp_path: Path) -> None:
     assert parser_payload["business_state"] == "idle"
     assert parser_payload["input_mode"] == "freeform"
     assert parser_payload["ui_context"] == "normal_prompt"
+    assert parser_payload["parser_preset_version"] == "2.1.x"
     assert parser_payload["footer_model_thinking"] is True
     assert state_payload["detector_name"] == "kimi_code"
 
@@ -672,12 +673,12 @@ def test_analyze_terminal_record_selects_versioned_kimi_profile(tmp_path: Path) 
         tool="kimi",
     )
     output_text = (
-        "🌗 · Tip: ctrl+s: steer mid-turn\n\n"
-        "● Finished.\n\n"
+        "● Finished the requested task.\n\n"
         "╭────────────────────────────────────────╮\n"
         "│ >                                      │\n"
         "╰────────────────────────────────────────╯\n"
         "auto  kimi-for-coding-highspeed thinking\n"
+        "context: 10.0%\n"
     )
     paths.pane_snapshots_path.write_text(
         json.dumps(
@@ -694,10 +695,10 @@ def test_analyze_terminal_record_selects_versioned_kimi_profile(tmp_path: Path) 
         encoding="utf-8",
     )
 
-    analyze_terminal_record(run_root=run_root, tool=None, observed_version="0.34.0")
+    analyze_terminal_record(run_root=run_root, tool=None, observed_version="2.1.1")
 
     state_payload = _read_ndjson(paths.state_observed_path)[0]
-    assert state_payload["detector_version"] == ">=0.34.0"
+    assert state_payload["detector_version"] == "2.1.x"
     assert state_payload["turn_phase"] == "ready"
     assert state_payload["surface_accepting_input"] == "yes"
     assert state_payload["surface_ready_posture"] == "yes"

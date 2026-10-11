@@ -1,4 +1,4 @@
-"""Native managed-home system-prompt support for Kimi Code 0.34 and later."""
+"""Native managed-home system-prompt support for Kimi Code 2.1.1 and later."""
 
 from __future__ import annotations
 

@@ -1,0 +1,25 @@
+{
+  "attach_command": "env -u TMUX tmux attach-session -t HMREC-recording",
+  "duration_seconds": null,
+  "input_capture_level": "authoritative_managed",
+  "mode": "active",
+  "recorder_session_name": "HMREC-recording",
+  "repo_root": "/data/huangzhe/code/houmao",
+  "run_id": "recording",
+  "run_root": "/data/huangzhe/code/houmao/tmp/houmao-dev-tui-testing/2026-10-10-kimi-2.1.1-session1-lifecycle/capture/recording",
+  "run_tainted": false,
+  "sample_interval_seconds": 0.2,
+  "schema_version": 1,
+  "started_at_utc": "2026-10-10T13:37:51+00:00",
+  "stop_reason": "stop_requested",
+  "stopped_at_utc": "2026-10-10T13:45:01+00:00",
+  "taint_reasons": [],
+  "target": {
+    "pane_id": "%57",
+    "session_name": "HMDEV-kimi-campaign-s1",
+    "window_id": "@57",
+    "window_name": "kimi-code"
+  },
+  "tool": "kimi",
+  "visual_recording_kind": "interactive_client"
+}

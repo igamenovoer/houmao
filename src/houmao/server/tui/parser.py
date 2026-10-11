@@ -14,7 +14,11 @@ from houmao.server.models import HoumaoErrorDetail, HoumaoParsedSurface
 from houmao.shared_tui_tracking.apps.kimi_code.profile import (
     KimiSurfaceAnalysis,
     analyze_kimi_surface,
+    kimi_goal_start_prompt_present,
+    kimi_question_dialog_present,
+    kimi_startup_modal_present,
 )
+from houmao.shared_tui_tracking.registry import DetectorProfileRegistry
 from houmao.shared_tui_tracking.surface import SurfaceView
 
 
@@ -49,12 +53,21 @@ class OfficialTuiParserAdapter:
         tool: str,
         output_text: str,
         baseline_pos: int,
+        detector_version: str | None = None,
     ) -> OfficialParseResult:
-        """Parse one tmux snapshot through the shared parser stack."""
+        """Parse one tmux snapshot through the shared parser stack.
+
+        For kimi, ``detector_version`` carries the session's resolved detector
+        profile version so ``parser_preset_version`` reflects the profile the
+        tracker actually resolved instead of a hardcoded constant.
+        """
 
         if tool == "kimi":
             return OfficialParseResult(
-                parsed_surface=_parse_kimi_surface(output_text=output_text),
+                parsed_surface=_parse_kimi_surface(
+                    output_text=output_text,
+                    detector_version=detector_version or _kimi_maintained_detector_version(),
+                ),
                 parse_error=None,
             )
 
@@ -121,7 +134,7 @@ def _parsed_surface_from_snapshot(
     )
 
 
-def _parse_kimi_surface(*, output_text: str) -> HoumaoParsedSurface:
+def _parse_kimi_surface(*, output_text: str, detector_version: str) -> HoumaoParsedSurface:
     """Convert one Kimi visible pane snapshot into an official parsed surface."""
 
     analysis = analyze_kimi_surface(output_text)
@@ -139,7 +152,7 @@ def _parse_kimi_surface(*, output_text: str) -> HoumaoParsedSurface:
     return HoumaoParsedSurface(
         parser_family="kimi_code_tui",
         parser_preset_id="kimi_code",
-        parser_preset_version=">=0.34.0",
+        parser_preset_version=detector_version,
         availability="supported",
         business_state=business_state,
         input_mode=input_mode,
@@ -154,6 +167,15 @@ def _parse_kimi_surface(*, output_text: str) -> HoumaoParsedSurface:
     )
 
 
+def _kimi_maintained_detector_version() -> str:
+    """Return the maintained kimi detector version for parser provenance."""
+
+    registration = DetectorProfileRegistry.default().maintained_registration(app_id="kimi_code")
+    if registration is None:
+        raise RuntimeError("No maintained kimi_code detector registration is available.")
+    return registration.detector_version
+
+
 def _kimi_state_fields(
     *,
     normalized_text: str,
@@ -163,11 +185,15 @@ def _kimi_state_fields(
 
     if analysis.approval_visible:
         return "awaiting_operator", "modal", "approval_dialog"
+    if kimi_question_dialog_present(normalized_text):
+        return "awaiting_operator", "modal", "question_dialog"
+    if kimi_goal_start_prompt_present(normalized_text):
+        return "awaiting_operator", "modal", "goal_start_prompt"
     if analysis.activity_visible:
         return "working", "closed", "normal_prompt"
     if analysis.prompt.prompt_visible:
         return "idle", "freeform", "normal_prompt"
-    if _kimi_startup_modal_visible(normalized_text):
+    if kimi_startup_modal_present(normalized_text):
         return "awaiting_operator", "modal", "startup_modal"
     return "unknown", "unknown", "unknown"
 
@@ -221,24 +247,6 @@ def _kimi_prompt_or_editor_line(line: str) -> bool:
     """Return whether one stripped line belongs to the Kimi editor box."""
 
     return line.startswith(("╭", "╰", "│ >"))
-
-
-def _kimi_startup_modal_visible(normalized_text: str) -> bool:
-    """Return whether text looks like a Kimi startup or blocking modal surface."""
-
-    lowered = normalized_text.lower()
-    startup_needles = (
-        "log in",
-        "login",
-        "sign in",
-        "update",
-        "upgrade",
-        "install update",
-        "select a session",
-        "choose a session",
-        "session picker",
-    )
-    return any(needle in lowered for needle in startup_needles)
 
 
 def _text_head(text: str, *, line_count: int = 20) -> str:

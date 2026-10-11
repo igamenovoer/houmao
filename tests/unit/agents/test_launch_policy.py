@@ -551,8 +551,8 @@ def test_kimi_registry_declares_native_home_system_prompt() -> None:
 
     assert len(documents) == 1
     assert {strategy.strategy_id for strategy in documents[0].strategies} == {
-        "kimi-unattended-0.34-plus",
-        "kimi-tui-unattended-0.34-plus",
+        "kimi-unattended-2.1-plus",
+        "kimi-tui-unattended-2.1-plus",
     }
     for strategy in documents[0].strategies:
         contract = strategy.system_prompt
@@ -560,7 +560,7 @@ def test_kimi_registry_declares_native_home_system_prompt() -> None:
         assert contract.owned_surface == "SYSTEM.md"
         assert contract.required_engine_env == {"KIMI_CODE_LEGACY_FLAG": "0"}
         assert contract.evidence
-        assert strategy.supported_versions.to_payload() == ">=0.34.0"
+        assert strategy.supported_versions.to_payload() == ">=2.1.1"
         assert strategy.to_metadata_payload()["system_prompt"] == contract.to_payload()
 
 
@@ -604,7 +604,7 @@ def test_kimi_unattended_strategy_canonicalizes_prompt_mode_conflicts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="0.34.0")
+    _stub_version(monkeypatch, output="2.1.1")
     home = tmp_path / "kimi-home"
     home.mkdir()
 
@@ -637,7 +637,7 @@ def test_kimi_unattended_strategy_canonicalizes_prompt_mode_conflicts(
 
     assert result.args == ("--model", "kimi-code/kimi-for-coding")
     assert result.provenance is not None
-    assert result.provenance.selected_strategy_id == "kimi-unattended-0.34-plus"
+    assert result.provenance.selected_strategy_id == "kimi-unattended-2.1-plus"
     assert result.strategy is not None
     assert result.strategy.backends == ("kimi_headless",)
     assert [action.kind for action in result.strategy.actions] == [
@@ -651,7 +651,7 @@ def test_kimi_raw_launch_unattended_sets_auto_config_and_strips_tui_conflicts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="0.34.0")
+    _stub_version(monkeypatch, output="2.1.1")
     home = tmp_path / "kimi-home"
     home.mkdir()
     (home / "config.toml").write_text(
@@ -706,7 +706,7 @@ enabled = false
         "--auto",
     )
     assert result.provenance is not None
-    assert result.provenance.selected_strategy_id == "kimi-tui-unattended-0.34-plus"
+    assert result.provenance.selected_strategy_id == "kimi-tui-unattended-2.1-plus"
     assert result.strategy is not None
     assert result.strategy.backends == ("raw_launch",)
     assert result.strategy.owned_paths[0].path == "config.toml"
@@ -750,16 +750,16 @@ def test_kimi_registry_declares_separate_headless_and_tui_unattended_strategies(
     documents = load_registry_documents(tool="kimi")
 
     strategies = {strategy.strategy_id: strategy for strategy in documents[0].strategies}
-    assert strategies["kimi-unattended-0.34-plus"].backends == ("kimi_headless",)
-    assert strategies["kimi-tui-unattended-0.34-plus"].backends == ("raw_launch",)
-    assert [action.kind for action in strategies["kimi-tui-unattended-0.34-plus"].actions] == [
+    assert strategies["kimi-unattended-2.1-plus"].backends == ("kimi_headless",)
+    assert strategies["kimi-tui-unattended-2.1-plus"].backends == ("raw_launch",)
+    assert [action.kind for action in strategies["kimi-tui-unattended-2.1-plus"].actions] == [
         "provider_hook.call",
         "toml.set",
         "provider_hook.call",
     ]
 
 
-@pytest.mark.parametrize("version", ["0.34.0", "0.34.9", "7.2.1"])
+@pytest.mark.parametrize("version", ["2.1.1", "2.2.0", "7.2.1"])
 def test_kimi_minimum_only_strategy_accepts_baseline_and_newer_versions(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -786,7 +786,7 @@ def test_kimi_minimum_only_strategy_accepts_baseline_and_newer_versions(
 
     assert result.provenance is not None
     assert result.provenance.detected_tool_version == version
-    assert result.provenance.selected_strategy_id == "kimi-unattended-0.34-plus"
+    assert result.provenance.selected_strategy_id == "kimi-unattended-2.1-plus"
 
 
 def test_kimi_native_prompt_hook_rejects_engine_and_agent_conflicts(
@@ -795,7 +795,7 @@ def test_kimi_native_prompt_hook_rejects_engine_and_agent_conflicts(
 ) -> None:
     """Provider-start hooks fail before a selector or legacy engine bypasses SYSTEM.md."""
 
-    _stub_version(monkeypatch, output="0.34.0")
+    _stub_version(monkeypatch, output="2.1.1")
     home = tmp_path / "kimi-home"
     home.mkdir()
 
@@ -832,7 +832,7 @@ def test_kimi_unattended_strategy_fails_closed_for_unknown_version(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="0.33.9")
+    _stub_version(monkeypatch, output="2.1.0")
     home = tmp_path / "kimi-home"
     home.mkdir()
 

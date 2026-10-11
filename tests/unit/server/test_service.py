@@ -204,9 +204,17 @@ class _FakeParserAdapter:
         self.m_capture_baseline_calls.append((tool, output_text))
         return 17
 
-    def parse(self, *, tool: str, output_text: str, baseline_pos: int) -> OfficialParseResult:
+    def parse(
+        self,
+        *,
+        tool: str,
+        output_text: str,
+        baseline_pos: int,
+        detector_version: str | None = None,
+    ) -> OfficialParseResult:
         self.m_parse_calls.append((tool, baseline_pos))
         del output_text
+        del detector_version
         return self.m_results.pop(0)
 
 

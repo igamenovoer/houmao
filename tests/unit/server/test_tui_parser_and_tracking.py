@@ -1727,3 +1727,106 @@ def test_rendered_surface_signature_flips_on_any_visible_text_change() -> None:
 
 def test_rendered_surface_signature_returns_none_for_none_input() -> None:
     assert _rendered_surface_signature(None) is None
+
+
+def test_live_session_tracker_contains_unsupported_kimi_version_error() -> None:
+    """A below-floor kimi session reports an errored posture instead of raising."""
+
+    identity = HoumaoTrackedSessionIdentity(
+        tracked_session_id="kimi-old",
+        session_name="kimi-old",
+        tool="kimi",
+        observed_tool_version="0.34.0",
+        tmux_session_name="HOUMAO-kimi-old",
+        terminal_aliases=["kimi-old"],
+    )
+    tracker = LiveSessionTracker(
+        identity=identity,
+        recent_transition_limit=2,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=1.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+    )
+
+    assert tracker.tracking_error is not None
+    assert tracker.resolved_detector_version is None
+    initial = tracker.current_state()
+    assert initial.operator_state is not None
+    assert initial.operator_state.status == "error"
+    assert "2.1.1" in initial.operator_state.detail
+
+    cycled = tracker.record_cycle(
+        identity=identity,
+        observed_at_utc="2026-10-12T10:00:00+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parse_error",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=HoumaoErrorDetail(
+            kind="unsupported_tool_version",
+            message=str(tracker.tracking_error),
+        ),
+        parsed_surface=None,
+        output_text=None,
+    )
+
+    assert cycled.operator_state is not None
+    assert cycled.operator_state.status == "error"
+    assert "2.1.1" in cycled.operator_state.detail
+    assert cycled.turn.phase == "unknown"
+    assert cycled.surface.accepting_input == "unknown"
+
+    upgraded = identity.model_copy(update={"observed_tool_version": "2.1.1"})
+    tracker.set_identity(upgraded)
+
+    assert tracker.tracking_error is None
+    assert tracker.resolved_detector_version == "2.1.x"
+
+
+def test_live_session_tracker_other_tools_track_normally_beside_errored_kimi() -> None:
+    """One stale kimi install does not disturb another session's tracking."""
+
+    stale_kimi = LiveSessionTracker(
+        identity=HoumaoTrackedSessionIdentity(
+            tracked_session_id="kimi-old",
+            session_name="kimi-old",
+            tool="kimi",
+            observed_tool_version="0.34.0",
+            tmux_session_name="HOUMAO-kimi-old",
+            terminal_aliases=["kimi-old"],
+        ),
+        recent_transition_limit=2,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=1.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+    )
+    codex = LiveSessionTracker(
+        identity=_identity(),
+        recent_transition_limit=2,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=1.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+    )
+
+    assert stale_kimi.tracking_error is not None
+    assert codex.tracking_error is None
+    assert codex.resolved_detector_version is not None
+
+    ready = _record_cycle(
+        codex,
+        observed_at_utc="2026-10-12T10:00:00+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface(),
+    )
+
+    assert ready.operator_state is not None
+    assert ready.operator_state.status != "error"
+    assert ready.turn.phase == "ready"

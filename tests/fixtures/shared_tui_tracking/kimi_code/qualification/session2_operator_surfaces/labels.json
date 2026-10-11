@@ -1,0 +1,385 @@
+{
+  "labels": [
+    {
+      "evidence": {
+        "family": "editing"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "editing-001",
+      "note": "submit-bash text visible in composer",
+      "sample_end_id": "s000002",
+      "sample_id": "s000001",
+      "scenario_id": "s2-bash-approval-reject-feedback"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-001",
+      "note": "bash turn before the approval (spinner)",
+      "sample_end_id": "s000037",
+      "sample_id": "s000003",
+      "scenario_id": "s2-bash-approval-reject-feedback"
+    },
+    {
+      "evidence": {
+        "family": "approval_modal"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "no",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "unknown"
+      },
+      "label_id": "approval_modal-001",
+      "note": "'Run this command?' panel; options 1..4; feedback row entry from ~12.2s",
+      "sample_end_id": "s000052",
+      "sample_id": "s000038",
+      "scenario_id": "s2-bash-approval-reject-feedback"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-002",
+      "note": "rejection-with-feedback processing turn",
+      "sample_end_id": "s000066",
+      "sample_id": "s000053",
+      "scenario_id": "s2-bash-approval-reject-feedback"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "success",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-001",
+      "note": "rejection acknowledged; idle editor",
+      "sample_end_id": "s000142",
+      "sample_id": "s000067",
+      "scenario_id": "s2-bash-approval-reject-feedback"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-003",
+      "note": "write turn before the approval",
+      "sample_end_id": "s000164",
+      "sample_id": "s000143",
+      "scenario_id": "s2-write-approval-reject"
+    },
+    {
+      "evidence": {
+        "family": "approval_modal"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "no",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "unknown"
+      },
+      "label_id": "approval_modal-002",
+      "note": "'Write this file?' panel for /tmp/houmao-campaign-note-s2.md",
+      "sample_end_id": "s000179",
+      "sample_id": "s000165",
+      "scenario_id": "s2-write-approval-reject"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-004",
+      "note": "rejection processing turn",
+      "sample_end_id": "s000194",
+      "sample_id": "s000180",
+      "scenario_id": "s2-write-approval-reject"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "success",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-002",
+      "note": "idle; plan mode toggled on at 55.84s (footer badge only)",
+      "sample_end_id": "s000251",
+      "sample_id": "s000195",
+      "scenario_id": "s2-write-approval-reject"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-005",
+      "note": "planning turn (67s)",
+      "sample_end_id": "s000553",
+      "sample_id": "s000252",
+      "scenario_id": "s2-plan-review-revise"
+    },
+    {
+      "evidence": {
+        "family": "approval_modal"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "no",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "unknown"
+      },
+      "label_id": "approval_modal-003",
+      "note": "plan panel #1 'Ready to build with this plan?' Approve/Reject/Revise",
+      "sample_end_id": "s000568",
+      "sample_id": "s000554",
+      "scenario_id": "s2-plan-review-revise"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-006",
+      "note": "revision turn after 'Revise' + 'Keep it shorter.'",
+      "sample_end_id": "s000630",
+      "sample_id": "s000569",
+      "scenario_id": "s2-plan-review-revise"
+    },
+    {
+      "evidence": {
+        "family": "approval_modal"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "no",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "unknown"
+      },
+      "label_id": "approval_modal-004",
+      "note": "revised plan panel re-presented",
+      "sample_end_id": "s000643",
+      "sample_id": "s000631",
+      "scenario_id": "s2-plan-review-revise"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-007",
+      "note": "revised-plan rejection processing (single sample)",
+      "sample_end_id": "s000644",
+      "sample_id": "s000644",
+      "scenario_id": "s2-plan-review-revise"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "success",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-003",
+      "note": "idle in plan mode; no build started after rejection",
+      "sample_end_id": "s000702",
+      "sample_id": "s000645",
+      "scenario_id": "s2-plan-review-revise"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-008",
+      "note": "question turn before the dialog mounts",
+      "sample_end_id": "s000735",
+      "sample_id": "s000703",
+      "scenario_id": "s2-ask-user-question"
+    },
+    {
+      "evidence": {
+        "family": "question_dialog"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "no",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "unknown"
+      },
+      "label_id": "question_dialog-001",
+      "note": "AskUserQuestion dialog: ' question' title, [N] options, 'esc cancel'",
+      "sample_end_id": "s000750",
+      "sample_id": "s000736",
+      "scenario_id": "s2-ask-user-question"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-009",
+      "note": "post-cancel processing turn",
+      "sample_end_id": "s000786",
+      "sample_id": "s000751",
+      "scenario_id": "s2-ask-user-question"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "success",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-004",
+      "note": "idle to recording end",
+      "sample_end_id": "s000797",
+      "sample_id": "s000787",
+      "scenario_id": "s2-ask-user-question"
+    }
+  ],
+  "schema_version": 1
+}

@@ -71,16 +71,16 @@ Hooks run within a provider state mutation lock for thread-safe file access.
 
 ## Kimi Unattended Posture
 
-Maintained Kimi unattended startup requires Kimi Code 0.34.0 or later, with no upper version limit, and has two backend contracts:
+Maintained Kimi unattended startup requires Kimi Code 2.1.1 or later, with no upper version limit, and has two backend contracts:
 
 - `kimi_headless` owns prompt-mode command placement. Exact resume uses `--session <session_id>`, latest resume uses `--continue`, the prompt value follows `-p`, output format is `stream-json`, and managed skills use `--skills-dir <KIMI_CODE_HOME>/skills`. Prompt mode removes TUI permission flags because `-p` is already non-interactive.
 - Kimi TUI launch uses the `raw_launch` surface, which maps to `local_interactive`. The strategy strips caller-owned permission and session selectors, restores the selected fresh/latest/exact session selector, writes `.skip-migration-from-kimi-cli`, keeps `default_permission_mode = "auto"` as a managed-home fallback, and appends one native `--auto` argument.
 
-Kimi Code 0.34.0 or later accepts native `--auto` with fresh, `--continue`, and `--session <session_id>` TUI startup. Houmao sends no post-readiness permission command. `as_is` launches preserve native approval behavior and do not receive the strategy-owned `--auto` argument.
+Kimi Code 2.1.1 or later accepts native `--auto` with fresh, `--continue`, and `--session <session_id>` TUI startup. Houmao sends no post-readiness permission command. `as_is` launches preserve native approval behavior and do not receive the strategy-owned `--auto` argument.
 
 Kimi auto permission mode is the provider-native no-question posture: normal tool approvals are automatic and `AskUserQuestion` requests are denied so the agent must decide and continue. It does not bypass explicit Kimi hard-deny policies or user-configured deny rules.
 
-Unattended Kimi launches also pre-seed the provider workspace-trust record before provider start. Kimi Code 0.34.0 or later gates project-level MCP config behind per-workspace trust and otherwise opens a blocking "Trust this folder?" modal at TUI startup, which unattended mode cannot answer. The trust check is presence-only state in the provider home, so provider-start planning writes `$KIMI_CODE_HOME/workspace-trust/<workdir-key>` for the actual launch working directory on fresh headless starts, fresh TUI starts, and relaunches, repairs a missing or drifted record, and records the workspace key in launch provenance. `as_is` launches receive no pre-seed and keep Kimi's native trust interaction.
+Unattended Kimi launches also pre-seed the provider workspace-trust record before provider start. Kimi Code 2.1.1 or later gates project-level MCP config behind per-workspace trust and otherwise opens a blocking "Trust this folder?" modal at TUI startup, which unattended mode cannot answer. The trust check is presence-only state in the provider home, so provider-start planning writes `$KIMI_CODE_HOME/workspace-trust/<workdir-key>` for the actual launch working directory on fresh headless starts, fresh TUI starts, and relaunches, repairs a missing or drifted record, and records the workspace key in launch provenance. `as_is` launches receive no pre-seed and keep Kimi's native trust interaction.
 
 Kimi managed role delivery uses the `native_home_system_prompt` contract. Brain construction writes the complete composed prompt to `$KIMI_CODE_HOME/SYSTEM.md` as `${base_prompt}`, a blank line, and the effective Houmao prompt. Provider-start planning locks the home, checks and repairs those canonical bytes, records effective and rendered SHA-256 digests, and forces `KIMI_CODE_LEGACY_FLAG=0` after other environment layers.
 

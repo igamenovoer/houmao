@@ -1,0 +1,465 @@
+{
+  "labels": [
+    {
+      "evidence": {
+        "family": "startup_modal"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "no",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "unknown"
+      },
+      "label_id": "startup_modal-001",
+      "note": "'Trust this folder?' modal with Trust/Don't trust options bounded by rule lines",
+      "sample_end_id": "s000015",
+      "sample_id": "s000001",
+      "scenario_id": "s1-cold-start-trust-modal"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-001",
+      "note": "empty editor box + footer after trust confirm; no turn yet",
+      "sample_end_id": "s000030",
+      "sample_id": "s000016",
+      "scenario_id": "s1-cold-start-trust-modal"
+    },
+    {
+      "evidence": {
+        "family": "editing"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "editing-001",
+      "note": "draft 'Read boltons/iterutils.py. Do not edit files.' visible; suffix append/erase",
+      "sample_end_id": "s000055",
+      "sample_id": "s000031",
+      "scenario_id": "s1-draft-editing"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-002",
+      "note": "editor empty after exact-length backspace erase",
+      "sample_end_id": "s000063",
+      "sample_id": "s000056",
+      "scenario_id": "s1-draft-editing"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-001",
+      "note": "moon spinner line after submit (pwd/git status turn)",
+      "sample_end_id": "s000101",
+      "sample_id": "s000064",
+      "scenario_id": "s1-busy-success"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-003",
+      "note": "spinner off at 22.96s; inside 1s settle window",
+      "sample_end_id": "s000106",
+      "sample_id": "s000102",
+      "scenario_id": "s1-busy-success"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "success",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-004",
+      "note": "ST03-01 answer settled; idle before read-op submit",
+      "sample_end_id": "s000276",
+      "sample_id": "s000107",
+      "scenario_id": "s1-busy-success"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-002",
+      "note": "read-op turn (pairwise/windowed), spinner on",
+      "sample_end_id": "s000443",
+      "sample_id": "s000277",
+      "scenario_id": "s1-tool-edit-workflow"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-005",
+      "note": "spinner off at 99.96s; settle window",
+      "sample_end_id": "s000448",
+      "sample_id": "s000444",
+      "scenario_id": "s1-tool-edit-workflow"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "success",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-006",
+      "note": "ST03-02 settled before write-op submit",
+      "sample_end_id": "s000477",
+      "sample_id": "s000449",
+      "scenario_id": "s1-tool-edit-workflow"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-003",
+      "note": "write-op turn creating tests/test_houmao_long_horizon.py",
+      "sample_end_id": "s000532",
+      "sample_id": "s000478",
+      "scenario_id": "s1-tool-edit-workflow"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-007",
+      "note": "spinner off at 119.96s; settle window",
+      "sample_end_id": "s000537",
+      "sample_id": "s000533",
+      "scenario_id": "s1-tool-edit-workflow"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "success",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-008",
+      "note": "ST03-03 settled during fixed 90s hold",
+      "sample_end_id": "s000876",
+      "sample_id": "s000538",
+      "scenario_id": "s1-tool-edit-workflow"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-004",
+      "note": "pytest turn",
+      "sample_end_id": "s000904",
+      "sample_id": "s000877",
+      "scenario_id": "s1-tool-edit-workflow"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-009",
+      "note": "spinner off at 203.93s; settle window",
+      "sample_end_id": "s000909",
+      "sample_id": "s000905",
+      "scenario_id": "s1-tool-edit-workflow"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "success",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-010",
+      "note": "'1 passed' + ST03-04 settled before long-turn submit",
+      "sample_end_id": "s001156",
+      "sample_id": "s000910",
+      "scenario_id": "s1-tool-edit-workflow"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-005",
+      "note": "long scan turn (35-bullet) running; no queued input yet",
+      "sample_end_id": "s001193",
+      "sample_id": "s001157",
+      "scenario_id": "s1-queue-pending-input"
+    },
+    {
+      "evidence": {
+        "family": "queue_pending"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "yes",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "queue_pending-001",
+      "note": "queue pane visible: queued row + '\u2191 to edit \u00b7 ctrl-s to steer immediately'; follow-up queued 269.1s, interrupt prompt queued 392.1s",
+      "sample_end_id": "s001764",
+      "sample_id": "s001194",
+      "scenario_id": "s1-queue-pending-input"
+    },
+    {
+      "evidence": {
+        "family": "interrupted"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "interrupted",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "yes",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "interrupted-001",
+      "note": "Esc at 398.11s; 'Interrupted by user' enters surface s001765; queued follow-up starts",
+      "sample_end_id": "s001770",
+      "sample_id": "s001765",
+      "scenario_id": "s1-interrupt-escape"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-006",
+      "note": "queued follow-up turn running after the interruption",
+      "sample_end_id": "s001786",
+      "sample_id": "s001771",
+      "scenario_id": "s1-interrupt-escape"
+    },
+    {
+      "evidence": {
+        "family": "editing_busy"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_pending_input": "yes",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "editing_busy-001",
+      "note": "'/compact' draft (slash autocomplete) while follow-up turn active; 'Error: Cannot /compact while streaming' visible from s001867; queue row present",
+      "sample_end_id": "s001880",
+      "sample_id": "s001787",
+      "scenario_id": "s1-compaction"
+    },
+    {
+      "evidence": {
+        "family": "interrupted"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "interrupted",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "interrupted-002",
+      "note": "C-c x2 at 423.27/424.28s: draft cleared, queue emptied (last hint s001880), follow-up turn interrupted; final queued prompt starting",
+      "sample_end_id": "s001885",
+      "sample_id": "s001881",
+      "scenario_id": "s1-exit"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-007",
+      "note": "final queued prompt turn still active at recording end; kimi never exited (busy C-c interrupts instead of arming exit); tui_down coverage gap declared",
+      "sample_end_id": "s001909",
+      "sample_id": "s001886",
+      "scenario_id": "s1-exit"
+    }
+  ],
+  "schema_version": 1
+}

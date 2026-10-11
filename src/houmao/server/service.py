@@ -1885,6 +1885,25 @@ class HoumaoServerService:
             )
             return True
 
+        if tracker.tracking_error is not None:
+            tracker.record_cycle(
+                identity=identity,
+                observed_at_utc=observed_at_utc,
+                monotonic_ts=monotonic_ts,
+                transport_state="tmux_up",
+                process_state=process_inspection.process_state,
+                parse_status="parse_error",
+                probe_snapshot=probe_snapshot,
+                probe_error=None,
+                parse_error=HoumaoErrorDetail(
+                    kind="unsupported_tool_version",
+                    message=str(tracker.tracking_error),
+                ),
+                parsed_surface=None,
+                output_text=None,
+            )
+            return True
+
         try:
             output_text = self.m_transport_resolver.capture_text(target=target)
         except TmuxCommandError as exc:
@@ -1961,6 +1980,7 @@ class HoumaoServerService:
             tool=identity.tool,
             output_text=output_text,
             baseline_pos=baseline_pos,
+            detector_version=tracker.resolved_detector_version,
         )
         tracker.record_cycle(
             identity=identity,

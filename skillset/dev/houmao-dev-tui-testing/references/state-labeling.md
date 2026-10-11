@@ -53,7 +53,7 @@ Label `yes` only when provider-owned TUI structure shows submitted user input wa
 
 ### Turn Phase
 
-- `active`: the current turn is processing, including tool work, thinking, streaming, retry/reconnect activity, or other current live-edge evidence.
+- `active`: the current turn is processing, including tool work, thinking, streaming, retry/reconnect activity, or other current live-edge evidence. **Operator-modal spans also label `active`**: while an approval panel, agent question dialog, goal-start prompt, or workspace-trust modal is mounted, a turn or launch is in flight behind the modal, so the phase is `active` with acceptance and editing closed and ready posture `no` (convention adopted 2026-10-12 with `openspec/changes/raise-kimi-code-floor-2-1-1/`; the 2026-10-10 kimi campaign's frozen labels predate it and use `unknown` for those spans).
 - `ready`: no turn remains in flight and immediate prompt processing is available.
 - `unknown`: the surface does not support a reliable active/ready judgment.
 

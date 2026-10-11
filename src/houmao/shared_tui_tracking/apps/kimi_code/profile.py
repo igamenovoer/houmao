@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import re
 from collections.abc import Sequence
@@ -27,7 +28,30 @@ APPROVAL_HEADERS = (
     "Stop this task?",
     "Ready to build with this plan?",
 )
-ACTIVITY_LABEL_RE = re.compile(r"\b(?:working|thinking)\.\.\.")
+ACTIVITY_LABEL_2_1_RE = re.compile(
+    r"(?:working|thinking)(?:\.\.\.|…)"
+    r"|Retrying \(\d+/\d+\)"
+    r"|Compacting context…"
+    r"|Orchestrating…"
+    r"|Agent Running \(",
+    re.IGNORECASE,
+)
+COMPACTION_2_1_RE = re.compile(r"●\s*Compacting context…")
+QUESTION_DIALOG_TITLE_RE = re.compile(r"^\s*question\s*$", re.IGNORECASE | re.MULTILINE)
+QUESTION_DIALOG_OPTION_RE = re.compile(r"^\s*\[\d+\]", re.MULTILINE)
+GOAL_START_PROMPT_NEEDLE = "Approve CreateGoal?"
+TRUST_MODAL_NEEDLE = "trust this folder"
+STARTUP_MODAL_NEEDLES = (
+    "log in",
+    "login",
+    "sign in",
+    "update",
+    "upgrade",
+    "install update",
+    "select a session",
+    "choose a session",
+    "session picker",
+)
 APPROVAL_CHOICE_RE = re.compile(r"\b\d+\.\s+(?:Approve|Reject|Revise)\b")
 PROMPT_TOKEN_RE = re.compile(r"^\s*[│┃]\s*>\s?(?P<body>.*)$")
 QUEUE_HINTS = (
@@ -35,6 +59,7 @@ QUEUE_HINTS = (
     "↑ to edit · will send after current task",
     "↑ to edit · will send after compaction",
 )
+LIVE_EDGE_WINDOW_LINES = 12
 TEMPORAL_WINDOW_SECONDS = 3.0
 MAX_CONTIGUOUS_GAP_SECONDS = 1.5
 MIN_TRANSCRIPT_GROWTH_CHARS = 48
@@ -307,28 +332,132 @@ class _BaseKimiCodeSignalDetector(BaseTrackedTurnSignalDetector):
         )
 
 
-class KimiCodeSignalDetectorV0_34_PLUS(_BaseKimiCodeSignalDetector):
-    """Tracked-TUI detector candidate for Kimi Code 0.34 and later."""
+class KimiCodeSignalDetectorV2_1_X(_BaseKimiCodeSignalDetector):
+    """Tracked-TUI detector for Kimi Code 2.1.1 and later.
+
+    Qualified against the frozen 2026-10-10 campaign recordings of kimi-code
+    2.1.1 (zero false-ready / zero false-busy; see
+    `context/campaigns/debug/2026-10-10-kimi-code-tui-parsing/`). Repairs over
+    the shared base behavior:
+
+    - 2.1.x activity labels render `Thinking…` / `Working…` capitalized with
+      U+2026, plus `Retrying (N/M)`, `Compacting context…`, `Orchestrating…`,
+      and subagent `… Agent Running (…)` rows; the base lowercase ASCII regex
+      matches none of them, so braille-phase busy spans need a 2.1-aware
+      live-edge rescan.
+    - Compaction renders a `●` bullet, not a spinner frame.
+    - Modal surfaces (approval panels, the AskUserQuestion dialog, the
+      goal-start prompt, and the workspace-trust startup modal) report
+      `active_evidence` with a `modal_blocked` reason and close input
+      acceptance while mounted.
+    - A visible composer accepts typing even while a turn is active (kimi
+      queues the submission), so only modal surfaces close acceptance.
+    - Scrollback interrupt notices persist while later turns run; a notice
+      marks the surface interrupted only when no concurrent activity shows.
+    """
+
+    qualified_through_version = "2.1.1"
 
     def __init__(self) -> None:
-        """Initialize the minimum-only Kimi 0.34-or-later detector family."""
+        """Initialize the maintained Kimi 2.1.x detector profile."""
 
         super().__init__(
-            detector_version=">=0.34.0",
+            detector_version="2.1.x",
             activity_window_lines=4,
             temporal_window_seconds=0.0,
             enable_temporal_growth=False,
-            profile_notes=("source_profile=kimi-code-0.34.x-qualification-pending",),
+            profile_notes=(
+                "source_profile=kimi-code-2.1.x",
+                f"qualified_through_version={self.qualified_through_version}",
+            ),
         )
 
+    def detect(
+        self,
+        *,
+        output_text: str | None,
+        parsed_surface: ParsedSurfaceContext | None = None,
+    ) -> DetectedTurnSignals:
+        """Return base signals repaired for kimi-code 2.1.x surfaces."""
 
-class FallbackKimiCodeSignalDetector(_BaseKimiCodeSignalDetector):
-    """Conservative Kimi detector for unmatched Kimi versions."""
+        base = super().detect(output_text=output_text, parsed_surface=parsed_surface)
+        # Detector semantics operate on the stripped surface (SurfaceView); raw
+        # escapes would break dialog and bullet matching.
+        stripped_text = "\n".join(SurfaceView.from_text(output_text or "").stripped_lines)
+        live_lines = _live_edge_lines(output_text or "")
 
-    def __init__(self) -> None:
-        """Initialize the fallback Kimi detector family."""
+        reasons = list(base.active_reasons)
+        active = base.active_evidence
+        if _spinner_activity_2_1(live_lines) and "activity_2_1_label" not in reasons:
+            reasons.append("activity_2_1_label")
+            active = True
+        if any(COMPACTION_2_1_RE.search(line) for line in live_lines):
+            if "compaction" not in reasons:
+                reasons.append("compaction")
+            active = True
 
-        super().__init__(detector_version="fallback", profile_notes=("fallback_detector",))
+        question_dialog = kimi_question_dialog_present(stripped_text)
+        goal_prompt = kimi_goal_start_prompt_present(stripped_text)
+        trust_modal = kimi_trust_modal_present(stripped_text)
+        modal = base.ambiguous_interactive_surface or question_dialog or goal_prompt or trust_modal
+        if modal:
+            reasons.append("modal_blocked")
+            active = True
+        if question_dialog:
+            reasons.append("question_dialog")
+        if goal_prompt:
+            reasons.append("goal_start_prompt")
+        if trust_modal:
+            reasons.append("trust_modal")
+
+        # Interrupt notices persist in scrollback while later turns run; only a
+        # notice with no concurrent activity marks an interrupted surface.
+        interrupted = base.interrupted and not active
+        active_evidence = active and not interrupted
+        prompt_visible = base.prompt_visible
+        prompt_empty = not (base.prompt_text or "").strip()
+
+        accepting_input: Tristate
+        editing_input: Tristate
+        ready_posture: Tristate
+        if modal:
+            accepting_input = "no"
+            editing_input = "no"
+            ready_posture = "no"
+        else:
+            accepting_input = "yes" if prompt_visible else "unknown"
+            editing_input = base.editing_input
+            ready_posture = "no" if active_evidence else ("yes" if prompt_visible else "unknown")
+
+        pending_input = base.pending_input
+        if modal and pending_input != "yes":
+            pending_input = "no"
+
+        notes = list(base.notes)
+        for note, flag in (
+            ("question_dialog_visible", question_dialog),
+            ("goal_start_prompt_visible", goal_prompt),
+            ("trust_modal_visible", trust_modal),
+        ):
+            if flag:
+                notes.append(note)
+
+        return dataclasses.replace(
+            base,
+            accepting_input=accepting_input,
+            editing_input=editing_input,
+            ready_posture=ready_posture,
+            pending_input=pending_input,
+            active_evidence=active_evidence,
+            active_reasons=tuple(dict.fromkeys(reasons)),
+            interrupted=interrupted,
+            ambiguous_interactive_surface=modal,
+            success_candidate=bool(
+                prompt_visible and ready_posture == "yes" and prompt_empty and not interrupted
+            ),
+            success_blocked=bool(active_evidence or modal or interrupted),
+            notes=tuple(dict.fromkeys(notes)),
+        )
 
 
 def analyze_kimi_surface(
@@ -513,7 +642,7 @@ def _activity_facts(
         frame_kind = _spinner_frame_kind(line)
         if frame_kind is None:
             continue
-        if frame_kind == "braille" and ACTIVITY_LABEL_RE.search(line) is None:
+        if frame_kind == "braille" and ACTIVITY_LABEL_2_1_RE.search(line) is None:
             continue
         if prompt_visible and "context:" in line:
             continue
@@ -644,4 +773,58 @@ def _ready_posture_state(
     return "unknown"
 
 
-KimiCodeSignalDetector = KimiCodeSignalDetectorV0_34_PLUS
+KimiCodeSignalDetector = KimiCodeSignalDetectorV2_1_X
+
+
+def kimi_question_dialog_present(stripped_text: str) -> bool:
+    """Return whether the AskUserQuestion dialog surface is visible."""
+
+    return QUESTION_DIALOG_TITLE_RE.search(stripped_text) is not None and (
+        QUESTION_DIALOG_OPTION_RE.search(stripped_text) is not None
+        or "esc cancel" in stripped_text.lower()
+    )
+
+
+def kimi_goal_start_prompt_present(stripped_text: str) -> bool:
+    """Return whether the goal-start approval prompt is visible."""
+
+    return GOAL_START_PROMPT_NEEDLE in stripped_text
+
+
+def kimi_trust_modal_present(stripped_text: str) -> bool:
+    """Return whether the workspace-trust startup modal is visible."""
+
+    return TRUST_MODAL_NEEDLE in stripped_text.lower()
+
+
+def kimi_startup_modal_present(stripped_text: str) -> bool:
+    """Return whether text looks like a Kimi startup or blocking modal surface."""
+
+    lowered = stripped_text.lower()
+    if TRUST_MODAL_NEEDLE in lowered:
+        return True
+    return any(needle in lowered for needle in STARTUP_MODAL_NEEDLES)
+
+
+def _live_edge_lines(output_text: str) -> list[str]:
+    """Return the trailing non-empty stripped lines of one surface."""
+
+    lines = [
+        line.strip() for line in SurfaceView.from_text(output_text).stripped_lines if line.strip()
+    ]
+    return lines[-LIVE_EDGE_WINDOW_LINES:]
+
+
+def _spinner_activity_2_1(live_lines: Sequence[str]) -> list[str]:
+    """Return 2.1-aware spinner-activity hits over live-edge lines."""
+
+    hits: list[str] = []
+    for line in live_lines:
+        if "context:" in line.lower():
+            continue
+        if line.startswith(BRAILLE_SPINNER_FRAMES):
+            if ACTIVITY_LABEL_2_1_RE.search(line) is not None:
+                hits.append(line)
+        elif line.startswith(MOON_SPINNER_FRAMES):
+            hits.append(line)
+    return hits

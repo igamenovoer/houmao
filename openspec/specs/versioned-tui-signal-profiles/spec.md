@@ -288,7 +288,7 @@ The Kimi app profile SHALL convert raw Kimi TUI snapshot text into normalized sh
 
 The profile SHALL resolve observed Kimi versions through the same versioned profile selection contract used by other supported TUI apps.
 
-The maintained Kimi Code profile SHALL be source-backed by the captured Kimi `0.11.x` signal corpus. Additional Kimi version families SHALL only be marked maintained when labeled corpus evidence exists for those versions.
+The maintained Kimi Code profile SHALL be qualified against the captured kimi-code `2.1.1` signal corpus. Additional Kimi version families SHALL only be marked maintained when labeled corpus evidence exists for those versions.
 
 #### Scenario: Kimi tool resolves to Kimi tracker app id
 - **WHEN** the shared tracker is constructed for tool `kimi`
@@ -311,21 +311,52 @@ The maintained Kimi Code profile SHALL be source-backed by the captured Kimi `0.
 - **WHEN** the Kimi profile receives a raw snapshot whose only thinking-like text is footer model metadata
 - **THEN** it does not emit active-turn evidence solely from that footer text
 
-### Requirement: Versioned TUI profile compatibility is bounded
-Each maintained detector registration SHALL define the version interval supported by its recorded evidence. The registry SHALL select a profile only when the observed CLI version falls inside that interval; a semver floor SHALL NOT imply indefinite compatibility with every newer version.
+### Requirement: Kimi Code profile resolution errors below the support floor
+Kimi Code tracker profile resolution SHALL support only kimi-code versions at or above the current qualified floor (2.1.1), through exactly one maintained profile with an open-ended semver floor and no kimi fallback profile. An observed version below the floor, or unparseable version metadata, SHALL produce an explicit unsupported-version error at tracker resolution time naming the observed (or missing) version, the required floor, and the migration action (upgrade kimi-code); no detector SHALL be selected for such a session.
 
-Versions in gaps or above the newest validated interval SHALL resolve to the conservative app fallback unless an explicit experimental override is used.
+#### Scenario: Kimi at the floor resolves the maintained profile
+- **WHEN** the tracker resolves app `kimi_code` with observed version `2.1.1`
+- **THEN** resolution selects the maintained kimi 2.1.x profile
+- **AND THEN** tracked-state reduction proceeds normally
+
+#### Scenario: Kimi below the floor raises an unsupported-version error
+- **WHEN** the tracker resolves app `kimi_code` with observed version `0.34.0`
+- **THEN** resolution produces an explicit unsupported-version error naming the observed version and the `2.1.1` floor
+- **AND THEN** no kimi detector is selected and no tracked state is manufactured for that session
+
+#### Scenario: Unparseable kimi version raises an unsupported-version error
+- **WHEN** the tracker resolves app `kimi_code` with missing or unparseable version metadata
+- **THEN** resolution produces the same explicit unsupported-version error surface
+- **AND THEN** no fallback detector silently scrapes the surface
+
+### Requirement: Kimi profile carries code-side qualified-version metadata
+An observed kimi version above the qualified floor SHALL resolve to the maintained kimi profile silently, without any user-facing warning. The kimi registration and profile SHALL carry developer-visible qualified-version metadata (for example, a `qualified_through_version` field or profile note) recording which kimi version the profile was qualified against.
+
+#### Scenario: Kimi above the qualified floor resolves silently
+- **WHEN** the tracker resolves app `kimi_code` with observed version `2.3.0`
+- **THEN** resolution selects the maintained kimi 2.1.x profile without a user-facing warning
+- **AND THEN** developer-visible profile metadata records the version the profile was qualified through
+
+### Requirement: Versioned TUI profile compatibility is bounded
+Each maintained detector registration SHALL define the version interval supported by its recorded evidence, either as a bounded interval or as an open-ended floor for a maintained minimum-only registration. The registry SHALL select a profile only when the observed CLI version falls inside that interval.
+
+Versions in gaps or outside every maintained interval SHALL resolve to the conservative app fallback when the app registers one; an app with a floor-gated maintained profile and no fallback (currently `kimi_code`) SHALL raise an explicit unsupported-version error instead. An explicit experimental override MAY bypass interval matching.
 
 #### Scenario: Newer unvalidated CLI uses fallback
-- **WHEN** an observed TUI version is newer than the maximum validated version of every maintained profile
+- **WHEN** an observed TUI version is newer than the maximum validated version of every maintained profile for an app that registers a fallback
 - **THEN** the registry selects the app's conservative fallback profile
 - **AND THEN** it does not silently label the oldest semver-floor profile as compatible
 
+#### Scenario: Below-floor version for a fallback-less app raises
+- **WHEN** an observed TUI version falls below the floor of an app that registers no fallback
+- **THEN** resolution raises an explicit unsupported-version error naming the observed version and the floor
+- **AND THEN** no detector is selected for that session
+
 ### Requirement: Current Codex and Kimi releases have evidence-backed profiles
-The registry SHALL provide a Codex 0.144.x profile derived from labeled Codex 0.144.x recordings and a Kimi 0.23.x profile derived from labeled Kimi 0.23.x recordings. Older Codex 0.116.x and Kimi 0.11.x profiles MAY remain registered only with upper bounds matching their evidence.
+The registry SHALL provide a Codex 0.144.x profile derived from labeled Codex 0.144.x recordings and a Kimi 2.1.x profile qualified against labeled kimi-code 2.1.1 recordings. Older Codex 0.116.x profiles MAY remain registered only with upper bounds matching their evidence; older Kimi profiles SHALL NOT remain registered because Kimi support is floor-gated at 2.1.1 with no fallback.
 
 #### Scenario: Current installed tools resolve current profiles
-- **WHEN** tracking observes Codex 0.144.x or Kimi 0.23.x
+- **WHEN** tracking observes Codex 0.144.x or Kimi 2.1.1
 - **THEN** it selects the matching current-version profile
 - **AND THEN** detector provenance reports that current profile version
 

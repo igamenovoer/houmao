@@ -5,7 +5,12 @@ import threading
 import pytest
 from reactivex.testing import TestScheduler
 
-from houmao.shared_tui_tracking import DetectorProfileRegistry, TrackerConfig, TuiTrackerSession
+from houmao.shared_tui_tracking import (
+    DetectorProfileRegistry,
+    TrackerConfig,
+    TuiTrackerSession,
+    UnsupportedToolVersionError,
+)
 
 
 _CLAUDE_ACTIVE_SURFACE = (
@@ -131,18 +136,41 @@ def test_detector_profile_registry_resolves_codex_version_family_and_fallback() 
     assert explicitly_selected_current_family.maximum_supported_version == (0, 145, 0)
 
 
-def test_detector_profile_registry_resolves_refreshed_kimi_family() -> None:
+def test_detector_profile_registry_resolves_floor_gated_kimi_family() -> None:
     registry = DetectorProfileRegistry.default()
 
-    refreshed_family = registry.resolve(app_id="kimi_code", observed_version="0.34.0")
-    prior_gap = registry.resolve(app_id="kimi_code", observed_version="0.33.9")
-    future_family = registry.resolve(app_id="kimi_code", observed_version="8.1.0")
+    floor_family = registry.resolve(app_id="kimi_code", observed_version="2.1.1")
+    above_floor_family = registry.resolve(app_id="kimi_code", observed_version="2.3.0")
+    far_future_family = registry.resolve(app_id="kimi_code", observed_version="8.1.0")
 
-    assert refreshed_family.detector_version == ">=0.34.0"
-    assert refreshed_family.minimum_supported_version == (0, 34, 0)
-    assert refreshed_family.maximum_supported_version is None
-    assert prior_gap.detector_version == "fallback"
-    assert future_family.detector_version == ">=0.34.0"
+    assert floor_family.detector_version == "2.1.x"
+    assert floor_family.minimum_supported_version == (2, 1, 1)
+    assert floor_family.maximum_supported_version is None
+    assert floor_family.qualified_through_version == "2.1.1"
+    assert above_floor_family.detector_version == "2.1.x"
+    assert above_floor_family.qualified_through_version == "2.1.1"
+    assert far_future_family.detector_version == "2.1.x"
+
+
+def test_detector_profile_registry_raises_for_kimi_below_the_floor() -> None:
+    registry = DetectorProfileRegistry.default()
+
+    with pytest.raises(UnsupportedToolVersionError, match="below the supported floor") as caught:
+        registry.resolve(app_id="kimi_code", observed_version="0.34.0")
+
+    assert caught.value.app_id == "kimi_code"
+    assert caught.value.observed_version == "0.34.0"
+    assert caught.value.minimum_supported_version == (2, 1, 1)
+    assert "upgrade kimi-code" in str(caught.value)
+
+
+def test_detector_profile_registry_raises_for_unparseable_kimi_version() -> None:
+    registry = DetectorProfileRegistry.default()
+
+    with pytest.raises(UnsupportedToolVersionError, match="could not be determined"):
+        registry.resolve(app_id="kimi_code", observed_version=None)
+    with pytest.raises(UnsupportedToolVersionError, match="could not be parsed"):
+        registry.resolve(app_id="kimi_code", observed_version="not-a-version")
 
 
 def test_detector_profile_registry_rejects_unknown_experimental_override() -> None:
@@ -151,7 +179,7 @@ def test_detector_profile_registry_rejects_unknown_experimental_override() -> No
     with pytest.raises(ValueError, match="is not registered"):
         registry.resolve(
             app_id="kimi_code",
-            observed_version="0.34.0",
+            observed_version="2.1.1",
             detector_version_override="0.34.x-experimental",
         )
 

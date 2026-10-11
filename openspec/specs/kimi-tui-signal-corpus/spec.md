@@ -36,7 +36,7 @@ The corpus SHALL live under a repo-local `tmp/kimi-tui-tracking/` root during ca
 - **AND THEN** a single static ready, active, or approval snapshot does not count as one required live session by itself
 
 ### Requirement: Kimi signal corpus SHALL include high-rate and derived low-rate streams
-For each required Kimi 0.23.x unattended TUI capture scenario, the corpus SHALL include a high-rate source snapshot stream sampled at about 20 fps and multiple derived lower-rate streams or delay schedules from that source.
+For each required Kimi capture scenario at or above the current support floor (2.1.1), the corpus SHALL include a high-rate source snapshot stream sampled at about 20 fps and multiple derived lower-rate streams or delay schedules from that source.
 
 Derived streams SHALL include at least one regular low-rate stream and one jittered stream that simulates variable TUI capture delay. Every derived sample SHALL preserve traceability to the source high-rate sample used to create it.
 
@@ -107,10 +107,15 @@ Those artifacts SHALL document:
 - **THEN** the signal design explains the bounded visual region and semantic role for that text
 - **AND THEN** the design does not rely on one full upstream sentence as the primary long-term detector contract
 
-### Requirement: Maintained Kimi corpus targets unattended 0.23.x operation
-The refreshed maintained Kimi corpus SHALL use Kimi 0.23.x in unattended mode. Normal scenario actions SHALL not request operator confirmation. If an unavoidable upstream hard-coded intervention appears, the corpus SHALL label it explicitly and record source evidence that no supported setting can suppress it.
+### Requirement: Maintained Kimi corpus targets current-floor operation including operator surfaces
+The refreshed maintained Kimi corpus SHALL use kimi-code at or above the current support floor (2.1.1). Unattended lifecycle scenarios SHALL NOT request operator confirmation beyond the startup trust modal. Operator-interaction scenarios (approvals, plan review, question dialogs, trust modal) SHALL be captured deliberately in manual permission mode and labeled like any other state family.
 
-#### Scenario: Ordinary unattended scenario has no confirmation state
-- **WHEN** a maintained Kimi 0.23.x unattended scenario exercises normal prompts and tools
-- **THEN** its labels contain no operator-confirmation state
-- **AND THEN** any exception identifies the upstream hard-coded intervention and missing bypass setting
+#### Scenario: Ordinary unattended scenario has no confirmation state beyond startup trust
+- **WHEN** a maintained Kimi unattended scenario exercises normal prompts and tools on a fresh untrusted workdir
+- **THEN** its labels contain no operator-confirmation state except the startup workspace-trust modal
+- **AND THEN** any other exception identifies the upstream hard-coded intervention and missing bypass setting
+
+#### Scenario: Operator-interaction scenario captures modal states deliberately
+- **WHEN** a maintained Kimi scenario drives an approval, plan-review, or agent-question surface in manual permission mode
+- **THEN** the corpus labels the modal span with the same eight-field public-state ground truth as lifecycle spans
+- **AND THEN** the scenario records the operator choice made as an input event

@@ -36,7 +36,7 @@ Skills CLI installation does not resolve Houmao packs. Select every required sta
 
 ## Provider and Credential Defaults
 
-The initial live matrix is Claude Code, Codex, and Kimi Code. Use unattended posture unless a case explicitly tests permission UI. Prefer repository fixture bundles documented in `AGENTS.md`: `tests/fixtures/auth-bundles/claude/kimi-coding/` for Claude Code, `tests/fixtures/auth-bundles/codex/yunwu-openai/` for Codex, and `tests/fixtures/auth-bundles/kimi/personal-a-default/` for Kimi when the host-local bundle exists. Kimi requires version 0.34.0 or later and uses the same maintained native launch-policy resolution as managed operation.
+The initial live matrix is Claude Code, Codex, and Kimi Code. Use unattended posture unless a case explicitly tests permission UI. Prefer repository fixture bundles documented in `AGENTS.md`: `tests/fixtures/auth-bundles/claude/kimi-coding/` for Claude Code, `tests/fixtures/auth-bundles/codex/yunwu-openai/` for Codex, and `tests/fixtures/auth-bundles/kimi/personal-a-default/` for Kimi when the host-local bundle exists. Kimi requires version 2.1.1 or later and uses the same maintained native launch-policy resolution as managed operation.
 
 Record the fixture or strategy name, source path, provider version, and selected non-secret launcher identifier. Never include credential JSON, API-key values, cookies, bearer headers, or secret-bearing environment contents.
 

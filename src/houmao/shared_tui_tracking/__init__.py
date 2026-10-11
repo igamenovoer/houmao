@@ -6,10 +6,9 @@ from houmao.shared_tui_tracking.detectors import (
     CodexTrackedTurnSignalDetector,
     CodexTuiSignalDetector,
     FallbackClaudeDetector,
-    FallbackKimiCodeSignalDetector,
     FallbackTrackedTurnSignalDetector,
     KimiCodeSignalDetector,
-    KimiCodeSignalDetectorV0_34_PLUS,
+    KimiCodeSignalDetectorV2_1_X,
     select_claude_detector,
     select_tracked_turn_signal_detector,
 )
@@ -43,7 +42,11 @@ from houmao.shared_tui_tracking.public_state import (
     tracked_last_turn_source_from_anchor_source,
     turn_phase_from_signals,
 )
-from houmao.shared_tui_tracking.registry import DetectorProfileRegistry, app_id_from_tool
+from houmao.shared_tui_tracking.registry import (
+    DetectorProfileRegistry,
+    UnsupportedToolVersionError,
+    app_id_from_tool,
+)
 from houmao.shared_tui_tracking.reducer import (
     StreamStateReducer,
     classify_runtime_availability,
@@ -60,10 +63,9 @@ __all__ = [
     "DegradedChatContextDiagnostic",
     "DetectedTurnSignals",
     "FallbackClaudeDetector",
-    "FallbackKimiCodeSignalDetector",
     "FallbackTrackedTurnSignalDetector",
     "KimiCodeSignalDetector",
-    "KimiCodeSignalDetectorV0_34_PLUS",
+    "KimiCodeSignalDetectorV2_1_X",
     "ParseStatus",
     "ParsedSurfaceContext",
     "ProcessState",
@@ -87,6 +89,7 @@ __all__ = [
     "TransportState",
     "TurnPhase",
     "DetectorProfileRegistry",
+    "UnsupportedToolVersionError",
     "app_id_from_tool",
     "classify_runtime_availability",
     "diagnostics_availability",

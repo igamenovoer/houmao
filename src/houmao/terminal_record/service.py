@@ -32,6 +32,7 @@ from houmao.shared_tui_tracking.models import (
     RecordedObservation,
 )
 from houmao.shared_tui_tracking.reducer import replay_timeline
+from houmao.shared_tui_tracking.registry import DetectorProfileRegistry
 
 from .models import (
     DEFAULT_SAMPLE_INTERVAL_SECONDS,
@@ -559,6 +560,13 @@ def analyze_terminal_record(
         )
 
     parser_stack = None if selected_tool == "kimi" else ShadowParserStack(tool=selected_tool)
+    kimi_detector_version: str | None = None
+    if selected_tool == "kimi":
+        kimi_detector_version = (
+            DetectorProfileRegistry.default()
+            .resolve(app_id="kimi_code", observed_version=observed_version)
+            .detector_version
+        )
     selected_snapshots_path = (
         snapshots_path.resolve() if snapshots_path is not None else paths.pane_snapshots_path
     )
@@ -571,7 +579,10 @@ def analyze_terminal_record(
     source_sample_by_sample_id: dict[str, str | None] = {}
     for snapshot in _load_snapshots(selected_snapshots_path):
         if parser_stack is None:
-            parser_payload = _parse_kimi_snapshot_payload(snapshot)
+            parser_payload = _parse_kimi_snapshot_payload(
+                snapshot,
+                detector_version=kimi_detector_version or "unknown",
+            )
         else:
             parsed = parser_stack.parse_snapshot(
                 snapshot.output_text,
@@ -1394,24 +1405,54 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
-def _parse_kimi_snapshot_payload(snapshot: TerminalRecordPaneSnapshot) -> dict[str, Any]:
-    """Return parser-facing Kimi observations for one recorded snapshot."""
+def _parse_kimi_snapshot_payload(
+    snapshot: TerminalRecordPaneSnapshot,
+    *,
+    detector_version: str,
+) -> dict[str, Any]:
+    """Return parser-facing Kimi observations for one recorded snapshot.
 
-    from houmao.shared_tui_tracking.apps.kimi_code.profile import analyze_kimi_surface
+    The modal mapping mirrors the live parser (`server/tui/parser.py`) so
+    recorded replay parser output matches the live path: approval panels,
+    the AskUserQuestion dialog, the goal-start prompt, and startup modals
+    (including the workspace-trust dialog) all map to operator-blocked modal
+    contexts.
+    """
+
+    from houmao.shared_tui_tracking.apps.kimi_code.profile import (
+        analyze_kimi_surface,
+        kimi_goal_start_prompt_present,
+        kimi_question_dialog_present,
+        kimi_startup_modal_present,
+    )
+    from houmao.shared_tui_tracking.surface import SurfaceView
 
     analysis = analyze_kimi_surface(snapshot.output_text)
+    stripped_text = "\n".join(SurfaceView.from_text(snapshot.output_text).stripped_lines)
     if analysis.approval_visible:
         business_state = "awaiting_operator"
         input_mode = "modal"
-        ui_context = "approval"
+        ui_context = "approval_dialog"
+    elif kimi_question_dialog_present(stripped_text):
+        business_state = "awaiting_operator"
+        input_mode = "modal"
+        ui_context = "question_dialog"
+    elif kimi_goal_start_prompt_present(stripped_text):
+        business_state = "awaiting_operator"
+        input_mode = "modal"
+        ui_context = "goal_start_prompt"
     elif analysis.activity_visible:
         business_state = "working"
-        input_mode = "none"
+        input_mode = "closed"
         ui_context = "normal_prompt"
     elif analysis.prompt.prompt_visible:
         business_state = "idle"
         input_mode = "freeform"
         ui_context = "normal_prompt"
+    elif kimi_startup_modal_present(stripped_text):
+        business_state = "awaiting_operator"
+        input_mode = "modal"
+        ui_context = "startup_modal"
     else:
         business_state = "unknown"
         input_mode = "unknown"
@@ -1426,7 +1467,7 @@ def _parse_kimi_snapshot_payload(snapshot: TerminalRecordPaneSnapshot) -> dict[s
         "input_mode": input_mode,
         "ui_context": ui_context,
         "parser_preset_id": "kimi_code_tui_recorded",
-        "parser_preset_version": "0.1",
+        "parser_preset_version": detector_version,
         "baseline_invalidated": False,
         "anomaly_codes": [],
         "dialog_tail": None,

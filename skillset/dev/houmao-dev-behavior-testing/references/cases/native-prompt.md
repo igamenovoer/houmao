@@ -48,7 +48,7 @@ Canonical selectors: `NSP-004/rebuild` and `NSP-004/relaunch`.
 
 ## Kimi Evidence Boundary
 
-For Kimi Code, qualify version 0.34.0 or later with no upper bound. Required native evidence includes managed `$KIMI_CODE_HOME/SYSTEM.md`, canonical `${base_prompt}` preservation, the effective and rendered SHA-256 digests, `KIMI_CODE_LEGACY_FLAG=0`, successful precedence validation, and proof that no role instruction was submitted as a conversational turn.
+For Kimi Code, qualify version 2.1.1 or later with no upper bound. Required native evidence includes managed `$KIMI_CODE_HOME/SYSTEM.md`, canonical `${base_prompt}` preservation, the effective and rendered SHA-256 digests, `KIMI_CODE_LEGACY_FLAG=0`, successful precedence validation, and proof that no role instruction was submitted as a conversational turn.
 
 ## Guardrails
 

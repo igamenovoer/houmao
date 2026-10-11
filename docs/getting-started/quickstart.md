@@ -30,7 +30,7 @@ houmao-mgr system-skills install --tool codex --home ~/.codex --pack admin --pac
 houmao-mgr system-skills upgrade --tool codex --home ~/.codex --pack admin
 ```
 
-Maintained Kimi Code launches require version 0.34.0 or later, with no upper version limit. Unattended TUI launches start in native `--auto` mode. Houmao delivers managed role context through `$KIMI_CODE_HOME/SYSTEM.md` before the provider starts and preserves Kimi's built-in prompt with `${base_prompt}`; no manual skill invocation or role-bootstrap chat turn is part of this flow.
+Maintained Kimi Code launches require version 2.1.1 or later, with no upper version limit. Unattended TUI launches start in native `--auto` mode. Houmao delivers managed role context through `$KIMI_CODE_HOME/SYSTEM.md` before the provider starts and preserves Kimi's built-in prompt with `${base_prompt}`; no manual skill invocation or role-bootstrap chat turn is part of this flow.
 
 From a source checkout, run Python-based Houmao commands through Pixi. Installed-user examples such as `houmao-mgr project status` become `pixi run houmao-mgr project status`. Source checkout setup is:
 

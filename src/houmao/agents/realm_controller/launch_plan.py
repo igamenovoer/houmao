@@ -293,11 +293,11 @@ def _ensure_kimi_native_system_prompt_for_start(
     try:
         version = detect_tool_version(executable=executable) if detected_version is None else None
         version_text = detected_version or (version.raw if version is not None else "")
-        if not SupportedVersionSpec.parse(">=0.34.0").contains(
+        if not SupportedVersionSpec.parse(">=2.1.1").contains(
             version if version is not None else ToolVersion.parse(version_text)
         ):
             raise LaunchPlanError(
-                "Maintained Kimi native prompt support requires Kimi Code >=0.34.0 with no "
+                "Maintained Kimi native prompt support requires Kimi Code >=2.1.1 with no "
                 f"upper version limit; detected {version_text!r}."
             )
         with provider_state_mutation_lock(home_path):
@@ -317,7 +317,7 @@ def _ensure_kimi_native_system_prompt_for_start(
         "method": role_injection.method,
         "relative_path": "SYSTEM.md",
         "validation": "passed",
-        "supported_versions": ">=0.34.0",
+        "supported_versions": ">=2.1.1",
         "detected_version": version_text,
     }
 

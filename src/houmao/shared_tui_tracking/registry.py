@@ -14,12 +14,48 @@ from houmao.shared_tui_tracking.detectors import (
     FallbackClaudeDetector,
     FallbackCodexTuiSignalDetector,
     FallbackTrackedTurnSignalDetector,
-    FallbackKimiCodeSignalDetector,
-    KimiCodeSignalDetectorV0_34_PLUS,
+    KimiCodeSignalDetectorV2_1_X,
 )
 
 
 _VERSION_RE = re.compile(r"(\d+)\.(\d+)(?:\.(\d+))?")
+
+
+class UnsupportedToolVersionError(ValueError):
+    """Raised when a tool's observed version falls below its support floor.
+
+    Apps with a maintained floor-gated profile and no fallback registration
+    (currently only ``kimi_code``) resolve to this error instead of silently
+    scraping with an unqualified detector.
+    """
+
+    def __init__(
+        self,
+        *,
+        app_id: str,
+        observed_version: str | None,
+        minimum_supported_version: tuple[int, ...],
+        version_parseable: bool = True,
+    ) -> None:
+        """Build the error naming the version, the floor, and the migration action."""
+
+        self.app_id: str = app_id
+        self.observed_version: str | None = observed_version
+        self.minimum_supported_version: tuple[int, ...] = minimum_supported_version
+        self.version_parseable: bool = version_parseable
+        floor_text = ".".join(str(part) for part in minimum_supported_version)
+        tool_name = app_id.replace("_", "-")
+        if observed_version is None:
+            detail = f"the {tool_name} version could not be determined"
+        elif version_parseable:
+            detail = f"{tool_name} {observed_version} is below the supported floor"
+        else:
+            detail = f"the {tool_name} version {observed_version!r} could not be parsed"
+        super().__init__(
+            f"Unsupported {tool_name} version for TUI tracking: {detail}; "
+            f"this houmao release supports {tool_name} {floor_text} and later; "
+            f"upgrade {tool_name} to {floor_text} or later."
+        )
 
 
 @dataclass(frozen=True)
@@ -32,6 +68,7 @@ class DetectorProfileRegistration:
     minimum_supported_version: tuple[int, ...] | None
     profile_factory: Callable[[], BaseTrackedTurnSignalDetector]
     maximum_supported_version: tuple[int, ...] | None = None
+    qualified_through_version: str | None = None
 
     def __post_init__(self) -> None:
         """Validate one evidence-backed compatibility interval."""
@@ -57,6 +94,7 @@ class ResolvedDetectorProfile:
     minimum_supported_version: tuple[int, ...] | None
     maximum_supported_version: tuple[int, ...] | None
     profile: BaseTrackedTurnSignalDetector
+    qualified_through_version: str | None = None
 
     @property
     def detector(self) -> BaseTrackedTurnSignalDetector:
@@ -120,17 +158,11 @@ class DetectorProfileRegistry:
                 DetectorProfileRegistration(
                     app_id="kimi_code",
                     detector_name="kimi_code",
-                    detector_version=">=0.34.0",
-                    minimum_supported_version=(0, 34, 0),
+                    detector_version="2.1.x",
+                    minimum_supported_version=(2, 1, 1),
                     maximum_supported_version=None,
-                    profile_factory=KimiCodeSignalDetectorV0_34_PLUS,
-                ),
-                DetectorProfileRegistration(
-                    app_id="kimi_code",
-                    detector_name="kimi_code",
-                    detector_version="fallback",
-                    minimum_supported_version=None,
-                    profile_factory=FallbackKimiCodeSignalDetector,
+                    profile_factory=KimiCodeSignalDetectorV2_1_X,
+                    qualified_through_version="2.1.1",
                 ),
                 DetectorProfileRegistration(
                     app_id="unsupported_tool",
@@ -140,6 +172,18 @@ class DetectorProfileRegistry:
                     profile_factory=FallbackTrackedTurnSignalDetector,
                 ),
             )
+        )
+
+    def maintained_registration(self, *, app_id: str) -> DetectorProfileRegistration | None:
+        """Return the app's maintained (non-fallback) registration, when one exists."""
+
+        return next(
+            (
+                item
+                for item in self.m_registrations
+                if item.app_id == app_id and item.minimum_supported_version is not None
+            ),
+            None,
         )
 
     def resolve(
@@ -159,6 +203,7 @@ class DetectorProfileRegistry:
             selected = _select_best_registration(
                 registrations=tuple(candidates),
                 observed_version=observed_version_tuple,
+                observed_version_text=observed_version,
             )
         else:
             override_selected = next(
@@ -178,6 +223,7 @@ class DetectorProfileRegistry:
             minimum_supported_version=selected.minimum_supported_version,
             maximum_supported_version=selected.maximum_supported_version,
             profile=selected.profile_factory(),
+            qualified_through_version=selected.qualified_through_version,
         )
 
 
@@ -211,14 +257,28 @@ def _select_best_registration(
     *,
     registrations: tuple[DetectorProfileRegistration, ...],
     observed_version: tuple[int, ...] | None,
+    observed_version_text: str | None = None,
 ) -> DetectorProfileRegistration:
-    """Select the closest-compatible profile from one registration set."""
+    """Select the closest-compatible profile from one registration set.
+
+    Raises
+    ------
+    UnsupportedToolVersionError
+        When the app has floor-gated registrations but no fallback and the
+        observed version is missing/unparseable or below every floor.
+    """
 
     fallback = next(
         (item for item in registrations if item.minimum_supported_version is None), None
     )
     if observed_version is None:
-        return fallback or registrations[0]
+        if fallback is not None:
+            return fallback
+        raise _unsupported_version_error(
+            registrations=registrations,
+            observed_version_tuple=None,
+            observed_version_text=observed_version_text,
+        )
 
     compatible = [
         item
@@ -232,4 +292,37 @@ def _select_best_registration(
     ]
     if compatible:
         return max(compatible, key=lambda item: item.minimum_supported_version or (0, 0, 0))
-    return fallback or registrations[0]
+    if fallback is not None:
+        return fallback
+    raise _unsupported_version_error(
+        registrations=registrations,
+        observed_version_tuple=observed_version,
+        observed_version_text=observed_version_text,
+    )
+
+
+def _unsupported_version_error(
+    *,
+    registrations: tuple[DetectorProfileRegistration, ...],
+    observed_version_tuple: tuple[int, ...] | None,
+    observed_version_text: str | None,
+) -> UnsupportedToolVersionError:
+    """Build the floor-gate error for one registration set with no fallback."""
+
+    floor = min(
+        item.minimum_supported_version
+        for item in registrations
+        if item.minimum_supported_version is not None
+    )
+    if observed_version_tuple is not None:
+        observed_text: str | None = ".".join(str(part) for part in observed_version_tuple)
+        parseable = True
+    else:
+        observed_text = observed_version_text
+        parseable = False
+    return UnsupportedToolVersionError(
+        app_id=registrations[0].app_id,
+        observed_version=observed_text,
+        minimum_supported_version=floor,
+        version_parseable=parseable,
+    )

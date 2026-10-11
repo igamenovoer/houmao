@@ -2,7 +2,7 @@
 
 Houmao orchestrates CLI-based agents (Claude, Codex, Kimi) as real tmux-backed processes with isolated runtime homes. The lifecycle still has two phases. The reusable source model is `recipe + setup + auth`, and reusable birth-time launch configuration lives separately as **launch profiles** that compose with recipe defaults during build. In project overlays, auth selection is user-facing by display name while the catalog owns the stable underlying auth identity. Managed launches also prepend one short Houmao-owned prompt header by default after any prompt-overlay resolution and before backend-specific prompt injection. For the shared conceptual model that ties project profiles and native launch dossiers together, see [Launch Profiles](launch-profiles.md).
 
-Kimi Code 0.34.0 or later is the maintained launch family, with no upper version limit. Unattended TUI launches use one strategy-owned native `--auto` argument for fresh and resumed sessions. Before Kimi starts, Houmao writes the complete composed role prompt to `$KIMI_CODE_HOME/SYSTEM.md` after `${base_prompt}`, verifies the projection, and forces the v2 engine with `KIMI_CODE_LEGACY_FLAG=0`. Kimi receives no role-bootstrap chat turn.
+Kimi Code 2.1.1 or later is the maintained launch family, with no upper version limit. Unattended TUI launches use one strategy-owned native `--auto` argument for fresh and resumed sessions. Before Kimi starts, Houmao writes the complete composed role prompt to `$KIMI_CODE_HOME/SYSTEM.md` after `${base_prompt}`, verifies the projection, and forces the v2 engine with `KIMI_CODE_LEGACY_FLAG=0`. Kimi receives no role-bootstrap chat turn.
 
 ## Breaking Kimi Migration
 

@@ -1,11 +1,11 @@
 schema_version: 1
 tool: kimi
 strategies:
-  - strategy_id: kimi-unattended-0.34-plus
+  - strategy_id: kimi-unattended-2.1-plus
     operator_prompt_mode: unattended
     backends:
       - kimi_headless
-    supported_versions: ">=0.34.0"
+    supported_versions: ">=2.1.1"
     minimal_inputs:
       credential_forms:
         - projected config.toml with managed:kimi-code OAuth provider and credentials/kimi-code.json token storage
@@ -28,7 +28,7 @@ strategies:
       evidence:
         - kind: source_reference
           ref: extern/orphan/kimi-code/packages/agent-core-v2/src/workspace/workspaceAgentProfileLoader/internal/systemFile.ts
-          note: Kimi Code 0.34 loads SYSTEM.md from KIMI_CODE_HOME and expands base_prompt before the first user turn.
+          note: Kimi Code 2.1 loads SYSTEM.md from KIMI_CODE_HOME and expands base_prompt before the first user turn.
     evidence:
       - kind: source_reference
         ref: extern/orphan/kimi-code/apps/kimi-code/src/cli/commands.ts
@@ -38,7 +38,7 @@ strategies:
         note: Local Kimi source emits session.resume_hint meta events and resolves exact or latest prompt sessions by working directory.
       - kind: live_probe
         ref: /home/huangzhe/.kimi-code/bin/kimi --version
-        note: Installed Kimi Code 0.34.0 exposes maintained prompt-mode options and the native SYSTEM.md contract.
+        note: Installed Kimi Code 2.1.1 exposes maintained prompt-mode options and the native SYSTEM.md contract.
     owned_paths:
       - path: config.toml
         keys:
@@ -57,11 +57,11 @@ strategies:
       - kind: provider_hook.call
         params:
           hook_id: kimi.validate_native_system_prompt_contract
-  - strategy_id: kimi-tui-unattended-0.34-plus
+  - strategy_id: kimi-tui-unattended-2.1-plus
     operator_prompt_mode: unattended
     backends:
       - raw_launch
-    supported_versions: ">=0.34.0"
+    supported_versions: ">=2.1.1"
     minimal_inputs:
       credential_forms:
         - projected config.toml with managed:kimi-code OAuth provider and credentials/kimi-code.json token storage
@@ -84,7 +84,7 @@ strategies:
       evidence:
         - kind: source_reference
           ref: extern/orphan/kimi-code/packages/agent-core-v2/src/workspace/workspaceAgentProfileLoader/internal/systemFile.ts
-          note: Kimi Code 0.34 loads SYSTEM.md from KIMI_CODE_HOME and preserves the builtin prompt through base_prompt.
+          note: Kimi Code 2.1 loads SYSTEM.md from KIMI_CODE_HOME and preserves the builtin prompt through base_prompt.
     evidence:
       - kind: source_reference
         ref: extern/orphan/kimi-code/apps/kimi-code/src/cli/commands.ts
@@ -100,7 +100,7 @@ strategies:
         note: Local Kimi source denies AskUserQuestion while auto permission mode is active.
       - kind: live_probe
         ref: /home/huangzhe/.kimi-code/bin/kimi --version
-        note: Installed Kimi Code 0.34.0 accepts native --auto startup with current TUI session selectors and the v2 SYSTEM.md prompt surface.
+        note: Installed Kimi Code 2.1.1 accepts native --auto startup with current TUI session selectors and the v2 SYSTEM.md prompt surface.
     owned_paths:
       - path: config.toml
         keys:

@@ -15,7 +15,7 @@ flowchart TD
     VM["Version matching"]
     CCD["ClaudeCodeSignalDetectorV2_1_X"]
     CXD["Codex 0.116.x / 0.144.x profiles"]
-    KMD["Kimi >=0.34.0 profile<br/>no upper bound"]
+    KMD["Kimi >=2.1.1 profile<br/>no upper bound, no fallback"]
     BEST["Best detector for<br/>observed CLI version"]
 
     TOOL --> AID
@@ -66,10 +66,9 @@ Derives lifecycle hints from a window of recent temporal frames. These hints inf
 
 ### Kimi Code Detectors
 
-- **`KimiCodeSignalDetectorV0_34_PLUS`** — Kimi Code profile candidate selected for every observed version at or above 0.34.0. It limits spinner activity to the live edge, ignores historical moon rows and footer `thinking` metadata after completion, and relies on the current spinner-to-editor relationship. The version range has no upper bound. Fresh labeled 0.34.x capture and replay evidence remains required before calling the detector qualified.
-- **`FallbackKimiCodeSignalDetector`** — Conservative Kimi fallback for unmatched versions.
+- **`KimiCodeSignalDetectorV2_1_X`** — The single maintained Kimi Code profile, selected for every observed version at or above the 2.1.1 support floor, with no upper bound. Qualified against the frozen 2026-10-10 campaign recordings of kimi-code 2.1.1 (zero false-ready / zero false-busy; `context/campaigns/debug/2026-10-10-kimi-code-tui-parsing/`). Busy evidence is the live-edge spinner union (moon frames directly; braille frames qualified by the 2.1.x labels `Thinking…`/`Working…`, `Retrying (N/M)`, `Compacting context…`, `Orchestrating…`, `… Agent Running (…)`); modal surfaces (approvals, question dialog, goal-start prompt, workspace trust) report active-with-`modal_blocked` and close input acceptance; a visible composer accepts input while a turn is active; scrollback interrupt notices are suppressed while concurrent activity is visible. The class carries `qualified_through_version = "2.1.1"` metadata.
 
-Pre-0.34 Kimi recordings are historical evidence only. They do not register a selectable maintained detector profile and do not qualify current Kimi support.
+Kimi has no fallback detector: an observed version below 2.1.1, or unparseable version metadata, raises `UnsupportedToolVersionError` at tracker resolution. Pre-2.1.1 Kimi recordings are historical evidence only.
 
 ### Fallback Detectors
 
@@ -95,10 +94,11 @@ A registration entry in the registry.
 | `minimum_supported_version` | `str` | Minimum CLI version this detector supports |
 | `maximum_supported_version` | `str \| None` | Exclusive upper bound for bounded evidence intervals, or `None` for a maintained minimum-only registration |
 | `profile_factory` | callable | Factory that produces a configured detector profile |
+| `qualified_through_version` | `str \| None` | Code-side metadata recording the newest CLI version the profile was qualified against, when known |
 
 ### ResolvedDetectorProfile
 
-The resolved profile for one tracker session, selected only when the observed version lies inside a maintained bounded interval or at or above a maintained minimum-only registration. Version gaps and missing versions use the app-specific fallback. Tests may request an exact registered detector-version override for recorded experiments.
+The resolved profile for one tracker session, selected only when the observed version lies inside a maintained bounded interval or at or above a maintained minimum-only registration. Version gaps and missing versions use the app-specific fallback when one exists; apps with a floor-gated maintained profile and no fallback (currently only `kimi_code`, floor 2.1.1) raise `UnsupportedToolVersionError` instead. Tests may request an exact registered detector-version override for recorded experiments.
 
 ### `app_id_from_tool(tool: str) -> str`
 
@@ -118,7 +118,7 @@ Codex TUI signal detection with temporal hint logic. Includes versioned detector
 
 ### `kimi_code/`
 
-Kimi Code signal detection for the pi-tui surface. The selected 0.34-or-later candidate uses source inspection under `extern/orphan/kimi-code` and carries forward rules that still require fresh 0.34.x recorded qualification. It scopes activity to the current turn/live edge and treats approval detection as bounded panel structure, not a full exact string match.
+Kimi Code signal detection for the pi-tui surface, qualified on kimi-code 2.1.1 recordings from the 2026-10-10 debug campaign with source inspection under `extern/orphan/kimi-code`. It scopes activity to the current turn/live edge (spinner union with 2.1.x labels), treats approval detection as bounded panel structure, detects the 2.1.x modal surfaces (question dialog, goal-start prompt, workspace trust), and suppresses stale scrollback interrupt notices while concurrent activity is visible.
 
 ### `unsupported_tool/`
 

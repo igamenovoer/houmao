@@ -26,7 +26,7 @@ from houmao.lifecycle import (
     normalize_projection_text,
 )
 from houmao.shared_tui_tracking.models import TrackerConfig, TrackedStateSnapshot
-from houmao.shared_tui_tracking.registry import app_id_from_tool
+from houmao.shared_tui_tracking.registry import UnsupportedToolVersionError, app_id_from_tool
 from houmao.shared_tui_tracking.session import TuiTrackerSession
 from houmao.shared_tui_tracking.public_state import (
     diagnostics_availability as shared_diagnostics_availability,
@@ -138,12 +138,9 @@ class LiveSessionTracker:
             settle_seconds=completion_stability_seconds,
             stability_threshold_seconds=stability_threshold_seconds,
         )
-        self.m_tracker_session = TuiTrackerSession.from_config(
-            app_id=self.m_tracker_app_id,
-            observed_version=self.m_tracker_observed_tool_version,
-            config=self.m_tracker_config,
-            scheduler=self.m_scheduler,
-        )
+        self.m_tracker_session: TuiTrackerSession | None = None
+        self.m_tracker_resolution_error: UnsupportedToolVersionError | None = None
+        self._create_tracker_session_locked()
         self.m_last_scheduler_monotonic: float | None = None
         self.m_observation_subject: Subject[LifecycleObservation] = Subject()
         self.m_readiness_snapshot_queue: deque[ReadinessSnapshot] = deque()
@@ -183,6 +180,19 @@ class LiveSessionTracker:
             final_stable_active_recovery_seconds=final_stable_active_recovery_seconds,
         )
         self.m_active_turn_previous_last_turn = self.m_last_state.last_turn
+        if self.m_tracker_resolution_error is not None:
+            self.m_last_state = self.m_last_state.model_copy(
+                update={
+                    "operator_state": HoumaoOperatorState(
+                        status="error",
+                        readiness_state="unknown",
+                        completion_state="inactive",
+                        detail=str(self.m_tracker_resolution_error),
+                        projection_changed=False,
+                        updated_at_utc=utc_now_iso(),
+                    )
+                }
+            )
 
     @property
     def baseline_pos(self) -> int | None:
@@ -211,7 +221,9 @@ class LiveSessionTracker:
                 "tracked_session": identity,
             }
             if tracker_rebuilt:
-                tracker_state = self.m_tracker_session.current_state()
+                tracker_session = self.m_tracker_session
+                assert tracker_session is not None
+                tracker_state = tracker_session.current_state()
                 update.update(
                     {
                         "surface": HoumaoTrackedSurface(
@@ -232,6 +244,62 @@ class LiveSessionTracker:
                 )
             self.m_last_state = self.m_last_state.model_copy(update=update)
 
+    @property
+    def tracking_error(self) -> UnsupportedToolVersionError | None:
+        """Return the tracker resolution error when the session is unsupported."""
+
+        return self.m_tracker_resolution_error
+
+    @property
+    def resolved_detector_version(self) -> str | None:
+        """Return the resolved detector profile version for parser provenance."""
+
+        session = self.m_tracker_session
+        return session.detector_version if session is not None else None
+
+    def _create_tracker_session_locked(self) -> None:
+        """Build the standalone tracker, containing unsupported-version errors."""
+
+        try:
+            self.m_tracker_session = TuiTrackerSession.from_config(
+                app_id=self.m_tracker_app_id,
+                observed_version=self.m_tracker_observed_tool_version,
+                config=self.m_tracker_config,
+                scheduler=self.m_scheduler,
+            )
+        except UnsupportedToolVersionError as exc:
+            self.m_tracker_session = None
+            self.m_tracker_resolution_error = exc
+        else:
+            self.m_tracker_resolution_error = None
+
+    def _degraded_tracker_state(self) -> TrackedStateSnapshot:
+        """Return the placeholder tracker state for an unsupported-version session."""
+
+        error = self.m_tracker_resolution_error
+        return TrackedStateSnapshot(
+            surface_accepting_input="unknown",
+            surface_editing_input="unknown",
+            surface_ready_posture="unknown",
+            surface_pending_input="unknown",
+            turn_phase="unknown",
+            last_turn_result="none",
+            last_turn_source="none",
+            detector_name=self.m_tracker_app_id,
+            detector_version="unsupported",
+            active_reasons=(),
+            notes=(
+                ("unsupported_tool_version", str(error))
+                if error is not None
+                else ("unsupported_tool_version",)
+            ),
+            stability_signature="",
+            stable=False,
+            stable_for_seconds=0.0,
+            stable_since_seconds=0.0,
+            observed_at_seconds=0.0,
+        )
+
     def _ensure_tracker_session_locked(
         self,
         *,
@@ -248,16 +316,12 @@ class LiveSessionTracker:
             return False
         self._cancel_stale_active_recovery_locked(reason="tracker_rebuilt")
         self._cancel_final_stable_active_recovery_locked(reason="tracker_rebuilt")
-        self.m_tracker_session.close()
+        if self.m_tracker_session is not None:
+            self.m_tracker_session.close()
         self.m_tracker_app_id = tracker_app_id
         self.m_tracker_observed_tool_version = observed_tool_version
-        self.m_tracker_session = TuiTrackerSession.from_config(
-            app_id=self.m_tracker_app_id,
-            observed_version=self.m_tracker_observed_tool_version,
-            config=self.m_tracker_config,
-            scheduler=self.m_scheduler,
-        )
-        return True
+        self._create_tracker_session_locked()
+        return self.m_tracker_session is not None
 
     def current_state(self) -> HoumaoTerminalStateResponse:
         """Return the latest in-memory live state."""
@@ -387,7 +451,8 @@ class LiveSessionTracker:
             self._cancel_final_stable_active_recovery_locked(reason="input_submitted")
             self._advance_scheduler(monotonic_ts=monotonic_ts)
             self._drain_pipeline_snapshots()
-            self.m_tracker_session.on_input_submitted()
+            if self.m_tracker_session is not None:
+                self.m_tracker_session.on_input_submitted()
 
             baseline_projection_text = ""
             if self.m_last_state.parsed_surface is not None:
@@ -420,7 +485,11 @@ class LiveSessionTracker:
 
             lifecycle_authority = self._current_lifecycle_authority()
             lifecycle_timing = _require_lifecycle_timing(self.m_last_state)
-            tracker_state = self.m_tracker_session.current_state()
+            tracker_state = (
+                self.m_tracker_session.current_state()
+                if self.m_tracker_session is not None
+                else self._degraded_tracker_state()
+            )
             updated = self.m_last_state.model_copy(
                 update={
                     "surface": HoumaoTrackedSurface(
@@ -490,7 +559,7 @@ class LiveSessionTracker:
             cycle_seq = self.m_cycle_seq
             self._advance_scheduler(monotonic_ts=monotonic_ts)
             self._drain_pipeline_snapshots()
-            if output_text is not None:
+            if output_text is not None and self.m_tracker_session is not None:
                 self.m_tracker_session.on_snapshot(output_text)
             previous_operator_state = _require_operator_state(self.m_last_state)
             previous_lifecycle_authority = _require_lifecycle_authority(self.m_last_state)
@@ -591,7 +660,11 @@ class LiveSessionTracker:
                 parse_error=parse_error,
                 parsed_surface=parsed_surface,
             )
-            tracker_state = self.m_tracker_session.current_state()
+            tracker_state = (
+                self.m_tracker_session.current_state()
+                if self.m_tracker_session is not None
+                else self._degraded_tracker_state()
+            )
             if self.m_active_turn_anchor is not None:
                 active_anchor_id = self.m_active_turn_anchor.anchor_id
                 if tracker_state.last_turn_result in {"success", "interrupted", "known_failure"}:
@@ -622,6 +695,14 @@ class LiveSessionTracker:
                 diagnostics=diagnostics,
                 observed_at_utc=observed_at_utc,
             )
+            if self.m_tracker_resolution_error is not None:
+                operator_state = operator_state.model_copy(
+                    update={
+                        "status": "error",
+                        "detail": str(self.m_tracker_resolution_error),
+                        "updated_at_utc": observed_at_utc,
+                    }
+                )
             stale_active_candidate = _build_stale_active_recovery_candidate(
                 parsed_surface=parsed_surface,
                 diagnostics=diagnostics,

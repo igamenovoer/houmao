@@ -1,6 +1,6 @@
 # Debug Intent: Kimi Code TUI Parsing
 
-Date: 2026-10-10. Updated: 2026-10-10. Status: iteration 1 complete (KQ-1 resolved); KQ-2/KQ-3 disposition pending. Campaign directory: `context/campaigns/debug/2026-10-10-kimi-code-tui-parsing/`.
+Date: 2026-10-10. Updated: 2026-10-12. Status: iteration 1 complete (KQ-1 resolved, KQ-2 closed); production repair landed via `openspec/changes/raise-kimi-code-floor-2-1-1/`; KQ-3 unopened. Campaign directory: `context/campaigns/debug/2026-10-10-kimi-code-tui-parsing/`.
 
 ## Problem Statement
 
@@ -85,6 +85,7 @@ This campaign is an isolated diagnostic. It does not authorize changing producti
 ## Key Questions and Iterations
 
 - [KQ-1: Which text-scraping signals survive on kimi-code 2.1.1?](key-questions/KQ-1-signal-survival.md) — resolved 2026-10-10; see the answer and the two evidence docs under `evidences/`.
+- [KQ-2: Do escape-sequence state channels survive tmux capture on kimi-code 2.1.1?](key-questions/KQ-2-escape-sequence-survival.md) — closed 2026-10-12 (answered negatively by iteration 1's Arm B audit: zero OSC 133 / OSC `9;4` occurrences in 2706 escape-preserving samples; only OSC 8 hyperlinks survive).
 - [Iteration 1: kimi-code 2.1.1 state-matrix capture and detector gap analysis](iterations/2026-10-10-plan-1-state-matrix-capture.md) — complete; all gates passed with two declared coverage gaps (compaction, tui_down).
 
-Remaining candidate key questions: KQ-2 (OSC 133 / OSC 9;4 survival) is answered negatively by iteration 1's Arm B audit without a dedicated iteration (zero occurrences in 2706 escape-preserving samples; only OSC 8 hyperlinks survive) and can be closed as infeasible via tmux capture; KQ-3 (hooks / stream-json as ground-truth oracle, Arm C) remains unopened.
+Production resolution (2026-10-12): the candidate repairs and the version floor landed via `openspec/changes/raise-kimi-code-floor-2-1-1/` as `KimiCodeSignalDetectorV2_1_X` (registry floor `>=2.1.1`, no kimi fallback). Replaying both frozen sessions through the production analyze path yields zero false-ready, zero false-busy, and 100%/100% agreement on the two user-facing booleans (the candidate scored 99.2% on session 1; detector-level trust-modal detection closed that gap). The qualification gate now runs as `tests/unit/shared_tui_tracking/test_kimi_code_2_1_x_qualification.py` against fixture copies of both frozen recordings. KQ-3 (hooks / stream-json as ground-truth oracle, Arm C) remains unopened.
