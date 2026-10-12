@@ -1,0 +1,95 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: Iteration 1 Session 2 — codex 0.162.1 operator-interaction surfaces (as_is launch -a untrusted -s read-only, 5 fps recording, fresh Boltons copy)
+
+prompts:
+  # Schema-required placeholder; the python provider drives vars.ops and ignores prompt text.
+  - "tui-scenario"
+
+providers:
+  - id: python:drivers/tui_driver.py:call_api
+    config:
+      profile: codex-tui-as_is # no bypass; -a on-request -s read-only so sandbox-exceeding operations raise approvals deterministically (0.162.1 removed the `untrusted` approval value)
+      fixture: tests/fixtures/test-projects/boltons
+      workdir_policy: fresh-untrusted # recon 2026-10-12: as_is in an untrusted dir also goes straight to the composer; no trust screen with an established CODEX_HOME
+      record_mode: active
+      sample_interval_seconds: 0.2 # 5 fps per campaign directive
+      observed_version: "0.162.1"
+      model: gpt-6.1-sol # campaign default per user directive 2026-10-12
+      effort: medium
+
+evaluateOptions:
+  maxConcurrency: 1 # sequential legs of one recorded session
+
+defaultTest:
+  assert:
+    - type: python
+      value: file://asserts/recording_integrity.py # gate: plan G1/G5
+    - type: python
+      value: file://asserts/label_integrity.py # gate: plan G3
+    - type: python
+      value: file://asserts/field_agreement.py # measure: per-field detector-vs-GT agreement
+    - type: python
+      value: file://asserts/signal_audit.py # measure: per-signal survival rows
+
+tests:
+  - description: s2-startup-warnings — as_is startup shows the trust screen (untrusted git-repo copy), operator trusts, composer appears; F2 opens the warnings screen; Esc closes
+    vars:
+      case_id: s2-startup-warnings
+      ops:
+        - {name: startup-dwell, kind: wait_seconds, seconds: 8, meaning: splash and first paint settle}
+        - {name: wait-trust-modal, kind: wait_for_pattern, pattern: "Trust this folder?", timeout_s: 90, meaning: startup trust screen visible}
+        - {name: hold-trust-modal, kind: wait_seconds, seconds: 3, meaning: trust screen span}
+        - {name: confirm-trust, kind: send_key, key: Enter, meaning: select default "1. Trust and continue"}
+        - {name: wait-composer, kind: wait_for_pattern, pattern: "Ask Codex to do anything", timeout_s: 90, meaning: idle placeholder composer visible}
+        - {name: idle-settle, kind: wait_seconds, seconds: 3, meaning: settled idle window}
+        - {name: open-warnings, kind: send_key, key: F2, meaning: open the footer-advertised warnings screen}
+        - {name: hold-warnings, kind: wait_seconds, seconds: 3, meaning: warnings screen span}
+        - {name: close-warnings, kind: send_key, key: Escape, meaning: close the warnings screen}
+        - {name: settle, kind: wait_seconds, seconds: 2, meaning: back to idle composer}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [ready, warnings_screen], min_span_samples: 2}
+
+  - description: s2-command-approval-deny — Would you like to run the following command? panel; deny via Esc
+    vars:
+      case_id: s2-command-approval-deny
+      ops:
+        - {name: submit-command, kind: submit_text, text: "Run exactly this with your shell tool: touch /tmp/houmao-codex-s2-marker.txt. Then stop.", meaning: out-of-sandbox write forces one shell-command approval under -s read-only}
+        - {name: wait-approval, kind: wait_for_pattern, pattern: "Would you like to run the following command?", timeout_s: 180, meaning: command approval panel visible}
+        - {name: hold-approval, kind: wait_seconds, seconds: 3, meaning: approval span; option list visible}
+        - {name: deny-esc, kind: send_key, key: Escape, meaning: cancel/deny the approval (Press enter to confirm or esc to cancel)}
+        - {name: settle, kind: wait_seconds, seconds: 15, meaning: post-denial turn resolution}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [approval_modal, ready], min_span_samples: 3}
+
+  - description: s2-edit-approval-deny — write attempt under read-only sandbox raises a Would-you-like approval panel; deny via Esc
+    vars:
+      case_id: s2-edit-approval-deny
+      ops:
+        - {name: submit-write, kind: submit_text, text: "Create the file docs/houmao-campaign-note.md containing exactly one sentence. Then stop.", meaning: force one edit approval under -s read-only}
+        - {name: wait-approval, kind: wait_for_pattern, pattern: "Would you like", timeout_s: 180, meaning: an approval panel visible (edits or apply_patch command form accepted)}
+        - {name: hold-approval, kind: wait_seconds, seconds: 3, meaning: approval span}
+        - {name: deny-esc, kind: send_key, key: Escape, meaning: cancel/deny the approval}
+        - {name: settle, kind: wait_seconds, seconds: 15, meaning: post-denial resolution}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [approval_modal, ready], min_span_samples: 3}
+
+  - description: s2-model-picker — /model opens Select Model and Effort popup; Esc cancels
+    vars:
+      case_id: s2-model-picker
+      ops:
+        - {name: type-cmd, kind: type_text, text: "/model", meaning: slash command draft}
+        - {name: submit-cmd, kind: send_key, key: Enter, meaning: open the model picker}
+        - {name: wait-picker, kind: wait_for_pattern, pattern: "Select Model", timeout_s: 30, meaning: model picker popup visible}
+        - {name: hold-picker, kind: wait_seconds, seconds: 3, meaning: picker span}
+        - {name: cancel-picker, kind: send_key, key: Escape, meaning: close the popup}
+        - {name: settle, kind: wait_seconds, seconds: 3, meaning: back to idle composer}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [model_picker, ready], min_span_samples: 2}

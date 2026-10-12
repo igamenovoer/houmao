@@ -1,0 +1,144 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: Iteration 1 Session 1 — codex 0.162.1 turn-lifecycle state matrix (unattended bypass, 5 fps recording, fresh untrusted Boltons copy)
+
+prompts:
+  # Schema-required placeholder; the python provider drives vars.ops and ignores prompt text.
+  - "tui-scenario"
+
+providers:
+  - id: python:drivers/tui_driver.py:call_api
+    config:
+      profile: codex-tui-unattended # launch via houmao-dev-launch-agents launch-codex, --dangerously-bypass-approvals-and-sandbox
+      fixture: tests/fixtures/test-projects/boltons
+      workdir_policy: fresh-untrusted # cold start; recon 2026-10-12: bypass goes straight to the composer, no trust screen
+      record_mode: active
+      sample_interval_seconds: 0.2 # 5 fps per campaign directive
+      observed_version: "0.162.1"
+      model: gpt-6.1-sol # campaign default per user directive 2026-10-12
+      effort: medium
+
+evaluateOptions:
+  maxConcurrency: 1 # sequential legs of one recorded session
+
+defaultTest:
+  assert:
+    - type: python
+      value: file://asserts/recording_integrity.py # gate: plan G1/G5
+    - type: python
+      value: file://asserts/label_integrity.py # gate: plan G3
+    - type: python
+      value: file://asserts/field_agreement.py # measure: per-field detector-vs-GT agreement
+    - type: python
+      value: file://asserts/signal_audit.py # measure: per-signal survival rows
+
+tests:
+  - description: s1-cold-start-trust-modal — untrusted git-repo copy shows the Trust this folder? screen even with bypass; operator trusts; idle composer appears
+    vars:
+      case_id: s1-cold-start-trust-modal
+      ops:
+        - {name: startup-dwell, kind: wait_seconds, seconds: 8, meaning: splash logo and first paint settle}
+        - {name: wait-trust-modal, kind: wait_for_pattern, pattern: "Trust this folder?", timeout_s: 90, meaning: startup trust screen visible (deterministic for untrusted git-repo workdirs; recon 2026-10-12)}
+        - {name: hold-trust-modal, kind: wait_seconds, seconds: 3, meaning: modal dwell so 5fps sampling captures it}
+        - {name: confirm-trust, kind: send_key, key: Enter, meaning: select default "1. Trust and continue" (enter continue · esc quit)}
+        - {name: wait-composer, kind: wait_for_pattern, pattern: "Ask Codex to do anything", timeout_s: 90, meaning: idle placeholder composer visible}
+        - {name: idle-settle, kind: wait_seconds, seconds: 3, meaning: settled idle window (UC-04 ready gap)}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [startup_modal, ready], min_span_samples: 3}
+
+  - description: s1-draft-editing — typed draft, suffix append, exact-length backspace erase; no turn starts
+    vars:
+      case_id: s1-draft-editing
+      ops:
+        - {name: type-draft, kind: type_text, text: "Read boltons/iterutils.py. Do not edit files.", meaning: 46-char draft in the composer}
+        - {name: hold-draft, kind: wait_seconds, seconds: 3, meaning: stable draft span}
+        - {name: append-suffix, kind: type_text, text: " WINDOWED", meaning: draft grows by 9 literal chars (st-01 pattern)}
+        - {name: erase-suffix, kind: send_key, key: Backspace, repeat: 9, meaning: suffix removed exactly}
+        - {name: erase-draft, kind: send_key, key: Backspace, repeat: 46, meaning: draft cleared to empty composer}
+        - {name: hold-empty, kind: wait_seconds, seconds: 1, meaning: empty composer after editing}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [editing], min_span_samples: 3}
+
+  - description: s1-busy-success — one short tool turn (st-03 op01) with Working status row and footer spinner, then ready return
+    vars:
+      case_id: s1-busy-success
+      ops:
+        - {name: submit-short, kind: catalog_operation, ref: "st-03:op01", meaning: reviewed unattended command/read turn}
+        - {name: turn-run, kind: wait_seconds, seconds: 45, meaning: fixed hold while the turn progresses; boundaries come from labels}
+        - {name: post-turn-gap, kind: wait_seconds, seconds: 3, meaning: UC-04 post-turn ready window}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [active, ready], min_span_samples: 3}
+
+  - description: s1-tool-edit-workflow — st-03 op02–op04 read/create/test sequence; sustained tool activity across three turns
+    vars:
+      case_id: s1-tool-edit-workflow
+      ops:
+        - {name: read-op, kind: catalog_operation, ref: "st-03:op02", meaning: reviewed read-only turn}
+        - {name: wait-read, kind: wait_seconds, seconds: 45, meaning: fixed hold per turn}
+        - {name: write-op, kind: catalog_operation, ref: "st-03:op03", meaning: creates tests/test_houmao_long_horizon.py}
+        - {name: wait-write, kind: wait_seconds, seconds: 90, meaning: longer hold for the write turn}
+        - {name: test-op, kind: catalog_operation, ref: "st-03:op04", meaning: runs pytest on the new file}
+        - {name: wait-test, kind: wait_seconds, seconds: 60, meaning: fixed hold for the test turn}
+        - {name: settle, kind: wait_seconds, seconds: 3, meaning: post-turn ready window}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [active, ready], min_span_samples: 3}
+
+  - description: s1-queue-pending-input — long turn (st-05 op04) with a follow-up submitted mid-busy; codex queue/steer surface; drain
+    vars:
+      case_id: s1-queue-pending-input
+      ops:
+        - {name: submit-long, kind: catalog_operation, ref: "st-05:op04", meaning: reviewed long scan turn (35+ bullets)}
+        - {name: wait-mid-turn, kind: wait_seconds, seconds: 8, meaning: ensure the turn is demonstrably active}
+        - {name: type-followup, kind: type_text, text: "{{SAFE}} Follow-up: also report the boltons module count. End with Q1-DRAIN", meaning: follow-up draft while busy}
+        - {name: submit-followup, kind: send_key, key: Enter, meaning: submit into the provider queue}
+        - {name: hold-queue, kind: wait_seconds, seconds: 3, meaning: queue surface span}
+        - {name: drain-wait, kind: wait_seconds, seconds: 120, meaning: current task ends, queued follow-up drains}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [active, queue_pending, ready], min_span_samples: 3}
+
+  - description: s1-interrupt-escape — long turn interrupted with Escape; ■ Conversation interrupted notice; ready return
+    vars:
+      case_id: s1-interrupt-escape
+      ops:
+        - {name: submit-long-2, kind: submit_text, text: "{{SAFE}} Read every Python file directly under boltons/ and produce at least 20 numbered bullets mapping files to one-line purposes. End with IT-7", meaning: interruptible long turn with canary}
+        - {name: wait-active, kind: wait_seconds, seconds: 6, meaning: give the turn active frames before interrupting}
+        - {name: esc, kind: send_key, key: Escape, meaning: cancel the streaming turn}
+        - {name: settle, kind: wait_seconds, seconds: 5, meaning: interrupted notice plus ready return}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [active, interrupted, ready], min_span_samples: 2}
+
+  - description: s1-compaction (opportunistic) — /compact; compaction span if it renders; coverage gap allowed
+    vars:
+      case_id: s1-compaction
+      ops:
+        - {name: type-cmd, kind: type_text, text: "/compact", meaning: slash command draft}
+        - {name: submit-cmd, kind: send_key, key: Enter, meaning: run compaction}
+        - {name: wait-compact, kind: wait_seconds, seconds: 20, meaning: compaction span window}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [compaction], min_span_samples: 2, optional: true}
+
+  - description: s1-exit — double Ctrl-C at idle exits the TUI; process/pane loss; coverage gap allowed
+    vars:
+      case_id: s1-exit
+      ops:
+        - {name: cc-arm, kind: send_key, key: C-c, meaning: arm the exit hint if present}
+        - {name: hold-arm, kind: wait_seconds, seconds: 1, meaning: armed hint visible}
+        - {name: cc-exit, kind: send_key, key: C-c, meaning: exit codex}
+        - {name: wait-down, kind: wait_seconds, seconds: 5, meaning: process and pane teardown}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [tui_down], min_span_samples: 2, optional: true}
