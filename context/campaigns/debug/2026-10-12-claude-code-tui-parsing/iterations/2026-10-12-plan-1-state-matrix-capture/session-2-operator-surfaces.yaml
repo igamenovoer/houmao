@@ -1,0 +1,96 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: Iteration 1 Session 2 — claude 2.1.296 operator-interaction surfaces (openlux env lane minus bypass, sonnet, 5 fps recording, fresh untrusted Boltons copy)
+
+prompts:
+  # Schema-required placeholder; the python provider drives vars.ops and ignores prompt text.
+  - "tui-scenario"
+
+providers:
+  - id: python:drivers/tui_driver.py:call_api
+    config:
+      profile: claude-tui-as_is # openlux env lane replicated minus --dangerously-skip-permissions so approvals render (plan binding rule 1 deviation)
+      fixture: tests/fixtures/test-projects/boltons
+      workdir_policy: fresh-untrusted # recon 2026-10-12: trust dialog renders regardless of bypass; handled deterministically
+      workdir_overlay: # attempt-002 correction: 2.1.296 auto mode auto-approves low-risk actions; explicit ask rules force deterministic approval dialogs
+        - path: .claude/settings.json
+          content: '{"permissions": {"ask": ["Bash(touch:*)", "Write"]}}'
+      record_mode: active
+      sample_interval_seconds: 0.2 # 5 fps per campaign directive
+      observed_version: "2.1.296"
+      model: sonnet # cost directive 2026-10-12
+
+evaluateOptions:
+  maxConcurrency: 1 # sequential legs of one recorded session
+
+defaultTest:
+  assert:
+    - type: python
+      value: file://asserts/recording_integrity.py # gate: plan G1/G5
+    - type: python
+      value: file://asserts/label_integrity.py # gate: plan G3
+    - type: python
+      value: file://asserts/field_agreement.py # measure: per-field detector-vs-GT agreement
+    - type: python
+      value: file://asserts/signal_audit.py # measure: per-signal survival rows
+
+tests:
+  - description: s2-bootstrap-trust-modal — trust dialog at cold start; operator trusts (Down, Enter); idle composer appears
+    vars:
+      case_id: s2-bootstrap-trust-modal
+      ops:
+        - {name: startup-dwell, kind: wait_seconds, seconds: 8, meaning: banner paint and trust dialog settle}
+        - {name: wait-trust-modal, kind: wait_for_pattern, pattern: "Quick safety check", timeout_s: 90, meaning: startup trust dialog visible}
+        - {name: hold-trust-modal, kind: wait_seconds, seconds: 3, meaning: trust dialog span}
+        - {name: select-trust-yes, kind: send_key, key: Down, meaning: move selection from default "No, exit" to "Yes, I trust this folder"}
+        - {name: confirm-trust, kind: send_key, key: Enter, meaning: confirm trust}
+        - {name: wait-dialog-gone, kind: wait_for_absence, pattern: "Quick safety check", timeout_s: 30, meaning: trust dialog dismissed}
+        - {name: wait-composer, kind: wait_for_pattern, pattern: "❯", timeout_s: 60, meaning: composer prompt token visible (no posture-specific footer needle without bypass)}
+        - {name: verify-model, kind: wait_for_pattern, pattern: "Sonnet", timeout_s: 30, abort_on_failure: true, meaning: G7 model gate — banner must read Sonnet; abort on mismatch}
+        - {name: idle-settle, kind: wait_seconds, seconds: 3, meaning: settled idle window}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [startup_modal, ready], min_span_samples: 3}
+
+  - description: s2-command-approval-deny — shell command raises Do you want to proceed?; deny via Esc
+    vars:
+      case_id: s2-command-approval-deny
+      ops:
+        - {name: submit-command, kind: submit_text, text: "{{SAFE}} Run exactly this with your shell tool: touch /tmp/houmao-claude-s2-marker.txt. Then stop.", meaning: shell write forces one command approval without bypass}
+        - {name: wait-approval, kind: wait_for_pattern, pattern: "Do you want to proceed?", timeout_s: 180, meaning: approval dialog visible (2.1.296 binary string)}
+        - {name: hold-approval, kind: wait_seconds, seconds: 3, meaning: approval span; option list visible}
+        - {name: deny-esc, kind: send_key, key: Escape, meaning: cancel/deny the approval}
+        - {name: settle, kind: wait_seconds, seconds: 15, meaning: post-denial turn resolution}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [approval_modal, ready], min_span_samples: 3}
+
+  - description: s2-edit-approval-deny — file creation raises an edit approval dialog; deny via Esc
+    vars:
+      case_id: s2-edit-approval-deny
+      ops:
+        - {name: submit-write, kind: submit_text, text: "{{SAFE}} Create the file docs/houmao-campaign-note.md containing exactly one sentence. Then stop.", meaning: force one edit approval without bypass}
+        - {name: wait-approval, kind: wait_for_pattern, pattern: "Do you want to proceed?", timeout_s: 180, meaning: edit approval dialog visible}
+        - {name: hold-approval, kind: wait_seconds, seconds: 3, meaning: approval span}
+        - {name: deny-esc, kind: send_key, key: Escape, meaning: cancel/deny the approval}
+        - {name: settle, kind: wait_seconds, seconds: 15, meaning: post-denial resolution}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [approval_modal, ready], min_span_samples: 3}
+
+  - description: s2-model-picker — /model opens the model picker; Esc cancels
+    vars:
+      case_id: s2-model-picker
+      ops:
+        - {name: type-cmd, kind: type_text, text: "/model", meaning: slash command draft}
+        - {name: submit-cmd, kind: send_key, key: Enter, meaning: open the model picker}
+        - {name: wait-picker, kind: wait_for_pattern, pattern: "Sonnet", timeout_s: 30, meaning: model picker lists sonnet entries}
+        - {name: hold-picker, kind: wait_seconds, seconds: 3, meaning: picker span}
+        - {name: cancel-picker, kind: send_key, key: Escape, meaning: close the picker}
+        - {name: settle, kind: wait_seconds, seconds: 3, meaning: back to idle composer}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [model_picker, ready], min_span_samples: 2}

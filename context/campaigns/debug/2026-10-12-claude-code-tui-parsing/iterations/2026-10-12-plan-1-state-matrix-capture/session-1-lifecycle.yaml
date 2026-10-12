@@ -1,0 +1,158 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: Iteration 1 Session 1 — claude 2.1.296 turn-lifecycle state matrix (openlux launcher as-is with bypass, sonnet, 5 fps recording, fresh untrusted Boltons copy)
+
+prompts:
+  # Schema-required placeholder; the python provider drives vars.ops and ignores prompt text.
+  - "tui-scenario"
+
+providers:
+  - id: python:drivers/tui_driver.py:call_api
+    config:
+      profile: claude-tui-unattended # claude-openlux-0.5x as-is (bypass baked in) + --model sonnet
+      fixture: tests/fixtures/test-projects/boltons
+      workdir_policy: fresh-untrusted # cold start; recon 2026-10-12: trust dialog renders even under --dangerously-skip-permissions
+      record_mode: active
+      sample_interval_seconds: 0.2 # 5 fps per campaign directive
+      observed_version: "2.1.296"
+      model: sonnet # cost directive 2026-10-12; relay resolves to Sonnet 5.5 per recon banner
+
+evaluateOptions:
+  maxConcurrency: 1 # sequential legs of one recorded session
+
+defaultTest:
+  assert:
+    - type: python
+      value: file://asserts/recording_integrity.py # gate: plan G1/G5
+    - type: python
+      value: file://asserts/label_integrity.py # gate: plan G3
+    - type: python
+      value: file://asserts/field_agreement.py # measure: per-field detector-vs-GT agreement
+    - type: python
+      value: file://asserts/signal_audit.py # measure: per-signal survival rows
+
+tests:
+  - description: s1-bootstrap-trust-modal — untrusted copy shows the Quick safety check dialog even with bypass; operator trusts (Down, Enter); banner shows Sonnet (model gate); idle composer appears
+    vars:
+      case_id: s1-bootstrap-trust-modal
+      ops:
+        - {name: startup-dwell, kind: wait_seconds, seconds: 8, meaning: banner paint and trust dialog settle}
+        - {name: wait-trust-modal, kind: wait_for_pattern, pattern: "Quick safety check", timeout_s: 90, meaning: "startup trust dialog visible (renders even under bypass for untrusted workdirs, recon 2026-10-12)"}
+        - {name: hold-trust-modal, kind: wait_seconds, seconds: 3, meaning: modal dwell so 5fps sampling captures it}
+        - {name: select-trust-yes, kind: send_key, key: Down, meaning: move selection from default "No, exit" to "Yes, I trust this folder" (recon 2026-10-12)}
+        - {name: confirm-trust, kind: send_key, key: Enter, meaning: confirm trust (Enter to confirm · Esc to cancel)}
+        - {name: wait-composer, kind: wait_for_pattern, pattern: "bypass permissions on", timeout_s: 90, meaning: unattended composer footer visible}
+        - {name: verify-model, kind: wait_for_pattern, pattern: "Sonnet", timeout_s: 30, abort_on_failure: true, meaning: G7 model gate — banner must read Sonnet (relay-resolved sonnet alias); abort the run on mismatch before further spend}
+        - {name: idle-settle, kind: wait_seconds, seconds: 3, meaning: settled idle window (UC-04 ready gap)}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [startup_modal, ready], min_span_samples: 3}
+
+  - description: s1-draft-editing — typed draft, suffix append, exact-length backspace erase; no turn starts
+    vars:
+      case_id: s1-draft-editing
+      ops:
+        - {name: type-draft, kind: type_text, text: "Read boltons/iterutils.py. Do not edit files.", meaning: 46-char draft in the composer}
+        - {name: hold-draft, kind: wait_seconds, seconds: 3, meaning: stable draft span}
+        - {name: append-suffix, kind: type_text, text: " WINDOWED", meaning: draft grows by 9 literal chars (st-01 pattern)}
+        - {name: erase-suffix, kind: send_key, key: Backspace, repeat: 9, meaning: suffix removed exactly}
+        - {name: erase-draft, kind: send_key, key: Backspace, repeat: 46, meaning: draft cleared to empty composer}
+        - {name: hold-empty, kind: wait_seconds, seconds: 1, meaning: empty composer after editing}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [editing], min_span_samples: 3}
+
+  - description: s1-busy-success — one short shell turn with spinner and esc-to-interrupt footer, then ready return
+    vars:
+      case_id: s1-busy-success
+      ops:
+        - {name: submit-short, kind: submit_text, text: "{{SAFE}} Run pwd and git status --short with your shell tool. Do not edit files. Reply briefly.", meaning: short command turn (st-03 shape, shortened for cost)}
+        - {name: turn-run, kind: wait_seconds, seconds: 45, meaning: fixed hold while the turn progresses; boundaries come from labels}
+        - {name: post-turn-gap, kind: wait_seconds, seconds: 3, meaning: UC-04 post-turn ready window}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [active, ready], min_span_samples: 3}
+
+  - description: s1-tool-edit-workflow — read turn then create-and-test turn; sustained tool activity, two active→ready cycles
+    vars:
+      case_id: s1-tool-edit-workflow
+      ops:
+        - {name: read-op, kind: submit_text, text: "{{SAFE}} Read the pairwise and windowed docstrings in boltons/iterutils.py. Do not edit files. Reply with one line per function.", meaning: short read-only turn}
+        - {name: wait-read, kind: wait_seconds, seconds: 45, meaning: fixed hold per turn}
+        - {name: write-test-op, kind: submit_text, text: "{{SAFE}} Create tests/test_houmao_probe.py containing one trivial passing test, then run python -m pytest -q tests/test_houmao_probe.py and report the result.", meaning: write+run turn (edit approval suppressed by bypass)}
+        - {name: wait-write, kind: wait_seconds, seconds: 90, meaning: longer hold for the write+run turn}
+        - {name: settle, kind: wait_seconds, seconds: 3, meaning: post-turn ready window}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [active, ready], min_span_samples: 3}
+
+  - description: s1-queue-pending-input — medium turn with a follow-up submitted mid-busy; queued-input preview surface; drain
+    vars:
+      case_id: s1-queue-pending-input
+      ops:
+        - {name: submit-medium, kind: submit_text, text: "{{SAFE}} List 8 one-line facts about modules in boltons/. End with Q1.", meaning: medium turn, queueable window}
+        - {name: wait-mid-turn, kind: wait_seconds, seconds: 6, meaning: ensure the turn is demonstrably active}
+        - {name: type-followup, kind: type_text, text: "{{SAFE}} Follow-up: also state the boltons version. End with Q1-DRAIN", meaning: follow-up draft while busy}
+        - {name: submit-followup, kind: send_key, key: Enter, meaning: submit into the provider queue}
+        - {name: hold-queue, kind: wait_seconds, seconds: 3, meaning: queue surface span}
+        - {name: drain-wait, kind: wait_seconds, seconds: 90, meaning: current task ends, queued follow-up drains}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [active, queue_pending, ready], min_span_samples: 3}
+
+  - description: s1-interrupt-escape — medium turn interrupted with Escape; interrupted surface; ready return
+    vars:
+      case_id: s1-interrupt-escape
+      ops:
+        - {name: submit-long-2, kind: submit_text, text: "{{SAFE}} Read every Python file directly under boltons/ and produce 10 numbered bullets mapping files to one-line purposes. End with IT-7", meaning: interruptible turn with canary}
+        - {name: wait-active, kind: wait_seconds, seconds: 6, meaning: give the turn active frames before interrupting}
+        - {name: esc, kind: send_key, key: Escape, meaning: cancel the streaming turn}
+        - {name: settle, kind: wait_seconds, seconds: 5, meaning: interrupted notice plus ready return}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [active, interrupted, ready], min_span_samples: 2}
+
+  - description: s1-compaction (opportunistic) — /compact; compaction span if it renders; coverage gap allowed
+    vars:
+      case_id: s1-compaction
+      ops:
+        - {name: type-cmd, kind: type_text, text: "/compact", meaning: slash command draft}
+        - {name: submit-cmd, kind: send_key, key: Enter, meaning: run compaction}
+        - {name: wait-compact, kind: wait_seconds, seconds: 20, meaning: compaction span window}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [compaction], min_span_samples: 2, optional: true}
+
+  - description: s1-model-picker — /model opens the model picker; Esc cancels
+    vars:
+      case_id: s1-model-picker
+      ops:
+        - {name: type-cmd, kind: type_text, text: "/model", meaning: slash command draft}
+        - {name: submit-cmd, kind: send_key, key: Enter, meaning: open the model picker}
+        - {name: wait-picker, kind: wait_for_pattern, pattern: "Sonnet", timeout_s: 30, meaning: model picker lists sonnet entries}
+        - {name: hold-picker, kind: wait_seconds, seconds: 3, meaning: picker span}
+        - {name: cancel-picker, kind: send_key, key: Escape, meaning: close the picker}
+        - {name: settle, kind: wait_seconds, seconds: 2, meaning: back to idle composer}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [model_picker, ready], min_span_samples: 2}
+
+  - description: s1-exit — double Ctrl-C at idle exits the TUI; process/pane loss; coverage gap allowed
+    vars:
+      case_id: s1-exit
+      ops:
+        - {name: cc-arm, kind: send_key, key: C-c, meaning: arm the exit hint (Press Ctrl+C again to exit)}
+        - {name: hold-arm, kind: wait_seconds, seconds: 1, meaning: armed hint visible}
+        - {name: cc-exit, kind: send_key, key: C-c, meaning: exit claude}
+        - {name: wait-down, kind: wait_seconds, seconds: 5, meaning: process and pane teardown}
+    assert:
+      - type: python
+        value: file://asserts/coverage_spans.py
+        config: {required_spans: [tui_down], min_span_samples: 2, optional: true}
