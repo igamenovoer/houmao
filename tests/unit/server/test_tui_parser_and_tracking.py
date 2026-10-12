@@ -32,10 +32,7 @@ _CODEX_PENDING_RAW_SNAPSHOT = (
     "› Explain the failure.\n\n"
     "• Partial answer so far.\n\n"
     "› Run the focused tests next.\n\n"
-    "• Working (1s • esc to interrupt)\n\n"
-    + _CODEX_COMPOSER_LINE
-    + "\n"
-    + _CODEX_FOOTER_LINES
+    "• Working (1s • esc to interrupt)\n\n" + _CODEX_COMPOSER_LINE + "\n" + _CODEX_FOOTER_LINES
 )
 _CODEX_OPERATOR_PROMPT_RAW_SNAPSHOT = (
     "  Would you like to run the following command?\n\n"
@@ -48,10 +45,7 @@ _CODEX_WARNING_OVERLOADED_RAW_SNAPSHOT = (
 _CODEX_RETRY_STATUS_RAW_SNAPSHOT = (
     "› Explain the failure.\n\n"
     "Reconnecting to model stream (2/5)\n"
-    "Idle timeout waiting for SSE\n\n"
-    + _CODEX_COMPOSER_LINE
-    + "\n"
-    + _CODEX_FOOTER_LINES
+    "Idle timeout waiting for SSE\n\n" + _CODEX_COMPOSER_LINE + "\n" + _CODEX_FOOTER_LINES
 )
 _UNSET_OUTPUT_TEXT = object()
 

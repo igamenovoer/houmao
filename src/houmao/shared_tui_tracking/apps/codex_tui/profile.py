@@ -169,7 +169,9 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
         queued_echo = queued_echo_present(surface=surface)
         active_evidence = activity.active_evidence or queued_echo
         active_reasons = tuple(
-            dict.fromkeys((*activity.active_reasons, *(("queued_follow_up",) if queued_echo else ())))
+            dict.fromkeys(
+                (*activity.active_reasons, *(("queued_follow_up",) if queued_echo else ()))
+            )
         )
         interrupted = (
             is_interrupted_surface(
@@ -440,8 +442,7 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
         if (
             recent_active is not None
             and isinstance(recent_active.payload, _CodexTuiFrame)
-            and newest_at_seconds - recent_active.observed_at_seconds
-            <= _STATUS_BLINK_CARRY_SECONDS
+            and newest_at_seconds - recent_active.observed_at_seconds <= _STATUS_BLINK_CARRY_SECONDS
             and newest.ready_posture == "yes"
             and not newest.draft_visible
         ):

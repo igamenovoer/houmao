@@ -24,12 +24,10 @@ _DYNAMIC_PLACEHOLDER_SURFACE = (
     "  GPT-6.1-Sol medium · /tmp/demo/workdir\n"
 )
 _DISABLED_INPUT_SURFACE = (
-    "\x1b[2m› Input disabled for test.\x1b[0m\n\n"
-    "  GPT-6.1-Sol medium · /tmp/demo/workdir\n"
+    "\x1b[2m› Input disabled for test.\x1b[0m\n\n  GPT-6.1-Sol medium · /tmp/demo/workdir\n"
 )
 _PLAIN_DRAFT_SURFACE = (
-    "\x1b[1m›\x1b[0m Find and fix a bug in @filename\n\n"
-    "  GPT-6.1-Sol medium · /tmp/demo/workdir\n"
+    "\x1b[1m›\x1b[0m Find and fix a bug in @filename\n\n  GPT-6.1-Sol medium · /tmp/demo/workdir\n"
 )
 _UNRECOGNIZED_STYLED_SURFACE = (
     "\x1b[1m›\x1b[0m \x1b[33mReview staged changes\x1b[0m\n\n"

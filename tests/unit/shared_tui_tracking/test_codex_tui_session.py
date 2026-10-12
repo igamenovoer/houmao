@@ -1104,8 +1104,7 @@ def test_codex_detector_server_error_family_marks_degraded_context() -> None:
     assert signals.chat_context == "degraded"
     assert signals.chat_context_diagnostic is not None
     assert (
-        signals.chat_context_diagnostic.degraded_error_type
-        == "codex_remote_compact_server_error"
+        signals.chat_context_diagnostic.degraded_error_type == "codex_remote_compact_server_error"
     )
 
 

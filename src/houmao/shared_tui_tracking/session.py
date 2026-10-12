@@ -426,9 +426,7 @@ class TuiTrackerSession:
                 self._log_debug(
                     "snapshot_decision",
                     at_seconds=at_seconds,
-                    decision=(
-                        "maintenance_active_signal" if maintenance_only else "active_signal"
-                    ),
+                    decision=("maintenance_active_signal" if maintenance_only else "active_signal"),
                     effective_signals=_summarize_detected_turn_signals(effective_signals),
                 )
                 self._emit_state_from_signals_locked(
