@@ -377,8 +377,19 @@ def _sample_registry_record(
     )
 
 
-_CODEX_READY_RAW_SNAPSHOT = "› \n\n  ? for shortcuts            100% context left\n"
-_CODEX_ACTIVE_RAW_SNAPSHOT = "› Explain the failure.\n\n• Working (0s • esc to interrupt)\n"
+_CODEX_READY_RAW_SNAPSHOT = (
+    "  Worked for 3s • 2:09 PM\n\n"
+    "\x1b[1m›\x1b[0m \x1b[2mAsk Codex to do anything\x1b[0m\n"
+    "  GPT-6.1-Sol medium · /tmp/demo/workdir\n"
+    "  ? for shortcuts\n"
+)
+_CODEX_ACTIVE_RAW_SNAPSHOT = (
+    "› Explain the failure.\n\n"
+    "• Working (0s • esc to interrupt)\n\n"
+    "\x1b[1m›\x1b[0m \x1b[2mAsk Codex to do anything\x1b[0m\n"
+    "  GPT-6.1-Sol medium · /tmp/demo/workdir\n"
+    "  ? for shortcuts\n"
+)
 
 
 def _ready_surface() -> HoumaoParsedSurface:
@@ -825,6 +836,7 @@ def test_refresh_terminal_state_uses_direct_tmux_process_and_parser(
             terminal_id="abcd1234",
             tool="codex",
             tmux_session_name="HOUMAO-gpu",
+            observed_tool_version="0.162.1 (Codex)",
         )
     )
     transport.m_calls.clear()
@@ -903,6 +915,7 @@ def test_note_prompt_submission_arms_turn_anchor_for_registered_tracker(
             terminal_id="abcd1234",
             tool="codex",
             tmux_session_name="HOUMAO-gpu",
+            observed_tool_version="0.162.1 (Codex)",
         )
     )
 
@@ -958,6 +971,7 @@ def test_refresh_terminal_state_records_tui_down_but_keeps_tracker(
             terminal_id="abcd1234",
             tool="codex",
             tmux_session_name="HOUMAO-gpu",
+            observed_tool_version="0.162.1 (Codex)",
         )
     )
 
@@ -998,6 +1012,7 @@ def test_poll_known_session_marks_tmux_missing_and_requests_worker_exit(
             terminal_id="abcd1234",
             tool="codex",
             tmux_session_name="HOUMAO-gpu",
+            observed_tool_version="0.162.1 (Codex)",
         )
     )
 
@@ -1055,6 +1070,7 @@ def test_terminal_history_returns_recent_in_memory_transitions(
             terminal_id="abcd1234",
             tool="codex",
             tmux_session_name="HOUMAO-gpu",
+            observed_tool_version="0.162.1 (Codex)",
         )
     )
 
@@ -1214,6 +1230,7 @@ def test_handle_poll_exception_records_probe_error_state(tmp_path: Path) -> None
             terminal_id="abcd1234",
             tool="codex",
             tmux_session_name="HOUMAO-gpu",
+            observed_tool_version="0.162.1 (Codex)",
         )
     )
 
@@ -1256,6 +1273,7 @@ def test_supervisor_reconcile_releases_missing_session_from_live_lookup(
             terminal_id="abcd1234",
             tool="codex",
             tmux_session_name="HOUMAO-gpu",
+            observed_tool_version="0.162.1 (Codex)",
         )
     )
     registry.m_records = {
@@ -1332,6 +1350,7 @@ def test_refresh_terminal_state_uses_registration_window_name(
             tool="codex",
             tmux_session_name="HOUMAO-gpu",
             tmux_window_name="developer-1",
+            observed_tool_version="0.162.1 (Codex)",
         )
     )
 
@@ -1495,6 +1514,7 @@ def test_submit_managed_agent_interrupt_dispatches_tui_signal_when_tracked_state
             tool="codex",
             tmux_session_name="HOUMAO-gpu",
             tmux_window_name="developer-1",
+            observed_tool_version="0.162.1 (Codex)",
         )
     )
 
@@ -1551,6 +1571,7 @@ def test_submit_managed_agent_prompt_rejects_execution_override_for_tui_target(
             tool="codex",
             tmux_session_name="HOUMAO-gpu",
             tmux_window_name="developer-1",
+            observed_tool_version="0.162.1 (Codex)",
         )
     )
 

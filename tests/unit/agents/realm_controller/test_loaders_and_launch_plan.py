@@ -312,7 +312,7 @@ def test_build_launch_plan_uses_allowlisted_env_and_redacts_values(
         LaunchPlanRequest(
             brain_manifest=manifest,
             role_package=role,
-            backend="codex_app_server",
+            backend="codex_headless",
             working_directory=tmp_path,
         )
     )
@@ -323,6 +323,35 @@ def test_build_launch_plan_uses_allowlisted_env_and_redacts_values(
     redacted = plan.redacted_payload()
     assert redacted["env_var_names"] == ["OPENAI_API_KEY", "OPENAI_BASE_URL"]
     assert "sk-secret" not in str(redacted)
+
+
+def test_build_launch_plan_rejects_unmaintained_codex_app_server(tmp_path: Path) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
+    _write(tmp_path / "repo/roles/test-role/system-prompt.md", "prompt")
+
+    manifest = _manifest(
+        tool="codex",
+        executable="codex",
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=["OPENAI_API_KEY"],
+    )
+
+    role = load_role_package(tmp_path / "repo", "test-role")
+    with pytest.raises(LaunchPlanError, match="unmaintained") as caught:
+        build_launch_plan(
+            LaunchPlanRequest(
+                brain_manifest=manifest,
+                role_package=role,
+                backend="codex_app_server",
+                working_directory=tmp_path,
+            )
+        )
+
+    assert "codex_headless" in str(caught.value)
+    assert "local_interactive" in str(caught.value)
 
 
 def test_build_launch_plan_overlays_persistent_launch_env_records(tmp_path: Path) -> None:
@@ -422,7 +451,7 @@ def test_build_launch_plan_resolves_launch_policy_provenance(
         return type(
             "_Completed",
             (),
-            {"stdout": "codex-cli 0.140.0", "stderr": "", "args": command},
+            {"stdout": "codex-cli 0.162.1", "stderr": "", "args": command},
         )()
 
     monkeypatch.setattr(
@@ -451,7 +480,7 @@ def test_build_launch_plan_resolves_launch_policy_provenance(
     )
 
     assert plan.launch_policy_provenance is not None
-    assert plan.launch_policy_provenance.selected_strategy_id == "codex-unattended-0.116.x"
+    assert plan.launch_policy_provenance.selected_strategy_id == "codex-unattended-0.162-plus"
     assert plan.redacted_payload()["launch_policy_provenance"]["selection_source"] == "registry"
 
 
@@ -511,7 +540,7 @@ def test_build_launch_plan_local_interactive_codex_unattended_pretrusts_project(
         return type(
             "_Completed",
             (),
-            {"stdout": "codex-cli 0.140.0", "stderr": "", "args": command},
+            {"stdout": "codex-cli 0.162.1", "stderr": "", "args": command},
         )()
 
     monkeypatch.setattr(
@@ -541,7 +570,7 @@ def test_build_launch_plan_local_interactive_codex_unattended_pretrusts_project(
     payload = tomllib.loads((home_path / "config.toml").read_text(encoding="utf-8"))
 
     assert plan.launch_policy_provenance is not None
-    assert plan.launch_policy_provenance.selected_strategy_id == "codex-unattended-0.116.x"
+    assert plan.launch_policy_provenance.selected_strategy_id == "codex-unattended-0.162-plus"
     assert payload["projects"][str(repo.resolve())]["trust_level"] == "trusted"
     assert payload["notice"]["hide_full_access_warning"] is True
     assert payload["tui"]["show_tooltips"] is False
@@ -575,7 +604,7 @@ def test_build_launch_plan_honors_process_env_strategy_override_without_projecti
     )
     monkeypatch.setenv(
         "HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY",
-        "codex-unattended-0.116.x",
+        "codex-unattended-0.162-plus",
     )
 
     manifest = _manifest(
@@ -650,7 +679,7 @@ def test_parse_allowlisted_env_selects_claude_model_selection_vars(
 @pytest.mark.parametrize(
     ("tool", "backend", "launch_args", "expected_arg", "protocol_arg"),
     [
-        ("codex", "codex_app_server", ["--x"], "--x", "app-server"),
+        ("codex", "codex_headless", ["--x"], "--x", "exec"),
         ("claude", "claude_headless", ["--x"], "--x", "-p"),
         ("kimi", "kimi_headless", ["--x"], "--x", "-p"),
     ],

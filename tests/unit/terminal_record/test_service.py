@@ -555,9 +555,9 @@ def test_parse_asciinema_cast_input_events_reads_v3_input_frames(tmp_path: Path)
 def test_analyze_terminal_record_emits_parser_and_state_observations(tmp_path: Path) -> None:
     run_root = tmp_path / "run-007"
     paths = _write_run_artifacts(run_root=run_root, mode="passive", status="stopped", tool="codex")
-    fixture_text = Path("tests/fixtures/shadow_parser/codex/tui_completed.txt").read_text(
-        encoding="utf-8"
-    )
+    fixture_text = Path(
+        "tests/fixtures/shared_tui_tracking/codex/tui_completed_0_162_1.txt"
+    ).read_text(encoding="utf-8")
     paths.pane_snapshots_path.write_text(
         json.dumps(
             {
@@ -573,7 +573,7 @@ def test_analyze_terminal_record_emits_parser_and_state_observations(tmp_path: P
         encoding="utf-8",
     )
 
-    result = analyze_terminal_record(run_root=run_root, tool=None)
+    result = analyze_terminal_record(run_root=run_root, tool=None, observed_version="0.162.1")
 
     parser_payload = _read_ndjson(paths.parser_observed_path)[0]
     state_payload = _read_ndjson(paths.state_observed_path)[0]
@@ -605,7 +605,9 @@ def test_analyze_terminal_record_accepts_experimental_detector_override(tmp_path
                 "elapsed_seconds": 0.0,
                 "ts_utc": "2026-07-13T00:00:00+00:00",
                 "target_pane_id": "%1",
-                "output_text": "• Waiting for Robie [explorer]\n\n› \n",
+                "output_text": "• Waiting for Robie [explorer]\n\n"
+                "\x1b[1m›\x1b[0m \x1b[2mAsk Codex to do anything\x1b[0m\n"
+                "  GPT-6.1-Sol medium · /tmp/demo/workdir\n",
             },
             sort_keys=True,
         )
@@ -616,12 +618,12 @@ def test_analyze_terminal_record_accepts_experimental_detector_override(tmp_path
     analyze_terminal_record(
         run_root=run_root,
         tool=None,
-        observed_version="0.144.1",
-        detector_version_override="0.144.x",
+        observed_version="0.162.1",
+        detector_version_override="0.162.x",
     )
 
     state_payload = _read_ndjson(paths.state_observed_path)[0]
-    assert state_payload["detector_version"] == "0.144.x"
+    assert state_payload["detector_version"] == "0.162.x"
     assert state_payload["turn_phase"] == "active"
 
 
@@ -1105,9 +1107,9 @@ def test_validate_derived_stream_skips_unretained_labels_and_reports_pending_dri
 def test_analyze_terminal_record_keeps_state_fields_consistent(tmp_path: Path) -> None:
     run_root = tmp_path / "run-009"
     paths = _write_run_artifacts(run_root=run_root, mode="passive", status="stopped", tool="codex")
-    fixture_text = Path("tests/fixtures/shadow_parser/codex/tui_completed.txt").read_text(
-        encoding="utf-8"
-    )
+    fixture_text = Path(
+        "tests/fixtures/shared_tui_tracking/codex/tui_completed_0_162_1.txt"
+    ).read_text(encoding="utf-8")
     paths.pane_snapshots_path.write_text(
         json.dumps(
             {
@@ -1123,7 +1125,7 @@ def test_analyze_terminal_record_keeps_state_fields_consistent(tmp_path: Path) -
         encoding="utf-8",
     )
 
-    analyze_terminal_record(run_root=run_root, tool=None)
+    analyze_terminal_record(run_root=run_root, tool=None, observed_version="0.162.1")
     state_payload = _read_ndjson(paths.state_observed_path)[0]
 
     parser_stack = ShadowParserStack(tool="codex")

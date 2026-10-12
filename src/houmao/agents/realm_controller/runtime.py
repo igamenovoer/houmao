@@ -1750,12 +1750,12 @@ def _create_backend_session(
     """Create a concrete backend session for start/resume flows."""
 
     if launch_plan.backend == "codex_app_server":
-        if resume_state is not None:
-            raise SessionManifestError(
-                "Resuming codex_app_server from persisted manifest is not supported "
-                "because stdio channel state is not recoverable."
-            )
-        return cast(InteractiveSession, CodexAppServerSession(launch_plan=launch_plan))
+        raise SessionManifestError(
+            "backend='codex_app_server' is unmaintained and no longer supported; "
+            "retained manifests naming it cannot create new sessions and no Codex "
+            "process is started. Use the maintained Codex backends 'codex_headless' "
+            "or 'local_interactive' instead."
+        )
 
     if launch_plan.backend == "codex_headless":
         state = _resume_headless_state(

@@ -14,7 +14,7 @@ flowchart TD
     DPR["DetectorProfileRegistry"]
     VM["Version matching"]
     CCD["ClaudeCodeSignalDetectorV2_1_X"]
-    CXD["Codex 0.116.x / 0.144.x profiles"]
+    CXD["Codex >=0.162.1 profile<br/>no upper bound, no fallback"]
     KMD["Kimi >=2.1.1 profile<br/>no upper bound, no fallback"]
     BEST["Best detector for<br/>observed CLI version"]
 
@@ -59,10 +59,9 @@ Derives lifecycle hints from a window of recent temporal frames. These hints inf
 
 ### Codex TUI Detectors
 
-- **`CodexTuiSignalDetector`** — Base Codex TUI signal detector.
-- **`CodexTuiSignalDetectorV0_116_X`** — Codex TUI signal detector targeting Codex CLI ≥ 0.116.x. Recognizes Codex's input prompt, status bar, streaming output indicators, and completion patterns.
-- **`CodexTuiSignalDetectorV0_144_X`** — Maintained Codex 0.144.x profile for current prompt styling, GPT-5.6 activity, tool cells, and collaboration wait cells. A current `Waiting for …` collaboration cell is active until a later `Finished waiting` or assistant response supersedes it. Codex 0.144.1 can restore an interrupted request directly into the editor without an interruption banner, so this profile also recognizes the bounded active-to-restored-draft transition from recent temporal evidence.
-- **`CodexTrackedTurnSignalDetector`** — Tracked turn signal detector for Codex sessions. Builds on the TUI signal detector with additional turn-level tracking logic.
+- **`CodexTuiSignalDetectorV0_162_X`** (also aliased as `CodexTuiSignalDetector` / `CodexTrackedTurnSignalDetector`) — The single maintained Codex profile, selected for every observed version at or above the 0.162.1 support floor, with no upper bound. Qualified against the frozen 2026-10-12 campaign recordings of codex-cli 0.162.1 (`context/campaigns/debug/2026-10-12-codex-tui-parsing/`; session-1 0.9995/0.9984 and session-2 1.0000/1.0000 on the admission booleans). Busy evidence checks the bounded status-row label family (`Working`, `Compacting context`, …) before transcript prose; compaction rows carry a distinct `compaction_status` reason so the reducer treats provider maintenance turns as non-authoritative. Operator surfaces (workspace trust, list-selection pickers, warnings screen, approval and send-input dialogs) close input admission while mounted. Pending input is recognized from the queued-echo surface (`› <text>` above the status row); the turn dock is `Worked for Ns • HH:MM`, and temporal hints are dock-aware (undocked growth with turn content counts as active; a ≤1 s status-row blink carries active). The class carries `qualified_through_version = "0.162.1"` metadata.
+
+Codex has no fallback detector: an observed version below 0.162.1, or unparseable version metadata, raises `UnsupportedToolVersionError` at tracker resolution. Pre-0.162 Codex profiles (`0.116.x`, `0.144.x`) and the codex fallback were removed; older recordings are historical evidence only.
 
 ### Kimi Code Detectors
 
@@ -73,8 +72,7 @@ Kimi has no fallback detector: an observed version below 2.1.1, or unparseable v
 ### Fallback Detectors
 
 - **`FallbackClaudeDetector`** — Fallback detector used when no versioned Claude Code detector matches the installed CLI version. Provides conservative signal detection that avoids false positives.
-- **`FallbackCodexTuiSignalDetector`** — Fallback detector for unrecognized Codex CLI versions.
-- **`FallbackTrackedTurnSignalDetector`** — Fallback tracked turn detector for unsupported or unrecognized tools.
+- **`FallbackTrackedTurnSignalDetector`** — Fallback tracked turn detector for unsupported or unrecognized tools. (Codex has no fallback; see above.)
 
 ## DetectorProfileRegistry
 
@@ -98,7 +96,7 @@ A registration entry in the registry.
 
 ### ResolvedDetectorProfile
 
-The resolved profile for one tracker session, selected only when the observed version lies inside a maintained bounded interval or at or above a maintained minimum-only registration. Version gaps and missing versions use the app-specific fallback when one exists; apps with a floor-gated maintained profile and no fallback (currently only `kimi_code`, floor 2.1.1) raise `UnsupportedToolVersionError` instead. Tests may request an exact registered detector-version override for recorded experiments.
+The resolved profile for one tracker session, selected only when the observed version lies inside a maintained bounded interval or at or above a maintained minimum-only registration. Version gaps and missing versions use the app-specific fallback when one exists; apps with a floor-gated maintained profile and no fallback (`kimi_code`, floor 2.1.1; `codex_tui`, floor 0.162.1) raise `UnsupportedToolVersionError` instead. Tests may request an exact registered detector-version override for recorded experiments.
 
 ### `app_id_from_tool(tool: str) -> str`
 

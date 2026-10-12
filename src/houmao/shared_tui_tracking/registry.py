@@ -9,24 +9,25 @@ from typing import Callable
 from houmao.shared_tui_tracking.detectors import (
     BaseTrackedTurnSignalDetector,
     ClaudeCodeSignalDetectorV2_1_X,
-    CodexTuiSignalDetectorV0_116_X,
-    CodexTuiSignalDetectorV0_144_X,
+    CodexTuiSignalDetectorV0_162_X,
     FallbackClaudeDetector,
-    FallbackCodexTuiSignalDetector,
     FallbackTrackedTurnSignalDetector,
     KimiCodeSignalDetectorV2_1_X,
 )
 
 
 _VERSION_RE = re.compile(r"(\d+)\.(\d+)(?:\.(\d+))?")
+# User-facing tool names for floor-gate error messages where the app id would
+# misname the tool (the codex tool tracks under the `codex_tui` app id).
+_APP_TOOL_NAMES = {"codex_tui": "codex"}
 
 
 class UnsupportedToolVersionError(ValueError):
     """Raised when a tool's observed version falls below its support floor.
 
     Apps with a maintained floor-gated profile and no fallback registration
-    (currently only ``kimi_code``) resolve to this error instead of silently
-    scraping with an unqualified detector.
+    (currently ``kimi_code`` and ``codex_tui``) resolve to this error instead
+    of silently scraping with an unqualified detector.
     """
 
     def __init__(
@@ -36,6 +37,7 @@ class UnsupportedToolVersionError(ValueError):
         observed_version: str | None,
         minimum_supported_version: tuple[int, ...],
         version_parseable: bool = True,
+        tool_name: str | None = None,
     ) -> None:
         """Build the error naming the version, the floor, and the migration action."""
 
@@ -44,7 +46,7 @@ class UnsupportedToolVersionError(ValueError):
         self.minimum_supported_version: tuple[int, ...] = minimum_supported_version
         self.version_parseable: bool = version_parseable
         floor_text = ".".join(str(part) for part in minimum_supported_version)
-        tool_name = app_id.replace("_", "-")
+        tool_name = tool_name or app_id.replace("_", "-")
         if observed_version is None:
             detail = f"the {tool_name} version could not be determined"
         elif version_parseable:
@@ -135,25 +137,11 @@ class DetectorProfileRegistry:
                 DetectorProfileRegistration(
                     app_id="codex_tui",
                     detector_name="codex_tui",
-                    detector_version="0.116.x",
-                    minimum_supported_version=(0, 116, 0),
-                    maximum_supported_version=(0, 117, 0),
-                    profile_factory=CodexTuiSignalDetectorV0_116_X,
-                ),
-                DetectorProfileRegistration(
-                    app_id="codex_tui",
-                    detector_name="codex_tui",
-                    detector_version="0.144.x",
-                    minimum_supported_version=(0, 144, 0),
-                    maximum_supported_version=(0, 145, 0),
-                    profile_factory=CodexTuiSignalDetectorV0_144_X,
-                ),
-                DetectorProfileRegistration(
-                    app_id="codex_tui",
-                    detector_name="codex_tui",
-                    detector_version="fallback",
-                    minimum_supported_version=None,
-                    profile_factory=FallbackCodexTuiSignalDetector,
+                    detector_version="0.162.x",
+                    minimum_supported_version=(0, 162, 1),
+                    maximum_supported_version=None,
+                    profile_factory=CodexTuiSignalDetectorV0_162_X,
+                    qualified_through_version="0.162.1",
                 ),
                 DetectorProfileRegistration(
                     app_id="kimi_code",
@@ -325,4 +313,5 @@ def _unsupported_version_error(
         observed_version=observed_text,
         minimum_supported_version=floor,
         version_parseable=parseable,
+        tool_name=_APP_TOOL_NAMES.get(registrations[0].app_id),
     )

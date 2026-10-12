@@ -2002,7 +2002,7 @@ def _build_stale_active_recovery_candidate(
     if turn.phase != "active":
         return None
     active_reasons = tracker_state.active_reasons
-    if active_reasons and not set(active_reasons).issubset({"status_row"}):
+    if active_reasons and not set(active_reasons).issubset({"status_row", "compaction_status"}):
         return None
     signature_payload = json.dumps(
         {

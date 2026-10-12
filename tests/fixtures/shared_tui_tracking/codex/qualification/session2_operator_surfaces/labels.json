@@ -1,0 +1,245 @@
+{
+  "labels": [
+    {
+      "evidence": {
+        "family": "startup_modal"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "no",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "unknown"
+      },
+      "label_id": "startup_modal-001",
+      "note": "as_is launch (-a on-request -s read-only) in untrusted git-repo copy: 'Trust this folder?' screen from first sample",
+      "sample_end_id": "s000050",
+      "sample_id": "s000001",
+      "scenario_id": "s2-startup-warnings"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-001",
+      "note": "idle composer after trust; footer '\u26a0 2 warnings \u00b7 f2 to view'",
+      "sample_end_id": "s000065",
+      "sample_id": "s000051",
+      "scenario_id": "s2-startup-warnings"
+    },
+    {
+      "evidence": {
+        "family": "warnings_screen"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "no",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "unknown"
+      },
+      "label_id": "warnings_screen-001",
+      "note": "F2 warnings screen: full-surface overlay, composer not visible",
+      "sample_end_id": "s000078",
+      "sample_id": "s000066",
+      "scenario_id": "s2-startup-warnings"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-002",
+      "note": "warnings screen closed; idle composer",
+      "sample_end_id": "s000087",
+      "sample_id": "s000079",
+      "scenario_id": "s2-startup-warnings"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-001",
+      "note": "command-approval turn thinking: Working row (1-sample redraw flickers stay active)",
+      "sample_end_id": "s000187",
+      "sample_id": "s000088",
+      "scenario_id": "s2-command-approval-deny"
+    },
+    {
+      "evidence": {
+        "family": "approval_modal"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "no",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "unknown"
+      },
+      "label_id": "approval_modal-001",
+      "note": "'Would you like to run the following command?' \u2014 options '1. Yes, proceed (y) / 2. Yes, and don't ask again... (p) / 3. No, and tell Codex what to do differently (esc)', 'Press enter to confirm or esc to cancel'",
+      "sample_end_id": "s000201",
+      "sample_id": "s000188",
+      "scenario_id": "s2-command-approval-deny"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "interrupted",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-003",
+      "note": "Esc denial: '\u2717 You canceled the request to run touch ...', '\u2022 Failed (exit 1)', then '\u25a0 Conversation interrupted'; idle composer",
+      "sample_end_id": "s000268",
+      "sample_id": "s000202",
+      "scenario_id": "s2-command-approval-deny"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-002",
+      "note": "edit-approval turn: Working row (flicker at s000313-s000316 stays active)",
+      "sample_end_id": "s000325",
+      "sample_id": "s000269",
+      "scenario_id": "s2-edit-approval-deny"
+    },
+    {
+      "evidence": {
+        "family": "approval_modal"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "no",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "unknown"
+      },
+      "label_id": "approval_modal-002",
+      "note": "edit leg raised the COMMAND form: 'Would you like to run the following command?' for `printf ... > docs/houmao-campaign-note.md` (sandbox write); no 'make the following edits' panel rendered",
+      "sample_end_id": "s000339",
+      "sample_id": "s000326",
+      "scenario_id": "s2-edit-approval-deny"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "interrupted",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-004",
+      "note": "Esc denial: cancel + interrupt notice; idle composer",
+      "sample_end_id": "s000406",
+      "sample_id": "s000340",
+      "scenario_id": "s2-edit-approval-deny"
+    },
+    {
+      "evidence": {
+        "family": "model_picker"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "no",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "unknown"
+      },
+      "label_id": "model_picker-001",
+      "note": "'/model' popup 'Select Model and Effort' (s000406 @92.74 is a 1-sample redraw gap before the popup, kept in the preceding ready span)",
+      "sample_end_id": "s000419",
+      "sample_id": "s000407",
+      "scenario_id": "s2-model-picker"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "interrupted",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-005",
+      "note": "picker canceled with Esc; idle composer",
+      "sample_end_id": "s000437",
+      "sample_id": "s000420",
+      "scenario_id": "s2-model-picker"
+    }
+  ],
+  "schema_version": 1
+}

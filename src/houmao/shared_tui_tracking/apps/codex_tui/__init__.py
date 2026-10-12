@@ -2,16 +2,12 @@
 
 from houmao.shared_tui_tracking.apps.codex_tui.profile import (
     CodexTrackedTurnSignalDetector,
-    CodexTuiSignalDetectorV0_116_X,
-    CodexTuiSignalDetectorV0_144_X,
     CodexTuiSignalDetector,
-    FallbackCodexTuiSignalDetector,
+    CodexTuiSignalDetectorV0_162_X,
 )
 
 __all__ = [
     "CodexTrackedTurnSignalDetector",
     "CodexTuiSignalDetector",
-    "CodexTuiSignalDetectorV0_116_X",
-    "CodexTuiSignalDetectorV0_144_X",
-    "FallbackCodexTuiSignalDetector",
+    "CodexTuiSignalDetectorV0_162_X",
 ]

@@ -1,0 +1,18 @@
+{
+  "independence": "Labels authored from raw pane snapshots, runtime observations, and drive events only; no detector, parser, tracker, or replay output was inspected before or during labeling.",
+  "known_ambiguities": [
+    "The Working status row flickers off for 1-2 samples mid-turn (redraw frames); affected samples are labeled active throughout.",
+    "Session 1 queue leg: codex merges a mid-busy follow-up into the running turn (steer semantics) \u2014 one 'Worked for 41s' completes both; queue_pending spans the window where the submitted follow-up renders above the Working row.",
+    "Session 2: approval denial ends the turn with the same 'Conversation interrupted' notice as Esc; post-denial windows are labeled last_turn_result=interrupted.",
+    "Session 1 tui_down is a single sample (s001907, codex resume hint after the second C-c); below the 2-sample minimum span, recorded as partial coverage.",
+    "Session 1 s000001-s000004: cold-start splash shows the provisional composer placeholder before the trust screen; labeled startup (phase unknown) rather than ready."
+  ],
+  "labeled_at_utc": "2026-10-12T06:27:36+00:00",
+  "labeler": "kimi-code-agent (blind: raw snapshots + drive events only)",
+  "labels_sha256": "6fac0c847f73bb3bd46fd6ac6ea507389d47ae4a5930dced219078d10c0a3e5f",
+  "public_state_schema": "houmao.shared_tui_tracking TrackedTimelineState fields (8)",
+  "run_id": "2026-10-12-codex-session1-lifecycle-002",
+  "schema_version": 1,
+  "settle_seconds": 1.0,
+  "source_recording_sha256": "55844e2e734a0219d8a7b3d9b90ffaa635d850e6e2b4be4410d1ac557194cc5f"
+}

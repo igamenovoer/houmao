@@ -69,7 +69,7 @@ The supported path is:
 
 Current builders also resolve omitted prompt mode to unattended by default. The important failure case here is an explicit `as_is` selection or a stale runtime home built before the current unattended-default semantics.
 
-For the currently validated installed version `codex-cli 0.116.0`, Houmao resolves strategy `codex-unattended-0.116.x`. That strategy seeds the runtime-owned `CODEX_HOME/config.toml` with:
+For the currently supported installed version `codex-cli 0.162.1`, Houmao resolves strategy `codex-unattended-0.162-plus`. That strategy seeds the runtime-owned `CODEX_HOME/config.toml` with:
 
 ```toml
 approval_policy = "never"
@@ -92,10 +92,11 @@ It also seeds trust under `[projects."<resolved-workdir>"].trust_level = "truste
 Houmao applies the same versioned unattended strategy selection for:
 
 - `codex_headless`,
-- `codex_app_server`,
 - Codex `cao_rest`,
 - Codex `houmao_server_rest`,
 - raw `launch.sh` execution for brains built with unattended mode.
+
+(`codex_app_server` is unmaintained and blocked at launch, so it no longer participates in strategy selection.)
 
 The strategy edits the generated runtime `CODEX_HOME/config.toml` before launch-plan execution. For CAO-backed Codex, this lets the live interactive process inherit the intended approval and sandbox posture without requiring Houmao to own CAO's command-construction internals.
 
@@ -106,7 +107,7 @@ After changing the profile, do a fresh stop/start of the affected session and ch
 Verify these points:
 
 1. The built manifest records `launch_policy.operator_prompt_mode: unattended`.
-2. The session manifest or `start-session --json` output records `launch_policy_provenance.selected_strategy_id = "codex-unattended-0.116.x"` for the current installed version.
+2. The session manifest or `start-session --json` output records `launch_policy_provenance.selected_strategy_id = "codex-unattended-0.162-plus"` for the current installed version.
 3. The rebuilt runtime home contains the expected runtime-owned keys in `CODEX_HOME/config.toml`.
 4. The prompt turn no longer surfaces an operator approval menu.
 5. The expected side effect or output completes successfully.

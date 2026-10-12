@@ -37,6 +37,10 @@ from houmao.shared_tui_tracking.registry import DetectorProfileRegistry, Resolve
 
 TraceWriter = Callable[[str, dict[str, Any]], None]
 LOGGER = logging.getLogger(__name__)
+# Active-reason values that mark provider maintenance turns (context
+# compaction) rather than operator prompt work. Maintenance activity neither
+# invalidates nor settles over the previous prompt turn's terminal outcome.
+_MAINTENANCE_ACTIVE_REASONS = frozenset({"compaction_status"})
 
 
 @dataclass
@@ -99,6 +103,7 @@ class TuiTrackerSession:
         self.m_pending_success_signature: str | None = None
         self.m_pending_success_sample_id: str | None = None
         self.m_settled_success_signature: str | None = None
+        self.m_last_activity_maintenance_only: bool = False
         self.m_started_at_seconds: float = _absolute_seconds(self.m_scheduler.now)
         initial_signals = self.m_resolved_profile.profile.detect(output_text="")
         self.m_latest_signals = initial_signals
@@ -229,6 +234,7 @@ class TuiTrackerSession:
             )
             self._cancel_success_timer_locked()
             self.m_armed_turn_source = "explicit_input"
+            self.m_last_activity_maintenance_only = False
             self._log_debug(
                 "turn_authority_armed",
                 at_seconds=self._current_seconds_locked(),
@@ -313,6 +319,8 @@ class TuiTrackerSession:
             draft_authority_visible = self._has_visible_newer_turn_draft_authority_locked(
                 effective_signals
             )
+            if draft_authority_visible:
+                self.m_last_activity_maintenance_only = False
             if draft_authority_visible and self.m_armed_turn_source is None:
                 self.m_armed_turn_source = "surface_inference"
                 self._log_debug(
@@ -389,7 +397,15 @@ class TuiTrackerSession:
 
             if effective_signals.active_evidence:
                 self._cancel_success_timer_locked()
-                if self.m_armed_turn_source is None:
+                maintenance_only = _is_maintenance_only_activity(effective_signals)
+                if maintenance_only:
+                    # Provider maintenance turns (context compaction) are not
+                    # operator prompt work: they neither arm turn authority nor
+                    # invalidate the previous prompt turn's terminal outcome.
+                    self.m_last_activity_maintenance_only = True
+                else:
+                    self.m_last_activity_maintenance_only = False
+                if self.m_armed_turn_source is None and not maintenance_only:
                     self.m_armed_turn_source = "surface_inference"
                     self._log_debug(
                         "turn_authority_armed",
@@ -398,20 +414,26 @@ class TuiTrackerSession:
                         armed_turn_source=self.m_armed_turn_source,
                         active_reasons=list(effective_signals.active_reasons),
                     )
-                last_turn_result, last_turn_source = (
-                    self._invalidate_stale_terminal_outcome_for_newer_turn_locked(
-                        reason="active_signal",
+                if maintenance_only:
+                    last_turn_result = self.m_state.last_turn_result
+                    last_turn_source = self.m_state.last_turn_source
+                else:
+                    last_turn_result, last_turn_source = (
+                        self._invalidate_stale_terminal_outcome_for_newer_turn_locked(
+                            reason="active_signal",
+                        )
                     )
-                )
                 self._log_debug(
                     "snapshot_decision",
                     at_seconds=at_seconds,
-                    decision="active_signal",
+                    decision=(
+                        "maintenance_active_signal" if maintenance_only else "active_signal"
+                    ),
                     effective_signals=_summarize_detected_turn_signals(effective_signals),
                 )
                 self._emit_state_from_signals_locked(
                     signals=effective_signals,
-                    note="active_signal",
+                    note="maintenance_active_signal" if maintenance_only else "active_signal",
                     turn_phase="active",
                     last_turn_result=last_turn_result,
                     last_turn_source=last_turn_source,
@@ -425,6 +447,18 @@ class TuiTrackerSession:
                     decision="success_candidate",
                     effective_signals=_summarize_detected_turn_signals(effective_signals),
                 )
+                if self.m_last_activity_maintenance_only:
+                    # The settled-looking dock belongs to a maintenance turn
+                    # (compaction): it neither settles a new success nor clears
+                    # the previous prompt turn's terminal outcome.
+                    self._emit_state_from_signals_locked(
+                        signals=effective_signals,
+                        note="maintenance_success_suppressed",
+                        turn_phase="ready",
+                        last_turn_result=self.m_state.last_turn_result,
+                        last_turn_source=self.m_state.last_turn_source,
+                    )
+                    return
                 if (
                     self.m_state.last_turn_result == "success"
                     and self.m_settled_success_signature is not None
@@ -1010,6 +1044,22 @@ def _summarize_temporal_hint_signals(hints: TemporalHintSignals) -> dict[str, An
         "success_blocked": hints.success_blocked,
         "notes": list(hints.notes),
     }
+
+
+def _is_maintenance_only_activity(signals: DetectedTurnSignals) -> bool:
+    """Return whether the active evidence is solely provider-maintenance work.
+
+    Maintenance turns (the codex context-compaction surface, tagged with the
+    `compaction_status` active reason) are not operator prompt work: they do
+    not count as authoritative newer-turn evidence and must not settle a
+    success outcome over the previous prompt turn's terminal result.
+    """
+
+    return bool(
+        signals.active_evidence
+        and signals.active_reasons
+        and set(signals.active_reasons).issubset(_MAINTENANCE_ACTIVE_REASONS)
+    )
 
 
 def _merge_temporal_hints(

@@ -17,19 +17,41 @@ from houmao.server.models import (
 from houmao.server.tui import OfficialTuiParserAdapter
 from houmao.server.tui.tracking import LiveSessionTracker, _rendered_surface_signature
 
-_CODEX_READY_RAW_SNAPSHOT = "› \n\n  ? for shortcuts            100% context left\n"
-_CODEX_ACTIVE_RAW_SNAPSHOT = "› Explain the failure.\n\n• Working (0s • esc to interrupt)\n"
+_CODEX_COMPOSER_LINE = "\x1b[1m›\x1b[0m \x1b[2mAsk Codex to do anything\x1b[0m"
+_CODEX_FOOTER_LINES = "  GPT-6.1-Sol medium · /tmp/demo/workdir\n  ? for shortcuts\n"
+_CODEX_READY_RAW_SNAPSHOT = (
+    "  Worked for 3s • 2:09 PM\n\n" + _CODEX_COMPOSER_LINE + "\n" + _CODEX_FOOTER_LINES
+)
+_CODEX_ACTIVE_RAW_SNAPSHOT = (
+    "› Explain the failure.\n\n• Working (0s • esc to interrupt)\n\n"
+    + _CODEX_COMPOSER_LINE
+    + "\n"
+    + _CODEX_FOOTER_LINES
+)
 _CODEX_PENDING_RAW_SNAPSHOT = (
     "› Explain the failure.\n\n"
+    "• Partial answer so far.\n\n"
+    "› Run the focused tests next.\n\n"
     "• Working (1s • esc to interrupt)\n\n"
-    "• Queued follow-up inputs\n"
-    "  ↳ Run the focused tests next.\n\n"
-    "› \n"
+    + _CODEX_COMPOSER_LINE
+    + "\n"
+    + _CODEX_FOOTER_LINES
 )
-_CODEX_OPERATOR_PROMPT_RAW_SNAPSHOT = "Would you like to run the following command?\n› \n"
-_CODEX_WARNING_OVERLOADED_RAW_SNAPSHOT = "⚠ server overloaded\n\n› \n"
+_CODEX_OPERATOR_PROMPT_RAW_SNAPSHOT = (
+    "  Would you like to run the following command?\n\n"
+    "  python -m pytest -q\n\n"
+    "  Press enter to confirm or esc to cancel\n"
+)
+_CODEX_WARNING_OVERLOADED_RAW_SNAPSHOT = (
+    "⚠ server overloaded\n\n" + _CODEX_COMPOSER_LINE + "\n" + _CODEX_FOOTER_LINES
+)
 _CODEX_RETRY_STATUS_RAW_SNAPSHOT = (
-    "Reconnecting to model stream (2/5)\nIdle timeout waiting for SSE\n\n› \n"
+    "› Explain the failure.\n\n"
+    "Reconnecting to model stream (2/5)\n"
+    "Idle timeout waiting for SSE\n\n"
+    + _CODEX_COMPOSER_LINE
+    + "\n"
+    + _CODEX_FOOTER_LINES
 )
 _UNSET_OUTPUT_TEXT = object()
 
@@ -56,7 +78,9 @@ def _identity(*, observed_tool_version: str | None = None) -> HoumaoTrackedSessi
         tracked_session_id="cao-gpu",
         session_name="cao-gpu",
         tool="codex",
-        observed_tool_version=observed_tool_version,
+        observed_tool_version=(
+            "0.162.1 (Codex)" if observed_tool_version is None else observed_tool_version
+        ),
         tmux_session_name="HOUMAO-gpu",
         terminal_aliases=["abcd1234"],
     )
@@ -84,7 +108,7 @@ def _tracker_state(
         last_turn_result=last_turn_result,
         last_turn_source=last_turn_source,
         detector_name="codex_tui",
-        detector_version="0.116.x",
+        detector_version="0.162.x",
         active_reasons=active_reasons,
         notes=notes,
         stability_signature="sig",
@@ -818,15 +842,15 @@ def test_live_session_tracker_retains_pending_only_change_in_history() -> None:
 
 def test_live_session_tracker_rebuilds_when_observed_tool_version_changes() -> None:
     tracker = LiveSessionTracker(
-        identity=_identity(observed_tool_version=None),
+        identity=_identity(observed_tool_version="0.162.1 (Codex)"),
         recent_transition_limit=3,
         stability_threshold_seconds=1.0,
         completion_stability_seconds=1.0,
         unknown_to_stalled_timeout_seconds=30.0,
     )
 
-    fallback_session = tracker.m_tracker_session
-    fallback_state = _record_cycle(
+    first_session = tracker.m_tracker_session
+    first_state = _record_cycle(
         tracker,
         observed_at_utc="2026-03-19T10:00:00+00:00",
         monotonic_ts=10.0,
@@ -839,18 +863,64 @@ def test_live_session_tracker_rebuilds_when_observed_tool_version_changes() -> N
         parsed_surface=_ready_surface(),
     )
 
-    tracker.set_identity(_identity(observed_tool_version="0.116.4 (Codex)"))
-    versioned_session = tracker.m_tracker_session
-    tracker.set_identity(_identity(observed_tool_version="0.116.5 (Codex)"))
-    rebuilt_same_family_session = tracker.m_tracker_session
-    tracker.set_identity(_identity(observed_tool_version="0.116.5 (Codex)"))
+    tracker.set_identity(_identity(observed_tool_version="0.162.2 (Codex)"))
+    rebuilt_session = tracker.m_tracker_session
+    tracker.set_identity(_identity(observed_tool_version="0.162.2 (Codex)"))
 
-    assert fallback_session.detector_version == "fallback"
-    assert fallback_state.surface.ready_posture == "yes"
-    assert versioned_session is not fallback_session
-    assert versioned_session.detector_version == "0.116.x"
-    assert rebuilt_same_family_session is not versioned_session
-    assert tracker.m_tracker_session is rebuilt_same_family_session
+    assert first_session.detector_version == "0.162.x"
+    assert first_state.surface.ready_posture == "yes"
+    assert rebuilt_session is not first_session
+    assert rebuilt_session.detector_version == "0.162.x"
+    assert tracker.m_tracker_session is rebuilt_session
+
+
+def test_live_session_tracker_contains_unsupported_codex_version_error() -> None:
+    """A below-floor codex session reports an errored posture instead of raising."""
+
+    identity = _identity(observed_tool_version="0.144.0")
+    tracker = LiveSessionTracker(
+        identity=identity,
+        recent_transition_limit=2,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=1.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+    )
+
+    assert tracker.tracking_error is not None
+    assert tracker.resolved_detector_version is None
+    initial = tracker.current_state()
+    assert initial.operator_state is not None
+    assert initial.operator_state.status == "error"
+    assert "0.162.1" in initial.operator_state.detail
+
+    cycled = tracker.record_cycle(
+        identity=identity,
+        observed_at_utc="2026-10-12T10:00:00+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parse_error",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=HoumaoErrorDetail(
+            kind="unsupported_tool_version",
+            message=str(tracker.tracking_error),
+        ),
+        parsed_surface=None,
+        output_text=None,
+    )
+
+    assert cycled.operator_state is not None
+    assert cycled.operator_state.status == "error"
+    assert "0.162.1" in cycled.operator_state.detail
+    assert cycled.turn.phase == "unknown"
+    assert cycled.surface.accepting_input == "unknown"
+
+    upgraded = identity.model_copy(update={"observed_tool_version": "0.162.1 (Codex)"})
+    tracker.set_identity(upgraded)
+
+    assert tracker.tracking_error is None
+    assert tracker.resolved_detector_version == "0.162.x"
 
 
 def test_live_session_tracker_uses_shared_raw_snapshot_surface_inference() -> None:
@@ -934,7 +1004,7 @@ def test_live_session_tracker_recorded_tmux_scrollback_is_prompt_ready() -> None
         / "fixtures"
         / "shared_tui_tracking"
         / "codex"
-        / "stale_active_full_scrollback.ansi.txt"
+        / "recorded_idle_scrollback_0_162_1.ansi.txt"
     ).read_text(encoding="utf-8")
 
     state = _record_cycle(

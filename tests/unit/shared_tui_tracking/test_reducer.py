@@ -172,9 +172,17 @@ def test_codex_replay_restart_waits_for_fresh_provider_surface() -> None:
         supported_process_pid=None,
         supported_process_alive=False,
     )
-    old_ready = "OpenAI Codex (v0.144.0)\n› \n\n  gpt-5.6 high · 100% left"
+    old_ready = (
+        "OpenAI Codex (v0.162.1)\n"
+        "\x1b[1m›\x1b[0m \x1b[2mAsk Codex to do anything\x1b[0m\n\n"
+        "  GPT-6.1-Sol medium · /tmp/demo/workdir"
+    )
     stale_launch = f"{old_ready}\nbash-5.2$ /tmp/codex-launch.sh"
-    fresh_ready = f"{stale_launch}\nOpenAI Codex (v0.144.0)\n› "
+    fresh_ready = (
+        f"{stale_launch}\nOpenAI Codex (v0.162.1)\n"
+        "\x1b[1m›\x1b[0m \x1b[2mAsk Codex to do anything\x1b[0m\n\n"
+        "  GPT-6.1-Sol medium · /tmp/demo/workdir"
+    )
     observations = [
         _observation(sample_id="s000001", elapsed_seconds=0.0, output_text=old_ready, runtime=up),
         _observation(sample_id="s000002", elapsed_seconds=1.0, output_text=old_ready, runtime=down),
@@ -187,13 +195,13 @@ def test_codex_replay_restart_waits_for_fresh_provider_surface() -> None:
     timeline, _events = replay_timeline(
         observations=observations,
         tool="codex",
-        observed_version="0.144.0",
+        observed_version="0.162.1",
         settle_seconds=1.0,
     )
 
     assert timeline[0].surface_ready_posture == "yes"
     assert timeline[1].diagnostics_availability == "tui_down"
-    assert timeline[2].surface_ready_posture == "unknown"
+    assert timeline[2].surface_ready_posture == "no"
     assert timeline[2].turn_phase == "unknown"
     assert "provider_surface_not_fresh" in timeline[2].notes
     assert timeline[3].surface_ready_posture == "yes"

@@ -7,7 +7,7 @@ Use it together with:
 - [Shared Contracts](shared-contracts.md)
 - [Codex](codex.md)
 - [Runtime Lifecycle](runtime-lifecycle.md)
-The concrete examples here were confirmed from the maintained complex capture logged in [20260323-124129.md](../../../context/logs/runs/20260323-124129-robust-tui-turn-lifecycle-quality-gate-signals/20260323-124129.md).
+The concrete examples here were confirmed from the maintained complex capture logged in [20260323-124129.md](../../../context/logs/runs/20260323-124129-robust-tui-turn-lifecycle-quality-gate-signals/20260323-124129.md) and updated for Codex 0.162.x from the blind-labeled 0.162.1 recordings of the [2026-10-12 codex TUI parsing campaign](../../../context/campaigns/debug/2026-10-12-codex-tui-parsing/), which is the current qualification evidence.
 
 ## Scoping Rules
 
@@ -32,12 +32,15 @@ Current implementation note:
 | Current prompt anchor | `› Reply with the single word READY and stop.`, `› Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.`, `› Reply with the single word RECOVERED and stop.` | latest-turn boundary, accepting-input, draft classification | The latest visible `›` line is the prompt anchor. Plain prompt payload means real draft text; dim prompt payload is placeholder; empty prompt means not editing. |
 | Active status row | `• Working (0s • esc to interrupt)`, `• Working (47s • esc to interrupt)` | active evidence (`status_row`) | This is the primary visible active cue for Codex when it is present in the live-edge tail. Old rows higher in scrollback are stale. |
 | In-flight tool cell | `• Calling ...`, `• Running ...`, `• Waited for background terminal · ...` | active evidence (`tool_cell`) | Tool cells are also live-edge signals. They keep the turn active even if no `Working` row is visible. |
-| Temporal transcript growth | later latest-turn region grows while the active status row is not visible yet | active evidence (`transcript_growth`) | Codex can still be active before the status row stabilizes. The detector treats meaningful recent growth in the latest-turn region as temporal active evidence. |
+| Temporal transcript growth | later latest-turn region grows while the active status row is not visible yet and no `Worked for` dock has landed | active evidence (`transcript_growth_undocked`) | Codex 0.162 hides the status row while the final answer streams, so undocked growth with turn content counts as active; a status-row blink of about one second or less carries active (`status_row_blink_carry`). Startup or editing redraws without turn content do not manufacture activity. |
 | Response bullet | `• READY`, `• RECOVERED` | settled success context | These bullet response lines are the visible success content in the maintained complex fixture family. |
-| Interrupted-ready banner | `■ Conversation interrupted - tell the model what to do differently. Something went wrong? Hit /feedback to report the issue.` | ready/interrupted posture | This banner can wrap across multiple terminal lines. Normalize whitespace before judging it. |
+| Compaction status row | `• Compacting context (12s • esc to interrupt)` | active evidence (`compaction_status`) | Provider maintenance, not operator prompt work: it neither clears the previous prompt turn's terminal outcome nor settles success over it, so `last_turn_result=interrupted` survives a post-interrupt compaction. |
+| Queued follow-up echo | `› <follow-up text>` rendered above the status row mid-turn | pending-input and active-turn evidence (`queued_follow_up`) | A mid-busy submitted follow-up is steer-merged into the running turn. Disambiguation from turn-starting echoes is structural: in-flight prose above, no `Worked for` dock or interrupt notice between the echo and the composer. Once the echo collapses into `+ N lines (^t to expand)`, no single-snapshot pending evidence remains (documented blind spot). |
+| Operator modal surfaces | `Trust this folder?` + `Trust and continue`; list pickers with the `enter select · esc back` footer; `Warnings · N of M · …` with a dismiss affordance; approval and send-input dialogs | blocked admission (accepting/editing/ready/pending = `no`, active suppressed) | Modal needles use bounded structure plus essential semantic tokens, never exact full-sentence literals. |
+| Interrupted-ready banner | `■ Conversation interrupted - use /feedback if something went wrong` | ready/interrupted posture | 0.162.x renders this single-sentence form; the needle is the whitespace-normalized, case-insensitive `Conversation interrupted` prefix. A notice with concurrent status-row activity is stale scrollback and does not mark the surface interrupted. |
 | Prompt-adjacent terminal failure | red error blocks such as compact/server failures, or warning rows carrying overload/high-load/context-window style terminal semantics | current-error evidence, success blocker, `known_failure` for recognized terminal families, recoverable degraded chat context for compact/server signatures | Only the bounded prompt-adjacent region counts. The matcher uses structural role plus essential semantic token families, not exact full-sentence literals. Long scrollback errors above the current prompt area are historical and must not degrade the current prompt state. |
-| Live-edge retry or reconnect status | retry, reconnect, stream-recovery, or connection-loss status near the current prompt/live edge | active evidence (`stream_retry_status`) | This is active current-turn evidence, not a ready-success return. Historical retry text outside the live edge must not keep a later prompt-ready turn active. |
-| Completion marker | `─ Worked for ...` | completion context when visible | This is useful supporting success context, but current success tracking also depends on the prompt/ready posture and the absence of stronger blocking or active evidence. |
+| Live-edge retry or reconnect status | `Reconnecting... 2/5`, `Reconnecting to model stream (2/5)`, `• Reconnecting to server… (4s)` near the current prompt/live edge | active evidence (`stream_retry_status`) | This is active current-turn evidence, not a ready-success return. Historical retry text outside the live edge must not keep a later prompt-ready turn active. |
+| Completion marker | `Worked for 3s • 2:09 PM` | completion context when visible | 0.162.x drops the legacy box-drawing prefix; the dock is `Worked for Ns • HH:MM`. Useful supporting success context, but current success tracking also depends on the prompt/ready posture and the absence of stronger blocking or active evidence. |
 
 ## Signal Meanings Used Today
 
@@ -211,7 +214,7 @@ When investigating a Codex tracking bug from pane snapshots:
 3. Look for active status, tool, retry, reconnect, or stream-recovery cues in the live-edge tail first.
 4. If the status row is absent, check whether recent latest-turn growth is supplying temporal active evidence.
 5. Normalize whitespace and then look for the interrupted banner inside the latest-turn region.
-6. Look for `• <payload>` and any `─ Worked for ...` completion marker as success context.
+6. Look for `• <payload>` and any `Worked for ...` completion dock as success context.
 7. Decide whether the current prompt payload is plain draft text, dim placeholder text, or empty.
 8. Ignore bubblewrap warnings, generic tips, and stale banners outside the latest-turn region when judging current-turn state.
 9. Ignore stale `Working` rows and tool cells outside the live-edge tail when judging current activity.

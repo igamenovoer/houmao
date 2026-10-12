@@ -1,4 +1,24 @@
-"""Codex TUI terminal failure-surface helpers."""
+"""Codex TUI terminal failure-surface helpers.
+
+Needle inventory re-derived from codex 0.162.x source (`extern/orphan/codex`):
+
+- Stream disconnect: `stream disconnected before completion: <reason>`
+  (codex-rs/protocol/src/error.rs) — source-backed.
+- Context length: `context_length_exceeded` API errors and `Codex ran out of
+  room in the model's context window. ...` (codex-rs/protocol/src/error.rs) —
+  source-backed.
+- Remote-compact failure framing: `Error running remote compact task: ...`
+  (codex-rs/core/tests/suite/tools.rs) and the retry log line `remote
+  compaction v2 stream failed; retrying request after delay`
+  (codex-rs/core/src/responses_retry.rs) — source-backed.
+- Server-error and unknown-parameter families: no 0.162.x client-side literal
+  exists; these target server-emitted error text rendered in `■`/`⚠` cells and
+  remain qualification-pending until the fault-injection capture iteration
+  qualifies them.
+
+All needles are bounded token patterns, not exact full-sentence literals, so
+minor upstream rewording does not silently break detection.
+"""
 
 from __future__ import annotations
 
@@ -24,15 +44,18 @@ _CODEX_REMOTE_COMPACT_CONTEXT_LENGTH_RE = re.compile(
     r"\b(context_length_exceeded|context\s+length|context\s+window|ran\s+out\s+of\s+room)\b",
     re.IGNORECASE,
 )
+# Qualification-pending: no 0.162.x client-side literal; server-emitted text.
 _CODEX_REMOTE_COMPACT_UNKNOWN_PARAMETER_RE = re.compile(
     r"\b(unknown|unrecognized|unsupported)\s+(?:parameter|param|argument|field)\b",
     re.IGNORECASE,
 )
+# Qualification-pending: server-emitted error text (no 0.162.x client literal).
 _CODEX_REMOTE_COMPACT_SERVER_ERROR_RE = re.compile(
     r"\b(server\s+error|internal\s+server\s+error|bad\s+gateway|gateway\s+timeout|"
     r"service\s+unavailable|5\d\d)\b",
     re.IGNORECASE,
 )
+# Qualification-pending: server-emitted terminal-failure text.
 _KNOWN_TERMINAL_FAILURE_RE = re.compile(
     r"\b("
     r"server\s+overload(?:ed)?|"

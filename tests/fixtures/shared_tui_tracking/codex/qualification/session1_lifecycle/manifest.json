@@ -1,0 +1,25 @@
+{
+  "attach_command": "env -u TMUX tmux attach-session -t HMREC-recording",
+  "duration_seconds": null,
+  "input_capture_level": "authoritative_managed",
+  "mode": "active",
+  "recorder_session_name": "HMREC-recording",
+  "repo_root": "/data/huangzhe/code/houmao",
+  "run_id": "recording",
+  "run_root": "/data/huangzhe/code/houmao/tmp/houmao-dev-tui-testing/2026-10-12-codex-session1-lifecycle-002/capture/recording",
+  "run_tainted": false,
+  "sample_interval_seconds": 0.2,
+  "schema_version": 1,
+  "started_at_utc": "2026-10-12T06:08:28+00:00",
+  "stop_reason": "failed: Failed to list tmux clients for `HMDEV-codex-20261012T060826`: can't find session: $63",
+  "stopped_at_utc": "2026-10-12T06:15:40+00:00",
+  "taint_reasons": [],
+  "target": {
+    "pane_id": "%68",
+    "session_name": "HMDEV-codex-20261012T060826",
+    "window_id": "@68",
+    "window_name": "node"
+  },
+  "tool": "codex",
+  "visual_recording_kind": "interactive_client"
+}

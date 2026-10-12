@@ -24,7 +24,7 @@ Every agent session runs on a specific backend. The `BackendKind` literal type i
 BackendKind = Literal[
     "local_interactive",
     "codex_headless",
-    "codex_app_server",
+    "codex_app_server",  # unmaintained: blocked at launch with an explicit error
     "claude_headless",
     "kimi_headless",
     "cao_rest",
@@ -47,9 +47,9 @@ Houmao does not invent a second model-selection layer in the realm controller. T
 
 Runs `codex exec --json` for non-interactive, structured prompt–response cycles. Supports resume via `resume <thread_id>`.
 
-### `codex_app_server`
+### `codex_app_server` (unmaintained, blocked)
 
-Runs Codex in `app-server` mode for persistent, server-backed sessions.
+Ran Codex in `app-server` mode over a stdio JSON-RPC channel. Unmaintained and no longer qualified against current Codex releases: session-start requests and retained manifests naming `backend=codex_app_server` are rejected with an explicit unmaintained-backend error naming the maintained alternatives (`codex_headless`, `local_interactive`). The module remains in the tree as dead code.
 
 ### `claude_headless`
 

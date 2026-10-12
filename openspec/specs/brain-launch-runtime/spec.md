@@ -78,17 +78,22 @@ Deprecated standalone build/start entrypoints SHALL resolve agent-definition roo
 - **AND WHEN** no explicit CLI `--agent-def-dir` is supplied
 - **THEN** the effective agent-definition root is `/tmp/agents`
 
-### Requirement: `codex_app_server` remains explicit opt-in during one deprecation window
-During this change's deprecation window, the runtime SHALL:
-- use `codex_headless` as the default non-CAO Codex backend, and
-- continue honoring explicit `codex_app_server` backend override requests.
+### Requirement: `codex_app_server` is unmaintained and blocked at launch
+The `codex_app_server` backend is unmaintained and no longer supported for launching. The runtime SHALL reject session-start requests with `backend=codex_app_server` via an explicit unmaintained-backend error before provider start, naming the backend and the maintained alternatives; retained manifests naming it SHALL be rejected before new session creation. The module MAY remain as dead code; no runtime path SHALL silently honor or substitute it.
 
-Removal of `codex_app_server` is deferred to a follow-up change after documented sunset criteria are met.
+#### Scenario: Explicit codex_app_server request is rejected
+- **WHEN** a developer requests `backend=codex_app_server` for a new session
+- **THEN** the runtime fails with an explicit unmaintained-backend error naming `codex_app_server`
+- **AND THEN** no Codex process is started
 
-#### Scenario: Explicit legacy override remains functional during deprecation window
-- **WHEN** a developer explicitly requests `backend=codex_app_server`
-- **THEN** the runtime starts Codex using `codex_app_server` behavior during the deprecation window
-- **AND THEN** this does not change the default backend selection for unspecified non-CAO Codex sessions
+#### Scenario: Retained codex_app_server manifest is rejected
+- **WHEN** a persisted session manifest names `codex_app_server` and a new session creation is attempted from it
+- **THEN** the runtime rejects the request with the same explicit unmaintained-backend error
+- **AND THEN** it does not silently substitute another backend
+
+#### Scenario: Error names maintained alternatives
+- **WHEN** the unmaintained-backend error surfaces to an operator
+- **THEN** the message names `codex_headless` and `local_interactive` as the maintained Codex backends
 
 ### Requirement: Claude headless backend via `claude -p` + `--resume`
 For Claude, the system SHALL support a non-CAO interactive backend using repeated headless CLI invocations with machine-readable output and session resume.
@@ -877,7 +882,6 @@ When one such shadow-first workflow needs text beyond completion status, it SHAL
 ### Requirement: Codex runtime launch applies non-interactive home bootstrap
 For Codex launches, the runtime SHALL apply a runtime-owned bootstrap step to the generated Codex home configuration before starting the tool for:
 - `backend=codex_headless`
-- `backend=codex_app_server`
 - `backend=cao_rest`
 
 Bootstrap behavior SHALL include:

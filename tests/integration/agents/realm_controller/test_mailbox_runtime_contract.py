@@ -220,7 +220,7 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
         brain_manifest_path=build_result.manifest_path,
         role_name="r",
         runtime_root=runtime_root,
-        backend="codex_app_server",
+        backend="codex_headless",
         working_directory=tmp_path,
     )
 
@@ -280,6 +280,12 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._create_backend_session",
         _fake_resume_backend,
+    )
+    # tmux-backed backends publish gateway capability on resume; the tmux
+    # environment write is unrelated to the mailbox contract under test.
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
+        lambda *, session_name, env_vars: None,
     )
 
     resumed = resume_runtime_session(

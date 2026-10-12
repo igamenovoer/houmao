@@ -45,7 +45,11 @@ from houmao.server.tui.parser import OfficialTuiParserAdapter
 from houmao.server.tui.process import PaneProcessInspector
 from houmao.server.tui.transport import TmuxTransportResolver
 from houmao.shared_tui_tracking.models import TrackerConfig, TrackedStateSnapshot
-from houmao.shared_tui_tracking.registry import DetectorProfileRegistry, app_id_from_tool
+from houmao.shared_tui_tracking.registry import (
+    DetectorProfileRegistry,
+    UnsupportedToolVersionError,
+    app_id_from_tool,
+)
 from houmao.shared_tui_tracking.session import TuiTrackerSession
 
 logger = logging.getLogger(__name__)
@@ -115,23 +119,6 @@ class AgentTuiObserver:
         self.m_window_name: str | None = window_name
         self.m_observed_version: str | None = observed_version
 
-        app_id = app_id_from_tool(tool=tool)
-        self.m_tracker_session: TuiTrackerSession = TuiTrackerSession(
-            app_id=app_id,
-            observed_version=observed_version,
-            config=TrackerConfig(
-                settle_seconds=_DEFAULT_SETTLE_SECONDS,
-                stability_threshold_seconds=_DEFAULT_STABILITY_THRESHOLD_SECONDS,
-            ),
-            registry=DetectorProfileRegistry.default(),
-        )
-
-        self.m_transport_resolver: TmuxTransportResolver = TmuxTransportResolver()
-        self.m_process_inspector: PaneProcessInspector = PaneProcessInspector(
-            supported_processes=_DEFAULT_SUPPORTED_TUI_PROCESSES
-        )
-        self.m_parser_adapter: OfficialTuiParserAdapter = OfficialTuiParserAdapter()
-
         self.m_baseline_pos: int | None = None
         self.m_last_probe_snapshot: HoumaoProbeSnapshot | None = None
         self.m_parsed_surface: HoumaoParsedSurface | None = None
@@ -140,6 +127,36 @@ class AgentTuiObserver:
         self.m_parse_status: ParseStatus = "transport_unavailable"
         self.m_probe_error: HoumaoErrorDetail | None = None
         self.m_parse_error: HoumaoErrorDetail | None = None
+
+        app_id = app_id_from_tool(tool=tool)
+        self.m_tracking_error: UnsupportedToolVersionError | None = None
+        try:
+            self.m_tracker_session: TuiTrackerSession | None = TuiTrackerSession(
+                app_id=app_id,
+                observed_version=observed_version,
+                config=TrackerConfig(
+                    settle_seconds=_DEFAULT_SETTLE_SECONDS,
+                    stability_threshold_seconds=_DEFAULT_STABILITY_THRESHOLD_SECONDS,
+                ),
+                registry=DetectorProfileRegistry.default(),
+            )
+        except UnsupportedToolVersionError as exc:
+            # Per-session containment: a below-floor or unversioned tool marks
+            # this observer errored without disturbing other sessions.
+            self.m_tracker_session = None
+            self.m_tracking_error = exc
+            self.m_parse_status = "parse_error"
+            self.m_parse_error = HoumaoErrorDetail(
+                kind="unsupported_tool_version",
+                message=str(exc),
+            )
+
+        self.m_transport_resolver: TmuxTransportResolver = TmuxTransportResolver()
+        self.m_process_inspector: PaneProcessInspector = PaneProcessInspector(
+            supported_processes=_DEFAULT_SUPPORTED_TUI_PROCESSES
+        )
+        self.m_parser_adapter: OfficialTuiParserAdapter = OfficialTuiParserAdapter()
+
         self.m_recent_transitions: deque[HoumaoRecentTransition] = deque(
             maxlen=_DEFAULT_RECENT_TRANSITION_LIMIT
         )
@@ -150,6 +167,11 @@ class AgentTuiObserver:
 
     def poll_cycle(self) -> None:
         """Execute the full observation pipeline for one cycle."""
+
+        if self.m_tracker_session is None:
+            # Unsupported tool version: keep the errored posture pinned and
+            # skip probing; nothing can be tracked for this session.
+            return
 
         observed_at_utc = _utc_now_iso()
 
@@ -315,7 +337,7 @@ class AgentTuiObserver:
     def current_state(self) -> AgentTuiStateResponse:
         """Build the compact observation state response."""
 
-        snap = self.m_tracker_session.current_state()
+        snap = self._current_snapshot()
         return AgentTuiStateResponse(
             agent_id=self.m_agent_id,
             agent_name=self.m_agent_name,
@@ -329,7 +351,7 @@ class AgentTuiObserver:
     def current_detail(self) -> AgentTuiDetailResponse:
         """Build the detailed observation state response."""
 
-        snap = self.m_tracker_session.current_state()
+        snap = self._current_snapshot()
         return AgentTuiDetailResponse(
             agent_id=self.m_agent_id,
             agent_name=self.m_agent_name,
@@ -358,9 +380,34 @@ class AgentTuiObserver:
     def close(self) -> None:
         """Release resources held by the observer."""
 
-        self.m_tracker_session.close()
+        if self.m_tracker_session is not None:
+            self.m_tracker_session.close()
 
     # -- internal helpers -----------------------------------------------------
+
+    def _current_snapshot(self) -> TrackedStateSnapshot:
+        """Return the latest tracker snapshot, or an all-unknown errored one."""
+
+        if self.m_tracker_session is not None:
+            return self.m_tracker_session.current_state()
+        return TrackedStateSnapshot(
+            surface_accepting_input="unknown",
+            surface_editing_input="unknown",
+            surface_ready_posture="unknown",
+            surface_pending_input="unknown",
+            turn_phase="unknown",
+            last_turn_result="none",
+            last_turn_source="none",
+            detector_name=app_id_from_tool(tool=self.m_tool),
+            detector_version="unsupported",
+            active_reasons=(),
+            notes=("unsupported_tool_version",),
+            stability_signature="unsupported_tool_version",
+            stable=False,
+            stable_for_seconds=0.0,
+            stable_since_seconds=0.0,
+            observed_at_seconds=0.0,
+        )
 
     def _record_diagnostics(
         self,
@@ -435,6 +482,8 @@ class AgentTuiObserver:
     def _drain_and_record_transitions(self) -> None:
         """Drain events from the tracker session and record as recent transitions."""
 
+        if self.m_tracker_session is None:
+            return
         events = self.m_tracker_session.drain_events()
         for event in events:
             recorded_at = self.m_started_at_utc + timedelta(seconds=event.at_seconds)

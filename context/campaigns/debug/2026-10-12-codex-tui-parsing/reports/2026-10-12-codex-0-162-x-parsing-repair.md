@@ -19,7 +19,11 @@ Date: 2026-10-12. Campaign: [debug-intent](../debug-intent.md). Evidence: [sessi
 
 Candidate residuals, all diagnostic-level (the two booleans stay correct): `last_turn_result` carry across a post-interrupt compaction (reducer resets to `none` — see Open Questions); `surface_pending_input` undetectable during the queued-echo collapse window (single-snapshot limitation, see below); 3 seam samples (trust-confirm transition, two 1-sample stream-growth pauses); turn-seam `last_turn_result` resets one sample early.
 
-## The Fix List (what to integrate, per file)
+## The Fix List (integrated 2026-10-12 via `raise-codex-floor-0-162-1`)
+
+**Status: integrated.** Every item below landed in the change; see the
+Integration Outcome section for the qualification scores and the deltas taken
+during integration.
 
 Candidate implementation for reference: `scripts/explore/codex-tui-parsing/campaign_lib/patches.py` (monkey patch). Integration converts these repairs into owned code.
 
@@ -56,3 +60,51 @@ Candidate implementation for reference: `scripts/explore/codex-tui-parsing/campa
 ## Integration Gate
 
 Per the user directive (2026-10-12), nothing integrates until these artifacts are reviewed: this report, the two evidence docs, and the candidate patch. Suggested integration path after review: one change touching `shared_tui_tracking` (detector + registry floor), launch policy, and fixtures, with the qualification replay as the standing gate.
+
+## Integration Outcome (2026-10-12)
+
+**Integrated.** The fix list above landed as OpenSpec change
+[`openspec/changes/archive/2026-10-12-raise-codex-floor-0-162-1/`](../../../../../openspec/changes/archive/2026-10-12-raise-codex-floor-0-162-1/proposal.md)
+(single floor-gated `CodexTuiSignalDetectorV0_162_X` at `>=0.162.1`, launch
+strategy `codex-unattended-0.162-plus`, `codex_app_server` blocked as
+unmaintained, fixtures promoted to
+`tests/fixtures/shared_tui_tracking/codex/qualification/`).
+
+The production qualification gate
+(`tests/unit/shared_tui_tracking/test_codex_0_162_x_qualification.py`) replays
+both frozen sessions through `analyze_terminal_record` and reproduces the
+candidate's measured scores exactly: session 1 `0.9995` accepting / `0.9984`
+ready (2 false-ready + 1 false-busy diagnostic-level residuals), session 2
+`1.0000` / `1.0000`.
+
+Integration-time decisions beyond the candidate patch (all covered by the
+change's design):
+
+- Queued echoes report pending input and active-turn evidence without the
+  candidate's active-evidence precondition; the disambiguator gained a
+  below-echo dock/interrupt check so settled surfaces beside a draft never
+  read as queued. Qualification scores are unchanged.
+- Compaction status rows carry a distinct `compaction_status` active reason
+  (instead of `status_row`); the shared reducer treats maintenance-only
+  activity as non-authoritative for newer-turn invalidation and success
+  settlement, so `last_turn_result=interrupted` survives a post-interrupt
+  compaction (resolves Open Question 1 with the carry answer).
+- Error/retry needles were re-derived from 0.162.x source
+  (`extern/orphan/codex`) with source references in code notes; the
+  server-error and unknown-parameter families stay qualification-pending
+  until a fault-injection iteration (Open Question 3, still open as a
+  follow-up).
+- The status-row blink carry does not fire over a visible draft (prompt
+  edits are prompt-originated evidence, not a hidden status row).
+- The two `stale_active_*` ANSI captures were deleted: settled 0.162.1 frames
+  never retain status rows in scrollback (codex redraws them away), so the
+  captures could not be re-derived from evidence; the live-edge protection
+  they covered stays tested by the response-supersedes case.
+- `scripts/explore/codex-tui-parsing/campaign_lib/patches.py` is preserved as
+  campaign evidence; it monkey-patches the retired pre-change modules and no
+  longer runs against production (the candidate is the production detector).
+
+Follow-ups recorded on the change's tasks: fault-injection qualification of
+error/retry surfaces, tracker-side pending-input memory for the queued-echo
+collapse window (Open Question 2), live app-server event-attach investigation
+(Open Question 4), and edits-form/permissions-grant capture (Open Question 5).

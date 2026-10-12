@@ -58,17 +58,17 @@ class _PromptPayloadRenderState:
     all_plain: bool
 
 
-class CodexPromptBehaviorVariantV0_116_X:
-    """Prompt behavior variant for the current `codex-cli 0.116.x` family."""
+class CodexPromptBehaviorVariantV0_162_X:
+    """Prompt behavior variant for the maintained `codex-cli 0.162.x` family."""
 
     @property
     def variant_name(self) -> str:
         """Return the version-family debug name."""
 
-        return "0.116.x"
+        return "0.162.x"
 
     def classify(self, snapshot: PromptAreaSnapshot) -> PromptClassification:
-        """Classify prompt presentation for the `0.116.x` family."""
+        """Classify prompt presentation for the `0.162.x` family."""
 
         if not snapshot.prompt_visible:
             return PromptClassification(kind="unknown", prompt_text=None)
@@ -85,42 +85,6 @@ class CodexPromptBehaviorVariantV0_116_X:
             return PromptClassification(kind="placeholder", prompt_text=None)
         if render_state.all_plain:
             return PromptClassification(kind="draft", prompt_text=render_state.payload_text)
-        return PromptClassification(
-            kind="unknown",
-            prompt_text=None,
-            notes=("unrecognized_prompt_presentation",),
-        )
-
-
-class CodexPromptBehaviorVariantV0_144_X(CodexPromptBehaviorVariantV0_116_X):
-    """Prompt behavior variant for recorded Codex `0.144.x` surfaces."""
-
-    @property
-    def variant_name(self) -> str:
-        """Return the version-family debug name."""
-
-        return "0.144.x"
-
-
-class FallbackCodexPromptBehaviorVariant:
-    """Conservative prompt behavior variant for unmatched Codex versions."""
-
-    @property
-    def variant_name(self) -> str:
-        """Return the fallback debug name."""
-
-        return "fallback"
-
-    def classify(self, snapshot: PromptAreaSnapshot) -> PromptClassification:
-        """Classify prompt presentation conservatively for fallback use."""
-
-        if not snapshot.prompt_visible:
-            return PromptClassification(kind="unknown", prompt_text=None)
-        if snapshot.payload_text is None:
-            return PromptClassification(kind="empty", prompt_text=None)
-        render_state = _prompt_payload_render_state(snapshot)
-        if render_state is not None and render_state.all_dim:
-            return PromptClassification(kind="placeholder", prompt_text=None)
         return PromptClassification(
             kind="unknown",
             prompt_text=None,

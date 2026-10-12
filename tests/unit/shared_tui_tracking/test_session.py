@@ -31,7 +31,12 @@ _CLAUDE_SUCCESS_SURFACE = (
     "  ⏵⏵ bypass permissions on (shift+tab to cycle)\n"
 )
 
-_CODEX_TMUX_READY_SURFACE = "─ Worked for 1s ─\n› \n"
+_CODEX_TMUX_READY_SURFACE = (
+    "Worked for 1s • 2:09 PM\n"
+    "\x1b[1m›\x1b[0m \x1b[2mAsk Codex to do anything\x1b[0m\n"
+    "  GPT-6.1-Sol medium · /tmp/workdir\n"
+    "  ? for shortcuts\n"
+)
 
 
 def test_tracker_session_settles_success_with_virtual_time() -> None:
@@ -87,53 +92,41 @@ def test_detector_profile_registry_uses_bounded_compatible_interval() -> None:
     assert future_family.detector_version == "fallback"
 
 
-def test_detector_profile_registry_resolves_codex_version_family_and_fallback() -> None:
+def test_detector_profile_registry_resolves_floor_gated_codex_family() -> None:
     registry = DetectorProfileRegistry.default()
 
-    current_family = registry.resolve(
-        app_id="codex_tui",
-        observed_version="0.116.4 (Codex)",
-    )
-    fallback_family = registry.resolve(
-        app_id="codex_tui",
-        observed_version="0.115.9",
-    )
-    missing_version_family = registry.resolve(
-        app_id="codex_tui",
-        observed_version=None,
-    )
-    gap_family = registry.resolve(
-        app_id="codex_tui",
-        observed_version="0.120.0",
-    )
-    refreshed_current_family = registry.resolve(
-        app_id="codex_tui",
-        observed_version="0.144.1",
-    )
-    future_family = registry.resolve(
-        app_id="codex_tui",
-        observed_version="0.145.0",
-    )
-    overridden_family = registry.resolve(
-        app_id="codex_tui",
-        observed_version="0.144.1",
-        detector_version_override="0.116.x",
-    )
-    explicitly_selected_current_family = registry.resolve(
-        app_id="codex_tui",
-        observed_version="0.144.1",
-        detector_version_override="0.144.x",
-    )
+    floor_family = registry.resolve(app_id="codex_tui", observed_version="0.162.1 (Codex)")
+    above_floor_family = registry.resolve(app_id="codex_tui", observed_version="0.163.0")
+    far_future_family = registry.resolve(app_id="codex_tui", observed_version="1.0.0")
 
-    assert current_family.detector_version == "0.116.x"
-    assert fallback_family.detector_version == "fallback"
-    assert missing_version_family.detector_version == "fallback"
-    assert gap_family.detector_version == "fallback"
-    assert refreshed_current_family.detector_version == "0.144.x"
-    assert future_family.detector_version == "fallback"
-    assert overridden_family.detector_version == "0.116.x"
-    assert explicitly_selected_current_family.detector_version == "0.144.x"
-    assert explicitly_selected_current_family.maximum_supported_version == (0, 145, 0)
+    assert floor_family.detector_version == "0.162.x"
+    assert floor_family.minimum_supported_version == (0, 162, 1)
+    assert floor_family.maximum_supported_version is None
+    assert floor_family.qualified_through_version == "0.162.1"
+    assert above_floor_family.detector_version == "0.162.x"
+    assert above_floor_family.qualified_through_version == "0.162.1"
+    assert far_future_family.detector_version == "0.162.x"
+
+
+def test_detector_profile_registry_raises_for_codex_below_the_floor() -> None:
+    registry = DetectorProfileRegistry.default()
+
+    with pytest.raises(UnsupportedToolVersionError, match="below the supported floor") as caught:
+        registry.resolve(app_id="codex_tui", observed_version="0.144.0")
+
+    assert caught.value.app_id == "codex_tui"
+    assert caught.value.observed_version == "0.144.0"
+    assert caught.value.minimum_supported_version == (0, 162, 1)
+    assert "upgrade codex" in str(caught.value)
+
+
+def test_detector_profile_registry_raises_for_unparseable_codex_version() -> None:
+    registry = DetectorProfileRegistry.default()
+
+    with pytest.raises(UnsupportedToolVersionError, match="could not be determined"):
+        registry.resolve(app_id="codex_tui", observed_version=None)
+    with pytest.raises(UnsupportedToolVersionError, match="could not be parsed"):
+        registry.resolve(app_id="codex_tui", observed_version="not-a-version")
 
 
 def test_detector_profile_registry_resolves_floor_gated_kimi_family() -> None:
@@ -187,7 +180,7 @@ def test_detector_profile_registry_rejects_unknown_experimental_override() -> No
 def test_tracker_session_accepts_direct_tmux_raw_text_fixture() -> None:
     session = TuiTrackerSession.from_config(
         app_id="codex_tui",
-        observed_version=None,
+        observed_version="0.162.1 (Codex)",
         config=TrackerConfig(settle_seconds=1.0),
         scheduler=TestScheduler(),
     )

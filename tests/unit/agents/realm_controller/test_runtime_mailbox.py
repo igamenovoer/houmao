@@ -159,7 +159,7 @@ def test_start_runtime_session_bootstraps_and_persists_mailbox_binding(
         brain_manifest_path=brain_manifest_path,
         role_name="r",
         runtime_root=runtime_root,
-        backend="codex_app_server",
+        backend="codex_headless",
         working_directory=tmp_path,
     )
 
@@ -209,7 +209,7 @@ def test_start_runtime_session_mailbox_root_override_wins(monkeypatch, tmp_path:
         brain_manifest_path=brain_manifest_path,
         role_name="r",
         runtime_root=runtime_root,
-        backend="codex_app_server",
+        backend="codex_headless",
         working_directory=tmp_path,
         mailbox_root=override_root,
     )
@@ -244,13 +244,19 @@ def test_start_and_resume_runtime_session_preserve_symlink_mailbox_binding(
         "houmao.agents.realm_controller.runtime._create_backend_session",
         lambda **kwargs: object(),
     )
+    # tmux-backed backends publish gateway capability on resume; the tmux
+    # environment write is unrelated to mailbox binding preservation.
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
+        lambda *, session_name, env_vars: None,
+    )
 
     controller = start_runtime_session(
         agent_def_dir=agent_def_dir,
         brain_manifest_path=brain_manifest_path,
         role_name="r",
         runtime_root=runtime_root,
-        backend="codex_app_server",
+        backend="codex_headless",
         working_directory=tmp_path,
         mailbox_account_dir=private_mailbox_dir,
     )
@@ -327,7 +333,7 @@ def test_start_runtime_session_rejects_private_mailbox_inside_shared_root(
             brain_manifest_path=brain_manifest_path,
             role_name="r",
             runtime_root=runtime_root,
-            backend="codex_app_server",
+            backend="codex_headless",
             working_directory=tmp_path,
             mailbox_account_dir=(runtime_root / "shared-mail" / "private" / "repo-research-1"),
         )
@@ -376,7 +382,7 @@ def test_start_runtime_session_bootstraps_second_mailbox_agent_on_initialized_ro
         brain_manifest_path=sender_manifest,
         role_name="r",
         runtime_root=runtime_root,
-        backend="codex_app_server",
+        backend="codex_headless",
         working_directory=tmp_path,
     )
     receiver = start_runtime_session(
@@ -384,7 +390,7 @@ def test_start_runtime_session_bootstraps_second_mailbox_agent_on_initialized_ro
         brain_manifest_path=receiver_manifest,
         role_name="r",
         runtime_root=runtime_root,
-        backend="codex_app_server",
+        backend="codex_headless",
         working_directory=tmp_path,
     )
 
@@ -495,7 +501,7 @@ def test_mailbox_env_bindings_remain_strict_for_unregistered_address_on_initiali
         brain_manifest_path=sender_manifest,
         role_name="r",
         runtime_root=tmp_path / "runtime",
-        backend="codex_app_server",
+        backend="codex_headless",
         working_directory=tmp_path,
     )
 
@@ -525,7 +531,7 @@ def test_refresh_mailbox_bindings_updates_launch_plan_backend_and_manifest(tmp_p
         bindings_version="2026-03-12T05:00:00.000001Z",
     )
     launch_plan = LaunchPlan(
-        backend="codex_app_server",
+        backend="codex_headless",
         tool="codex",
         executable="codex",
         args=["app-server"],
@@ -556,6 +562,9 @@ def test_refresh_mailbox_bindings_updates_launch_plan_backend_and_manifest(tmp_p
         brain_manifest_path=tmp_path / "brain.yaml",
         manifest_path=manifest_path,
         backend_session=_FakeBackend(),  # type: ignore[arg-type]
+        agent_identity="HOUMAO-research",
+        agent_id=derive_agent_id_from_name("HOUMAO-research"),
+        tmux_session_name="HOUMAO-research",
     )
     controller.persist_manifest()
 
@@ -655,7 +664,7 @@ def test_register_filesystem_mailbox_marks_local_interactive_session_active(
 ) -> None:
     controller, _ = _controller_for_mailbox_mutation(
         tmp_path=tmp_path,
-        backend="local_interactive",
+        backend="codex_headless",
         mailbox=None,
     )
 
@@ -731,7 +740,7 @@ def test_unregister_filesystem_mailbox_clears_local_interactive_mailbox_binding(
     )
     controller, _ = _controller_for_mailbox_mutation(
         tmp_path=tmp_path,
-        backend="local_interactive",
+        backend="codex_headless",
         mailbox=existing_mailbox,
     )
 
@@ -764,7 +773,7 @@ def test_relaunch_keeps_local_interactive_mailbox_active_without_live_metadata(
     )
     controller, _ = _controller_for_mailbox_mutation(
         tmp_path=tmp_path,
-        backend="local_interactive",
+        backend="codex_headless",
         mailbox=existing_mailbox,
         metadata={
             "mailbox_live_enabled": False,
@@ -822,7 +831,7 @@ def test_relaunch_drops_one_off_env_overrides_and_keeps_persistent_env_records(
         brain_manifest_path=brain_manifest_path,
         role_name="r",
         runtime_root=runtime_root,
-        backend="local_interactive",
+        backend="codex_headless",
         working_directory=tmp_path,
         tmux_session_name="HOUMAO-research",
         launch_env_overrides={
@@ -885,7 +894,7 @@ def test_relaunch_of_older_manifest_recomputes_default_managed_header(
         brain_manifest_path=brain_manifest_path,
         role_name="r",
         runtime_root=runtime_root,
-        backend="local_interactive",
+        backend="codex_headless",
         working_directory=tmp_path,
         agent_name="alice",
         tmux_session_name="HOUMAO-alice",
@@ -931,11 +940,11 @@ def test_late_mailbox_registration_supports_joined_sessions_without_relaunch_pos
 ) -> None:
     controller, _ = _controller_for_mailbox_mutation(
         tmp_path=tmp_path,
-        backend="local_interactive",
+        backend="codex_headless",
         mailbox=None,
     )
     controller.agent_launch_authority = SessionManifestAgentLaunchAuthorityV1(
-        backend="local_interactive",
+        backend="codex_headless",
         tool="codex",
         tmux_session_name="HOUMAO-research",
         working_directory=str(tmp_path),
@@ -976,11 +985,11 @@ def test_late_mailbox_unregistration_supports_joined_sessions_without_relaunch_p
     )
     controller, _ = _controller_for_mailbox_mutation(
         tmp_path=tmp_path,
-        backend="local_interactive",
+        backend="codex_headless",
         mailbox=existing_mailbox,
     )
     controller.agent_launch_authority = SessionManifestAgentLaunchAuthorityV1(
-        backend="local_interactive",
+        backend="codex_headless",
         tool="codex",
         tmux_session_name="HOUMAO-research",
         working_directory=str(tmp_path),

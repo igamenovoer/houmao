@@ -1,14 +1,13 @@
 schema_version: 1
 tool: codex
 strategies:
-  - strategy_id: codex-unattended-0.116.x
+  - strategy_id: codex-unattended-0.162-plus
     operator_prompt_mode: unattended
     backends:
       - raw_launch
       - codex_headless
-      - codex_app_server
       - cao_rest
-    supported_versions: ">=0.140.0"
+    supported_versions: ">=0.162.1"
     minimal_inputs:
       credential_forms:
         - auth.json
@@ -20,6 +19,8 @@ strategies:
         - Caller launch args and config overrides that target unattended-owned no-prompt surfaces are canonicalized away.
         - Final Codex CLI --config overrides force approval_policy, sandbox_mode, notice.hide_full_access_warning, and tui.show_tooltips over project-local config.
         - User-authored no-prompt config files are not required.
+        - Codex 0.162 removed the `-a untrusted` approval flag; only `on-request` and `never` remain.
+        - Codex 0.162 renders the workspace-trust screen under full bypass in untrusted git workdirs, so the runtime-owned trust preseed stays load-bearing for unattended startup.
     system_prompt:
       method: native_developer_instructions
       owned_surface: developer_instructions
@@ -38,7 +39,7 @@ strategies:
         note: Codex source defines project trust, notice.hide_full_access_warning, model_migrations, and TUI config edit surfaces.
       - kind: live_probe
         ref: codex --version
-        note: Fresh-home probe on installed codex-cli 0.140.0 required trust plus no-prompt state to avoid startup prompts.
+        note: Fresh-home probe on installed codex-cli 0.162.1 (2026-10-12) reached the unattended ready composer with runtime-owned trust preseed, approval_policy=never, sandbox_mode=danger-full-access, and notice/tooltip suppression; the same probe without the trust preseed rendered the `Trust this folder?` screen under full bypass in an untrusted git workdir.
     owned_paths:
       - path: config.toml
         keys:

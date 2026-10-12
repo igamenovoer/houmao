@@ -71,7 +71,7 @@ def test_codex_unattended_strategy_supports_auth_json_fresh_home(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="codex-cli 0.140.0")
+    _stub_version(monkeypatch, output="codex-cli 0.162.1")
     workspace = tmp_path / "workspace"
     (workspace / ".git").mkdir(parents=True)
     home = tmp_path / "codex-home"
@@ -94,7 +94,7 @@ def test_codex_unattended_strategy_supports_auth_json_fresh_home(
     payload = _load_toml(home / "config.toml")
     assert result.provenance is not None
     assert result.provenance.selection_source == "registry"
-    assert result.provenance.selected_strategy_id == "codex-unattended-0.116.x"
+    assert result.provenance.selected_strategy_id == "codex-unattended-0.162-plus"
     assert result.args == (
         '--config=approval_policy="never"',
         '--config=sandbox_mode="danger-full-access"',
@@ -114,7 +114,7 @@ def test_codex_unattended_strategy_supports_env_only_custom_provider(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="codex-cli 0.140.0")
+    _stub_version(monkeypatch, output="codex-cli 0.162.1")
     workspace = tmp_path / "workspace"
     (workspace / ".git").mkdir(parents=True)
     home = tmp_path / "codex-home"
@@ -149,7 +149,7 @@ wire_api = "responses"
 
     payload = _load_toml(home / "config.toml")
     assert result.provenance is not None
-    assert result.provenance.selected_strategy_id == "codex-unattended-0.116.x"
+    assert result.provenance.selected_strategy_id == "codex-unattended-0.162-plus"
     assert "sk-test" not in " ".join(result.args)
     assert payload["model_provider"] == "yunwu-openai"
     assert "model" not in payload
@@ -163,7 +163,7 @@ def test_codex_unattended_strategy_preserves_explicit_model_selection(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="codex-cli 0.140.0")
+    _stub_version(monkeypatch, output="codex-cli 0.162.1")
     home = tmp_path / "codex-home"
     home.mkdir()
     (home / "auth.json").write_text('{"session_id":"abc"}\n', encoding="utf-8")
@@ -191,7 +191,7 @@ def test_codex_unattended_strategy_canonicalizes_conflicting_launch_inputs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="codex-cli 0.140.0")
+    _stub_version(monkeypatch, output="codex-cli 0.162.1")
     home = tmp_path / "codex-home"
     home.mkdir()
     (home / "auth.json").write_text('{"session_id":"abc"}\n', encoding="utf-8")
@@ -248,7 +248,7 @@ def test_codex_unattended_strategy_rejects_api_key_only_without_provider_contrac
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="codex-cli 0.140.0")
+    _stub_version(monkeypatch, output="codex-cli 0.162.1")
     home = tmp_path / "codex-home"
     home.mkdir()
 
@@ -500,7 +500,7 @@ def test_codex_provider_start_repairs_blank_owned_toml_via_atomic_replace(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="codex-cli 0.140.0")
+    _stub_version(monkeypatch, output="codex-cli 0.162.1")
     home = tmp_path / "codex-home"
     home.mkdir()
     (home / "auth.json").write_text('{"session_id":"abc"}\n', encoding="utf-8")
@@ -540,7 +540,7 @@ def test_codex_registry_declares_final_cli_config_override_hook() -> None:
     assert len(documents) == 1
     assert len(documents[0].strategies) == 1
     strategy = documents[0].strategies[0]
-    assert strategy.strategy_id == "codex-unattended-0.116.x"
+    assert strategy.strategy_id == "codex-unattended-0.162-plus"
     assert any("--config" in note for note in strategy.minimal_inputs.notes)
     assert strategy.actions[-1].kind == "provider_hook.call"
     assert strategy.actions[-1].params == {"hook_id": "codex.append_unattended_cli_overrides"}
@@ -910,7 +910,7 @@ def test_unattended_strategy_override_is_transient(
             working_directory=tmp_path / "workspace",
             home_path=home,
             env={
-                "HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY": "codex-unattended-0.116.x",
+                "HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY": "codex-unattended-0.162-plus",
             },
         )
     )

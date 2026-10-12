@@ -177,7 +177,7 @@ Kimi sweep contracts SHALL support the same required-label, required-sequence, t
 - **AND THEN** each Kimi fixture is replayed through the shared Kimi tracker profile family
 
 ### Requirement: Current Codex and Kimi validation uses high-rate truth and varied sparse replay
-Recorded validation for Codex 0.144.x and Kimi 0.23.x SHALL capture unattended live TUI sessions at about 20 frames per second. Maintainers SHALL manually label the high-rate source timeline before using tracker output as an oracle.
+Recorded validation for Codex 0.162.x and Kimi 2.1.x SHALL capture unattended live TUI sessions at about 20 frames per second. Maintainers SHALL manually label the high-rate source timeline before using tracker output as an oracle.
 
 Validation SHALL derive multiple lower-rate streams or delay schedules from the same source recording, including regular and jittered sampling. Strict comparisons MAY allow skipped transient labels, but every replay SHALL preserve meaningful state ordering, avoid false operator-blocked prompts in unattended mode, and avoid impossible terminal-to-active transitions caused only by capture delay.
 

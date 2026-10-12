@@ -145,3 +145,27 @@ def test_codex_app_server_omits_empty_developer_instructions_on_thread_start(
 
     assert calls == [("thread/start", {})]
     assert session.state.thread_id == "thread-1"
+
+
+def test_codex_app_server_session_creation_is_blocked_as_unmaintained(tmp_path: Path) -> None:
+    """Retained or fresh codex_app_server requests raise the explicit error."""
+
+    from houmao.agents.realm_controller.errors import SessionManifestError
+    from houmao.agents.realm_controller.runtime import _create_backend_session
+
+    plan = _sample_launch_plan(tmp_path)
+    plan.working_directory.mkdir(parents=True)
+
+    with pytest.raises(SessionManifestError, match="unmaintained") as caught:
+        _create_backend_session(
+            launch_plan=plan,
+            role_name="gpu-kernel-coder",
+            role_prompt="role prompt",
+            agent_def_dir=tmp_path,
+            cao_profile_store_dir=None,
+        )
+
+    message = str(caught.value)
+    assert "codex_app_server" in message
+    assert "codex_headless" in message
+    assert "local_interactive" in message

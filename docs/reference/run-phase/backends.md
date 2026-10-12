@@ -12,7 +12,7 @@ BackendKind = Literal[
     "claude_headless",
     "codex_headless",
     "kimi_headless",
-    "codex_app_server",
+    "codex_app_server",  # unmaintained: blocked at launch with an explicit error
     "cao_rest",
     "houmao_server_rest",
 ]
@@ -29,12 +29,14 @@ flowchart LR
     CX["CodexHeadlessSession<br/>codex exec --json per turn<br/>resume via thread_id"]
     KH["KimiHeadlessSession<br/>kimi -p per turn<br/>--session <session_id>"]
     LEG["Legacy/internal backends<br/>cao_rest / houmao_server_rest<br/>rejected for new public launches"]
+    UNM["Unmaintained backends<br/>codex_app_server<br/>blocked at launch with an explicit error"]
 
     LP -->|local_interactive| LI
     LP -->|claude_headless| CH
-    LP -->|codex_headless<br/>codex_app_server| CX
+    LP -->|codex_headless| CX
     LP -->|kimi_headless| KH
     LP -.->|legacy manifests only| LEG
+    LP -.->|blocked| UNM
 ```
 
 ## Backend reference
@@ -112,14 +114,14 @@ Managed Kimi support starts at version 2.1.1 and has no upper version limit. Bot
 - Resume behavior: send a follow-up Kimi prompt from the same working directory and confirm Houmao launches `kimi --session <persisted-session-id> -p <prompt> --output-format stream-json`; changing the working directory should fail explicitly.
 - Local-interactive unattended posture: launch fresh, latest-resume, and exact-resume Kimi TUI sessions with `operator_prompt_mode = unattended`; confirm each effective command contains one strategy-owned `--auto`, the migration picker is suppressed, and no confirmation appears before managed prompts.
 
-### codex_app_server
+### codex_app_server (unmaintained, blocked)
 
-**Source:** `backends/codex_app_server.py`
+**Source:** `backends/codex_app_server.py` (retained as dead code)
 
-Runs Codex in app-server mode, which exposes a local HTTP interface for communication instead of using stdin/stdout.
+Runs Codex in app-server mode over a stdio JSON-RPC channel. This backend has not been qualified against current Codex releases and is **unmaintained**: launch requests and retained manifests naming `codex_app_server` are rejected with an explicit unmaintained-backend error, and no Codex process is started.
 
-- **Role injection:** native developer instructions (same as `codex_headless`).
-- **Use case:** scenarios requiring HTTP-based interaction with the Codex agent.
+- **Migration:** use `codex_headless` for structured non-interactive sessions or `local_interactive` for tracked TUI sessions.
+- **Role injection (historical):** native developer instructions (same as `codex_headless`).
 
 ### cao_rest (legacy/internal)
 

@@ -91,6 +91,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
 
     manifest = request.brain_manifest
     _validate_manifest_schema_version(manifest)
+    _reject_unmaintained_backend(backend=request.backend)
 
     inputs = _require_mapping(manifest, "inputs")
     runtime = _require_mapping(manifest, "runtime")
@@ -847,6 +848,18 @@ def _matched_cli_option_flag(arg: str, *, flags: frozenset[str]) -> str | None:
         if arg.startswith(f"{flag}="):
             return flag
     return None
+
+
+def _reject_unmaintained_backend(*, backend: BackendKind) -> None:
+    """Reject backends declared unmaintained before any launch planning work."""
+
+    if backend != "codex_app_server":
+        return
+    raise LaunchPlanError(
+        "backend='codex_app_server' is unmaintained and no longer supported for launching; "
+        "use the maintained Codex backends 'codex_headless' (structured non-interactive) "
+        "or 'local_interactive' (tracked TUI) instead."
+    )
 
 
 def _launch_surface_for_backend(backend: BackendKind) -> SupportedLaunchBackend:
