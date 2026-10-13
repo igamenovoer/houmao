@@ -17,10 +17,10 @@ When no mode is specified or `as_is` is selected, the policy engine returns the 
 
 A `LaunchPolicyStrategy` is the core unit of the policy engine. Each strategy contains:
 
-- **strategy_id**: Unique identifier (e.g., `claude-unattended-2.1.81`).
+- **strategy_id**: Unique identifier (e.g., `claude-unattended-2.1.296`).
 - **operator_prompt_mode**: Which mode this strategy applies to.
 - **backends**: List of supported launch surfaces (e.g., `raw_launch`, `claude_headless`, `codex_headless`). Note: `LaunchSurface` (build-phase) includes `raw_launch` for generic local execution, while the run-phase `BackendKind` type uses `local_interactive` instead; `raw_launch` maps to `local_interactive` at runtime.
-- **supported_versions**: PEP 440-style version specifier for tool version compatibility (e.g., `>=2.1.81`).
+- **supported_versions**: PEP 440-style version specifier for tool version compatibility (e.g., `>=2.1.296`).
 - **minimal_inputs**: Contract requirements — acceptable credential forms, whether user-prepared state is needed.
 - **system_prompt**: Explicit provider-native prompt method, owned surface, precedence conflicts, required engine environment, and source evidence.
 - **owned_paths**: File paths and keys the strategy manages to avoid conflicts with user configuration.

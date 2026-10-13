@@ -1,6 +1,6 @@
 # Report: claude 2.1.296 parsing repair — findings and fix list
 
-Date: 2026-10-12. Campaign: [2026-10-12-claude-code-tui-parsing](../debug-intent.md). Inputs: [KQ-1](../key-questions/KQ-1-signal-survival.md) (resolved), [KQ-2](../key-questions/KQ-2-transcript-oracle.md) (answered), [session 1 evidence](../evidences/2026-10-12-session1-lifecycle-capture.md), [session 2 evidence](../evidences/2026-10-12-session2-operator-surfaces-capture.md). Status: awaiting manual review before any integration (no production code changed by the campaign).
+Date: 2026-10-12. Campaign: [2026-10-12-claude-code-tui-parsing](../debug-intent.md). Inputs: [KQ-1](../key-questions/KQ-1-signal-survival.md) (resolved), [KQ-2](../key-questions/KQ-2-transcript-oracle.md) (answered), [session 1 evidence](../evidences/2026-10-12-session1-lifecycle-capture.md), [session 2 evidence](../evidences/2026-10-12-session2-operator-surfaces-capture.md). Status: integrated 2026-10-13 (see Integration Outcome).
 
 ## Verdict
 
@@ -29,7 +29,7 @@ Repair is a patch of the existing 2.1.x skeleton, not a rebuild: the composer st
 9. Escape sequences: zero OSC 133 / OSC `9;4` in 4531 samples — no state-bearing channels (same as codex).
 10. Transcript oracle: `~/.claude/projects/*.jsonl` carries `user` / `assistant` / `system.turn_duration` / `queue-operation` records aligning to labeled seams within 0.11–0.21 s — a viable post-hoc oracle for future qualification (KQ-2).
 
-## Fix List (for the integration change, post-review)
+## Fix List (integrated 2026-10-13; see Integration Outcome)
 
 Detector (`src/houmao/shared_tui_tracking/apps/claude_code/`):
 
@@ -68,6 +68,45 @@ Follow-ups (declared, not this iteration):
 - tui_down exit surface — re-drive with the hint-aware C-c timing (second press inside the hint window).
 - The `/btw` side-question surface and `atis-latch` records — seen in transcripts/tips, not driven.
 
-## Integration Outcome
+## Integration Outcome (2026-10-13)
 
-(to be filled after manual review and integration, mirroring the codex campaign's outcome section)
+**Integrated.** The fix list above landed as OpenSpec change
+[`openspec/changes/archive/2026-10-13-raise-claude-floor-2-1-296/`](../../../../../openspec/changes/archive/2026-10-13-raise-claude-floor-2-1-296/proposal.md)
+(single floor-gated `ClaudeCodeSignalDetectorV2_1_X` at `>=2.1.296` with
+`qualified_through_version="2.1.296"`, `FallbackClaudeDetector` and
+`FallbackClaudePromptBehaviorVariant` deleted, launch strategy
+`claude-unattended-2.1.296` with `supported_versions: ">=2.1.296"`, fixtures
+promoted to `tests/fixtures/shared_tui_tracking/claude/qualification/`). Every
+fix-list item landed as written: modal shield, verb-set region-scoped dock,
+suffix-tolerant spinner, composer-placeholder queue needle, widened interrupt
+needle, ready assert-no, no-composer block, editing gate, state-bearing
+settle-identity signature, the 600 s temporal channel (silent abort,
+slash-menu blink carry, modal-dismissal restore), the visible-draft
+invalidation removal in `session.py`, the registry floor cut, and the launch
+floor realignment.
+
+The production qualification gate
+(`tests/unit/shared_tui_tracking/test_claude_2_1_296_qualification.py`) replays
+all three frozen sessions through `analyze_terminal_record` and reproduces the
+candidate's measured scores exactly: session 1 `1.0000` accepting / `1.0000`
+ready, session 2-002 `1.0000` / `1.0000`, session 2-001 `1.0000` / `0.9995`,
+zero false-ready across all three; the same gate fails on the pre-change
+detector (verified against a HEAD worktree). The kimi and codex qualification
+gates re-ran unchanged as regression evidence for the shared draft-invalidation
+removal.
+
+Integration-time findings beyond the candidate patch:
+
+- The unattended launch contract was re-probed live on 2.1.296 (fresh managed
+  home, fresh untrusted workdir, OpenLux lane, no prompt submitted): the
+  strategy's seeded state reaches the idle composer in about 8 s with no
+  trust dialog, onboarding, theme picker, or API-key prompt; the seeded
+  `projects.<workdir>` trust keys remain load-bearing because 2.1.296 renders
+  the trust dialog even under `--dangerously-skip-permissions`.
+- Explore-era claude tests and the passive-server observer tests pinned
+  2.1.80/2.1.81 versions and no-dock synthetic success surfaces; they were
+  realigned to 2.1.296, and the no-dock surfaces gained verb docks because a
+  dock-less "completed" turn is exactly the silent-abort shape at 2.1.296.
+- The candidate monkey-patch module (`campaign_lib/patches.py`) is now
+  superseded by the production detector it was promoted into; replaying the
+  campaign against current production needs no patch.

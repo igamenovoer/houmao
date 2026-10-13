@@ -76,7 +76,6 @@ class BaseVersionedClaudeDetector(BaseTrackedTurnSignalDetector, abc.ABC):
 
 from houmao.shared_tui_tracking.apps.claude_code.profile import (  # noqa: E402
     ClaudeCodeSignalDetectorV2_1_X,
-    FallbackClaudeDetector,
 )
 from houmao.shared_tui_tracking.apps.codex_tui.profile import (  # noqa: E402
     CodexTrackedTurnSignalDetector,
@@ -98,7 +97,6 @@ __all__ = [
     "CodexTrackedTurnSignalDetector",
     "CodexTuiSignalDetectorV0_162_X",
     "CodexTuiSignalDetector",
-    "FallbackClaudeDetector",
     "FallbackTrackedTurnSignalDetector",
     "KimiCodeSignalDetector",
     "KimiCodeSignalDetectorV2_1_X",

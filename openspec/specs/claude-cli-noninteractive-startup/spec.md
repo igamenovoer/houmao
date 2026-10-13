@@ -31,7 +31,9 @@ When that unattended path is requested, the system SHALL detect the actual Claud
 
 For each Claude version/backend pair that the repository intentionally maintains as a supported unattended launch path, the Claude unattended registry SHALL contain at least one compatible strategy entry whose declared supported-version range covers that pair.
 
-Those supported-version declarations SHALL use one dependency-style range expression per strategy entry (for example `>=2.1.81,<2.2`) so maintained compatibility is explicit and readable without depending on strategy ids or nearest-lower fallback.
+Those supported-version declarations SHALL use one dependency-style range expression per strategy entry (for example `>=2.1.296,<2.2`) so maintained compatibility is explicit and readable without depending on strategy ids or nearest-lower fallback. The maintained unattended floor SHALL track the qualified tracked-TUI floor; strategy entries qualified against older minors (such as the 2.1.81 entry) SHALL be realigned or removed when the floor moves.
+
+The unattended contract SHALL be validated against the current default permission behavior of the floor version: Claude 2.1.296 defaults to auto permission mode and renders the workspace trust dialog even under `--dangerously-skip-permissions` for an untrusted workdir, so trust seeding and startup-prompt assumptions probed against 2.1.81 SHALL be re-probed live whenever the floor moves.
 
 #### Scenario: Compatible Claude strategy prevents up-front operator prompts
 - **WHEN** an orchestrated Claude launch requests `operator_prompt_mode = unattended`

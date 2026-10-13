@@ -43,7 +43,7 @@ def test_tracker_session_settles_success_with_virtual_time() -> None:
     scheduler = TestScheduler()
     session = TuiTrackerSession.from_config(
         app_id="claude_code",
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         config=TrackerConfig(settle_seconds=1.0, stability_threshold_seconds=0.5),
         scheduler=scheduler,
     )
@@ -69,27 +69,44 @@ def test_tracker_session_settles_success_with_virtual_time() -> None:
     assert any(item.note == "success_settled" for item in settled_events)
 
 
-def test_detector_profile_registry_uses_bounded_compatible_interval() -> None:
+def test_detector_profile_registry_resolves_floor_gated_claude_family() -> None:
     registry = DetectorProfileRegistry.default()
 
-    exact_family = registry.resolve(
+    floor_family = registry.resolve(
         app_id="claude_code",
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
     )
-    fallback_family = registry.resolve(
-        app_id="claude_code",
-        observed_version="1.9.0",
-    )
-    future_family = registry.resolve(
-        app_id="claude_code",
-        observed_version="2.2.0",
-    )
+    above_floor_family = registry.resolve(app_id="claude_code", observed_version="2.1.300")
+    far_future_family = registry.resolve(app_id="claude_code", observed_version="3.0.0")
 
-    assert exact_family.detector_version == "2.1.x"
-    assert exact_family.minimum_supported_version == (2, 1, 0)
-    assert exact_family.maximum_supported_version == (2, 2, 0)
-    assert fallback_family.detector_version == "fallback"
-    assert future_family.detector_version == "fallback"
+    assert floor_family.detector_version == "2.1.x"
+    assert floor_family.minimum_supported_version == (2, 1, 296)
+    assert floor_family.maximum_supported_version is None
+    assert floor_family.qualified_through_version == "2.1.296"
+    assert above_floor_family.detector_version == "2.1.x"
+    assert above_floor_family.qualified_through_version == "2.1.296"
+    assert far_future_family.detector_version == "2.1.x"
+
+
+def test_detector_profile_registry_raises_for_claude_below_the_floor() -> None:
+    registry = DetectorProfileRegistry.default()
+
+    with pytest.raises(UnsupportedToolVersionError, match="below the supported floor") as caught:
+        registry.resolve(app_id="claude_code", observed_version="2.1.81")
+
+    assert caught.value.app_id == "claude_code"
+    assert caught.value.observed_version == "2.1.81"
+    assert caught.value.minimum_supported_version == (2, 1, 296)
+    assert "upgrade claude" in str(caught.value)
+
+
+def test_detector_profile_registry_raises_for_unparseable_claude_version() -> None:
+    registry = DetectorProfileRegistry.default()
+
+    with pytest.raises(UnsupportedToolVersionError, match="could not be determined"):
+        registry.resolve(app_id="claude_code", observed_version=None)
+    with pytest.raises(UnsupportedToolVersionError, match="could not be parsed"):
+        registry.resolve(app_id="claude_code", observed_version="not-a-version")
 
 
 def test_detector_profile_registry_resolves_floor_gated_codex_family() -> None:
@@ -196,7 +213,7 @@ def test_tracker_session_accepts_direct_tmux_raw_text_fixture() -> None:
 def test_tracker_session_is_safe_for_concurrent_reads_and_writes() -> None:
     session = TuiTrackerSession.from_config(
         app_id="claude_code",
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         config=TrackerConfig(settle_seconds=1.0),
         scheduler=TestScheduler(),
     )

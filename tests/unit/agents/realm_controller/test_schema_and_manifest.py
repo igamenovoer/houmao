@@ -51,8 +51,8 @@ def _sample_plan(tmp_path: Path) -> LaunchPlan:
         metadata={"headless_output_format": "stream-json"},
         launch_policy_provenance=LaunchPolicyProvenance(
             requested_operator_prompt_mode="unattended",
-            detected_tool_version="2.1.81",
-            selected_strategy_id="claude-unattended-2.1.81",
+            detected_tool_version="2.1.296",
+            selected_strategy_id="claude-unattended-2.1.296",
             selection_source="registry",
         ),
     )
@@ -173,10 +173,10 @@ def test_session_manifest_write_and_load_round_trip(tmp_path: Path) -> None:
     assert loaded.payload["headless"]["session_id"] == "sess-1"
     assert loaded.payload["backend_state"]["tmux_session_name"] == "HOUMAO-claude"
     assert loaded.payload["launch_policy_provenance"]["selected_strategy_id"] == (
-        "claude-unattended-2.1.81"
+        "claude-unattended-2.1.296"
     )
     assert loaded.payload["launch_plan"]["launch_policy_provenance"]["detected_tool_version"] == (
-        "2.1.81"
+        "2.1.296"
     )
     assert loaded.payload["system_prompt"] == {
         "format": "text",

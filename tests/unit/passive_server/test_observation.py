@@ -39,6 +39,7 @@ def _make_observer(
     agent_name: str = "HOUMAO-alpha",
     tool: str = "claude",
     session_name: str = "HOUMAO-alpha-abc123",
+    observed_version: str | None = "2.1.296 (Claude Code)",
 ) -> AgentTuiObserver:
     """Create an observer for testing."""
 
@@ -47,6 +48,7 @@ def _make_observer(
         agent_name=agent_name,
         tool=tool,
         session_name=session_name,
+        observed_version=observed_version,
     )
 
 

@@ -10,7 +10,6 @@ from houmao.shared_tui_tracking.detectors import (
     BaseTrackedTurnSignalDetector,
     ClaudeCodeSignalDetectorV2_1_X,
     CodexTuiSignalDetectorV0_162_X,
-    FallbackClaudeDetector,
     FallbackTrackedTurnSignalDetector,
     KimiCodeSignalDetectorV2_1_X,
 )
@@ -18,16 +17,17 @@ from houmao.shared_tui_tracking.detectors import (
 
 _VERSION_RE = re.compile(r"(\d+)\.(\d+)(?:\.(\d+))?")
 # User-facing tool names for floor-gate error messages where the app id would
-# misname the tool (the codex tool tracks under the `codex_tui` app id).
-_APP_TOOL_NAMES = {"codex_tui": "codex"}
+# misname the tool (the codex tool tracks under the `codex_tui` app id, the
+# claude tool under `claude_code`).
+_APP_TOOL_NAMES = {"codex_tui": "codex", "claude_code": "claude"}
 
 
 class UnsupportedToolVersionError(ValueError):
     """Raised when a tool's observed version falls below its support floor.
 
     Apps with a maintained floor-gated profile and no fallback registration
-    (currently ``kimi_code`` and ``codex_tui``) resolve to this error instead
-    of silently scraping with an unqualified detector.
+    (currently ``kimi_code``, ``codex_tui``, and ``claude_code``) resolve to
+    this error instead of silently scraping with an unqualified detector.
     """
 
     def __init__(
@@ -123,16 +123,10 @@ class DetectorProfileRegistry:
                     app_id="claude_code",
                     detector_name="claude_code",
                     detector_version="2.1.x",
-                    minimum_supported_version=(2, 1, 0),
-                    maximum_supported_version=(2, 2, 0),
+                    minimum_supported_version=(2, 1, 296),
+                    maximum_supported_version=None,
                     profile_factory=ClaudeCodeSignalDetectorV2_1_X,
-                ),
-                DetectorProfileRegistration(
-                    app_id="claude_code",
-                    detector_name="claude_code",
-                    detector_version="fallback",
-                    minimum_supported_version=None,
-                    profile_factory=FallbackClaudeDetector,
+                    qualified_through_version="2.1.296",
                 ),
                 DetectorProfileRegistration(
                     app_id="codex_tui",

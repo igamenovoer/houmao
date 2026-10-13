@@ -429,7 +429,7 @@ def test_codex_tui_explicit_input_clears_stale_success() -> None:
     assert state.last_turn_source == "none"
 
 
-def test_codex_tui_visible_draft_clears_stale_success() -> None:
+def test_codex_tui_visible_draft_preserves_stale_success() -> None:
     scheduler = TestScheduler()
     session = _codex_session(scheduler=scheduler)
 
@@ -439,7 +439,8 @@ def test_codex_tui_visible_draft_clears_stale_success() -> None:
     session.on_snapshot(_CODEX_READY_SURFACE)
     scheduler.advance_to(2.6)
 
-    assert session.current_state().last_turn_result == "success"
+    settled = session.current_state()
+    assert settled.last_turn_result == "success"
 
     scheduler.advance_to(2.8)
     session.on_snapshot(_CODEX_TYPED_DRAFT_SURFACE)
@@ -447,11 +448,11 @@ def test_codex_tui_visible_draft_clears_stale_success() -> None:
 
     assert state.turn_phase == "ready"
     assert state.surface_editing_input == "yes"
-    assert state.last_turn_result == "none"
-    assert state.last_turn_source == "none"
+    assert state.last_turn_result == settled.last_turn_result
+    assert state.last_turn_source == settled.last_turn_source
 
 
-def test_codex_tui_visible_draft_does_not_rearm_success_after_settle_window() -> None:
+def test_codex_tui_visible_draft_preserves_success_after_settle_window() -> None:
     scheduler = TestScheduler()
     session = _codex_session(scheduler=scheduler)
 
@@ -461,7 +462,8 @@ def test_codex_tui_visible_draft_does_not_rearm_success_after_settle_window() ->
     session.on_snapshot(_CODEX_READY_SURFACE)
     scheduler.advance_to(2.6)
 
-    assert session.current_state().last_turn_result == "success"
+    settled = session.current_state()
+    assert settled.last_turn_result == "success"
 
     scheduler.advance_to(2.8)
     session.on_snapshot(_CODEX_TYPED_DRAFT_SURFACE)
@@ -470,11 +472,11 @@ def test_codex_tui_visible_draft_does_not_rearm_success_after_settle_window() ->
 
     assert state.turn_phase == "ready"
     assert state.surface_editing_input == "yes"
-    assert state.last_turn_result == "none"
-    assert state.last_turn_source == "none"
+    assert state.last_turn_result == settled.last_turn_result
+    assert state.last_turn_source == settled.last_turn_source
 
 
-def test_codex_tui_visible_draft_clears_stale_interrupted_result() -> None:
+def test_codex_tui_visible_draft_preserves_stale_interrupted_result() -> None:
     scheduler = TestScheduler()
     session = _codex_session(scheduler=scheduler)
 
@@ -491,11 +493,13 @@ def test_codex_tui_visible_draft_clears_stale_interrupted_result() -> None:
 
     assert state.turn_phase == "ready"
     assert state.surface_editing_input == "yes"
-    assert state.last_turn_result == "none"
-    assert state.last_turn_source == "none"
+    assert state.last_turn_result == "interrupted"
+    assert state.last_turn_source != "none"
 
 
-def test_codex_tui_visible_draft_overrides_stale_interrupted_signal_after_first_sample() -> None:
+def test_codex_tui_visible_draft_preserves_interrupted_outcome_with_stale_interrupt_signal() -> (
+    None
+):
     scheduler = TestScheduler()
     session = _codex_session(scheduler=scheduler)
 
@@ -512,8 +516,8 @@ def test_codex_tui_visible_draft_overrides_stale_interrupted_signal_after_first_
 
     assert state.turn_phase == "ready"
     assert state.surface_editing_input == "yes"
-    assert state.last_turn_result == "none"
-    assert state.last_turn_source == "none"
+    assert state.last_turn_result == "interrupted"
+    assert state.last_turn_source != "none"
 
     scheduler.advance_to(2.0)
     session.on_snapshot(_CODEX_INTERRUPTED_READY_WITH_DRAFT_SURFACE)
@@ -521,8 +525,8 @@ def test_codex_tui_visible_draft_overrides_stale_interrupted_signal_after_first_
 
     assert repeated.turn_phase == "ready"
     assert repeated.surface_editing_input == "yes"
-    assert repeated.last_turn_result == "none"
-    assert repeated.last_turn_source == "none"
+    assert repeated.last_turn_result == "interrupted"
+    assert repeated.last_turn_source != "none"
 
 
 def test_codex_tui_second_active_turn_clears_stale_interrupted_result() -> None:

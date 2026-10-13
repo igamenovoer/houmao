@@ -149,32 +149,6 @@ class ClaudePromptBehaviorVariantV2_1_X:
         )
 
 
-class FallbackClaudePromptBehaviorVariant:
-    """Conservative prompt behavior variant for unmatched Claude versions."""
-
-    @property
-    def variant_name(self) -> str:
-        """Return the fallback debug name."""
-
-        return "fallback"
-
-    def classify(self, snapshot: PromptAreaSnapshot) -> PromptClassification:
-        """Classify prompt presentation conservatively for fallback use."""
-
-        if not snapshot.prompt_visible:
-            return PromptClassification(kind="unknown", prompt_text=None)
-        if snapshot.payload_text is None:
-            return PromptClassification(kind="empty", prompt_text=None)
-        render_state = _prompt_payload_render_state(snapshot)
-        if render_state is not None and render_state.any_dim and not render_state.any_plain:
-            return PromptClassification(kind="placeholder", prompt_text=None)
-        return PromptClassification(
-            kind="unknown",
-            prompt_text=None,
-            notes=("unrecognized_prompt_presentation",),
-        )
-
-
 def build_prompt_area_snapshot(surface: SurfaceView) -> PromptAreaSnapshot:
     """Return a bounded prompt-area snapshot from one Claude surface."""
 
@@ -224,20 +198,6 @@ def prompt_behavior_notes(
         f"prompt_kind={classification.kind}",
         *classification.notes,
     )
-
-
-def payload_uses_ghost_render_style(snapshot: PromptAreaSnapshot) -> bool | None:
-    """Return whether a prompt-like payload uses Claude's semantic ghost style.
-
-    ``None`` means the payload styling could not be classified.  The helper is
-    shared by composer suggestion and queued-preview detection so neither path
-    depends on the rendered suggestion wording.
-    """
-
-    render_state = _prompt_payload_render_state(snapshot)
-    if render_state is None:
-        return None
-    return render_state.all_ghost_suggestion
 
 
 def _prompt_payload_render_state(

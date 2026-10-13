@@ -340,7 +340,7 @@ An observed kimi version above the qualified floor SHALL resolve to the maintain
 ### Requirement: Versioned TUI profile compatibility is bounded
 Each maintained detector registration SHALL define the version interval supported by its recorded evidence, either as a bounded interval or as an open-ended floor for a maintained minimum-only registration. The registry SHALL select a profile only when the observed CLI version falls inside that interval.
 
-Versions in gaps or outside every maintained interval SHALL resolve to the conservative app fallback when the app registers one; an app with a floor-gated maintained profile and no fallback (currently `kimi_code` and `codex_tui`) SHALL raise an explicit unsupported-version error instead. An explicit experimental override MAY bypass interval matching.
+Versions in gaps or outside every maintained interval SHALL resolve to the conservative app fallback when the app registers one; an app with a floor-gated maintained profile and no fallback (currently `kimi_code`, `codex_tui`, and `claude_code`) SHALL raise an explicit unsupported-version error instead. An explicit experimental override MAY bypass interval matching.
 
 #### Scenario: Newer unvalidated CLI uses fallback
 - **WHEN** an observed TUI version is newer than the maximum validated version of every maintained profile for an app that registers a fallback
@@ -352,11 +352,11 @@ Versions in gaps or outside every maintained interval SHALL resolve to the conse
 - **THEN** resolution raises an explicit unsupported-version error naming the observed version and the floor
 - **AND THEN** no detector is selected for that session
 
-### Requirement: Current Codex and Kimi releases have evidence-backed profiles
-The registry SHALL provide a Codex 0.162.x profile qualified against labeled Codex 0.162.1 recordings and a Kimi 2.1.x profile qualified against labeled kimi-code 2.1.1 recordings. Older Codex 0.116.x and 0.144.x profiles SHALL NOT remain registered because Codex support is floor-gated at 0.162.1 with no fallback; older Kimi profiles SHALL NOT remain registered because Kimi support is floor-gated at 2.1.1 with no fallback.
+### Requirement: Current Codex, Kimi, and Claude releases have evidence-backed profiles
+The registry SHALL provide a Codex 0.162.x profile qualified against labeled Codex 0.162.1 recordings, a Kimi 2.1.x profile qualified against labeled kimi-code 2.1.1 recordings, and a Claude 2.1.x profile qualified against labeled Claude 2.1.296 recordings. Older Codex 0.116.x and 0.144.x profiles SHALL NOT remain registered because Codex support is floor-gated at 0.162.1 with no fallback; older Kimi profiles SHALL NOT remain registered because Kimi support is floor-gated at 2.1.1 with no fallback; older Claude profiles qualified around 2.1.81 SHALL NOT remain registered because Claude support is floor-gated at 2.1.296 with no fallback.
 
 #### Scenario: Current installed tools resolve current profiles
-- **WHEN** tracking observes Codex 0.162.1 or Kimi 2.1.1
+- **WHEN** tracking observes Codex 0.162.1, Kimi 2.1.1, or Claude 2.1.296
 - **THEN** it selects the matching current-version profile
 - **AND THEN** detector provenance reports that current profile version
 
@@ -384,6 +384,32 @@ An observed codex version above the qualified floor SHALL resolve to the maintai
 #### Scenario: Codex above the qualified floor resolves silently
 - **WHEN** the tracker resolves app `codex_tui` with observed version `0.163.0`
 - **THEN** resolution selects the maintained codex 0.162.x profile without a user-facing warning
+- **AND THEN** developer-visible profile metadata records the version the profile was qualified through
+
+### Requirement: Claude profile resolution errors below the support floor
+Claude tracker profile resolution SHALL support only claude at or above the qualified floor (2.1.296), through exactly one maintained profile with an open-ended semver floor and no claude fallback. An observed version below the floor, or unparseable version metadata, SHALL produce an explicit unsupported-version error at tracker resolution naming the observed (or missing) version, the floor, and the migration action (upgrade claude); no detector SHALL be selected for such a session.
+
+#### Scenario: Claude at the floor resolves the maintained profile
+- **WHEN** the tracker resolves app `claude_code` with observed version `2.1.296`
+- **THEN** resolution selects the maintained claude 2.1.x profile
+- **AND THEN** tracked-state reduction proceeds normally
+
+#### Scenario: Claude below the floor raises an unsupported-version error
+- **WHEN** the tracker resolves app `claude_code` with observed version `2.1.81`
+- **THEN** resolution produces an explicit unsupported-version error naming the observed version and the `2.1.296` floor
+- **AND THEN** no claude detector is selected and no tracked state is manufactured for that session
+
+#### Scenario: Unparseable claude version raises an unsupported-version error
+- **WHEN** the tracker resolves app `claude_code` with missing or unparseable version metadata
+- **THEN** resolution produces the same explicit unsupported-version error surface
+- **AND THEN** no fallback detector silently scrapes the surface
+
+### Requirement: Claude profile carries code-side qualified-version metadata
+An observed claude version above the qualified floor SHALL resolve to the maintained claude profile silently, without any user-facing warning. The claude registration and profile SHALL carry developer-visible qualified-version metadata (for example, a `qualified_through_version` field or profile note) recording which claude version the profile was qualified against.
+
+#### Scenario: Claude above the qualified floor resolves silently
+- **WHEN** the tracker resolves app `claude_code` with observed version `2.1.300`
+- **THEN** resolution selects the maintained claude 2.1.x profile without a user-facing warning
 - **AND THEN** developer-visible profile metadata records the version the profile was qualified through
 
 ### Requirement: Supported TUI profiles derive provider-native pending-input signals
@@ -418,43 +444,22 @@ The normalized signal SHALL describe presence only. Provider-specific pending co
 - **THEN** it emits `pending_input=yes` for each supported count
 - **AND THEN** the public signal does not vary with provider-specific queue depth
 
-### Requirement: Claude pending-input detection uses bounded structure and rendering semantics rather than suggestion literals
+### Requirement: Claude pending-input detection uses the queued composer placeholder
 
-For supported Claude Code profiles, pending-input detection SHALL locate the bottom current composer and its framing separators, classify composer payload through the profile-owned empty/draft/ghost-suggestion behavior, and inspect the bounded region immediately above that composer.
+For supported Claude Code profiles, pending-input detection SHALL read the queue state from the current composer's own placeholder payload: `pending_input=yes` when the placeholder carries the bounded queue-editing hint label (`Press up to edit queued messages`), and `pending_input=no` on a complete composer without the hint or on a blocked no-composer surface. The dead queued-preview ghost-cell structure SHALL NOT be used as pending-input evidence.
 
-The Claude profile SHALL report `pending_input=yes` only when that bounded region contains a non-empty indented Claude user-input cell in the queued-preview position and no assistant response, tool block, or current activity cell intervenes between the candidate queued cell and the current composer frame.
+#### Scenario: Queued placeholder reports pending input
 
-Prompt-area suggestion text SHALL NOT be sufficient positive or negative pending-input evidence. The detector SHALL NOT require an exact phrase such as an instruction for editing queued messages. Ghost suggestions SHALL continue to be interpreted from profile-owned rendering or style evidence.
-
-When the composer frame, queued-preview boundary, or relevant rendering semantics are incomplete or unrecognized, the Claude profile SHALL emit `pending_input=unknown` rather than a confident negative result.
-
-#### Scenario: Changed or localized suggestion wording does not change a structural positive
-
-- **WHEN** a Claude surface contains a structurally valid queued-preview user cell above the framed composer
-- **AND WHEN** the ghost suggestion uses arbitrary, changed, or localized wording in a recognized suggestion style
+- **WHEN** a Claude turn is active and the composer placeholder payload carries the queue-editing hint label
 - **THEN** the selected Claude profile emits `pending_input=yes`
-- **AND THEN** it does not compare the suggestion payload with a fixed string
+- **AND THEN** the read needs no ghost-cell structure above the composer
 
-#### Scenario: Queued row remains positive when suggestion text is absent
+#### Scenario: Placeholder-free composer reports no pending input
 
-- **WHEN** a Claude surface contains a structurally valid queued-preview user cell above an otherwise empty framed composer
-- **THEN** the selected Claude profile emits `pending_input=yes`
-- **AND THEN** the absence of queue-editing suggestion text does not suppress the positive result
+- **WHEN** the composer is visible with an empty, suggestion, or draft payload and no queue-editing hint
+- **THEN** the selected Claude profile emits `pending_input=no`
 
-#### Scenario: Ghost suggestion alone is not a queue
+#### Scenario: Missing composer reports blocked, not unknown
 
-- **WHEN** the bottom Claude composer contains a recognized ghost suggestion but no queued-preview user cell exists above its frame
-- **THEN** the selected Claude profile does not emit `pending_input=yes`
-- **AND THEN** a complete negative surface emits `pending_input=no`
-
-#### Scenario: Historical queue-like prose is not a queue
-
-- **WHEN** Claude transcript history contains queue-related words or an older user-input cell separated from the current composer by assistant output, tool output, or current activity
-- **THEN** the selected Claude profile does not use that historical content as pending-input evidence
-- **AND THEN** it derives the result only from the bounded current queue/composer structure
-
-#### Scenario: Cropped Claude structure is unknown
-
-- **WHEN** a wrapped, resized, or cropped Claude snapshot does not preserve enough of the queued-preview and composer framing structure to decide safely
-- **THEN** the selected Claude profile emits `pending_input=unknown`
-- **AND THEN** it does not convert missing structure into `pending_input=no`
+- **WHEN** no Claude composer is visible in the captured surface
+- **THEN** the selected Claude profile emits `pending_input=no` along with the other blocked surface booleans

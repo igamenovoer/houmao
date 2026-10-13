@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from houmao.shared_tui_tracking.apps.claude_code.signals.prompt_behavior import (
     ClaudePromptBehaviorVariantV2_1_X,
-    FallbackClaudePromptBehaviorVariant,
     build_prompt_area_snapshot,
 )
 from houmao.shared_tui_tracking.surface import SurfaceView
@@ -95,15 +94,6 @@ def test_claude_prompt_behavior_2_1_degrades_non_color_styled_prompt() -> None:
     assert "unrecognized_prompt_presentation" in classification.notes
 
 
-def test_fallback_claude_prompt_behavior_stays_conservative_for_nonempty_prompt() -> None:
-    snapshot = build_prompt_area_snapshot(SurfaceView.from_text(_PLAIN_DRAFT_SURFACE))
-
-    classification = FallbackClaudePromptBehaviorVariant().classify(snapshot)
-
-    assert classification.kind == "unknown"
-    assert "unrecognized_prompt_presentation" in classification.notes
-
-
 def test_claude_prompt_behavior_classifies_arbitrary_ghost_suggestion_from_style() -> None:
     snapshot = build_prompt_area_snapshot(
         SurfaceView.from_text(_surface(f"{_GHOST_STYLE_PREFIX}Review the latest mailbox item"))
@@ -147,17 +137,6 @@ def test_claude_prompt_behavior_degrades_unrecognized_nonempty_styling() -> None
     )
 
     classification = ClaudePromptBehaviorVariantV2_1_X().classify(snapshot)
-
-    assert classification.kind == "unknown"
-    assert "unrecognized_prompt_presentation" in classification.notes
-
-
-def test_fallback_claude_prompt_behavior_stays_conservative_for_ghost_suggestion() -> None:
-    snapshot = build_prompt_area_snapshot(
-        SurfaceView.from_text(_surface(f"{_GHOST_STYLE_PREFIX}Review the latest mailbox item"))
-    )
-
-    classification = FallbackClaudePromptBehaviorVariant().classify(snapshot)
 
     assert classification.kind == "unknown"
     assert "unrecognized_prompt_presentation" in classification.notes

@@ -4,6 +4,8 @@ Determine how houmao should parse Claude Code 2.1.296 TUI surfaces to decide the
 
 See [debug-intent.md](debug-intent.md) for the complete campaign description.
 
+Outcome: the repair report's fix list integrated on 2026-10-13 as OpenSpec change [`2026-10-13-raise-claude-floor-2-1-296`](../../../../openspec/changes/archive/2026-10-13-raise-claude-floor-2-1-296/proposal.md) — see [the repair report's Integration Outcome](reports/2026-10-12-claude-2-1-296-parsing-repair.md#integration-outcome-2026-10-13).
+
 ## Directory Structure
 
 - **debug-intent.md** — Root campaign document with problem statement, scope, boundaries, and status updates

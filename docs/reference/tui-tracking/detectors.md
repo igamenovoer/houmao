@@ -13,7 +13,7 @@ flowchart TD
     OT["other app_id"]
     DPR["DetectorProfileRegistry"]
     VM["Version matching"]
-    CCD["ClaudeCodeSignalDetectorV2_1_X"]
+    CCD["Claude >=2.1.296 profile<br/>no upper bound, no fallback"]
     CXD["Codex >=0.162.1 profile<br/>no upper bound, no fallback"]
     KMD["Kimi >=2.1.1 profile<br/>no upper bound, no fallback"]
     BEST["Best detector for<br/>observed CLI version"]
@@ -55,7 +55,9 @@ Derives lifecycle hints from a window of recent temporal frames. These hints inf
 
 ### Claude Code Detectors
 
-- **`ClaudeCodeSignalDetectorV2_1_X`** — Signal detector for Claude Code ≥ 2.1.x. Recognizes Claude Code's prompt patterns, status line formats, interrupt indicators, and error surfaces. Handles the tool-use confirmation dialogs and permission prompts specific to Claude Code's TUI.
+- **`ClaudeCodeSignalDetectorV2_1_X`** — The single maintained Claude Code profile, selected for every observed version at or above the 2.1.296 support floor, with no upper bound. Qualified against the frozen 2026-10-12 campaign recordings of Claude Code 2.1.296 (`context/campaigns/debug/2026-10-12-claude-code-tui-parsing/`; session-1 1.0000/1.0000, session-2-002 1.0000/1.0000, session-2-001 1.0000/0.9995 on the admission booleans, zero false-ready). Modal surfaces (workspace trust, `Do you want to …` approval panels with their cancel footer, the `Select model` picker) force all four surface booleans to `no` with activity suppressed while mounted. Completion reads from the `✻ <Verb> for <Nm Ns>` dock scoped to the latest-turn region; busy evidence uses the `esc to interrupt` footer as primary with a suffix-tolerant spinner as secondary, and readiness asserts `no` while busy. Interruption matches `⎿ Interrupted` and `⎿ User rejected` status lines; queued input reads from the composer placeholder (`Press up to edit queued messages`); success candidacy is refused while the composer carries a draft; the settle-identity signature hashes state-bearing lines only. The temporal channel (600 s window) infers silent Esc aborts (active → idle with no modal, no interrupt line, no fresh region dock), carries busy evidence across the slash-autocomplete blink, and restores a pre-modal interrupted outcome on modal dismissal. The class carries `qualified_through_version = "2.1.296"` metadata.
+
+Claude has no fallback detector: an observed version below 2.1.296, or unparseable version metadata, raises `UnsupportedToolVersionError` at tracker resolution. Pre-2.1.296 Claude profiles (`FallbackClaudeDetector`, the 2.1.81-era registration) were removed; older recordings are historical evidence only.
 
 ### Codex TUI Detectors
 
@@ -71,8 +73,7 @@ Kimi has no fallback detector: an observed version below 2.1.1, or unparseable v
 
 ### Fallback Detectors
 
-- **`FallbackClaudeDetector`** — Fallback detector used when no versioned Claude Code detector matches the installed CLI version. Provides conservative signal detection that avoids false positives.
-- **`FallbackTrackedTurnSignalDetector`** — Fallback tracked turn detector for unsupported or unrecognized tools. (Codex has no fallback; see above.)
+- **`FallbackTrackedTurnSignalDetector`** — Fallback tracked turn detector for unsupported or unrecognized tools. (Claude, Codex, and Kimi have no fallback; see above.)
 
 ## DetectorProfileRegistry
 
@@ -96,7 +97,7 @@ A registration entry in the registry.
 
 ### ResolvedDetectorProfile
 
-The resolved profile for one tracker session, selected only when the observed version lies inside a maintained bounded interval or at or above a maintained minimum-only registration. Version gaps and missing versions use the app-specific fallback when one exists; apps with a floor-gated maintained profile and no fallback (`kimi_code`, floor 2.1.1; `codex_tui`, floor 0.162.1) raise `UnsupportedToolVersionError` instead. Tests may request an exact registered detector-version override for recorded experiments.
+The resolved profile for one tracker session, selected only when the observed version lies inside a maintained bounded interval or at or above a maintained minimum-only registration. Version gaps and missing versions use the app-specific fallback when one exists; apps with a floor-gated maintained profile and no fallback (`claude_code`, floor 2.1.296; `codex_tui`, floor 0.162.1; `kimi_code`, floor 2.1.1) raise `UnsupportedToolVersionError` instead. Tests may request an exact registered detector-version override for recorded experiments.
 
 ### `app_id_from_tool(tool: str) -> str`
 

@@ -22,8 +22,9 @@ Three detector families exist:
 
 | Family | Class | Tool | Selection |
 |--------|-------|------|-----------|
-| `claude_code` (version `2.1.x`) | `ClaudeCodeSignalDetectorV2_1_X` | Claude Code | Best-match by observed CLI version; highest score for `2.1.*`, fallback for other `2.*` |
-| `codex_tui` | `CodexTuiSignalDetector` | Codex interactive TUI | Selected when `tool == "codex"` for tracked raw-snapshot TUI sessions |
+| `claude_code` (version `2.1.x`) | `ClaudeCodeSignalDetectorV2_1_X` | Claude Code | Single maintained profile at or above the 2.1.296 floor; `UnsupportedToolVersionError` below the floor |
+| `codex_tui` | `CodexTuiSignalDetectorV0_162_X` | Codex interactive TUI | Single maintained profile at or above the 0.162.1 floor; `UnsupportedToolVersionError` below the floor |
+| `kimi_code` | `KimiCodeSignalDetectorV2_1_X` | Kimi Code interactive TUI | Single maintained profile at or above the 2.1.1 floor; `UnsupportedToolVersionError` below the floor |
 | `unsupported_tool` | `FallbackTrackedTurnSignalDetector` | All others | Default fallback for unrecognized tools |
 
 The selection entry point remains `select_tracked_turn_signal_detector(tool=..., observed_version=...)`, but it now resolves through the tracker-local app/profile registry with closest-compatible semver-floor matching rather than ad hoc scoring. For `codex_tui`, the resolved profile may also contribute temporal hints from a recent sliding window while keeping the single-snapshot `DetectedTurnSignals` contract intact.

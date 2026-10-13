@@ -422,37 +422,25 @@ The live adapter MAY emit explicit input events when they are available, but sna
 - **THEN** a later stable ready-return completion may still settle as `success`
 - **AND THEN** the live adapter does not need explicit keystroke reporting to support Codex TUI completion tracking
 
-### Requirement: Newer-turn evidence invalidates stale terminal outcomes
-For supported parsed tmux-backed sessions, the tracked state SHALL clear `last_turn.result` and `last_turn.source` back to `none` as soon as the surface shows authoritative evidence that a newer turn has begun.
+### Requirement: Newer-turn submission or activity invalidates stale terminal outcomes
+For supported parsed tmux-backed sessions, the tracked state SHALL clear `last_turn.result` and `last_turn.source` back to `none` only on authoritative newer-turn evidence: explicit input submission, or newer active-turn evidence attributable to the latest-turn region. A visible composer draft SHALL NOT by itself clear a latched outcome. Provider maintenance activity such as context compaction SHALL NOT clear or settle over the previous prompt turn's outcome.
 
-Authoritative newer-turn evidence SHALL include at least:
+#### Scenario: Draft editing preserves the previous terminal result
+- **WHEN** the most recent completed turn ended with `last_turn.result=interrupted` or `last_turn.result=success`
+- **AND WHEN** the operator edits a visible non-placeholder draft without submitting it
+- **THEN** the tracked state continues to report that terminal outcome
+- **AND THEN** it reports `surface.editing_input=yes` while the draft is visible
 
-- a visible non-placeholder draft for the current prompt while input is being accepted,
-- explicit input submission for the newer turn, or
-- newer active-turn evidence attributable to the latest-turn region.
-
-Provider maintenance activity that is not operator prompt work — in particular context compaction surfaces — SHALL NOT by itself count as authoritative newer-turn evidence, SHALL NOT clear the previous prompt turn's terminal outcome, and SHALL NOT settle a success outcome over it. The previous prompt turn's `last_turn.result` and `last_turn.source` SHALL persist unchanged across such maintenance activity until a prompt-originated turn provides newer-turn evidence.
-
-Older terminal transcript text that remains visible on screen SHALL NOT keep `last_turn.result` or `last_turn.source` attached to the newer turn once such evidence exists.
-The system SHALL apply the same stale-terminal invalidation rule to explicit input-authority events and to snapshot-driven newer-turn authority rather than limiting interrupted or known-failure clearing to success-settle or surface-signature-specific logic.
-
-#### Scenario: Draft after interruption clears the previous terminal result
-- **WHEN** the most recent completed turn ended with `last_turn.result=interrupted`
-- **AND WHEN** the operator begins a visible non-placeholder draft for the next turn
-- **THEN** the tracked state reports `last_turn.result=none`
-- **AND THEN** the tracked state reports `last_turn.source=none`
+#### Scenario: Restored post-abort draft preserves the interrupted outcome
+- **WHEN** a turn aborts without a transcript interrupt line and the provider restores the aborted prompt into the composer as a draft
+- **THEN** the tracked state reports `last_turn.result=interrupted`
+- **AND THEN** the restored draft does not clear that outcome before the next submission or active-turn evidence
 
 #### Scenario: Second active turn clears the previous interrupted outcome
 - **WHEN** one tracked turn has already ended as `interrupted`
 - **AND WHEN** the tracker observes authoritative active-turn evidence for the next turn
 - **THEN** the tracked state reports `turn.phase=active`
 - **AND THEN** the tracked state does not continue reporting the prior interrupted turn as the current `last_turn`
-
-#### Scenario: Draft after success clears the previous success outcome
-- **WHEN** the most recent completed turn ended with `last_turn.result=success`
-- **AND WHEN** the operator begins a visible non-placeholder draft for the next turn
-- **THEN** the tracked state reports `last_turn.result=none`
-- **AND THEN** the tracked state does not preserve the old success outcome into the new draft span
 
 #### Scenario: Explicit input submission clears the previous terminal outcome
 - **WHEN** the most recent completed turn ended with `last_turn.result=success`, `interrupted`, or `known_failure`
@@ -465,6 +453,36 @@ The system SHALL apply the same stale-terminal invalidation rule to explicit inp
 - **AND WHEN** a context compaction surface runs and completes without any prompt-originated newer-turn evidence
 - **THEN** the tracked state continues to report `last_turn.result=interrupted` throughout and after the compaction
 - **AND THEN** the compaction's completion does not settle `last_turn.result=success` over the interrupted record
+
+### Requirement: Claude Code tracked state models 2.1.296 signal surfaces
+For supported Claude Code sessions at or above 2.1.296, the selected Claude profile SHALL follow the 2.1.296 surface contract: modal surfaces force the four surface booleans to `no` with activity suppressed; completion reads from the `✻`-anchored verb dock scoped to the latest-turn region; busy evidence uses the `esc to interrupt` footer as primary; interruption matches `⎿ Interrupted` and `⎿ User rejected` status lines; and `surface.ready_posture` asserts `no` while busy.
+
+#### Scenario: Approval dialog blocks the four booleans
+- **WHEN** a Claude approval panel (`Do you want to …` with its cancel/amend footer) holds the surface mid-turn
+- **THEN** the tracked state reports `surface.accepting_input=no`, `surface.ready_posture=no`, `surface.pending_input=no`, and `turn.phase=unknown`
+- **AND THEN** the panel's `❯`-option rows do not read as a usable composer
+
+#### Scenario: Stale dock in scrollback does not complete a busy turn
+- **WHEN** a previous turn's `✻ <Verb> for <dur>` dock persists in scrollback while a newer turn is active
+- **THEN** the tracked state does not settle success from that stale dock
+- **AND THEN** completion is recognized only from a dock inside the latest-turn region
+
+#### Scenario: Busy turn asserts not-ready instead of unknown
+- **WHEN** the `esc to interrupt` footer or the spinner line is visible
+- **THEN** the tracked state reports `surface.ready_posture=no` and `turn.phase=active`
+- **AND THEN** it does not degrade readiness to `unknown` while busy evidence holds
+
+### Requirement: Claude Code 2.1.296 profile infers silent aborts and modal restores temporally
+For supported Claude Code sessions at or above 2.1.296, the selected profile SHALL contribute temporal inference over a recent frame window: an active-to-idle transition with no modal, no interrupt line, and no freshly appeared region dock latches `interrupted` (the silent Esc abort); an autocomplete busy-evidence blink does not end the turn; and a modal opened from an idle interrupted surface restores the interrupted outcome on dismissal.
+
+#### Scenario: Silent Esc abort latches interrupted across the restored draft
+- **WHEN** an active Claude turn goes idle with no modal, no interrupt line, and no freshly appeared region dock, and the aborted prompt reappears as a composer draft
+- **THEN** the tracked state reports `last_turn.result=interrupted` and `surface.editing_input=yes`
+- **AND THEN** that outcome persists until the next submission or active-turn evidence
+
+#### Scenario: Picker dismissal restores the pre-modal interrupted outcome
+- **WHEN** the model picker opens from an idle surface whose last completed turn ended `interrupted` and then closes
+- **THEN** the tracked state reports `last_turn.result=interrupted` again even though the picker command's echo re-anchored the latest-turn region
 
 ### Requirement: Current draft editing remains visible during overlapping turn activity
 When the visible prompt area contains current user-authored draft input, the tracked state SHALL report that draft through `surface.editing_input=yes` even if a previous turn is still visibly active or old terminal status text remains visible in transcript history.

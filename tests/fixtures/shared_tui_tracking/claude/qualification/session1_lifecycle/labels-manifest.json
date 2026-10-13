@@ -1,0 +1,20 @@
+{
+  "independence": "Labels authored from raw pane snapshots, runtime observations, and drive events only; no detector, parser, tracker, or replay output was inspected before or during labeling.",
+  "known_ambiguities": [
+    "Session 1: Esc mid-turn aborts silently (no '\u23bf Interrupted' transcript line) and restores the prompt into the composer as a draft; the interrupted result is adjudicated from drive events, not surface text.",
+    "Session 1: the '/compact' op typed onto the restored draft and submitted a mangled 'IT-7/compact' prompt; compaction coverage is a declared gap and the mangled turn is labeled as an ordinary active turn.",
+    "Session 1: the queued '/model' opens the picker while the mangled turn keeps streaming; the turn RESUMES after the picker closes (s001526-s001532: spinner + busy footer) and ends '\u23bf Interrupted' at s001533. Picker frames are labeled modal from full render (s001511); resumed frames are labeled active per surface evidence (post-repair boundary correction).",
+    "Session 1 exit leg: two C-c presses 1 s apart did not exit (the hint appears after the second press); TUI stays alive through the final sample \u2014 tui_down is a coverage gap.",
+    "Session 2 (002): the edit-approval dialog was dismissed by the runner's recovery Escape at 223.02 s after the wrong-needle wait timed out, not by the leg's own deny-esc; the 180 s dwell is labeled approval_modal throughout.",
+    "Session 2a (001): auto mode auto-approved both approval-bait legs with no dialog; labeled as ordinary active/ready turns \u2014 this run is the auto-mode evidence baseline, not approval coverage.",
+    "Completion verb markers ('\u273b <Verb> for <dur> \u00b7 done <time>') use per-turn randomized verbs (Cooked, Saut\u00e9ed, Cogitated, Baked, Churned observed); the dock line persists in scrollback but only its visibility in the captured tail is labeled."
+  ],
+  "labeled_at_utc": "2026-10-12T16:28:55+00:00",
+  "labeler": "kimi-code-agent (blind: raw snapshots + drive events only)",
+  "labels_sha256": "b8744344a384861079d1192191c5ba478e5b1c6063c449a64520fb5317494046",
+  "public_state_schema": "houmao.shared_tui_tracking TrackedTimelineState fields (8)",
+  "run_id": "2026-10-12-claude-session1-lifecycle",
+  "schema_version": 1,
+  "settle_seconds": 1.0,
+  "source_recording_sha256": "0928bfc4e70273b4abf41921d762a8f1852d21a0641ef1a3cae358fdd99ac5b4"
+}

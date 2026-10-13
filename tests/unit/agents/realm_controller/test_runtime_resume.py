@@ -433,7 +433,7 @@ def test_resume_unattended_local_interactive_uses_resume_control_intent_without_
         return type(
             "_Completed",
             (),
-            {"stdout": "2.1.83 (Claude Code)", "stderr": "", "args": command},
+            {"stdout": "2.1.296 (Claude Code)", "stderr": "", "args": command},
         )()
 
     monkeypatch.setattr(

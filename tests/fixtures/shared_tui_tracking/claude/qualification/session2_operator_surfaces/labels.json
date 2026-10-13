@@ -1,0 +1,185 @@
+{
+  "labels": [
+    {
+      "evidence": {
+        "family": "startup_modal"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "no",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "unknown"
+      },
+      "label_id": "startup_modal-001",
+      "note": "trust dialog",
+      "sample_end_id": "s000051",
+      "sample_id": "s000001",
+      "scenario_id": "s2-bootstrap-trust-modal"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-001",
+      "note": "idle composer with 'Auto mode is now Claude Code's default permission mode' banner block",
+      "sample_end_id": "s000065",
+      "sample_id": "s000052",
+      "scenario_id": "s2-bootstrap-trust-modal"
+    },
+    {
+      "evidence": {
+        "family": "editing"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "editing-001",
+      "note": "submit-command type-phase frame: the full command draft renders in the composer at s000066 (boundary corrected in the post-repair pass from composer surface evidence)",
+      "sample_end_id": "s000066",
+      "sample_id": "s000066",
+      "scenario_id": "s2-command-approval-deny"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-001",
+      "note": "auto mode auto-approved the touch command (no dialog); 'Ran 1 shell command' visible from s000147",
+      "sample_end_id": "s000148",
+      "sample_id": "s000067",
+      "scenario_id": "s2-command-approval-deny"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "success",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-002",
+      "note": "command turn docked '\u273b Churned for 18s \u00b7 done 10:09 PM'; long dwell through the 180 s wrong-needle wait",
+      "sample_end_id": "s000950",
+      "sample_id": "s000149",
+      "scenario_id": "s2-command-approval-deny"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-002",
+      "note": "edit turn: Write auto-approved ('Allowed by auto mode classifier'), spinner '* Blanching\u2026 (1m 26s \u00b7 \u2193 64 tokens)' with /btw tip; stalled ~180 s on the wrong-needle wait",
+      "sample_end_id": "s001750",
+      "sample_id": "s000951",
+      "scenario_id": "s2-edit-approval-deny"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "interrupted",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-003",
+      "note": "runner recovery Esc at ~394.15 s interrupted the stalled turn: '\u23bf Interrupted \u00b7 What should Claude do instead?'",
+      "sample_end_id": "s001831",
+      "sample_id": "s001751",
+      "scenario_id": "s2-edit-approval-deny"
+    },
+    {
+      "evidence": {
+        "family": "model_picker"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "no",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "unknown"
+      },
+      "label_id": "model_picker-001",
+      "note": "'Select model' picker",
+      "sample_end_id": "s001844",
+      "sample_id": "s001832",
+      "scenario_id": "s2-model-picker"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "interrupted",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-004",
+      "note": "picker canceled; idle composer",
+      "sample_end_id": "s001864",
+      "sample_id": "s001845",
+      "scenario_id": "s2-model-picker"
+    }
+  ],
+  "schema_version": 1
+}

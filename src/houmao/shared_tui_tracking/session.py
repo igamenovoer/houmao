@@ -333,11 +333,12 @@ class TuiTrackerSession:
             if draft_authority_visible and self.m_state.turn_phase != "active":
                 if effective_signals.interrupted or effective_signals.known_failure:
                     self._cancel_success_timer_locked()
-                    last_turn_result, last_turn_source = (
-                        self._invalidate_stale_terminal_outcome_for_newer_turn_locked(
-                            reason="visible_draft",
-                        )
-                    )
+                    # A visible draft does not invalidate a latched terminal
+                    # outcome: providers can restore an aborted prompt into the
+                    # composer, and the previous outcome stays correct while
+                    # the operator edits.
+                    last_turn_result = self.m_state.last_turn_result
+                    last_turn_source = self.m_state.last_turn_source
                     visible_draft_phase: TurnPhase = (
                         "ready" if effective_signals.ready_posture == "yes" else "unknown"
                     )
@@ -486,14 +487,10 @@ class TuiTrackerSession:
             default_phase: TurnPhase = (
                 "ready" if effective_signals.ready_posture == "yes" else "unknown"
             )
+            # Draft authority alone does not clear a latched terminal outcome;
+            # only explicit submission or newer active-turn evidence does.
             last_turn_result = self.m_state.last_turn_result
             last_turn_source = self.m_state.last_turn_source
-            if draft_authority_visible:
-                last_turn_result, last_turn_source = (
-                    self._invalidate_stale_terminal_outcome_for_newer_turn_locked(
-                        reason="visible_draft",
-                    )
-                )
             self._log_debug(
                 "snapshot_decision",
                 at_seconds=at_seconds,

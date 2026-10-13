@@ -114,6 +114,7 @@ def _short_success_surface() -> str:
     return (
         "❯ Reply with the single word READY and stop.\n\n"
         "● READY\n\n"
+        "✻ Worked for 2s\n\n"
         "────────────────────────────────────────────────────────────────────────────────\n"
         "❯\n"
         "────────────────────────────────────────────────────────────────────────────────\n"
@@ -125,6 +126,7 @@ def _short_success_surface_with_footer_bullet() -> str:
     return (
         "❯ Reply with the single word RECOVERED and stop.\n\n"
         "● RECOVERED\n\n"
+        "✻ Worked for 2s\n\n"
         "────────────────────────────────────────────────────────────────────────────────\n"
         "❯\n"
         "────────────────────────────────────────────────────────────────────────────────\n"
@@ -137,6 +139,7 @@ def _short_success_surface_with_installer_notice() -> str:
     return (
         "❯ Reply with the single word READY and stop.\n\n"
         "● READY\n\n"
+        "✻ Worked for 2s\n\n"
         "────────────────────────────────────────────────────────────────────────────────\n"
         "❯\n"
         "────────────────────────────────────────────────────────────────────────────────\n"
@@ -185,7 +188,7 @@ def test_load_scenario_reads_json_fixture() -> None:
 
 
 def test_detector_matches_interrupted_signal() -> None:
-    detector = select_claude_detector(observed_version="2.1.80 (Claude Code)")
+    detector = select_claude_detector(observed_version="2.1.296 (Claude Code)")
 
     signals = detector.detect(output_text=_interrupted_surface())
 
@@ -194,7 +197,7 @@ def test_detector_matches_interrupted_signal() -> None:
 
 
 def test_detector_matches_current_known_failure_and_suppresses_stale_failure() -> None:
-    detector = select_claude_detector(observed_version="2.1.80 (Claude Code)")
+    detector = select_claude_detector(observed_version="2.1.296 (Claude Code)")
 
     current_failure = detector.detect(output_text=_known_failure_surface())
     stale_failure = detector.detect(output_text=_stale_failure_surface())
@@ -204,7 +207,7 @@ def test_detector_matches_current_known_failure_and_suppresses_stale_failure() -
 
 
 def test_detector_ignores_stale_interrupted_scrollback_above_current_draft() -> None:
-    detector = select_claude_detector(observed_version="2.1.80 (Claude Code)")
+    detector = select_claude_detector(observed_version="2.1.296 (Claude Code)")
 
     signals = detector.detect(output_text=_stale_interrupted_scrollback_surface())
 
@@ -213,7 +216,7 @@ def test_detector_ignores_stale_interrupted_scrollback_above_current_draft() -> 
 
 
 def test_detector_marks_live_spinner_variants_active() -> None:
-    detector = select_claude_detector(observed_version="2.1.80 (Claude Code)")
+    detector = select_claude_detector(observed_version="2.1.296 (Claude Code)")
 
     signals = detector.detect(output_text=_active_surface())
 
@@ -230,7 +233,7 @@ def test_detector_marks_non_active_slash_overlay_unknown() -> None:
 
     timeline = classify_groundtruth(
         observations=observations,
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         settle_seconds=1.0,
     )
 
@@ -246,7 +249,7 @@ def test_detector_keeps_active_slash_overlay_active() -> None:
 
     timeline = classify_groundtruth(
         observations=observations,
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         settle_seconds=1.0,
     )
 
@@ -269,7 +272,7 @@ def test_success_candidate_ignores_footer_bullet_lines() -> None:
 
     timeline = classify_groundtruth(
         observations=observations,
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         settle_seconds=1.0,
     )
 
@@ -277,7 +280,7 @@ def test_success_candidate_ignores_footer_bullet_lines() -> None:
 
 
 def test_detector_allows_response_block_success_with_installer_notice() -> None:
-    detector = select_claude_detector(observed_version="2.1.81 (Claude Code)")
+    detector = select_claude_detector(observed_version="2.1.296 (Claude Code)")
 
     signals = detector.detect(output_text=_short_success_surface_with_installer_notice())
 
@@ -287,7 +290,7 @@ def test_detector_allows_response_block_success_with_installer_notice() -> None:
 
 
 def test_detector_treats_truncated_interrupt_footer_as_active() -> None:
-    detector = select_claude_detector(observed_version="2.1.80 (Claude Code)")
+    detector = select_claude_detector(observed_version="2.1.296 (Claude Code)")
 
     signals = detector.detect(output_text=_success_candidate_with_truncated_active_footer())
 
@@ -309,7 +312,7 @@ def test_groundtruth_delays_success_until_stable_candidate_window() -> None:
 
     timeline = classify_groundtruth(
         observations=observations,
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         settle_seconds=1.0,
     )
 
@@ -331,7 +334,7 @@ def test_replay_delays_success_until_rx_timer_settles() -> None:
 
     timeline, events = replay_timeline(
         observations=observations,
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         settle_seconds=1.0,
     )
 
@@ -354,7 +357,7 @@ def test_replay_resets_success_timer_when_completion_surface_changes() -> None:
 
     timeline, _events = replay_timeline(
         observations=observations,
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         settle_seconds=1.0,
     )
 
@@ -386,7 +389,7 @@ def test_replay_invalidates_early_settled_success_when_surface_keeps_growing() -
 
     timeline, events = replay_timeline(
         observations=observations,
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         settle_seconds=1.0,
     )
 
@@ -413,7 +416,7 @@ def test_replay_allows_success_to_settle_with_ready_footer_advisory() -> None:
 
     timeline, _events = replay_timeline(
         observations=observations,
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         settle_seconds=1.0,
     )
 
@@ -444,7 +447,7 @@ def test_groundtruth_uses_final_stable_success_surface_when_output_keeps_growing
 
     timeline = classify_groundtruth(
         observations=observations,
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         settle_seconds=1.0,
     )
 
@@ -471,7 +474,7 @@ def test_groundtruth_drops_early_settled_success_if_final_suffix_never_settles()
 
     timeline = classify_groundtruth(
         observations=observations,
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         settle_seconds=1.0,
     )
 
@@ -501,12 +504,12 @@ def test_groundtruth_and_replay_map_process_loss_to_tui_down() -> None:
 
     groundtruth = classify_groundtruth(
         observations=observations,
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         settle_seconds=1.0,
     )
     replay, _events = replay_timeline(
         observations=observations,
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         settle_seconds=1.0,
     )
 
@@ -523,7 +526,7 @@ def test_compare_timelines_reports_first_divergence() -> None:
     ]
     groundtruth = classify_groundtruth(
         observations=observations,
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         settle_seconds=1.0,
     )
     replay = list(groundtruth)
@@ -556,7 +559,7 @@ def test_compare_timelines_reports_first_divergence() -> None:
 def test_stream_state_reducer_handles_live_style_success_settle() -> None:
     scheduler = TestScheduler()
     reducer = StreamStateReducer(
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         settle_seconds=1.0,
         scheduler=scheduler,
     )
@@ -584,7 +587,7 @@ def test_stream_state_reducer_handles_live_style_success_settle() -> None:
 def test_stream_state_reducer_clears_last_success_when_next_active_turn_starts() -> None:
     scheduler = TestScheduler()
     reducer = StreamStateReducer(
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         settle_seconds=1.0,
         scheduler=scheduler,
     )

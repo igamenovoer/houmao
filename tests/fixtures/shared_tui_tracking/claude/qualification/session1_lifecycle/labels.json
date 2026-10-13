@@ -1,0 +1,485 @@
+{
+  "labels": [
+    {
+      "evidence": {
+        "family": "startup_modal"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "no",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "unknown"
+      },
+      "label_id": "startup_modal-001",
+      "note": "trust dialog 'Quick safety check: Is this a project you created or one you trust?' with default 'No, exit' selected (renders even under --dangerously-skip-permissions)",
+      "sample_end_id": "s000051",
+      "sample_id": "s000001",
+      "scenario_id": "s1-bootstrap-trust-modal"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-001",
+      "note": "post-trust idle composer: banner 'Claude Code v2.1.296 / Sonnet 5.5 \u00b7 API Usage Billing', placeholder 'Try \"create a util logging.py that...\"', footer 'bypass permissions on'",
+      "sample_end_id": "s000066",
+      "sample_id": "s000052",
+      "scenario_id": "s1-bootstrap-trust-modal"
+    },
+    {
+      "evidence": {
+        "family": "editing"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "editing-001",
+      "note": "draft typing, suffix append, exact backspace erase; the full draft renders by s000067 and the composer returns to placeholder at s000093 (span boundaries corrected in the post-repair pass from composer surface evidence)",
+      "sample_end_id": "s000092",
+      "sample_id": "s000067",
+      "scenario_id": "s1-draft-editing"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-002",
+      "note": "empty composer after erase",
+      "sample_end_id": "s000097",
+      "sample_id": "s000093",
+      "scenario_id": "s1-draft-editing"
+    },
+    {
+      "evidence": {
+        "family": "editing"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "editing-002",
+      "note": "submit-short type-phase frame",
+      "sample_end_id": "s000098",
+      "sample_id": "s000098",
+      "scenario_id": "s1-busy-success"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-001",
+      "note": "busy footer 'esc to interrupt' from s000099; spinner family '<glyph> <gerund>\u2026 (Ns \u00b7 \u2193 N tokens)'",
+      "sample_end_id": "s000161",
+      "sample_id": "s000099",
+      "scenario_id": "s1-busy-success"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "success",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-003",
+      "note": "turn docked '\u273b Cooked for 14s \u00b7 done 10:03 PM'; footer flips to '\u2190 for agents' at s000162",
+      "sample_end_id": "s000312",
+      "sample_id": "s000162",
+      "scenario_id": "s1-busy-success"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-002",
+      "note": "read turn (pairwise/windowed docstrings)",
+      "sample_end_id": "s000387",
+      "sample_id": "s000313",
+      "scenario_id": "s1-tool-edit-workflow"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "success",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-004",
+      "note": "read turn docked; the composer stays empty through s000513 (the write-test prompt renders only at submission \u2014 the former s000512-s000513 editing span was a drive-timing guess, corrected in the post-repair pass from composer surface evidence)",
+      "sample_end_id": "s000513",
+      "sample_id": "s000388",
+      "scenario_id": "s1-tool-edit-workflow"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-003",
+      "note": "write+test turn: Write(tests/test_houmao_probe.py) auto-allowed under bypass, pytest run",
+      "sample_end_id": "s000614",
+      "sample_id": "s000514",
+      "scenario_id": "s1-tool-edit-workflow"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "success",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-005",
+      "note": "write turn docked '\u273b Saut\u00e9ed for 22s \u00b7 done 10:04 PM'",
+      "sample_end_id": "s000928",
+      "sample_id": "s000615",
+      "scenario_id": "s1-tool-edit-workflow"
+    },
+    {
+      "evidence": {
+        "family": "editing"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "success",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "editing-003",
+      "note": "submit-medium type-phase frame",
+      "sample_end_id": "s000929",
+      "sample_id": "s000929",
+      "scenario_id": "s1-queue-pending-input"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-004",
+      "note": "queue turn active before follow-up",
+      "sample_end_id": "s000955",
+      "sample_id": "s000930",
+      "scenario_id": "s1-queue-pending-input"
+    },
+    {
+      "evidence": {
+        "family": "active_editing"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active_editing-001",
+      "note": "follow-up draft typed into the busy composer (typing while busy is allowed)",
+      "sample_end_id": "s000956",
+      "sample_id": "s000956",
+      "scenario_id": "s1-queue-pending-input"
+    },
+    {
+      "evidence": {
+        "family": "queue_pending"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "yes",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "queue_pending-001",
+      "note": "composer placeholder becomes 'Press up to edit queued messages' while the follow-up sits queued",
+      "sample_end_id": "s000968",
+      "sample_id": "s000957",
+      "scenario_id": "s1-queue-pending-input"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-005",
+      "note": "queued follow-up echoes into the transcript as a '\u276f' user block and merges into the running turn; single dock '\u273b Cogitated for 1m 27s \u00b7 done 10:07 PM'",
+      "sample_end_id": "s001317",
+      "sample_id": "s000969",
+      "scenario_id": "s1-queue-pending-input"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "success",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-006",
+      "note": "queue turn drained",
+      "sample_end_id": "s001371",
+      "sample_id": "s001318",
+      "scenario_id": "s1-queue-pending-input"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-006",
+      "note": "interrupt-leg turn (IT-7 prompt)",
+      "sample_end_id": "s001398",
+      "sample_id": "s001372",
+      "scenario_id": "s1-interrupt-escape"
+    },
+    {
+      "evidence": {
+        "family": "interrupted"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "interrupted",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "interrupted-001",
+      "note": "Esc abort: turn stops with NO '\u23bf Interrupted' transcript line; the interrupted prompt is restored into the composer as a draft; at s001421 the driver's '/compact' types onto the restored draft (mangling captured)",
+      "sample_end_id": "s001421",
+      "sample_id": "s001399",
+      "scenario_id": "s1-interrupt-escape"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-007",
+      "note": "mangled 'IT-7/compact' prompt turn (compaction never ran; driver composition bug, declared coverage gap): spinner '\u273d Ebbing\u2026' with streaming answer tail",
+      "sample_end_id": "s001509",
+      "sample_id": "s001422",
+      "scenario_id": "s1-compaction"
+    },
+    {
+      "evidence": {
+        "family": "active_editing"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active_editing-002",
+      "note": "'/model' draft typed into the busy composer at the turn's answer-streaming tail; the slash autocomplete menu hides the busy footer and spinner for one frame",
+      "sample_end_id": "s001510",
+      "sample_id": "s001510",
+      "scenario_id": "s1-model-picker"
+    },
+    {
+      "evidence": {
+        "family": "model_picker"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "no",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "unknown"
+      },
+      "label_id": "model_picker-001",
+      "note": "'Select model' picker fully rendered from s001511: numbered entries with per-Mtok prices, '\u276f 5. Sonnet \u2714' selected, '\u2026 +8 models'; Esc keeps model ('Kept model as Sonnet 5.5'). Boundary corrected in the post-repair pass: s001511 already shows the complete picker surface, and by s001525 the picker is gone (spinner + busy footer back), not a materializing border",
+      "sample_end_id": "s001524",
+      "sample_id": "s001511",
+      "scenario_id": "s1-model-picker"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-008",
+      "note": "the streaming turn RESUMES after the picker closes: spinner plus 'esc to interrupt' footer return until the queued /model interruption lands at s001533. Boundary corrected in the post-repair pass from raw footer/spinner evidence",
+      "sample_end_id": "s001532",
+      "sample_id": "s001525",
+      "scenario_id": "s1-model-picker"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "interrupted",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-007",
+      "note": "idle composer, '\u23bf Interrupted \u00b7 What should Claude do instead?' in transcript from s001533; 'Press Ctrl-C again to exit' hint s001538-s001540; double C-c did not exit (hint timing) \u2014 TUI alive at end, tui_down coverage gap",
+      "sample_end_id": "s001563",
+      "sample_id": "s001533",
+      "scenario_id": "s1-exit"
+    }
+  ],
+  "schema_version": 1
+}

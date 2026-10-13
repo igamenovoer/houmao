@@ -1,0 +1,245 @@
+{
+  "labels": [
+    {
+      "evidence": {
+        "family": "startup_modal"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "no",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "unknown"
+      },
+      "label_id": "startup_modal-001",
+      "note": "trust dialog (same shape as session 1); s000051 is the blank dismissal frame",
+      "sample_end_id": "s000051",
+      "sample_id": "s000001",
+      "scenario_id": "s2-bootstrap-trust-modal"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-001",
+      "note": "idle composer, footer 'auto mode on'; the placeholder tip still renders at s000066 (editing boundary corrected in the post-repair pass from composer surface evidence)",
+      "sample_end_id": "s000066",
+      "sample_id": "s000052",
+      "scenario_id": "s2-bootstrap-trust-modal"
+    },
+    {
+      "evidence": {
+        "family": "editing"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "editing-001",
+      "note": "submit-command type-phase frame",
+      "sample_end_id": "s000067",
+      "sample_id": "s000067",
+      "scenario_id": "s2-command-approval-deny"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-001",
+      "note": "command turn thinking; 'esc to interrupt' footer until the dialog replaces it",
+      "sample_end_id": "s000107",
+      "sample_id": "s000068",
+      "scenario_id": "s2-command-approval-deny"
+    },
+    {
+      "evidence": {
+        "family": "approval_modal"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "no",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "unknown"
+      },
+      "label_id": "approval_modal-001",
+      "note": "boxed 'Bash command' panel: 'Ask rule Bash(touch:*) overrides auto mode for this command.', 'Do you want to proceed?', '\u276f 1. Yes / 2. No', 'Esc to cancel \u00b7 Tab to amend'",
+      "sample_end_id": "s000121",
+      "sample_id": "s000108",
+      "scenario_id": "s2-command-approval-deny"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "interrupted",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-002",
+      "note": "Esc denial: '\u23bf Interrupted \u00b7 What should Claude do instead?' plus dock '\u273b Baked for 9s \u00b7 done 10:19 PM'",
+      "sample_end_id": "s000188",
+      "sample_id": "s000122",
+      "scenario_id": "s2-command-approval-deny"
+    },
+    {
+      "evidence": {
+        "family": "editing"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "interrupted",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "yes",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "editing-002",
+      "note": "submit-write type-phase frame",
+      "sample_end_id": "s000189",
+      "sample_id": "s000189",
+      "scenario_id": "s2-edit-approval-deny"
+    },
+    {
+      "evidence": {
+        "family": "active"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "active"
+      },
+      "label_id": "active-002",
+      "note": "edit turn thinking before the dialog",
+      "sample_end_id": "s000225",
+      "sample_id": "s000190",
+      "scenario_id": "s2-edit-approval-deny"
+    },
+    {
+      "evidence": {
+        "family": "approval_modal"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "no",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "unknown"
+      },
+      "label_id": "approval_modal-002",
+      "note": "boxed 'Create file' panel with content preview: 'Do you want to create houmao-campaign-note.md?', options '1. Yes / 2. Yes, and always allow access\u2026 (shift+tab) / 3. No'; held through the driver's 180 s wrong-needle wait (the wait expected 'Do you want to proceed?'); dismissed by the runner's recovery Esc at 223.02 s",
+      "sample_end_id": "s000990",
+      "sample_id": "s000226",
+      "scenario_id": "s2-edit-approval-deny"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "interrupted",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-003",
+      "note": "denial: '\u23bf User rejected write to ../../../../../docs/houmao-campaign-note.md' plus dock '\u273b Cogitated for 8s \u00b7 done 10:22 PM'",
+      "sample_end_id": "s001070",
+      "sample_id": "s000991",
+      "scenario_id": "s2-edit-approval-deny"
+    },
+    {
+      "evidence": {
+        "family": "model_picker"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "none",
+        "last_turn_source": "none",
+        "surface_accepting_input": "no",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "no",
+        "turn_phase": "unknown"
+      },
+      "label_id": "model_picker-001",
+      "note": "'Select model' picker",
+      "sample_end_id": "s001084",
+      "sample_id": "s001071",
+      "scenario_id": "s2-model-picker"
+    },
+    {
+      "evidence": {
+        "family": "ready"
+      },
+      "expectations": {
+        "diagnostics_availability": "available",
+        "last_turn_result": "interrupted",
+        "last_turn_source": "explicit_input",
+        "surface_accepting_input": "yes",
+        "surface_editing_input": "no",
+        "surface_pending_input": "no",
+        "surface_ready_posture": "yes",
+        "turn_phase": "ready"
+      },
+      "label_id": "ready-004",
+      "note": "picker canceled with Esc; idle composer",
+      "sample_end_id": "s001104",
+      "sample_id": "s001085",
+      "scenario_id": "s2-model-picker"
+    }
+  ],
+  "schema_version": 1
+}

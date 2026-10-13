@@ -77,7 +77,7 @@ def _watch_manifest(paths: InteractiveWatchPaths) -> InteractiveWatchManifest:
         terminal_record_run_root=str(paths.terminal_record_run_root),
         sample_interval_seconds=0.2,
         settle_seconds=1.0,
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         trace_enabled=False,
         started_at_utc="2026-03-20T00:00:00+00:00",
         stopped_at_utc=None,
@@ -182,7 +182,7 @@ def test_start_interactive_watch_builds_run_local_runtime(
     )
     monkeypatch.setattr(
         "houmao.explore.claude_code_state_tracking.interactive_watch.detect_claude_version",
-        lambda: "2.1.80 (Claude Code)",
+        lambda: "2.1.296 (Claude Code)",
     )
     monkeypatch.setattr(
         "houmao.explore.claude_code_state_tracking.interactive_watch._wait_for_dashboard_running",
@@ -262,7 +262,7 @@ def test_start_interactive_watch_cleans_up_after_dashboard_start_failure(
     )
     monkeypatch.setattr(
         "houmao.explore.claude_code_state_tracking.interactive_watch.detect_claude_version",
-        lambda: "2.1.80 (Claude Code)",
+        lambda: "2.1.296 (Claude Code)",
     )
     monkeypatch.setattr(
         "houmao.explore.claude_code_state_tracking.interactive_watch._wait_for_dashboard_running",
@@ -344,7 +344,7 @@ def test_start_interactive_watch_cleans_up_on_keyboard_interrupt(
     )
     monkeypatch.setattr(
         "houmao.explore.claude_code_state_tracking.interactive_watch.detect_claude_version",
-        lambda: "2.1.80 (Claude Code)",
+        lambda: "2.1.296 (Claude Code)",
     )
     monkeypatch.setattr(
         "houmao.explore.claude_code_state_tracking.interactive_watch._wait_for_dashboard_running",
@@ -425,7 +425,7 @@ def test_start_interactive_watch_falls_back_to_direct_recorder_session_cleanup(
     )
     monkeypatch.setattr(
         "houmao.explore.claude_code_state_tracking.interactive_watch.detect_claude_version",
-        lambda: "2.1.80 (Claude Code)",
+        lambda: "2.1.296 (Claude Code)",
     )
     monkeypatch.setattr(
         "houmao.explore.claude_code_state_tracking.interactive_watch._wait_for_dashboard_running",

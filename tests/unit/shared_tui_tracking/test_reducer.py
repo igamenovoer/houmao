@@ -67,7 +67,7 @@ def test_shared_replay_delays_success_until_settle() -> None:
     timeline, events = replay_timeline(
         observations=observations,
         tool="claude",
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         settle_seconds=1.0,
     )
 
@@ -89,7 +89,7 @@ def test_shared_replay_preserves_explicit_input_authority() -> None:
         observations=observations,
         input_events=input_events,
         tool="claude",
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         settle_seconds=1.0,
     )
 
@@ -107,7 +107,7 @@ def test_shared_replay_uses_surface_inference_without_input_events() -> None:
     timeline, _events = replay_timeline(
         observations=observations,
         tool="claude",
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         settle_seconds=1.0,
     )
 
@@ -138,7 +138,7 @@ def test_shared_replay_maps_runtime_loss_to_tui_down() -> None:
     timeline, _events = replay_timeline(
         observations=observations,
         tool="claude",
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         settle_seconds=1.0,
     )
 
@@ -217,7 +217,7 @@ def test_shared_replay_debug_logs_snapshot_processing_without_raw_prompt_text(ca
     replay_timeline(
         observations=observations,
         tool="claude",
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         settle_seconds=1.0,
     )
 
@@ -256,7 +256,7 @@ def test_shared_replay_debug_logs_runtime_availability_reason(caplog) -> None:
     replay_timeline(
         observations=observations,
         tool="claude",
-        observed_version="2.1.80 (Claude Code)",
+        observed_version="2.1.296 (Claude Code)",
         settle_seconds=1.0,
     )
 

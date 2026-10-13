@@ -267,7 +267,7 @@ def test_codex_unattended_strategy_rejects_api_key_only_without_provider_contrac
         )
 
 
-@pytest.mark.parametrize("version_output", ["2.1.81 (Claude Code)", "2.1.83 (Claude Code)"])
+@pytest.mark.parametrize("version_output", ["2.1.296 (Claude Code)", "2.1.300 (Claude Code)"])
 def test_claude_unattended_strategy_synthesizes_runtime_state_from_api_key_only(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -296,7 +296,7 @@ def test_claude_unattended_strategy_synthesizes_runtime_state_from_api_key_only(
 
     assert result.args == ("-p", "--dangerously-skip-permissions")
     assert result.provenance is not None
-    assert result.provenance.selected_strategy_id == "claude-unattended-2.1.81"
+    assert result.provenance.selected_strategy_id == "claude-unattended-2.1.296"
     assert settings_payload["skipDangerousModePermissionPrompt"] is True
     assert state_payload["hasCompletedOnboarding"] is True
     assert state_payload["numStartups"] == 1
@@ -321,7 +321,7 @@ def test_claude_unattended_strategy_deduplicates_owned_launch_arg(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="2.1.83 (Claude Code)")
+    _stub_version(monkeypatch, output="2.1.296 (Claude Code)")
     home = tmp_path / "claude-home"
 
     result = apply_launch_policy(
@@ -344,7 +344,7 @@ def test_claude_unattended_strategy_accepts_minimal_projected_vendor_runtime_sta
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="2.1.83 (Claude Code)")
+    _stub_version(monkeypatch, output="2.1.296 (Claude Code)")
     home = tmp_path / "claude-home"
     home.mkdir()
     credentials_path = home / ".credentials.json"
@@ -392,7 +392,7 @@ def test_claude_resume_control_preserves_cli_args_without_touching_owned_files(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="2.1.83 (Claude Code)")
+    _stub_version(monkeypatch, output="2.1.296 (Claude Code)")
     home = tmp_path / "claude-home"
     home.mkdir()
     settings_path = home / "settings.json"
@@ -423,7 +423,7 @@ def test_concurrent_claude_resume_control_requests_do_not_observe_malformed_owne
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="2.1.83 (Claude Code)")
+    _stub_version(monkeypatch, output="2.1.296 (Claude Code)")
     home = tmp_path / "claude-home"
     home.mkdir()
     settings_path = home / "settings.json"
@@ -458,7 +458,7 @@ def test_claude_provider_start_repairs_blank_owned_files_via_atomic_replace(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="2.1.83 (Claude Code)")
+    _stub_version(monkeypatch, output="2.1.296 (Claude Code)")
     home = tmp_path / "claude-home"
     home.mkdir()
     settings_path = home / "settings.json"
