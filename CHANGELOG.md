@@ -4,6 +4,32 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [2.3.0] - 2026-10-16
+
+### Changed
+
+- **BREAKING: Kimi Code support floor raised to 2.1.1**: managed launch and TUI tracking now require Kimi Code 2.1.1 or later, with no upper version limit. Older or unparseable versions fail explicitly with an unsupported-version error instead of silently selecting a degraded detector, and the 0.x-era fallback profile is removed. The rebuilt 2.1.x detector, qualified against blind-labeled live recordings, recognizes current activity labels (including subagent rows and context compaction), spinner-union busy evidence, and approval/question/trust/goal modals as active-but-blocked instead of idle-ready; the composer correctly accepts queued input while busy, and stale interrupt notices no longer mask real activity.
+- **BREAKING: Codex support floor raised to 0.162.1**: managed launch and TUI tracking now require Codex 0.162.1 or later with the same explicit unsupported-version error surface; the fallback and pre-0.162 profiles are removed. The rebuilt detector reads the 0.162 status row before assistant prose (context compaction no longer reports ready), recognizes the `Worked for` completion dock, current modal surfaces (workspace trust, model picker, warnings, send-input dialog), and queued-echo pending input. Provider maintenance turns such as compaction no longer erase the previous prompt turn's recorded outcome.
+- **BREAKING: the `codex_app_server` backend is blocked**: it has not been qualified against current Codex releases and is now rejected at launch as unmaintained, with the error naming the maintained alternatives (`codex_headless`, `local_interactive`). Sessions referencing it must relaunch on a maintained backend.
+- **BREAKING: Claude Code support floor raised to 2.1.296**: managed launch and TUI tracking now require Claude Code 2.1.296 or later; the fallback detector is removed. The rebuilt detector shields every operator modal (trust dialog, approval panels, model picker) from reading as ready, tracks the `✻`-verb completion dock, keeps busy detection on the interrupt footer, reads queued input from the composer placeholder, and infers silent Esc aborts, slash-menu blinks, and modal restores over a ten-minute temporal window. Unattended startup was re-qualified live against 2.1.296's auto permission mode and always-on trust dialog.
+- **BREAKING: a visible composer draft no longer erases the recorded turn outcome**: across all tracked TUIs, latched terminal results (success, interrupted) survive restored or in-progress drafts and clear only on explicit input submission or newer active-turn evidence.
+
+### Fixed
+
+- **Pixi asciinema task dispatch**: `pixi run asciinema` now selects the downloaded standalone binary matching the host architecture instead of a single hardcoded one.
+- **Release automation accepts current package metadata**: the pinned twine floor moves to 7.x in both the Pixi environment and the `pypi-release` workflow, so `twine check` accepts the Metadata-Version 2.5 that current hatchling emits instead of failing the release build.
+
+### Docs
+
+- Archived the Kimi 2.1.1, Codex 0.162.1, and Claude 2.1.296 floor-raise OpenSpec changes, and published the three blind-labeled TUI parsing debug campaigns (frozen recordings, labeling rubrics, repair reports) under `context/campaigns/debug/`.
+- Corrected the README Kimi Code requirement, which still named the superseded 0.34.0 floor.
+
+### Notes
+
+- This release bumps the minor segment for the three CLI floor raises and the rebuilt TUI detectors, each verified by a qualification gate that replays frozen blind-labeled sessions with zero false-ready tolerance.
+- Migration: upgrade to Kimi Code 2.1.1+, Codex 0.162.1+, and Claude Code 2.1.296+; move any `codex_app_server` sessions to `codex_headless` or `local_interactive`.
+- The `gh release create v2.3.0` event triggers `pypi-release.yml`, `docs.yml`, and the houmao-skills sync workflow.
+
 ## [2.2.0] - 2026-08-09
 
 ### Added
