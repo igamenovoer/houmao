@@ -8,17 +8,17 @@ Give managed CLI agents a provider-hook observation channel whose normalized lif
 
 ### Requirement: Managed Claude launches inject a session-scoped hook observer configuration
 
-For managed Claude Code `local_interactive` launches with the channel enabled, the system SHALL install a session-scoped observer hook configuration through a launch-owned settings source without modifying operator-authored user or project settings. If the launch cannot safely add that source, the system SHALL continue the session without hook observation and report the channel as unavailable.
+For managed Claude `local_interactive` launches with the channel enabled, the system SHALL install the observer hook configuration by marker-merging a Houmao-owned block into the managed home's `settings.json`, preserving bundle and operator hook entries and leaving operator user/project settings untouched. An unmergeable home MAY fall back to a launch-owned `--settings` source; if neither path is safe, the session continues without hook observation and the channel reports `unavailable`.
 
 #### Scenario: Fresh managed launch installs the observer configuration
 
 - **WHEN** a managed Claude `local_interactive` session launches with hook observation enabled
-- **THEN** the launch arguments include a launch-owned settings source pointing at a generated session-scoped observer configuration
-- **AND THEN** operator-authored user, project, and managed-home settings are not modified
+- **THEN** the managed home's `settings.json` carries the Houmao-owned observer block alongside the preserved bundle and operator hook entries, rewritten for the current channel generation
+- **AND THEN** no `--settings` argument is added and operator-authored user and project settings are not modified
 
-#### Scenario: Conflicting settings source degrades the channel without failing the launch
+#### Scenario: Unmergeable settings surface degrades the channel without failing the launch
 
-- **WHEN** the resolved launch arguments already contain a settings source that the observer configuration cannot safely extend
+- **WHEN** the managed home settings file cannot be safely merged and no fallback settings source can be safely added
 - **THEN** the session launches without hook observation
 - **AND THEN** the channel reports `unavailable` with a settings-conflict detail
 

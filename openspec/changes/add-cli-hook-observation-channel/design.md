@@ -25,7 +25,7 @@ See proposal.md for motivation. Architecture facts that shape this design, verif
 
 - Default-on rollout (this change is opt-in; default-on is a follow-up after qualification gates pass).
 - `claude_headless`, joined sessions, unmanaged launches, Codex/Kimi adapters.
-- Managed-home `settings.json` merge fallback, publishing hook-derived final assistant text, automatic remediation.
+- Publishing hook-derived final assistant text, automatic remediation.
 - Re-platforming `TuiTrackerSession` or the lifecycle kernel onto a single unified stream.
 
 ## Decisions
@@ -54,11 +54,17 @@ The token is generated per session and placed in the provider process environmen
 
 Rationale: fixes the leak at the owning boundary instead of filtering at publication time. Alternative rejected: `0600` token file (works, but a second credential path to secure and clean up; can be added later if a provider mode cannot inherit env).
 
-### D5. `--settings` injection only; conflict degrades the channel
+### D5. Managed-home marker merge is the primary injection; `--settings` is the fallback
 
-The launch plan appends one launch-owned `--settings <observer-settings.json>` argument. If resolved launch args already contain `--settings`, the channel reports `unavailable` with a settings-conflict detail and the session continues TUI-only.
+**Correction (2026-10-19, campaign iteration 1):** the original D5 chose `--settings`-only injection with conflict-to-unavailable. Live evidence flipped the primary path. The corrected decision:
 
-Rationale: `--settings` is session-scoped and leaves operator and managed-home settings untouched; the managed-home merge fallback requires cooperating with bundle projection and validation in `claude_bootstrap` for no demonstrated consumer. Revisit trigger: the first real launch profile that must combine its own `--settings` with hook observation. Open verification task: confirm `--settings` is honored at the 2.1.296 floor in TUI mode (see tasks).
+The launch plan installs the observer configuration by marker-merging a Houmao-owned hook block into the managed home's `settings.json` (the `CLAUDE_CONFIG_DIR` user-settings layer) at every launch generation, preserving bundle-projected and operator-authored entries. The home is a runtime-owned surface (`src/houmao/agents/launch_policy/registry/claude.yaml:19`, owned paths and `json.set` actions), one home has at most one live session, and `claude_bootstrap` already owns and validates that file. The session-scoped `--settings <observer-settings.json>` argument is demoted to the fallback for launch profiles where the home file cannot be safely merged (for example a projected read-only home); it is no longer the primary path.
+
+The merge is marker-based: the observer block is identified by its command/URL markers, never by a new provider field, and the installer rewrites the block at every launch and every resume/relaunch generation (new collector port and token each time). On a reused home, a stale observer block from an earlier generation is repaired in place; bundle and operator hook entries are preserved. A stale port inside a preserved home block (for example after an unclean stop, until the next launch rewrites it) is benign: deliveries to the dead collector fail closed at the hook handler, which always exits 0 and never blocks the provider.
+
+Conflict semantics, corrected: managed `realm_controller` launch plans build their args from the resolved launch behavior plus policy/provider-generated args with no operator-controlled passthrough (verified against `src/houmao/agents/launch_policy/` and `realm_controller/launch_plan.py`, 2026-10-19), so a double `--settings` cannot occur on the managed path. The raw operator-facing launch-helper CLI (`launch_policy/cli.py`) does append a `--` passthrough and the claude policy currently owns only `--dangerously-skip-permissions`; hardening that helper to own or reject `--settings` is a named follow-up. Joined sessions and unmanaged launches remain `unavailable` (their homes and args are not Houmao-owned). If the fallback `--settings` path is ever used and the resolved args already contain a settings source, the channel reports `unavailable` with a settings-conflict detail and the session continues TUI-only.
+
+Rationale (original): `--settings` is session-scoped and leaves operator and managed-home settings untouched; the managed-home merge fallback requires cooperating with bundle projection and validation in `claude_bootstrap` for no demonstrated consumer. Revisit trigger: the first real launch profile that must combine its own `--settings` with hook observation. **Why corrected:** the campaign evidence showed the managed-home merge works end to end (operator hooks coexist undisturbed, token env interpolation clean, payload parity with the `--settings` path, SessionStart under 1 s), that fresh scratch homes need the seeded project-trust keys the bootstrap already owns, and that the managed path never needs `--settings` at all. Evidence: campaign `context/campaigns/debug/2026-10-19-claude-hook-observation/evidences/2026-10-19-home-injection-coexistence.md` (coexistence arm), plus the iteration-1 set `2026-10-19-s0-gate-smoke.md`, `2026-10-19-s1-normal-multiturn.md`, and `2026-10-19-floor-2-1-296-s1-repeat.md` (floor verification at 2.1.296).
 
 ### D6. v1 event set: nine events
 
@@ -99,7 +105,7 @@ Collector start/stop is managed from `start_runtime_session`/`resume_runtime_ses
 
 ## Risks / Trade-offs
 
-- `--settings` not honored or HTTP hooks restricted at the 2.1.296 floor → D5's live verification task runs first; the channel degrades to `unavailable` and the session is unaffected, so the worst case is no channel.
+- `--settings` not honored or HTTP hooks restricted at the 2.1.296 floor → verified live on 2026-10-19 (campaign iteration 1, floor S1 repeat): `--settings` is honored at 2.1.296, HTTP hooks deliver, and the managed-home layer behaves identically to 2.1.303. The channel degrades to `unavailable` and the session is unaffected, so the worst case remains no channel.
 - `PostToolUse` frequency adds provider-side latency → D6's measurement gate; drop the event rather than engineering around it.
 - File tailing lags the collector's in-memory state by reader poll time → bounded by D3's 0.5 s cycle; acceptable for v1 and measured in live smoke.
 - A consumer reading a truncated mid-write line from `events.ndjson` → readers treat an unterminated final line as incomplete and retry next cycle; the collector writes single-line records under one writer.

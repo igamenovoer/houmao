@@ -19,7 +19,7 @@
 
 ## 4. Launch Integration
 
-- [ ] 4.1 Add optional `session_root` to `LaunchPlanRequest` and make `build_launch_plan` install observer artifacts and the `--settings` argument when the channel flag is on, degrading to `unavailable` on a pre-existing `--settings`; verify unit tests cover both paths and the flag-off no-op
+- [ ] 4.1 Add optional `session_root` to `LaunchPlanRequest` and make `build_launch_plan` install observer artifacts when the channel flag is on: marker-merged observer block in the managed home's `settings.json` (preserving bundle/operator entries, rewritten per launch generation, stale-block repair on reused homes) with the launch-owned `--settings` argument only as fallback for unmergeable homes, degrading to `unavailable` when neither path is safe; verify unit tests cover all paths and the flag-off no-op
 - [ ] 4.2 Manage collector lifecycle from `start_runtime_session`/`resume_runtime_session` (start before backend creation, new channel generation on resume/relaunch, stop at session stop) and verify integration tests cover start ordering, generation isolation, and no orphan collector after stop
 - [ ] 4.3 Pass the collector token to the provider through the `local_interactive` launch wrapper environment only, and verify a test asserts the token appears in the provider process environment and never in the published tmux session environment
 - [ ] 4.4 Plumb the opt-in enablement flag (environment variable, with launch-profile mapping if the existing profile machinery supports it cheaply) and verify tests cover enabled, disabled, and unset behavior
