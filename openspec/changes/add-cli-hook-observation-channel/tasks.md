@@ -9,15 +9,15 @@
 
 ## 2. Hook Observation Core Package
 
-- [ ] 2.1 Implement `src/houmao/hook_observation/` envelope model and append-only session store (`events.ndjson` mode 0600, directory 0700, generation boundary records, atomic secret-free `channel.json`) and verify unit tests cover append, generation rotation, permissions, and atomic status writes
-- [ ] 2.2 Implement the normalizer (v1 event set mapping to provider-neutral kinds and hints, unknown events/fields tolerated and counted, malformed payloads counted) and verify unit tests cover every v1 event plus unknown, malformed, and oversized inputs
-- [ ] 2.3 Implement the pure hook-posture reducer driven by `ops.scan` on an injectable scheduler (correlation by `prompt_id`, idempotent duplicates, orphan terminal handling, generation isolation, `stop_hook_active` handling) and verify `TestScheduler` unit tests cover ordered, out-of-order, duplicate, orphan, and stale-generation sequences
+- [x] 2.1 Implement `src/houmao/hook_observation/` envelope model and append-only session store (`events.ndjson` mode 0600, directory 0700, generation boundary records, atomic secret-free `channel.json`) and verify unit tests cover append, generation rotation, permissions, and atomic status writes
+- [x] 2.2 Implement the normalizer (v1 event set mapping to provider-neutral kinds and hints, unknown events/fields tolerated and counted, malformed payloads counted) and verify unit tests cover every v1 event plus unknown, malformed, and oversized inputs
+- [x] 2.3 Implement the pure hook-posture reducer driven by `ops.scan` on an injectable scheduler (correlation by `prompt_id`, idempotent duplicates, orphan terminal handling, generation isolation, `stop_hook_active` handling) and verify `TestScheduler` unit tests cover ordered, out-of-order, duplicate, orphan, and stale-generation sequences
 
 ## 3. Collector and Emitter
 
-- [ ] 3.1 Implement the stdlib loopback collector (ephemeral port, bearer-token auth, receive-order stamping, acknowledge-before-disk, payload size cap, local health/status endpoint, secret-free `collector.json` pid record) and verify unit tests cover auth rejection, ordering, caps, and acknowledge latency
-- [ ] 3.2 Implement the command-hook emitter script (stdin JSON to envelope, POST to collector, append-to-store fallback, always exit 0, no stdout, bounded stderr log) and verify unit tests cover collector-up, collector-down fallback, and stdout silence
-- [ ] 3.3 Implement the observer settings generator (D6 event set, HTTP handlers with token env reference, command handler for `SessionStart`, secret-free output) and verify snapshot-style unit tests pin the generated settings shape and the absence of secrets
+- [x] 3.1 Implement the stdlib loopback collector (ephemeral port, bearer-token auth, receive-order stamping, acknowledge-before-disk, payload size cap, local health/status endpoint, secret-free `collector.json` pid record) and verify unit tests cover auth rejection, ordering, caps, and acknowledge latency
+- [x] 3.2 Implement the command-hook emitter script (stdin JSON to envelope, POST to collector, append-to-store fallback, always exit 0, no stdout, bounded stderr log) and verify unit tests cover collector-up, collector-down fallback, and stdout silence
+- [x] 3.3 Implement the observer settings generator (D6 event set, HTTP handlers with token env reference, command handler for `SessionStart`, secret-free output) and verify snapshot-style unit tests pin the generated settings shape and the absence of secrets
 
 ## 4. Launch Integration
 
