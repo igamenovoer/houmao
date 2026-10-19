@@ -63,10 +63,15 @@ Rules:
 
 ## 5. Armed-Prompt Correlation
 
-1. The posture holds exactly one armed prompt, keyed by `prompt_id` when present, by bounded time-window correlation otherwise (`prompt_id_missing` diagnostic).
-2. An overlapping `prompt_submitted` supersedes the armed prompt and records an orphan diagnostic for the previous one. The superseded turn's `last_turn` falls back to TUI settlement rules.
-3. Gateway submission records correlate with hook turn starts by time window; a correlated pair arms one turn, not two.
-4. Events from an older channel generation are dropped before correlation (`hook_orphan_generation` diagnostic).
+> **Correction (2026-10-19, campaign iteration 1):** the original single-armed-prompt supersede rule is replaced by a FIFO armed-prompt queue. Live S7 data showed a queued prompt's `UserPromptSubmit` fires at type time while the previous turn is still active and carries the in-flight turn's `prompt_id`; the provider then executes the queued turn and its `Stop` carries a fresh `prompt_id` (observed sequence: `prompt_submitted, prompt_submitted, turn_completed(turn1), turn_completed(turn2)`, the two terminals back-to-back). Correlation by `prompt_id` alone is therefore wrong for queued input. Evidence: `context/campaigns/debug/2026-10-19-claude-hook-observation/evidences/2026-10-19-s7-queue-resume.md`.
+
+Rules:
+
+1. The posture holds a FIFO queue of armed prompts, keyed by `prompt_id` when present, by bounded time-window correlation otherwise (`prompt_id_missing` diagnostic). The bounded time-window fallback for missing `prompt_id` and the generation-drop rule (rule 5) are unchanged.
+2. A `prompt_submitted` arriving while a prompt is already armed **enqueues** behind it; it does not supersede. A terminal event consumes the oldest armed prompt in arrival order. A terminal arriving with no armed prompt (and no bounded time-window candidate) is an orphan diagnostic (`hook_orphan_terminal`) and never manufactures a `last_turn`.
+3. True duplicate re-deliveries of the same event are idempotent no-ops; the first terminal result for a consumed prompt wins. A queued prompt's own `prompt_id` may differ between its `prompt_submitted` (in-flight turn's id) and its terminal event (fresh id), so prompt-id mismatch across the queue boundary is expected and is not itself a duplicate or orphan signal; arrival order governs.
+4. Gateway submission records correlate with hook turn starts by time window; a correlated pair arms one turn, not two.
+5. Events from an older channel generation are dropped before correlation (`hook_orphan_generation` diagnostic).
 
 ## 6. Staleness and Recovery
 
@@ -80,7 +85,7 @@ Rules:
 
 1. `work` starts each channel generation as `clear` once the first terminal event reports no outstanding background work, or as `pending` when one does. Before any hook evidence exists, and whenever the channel is degraded, `work` is `unknown`.
 2. A `turn_completed` event replaces the flag from its payload: background work listed sets `pending`, none listed sets `clear`. A `turn_failed` event makes no background-work statement and leaves the axis unchanged.
-3. When the provider exposes live background-completion events at the supported floor (spike task 1.2 decides), those events clear or update the axis between turns, and the payload-mirror rule becomes corroboration. If none exist, the mirror rule is the documented limit.
+3. **Correction (2026-10-19, campaign iteration 1):** the spike question is answered. Background completion IS observable between turns as a provider-synthesized ghost turn: a `UserPromptSubmit` whose `prompt` is a `<task-notification>` XML document (task id, tool-use id, output file, status, exit-code summary), followed by its own `Stop` whose `background_tasks` reflects the new reality (`[]` when the last task finished). Ghost turns arm and settle like any turn; they are provider-initiated and are never evidence of operator input (design `claude-hook-adapter.md` section 1.1's caveat applies directly, and turn arming rules must exclude `<task-notification>`-shaped prompts from operator-input correlation). The work axis updates from every terminal event's `background_tasks` payload, including ghost-turn terminals. The payload-mirror rule remains as corroboration between turns. A `turn_failed` terminal still makes no background-work statement. Named gap: `Notification`/`idle_prompt` semantics are unverified (Notification is not subscribed in v1), so idle-prompt behavior while work runs is not claimed. Evidence: `context/campaigns/debug/2026-10-19-claude-hook-observation/evidences/2026-10-19-s5-background-work.md`.
 4. Session stop clears the axis. `work=pending` never blocks admission in this release; it is published state, and `settled` is the orchestrator-facing derivation.
 
 ## 8. Admission Interaction

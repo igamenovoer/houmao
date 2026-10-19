@@ -2,8 +2,10 @@
 
 ## 1. Floor Verification Spike
 
-- [ ] 1.1 Launch Claude Code 2.1.296 in TUI mode on this host with a generated observer `--settings` file pointing at a throwaway loopback listener, and verify `SessionStart`, `UserPromptSubmit`, and `Stop` are delivered; verify by recorded deliveries plus a findings note under `tmp/` (adjusts D5/D6 if `--settings` or HTTP hooks fail at floor)
-- [ ] 1.2 Capture real payload samples for the nine v1 events (especially `prompt_id` presence, `Stop.background_tasks`, `PermissionRequest` timing relative to the modal, `StopFailure` error fields) and verify the samples are stored under `tmp/` and the event-field mapping table is updated if reality differs from design
+- [x] 1.1 Launch Claude Code 2.1.296 in TUI mode on this host with a generated observer `--settings` file pointing at a throwaway loopback listener, and verify `SessionStart`, `UserPromptSubmit`, and `Stop` are delivered; verify by recorded deliveries plus a findings note under `tmp/` (adjusts D5/D6 if `--settings` or HTTP hooks fail at floor)
+  - Completed 2026-10-19 via campaign iteration 1: `context/campaigns/debug/2026-10-19-claude-hook-observation/evidences/2026-10-19-floor-2-1-296-s1-repeat.md` (floor verification at 2.1.296, run root `tmp/hook-capture/s1/run-20261019T141215Z/`).
+- [x] 1.2 Capture real payload samples for the nine v1 events (especially `prompt_id` presence, `Stop.background_tasks`, `PermissionRequest` timing relative to the modal, `StopFailure` error fields) and verify the samples are stored under `tmp/` and the event-field mapping table is updated if reality differs from design
+  - Completed 2026-10-19 via campaign iteration 1: `context/campaigns/debug/2026-10-19-claude-hook-observation/evidences/2026-10-19-hook-payload-catalog.md`; raw samples under `tmp/hook-capture/`.
 
 ## 2. Hook Observation Core Package
 

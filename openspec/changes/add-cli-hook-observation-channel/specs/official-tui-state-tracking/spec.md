@@ -48,7 +48,9 @@ At minimum, that simplified model SHALL include:
 - `surface.accepting_input`: whether typed input would currently land in the prompt area
 - `surface.editing_input`: whether prompt-area input is actively being edited now
 - `surface.ready_posture`: whether the visible surface looks ready for immediate submit
-- `turn.phase`: whether the current turn posture is `ready`, `active`, or `unknown`
+- `turn.phase`: whether the current turn posture is `ready`, `active`, `blocked`, or `unknown`; `blocked` is a hook-only entry (the provider is asking the operator for an action) and TUI parsing never lands on it
+- `work`: whether background work is `pending`, `clear`, or `unknown`; hook-primary, `unknown` whenever hook evidence is absent or degraded
+- `settled`: derived as `(turn.phase == ready) AND (work == clear)`
 - `last_turn.result`: whether the most recent completed turn ended in `success`, `interrupted`, `known_failure`, or `none`
 - `last_turn.source`: whether the most recent completed turn came from `explicit_input`, `surface_inference`, `hook_observation`, or `none`
 
