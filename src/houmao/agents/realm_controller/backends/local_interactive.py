@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import hashlib
+import logging
+import re
 import shlex
 import time
 from pathlib import Path
 
 from houmao.agents.model_selection import ModelConfig
+from houmao.hook_observation.install import remove_launch_wrapper, write_launch_wrapper
+from houmao.hook_observation.settings_generator import TOKEN_ENV_VAR
 from houmao.server.tui.process import PaneProcessInspector
 
 from ..errors import BackendExecutionError
@@ -50,6 +54,8 @@ _KIMI_YOLO_FLAGS = frozenset({"--yolo", "-y"})
 _POST_PASTE_SUBMIT_DELAY_SECONDS = 0.3
 _LOCAL_INTERACTIVE_MAIL_PROMPT_TIMEOUT_SECONDS = 10.0
 _LOCAL_INTERACTIVE_MAIL_PROMPT_POLL_INTERVAL_SECONDS = 0.5
+_ENVIRONMENT_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_LOGGER = logging.getLogger(__name__)
 
 
 def _relaunch_starts_fresh_chat(selection: RelaunchChatSessionSelection | None) -> bool:
@@ -335,34 +341,25 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
         else:
             self._refresh_primary_surface_best_effort()
         pane_target = self._primary_tmux_pane_target()
-        command_text = shlex.join(self._build_launch_command(chat_session=chat_session))
-        script = "\n".join(
-            [
-                "set +e",
-                f"cd {shlex.quote(str(self._plan.working_directory))}",
-                f"{command_text}",
-                "status=$?",
-                'printf "\\n[houmao local interactive exited with code %s]\\n" "$status"',
-                'idle_shell="${SHELL:-/bin/sh}"',
-                'exec "$idle_shell" -l',
-            ]
-        )
-        pane_command = f"bash -lc {shlex.quote(script)}"
+        pane_command, wrapper_path = self._provider_pane_command(chat_session=chat_session)
 
         try:
-            result = run_tmux_shared(["respawn-pane", "-k", "-t", pane_target, pane_command])
-        except TmuxCommandError as exc:
-            raise BackendExecutionError(
-                f"Failed to launch tmux interactive runtime in `{session_name}`: {exc}"
-            ) from exc
-        if result.returncode != 0:
-            detail = tmux_error_detail_shared(result) or "unknown tmux error"
-            raise BackendExecutionError(
-                f"Failed to launch tmux interactive runtime in `{session_name}` on the stable "
-                f"{HEADLESS_AGENT_WINDOW_NAME} surface: {detail}"
-            )
+            try:
+                result = run_tmux_shared(["respawn-pane", "-k", "-t", pane_target, pane_command])
+            except TmuxCommandError as exc:
+                raise BackendExecutionError(
+                    f"Failed to launch tmux interactive runtime in `{session_name}`: {exc}"
+                ) from exc
+            if result.returncode != 0:
+                detail = tmux_error_detail_shared(result) or "unknown tmux error"
+                raise BackendExecutionError(
+                    f"Failed to launch tmux interactive runtime in `{session_name}` on the stable "
+                    f"{HEADLESS_AGENT_WINDOW_NAME} surface: {detail}"
+                )
 
-        self._wait_for_provider_tui(timeout_seconds=10.0, poll_interval_seconds=0.2)
+            self._wait_for_provider_tui(timeout_seconds=10.0, poll_interval_seconds=0.2)
+        finally:
+            remove_launch_wrapper(wrapper_path)
 
     def _prepare_tool_home(self) -> None:
         """Apply tool-specific runtime-home bootstrap before launch."""
@@ -393,6 +390,61 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
         command.extend(relaunch_args)
         _validate_kimi_tui_args(tool=self._plan.tool, command=command)
         return command
+
+    def _provider_pane_command(
+        self,
+        *,
+        chat_session: RelaunchChatSessionSelection | None = None,
+    ) -> tuple[str, Path | None]:
+        """Build the pane command, using a private wrapper when a hook token exists.
+
+        The collector token is exported inside the launch script so it reaches
+        the provider process environment. A token-bearing script is written to
+        a ``0600`` launch wrapper and executed by path, keeping the secret out
+        of the tmux pane command (and therefore out of process listings).
+
+        Returns
+        -------
+        tuple[str, Path | None]
+            Pane command and the wrapper path to remove after the provider
+            starts (``None`` when no token wrapper was used).
+        """
+
+        command_text = shlex.join(self._build_launch_command(chat_session=chat_session))
+        base_lines = [
+            "set +e",
+            f"cd {shlex.quote(str(self._plan.working_directory))}",
+            f"{command_text}",
+            "status=$?",
+            'printf "\\n[houmao local interactive exited with code %s]\\n" "$status"',
+            'idle_shell="${SHELL:-/bin/sh}"',
+            'exec "$idle_shell" -l',
+        ]
+        token, token_env = _hook_observation_token(self._plan)
+        if token is None:
+            return f"bash -lc {shlex.quote(chr(10).join(base_lines))}", None
+
+        script = "\n".join(
+            [
+                base_lines[0],
+                f"export {token_env}={shlex.quote(token)}",
+                *base_lines[1:],
+            ]
+        )
+        try:
+            wrapper_path = write_launch_wrapper(
+                session_root=self._session_manifest_path.parent,
+                script=script,
+            )
+        except OSError as exc:
+            _LOGGER.warning(
+                "hook observation launch wrapper could not be written; "
+                "the provider starts without a collector token: %s",
+                exc,
+            )
+            return f"bash -lc {shlex.quote(chr(10).join(base_lines))}", None
+        inner_command = f"bash {shlex.quote(str(wrapper_path))}"
+        return f"bash -lc {shlex.quote(inner_command)}", wrapper_path
 
     def _apply_startup_bootstrap(self) -> None:
         bootstrap = self._plan.role_injection.bootstrap_message
@@ -636,6 +688,25 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
         except TmuxCommandError:
             return
         self._state.tmux_session_name = None
+
+
+def _hook_observation_token(plan: LaunchPlan) -> tuple[str | None, str]:
+    """Return the hook observation token and environment name from a plan.
+
+    The token lives only in launch-plan metadata; it is never placed in
+    ``plan.env`` because the tmux session environment publishes that mapping.
+    """
+
+    metadata = plan.metadata.get("hook_observation")
+    if not isinstance(metadata, dict):
+        return None, TOKEN_ENV_VAR
+    token = metadata.get("token")
+    if not isinstance(token, str) or not token:
+        return None, TOKEN_ENV_VAR
+    token_env = metadata.get("token_env")
+    if not isinstance(token_env, str) or not _ENVIRONMENT_NAME_PATTERN.match(token_env):
+        return token, TOKEN_ENV_VAR
+    return token, token_env
 
 
 def _validate_kimi_tui_args(*, tool: str, command: list[str]) -> None:

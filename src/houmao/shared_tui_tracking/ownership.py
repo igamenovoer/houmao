@@ -16,6 +16,7 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     tmux_session_exists,
 )
+from houmao.hook_observation.reader import HookObservationChannel
 from houmao.server.models import (
     HoumaoErrorDetail,
     HoumaoProbeSnapshot,
@@ -70,6 +71,11 @@ class SingleSessionTrackingRuntime:
             unknown_to_stalled_timeout_seconds=unknown_to_stalled_timeout_seconds,
             stale_active_recovery_seconds=stale_active_recovery_seconds,
             final_stable_active_recovery_seconds=final_stable_active_recovery_seconds,
+            hook_channel=(
+                HookObservationChannel.from_session_root(identity.session_root)
+                if identity.tool == "claude"
+                else None
+            ),
         )
         self.m_stop_event = threading.Event()
         self.m_thread = threading.Thread(
@@ -143,6 +149,7 @@ class SingleSessionTrackingRuntime:
         identity = self.m_tracker.current_state().tracked_session
         observed_at_utc = utc_now_iso()
         monotonic_ts = time.monotonic()
+        self.m_tracker.ensure_hook_channel_from_session_root(identity.session_root)
 
         if not tmux_session_exists(session_name=identity.tmux_session_name):
             self.m_tracker.record_cycle(

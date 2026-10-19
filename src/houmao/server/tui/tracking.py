@@ -6,6 +6,7 @@ import hashlib
 import json
 import threading
 from collections import deque
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal
@@ -16,6 +17,15 @@ from reactivex.disposable import SerialDisposable
 from reactivex.scheduler import HistoricalScheduler
 from reactivex.subject import Subject
 
+from houmao.hook_observation.health import HookChannelHealthSnapshot, HookChannelState
+from houmao.hook_observation.models import (
+    HookObservation,
+    HookPosture,
+    HookPostureCounters,
+    HookWorkState,
+)
+from houmao.hook_observation.reader import HookChannelCycle, HookObservationChannel
+from houmao.hook_observation.reducer import build_hook_posture_pipeline
 from houmao.lifecycle import (
     AnchoredCompletionSnapshot,
     LifecycleObservation,
@@ -25,7 +35,13 @@ from houmao.lifecycle import (
     build_readiness_pipeline,
     normalize_projection_text,
 )
-from houmao.shared_tui_tracking.models import TrackerConfig, TrackedStateSnapshot
+from houmao.shared_tui_tracking.models import (
+    TrackerConfig,
+    TrackedLastTurnResult,
+    TrackedLastTurnSource,
+    TrackedStateSnapshot,
+    TurnPhase,
+)
 from houmao.shared_tui_tracking.registry import UnsupportedToolVersionError, app_id_from_tool
 from houmao.shared_tui_tracking.session import TuiTrackerSession
 from houmao.shared_tui_tracking.public_state import (
@@ -35,6 +51,8 @@ from houmao.shared_tui_tracking.surface import ANSI_ESCAPE_RE
 from houmao.server.models import (
     CompletionState,
     HoumaoDegradedChatContextDiagnostic,
+    HoumaoHookObservationCounters,
+    HoumaoObservationChannel,
     HoumaoTrackedDiagnostics,
     HoumaoErrorDetail,
     HoumaoTrackedLastTurn,
@@ -103,6 +121,54 @@ class _FinalStableActiveRecoveryCandidate:
     active_reasons: tuple[str, ...]
 
 
+EXPLICIT_INPUT_CORRELATION_SECONDS = 30.0
+HOOK_CONFLICT_REASON_LIMIT = 8
+
+
+@dataclass(frozen=True)
+class _HookTurnLatch:
+    """One hook terminal result latched for the current hook turn."""
+
+    result: TrackedLastTurnResult
+    error_class: str | None
+    explicit_input: bool
+    consumed_prompt_id: str | None
+    generation: int | None
+    sequence: int | None
+    armed_at_monotonic: float | None
+    at_utc: str
+
+    def identity(self) -> tuple[object, ...]:
+        """Return a stable identity for suppression bookkeeping."""
+
+        return (self.generation, self.sequence, self.consumed_prompt_id, self.result)
+
+
+@dataclass(frozen=True)
+class _DegradedTuiSettlement:
+    """One TUI settlement observed while the hook channel was degraded."""
+
+    result: TrackedLastTurnResult
+    source: TrackedLastTurnSource
+    at_utc: str
+
+
+@dataclass(frozen=True)
+class _HookProjection:
+    """Merged hook authority facts for one published tracked state."""
+
+    health: HookChannelHealthSnapshot
+    posture: HookPosture
+    turn_phase: TurnPhase
+    last_turn: HoumaoTrackedLastTurn
+    work: HookWorkState
+    settled: bool
+    blocked: bool
+    holds_lifecycle: bool
+    conflict_reasons: tuple[str, ...]
+    latch: _HookTurnLatch | None
+
+
 class LiveSessionTracker:
     """Own one tracked session's in-memory live state and recent history."""
 
@@ -118,6 +184,7 @@ class LiveSessionTracker:
         stale_active_recovery_seconds: float = 5.0,
         final_stable_active_recovery_seconds: float = 20.0,
         tracking_debug_sink: TrackingDebugSink | None = None,
+        hook_channel: HookObservationChannel | None = None,
     ) -> None:
         """Initialize the live session tracker."""
 
@@ -180,6 +247,32 @@ class LiveSessionTracker:
             final_stable_active_recovery_seconds=final_stable_active_recovery_seconds,
         )
         self.m_active_turn_previous_last_turn = self.m_last_state.last_turn
+        self.m_hook_channel: HookObservationChannel | None = None
+        self.m_hook_subject: Subject[HookObservation] | None = None
+        self.m_hook_posture_queue: deque[HookPosture] = deque()
+        self.m_hook_posture: HookPosture | None = None
+        self.m_hook_previous_posture: HookPosture | None = None
+        self.m_hook_subscription: abc.DisposableBase | None = None
+        self.m_hook_health: HookChannelHealthSnapshot | None = None
+        self.m_hook_last_cycle: HookChannelCycle | None = None
+        self.m_hook_cycle_reasons: tuple[str, ...] = ()
+        self.m_hook_previous_counters: HookPostureCounters | None = None
+        self.m_hook_latch: _HookTurnLatch | None = None
+        self.m_hook_suppressed_latch_identity: tuple[object, ...] | None = None
+        self.m_hook_pending_explicit: deque[float] = deque(maxlen=32)
+        self.m_hook_armed_explicit: deque[bool] = deque()
+        self.m_hook_armed_at_monotonic: deque[float] = deque()
+        self.m_hook_blocked_cleared_key: tuple[int | None, int | None] | None = None
+        self.m_hook_blocked_key: tuple[int | None, int | None] | None = None
+        self.m_hook_tui_interrupt_since_arm: bool = False
+        self.m_hook_degraded_tui_settlement: _DegradedTuiSettlement | None = None
+        self.m_hook_recovered_this_cycle: bool = False
+        self.m_hook_previous_health_state: HookChannelState | None = None
+        self.m_hook_last_tui_signature: str | None = None
+        self.m_hook_previous_tui_last_turn_result: TrackedLastTurnResult = "none"
+        self.m_previous_parsed_ui_context: str | None = None
+        if hook_channel is not None:
+            self._attach_hook_channel_locked(hook_channel)
         if self.m_tracker_resolution_error is not None:
             self.m_last_state = self.m_last_state.model_copy(
                 update={
@@ -249,6 +342,57 @@ class LiveSessionTracker:
         """Return the tracker resolution error when the session is unsupported."""
 
         return self.m_tracker_resolution_error
+
+    @property
+    def hook_channel_state(self) -> HookChannelState | None:
+        """Return the hook observation channel health state, when configured."""
+
+        with self.m_lock:
+            if self.m_hook_health is None:
+                return None
+            return self.m_hook_health.state
+
+    def ensure_hook_channel_from_session_root(self, session_root: str | None) -> bool:
+        """Attach the session-local hook channel when one becomes available.
+
+        Parameters
+        ----------
+        session_root:
+            Session root that owns the hook subtree.
+
+        Returns
+        -------
+        bool
+            Whether a channel is attached after this call.
+        """
+
+        with self.m_lock:
+            if self.m_hook_channel is not None:
+                return True
+            if self.m_identity.tool != "claude":
+                return False
+            channel = HookObservationChannel.from_session_root(session_root)
+            if channel is None:
+                return False
+            self._attach_hook_channel_locked(channel)
+            return True
+
+    def _attach_hook_channel_locked(self, channel: HookObservationChannel) -> None:
+        """Attach one hook channel and its posture pipeline to this tracker."""
+
+        self.m_hook_channel = channel
+        self.m_hook_subject = Subject()
+        self.m_hook_posture_queue = deque()
+        self.m_hook_posture = channel.reducer.posture
+        self.m_hook_previous_posture = self.m_hook_posture
+        self.m_hook_subscription = build_hook_posture_pipeline(
+            self.m_hook_subject,
+            scheduler=self.m_scheduler,
+            reducer=channel.reducer,
+        ).subscribe(self.m_hook_posture_queue.append)
+        self.m_hook_health = channel.health.snapshot()
+        self.m_hook_previous_health_state = self.m_hook_health.state
+        self.m_hook_previous_counters = channel.reducer.posture.counters
 
     @property
     def resolved_detector_version(self) -> str | None:
@@ -451,6 +595,11 @@ class LiveSessionTracker:
             self._cancel_final_stable_active_recovery_locked(reason="input_submitted")
             self._advance_scheduler(monotonic_ts=monotonic_ts)
             self._drain_pipeline_snapshots()
+            if self.m_hook_channel is not None:
+                self.m_hook_latch = None
+                self.m_hook_suppressed_latch_identity = None
+                self.m_hook_tui_interrupt_since_arm = False
+                self.m_hook_pending_explicit.append(monotonic_ts)
             if self.m_tracker_session is not None:
                 self.m_tracker_session.on_input_submitted()
 
@@ -490,6 +639,20 @@ class LiveSessionTracker:
                 if self.m_tracker_session is not None
                 else self._degraded_tracker_state()
             )
+            self._note_tui_last_turn_transition_locked(
+                tracker_state=tracker_state,
+                monotonic_ts=monotonic_ts,
+                observed_at_utc=observed_at_utc,
+            )
+            hook_projection = self._project_hook_state_locked(
+                tracker_state=tracker_state,
+                previous_last_turn=self.m_last_state.last_turn,
+                observed_at_utc=observed_at_utc,
+            )
+            published_work: HookWorkState = (
+                hook_projection.work if hook_projection is not None else "unknown"
+            )
+            published_phase = tracker_state.turn_phase
             updated = self.m_last_state.model_copy(
                 update={
                     "surface": HoumaoTrackedSurface(
@@ -498,7 +661,7 @@ class LiveSessionTracker:
                         ready_posture=tracker_state.surface_ready_posture,
                         pending_input=tracker_state.surface_pending_input,
                     ),
-                    "turn": HoumaoTrackedTurn(phase=tracker_state.turn_phase),
+                    "turn": HoumaoTrackedTurn(phase=published_phase),
                     "last_turn": _build_tracker_last_turn(
                         previous=self.m_last_state.last_turn,
                         tracker_state=tracker_state,
@@ -506,6 +669,12 @@ class LiveSessionTracker:
                     ),
                     "chat_context": tracker_state.chat_context,
                     "chat_context_diagnostic": _build_chat_context_diagnostic(tracker_state),
+                    "diagnostics": _update_diagnostics_with_hook(
+                        self.m_last_state.diagnostics, hook_projection
+                    ),
+                    "work": published_work,
+                    "settled": published_phase == "ready" and published_work == "clear",
+                    "observation_channels": _build_observation_channels(hook_projection),
                     "operator_state": operator_state,
                     "lifecycle_timing": lifecycle_timing.model_copy(
                         update={"completion_candidate_elapsed_seconds": None}
@@ -559,6 +728,11 @@ class LiveSessionTracker:
             cycle_seq = self.m_cycle_seq
             self._advance_scheduler(monotonic_ts=monotonic_ts)
             self._drain_pipeline_snapshots()
+            self._drain_hook_channel_locked(
+                monotonic_ts=monotonic_ts,
+                observed_at_utc=observed_at_utc,
+                output_text=output_text,
+            )
             if output_text is not None and self.m_tracker_session is not None:
                 self.m_tracker_session.on_snapshot(output_text)
             previous_operator_state = _require_operator_state(self.m_last_state)
@@ -665,6 +839,22 @@ class LiveSessionTracker:
                 if self.m_tracker_session is not None
                 else self._degraded_tracker_state()
             )
+            self._note_tui_last_turn_transition_locked(
+                tracker_state=tracker_state,
+                monotonic_ts=monotonic_ts,
+                observed_at_utc=observed_at_utc,
+            )
+            self._note_tui_evidence_locked(
+                parsed_surface=parsed_surface,
+                monotonic_ts=monotonic_ts,
+                observed_at_utc=observed_at_utc,
+            )
+            hook_projection = self._project_hook_state_locked(
+                tracker_state=tracker_state,
+                previous_last_turn=self.m_last_state.last_turn,
+                observed_at_utc=observed_at_utc,
+            )
+            diagnostics = _update_diagnostics_with_hook(diagnostics, hook_projection)
             if self.m_active_turn_anchor is not None:
                 active_anchor_id = self.m_active_turn_anchor.anchor_id
                 if tracker_state.last_turn_result in {"success", "interrupted", "known_failure"}:
@@ -683,17 +873,34 @@ class LiveSessionTracker:
                 ready_posture=tracker_state.surface_ready_posture,
                 pending_input=tracker_state.surface_pending_input,
             )
-            last_turn = _build_tracker_last_turn(
-                previous=self.m_last_state.last_turn,
-                tracker_state=tracker_state,
-                observed_at_utc=observed_at_utc,
+            last_turn = (
+                hook_projection.last_turn
+                if hook_projection is not None
+                else _build_tracker_last_turn(
+                    previous=self.m_last_state.last_turn,
+                    tracker_state=tracker_state,
+                    observed_at_utc=observed_at_utc,
+                )
             )
-            turn = HoumaoTrackedTurn(phase=tracker_state.turn_phase)
+            turn = HoumaoTrackedTurn(
+                phase=(
+                    hook_projection.turn_phase
+                    if hook_projection is not None
+                    else tracker_state.turn_phase
+                )
+            )
             operator_state = _align_operator_state_with_tracker_state(
                 operator_state=operator_state,
                 tracker_state=tracker_state,
                 diagnostics=diagnostics,
                 observed_at_utc=observed_at_utc,
+                merged_turn_phase=turn.phase,
+                hook_failure=(
+                    hook_projection is not None
+                    and hook_projection.latch is not None
+                    and hook_projection.latch.result == "known_failure"
+                    and self.m_hook_suppressed_latch_identity != hook_projection.latch.identity()
+                ),
             )
             if self.m_tracker_resolution_error is not None:
                 operator_state = operator_state.model_copy(
@@ -710,6 +917,9 @@ class LiveSessionTracker:
                 turn=turn,
                 tracker_state=tracker_state,
                 active_turn_anchor_present=self.m_active_turn_anchor is not None,
+                hook_lifecycle_hold=(
+                    hook_projection.holds_lifecycle if hook_projection is not None else False
+                ),
             )
             stale_active_recovered = self._update_stale_active_recovery_locked(
                 candidate=stale_active_candidate,
@@ -774,6 +984,9 @@ class LiveSessionTracker:
             final_stable_active_candidate = _build_final_stable_active_recovery_candidate(
                 turn=turn,
                 rendered_surface_signature=_rendered_surface_signature(output_text),
+                hook_lifecycle_hold=(
+                    hook_projection.holds_lifecycle if hook_projection is not None else False
+                ),
             )
             final_stable_active_recovered = self._update_final_stable_active_recovery_locked(
                 candidate=final_stable_active_candidate,
@@ -847,6 +1060,9 @@ class LiveSessionTracker:
                 last_turn=last_turn,
                 chat_context=tracker_state.chat_context,
                 chat_context_diagnostic=_build_chat_context_diagnostic(tracker_state),
+                work=hook_projection.work if hook_projection is not None else "unknown",
+                settled=hook_projection.settled if hook_projection is not None else False,
+                observation_channels=_build_observation_channels(hook_projection),
                 operator_state=operator_state,
                 lifecycle_timing=HoumaoLifecycleTimingMetadata(
                     readiness_unknown_elapsed_seconds=reduction.readiness_unknown_elapsed_seconds,
@@ -1005,6 +1221,413 @@ class LiveSessionTracker:
             self.m_last_readiness_snapshot = self.m_readiness_snapshot_queue.popleft()
         while self.m_completion_snapshot_queue:
             self.m_last_completion_snapshot = self.m_completion_snapshot_queue.popleft()
+
+    def _drain_hook_channel_locked(
+        self,
+        *,
+        monotonic_ts: float,
+        observed_at_utc: str,
+        output_text: str | None,
+    ) -> None:
+        """Read and fold new hook observations at one poll-cycle boundary."""
+
+        channel = self.m_hook_channel
+        if channel is None or self.m_hook_subject is None:
+            return
+        signature = _rendered_surface_signature(output_text)
+        tui_changed = signature is not None and signature != self.m_hook_last_tui_signature
+        if signature is not None:
+            self.m_hook_last_tui_signature = signature
+        previous_health_state = self.m_hook_health.state if self.m_hook_health is not None else None
+        cycle = channel.read_cycle(
+            now_monotonic=monotonic_ts,
+            now_utc=observed_at_utc,
+            tui_changed=tui_changed,
+        )
+        self.m_hook_last_cycle = cycle
+        self.m_hook_health = cycle.health
+        for observation in cycle.observations:
+            self.m_hook_subject.on_next(observation)
+            while self.m_hook_posture_queue:
+                self.m_hook_posture = self.m_hook_posture_queue.popleft()
+            if self.m_hook_posture is not None:
+                self._note_hook_fold_locked(
+                    posture=self.m_hook_posture,
+                    monotonic_ts=monotonic_ts,
+                    observed_at_utc=observed_at_utc,
+                )
+        if self.m_hook_posture is None:
+            self.m_hook_posture = channel.reducer.posture
+        self.m_hook_cycle_reasons = self._hook_cycle_reasons_locked(
+            posture=self.m_hook_posture,
+            cycle=cycle,
+        )
+        self.m_hook_previous_counters = self.m_hook_posture.counters
+        self.m_hook_recovered_this_cycle = (
+            previous_health_state in {"stale", "error"} and cycle.health.state == "active"
+        )
+        self.m_hook_previous_health_state = previous_health_state
+        self._emit_debug(
+            stream="tracker-hook",
+            event_type="hook_channel_cycle",
+            monotonic_ts=monotonic_ts,
+            cycle_seq=self.m_cycle_seq,
+            data={
+                "health_state": cycle.health.state,
+                "observation_count": len(cycle.observations),
+                "current_generation": cycle.current_generation,
+                "skipped_garbage_lines": cycle.skipped_garbage_lines,
+                "skipped_invalid_lines": cycle.skipped_invalid_lines,
+                "skipped_oversized_lines": cycle.skipped_oversized_lines,
+                "dropped_old_generation_lines": cycle.dropped_old_generation_lines,
+                "retried_partial_line": cycle.retried_partial_line,
+                "read_error": cycle.read_error,
+            },
+        )
+
+    def _hook_cycle_reasons_locked(
+        self,
+        *,
+        posture: HookPosture,
+        cycle: HookChannelCycle,
+    ) -> tuple[str, ...]:
+        """Return §9 diagnostics caused by this cycle's newly folded events."""
+
+        reasons: list[str] = []
+        previous = self.m_hook_previous_counters
+        counters = posture.counters
+        if previous is not None:
+            if counters.unknown_events > previous.unknown_events:
+                reasons.append("hook_unknown_event")
+            if counters.malformed_events > previous.malformed_events:
+                reasons.append("hook_malformed_event")
+            if counters.orphan_terminals > previous.orphan_terminals:
+                reasons.append("hook_orphan_terminal")
+            if counters.duplicate_events > previous.duplicate_events:
+                reasons.append("hook_duplicate_event")
+            if counters.orphan_generations > previous.orphan_generations:
+                reasons.append("hook_orphan_generation")
+        if cycle.dropped_old_generation_lines > 0:
+            reasons.append("hook_orphan_generation")
+        return _bounded_hook_reasons(reasons)
+
+    def _note_hook_fold_locked(
+        self,
+        *,
+        posture: HookPosture,
+        monotonic_ts: float,
+        observed_at_utc: str,
+    ) -> None:
+        """Track per-observation hook turn arming and terminal latching."""
+
+        previous = self.m_hook_previous_posture
+        same_generation = previous is not None and previous.generation == posture.generation
+        if previous is None or not same_generation:
+            self._reset_hook_turn_tracking_locked()
+            previous_armed_count = 0
+        else:
+            previous_armed_count = len(previous.armed_prompts)
+        consumed_explicit: list[bool] = []
+        consumed_armed_at: list[float] = []
+        if len(posture.armed_prompts) > previous_armed_count:
+            for _ in range(len(posture.armed_prompts) - previous_armed_count):
+                self.m_hook_armed_explicit.append(
+                    self._consume_explicit_submission_locked(monotonic_ts)
+                )
+                self.m_hook_armed_at_monotonic.append(monotonic_ts)
+                self.m_hook_tui_interrupt_since_arm = False
+        elif len(posture.armed_prompts) < previous_armed_count:
+            for _ in range(previous_armed_count - len(posture.armed_prompts)):
+                consumed_explicit.append(
+                    self.m_hook_armed_explicit.popleft() if self.m_hook_armed_explicit else False
+                )
+                if self.m_hook_armed_at_monotonic:
+                    consumed_armed_at.append(self.m_hook_armed_at_monotonic.popleft())
+        new_terminal = posture.terminal_result != "none" and (
+            previous is None
+            or not same_generation
+            or previous.terminal_result == "none"
+            or bool(consumed_explicit)
+        )
+        if new_terminal:
+            self.m_hook_latch = _HookTurnLatch(
+                result=posture.terminal_result,
+                error_class=posture.terminal_error_class,
+                explicit_input=consumed_explicit[0] if consumed_explicit else False,
+                consumed_prompt_id=posture.terminal_consumed_prompt_id,
+                generation=posture.generation,
+                sequence=posture.last_sequence,
+                armed_at_monotonic=consumed_armed_at[0] if consumed_armed_at else None,
+                at_utc=observed_at_utc,
+            )
+            self.m_hook_suppressed_latch_identity = None
+        elif (
+            previous is not None
+            and same_generation
+            and previous.terminal_result != "none"
+            and posture.terminal_result == "none"
+        ):
+            self.m_hook_latch = None
+            self.m_hook_suppressed_latch_identity = None
+        if posture.blocked:
+            if previous is None or not previous.blocked or not same_generation:
+                self.m_hook_blocked_key = (posture.generation, posture.last_sequence)
+                self.m_hook_blocked_cleared_key = None
+        else:
+            self.m_hook_blocked_key = None
+            self.m_hook_blocked_cleared_key = None
+        self.m_hook_previous_posture = posture
+
+    def _note_tui_evidence_locked(
+        self,
+        *,
+        parsed_surface: HoumaoParsedSurface | None,
+        monotonic_ts: float,
+        observed_at_utc: str,
+    ) -> None:
+        """Record TUI modal-dismissal evidence for the hook blocked exit."""
+
+        del observed_at_utc
+        modal_dismissed = False
+        if parsed_surface is not None:
+            if (
+                self.m_previous_parsed_ui_context == "modal"
+                and parsed_surface.ui_context != "modal"
+            ):
+                modal_dismissed = True
+            self.m_previous_parsed_ui_context = parsed_surface.ui_context
+        posture = self.m_hook_posture
+        if posture is None or not posture.blocked:
+            return
+        if modal_dismissed or self.m_hook_tui_interrupt_since_arm:
+            if self.m_hook_blocked_key is not None:
+                self.m_hook_blocked_cleared_key = self.m_hook_blocked_key
+            self._emit_debug(
+                stream="tracker-hook",
+                event_type="hook_blocked_cleared_by_tui_evidence",
+                monotonic_ts=monotonic_ts,
+                cycle_seq=self.m_cycle_seq,
+                data={
+                    "modal_dismissed": modal_dismissed,
+                    "tui_interrupt_evidence": self.m_hook_tui_interrupt_since_arm,
+                },
+            )
+
+    def _consume_explicit_submission_locked(self, monotonic_ts: float) -> bool:
+        """Consume one unconsumed gateway submission within the correlation window."""
+
+        while self.m_hook_pending_explicit:
+            submitted_at = self.m_hook_pending_explicit[0]
+            if monotonic_ts - submitted_at > EXPLICIT_INPUT_CORRELATION_SECONDS:
+                self.m_hook_pending_explicit.popleft()
+                continue
+            self.m_hook_pending_explicit.popleft()
+            return True
+        return False
+
+    def _reset_hook_turn_tracking_locked(self) -> None:
+        """Clear turn-scoped hook correlation after a generation change."""
+
+        self.m_hook_latch = None
+        self.m_hook_suppressed_latch_identity = None
+        self.m_hook_armed_explicit.clear()
+        self.m_hook_armed_at_monotonic.clear()
+        self.m_hook_blocked_cleared_key = None
+        self.m_hook_blocked_key = None
+        self.m_hook_tui_interrupt_since_arm = False
+
+    def _note_tui_last_turn_transition_locked(
+        self,
+        *,
+        tracker_state: TrackedStateSnapshot,
+        monotonic_ts: float,
+        observed_at_utc: str,
+    ) -> None:
+        """Track TUI settlement and interrupt transitions for hook resolution."""
+
+        result = tracker_state.last_turn_result
+        if result == self.m_hook_previous_tui_last_turn_result:
+            return
+        self.m_hook_previous_tui_last_turn_result = result
+        if result == "interrupted":
+            armed_at = self.m_hook_armed_at_monotonic[0] if self.m_hook_armed_at_monotonic else None
+            self.m_hook_tui_interrupt_since_arm = armed_at is None or monotonic_ts >= armed_at
+        elif result == "none":
+            self.m_hook_degraded_tui_settlement = None
+        health_state = self.m_hook_health.state if self.m_hook_health is not None else None
+        degraded_window = "stale" in {health_state, self.m_hook_previous_health_state}
+        if degraded_window and result in {"success", "known_failure", "interrupted"}:
+            self.m_hook_degraded_tui_settlement = _DegradedTuiSettlement(
+                result=result,
+                source=tracker_state.last_turn_source,
+                at_utc=observed_at_utc,
+            )
+
+    def _project_hook_state_locked(
+        self,
+        *,
+        tracker_state: TrackedStateSnapshot,
+        previous_last_turn: HoumaoTrackedLastTurn,
+        observed_at_utc: str,
+    ) -> _HookProjection | None:
+        """Merge the current hook posture and health into projection facts."""
+
+        channel = self.m_hook_channel
+        if channel is None:
+            return None
+        posture = self.m_hook_posture or channel.reducer.posture
+        health = self.m_hook_health if self.m_hook_health is not None else channel.health.snapshot()
+        reasons: list[str] = list(self.m_hook_cycle_reasons)
+        if health.state != "active":
+            if health.state == "stale":
+                reasons.append("hook_stale_tui_authoritative")
+            return _HookProjection(
+                health=health,
+                posture=posture,
+                turn_phase=tracker_state.turn_phase,
+                last_turn=_build_tracker_last_turn(
+                    previous=previous_last_turn,
+                    tracker_state=tracker_state,
+                    observed_at_utc=observed_at_utc,
+                ),
+                work="unknown",
+                settled=False,
+                blocked=False,
+                holds_lifecycle=False,
+                conflict_reasons=_bounded_hook_reasons(reasons),
+                latch=None,
+            )
+
+        blocked = posture.blocked and not self._hook_blocked_cleared(posture)
+        holds_lifecycle = posture.armed_prompt_count > 0 or posture.maintenance_active
+        if blocked:
+            turn_phase: TurnPhase = "blocked"
+        elif posture.armed_prompt_count > 0 or posture.maintenance_active:
+            turn_phase = "active"
+        elif self.m_hook_latch is not None:
+            turn_phase = "ready"
+        else:
+            turn_phase = tracker_state.turn_phase
+
+        if posture.armed_prompt_count > 0 and not blocked and tracker_state.turn_phase == "ready":
+            reasons.append("hook_active_tui_ready")
+        if blocked and tracker_state.turn_phase == "ready":
+            reasons.append("hook_blocked_tui_ready")
+        if self.m_hook_latch is not None and tracker_state.turn_phase == "active":
+            reasons.append("hook_terminal_tui_active")
+
+        last_turn, last_turn_reasons = self._merge_hook_last_turn_locked(
+            tracker_state=tracker_state,
+            previous=previous_last_turn,
+            observed_at_utc=observed_at_utc,
+        )
+        reasons.extend(last_turn_reasons)
+        work: HookWorkState = posture.work
+        return _HookProjection(
+            health=health,
+            posture=posture,
+            turn_phase=turn_phase,
+            last_turn=last_turn,
+            work=work,
+            settled=(turn_phase == "ready" and work == "clear"),
+            blocked=blocked,
+            holds_lifecycle=holds_lifecycle,
+            conflict_reasons=_bounded_hook_reasons(reasons),
+            latch=self.m_hook_latch,
+        )
+
+    def _merge_hook_last_turn_locked(
+        self,
+        *,
+        tracker_state: TrackedStateSnapshot,
+        previous: HoumaoTrackedLastTurn,
+        observed_at_utc: str,
+    ) -> tuple[HoumaoTrackedLastTurn, list[str]]:
+        """Apply hook terminal authority to the tracked last-turn record."""
+
+        reasons: list[str] = []
+        tui_last_turn = _build_tracker_last_turn(
+            previous=previous,
+            tracker_state=tracker_state,
+            observed_at_utc=observed_at_utc,
+        )
+        latch = self.m_hook_latch
+        if latch is None:
+            return tui_last_turn, reasons
+        latch_identity = latch.identity()
+        if self.m_hook_recovered_this_cycle and self.m_hook_degraded_tui_settlement is not None:
+            settlement = self.m_hook_degraded_tui_settlement
+            self.m_hook_degraded_tui_settlement = None
+            if settlement.result == latch.result:
+                self.m_hook_suppressed_latch_identity = latch_identity
+                return (
+                    HoumaoTrackedLastTurn(
+                        result=settlement.result,
+                        source=settlement.source,
+                        updated_at_utc=settlement.at_utc,
+                    ),
+                    reasons,
+                )
+            if settlement.result == "interrupted":
+                self.m_hook_suppressed_latch_identity = latch_identity
+                if latch.result == "success":
+                    reasons.append("hook_success_tui_interrupted")
+                return tui_last_turn, reasons
+            reasons.append("hook_correction_after_staleness")
+            if latch.result == "known_failure" and settlement.result == "success":
+                reasons.append("hook_failure_tui_success")
+            self._emit_debug(
+                stream="tracker-hook",
+                event_type="hook_correction_after_staleness",
+                monotonic_ts=None,
+                cycle_seq=self.m_cycle_seq,
+                data={
+                    "tui_result": settlement.result,
+                    "tui_source": settlement.source,
+                    "hook_result": latch.result,
+                    "hook_source": (
+                        "explicit_input" if latch.explicit_input else "hook_observation"
+                    ),
+                },
+            )
+        if self.m_hook_suppressed_latch_identity == latch_identity:
+            if latch.result == "success" and tracker_state.last_turn_result == "interrupted":
+                reasons.append("hook_success_tui_interrupted")
+            return tui_last_turn, reasons
+        result: TrackedLastTurnResult = latch.result
+        source: TrackedLastTurnSource = (
+            "explicit_input" if latch.explicit_input else "hook_observation"
+        )
+        if result == "success" and self._tui_interrupt_for_latch(tracker_state):
+            result = "interrupted"
+            reasons.append("hook_success_tui_interrupted")
+        if result == "known_failure" and tracker_state.last_turn_result == "success":
+            reasons.append("hook_failure_tui_success")
+        return (
+            HoumaoTrackedLastTurn(
+                result=result,
+                source=source,
+                updated_at_utc=latch.at_utc,
+                error_class=latch.error_class if result == "known_failure" else None,
+            ),
+            reasons,
+        )
+
+    def _tui_interrupt_for_latch(self, tracker_state: TrackedStateSnapshot) -> bool:
+        """Return whether TUI interrupt evidence belongs to the latched turn."""
+
+        return (
+            tracker_state.last_turn_result == "interrupted" and self.m_hook_tui_interrupt_since_arm
+        )
+
+    def _hook_blocked_cleared(self, posture: HookPosture) -> bool:
+        """Return whether TUI evidence already dismissed the hook blocked mark."""
+
+        return (
+            posture.blocked
+            and self.m_hook_blocked_key is not None
+            and self.m_hook_blocked_cleared_key == self.m_hook_blocked_key
+        )
 
     def _update_stale_active_recovery_locked(
         self,
@@ -1637,7 +2260,10 @@ def _visible_signature_payload(
     """Return the operator-visible signature payload used for stability timing."""
 
     return {
-        "diagnostics": diagnostics.model_dump(mode="json"),
+        "diagnostics": diagnostics.model_dump(
+            mode="json",
+            exclude={"hook_channel_state", "hook_counters", "hook_conflict_reasons"},
+        ),
         "parsed_surface": parsed_surface.model_dump(mode="json")
         if parsed_surface is not None
         else None,
@@ -1791,6 +2417,68 @@ def _build_tracker_last_turn(
     )
 
 
+def _bounded_hook_reasons(reasons: Iterable[str]) -> tuple[str, ...]:
+    """Return deduplicated conflict reasons bounded for public diagnostics."""
+
+    return tuple(dict.fromkeys(reasons))[:HOOK_CONFLICT_REASON_LIMIT]
+
+
+def _hook_counters_payload(posture: HookPosture) -> HoumaoHookObservationCounters:
+    """Return the public counter payload for one posture."""
+
+    counters = posture.counters
+    return HoumaoHookObservationCounters(
+        events_seen=counters.events_seen,
+        normalized_events=counters.normalized_events,
+        unknown_events=counters.unknown_events,
+        malformed_events=counters.malformed_events,
+        orphan_terminals=counters.orphan_terminals,
+        orphan_generations=counters.orphan_generations,
+        duplicate_events=counters.duplicate_events,
+    )
+
+
+def _build_observation_channels(
+    projection: _HookProjection | None,
+) -> list[HoumaoObservationChannel] | None:
+    """Build the additive observation-channel payload when configured."""
+
+    if projection is None:
+        return None
+    posture = projection.posture
+    return [
+        HoumaoObservationChannel(
+            channel="hook",
+            provider="claude",
+            state=projection.health.state,
+            detail=projection.health.detail,
+            generation=posture.generation,
+            last_event_name=posture.last_event_name,
+            last_event_at_utc=posture.last_event_at_utc,
+            last_sequence=posture.last_sequence,
+            counters=_hook_counters_payload(posture),
+            conflict_reasons=list(projection.conflict_reasons),
+        )
+    ]
+
+
+def _update_diagnostics_with_hook(
+    diagnostics: HoumaoTrackedDiagnostics,
+    projection: _HookProjection | None,
+) -> HoumaoTrackedDiagnostics:
+    """Return diagnostics updated with additive hook channel facts."""
+
+    if projection is None:
+        return diagnostics
+    return diagnostics.model_copy(
+        update={
+            "hook_channel_state": projection.health.state,
+            "hook_counters": _hook_counters_payload(projection.posture),
+            "hook_conflict_reasons": list(projection.conflict_reasons),
+        }
+    )
+
+
 def _build_chat_context_diagnostic(
     tracker_state: TrackedStateSnapshot,
 ) -> HoumaoDegradedChatContextDiagnostic | None:
@@ -1824,12 +2512,26 @@ def _align_operator_state_with_tracker_state(
     tracker_state: TrackedStateSnapshot,
     diagnostics: HoumaoTrackedDiagnostics,
     observed_at_utc: str,
+    merged_turn_phase: TurnPhase | None = None,
+    hook_failure: bool = False,
 ) -> HoumaoOperatorState:
     """Return operator state corrected by authoritative tracker terminal facts."""
 
+    turn_phase = merged_turn_phase if merged_turn_phase is not None else tracker_state.turn_phase
+    if turn_phase == "blocked":
+        return operator_state.model_copy(
+            update={
+                "status": "waiting_user_answer",
+                "readiness_state": "blocked",
+                "completion_state": "blocked",
+                "detail": "Provider hook reports the turn is blocked on operator action.",
+                "projection_changed": False,
+                "updated_at_utc": observed_at_utc,
+            }
+        )
     if diagnostics.availability != "available":
         return operator_state
-    if tracker_state.turn_phase == "active":
+    if turn_phase == "active":
         return operator_state.model_copy(
             update={
                 "status": "processing",
@@ -1840,13 +2542,26 @@ def _align_operator_state_with_tracker_state(
                 "updated_at_utc": observed_at_utc,
             }
         )
-    if tracker_state.last_turn_result == "known_failure":
+    if hook_failure:
         readiness_state: ReadinessState = (
             "ready" if tracker_state.surface_ready_posture == "yes" else "failed"
         )
         status: OperatorStatus = (
             "ready" if tracker_state.surface_ready_posture == "yes" else "error"
         )
+        return operator_state.model_copy(
+            update={
+                "status": status,
+                "readiness_state": readiness_state,
+                "completion_state": "failed",
+                "detail": "Provider hook reported a terminal failure for the current turn.",
+                "projection_changed": False,
+                "updated_at_utc": observed_at_utc,
+            }
+        )
+    if tracker_state.last_turn_result == "known_failure":
+        readiness_state = "ready" if tracker_state.surface_ready_posture == "yes" else "failed"
+        status = "ready" if tracker_state.surface_ready_posture == "yes" else "error"
         return operator_state.model_copy(
             update={
                 "status": status,
@@ -1988,9 +2703,12 @@ def _build_stale_active_recovery_candidate(
     turn: HoumaoTrackedTurn,
     tracker_state: TrackedStateSnapshot,
     active_turn_anchor_present: bool,
+    hook_lifecycle_hold: bool = False,
 ) -> _StaleActiveRecoveryCandidate | None:
     """Return one stale-active recovery candidate when the state is submit-ready but stuck active."""
 
+    if hook_lifecycle_hold:
+        return None
     if active_turn_anchor_present:
         return None
     if parsed_surface is None or diagnostics.availability != "available":
@@ -2032,6 +2750,7 @@ def _build_final_stable_active_recovery_candidate(
     *,
     turn: HoumaoTrackedTurn,
     rendered_surface_signature: str | None,
+    hook_lifecycle_hold: bool = False,
 ) -> _FinalStableActiveRecoveryCandidate | None:
     """Return one final stable-active recovery candidate keyed only on rendered-surface stability.
 
@@ -2041,9 +2760,13 @@ def _build_final_stable_active_recovery_candidate(
     recover) and that the rendered-surface signature is observable. Parser
     output, tracker state, and active-reason flags are intentionally not
     consulted so the recovery cannot be vetoed by the same activity-detection
-    pipeline whose faults it exists to repair.
+    pipeline whose faults it exists to repair. Hook lifecycle authority does
+    veto the recovery, because an active hook turn is authoritative evidence
+    that the TUI surface is stale rather than misclassified.
     """
 
+    if hook_lifecycle_hold:
+        return None
     if turn.phase != "active":
         return None
     if rendered_surface_signature is None:

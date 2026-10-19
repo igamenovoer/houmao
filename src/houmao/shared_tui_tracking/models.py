@@ -8,9 +8,9 @@ from typing import Any, Literal, cast
 
 Tristate = Literal["yes", "no", "unknown"]
 TrackedDiagnosticsAvailability = Literal["available", "unavailable", "tui_down", "error", "unknown"]
-TurnPhase = Literal["ready", "active", "unknown"]
+TurnPhase = Literal["ready", "active", "blocked", "unknown"]
 TrackedLastTurnResult = Literal["success", "interrupted", "known_failure", "none"]
-TrackedLastTurnSource = Literal["explicit_input", "surface_inference", "none"]
+TrackedLastTurnSource = Literal["explicit_input", "surface_inference", "hook_observation", "none"]
 TransportState = Literal["tmux_up", "tmux_missing", "probe_error"]
 ProcessState = Literal["tui_up", "tui_down", "unsupported_tool", "probe_error", "unknown"]
 ParseStatus = Literal[

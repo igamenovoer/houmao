@@ -11,6 +11,8 @@ from typing import Any, Literal, cast
 
 TERMINAL_RECORD_SCHEMA_VERSION = 1
 DEFAULT_SAMPLE_INTERVAL_SECONDS = 0.2
+HOOK_SIDECAR_FILENAME = "hook_events.ndjson"
+HOOK_OBSERVED_FILENAME = "hook_observed.ndjson"
 
 RecorderMode = Literal["active", "passive"]
 RecorderStatus = Literal["starting", "running", "stopping", "stopped", "failed"]
@@ -31,6 +33,8 @@ class TerminalRecordPaths:
     labels_path: Path
     parser_observed_path: Path
     state_observed_path: Path
+    hook_events_path: Path
+    hook_observed_path: Path
     derived_2fps_snapshots_path: Path
     cast_path: Path
     controller_log_path: Path
@@ -50,6 +54,8 @@ class TerminalRecordPaths:
             labels_path=resolved / "labels.json",
             parser_observed_path=resolved / "parser_observed.ndjson",
             state_observed_path=resolved / "state_observed.ndjson",
+            hook_events_path=resolved / HOOK_SIDECAR_FILENAME,
+            hook_observed_path=resolved / HOOK_OBSERVED_FILENAME,
             derived_2fps_snapshots_path=resolved / "pane_snapshots_2fps.ndjson",
             cast_path=resolved / "session.cast",
             controller_log_path=resolved / "controller.log",

@@ -21,18 +21,18 @@
 
 ## 4. Launch Integration
 
-- [ ] 4.1 Add optional `session_root` to `LaunchPlanRequest` and make `build_launch_plan` install observer artifacts when the channel flag is on: marker-merged observer block in the managed home's `settings.json` (preserving bundle/operator entries, rewritten per launch generation, stale-block repair on reused homes) with the launch-owned `--settings` argument only as fallback for unmergeable homes, degrading to `unavailable` when neither path is safe; verify unit tests cover all paths and the flag-off no-op
-- [ ] 4.2 Manage collector lifecycle from `start_runtime_session`/`resume_runtime_session` (start before backend creation, new channel generation on resume/relaunch, stop at session stop) and verify integration tests cover start ordering, generation isolation, and no orphan collector after stop
-- [ ] 4.3 Pass the collector token to the provider through the `local_interactive` launch wrapper environment only, and verify a test asserts the token appears in the provider process environment and never in the published tmux session environment
-- [ ] 4.4 Plumb the opt-in enablement flag (environment variable, with launch-profile mapping if the existing profile machinery supports it cheaply) and verify tests cover enabled, disabled, and unset behavior
+- [x] 4.1 Add optional `session_root` to `LaunchPlanRequest` and make `build_launch_plan` install observer artifacts when the channel flag is on: marker-merged observer block in the managed home's `settings.json` (preserving bundle/operator entries, rewritten per launch generation, stale-block repair on reused homes) with the launch-owned `--settings` argument only as fallback for unmergeable homes, degrading to `unavailable` when neither path is safe; verify unit tests cover all paths and the flag-off no-op
+- [x] 4.2 Manage collector lifecycle from `start_runtime_session`/`resume_runtime_session` (start before backend creation, new channel generation on resume/relaunch, stop at session stop) and verify integration tests cover start ordering, generation isolation, and no orphan collector after stop
+- [x] 4.3 Pass the collector token to the provider through the `local_interactive` launch wrapper environment only, and verify a test asserts the token appears in the provider process environment and never in the published tmux session environment
+- [x] 4.4 Plumb the opt-in enablement flag (environment variable, with launch-profile mapping if the existing profile machinery supports it cheaply) and verify tests cover enabled, disabled, and unset behavior
 
 ## 5. Tracker Merge
 
-- [ ] 5.1 Implement the session-store reader (per-consumer offset tail, unterminated-final-line retry, current-generation filter) and verify unit tests cover offsets, partial lines, and generation filtering
-- [ ] 5.2 Fold reader observations into `LiveSessionTracker` at `record_cycle` boundaries, reduced through the posture pipeline on the tracker's existing scheduler, and verify unit tests cover fold timing and posture availability at projection
-- [ ] 5.3 Apply the authority table at the existing reconciliation points: hook terminal settles `last_turn` (with `hook_observation` source, `explicit_input` preserved on correlation, `interrupted` untouched) and hook active/blocked/maintenance holds `turn.phase` against a false-ready surface, with conflict notes; verify unit tests cover each authority-table row and conflict kind
-- [ ] 5.4 Implement channel health (startup grace, staleness threshold, state machine transitions) and the additive public fields (`observation_channels`, diagnostics hook fields, `hook_observation` source value) and verify serialization tests cover presence, absence, and secret-freedom
-- [ ] 5.5 Run the TUI-only equivalence gate: `pixi run test` with the flag off, plus a byte-equivalence check that disabled-channel state equals no-channel state on the existing Claude 2.1.296 replay fixtures; verify the existing qualification and admission suites pass unchanged
+- [x] 5.1 Implement the session-store reader (per-consumer offset tail, unterminated-final-line retry, current-generation filter) and verify unit tests cover offsets, partial lines, and generation filtering
+- [x] 5.2 Fold reader observations into `LiveSessionTracker` at `record_cycle` boundaries, reduced through the posture pipeline on the tracker's existing scheduler, and verify unit tests cover fold timing and posture availability at projection
+- [x] 5.3 Apply the authority table at the existing reconciliation points: hook terminal settles `last_turn` (with `hook_observation` source, `explicit_input` preserved on correlation, `interrupted` untouched) and hook active/blocked/maintenance holds `turn.phase` against a false-ready surface, with conflict notes; verify unit tests cover each authority-table row and conflict kind
+- [x] 5.4 Implement channel health (startup grace, staleness threshold, state machine transitions) and the additive public fields (`observation_channels`, diagnostics hook fields, `hook_observation` source value) and verify serialization tests cover presence, absence, and secret-freedom
+- [x] 5.5 Run the TUI-only equivalence gate: `pixi run test` with the flag off, plus a byte-equivalence check that disabled-channel state equals no-channel state on the existing Claude 2.1.296 replay fixtures; verify the existing qualification and admission suites pass unchanged
 
 ## 6. Gateway and Passive Server Surfaces
 
@@ -41,7 +41,7 @@
 
 ## 7. Recorded Replay and Live Qualification
 
-- [ ] 7.1 Extend the terminal-recorder evidence model with an optional `hook_events.ndjson` sidecar and make the replay path consume it; verify tests replay existing Claude fixtures unchanged without a sidecar and produce the expected hook-driven corrections with a synthesized sidecar mapped to sample ids
+- [x] 7.1 Extend the terminal-recorder evidence model with an optional `hook_events.ndjson` sidecar and make the replay path consume it; verify tests replay existing Claude fixtures unchanged without a sidecar and produce the expected hook-driven corrections with a synthesized sidecar mapped to sample ids
 - [ ] 7.2 Run the live smoke campaign (managed Claude at 2.1.296 and latest: normal turn, direct pane input, permission wait, compaction, stop/relaunch, collector kill, hooks disabled, untrusted workspace) with the evidence-pack layout from the feature qualification doc under `tmp/`, and verify the campaign report records channel timelines, admission decisions, and cleanup evidence for every scenario
 
 ## 8. Documentation

@@ -34,6 +34,8 @@ from houmao.shared_tui_tracking.models import (
 from houmao.shared_tui_tracking.reducer import replay_timeline
 from houmao.shared_tui_tracking.registry import DetectorProfileRegistry
 
+from .hook_replay import HookReplayResult, replay_hook_sidecar
+from .hook_sidecar import synthesize_hook_sidecar
 from .models import (
     DEFAULT_SAMPLE_INTERVAL_SECONDS,
     TERMINAL_RECORD_SCHEMA_VERSION,
@@ -577,7 +579,8 @@ def analyze_terminal_record(
     observations: list[RecordedObservation] = []
     parser_payload_by_sample_id: dict[str, dict[str, Any]] = {}
     source_sample_by_sample_id: dict[str, str | None] = {}
-    for snapshot in _load_snapshots(selected_snapshots_path):
+    snapshots = _load_snapshots(selected_snapshots_path)
+    for snapshot in snapshots:
         if parser_stack is None:
             parser_payload = _parse_kimi_snapshot_payload(
                 snapshot,
@@ -679,7 +682,18 @@ def analyze_terminal_record(
 
     overwrite_ndjson(parser_observed_path, parser_payloads)
     overwrite_ndjson(state_observed_path, state_payloads)
-    return {
+    hook_replay: HookReplayResult | None = None
+    hook_observed_path: Path | None = None
+    if paths.hook_events_path.is_file():
+        hook_observed_path = _hook_observed_output_path(paths=paths, output_tag=output_tag)
+        hook_replay = replay_hook_sidecar(
+            sidecar_path=paths.hook_events_path,
+            snapshots=snapshots,
+            state_rows=state_payloads,
+            recording_started_at_utc=manifest.started_at_utc,
+        )
+        overwrite_ndjson(hook_observed_path, list(hook_replay.rows))
+    result: dict[str, Any] = {
         "run_id": manifest.run_id,
         "tool": selected_tool,
         "snapshots_path": str(selected_snapshots_path),
@@ -687,6 +701,11 @@ def analyze_terminal_record(
         "state_observed_path": str(state_observed_path),
         "sample_count": len(parser_payloads),
     }
+    if hook_replay is not None and hook_observed_path is not None:
+        result["hook_sidecar_path"] = str(paths.hook_events_path)
+        result["hook_observed_path"] = str(hook_observed_path)
+        result["hook_sidecar"] = hook_replay.summary_payload()
+    return result
 
 
 def derive_terminal_record_stream(
@@ -1238,6 +1257,15 @@ def _build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--state-path", type=Path, default=None)
     validate.add_argument("--parser-path", type=Path, default=None)
 
+    synthesize_hook = subparsers.add_parser(
+        "synthesize-hook-events",
+        help="Synthesize hook_events.ndjson from labeled turn windows",
+    )
+    synthesize_hook.add_argument("--run-root", type=Path, required=True)
+    synthesize_hook.add_argument("--labels-path", type=Path, default=None)
+    synthesize_hook.add_argument("--snapshots-path", type=Path, default=None)
+    synthesize_hook.add_argument("--output-path", type=Path, default=None)
+
     add_label = subparsers.add_parser("add-label", help="Persist one structured recorder label")
     add_label.add_argument("--run-root", type=Path, required=True)
     add_label.add_argument("--output-dir", type=Path, default=None)
@@ -1341,6 +1369,20 @@ def main(argv: list[str] | None = None) -> int:
                         state_path=args.state_path,
                         parser_path=args.parser_path,
                     ),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return 0
+        if args.command == "synthesize-hook-events":
+            print(
+                json.dumps(
+                    synthesize_hook_sidecar(
+                        run_root=args.run_root,
+                        labels_path=args.labels_path,
+                        snapshots_path=args.snapshots_path,
+                        output_path=args.output_path,
+                    ).to_payload(),
                     indent=2,
                     sort_keys=True,
                 )
@@ -1496,6 +1538,20 @@ def _observed_output_paths(
         paths.run_root / f"parser_observed_{output_tag}.ndjson",
         paths.run_root / f"state_observed_{output_tag}.ndjson",
     )
+
+
+def _hook_observed_output_path(
+    *,
+    paths: TerminalRecordPaths,
+    output_tag: str | None,
+) -> Path:
+    """Return the hook observation output path for one optional stream tag."""
+
+    if output_tag is None:
+        return paths.hook_observed_path
+    if OUTPUT_TAG_RE.match(output_tag) is None:
+        raise TerminalRecordError("output_tag may only contain letters, digits, `_`, `.`, or `-`")
+    return paths.run_root / f"hook_observed_{output_tag}.ndjson"
 
 
 def _target_pane_dimensions(*, target: str) -> tuple[int | None, int | None]:

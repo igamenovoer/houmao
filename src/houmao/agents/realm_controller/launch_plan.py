@@ -41,6 +41,15 @@ from houmao.agents.launch_overrides import (
 )
 from houmao.agents.launch_overrides.models import SupportedLaunchBackend
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
+from houmao.hook_observation.install import (
+    TOKEN_ENV_VAR,
+    ObserverInstallResult,
+    allocate_next_generation,
+    hook_observation_applies,
+    hook_observation_enabled,
+    install_observer_configuration,
+    write_channel_install_status,
+)
 from .errors import LaunchPlanError, LaunchPolicyResolutionError
 from .loaders import RolePackage, parse_allowlisted_env
 from .models import BackendKind, CaoParsingMode, LaunchPlan, RoleInjectionPlan
@@ -73,6 +82,7 @@ class LaunchPlanRequest:
     working_directory: Path
     mailbox: MailboxResolvedConfig | None = None
     intent: LaunchPolicyApplicationKind = "provider_start"
+    session_root: Path | None = None
 
 
 def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
@@ -258,6 +268,15 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
                     provider_model_selection_cli_args
                 )
 
+    args, hook_observation_metadata = _install_hook_observation_for_launch(
+        request=request,
+        tool=tool,
+        home_path=home_path,
+        args=args,
+    )
+    if hook_observation_metadata is not None:
+        metadata["hook_observation"] = hook_observation_metadata
+
     return LaunchPlan(
         backend=request.backend,
         tool=tool,
@@ -273,6 +292,77 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         mailbox=request.mailbox,
         launch_policy_provenance=launch_policy_result.provenance,
     )
+
+
+def _install_hook_observation_for_launch(
+    *,
+    request: LaunchPlanRequest,
+    tool: str,
+    home_path: Path,
+    args: list[str],
+) -> tuple[list[str], dict[str, Any] | None]:
+    """Install the observer configuration for one provider-start plan.
+
+    The launch planner installs a provisional block with port ``0``. Runtime
+    activation rewrites it with the real collector port before the provider
+    starts. Flag-off, non-Claude, non-``local_interactive``, and
+    missing-session-root requests are exact no-ops.
+
+    Returns
+    -------
+    tuple[list[str], dict | None]
+        Effective arguments (the fallback pair appended when needed) and the
+        hook observation metadata, or the original arguments and ``None``.
+    """
+
+    if request.intent != "provider_start":
+        return args, None
+    if request.session_root is None:
+        return args, None
+    if not hook_observation_applies(tool=tool, backend=request.backend):
+        return args, None
+    if not hook_observation_enabled():
+        return args, None
+
+    session_root = request.session_root
+    try:
+        generation = allocate_next_generation(session_root)
+    except Exception:
+        return args, None
+    try:
+        result = install_observer_configuration(
+            home_path=home_path,
+            session_root=session_root,
+            generation=generation,
+            port=0,
+            resolved_args=args,
+        )
+    except Exception as exc:
+        result = ObserverInstallResult(
+            install_path="unavailable",
+            generation=generation,
+            detail=f"observer install failed: {exc}",
+        )
+    metadata: dict[str, Any] = {
+        "enabled": True,
+        "install_path": result.install_path,
+        "generation": generation,
+        "port": None,
+        "settings_path": (str(result.settings_path) if result.settings_path is not None else None),
+        "settings_args": list(result.appended_args),
+        "detail": result.detail,
+        "session_root": str(session_root.resolve()),
+        "token_env": TOKEN_ENV_VAR,
+    }
+    write_channel_install_status(
+        session_root=session_root,
+        generation=generation,
+        install_path=result.install_path,
+        channel_state=("unavailable" if result.install_path == "unavailable" else "installing"),
+        detail=result.detail,
+        settings_path=result.settings_path,
+    )
+    return [*args, *result.appended_args], metadata
 
 
 def _ensure_kimi_native_system_prompt_for_start(

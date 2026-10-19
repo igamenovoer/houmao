@@ -54,6 +54,8 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayTuiTrackingTimingOverridesV1,
 )
 from houmao.cao.models import CaoHealthResponse, CaoSuccessResponse
+from houmao.hook_observation.health import HookChannelState
+from houmao.hook_observation.models import HookWorkState
 from houmao.shared_tui_tracking.models import (
     ChatContextState as HoumaoChatContextState,
     CompletionState,
@@ -303,6 +305,33 @@ class HoumaoRecentTransition(_HoumaoModel):
     operator_status: OperatorStatus | None = Field(default=None, exclude=True)
 
 
+class HoumaoHookObservationCounters(_HoumaoModel):
+    """Bounded hook observation counters for one tracked-state sample."""
+
+    events_seen: int = 0
+    normalized_events: int = 0
+    unknown_events: int = 0
+    malformed_events: int = 0
+    orphan_terminals: int = 0
+    orphan_generations: int = 0
+    duplicate_events: int = 0
+
+
+class HoumaoObservationChannel(_HoumaoModel):
+    """Additive state for one provider hook observation channel."""
+
+    channel: Literal["hook"] = "hook"
+    provider: str = "claude"
+    state: HookChannelState
+    detail: str | None = None
+    generation: int | None = None
+    last_event_name: str | None = None
+    last_event_at_utc: str | None = None
+    last_sequence: int | None = None
+    counters: HoumaoHookObservationCounters | None = None
+    conflict_reasons: list[str] = Field(default_factory=list)
+
+
 class HoumaoTrackedDiagnostics(_HoumaoModel):
     """Low-level diagnostics for one tracked-state sample."""
 
@@ -312,6 +341,9 @@ class HoumaoTrackedDiagnostics(_HoumaoModel):
     parse_status: ParseStatus
     probe_error: HoumaoErrorDetail | None = None
     parse_error: HoumaoErrorDetail | None = None
+    hook_channel_state: HookChannelState | None = None
+    hook_counters: HoumaoHookObservationCounters | None = None
+    hook_conflict_reasons: list[str] = Field(default_factory=list)
 
 
 class HoumaoTrackedSurface(_HoumaoModel):
@@ -335,6 +367,7 @@ class HoumaoTrackedLastTurn(_HoumaoModel):
     result: TrackedLastTurnResult
     source: TrackedLastTurnSource
     updated_at_utc: str | None = None
+    error_class: str | None = None
 
 
 class HoumaoDegradedChatContextDiagnostic(_HoumaoModel):
@@ -360,6 +393,9 @@ class HoumaoTerminalStateResponse(_HoumaoModel):
     last_turn: HoumaoTrackedLastTurn
     chat_context: HoumaoChatContextState = "unknown"
     chat_context_diagnostic: HoumaoDegradedChatContextDiagnostic | None = None
+    work: HookWorkState = "unknown"
+    settled: bool = False
+    observation_channels: list[HoumaoObservationChannel] | None = None
     stability: HoumaoStabilityMetadata
     recent_transitions: list[HoumaoRecentTransition] = Field(default_factory=list)
     transport_state: TransportState = Field(default="tmux_missing", exclude=True)

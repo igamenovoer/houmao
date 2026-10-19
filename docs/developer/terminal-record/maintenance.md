@@ -43,6 +43,8 @@ When you change replay or labeling behavior:
 - preserve stable `sample_id` references across parser/state outputs and label artifacts
 - keep exported labels usable outside the original run root
 - prefer adding assertions on parser/state fields over relying on free-form dialog text alone
+- keep the hook sidecar optional: with no `hook_events.ndjson`, parser/state output and the `analyze` result shape must remain unchanged
+- treat `hook_observed.ndjson` as derived evidence; never make it a required input for validation
 
 ## Docs And Spec Hygiene
 

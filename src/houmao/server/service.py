@@ -109,6 +109,7 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     tmux_session_exists,
     tmux_error_detail,
 )
+from houmao.hook_observation.reader import HookObservationChannel
 from houmao.server.managed_agents import (
     ManagedHeadlessActiveTurnRecord,
     ManagedHeadlessAuthorityRecord,
@@ -1700,10 +1701,16 @@ class HoumaoServerService:
                     completion_stability_seconds=self.m_config.completion_stability_seconds,
                     unknown_to_stalled_timeout_seconds=self.m_config.unknown_to_stalled_timeout_seconds,
                     tracking_debug_sink=self.m_tracking_debug_sink,
+                    hook_channel=(
+                        HookObservationChannel.from_session_root(identity.session_root)
+                        if identity.tool == "claude"
+                        else None
+                    ),
                 )
                 self.m_trackers[record.tracked_session_id] = tracker
             else:
                 tracker.set_identity(identity)
+                tracker.ensure_hook_channel_from_session_root(identity.session_root)
             for alias, tracked_session_id in list(self.m_terminal_aliases.items()):
                 if tracked_session_id == record.tracked_session_id and alias != record.terminal_id:
                     self.m_terminal_aliases.pop(alias, None)
@@ -1780,6 +1787,7 @@ class HoumaoServerService:
         identity = tracker.current_state().tracked_session
         if self._live_gateway_client_for_session_root(identity.session_root) is not None:
             return True
+        tracker.ensure_hook_channel_from_session_root(identity.session_root)
         observed_at_utc = utc_now_iso()
         monotonic_ts = time.monotonic()
 

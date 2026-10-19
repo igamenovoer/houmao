@@ -165,6 +165,11 @@ from .gateway_storage import (
     write_gateway_desired_config,
     write_gateway_status,
 )
+from .hook_observation_launch import (
+    activate_hook_observation_for_provider_start,
+    ensure_hook_observation_on_resume,
+    stop_hook_observation,
+)
 from .launch_plan import (
     LaunchPlanRequest,
     backend_for_tool,
@@ -532,7 +537,10 @@ class RuntimeSessionController:
                 self.gateway_port = None
         if isinstance(self.backend_session, HeadlessInteractiveSession):
             self.backend_session.configure_stop_force_cleanup(force_cleanup=force_cleanup)
-        result = self.backend_session.terminate()
+        try:
+            result = self.backend_session.terminate()
+        finally:
+            _stop_hook_observation_for_controller(self)
         if result.status == "ok":
             self.tmux_session_name = last_tmux_session_name
             self.persist_manifest(refresh_registry=False)
@@ -555,7 +563,10 @@ class RuntimeSessionController:
         """Close the backend session."""
 
         self._reset_operation_warnings()
-        self.backend_session.close()
+        try:
+            self.backend_session.close()
+        finally:
+            _stop_hook_observation_for_controller(self)
         self.persist_manifest()
 
     def refresh_mailbox_bindings(
@@ -780,6 +791,10 @@ class RuntimeSessionController:
         if _backend_requires_provider_start_relaunch(self.launch_plan.backend):
             try:
                 updated_launch_plan = _build_provider_start_launch_plan_for_relaunch(self)
+                updated_launch_plan = _activate_hook_observation_for_controller(
+                    controller=self,
+                    launch_plan=updated_launch_plan,
+                )
                 _refresh_backend_launch_plan(
                     backend_session=self.backend_session,
                     launch_plan=updated_launch_plan,
@@ -802,6 +817,7 @@ class RuntimeSessionController:
 
         result = _relaunch_backend_session(self, chat_session=effective_chat_session)
         if result.status != "ok":
+            _stop_hook_observation_for_controller(self)
             self.persist_manifest()
             return result
 
@@ -852,6 +868,10 @@ class RuntimeSessionController:
         if _backend_requires_provider_start_relaunch(self.launch_plan.backend):
             try:
                 updated_launch_plan = _build_provider_start_launch_plan_for_relaunch(self)
+                updated_launch_plan = _activate_hook_observation_for_controller(
+                    controller=self,
+                    launch_plan=updated_launch_plan,
+                )
                 _refresh_backend_launch_plan(
                     backend_session=self.backend_session,
                     launch_plan=updated_launch_plan,
@@ -874,6 +894,7 @@ class RuntimeSessionController:
 
         result = _relaunch_backend_session(self, chat_session=effective_chat_session)
         if result.status != "ok":
+            _stop_hook_observation_for_controller(self)
             _rollback_stopped_session_revival(self)
             return result
 
@@ -1404,6 +1425,7 @@ def start_runtime_session(
             backend=selected_backend,
             working_directory=selected_workdir,
             mailbox=resolved_mailbox,
+            session_root=manifest_path.parent,
         )
     )
     launch_plan = _launch_plan_with_memory(
@@ -1428,21 +1450,30 @@ def start_runtime_session(
             },
         )
 
-    backend_session = _create_backend_session(
-        launch_plan=launch_plan,
-        role_name=role_package.role_name,
-        role_prompt=role_package.system_prompt,
-        agent_def_dir=agent_def_dir,
-        api_base_url=api_base_url,
-        cao_profile_store_dir=cao_profile_store_dir,
-        session_manifest_path=manifest_path,
-        agent_identity=(
-            resolved_runtime_identity.tmux_session_name
-            if resolved_runtime_identity is not None
-            else None
-        ),
-        cao_parsing_mode=cao_parsing_mode,
+    hook_observation_root = manifest_path.parent
+    launch_plan = activate_hook_observation_for_provider_start(
+        launch_plan,
+        session_root=hook_observation_root,
     )
+    try:
+        backend_session = _create_backend_session(
+            launch_plan=launch_plan,
+            role_name=role_package.role_name,
+            role_prompt=role_package.system_prompt,
+            agent_def_dir=agent_def_dir,
+            api_base_url=api_base_url,
+            cao_profile_store_dir=cao_profile_store_dir,
+            session_manifest_path=manifest_path,
+            agent_identity=(
+                resolved_runtime_identity.tmux_session_name
+                if resolved_runtime_identity is not None
+                else None
+            ),
+            cao_parsing_mode=cao_parsing_mode,
+        )
+    except BaseException:
+        stop_hook_observation(hook_observation_root)
+        raise
 
     resolved_tmux_session_name: str | None = None
     resolved_parsing_mode: CaoParsingMode | None = None
@@ -1659,6 +1690,7 @@ def _resume_runtime_session_controller(
                 working_directory=Path(manifest_payload.working_directory),
                 mailbox=resolved_mailbox,
                 intent="resume_control",
+                session_root=session_manifest_path.resolve().parent,
             )
         )
         launch_plan = replace(
@@ -1669,6 +1701,11 @@ def _resume_runtime_session_controller(
             },
         )
     launch_plan = _launch_plan_with_memory(launch_plan, memory=memory)
+    if not stopped_revival:
+        launch_plan = ensure_hook_observation_on_resume(
+            launch_plan,
+            session_root=session_manifest_path.resolve().parent,
+        )
 
     requested_tmux_session_name = manifest_payload.tmux_session_name
     if stopped_revival:
@@ -2973,6 +3010,7 @@ def _build_provider_start_launch_plan_for_relaunch(
             working_directory=controller.launch_plan.working_directory,
             mailbox=controller.launch_plan.mailbox,
             intent="provider_start",
+            session_root=controller.manifest_path.parent,
         )
     )
     updated_launch_plan = _launch_plan_with_memory(
@@ -2988,6 +3026,34 @@ def _build_provider_start_launch_plan_for_relaunch(
             controller.launch_plan.metadata.get("headless_display_detail")
         ),
     )
+
+
+def _hook_observation_session_root(controller: RuntimeSessionController) -> Path | None:
+    """Return the runtime-owned session root that owns hook artifacts."""
+
+    return runtime_owned_session_root_from_manifest_path(controller.manifest_path)
+
+
+def _activate_hook_observation_for_controller(
+    *,
+    controller: RuntimeSessionController,
+    launch_plan: LaunchPlan,
+) -> LaunchPlan:
+    """Start the collector and install observer settings before a provider start."""
+
+    session_root = _hook_observation_session_root(controller)
+    if session_root is None:
+        return launch_plan
+    return activate_hook_observation_for_provider_start(
+        launch_plan,
+        session_root=session_root,
+    )
+
+
+def _stop_hook_observation_for_controller(controller: RuntimeSessionController) -> None:
+    """Stop the controller session's collector, tolerating a missing record."""
+
+    stop_hook_observation(_hook_observation_session_root(controller))
 
 
 def _memory_from_controller(
