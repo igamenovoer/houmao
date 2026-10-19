@@ -14,11 +14,14 @@ import threading
 import time
 from collections import deque
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     tmux_session_exists,
 )
+from houmao.hook_observation.install import hook_observation_applies
+from houmao.hook_observation.reader import HookObservationChannel
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.discovery import DiscoveredAgent, RegistryDiscoveryService
 from houmao.passive_server.models import (
@@ -28,6 +31,8 @@ from houmao.passive_server.models import (
 )
 from houmao.server.models import (
     HoumaoErrorDetail,
+    HoumaoHookObservationCounters,
+    HoumaoObservationChannel,
     HoumaoParsedSurface,
     HoumaoProbeSnapshot,
     HoumaoRecentTransition,
@@ -63,12 +68,24 @@ _DEFAULT_SUPPORTED_TUI_PROCESSES: dict[str, tuple[str, ...]] = {
 _DEFAULT_RECENT_TRANSITION_LIMIT = 50
 _DEFAULT_SETTLE_SECONDS = 1.0
 _DEFAULT_STABILITY_THRESHOLD_SECONDS = 1.0
+_REMOTE_OBSERVATION_DETAIL = "remote observation"
 
 
 def _utc_now_iso() -> str:
     """Return the current UTC timestamp in seconds precision."""
 
     return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def _remote_observation_channel() -> HoumaoObservationChannel:
+    """Return the unavailable channel payload for a non-local session store."""
+
+    return HoumaoObservationChannel(
+        channel="hook",
+        provider="claude",
+        state="unavailable",
+        detail=_REMOTE_OBSERVATION_DETAIL,
+    )
 
 
 def _diagnostics_availability(
@@ -109,6 +126,8 @@ class AgentTuiObserver:
         session_name: str,
         window_name: str | None = None,
         observed_version: str | None = None,
+        backend: str | None = None,
+        session_root: str | None = None,
     ) -> None:
         """Initialize one observer for a discovered agent."""
 
@@ -118,6 +137,11 @@ class AgentTuiObserver:
         self.m_session_name: str = session_name
         self.m_window_name: str | None = window_name
         self.m_observed_version: str | None = observed_version
+        self.m_backend: str | None = backend
+        self.m_session_root: str | None = session_root
+
+        self.m_hook_lock: threading.Lock = threading.Lock()
+        self.m_hook_channel: HookObservationChannel | None = None
 
         self.m_baseline_pos: int | None = None
         self.m_last_probe_snapshot: HoumaoProbeSnapshot | None = None
@@ -345,6 +369,7 @@ class AgentTuiObserver:
             surface=self._build_surface(snap),
             turn=HoumaoTrackedTurn(phase=snap.turn_phase),
             last_turn=self._build_last_turn(snap),
+            observation_channels=self._observation_channels(),
             stability=self._build_stability(snap),
         )
 
@@ -361,6 +386,7 @@ class AgentTuiObserver:
             surface=self._build_surface(snap),
             turn=HoumaoTrackedTurn(phase=snap.turn_phase),
             last_turn=self._build_last_turn(snap),
+            observation_channels=self._observation_channels(),
             stability=self._build_stability(snap),
         )
 
@@ -408,6 +434,66 @@ class AgentTuiObserver:
             stable_since_seconds=0.0,
             observed_at_seconds=0.0,
         )
+
+    def _observation_channels(self) -> list[HoumaoObservationChannel] | None:
+        """Build additive hook channel status from the local session store.
+
+        A hook-applicable session whose session root is not visible from this
+        host is reported as remotely observed instead of silently absent.
+        """
+
+        if self.m_tool != "claude":
+            return None
+        backend = self.m_backend
+        if backend is not None and not hook_observation_applies(
+            tool=self.m_tool,
+            backend=backend,
+        ):
+            return None
+        session_root = (self.m_session_root or "").strip()
+        if not session_root:
+            return None
+        root = Path(session_root).expanduser()
+        if not root.is_dir():
+            return [_remote_observation_channel()]
+        with self.m_hook_lock:
+            channel = self.m_hook_channel
+            if channel is None:
+                channel = HookObservationChannel.from_session_root(root)
+                if channel is None:
+                    return None
+                self.m_hook_channel = channel
+            cycle = channel.read_cycle(
+                now_monotonic=time.monotonic(),
+                now_utc=_utc_now_iso(),
+                tui_changed=False,
+            )
+            for observation in cycle.observations:
+                channel.reducer.reduce(observation)
+            posture = channel.reducer.posture
+        counters = posture.counters
+        return [
+            HoumaoObservationChannel(
+                channel="hook",
+                provider="claude",
+                state=cycle.health.state,
+                detail=cycle.health.detail,
+                generation=posture.generation,
+                last_event_name=posture.last_event_name,
+                last_event_at_utc=posture.last_event_at_utc,
+                last_sequence=posture.last_sequence,
+                counters=HoumaoHookObservationCounters(
+                    events_seen=counters.events_seen,
+                    normalized_events=counters.normalized_events,
+                    unknown_events=counters.unknown_events,
+                    malformed_events=counters.malformed_events,
+                    orphan_terminals=counters.orphan_terminals,
+                    orphan_generations=counters.orphan_generations,
+                    duplicate_events=counters.duplicate_events,
+                ),
+                conflict_reasons=[],
+            )
+        ]
 
     def _record_diagnostics(
         self,
@@ -611,6 +697,8 @@ class TuiObservationService:
                 agent_name=agent.record.agent_name,
                 tool=agent.record.identity.tool,
                 session_name=agent.record.terminal.session_name,
+                backend=agent.record.identity.backend,
+                session_root=agent.record.runtime.session_root,
             )
 
     def _poll_all_observers(self) -> None:

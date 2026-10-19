@@ -36,8 +36,8 @@
 
 ## 6. Gateway and Passive Server Surfaces
 
-- [ ] 6.1 Add hook posture gates to `ready_only` and `if_no_pending` admission (no gates when the channel is degraded, no change to `always`) and record hook facts in admission decision records and refusal details; verify unit tests cover each policy x channel-state combination
-- [ ] 6.2 Add `observation_channels` to gateway status and to passive-server observation responses (local store read, `detail="remote observation"` when remote) and verify route-level tests cover both surfaces and the remote fallback
+- [x] 6.1 Add hook posture gates to `ready_only` and `if_no_pending` admission (no gates when the channel is degraded, no change to `always`) and record hook facts in admission decision records and refusal details; verify unit tests cover each policy x channel-state combination
+- [x] 6.2 Add `observation_channels` to gateway status and to passive-server observation responses (local store read, `detail="remote observation"` when remote) and verify route-level tests cover both surfaces and the remote fallback
 
 ## 7. Recorded Replay and Live Qualification
 

@@ -1470,7 +1470,12 @@ class LiveSessionTracker:
         previous_last_turn: HoumaoTrackedLastTurn,
         observed_at_utc: str,
     ) -> _HookProjection | None:
-        """Merge the current hook posture and health into projection facts."""
+        """Merge the current hook posture and health into projection facts.
+
+        A maintenance window holds an armed turn active but makes no lifecycle
+        claim when no prompt is armed; TUI surface facts govern admission during
+        operator-invoked compaction (state-transitions section 3, rules 7-8).
+        """
 
         channel = self.m_hook_channel
         if channel is None:
@@ -1499,17 +1504,18 @@ class LiveSessionTracker:
             )
 
         blocked = posture.blocked and not self._hook_blocked_cleared(posture)
-        holds_lifecycle = posture.armed_prompt_count > 0 or posture.maintenance_active
+        armed_turn = posture.armed_prompt_count > 0
+        holds_lifecycle = armed_turn
         if blocked:
             turn_phase: TurnPhase = "blocked"
-        elif posture.armed_prompt_count > 0 or posture.maintenance_active:
+        elif armed_turn:
             turn_phase = "active"
         elif self.m_hook_latch is not None:
             turn_phase = "ready"
         else:
             turn_phase = tracker_state.turn_phase
 
-        if posture.armed_prompt_count > 0 and not blocked and tracker_state.turn_phase == "ready":
+        if armed_turn and not blocked and tracker_state.turn_phase == "ready":
             reasons.append("hook_active_tui_ready")
         if blocked and tracker_state.turn_phase == "ready":
             reasons.append("hook_blocked_tui_ready")

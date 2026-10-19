@@ -295,12 +295,51 @@ def test_maintenance_holds_active_turn(tmp_path: Path) -> None:
     harness.append("PreCompact", prompt_id="p1", trigger="auto")
     compacting = harness.cycle(at=1.0)
     assert compacting.turn.phase == "active"
+    assert harness.tracker.m_hook_posture is not None
+    assert harness.tracker.m_hook_posture.maintenance_active is True
 
     harness.append("PostCompact", prompt_id="p1", trigger="auto")
     assert harness.cycle(at=2.0).turn.phase == "active"
 
     harness.append("Stop", prompt_id="p1", background_tasks=[])
     assert harness.cycle(at=3.0).turn.phase == "ready"
+
+
+def test_maintenance_without_armed_turn_does_not_force_active(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    harness.append("PreCompact", trigger="manual")
+
+    ready = harness.cycle(at=0.0)
+
+    assert ready.turn.phase == "ready"
+    assert "hook_active_tui_ready" not in ready.diagnostics.hook_conflict_reasons
+    assert ready.observation_channels is not None
+    assert ready.observation_channels[0].state == "active"
+    assert ready.observation_channels[0].last_event_name == "PreCompact"
+    assert harness.tracker.m_hook_posture is not None
+    assert harness.tracker.m_hook_posture.maintenance_active is True
+    assert harness.tracker.m_hook_posture.turn_phase == "unknown"
+
+    harness.set_state(_tracker_state(surface_ready_posture="unknown", turn_phase="unknown"))
+    followed = harness.cycle(at=1.0)
+
+    assert followed.turn.phase == "unknown"
+    assert "hook_active_tui_ready" not in followed.diagnostics.hook_conflict_reasons
+
+
+def test_maintenance_ended_without_armed_turn_restores_tui_posture(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    harness.append("PreCompact", trigger="manual")
+    assert harness.cycle(at=0.0).turn.phase == "ready"
+
+    harness.append("PostCompact", trigger="manual")
+    restored = harness.cycle(at=1.0)
+
+    assert restored.turn.phase == "ready"
+    assert restored.observation_channels is not None
+    assert restored.observation_channels[0].last_event_name == "PostCompact"
+    assert harness.tracker.m_hook_posture is not None
+    assert harness.tracker.m_hook_posture.maintenance_active is False
 
 
 def test_explicit_input_correlation_preserves_source(tmp_path: Path) -> None:

@@ -36,6 +36,7 @@ from houmao.agents.realm_controller.gateway_models import (
 )
 from houmao.agents.realm_controller.models import SessionEvent
 from houmao.agents.realm_controller.registry_models import RegistryGatewayV1
+from houmao.hook_observation.store import HookObservationStore
 from houmao.passive_server.app import create_app
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.discovery import DiscoveredAgent, _summary_from_record
@@ -238,6 +239,7 @@ def _agent(
     *,
     tool: str = "claude",
     backend: str = "claude_headless",
+    session_root: str = "/tmp/session",
 ) -> DiscoveredAgent:
     record = _make_record(
         agent_id=agent_id,
@@ -245,6 +247,7 @@ def _agent(
         session_name=session_name,
         tool=tool,
         backend=backend,
+        session_root=session_root,
     )
     return DiscoveredAgent(record=record, summary=_summary_from_record(record))
 
@@ -1654,6 +1657,8 @@ class TestAgentStateEndpoint:
         assert "turn" in body
         assert "last_turn" in body
         assert "stability" in body
+        # A non-hook-applicable backend exposes no observation channel.
+        assert body["observation_channels"] is None
         # Compact state should NOT include probe_snapshot or parsed_surface
         assert "probe_snapshot" not in body
         assert "parsed_surface" not in body
@@ -1720,6 +1725,136 @@ class TestAgentStateDetailEndpoint:
         with client:
             resp = client.get("/houmao/agents/abc123/state/detail")
         assert resp.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# Agent state hook observation channels
+# ---------------------------------------------------------------------------
+
+
+def _seed_hook_store(session_root: Path) -> None:
+    """Write one current-generation hook event into a local session store."""
+
+    store = HookObservationStore(session_root, generation=1)
+    store.mark_running(port=43123)
+    store.append_event(
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "session-1",
+            "prompt_id": "prompt-1",
+        },
+        received_at_utc="2026-10-20T00:00:01+00:00",
+    )
+
+
+class TestAgentStateObservationChannels:
+    """Hook observation channel status on passive observation routes."""
+
+    def test_state_reads_local_store_channel(self, tmp_path: object) -> None:
+        session_root = Path(str(tmp_path)) / "session"
+        session_root.mkdir()
+        _seed_hook_store(session_root)
+        agent = _agent(
+            backend="local_interactive",
+            session_root=str(session_root),
+        )
+        client = _make_agent_client_with_observer(tmp_path, [agent])
+        with client:
+            resp = client.get("/houmao/agents/abc123/state")
+        assert resp.status_code == 200
+        channels = resp.json()["observation_channels"]
+        assert channels is not None
+        assert channels[0]["channel"] == "hook"
+        assert channels[0]["provider"] == "claude"
+        assert channels[0]["state"] == "active"
+        assert channels[0]["generation"] == 1
+        assert channels[0]["last_event_name"] == "UserPromptSubmit"
+        assert channels[0]["counters"]["events_seen"] == 2
+        assert channels[0]["counters"]["normalized_events"] == 1
+
+    def test_detail_reads_local_store_channel(self, tmp_path: object) -> None:
+        session_root = Path(str(tmp_path)) / "session"
+        session_root.mkdir()
+        _seed_hook_store(session_root)
+        agent = _agent(
+            backend="local_interactive",
+            session_root=str(session_root),
+        )
+        client = _make_agent_client_with_observer(tmp_path, [agent])
+        with client:
+            resp = client.get("/houmao/agents/abc123/state/detail")
+        assert resp.status_code == 200
+        channels = resp.json()["observation_channels"]
+        assert channels is not None
+        assert channels[0]["state"] == "active"
+        assert channels[0]["counters"]["events_seen"] == 2
+
+    def test_state_reports_remote_observation_when_store_is_not_local(
+        self, tmp_path: object
+    ) -> None:
+        remote_root = Path(str(tmp_path)) / "missing" / "remote-session"
+        agent = _agent(
+            backend="local_interactive",
+            session_root=str(remote_root),
+        )
+        client = _make_agent_client_with_observer(tmp_path, [agent])
+        with client:
+            resp = client.get("/houmao/agents/abc123/state")
+        assert resp.status_code == 200
+        channels = resp.json()["observation_channels"]
+        assert channels is not None
+        assert channels[0]["state"] == "unavailable"
+        assert channels[0]["detail"] == "remote observation"
+        assert channels[0]["counters"] is None
+
+    def test_detail_reports_remote_observation_when_store_is_not_local(
+        self, tmp_path: object
+    ) -> None:
+        remote_root = Path(str(tmp_path)) / "missing" / "remote-session"
+        agent = _agent(
+            backend="local_interactive",
+            session_root=str(remote_root),
+        )
+        client = _make_agent_client_with_observer(tmp_path, [agent])
+        with client:
+            resp = client.get("/houmao/agents/abc123/state/detail")
+        assert resp.status_code == 200
+        channels = resp.json()["observation_channels"]
+        assert channels is not None
+        assert channels[0]["state"] == "unavailable"
+        assert channels[0]["detail"] == "remote observation"
+
+    def test_state_reports_stopped_collector(self, tmp_path: object) -> None:
+        session_root = Path(str(tmp_path)) / "session"
+        session_root.mkdir()
+        _seed_hook_store(session_root)
+        store = HookObservationStore(session_root, generation=1)
+        store.mark_stopped()
+        agent = _agent(
+            backend="local_interactive",
+            session_root=str(session_root),
+        )
+        client = _make_agent_client_with_observer(tmp_path, [agent])
+        with client:
+            resp = client.get("/houmao/agents/abc123/state")
+        assert resp.status_code == 200
+        channels = resp.json()["observation_channels"]
+        assert channels is not None
+        assert channels[0]["state"] == "stopped"
+
+    def test_non_hook_backend_exposes_no_channel(self, tmp_path: object) -> None:
+        session_root = Path(str(tmp_path)) / "session"
+        session_root.mkdir()
+        _seed_hook_store(session_root)
+        agent = _agent(
+            backend="claude_headless",
+            session_root=str(session_root),
+        )
+        client = _make_agent_client_with_observer(tmp_path, [agent])
+        with client:
+            resp = client.get("/houmao/agents/abc123/state")
+        assert resp.status_code == 200
+        assert resp.json()["observation_channels"] is None
 
 
 # ---------------------------------------------------------------------------

@@ -118,6 +118,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailNotifierPreNotificationContextAction,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayObservationChannelV1,
     GatewayPromptAdmissionPolicy,
     GatewayPromptControlErrorV1,
     GatewayPromptControlRequestV1,
@@ -200,6 +201,7 @@ from houmao.server.models import (
     HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
     HoumaoManagedAgentInterruptRequest,
     HoumaoManagedAgentSubmitPromptRequest,
+    HoumaoObservationChannel,
     HoumaoTerminalSnapshotHistoryResponse,
     HoumaoTerminalStateResponse,
     HoumaoTrackedSessionIdentity,
@@ -265,6 +267,26 @@ def _ag_ui_json_value_from_db_text(value: object) -> GatewayJsonValue:
     except json.JSONDecodeError:
         return str(value)
     return cast(GatewayJsonValue, parsed)
+
+
+def _first_observation_channel(
+    state: HoumaoTerminalStateResponse,
+) -> HoumaoObservationChannel | None:
+    """Return the first configured observation channel from one tracked state."""
+
+    channels = state.observation_channels
+    if not channels:
+        return None
+    return channels[0]
+
+
+def _observation_channel_state(state: HoumaoTerminalStateResponse) -> str | None:
+    """Return the configured hook channel state from one tracked state."""
+
+    channel = _first_observation_channel(state)
+    if channel is not None:
+        return channel.state
+    return state.diagnostics.hook_channel_state
 
 
 def _ag_ui_tui_activity(state: HoumaoTerminalStateResponse) -> str:
@@ -2319,6 +2341,8 @@ class GatewayServiceRuntime:
                 )
             elif admission_policy == "if_no_pending":
                 self._require_tui_no_pending_locked(admission_policy=admission_policy)
+            if dispatch_mode == "tui":
+                self._require_hook_admission_locked(admission_policy=admission_policy)
 
             if dispatch_mode in {"local_headless", "server_headless"}:
                 (
@@ -2779,6 +2803,47 @@ class GatewayServiceRuntime:
             detail=detail,
         )
 
+    def _require_hook_admission_locked(
+        self, *, admission_policy: GatewayPromptAdmissionPolicy
+    ) -> None:
+        """Require the merged hook posture to satisfy one admission policy.
+
+        A degraded channel contributes no reasons, so admission evaluates
+        exactly the TUI-only facts. Hook-reported background work never closes
+        a policy by itself.
+        """
+
+        reasons = self._hook_admission_reasons_locked(admission_policy=admission_policy)
+        if not reasons:
+            return
+        self._raise_prompt_control_http_error(
+            status_code=409,
+            admission_policy=admission_policy,
+            error_code="not_ready",
+            detail=(
+                "Gateway prompt rejected because hook observation reports a non-admissible "
+                f"turn posture ({', '.join(reasons)})."
+            ),
+        )
+
+    def _hook_admission_reasons_locked(
+        self, *, admission_policy: GatewayPromptAdmissionPolicy
+    ) -> list[str]:
+        """Return hook posture refusal reasons for one admission policy."""
+
+        tracking = self.m_tui_tracking
+        if tracking is None or admission_policy == "always":
+            return []
+        state = tracking.current_state()
+        channel_state = _observation_channel_state(state)
+        if channel_state != "active":
+            return []
+        if admission_policy == "ready_only" and state.turn.phase in {"active", "blocked"}:
+            return [f"hook.turn_phase={state.turn.phase!r}"]
+        if admission_policy == "if_no_pending" and state.turn.phase == "blocked":
+            return ["hook.blocked=true"]
+        return []
+
     def _tui_prompt_not_ready_reasons_locked(self) -> list[str]:
         """Return TUI prompt-readiness reasons when the tracked surface is not ready."""
 
@@ -2993,6 +3058,7 @@ class GatewayServiceRuntime:
     ) -> NoReturn:
         """Raise one structured HTTP refusal for direct prompt control."""
 
+        detail = self._hook_refusal_detail_locked(detail)
         payload = GatewayPromptControlErrorV1(
             admission_policy=admission_policy,
             error_code=error_code,
@@ -3023,8 +3089,12 @@ class GatewayServiceRuntime:
                 "tracked_ready_posture": None,
                 "tracked_pending_input": None,
                 "tracked_stable": None,
+                **self._degraded_hook_admission_facts_locked(),
             }
         state = tracking.current_state()
+        channel = _first_observation_channel(state)
+        channel_state = _observation_channel_state(state)
+        active = channel_state == "active"
         return {
             "tracked_turn_phase": state.turn.phase,
             "tracked_accepting_input": state.surface.accepting_input,
@@ -3032,7 +3102,48 @@ class GatewayServiceRuntime:
             "tracked_ready_posture": state.surface.ready_posture,
             "tracked_pending_input": state.surface.pending_input,
             "tracked_stable": state.stability.stable,
+            "hook_channel_state": channel_state,
+            "hook_turn_phase": state.turn.phase if active else None,
+            "hook_blocked": (state.turn.phase == "blocked") if active else None,
+            "hook_terminal_result": state.last_turn.result if active else None,
+            "hook_terminal_source": state.last_turn.source if active else None,
+            "hook_conflict_reasons": (
+                list(channel.conflict_reasons) if channel is not None else []
+            ),
         }
+
+    @staticmethod
+    def _degraded_hook_admission_facts_locked() -> dict[str, GatewayJsonValue]:
+        """Return empty hook facts for targets without a tracked channel."""
+
+        return {
+            "hook_channel_state": None,
+            "hook_turn_phase": None,
+            "hook_blocked": None,
+            "hook_terminal_result": None,
+            "hook_terminal_source": None,
+            "hook_conflict_reasons": [],
+        }
+
+    def _hook_refusal_detail_locked(self, detail: str) -> str:
+        """Append active-channel posture facts to one refusal detail."""
+
+        tracking = self.m_tui_tracking
+        if tracking is None:
+            return detail
+        state = tracking.current_state()
+        channel = _first_observation_channel(state)
+        channel_state = _observation_channel_state(state)
+        if channel_state != "active":
+            return detail
+        blocked = state.turn.phase == "blocked"
+        facts = (
+            f"channel_state={channel_state}, turn_phase={state.turn.phase!r}, "
+            f"blocked={str(blocked).lower()}, terminal_result={state.last_turn.result!r}"
+        )
+        if channel is not None and channel.conflict_reasons:
+            facts = f"{facts}, conflict_reasons={list(channel.conflict_reasons)!r}"
+        return f"{detail} Hook observation: {facts}."
 
     def get_mail_status(self) -> GatewayMailStatusV1:
         """Return shared mailbox availability for the attached session."""
@@ -4737,6 +4848,7 @@ class GatewayServiceRuntime:
             recovery = "reconciliation_required"
             admission = "blocked_reconciliation"
 
+        observation_channels = self._gateway_status_observation_channels_locked()
         status = GatewayStatusV1(
             attach_identity=self.m_attach_contract.attach_identity,
             backend=self.m_attach_contract.backend,
@@ -4756,6 +4868,7 @@ class GatewayServiceRuntime:
             gateway_tmux_pane_id=self.m_tmux_pane_id,
             managed_agent_instance_epoch=self.m_current_epoch,
             managed_agent_instance_id=self.m_current_instance_id,
+            observation_channels=observation_channels,
         )
         write_gateway_status(self.m_paths.state_path, status)
         write_gateway_current_instance(
@@ -4773,6 +4886,22 @@ class GatewayServiceRuntime:
             ),
         )
         return status
+
+    def _gateway_status_observation_channels_locked(
+        self,
+    ) -> list[GatewayObservationChannelV1] | None:
+        """Return the tracked observation channels for gateway status."""
+
+        tracking = self.m_tui_tracking
+        if tracking is None:
+            return None
+        channels = tracking.current_state().observation_channels
+        if not channels:
+            return None
+        return [
+            GatewayObservationChannelV1.model_validate(channel.model_dump(mode="json"))
+            for channel in channels
+        ]
 
     def _active_execution_state(self) -> GatewayExecutionState:
         """Return whether a queue item is currently running."""

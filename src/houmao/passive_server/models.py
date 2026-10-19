@@ -11,6 +11,7 @@ from houmao.agents.realm_controller.gateway_models import GatewayChatSessionSele
 from houmao.server.models import (
     HoumaoHeadlessLaunchMailboxOptions,
     HoumaoHeadlessTurnEvent,
+    HoumaoObservationChannel,
     HoumaoParsedSurface,
     HoumaoProbeSnapshot,
     HoumaoRecentTransition,
@@ -149,6 +150,7 @@ class AgentTuiStateResponse(_PassiveModel):
     surface: HoumaoTrackedSurface
     turn: HoumaoTrackedTurn
     last_turn: HoumaoTrackedLastTurn
+    observation_channels: list[HoumaoObservationChannel] | None = None
     stability: HoumaoStabilityMetadata
 
 
@@ -166,6 +168,7 @@ class AgentTuiDetailResponse(_PassiveModel):
     surface: HoumaoTrackedSurface
     turn: HoumaoTrackedTurn
     last_turn: HoumaoTrackedLastTurn
+    observation_channels: list[HoumaoObservationChannel] | None = None
     stability: HoumaoStabilityMetadata
 
 

@@ -24,6 +24,7 @@ from pydantic import (
 from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig, parse_reasoning_level
 from houmao.agents.mailbox_runtime_models import MailboxTransport
 from houmao.agents.realm_controller.models import BackendKind, CaoParsingMode
+from houmao.hook_observation.health import HookChannelState
 from houmao.mailbox.protocol import (
     HOUMAO_NO_REPLY_POLICY_VALUE,
     HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
@@ -2034,6 +2035,37 @@ class GatewayMailLifecycleResponseV1(_StrictGatewayModel):
         return self
 
 
+class GatewayHookObservationCountersV1(_StrictGatewayModel):
+    """Bounded hook observation counters published on gateway status."""
+
+    events_seen: int = 0
+    normalized_events: int = 0
+    unknown_events: int = 0
+    malformed_events: int = 0
+    orphan_terminals: int = 0
+    orphan_generations: int = 0
+    duplicate_events: int = 0
+
+
+class GatewayObservationChannelV1(_StrictGatewayModel):
+    """Additive state for one provider hook observation channel.
+
+    Mirrors the tracked-state observation-channel payload without importing
+    ``houmao.server.models`` (which imports this module).
+    """
+
+    channel: Literal["hook"] = "hook"
+    provider: str = "claude"
+    state: HookChannelState
+    detail: str | None = None
+    generation: int | None = None
+    last_event_name: str | None = None
+    last_event_at_utc: str | None = None
+    last_sequence: int | None = None
+    counters: GatewayHookObservationCountersV1 | None = None
+    conflict_reasons: list[str] = Field(default_factory=list)
+
+
 class GatewayStatusV1(_StrictGatewayModel):
     """Stable gateway status shared by `state.json` and `GET /v1/status`."""
 
@@ -2057,6 +2089,7 @@ class GatewayStatusV1(_StrictGatewayModel):
     gateway_tmux_pane_id: str | None = None
     managed_agent_instance_epoch: int
     managed_agent_instance_id: str | None = None
+    observation_channels: list[GatewayObservationChannelV1] | None = None
 
     @field_validator(
         "attach_identity",

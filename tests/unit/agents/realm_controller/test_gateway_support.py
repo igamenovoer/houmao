@@ -150,6 +150,7 @@ from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_n
 from houmao.server.pair_client import PairAuthorityHealthProbe
 from houmao.server.models import (
     HoumaoDegradedChatContextDiagnostic,
+    HoumaoHookObservationCounters,
     HoumaoManagedAgentDetailResponse,
     HoumaoManagedAgentHeadlessDetailView,
     HoumaoManagedAgentIdentity,
@@ -157,6 +158,7 @@ from houmao.server.models import (
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentStateResponse,
     HoumaoManagedAgentTurnView,
+    HoumaoObservationChannel,
     HoumaoParsedSurface,
     HoumaoRecentTransition,
     HoumaoStabilityMetadata,
@@ -3435,6 +3437,40 @@ def _sample_gateway_tracked_state(
     )
 
 
+def _hook_observation_channel(
+    state: str = "active",
+    *,
+    conflict_reasons: list[str] | None = None,
+) -> HoumaoObservationChannel:
+    """Return one hook observation channel payload for admission tests."""
+
+    active = state == "active"
+    return HoumaoObservationChannel(
+        channel="hook",
+        provider="claude",
+        state=state,  # type: ignore[arg-type]
+        detail=None if active else f"channel {state}",
+        generation=1,
+        last_event_name="Stop" if active else None,
+        last_event_at_utc="2026-10-20T00:00:00+00:00" if active else None,
+        last_sequence=3 if active else None,
+        counters=(
+            HoumaoHookObservationCounters(
+                events_seen=7,
+                normalized_events=6,
+                unknown_events=1,
+                malformed_events=0,
+                orphan_terminals=0,
+                orphan_generations=0,
+                duplicate_events=0,
+            )
+            if active
+            else None
+        ),
+        conflict_reasons=list(conflict_reasons or []),
+    )
+
+
 def _sample_gateway_tracked_state_variant(
     identity: HoumaoTrackedSessionIdentity,
     *,
@@ -3445,6 +3481,11 @@ def _sample_gateway_tracked_state_variant(
     turn_phase: str = "ready",
     stable: bool = True,
     parsed_busy: bool = False,
+    observation_channels: list[HoumaoObservationChannel] | None = None,
+    work: str = "unknown",
+    settled: bool = False,
+    last_turn_result: str = "none",
+    last_turn_source: str = "none",
 ) -> HoumaoTerminalStateResponse:
     """Return one tracked-state variant for admission-policy matrix tests."""
 
@@ -3477,6 +3518,12 @@ def _sample_gateway_tracked_state_variant(
             ),
             "turn": state.turn.model_copy(update={"phase": turn_phase}),
             "stability": state.stability.model_copy(update={"stable": stable}),
+            "observation_channels": observation_channels,
+            "work": work,
+            "settled": settled,
+            "last_turn": state.last_turn.model_copy(
+                update={"result": last_turn_result, "source": last_turn_source}
+            ),
         }
     )
 
@@ -3754,6 +3801,341 @@ def test_gateway_prompt_admission_policy_matrix_and_structural_checks(
     assert all("admission_policy" in event for event in decisions)
     assert all("tracked_pending_input" in event for event in decisions)
     assert all("tracked_ready_posture" in event for event in decisions)
+
+
+def test_gateway_hook_posture_admission_matrix_and_decision_records(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Gate admission on active hook posture and record hook facts per decision."""
+
+    state_options: dict[str, object] = {}
+
+    def _current_state(identity: HoumaoTrackedSessionIdentity) -> HoumaoTerminalStateResponse:
+        return _sample_gateway_tracked_state_variant(identity, **state_options)
+
+    runtime, client, fake_session = _local_interactive_prompt_control_harness(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        current_state=_current_state,
+    )
+    channel = _hook_observation_channel
+    busy = {
+        "turn_phase": "active",
+        "accepting_input": "no",
+        "ready_posture": "no",
+    }
+    cases: list[tuple[str, dict[str, object], str, int, str | None]] = [
+        (
+            "ready_only",
+            {"observation_channels": [channel("active")], "turn_phase": "active"},
+            "ready-only-hook-active",
+            409,
+            "not_ready",
+        ),
+        (
+            "ready_only",
+            {
+                "observation_channels": [
+                    channel("active", conflict_reasons=["hook_blocked_tui_ready"])
+                ],
+                "turn_phase": "blocked",
+            },
+            "ready-only-hook-blocked",
+            409,
+            "not_ready",
+        ),
+        (
+            "ready_only",
+            {
+                "observation_channels": [channel("active")],
+                "turn_phase": "ready",
+                "work": "pending",
+                "settled": False,
+                "last_turn_result": "success",
+                "last_turn_source": "hook_observation",
+            },
+            "ready-only-work-pending",
+            200,
+            None,
+        ),
+    ]
+    for degraded_state in (
+        "unavailable",
+        "stale",
+        "disabled_by_policy",
+        "untrusted_workspace",
+        "error",
+    ):
+        cases.append(
+            (
+                "ready_only",
+                {
+                    "observation_channels": [channel(degraded_state)],
+                    "turn_phase": "ready",
+                },
+                f"ready-only-{degraded_state}",
+                200,
+                None,
+            )
+        )
+        cases.append(
+            (
+                "if_no_pending",
+                {
+                    "observation_channels": [channel(degraded_state)],
+                    **busy,
+                    "pending_input": "no",
+                },
+                f"if-no-pending-{degraded_state}",
+                200,
+                None,
+            )
+        )
+    cases.extend(
+        [
+            (
+                "if_no_pending",
+                {
+                    "observation_channels": [
+                        channel("active", conflict_reasons=["hook_blocked_tui_ready"])
+                    ],
+                    **busy,
+                    "turn_phase": "blocked",
+                    "pending_input": "no",
+                },
+                "if-no-pending-hook-blocked",
+                409,
+                "not_ready",
+            ),
+            (
+                "if_no_pending",
+                {
+                    "observation_channels": [channel("active")],
+                    **busy,
+                    "pending_input": "no",
+                },
+                "if-no-pending-hook-active",
+                200,
+                None,
+            ),
+            (
+                "if_no_pending",
+                {
+                    "observation_channels": [channel("active")],
+                    "turn_phase": "ready",
+                    "work": "pending",
+                    "pending_input": "no",
+                },
+                "if-no-pending-work-pending",
+                200,
+                None,
+            ),
+            (
+                "always",
+                {
+                    "observation_channels": [channel("active")],
+                    **busy,
+                    "pending_input": "yes",
+                },
+                "always-hook-active",
+                200,
+                None,
+            ),
+            (
+                "always",
+                {
+                    "observation_channels": [channel("active")],
+                    **busy,
+                    "turn_phase": "blocked",
+                    "pending_input": "yes",
+                },
+                "always-hook-blocked",
+                200,
+                None,
+            ),
+        ]
+    )
+
+    runtime.start()
+    try:
+        successful_prompts: list[str] = []
+        for admission_policy, options, prompt, status_code, error_code in cases:
+            state_options.clear()
+            state_options.update(options)
+            response = client.post(
+                "/v1/control/prompt",
+                json={
+                    "schema_version": 2,
+                    "prompt": prompt,
+                    "admission_policy": admission_policy,
+                },
+            )
+            assert response.status_code == status_code, (prompt, response.json())
+            if error_code is None:
+                assert response.json()["admission_policy"] == admission_policy
+                successful_prompts.append(prompt)
+            else:
+                detail = response.json()["detail"]
+                assert detail["admission_policy"] == admission_policy
+                assert detail["error_code"] == error_code
+    finally:
+        runtime.shutdown()
+
+    assert [prompt for prompt, _selection in fake_session.prompt_calls] == successful_prompts
+
+    events = [
+        json.loads(line)
+        for line in runtime.m_paths.events_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    decisions = [
+        event
+        for event in events
+        if event.get("kind") in {"control_prompt_submitted", "control_prompt_refused"}
+    ]
+    assert len(decisions) == len(cases)
+    for decision in decisions:
+        assert "hook_channel_state" in decision
+        assert "hook_turn_phase" in decision
+        assert "hook_blocked" in decision
+        assert "hook_terminal_result" in decision
+        assert "hook_conflict_reasons" in decision
+
+    by_prompt = {case[2]: decision for case, decision in zip(cases, decisions, strict=True)}
+    active_only = by_prompt["ready-only-hook-active"]
+    assert active_only["hook_channel_state"] == "active"
+    assert active_only["hook_turn_phase"] == "active"
+    assert active_only["hook_blocked"] is False
+    assert active_only["hook_terminal_result"] == "none"
+    assert "Hook observation:" in active_only["detail"]
+
+    blocked_only = by_prompt["ready-only-hook-blocked"]
+    assert blocked_only["hook_turn_phase"] == "blocked"
+    assert blocked_only["hook_blocked"] is True
+    assert blocked_only["hook_conflict_reasons"] == ["hook_blocked_tui_ready"]
+    assert "turn_phase='blocked'" in blocked_only["detail"]
+
+    work_pending = by_prompt["ready-only-work-pending"]
+    assert work_pending["hook_channel_state"] == "active"
+    assert work_pending["hook_turn_phase"] == "ready"
+    assert work_pending["hook_blocked"] is False
+    assert work_pending["hook_terminal_result"] == "success"
+    assert work_pending["hook_terminal_source"] == "hook_observation"
+
+    for degraded_state in (
+        "unavailable",
+        "stale",
+        "disabled_by_policy",
+        "untrusted_workspace",
+        "error",
+    ):
+        degraded = by_prompt[f"ready-only-{degraded_state}"]
+        assert degraded["hook_channel_state"] == degraded_state
+        assert degraded["hook_turn_phase"] is None
+        assert degraded["hook_blocked"] is None
+        assert degraded["hook_terminal_result"] is None
+        assert degraded["hook_conflict_reasons"] == []
+
+    blocked_no_pending = by_prompt["if-no-pending-hook-blocked"]
+    assert blocked_no_pending["error_code"] == "not_ready"
+    assert blocked_no_pending["hook_turn_phase"] == "blocked"
+    assert blocked_no_pending["hook_blocked"] is True
+    assert "Hook observation:" in blocked_no_pending["detail"]
+
+    active_no_pending = by_prompt["if-no-pending-hook-active"]
+    assert active_no_pending["hook_turn_phase"] == "active"
+    assert active_no_pending["hook_blocked"] is False
+
+    work_pending_no_pending = by_prompt["if-no-pending-work-pending"]
+    assert "error_code" not in work_pending_no_pending
+    assert work_pending_no_pending["hook_channel_state"] == "active"
+
+    always_active = by_prompt["always-hook-active"]
+    assert "error_code" not in always_active
+    assert always_active["hook_channel_state"] == "active"
+    always_blocked = by_prompt["always-hook-blocked"]
+    assert "error_code" not in always_blocked
+    assert always_blocked["hook_blocked"] is True
+
+
+def test_gateway_degraded_hook_channel_preserves_tui_only_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Keep refusal details byte-equivalent when the hook channel is degraded."""
+
+    state_options: dict[str, object] = {
+        "turn_phase": "active",
+        "accepting_input": "no",
+        "ready_posture": "no",
+    }
+
+    def _current_state(identity: HoumaoTrackedSessionIdentity) -> HoumaoTerminalStateResponse:
+        return _sample_gateway_tracked_state_variant(identity, **state_options)
+
+    runtime, client, _fake_session = _local_interactive_prompt_control_harness(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        current_state=_current_state,
+    )
+    runtime.start()
+    try:
+        without_channel = client.post(
+            "/v1/control/prompt",
+            json={
+                "schema_version": 2,
+                "prompt": "tui-only-refusal",
+                "admission_policy": "ready_only",
+            },
+        )
+        state_options["observation_channels"] = [_hook_observation_channel("stale")]
+        with_degraded_channel = client.post(
+            "/v1/control/prompt",
+            json={
+                "schema_version": 2,
+                "prompt": "degraded-refusal",
+                "admission_policy": "ready_only",
+            },
+        )
+    finally:
+        runtime.shutdown()
+
+    assert without_channel.status_code == 409
+    assert with_degraded_channel.status_code == 409
+    assert with_degraded_channel.json()["detail"] == without_channel.json()["detail"]
+
+
+def test_gateway_status_exposes_observation_channels(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Carry the tracked hook channel projection on gateway status."""
+
+    runtime, client, _fake_session = _local_interactive_prompt_control_harness(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        current_state=lambda identity: _sample_gateway_tracked_state_variant(
+            identity,
+            observation_channels=[
+                _hook_observation_channel("active", conflict_reasons=["hook_active_tui_ready"])
+            ],
+        ),
+    )
+    runtime.start()
+    try:
+        response = client.get("/v1/status")
+    finally:
+        runtime.shutdown()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["observation_channels"][0]["channel"] == "hook"
+    assert body["observation_channels"][0]["provider"] == "claude"
+    assert body["observation_channels"][0]["state"] == "active"
+    assert body["observation_channels"][0]["generation"] == 1
+    assert body["observation_channels"][0]["counters"]["events_seen"] == 7
+    assert body["observation_channels"][0]["conflict_reasons"] == ["hook_active_tui_ready"]
 
 
 def test_gateway_if_no_pending_is_observational_across_provider_repaint(
