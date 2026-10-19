@@ -43,7 +43,7 @@ stateDiagram-v2
 
 ## Turn Phase
 
-All three `turn.phase` values and their transitions. The entry state is `unknown`.
+All four `turn.phase` values and their transitions. The entry state is `unknown`. The `blocked` edges are reachable only through the opt-in hook observation channel; all other edges describe TUI-only tracking.
 
 ```mermaid
 stateDiagram-v2
@@ -58,8 +58,58 @@ stateDiagram-v2
     active --> ready : turn completed —<br/>success settled +<br/>ready_posture=yes<br/>OR interrupted/failure +<br/>ready surface<br/>OR host active recovery
     active --> unknown : diagnostics degraded<br/>(error / tui_down / unavailable)
 
+    active --> blocked : hook permission_requested<br/>(hook channel active)
+    blocked --> active : hook permission_resolved<br/>OR TUI modal dismissal /<br/>User rejected line
+    blocked --> ready : hook terminal event
+    blocked --> unknown : diagnostics degraded<br/>(error / tui_down / unavailable)
+
     note right of unknown : Not an error —<br/>means the system<br/>cannot confidently classify<br/>the current posture
 ```
+
+---
+
+## Hook Observation Merge
+
+When the opt-in hook observation channel is `active`, hook facts merge into the tracker at its existing projection layer. `surface.*` stays TUI-owned. The merged transitions are:
+
+1. Hook `prompt_submitted` enters `active` from any non-terminal posture, (re)arms the turn, and clears the previous terminal result. A prompt submitted while another prompt is armed enqueues behind it; terminal events consume armed prompts in arrival order.
+2. Only hook `permission_requested` enters `blocked`, and it records the blocked tool name when the payload carries one. TUI parsing never enters `blocked`.
+3. `blocked` exits to `active` on hook `permission_resolved` or TUI modal-dismissal evidence, including a positive `User rejected` line. The turn remains armed.
+4. A hook terminal event moves `active` or `blocked` to `ready` immediately, without waiting for the TUI repaint or settle window. The repaint window remains visible through `surface.*` and is reported as `hook_terminal_tui_active`.
+5. Hook `active` or `blocked` holds `turn.phase` against a ready-looking TUI surface, reported as `hook_active_tui_ready` or `hook_blocked_tui_ready`.
+6. `maintenance_started` marks a maintenance window without invalidating the previous terminal outcome. `maintenance_ended` restores `active` when a turn is still armed, otherwise the pre-maintenance posture. Maintenance posture does not close admission by itself; TUI surface facts govern admission during compaction.
+7. TUI stale-active and final stable-active recovery rules are unchanged and may return `active` to `ready`.
+8. A hook terminal event with no armed prompt is an orphan diagnostic (`hook_orphan_terminal`) and never manufactures a `last_turn`. Duplicate terminal deliveries for the same prompt are idempotent; the first terminal result wins.
+9. Events from an older channel generation are dropped before correlation (`hook_orphan_generation`).
+
+### Last-Turn Settlement With Hooks
+
+1. A hook `Stop` sets `last_turn.result=success`; a hook `StopFailure` sets `known_failure` and records the provider error class in `last_turn.error_class`. Settlement is immediate.
+2. `last_turn.source` is `hook_observation` for hook-settled turns, or `explicit_input` when a gateway submission record correlates with the same turn.
+3. Once a hook terminal event latches a turn, the pending TUI settle for that turn is suppressed. Later TUI evidence is discarded except that TUI temporal interrupt evidence may still flip the result to `interrupted`, reported as `hook_success_tui_interrupted`.
+4. TUI settlement rules run unchanged when no hook terminal event exists for the turn.
+5. Hook events never settle `interrupted`.
+6. While the channel is degraded, `last_turn` is published from TUI evidence. A hook-only terminal result is therefore temporarily not shown during a stale window; it returns when the channel recovers with the terminal still latched. On recovery, agreement with a TUI settlement keeps the TUI source. Disagreement applies the hook result as an explicit correction (`hook_correction_after_staleness`), except that a TUI `interrupted` settlement keeps `interrupted`.
+
+### Work And Settled
+
+`work` starts each channel generation as `unknown`. A `turn_completed` payload replaces it: listed background tasks set `pending`, none set `clear`. A `turn_failed` event makes no background-work statement and leaves the axis unchanged. Whenever the channel is not `active`, `work` is `unknown`.
+
+`settled` is derived, not stored independently: `turn.phase=ready` and `work=clear`. It is `false` for a degraded channel. `work=pending` never blocks admission in this release.
+
+### Channel Health
+
+| State | Effect on tracked state |
+|---|---|
+| `active` | Hook facts have lifecycle authority; `work` and `settled` are published from hook evidence. |
+| `unavailable` | Startup state before any event; after the 15-second startup grace with no event, tracking is TUI-only. |
+| `stale` | No event for more than 30 seconds while the TUI keeps changing; TUI regains lifecycle authority, including settlement. |
+| `disabled_by_policy` | Terminal policy state from channel metadata; TUI-only. |
+| `untrusted_workspace` | Terminal policy state from channel metadata; TUI-only. |
+| `error` | Event store read failure; a healthy read restores `active` or `unavailable`. |
+| `stopped` | Collector or session stopped; terminal. |
+
+Every state other than `active` is degraded: tracked state and admission are byte-equivalent to TUI-only behavior, `work` is `unknown`, and `settled` is `false`.
 
 ---
 
@@ -187,6 +237,7 @@ What operations are acceptable for major state combinations, using Houmao-native
 |---|---|---|---|---|
 | `available` | `ready` | **Yes** — terminal is idle and ready | Yes | Yes — all state groups are meaningful |
 | `available` | `active` | **No** — agent is working | Yes — poll for turn completion | Yes — watch for `last_turn.result` to change |
+| `available` | `blocked` | **No** — provider is waiting for a permission decision (hook-only phase) | Yes — poll for resolution | Yes — `observation_channels[].state` and conflict reasons explain the block |
 | `available` | `unknown` | **Wait** — posture is ambiguous | Yes — may resolve shortly | Partial — surface values may be approximate |
 | `unavailable` | any | **No** — no terminal to receive input | Yes — monitor for recovery | No — values are stale or default |
 | `tui_down` | any | **No** — TUI process is not running | Yes — monitor for TUI restart | No — values reflect last observation before exit |
@@ -244,7 +295,7 @@ The two anchor sources have different timing characteristics:
 
 ## Reducer Transition Rules
 
-The standalone `TuiTrackerSession` in `shared_tui_tracking/session.py` applies a strict priority chain when processing each raw snapshot. The compatibility `StreamStateReducer` wrapper and the live server host adapter both reuse that same core behavior. Server-owned diagnostics, parser sidecars, and lifecycle enrichment are published alongside this reducer output; they do not become reducer inputs.
+The standalone `TuiTrackerSession` in `shared_tui_tracking/session.py` applies a strict priority chain when processing each raw snapshot. The compatibility `StreamStateReducer` wrapper and the live server host adapter both reuse that same core behavior. Server-owned diagnostics, parser sidecars, and lifecycle enrichment are published alongside this reducer output; they do not become reducer inputs. The hook observation merge described above runs at the host projection layer after this chain and never feeds hook facts into the shared tracker, so the `blocked` phase does not appear here.
 
 ### Priority Chain
 

@@ -86,15 +86,19 @@ houmao-mgr agents single --agent-id <id> gateway prompt [OPTIONS]
 
 The admission policies apply as follows:
 
-| Policy | TUI decision | Native headless scope |
-|---|---|---|
-| `ready-only` | Require the established stable prompt-ready posture and `surface.pending_input=no`. | Supported; retains headless overlap protection. |
-| `if-no-pending` | Ignore busy, editing, readiness, and stability, but require `surface.pending_input=no`. | Rejected. |
-| `always` | Ignore tracked readiness and pending input. | Rejected. |
+| Policy | TUI decision | Hook gate (TUI-backed, channel `active`) | Native headless scope |
+|---|---|---|---|
+| `ready-only` | Require the established stable prompt-ready posture and `surface.pending_input=no`. | Require merged `turn.phase` to be neither `active` nor `blocked`. | Supported; retains headless overlap protection. |
+| `if-no-pending` | Ignore busy, editing, readiness, and stability, but require `surface.pending_input=no`. | Require merged `turn.phase` not to be `blocked`. | Rejected. |
+| `always` | Ignore tracked readiness and pending input. | No hook gate. | Rejected. |
 
 Both conditional policies fail closed when pending input is `unknown`. `if-no-pending` returns `pending_input` for an observed queue and `pending_input_unknown` for ambiguous or incomplete provider surfaces. Attachment, availability, reconciliation, selector, adapter, and execution-override checks still apply to every policy. TUI `chat_session.mode=new` accepts only `ready-only`.
 
-Admission is observational. The gateway reads the latest tracked provider surface and does not reserve a pending slot or wait under a lock for the provider to repaint. Two closely spaced `if-no-pending` calls can therefore both dispatch before the TUI exposes its queue; later calls react to the next observed `surface.pending_input=yes`.
+For TUI-backed targets, the hook gate applies only when the attached tracked state reports hook channel state `active` (from `observation_channels[0].state`, falling back to `diagnostics.hook_channel_state`). A degraded channel (`unavailable`, `stale`, `disabled_by_policy`, `untrusted_workspace`, `error`, or `stopped`) adds no refusal reasons, so admission evaluates exactly the TUI-only facts. Hook `work=pending` and a maintenance window never close admission by themselves. Hook refusals use HTTP `409` with `error_code=not_ready`, and the detail names the non-admissible posture (for example `hook.turn_phase='blocked'` or `hook.blocked=true`).
+
+Each direct prompt decision is recorded in `events.jsonl`. Both `control_prompt_submitted` and `control_prompt_refused` carry the tracked facts plus `hook_channel_state`, `hook_turn_phase`, `hook_blocked`, `hook_terminal_result`, `hook_terminal_source`, and `hook_conflict_reasons`. When the channel is active, refusal details also append the channel state, merged turn phase, blocked flag, terminal result, and any conflict reasons.
+
+Admission is observational. The gateway reads the latest tracked provider surface and does not reserve a pending slot or wait under a lock for the provider to repaint. Two closely spaced `if-no-pending` calls can therefore both dispatch before the TUI exposes its queue; later calls react to the next observed `surface.pending_input=yes`. The same applies to a hook posture that has not yet been folded: readers fold events at their next poll cycle, so a just-arrived hook event may not affect admission until the following cycle.
 
 The `--model` and `--reasoning-level` override flags are accepted only when the resolved managed agent is headless. TUI-backed targets fail clearly instead of silently ignoring them. The override applies to exactly the addressed gateway prompt submission, including when that submission is queued through `submit_prompt`, and does not mutate launch profiles, recipes, specialists, manifests, or any other live session defaults. Partial overrides are supported: supplying `--reasoning-level` without `--model` merges with the launch-resolved model defaults through the shared headless resolution helper. The meaning of `--reasoning-level` depends on the resolved tool/model ladder, higher unused numbers saturate to that ladder's highest maintained Houmao preset, and `0` means explicit off only when that ladder supports it.
 

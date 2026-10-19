@@ -234,7 +234,39 @@ Current status axes:
 - `active_execution`: `idle` or `running`
 - `execution_mode`: `detached_process` or `tmux_auxiliary_window`
 - `gateway_tmux_window_id` and `gateway_tmux_window_index`: present for live `tmux_auxiliary_window` status; `gateway_tmux_window_index` must never be `"0"`
+- `observation_channels`: optional list of `GatewayObservationChannelV1`; present when the attached TUI tracker has a configured hook observation channel, null otherwise
 - seeded offline status carries the resolved desired execution mode even when no live gateway is attached
+
+A representative configured hook channel on status:
+
+```json
+{
+  "observation_channels": [
+    {
+      "channel": "hook",
+      "provider": "claude",
+      "state": "active",
+      "detail": null,
+      "generation": 3,
+      "last_event_name": "Stop",
+      "last_event_at_utc": "2026-10-20T09:15:02+00:00",
+      "last_sequence": 42,
+      "counters": {
+        "events_seen": 42,
+        "normalized_events": 42,
+        "unknown_events": 0,
+        "malformed_events": 0,
+        "orphan_terminals": 0,
+        "orphan_generations": 0,
+        "duplicate_events": 0
+      },
+      "conflict_reasons": []
+    }
+  ]
+}
+```
+
+`state` is one of `active`, `unavailable`, `stale`, `disabled_by_policy`, `untrusted_workspace`, `error`, or `stopped`. Only `active` grants hook lifecycle authority. See [Hook Observation Channel](../../../developer/houmao-server/state-tracking.md#hook-observation-channel) for the state machine and thresholds.
 
 ### `POST /v1/requests`
 
@@ -496,8 +528,12 @@ Current behavior:
 - `if_no_pending` ignores tracked busy, editing, readiness, and stability posture, but requires `surface.pending_input=no`
 - `always` bypasses tracked readiness and pending-input checks
 - pending `yes` returns `error_code=pending_input`; pending `unknown` returns `error_code=pending_input_unknown` for either conditional policy once its earlier readiness checks pass
+- for TUI-backed dispatch with an `active` hook observation channel, `ready_only` additionally refuses while the merged `turn.phase` is `active` or `blocked`, and `if_no_pending` additionally refuses while it is `blocked`; `always` adds no hook gate
+- a degraded hook channel (`unavailable`, `stale`, `disabled_by_policy`, `untrusted_workspace`, `error`, or `stopped`) adds no refusal reasons; hook `work=pending` and maintenance posture never close admission by themselves
+- hook refusals return HTTP `409` with `error_code=not_ready` and a detail naming the non-admissible posture, for example `hook.turn_phase='blocked'` or `hook.blocked=true`
+- `control_prompt_submitted` and `control_prompt_refused` events in `events.jsonl` carry `hook_channel_state`, `hook_turn_phase`, `hook_blocked`, `hook_terminal_result`, `hook_terminal_source`, and `hook_conflict_reasons` alongside the tracked admission facts; values that do not apply are null or an empty list
 - every policy still enforces gateway attachment, availability, reconciliation, target selection, adapter compatibility, and execution-override validation
-- admission reads the latest tracked snapshot and is not a reservation: two conditional submissions may both dispatch before a provider repaint exposes pending input
+- admission reads the latest tracked snapshot and is not a reservation: two conditional submissions may both dispatch before a provider repaint exposes pending input, and a hook event that has not yet been folded at a poll cycle does not affect the current decision
 - Recoverable degraded chat context and current-error diagnostics do not by themselves block ordinary prompt dispatch when the TUI-backed session otherwise satisfies the prompt-ready contract
 - TUI-backed sessions accept `chat_session.mode = "new"` only with `admission_policy=ready_only` as a reset-then-send workflow that submits the tool-appropriate context-reset signal, waits for the tracked TUI surface to stabilize back to prompt-ready, and only then sends the caller prompt
 - Codex TUI reset-then-send uses `/new`; other TUI tools use their configured reset signal, commonly `/clear`
@@ -518,6 +554,8 @@ Current behavior:
 This route returns the gateway-owned live `HoumaoTerminalStateResponse` for one attached TUI-backed session.
 
 The canonical `surface` object includes `accepting_input`, `editing_input`, `ready_posture`, and `pending_input`. `pending_input=yes` means the provider CLI visibly holds submitted user input behind the current turn. It does not mean that the composer contains an unsubmitted draft, that `queue.sqlite` contains gateway-durable work, or that Houmao recently noted a prompt submission. Ambiguous or cropped provider surfaces report `unknown`.
+
+The response also carries the hook observation surface when one is configured: `turn.phase` may be `blocked` while a hook channel reports a permission wait, `last_turn.error_class` is populated for a hook-settled `known_failure`, `work` is `pending`, `clear`, or `unknown`, `settled` is the derived `turn.phase=ready` and `work=clear` convenience, and `observation_channels` carries the same channel payload published on `/v1/status`. The diagnostics group mirrors it as `hook_channel_state`, `hook_counters`, and `hook_conflict_reasons`. Without a configured channel, `work` is `unknown`, `settled` is `false`, and `observation_channels` is null.
 
 Current availability rules:
 

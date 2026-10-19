@@ -12,7 +12,7 @@ The public state contract is now centered on one shared tracker engine plus host
 - **`LiveSessionTracker`** in `src/houmao/server/tui/tracking.py` is the live server host adapter. It feeds raw captured TUI text and explicit input events into the shared session, then merges the resulting tracker state with server-owned diagnostics, lifecycle timing, authority, and visible-stability metadata.
 - **`StreamStateReducer`** in `src/houmao/shared_tui_tracking/reducer.py` is now a compatibility wrapper for replay and offline consumers; it no longer owns the core state machine.
 
-**`ManagedAgentTurnPhase` alias:** The server models import `TurnPhase` from `shared_tui_tracking.models` as `ManagedAgentTurnPhase`. This means TUI terminals and managed headless agents share the same turn vocabulary — `ready`, `active`, and `unknown` carry identical semantics regardless of the transport path.
+**`ManagedAgentTurnPhase` alias:** The server models import `TurnPhase` from `shared_tui_tracking.models` as `ManagedAgentTurnPhase`. This means TUI terminals and managed headless agents share the same turn vocabulary: `ready`, `active`, `blocked`, and `unknown` carry identical semantics regardless of the transport path. `blocked` is reachable only through hook observation, described under [`turn.phase`](#turnphase).
 
 ## Detector Families
 
@@ -202,9 +202,11 @@ Codex prompt-adjacent compact/server error surfaces can still publish `ready_pos
 
 ## `turn.phase`
 
-Type: `TurnPhase` (aliased as `ManagedAgentTurnPhase` in server models) — one of `ready`, `active`, `unknown`.
+Type: `TurnPhase` (aliased as `ManagedAgentTurnPhase` in server models) — one of `ready`, `active`, `blocked`, `unknown`.
 
 This field answers: "What is the current turn posture?" It is intentionally narrower than the internal reducer graph — ambiguous states collapse into `unknown` rather than exposing implementation-specific phases.
+
+`blocked` is added by the opt-in hook observation channel. TUI-only tracking never publishes it. The transitions below show the TUI-owned edges plus the hook-only `blocked` edges.
 
 > See [state-transitions.md § Turn Phase](state-transitions.md#turn-phase) for the full statechart diagram with all transitions.
 
@@ -217,6 +219,10 @@ stateDiagram-v2
     active --> ready : completion settled /<br/>interrupted / failure
     active --> unknown : diagnostics degraded
     ready --> unknown : diagnostics degraded /<br/>ambiguous surface
+    active --> blocked : hook permission_requested
+    blocked --> active : hook permission_resolved /<br/>TUI modal dismissal
+    blocked --> ready : hook terminal event
+    blocked --> unknown : diagnostics degraded
 ```
 
 ### `ready`
@@ -237,6 +243,14 @@ When `chat_context=degraded` is also present, the surface is promptable but the 
 
 **Operational implications:** Do not send new input — the agent is processing the current prompt. Poll for turn completion. You may observe `last_turn.result` changing to `success`, `interrupted`, or `known_failure` when the turn ends.
 
+### `blocked`
+
+**Intuitive meaning:** The provider is asking the operator for an action, such as a permission decision, and will not proceed until it is settled.
+
+**Derivation:** Only hook observation enters `blocked`, from a hook `PermissionRequest` while a prompt is armed. The posture records the blocked tool name when the payload carries one. Hook `permission_resolved`, a hook terminal event, or TUI modal-dismissal evidence (including a positive `User rejected` line) leaves `blocked`. TUI parsing never enters this phase; a TUI-detected permission dialog keeps `turn.phase=active` with `operator_state=waiting_user_answer`.
+
+**Operational implications:** Do not send a new prompt through an admission policy that treats blocked posture as non-admissible. `ready_only` refuses while the merged phase is `active` or `blocked`, and `if_no_pending` refuses while it is `blocked`. `always` is unaffected. `work=pending` does not add a refusal.
+
 ### `unknown`
 
 **Intuitive meaning:** The system cannot confidently classify the posture as ready or active.
@@ -252,6 +266,8 @@ When `chat_context=degraded` is also present, the surface is promptable but the 
 Type: `TrackedLastTurnResult` — one of `success`, `interrupted`, `known_failure`, `none`.
 
 This field answers: "What was the outcome of the most recent completed turn?" It is **sticky** — it only updates when a tracked turn reaches a terminal outcome, not on every poll cycle.
+
+When the hook observation channel is active, a hook `Stop` or `StopFailure` latches the turn immediately, ahead of the TUI settle window. A hook failure records its provider error class in `last_turn.error_class`; the field is null for other results. Once a hook terminal event latches a turn, later TUI settlement for that turn is suppressed, except that TUI temporal interrupt evidence may still flip the result to `interrupted`.
 
 > See [state-transitions.md § Last-Turn Result](state-transitions.md#last-turn-result) for the full statechart diagram with all transitions.
 
@@ -293,9 +309,9 @@ stateDiagram-v2
 
 **Intuitive meaning:** The most recent turn ended with a recognized failure — the agent encountered a supported error pattern.
 
-**Derivation:** The detector saw a tool-specific failure signature (e.g., Claude's colored error status line followed by a prompt). The reducer immediately promotes to `known_failure` and cancels any pending success timer.
+**Derivation:** The detector saw a tool-specific failure signature (e.g., Claude's colored error status line followed by a prompt). The reducer immediately promotes to `known_failure` and cancels any pending success timer. With hook observation active, a hook `StopFailure` also produces `known_failure` and records the provider error class in `last_turn.error_class`.
 
-**Operational implications:** The turn failed. Inspect the TUI output for error details. The prompt is typically ready for a retry or a different instruction.
+**Operational implications:** The turn failed. Inspect the TUI output for error details, and read `last_turn.error_class` when hook observation supplied the result. The prompt is typically ready for a retry or a different instruction.
 
 ### `none`
 
@@ -309,7 +325,7 @@ stateDiagram-v2
 
 ## `last_turn.source`
 
-Type: `TrackedLastTurnSource` — one of `explicit_input`, `surface_inference`, `none`.
+Type: `TrackedLastTurnSource` — one of `explicit_input`, `surface_inference`, `hook_observation`, `none`.
 
 This field answers: "How was the most recent completed turn initiated?"
 
@@ -329,6 +345,14 @@ This field answers: "How was the most recent completed turn initiated?"
 
 **Operational implications:** The server did not initiate this turn, so it has less precise timing. Settle times may be slightly longer because the exact submission moment is estimated from surface changes rather than known precisely.
 
+### `hook_observation`
+
+**Intuitive meaning:** The most recent terminal outcome was settled from a hook terminal event rather than from TUI settlement.
+
+**Derivation:** A hook `Stop` sets `last_turn.result=success` and a hook `StopFailure` sets `last_turn.result=known_failure`. The source is `hook_observation` unless a gateway submission record correlates with the same turn, in which case the source is `explicit_input`.
+
+**Operational implications:** Settlement timing reflects provider lifecycle events, not the TUI settle window. Treat the result as authoritative for the turn, while remembering that TUI temporal interrupt evidence can still override a hook success with `interrupted`.
+
 ### `none`
 
 **Intuitive meaning:** No turn source has been recorded — the tracker is in its initial state.
@@ -336,3 +360,88 @@ This field answers: "How was the most recent completed turn initiated?"
 **Derivation:** This is the initial value, paired with `last_turn.result=none`.
 
 **Operational implications:** No completed turn to attribute. Wait for a turn to complete.
+
+---
+
+## `work`
+
+Type: `HookWorkState` — one of `pending`, `clear`, `unknown`.
+
+This field answers: "Does the session still have background work outstanding after the last completed turn?" It is session-scoped rather than turn-scoped, so it can stay `pending` across several prompt turns.
+
+### `pending`
+
+**Intuitive meaning:** At least one provider background task is still outstanding.
+
+**Derivation:** The most recent hook `turn_completed` payload listed background tasks. The reducer sets `work` from the payload of every successful terminal turn, including the provider-synthesized ghost turns that report background task notifications.
+
+**Operational implications:** The session is not `settled`. Do not treat prompt readiness alone as "ready for the next assignment". `work=pending` never closes gateway prompt admission by itself.
+
+### `clear`
+
+**Intuitive meaning:** No provider background task is outstanding.
+
+**Derivation:** The most recent hook `turn_completed` payload listed no background tasks. Combined with `turn.phase=ready`, this makes `settled=true`.
+
+### `unknown`
+
+**Intuitive meaning:** The current background-work state is unknown.
+
+**Derivation:** This is the initial value for each channel generation. It is also the published value whenever the channel is absent, degraded, or has not yet produced a `turn_completed` payload. A hook `turn_failed` makes no background-work statement and leaves the previous value unchanged.
+
+**Operational implications:** Do not infer either pending work or a cleared session. Wait for a `turn_completed` observation or for the channel to recover.
+
+---
+
+## `settled`
+
+Type: boolean. Derived as `turn.phase=ready` and `work=clear`.
+
+**Intuitive meaning:** The session is prompt-ready and has no outstanding background work. This is the orchestrator-facing answer to "can I assign the next task?" without conflating prompt readiness with task completion.
+
+**Derivation:** The value is recomputed on every tracked-state sample. It is `false` whenever the hook channel is absent, degraded, or reporting `work=unknown`. `work=pending` keeps it `false` even when `turn.phase=ready`.
+
+**Operational implications:** `settled=true` is stronger than `turn.phase=ready` for multi-task orchestration. Neither value replaces `stability`; use both when acting on a transition.
+
+---
+
+## `observation_channels`
+
+Type: list of `HoumaoObservationChannel`, or null when no channel is configured. The list currently contains at most one entry: the hook channel.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `channel` | string | `"hook"` in v1 |
+| `provider` | string | `"claude"` in v1 |
+| `state` | `HookChannelState` | Channel health, described below |
+| `detail` | string or null | Bounded, secret-free reason for the current state |
+| `generation` | integer or null | Channel generation that produced the current posture |
+| `last_event_name` | string or null | Most recent provider event name |
+| `last_event_at_utc` | string or null | Collector receive time of the most recent event |
+| `last_sequence` | integer or null | Most recent collector-assigned sequence |
+| `counters` | `HoumaoHookObservationCounters` or null | Bounded counters |
+| `conflict_reasons` | list of strings | Conflicts observed for the current sample |
+
+`HoumaoHookObservationCounters` carries `events_seen`, `normalized_events`, `unknown_events`, `malformed_events`, `orphan_terminals`, `orphan_generations`, and `duplicate_events`.
+
+### `observation_channels[].state`
+
+| State | Intuitive meaning | Derivation and implications |
+|---|---|---|
+| `active` | Hook events are flowing | Current-generation events have arrived. Only this state grants hook lifecycle authority. |
+| `unavailable` | No usable channel | Startup state before any event, after the 15-second startup grace with no event, or after a failed install. Tracking is TUI-only. |
+| `stale` | An active channel went quiet | No event for more than 30 seconds while the visible TUI kept changing. TUI regains lifecycle authority. `last_turn` is published from TUI evidence during the degraded window, so a hook-only terminal result is temporarily not shown and returns if the channel recovers with that terminal still latched. |
+| `disabled_by_policy` | Hooks are disabled by policy | Terminal state recognized from channel metadata. TUI-only. |
+| `untrusted_workspace` | Workspace trust is missing | Terminal state recognized from channel metadata. TUI-only. |
+| `error` | The event store is unreadable | A read failure clears on the next healthy read; an `error` published in channel metadata is terminal. Until then, TUI-only. |
+| `stopped` | The collector stopped | Terminal. Published when the collector stops or the session stops. |
+
+The passive server reports a hook-applicable session whose session root is not visible from its host as `state="unavailable"` with `detail="remote observation"`. Every state other than `active` is degraded: `work` is `unknown`, `settled` is `false`, and admission matches TUI-only behavior.
+
+---
+
+## Hook Diagnostics
+
+`diagnostics.hook_channel_state`, `diagnostics.hook_counters`, and `diagnostics.hook_conflict_reasons` mirror the first observation channel and its counters for consumers that read the diagnostics group directly. They are null or empty when no channel is configured.
+
+`last_turn.error_class` carries the provider error class for a hook-settled `known_failure` and is null otherwise. It is additive and remains null for TUI-settled outcomes.

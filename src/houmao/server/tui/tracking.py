@@ -137,11 +137,13 @@ class _HookTurnLatch:
     sequence: int | None
     armed_at_monotonic: float | None
     at_utc: str
+    epoch: int
+    created_cycle: int
 
     def identity(self) -> tuple[object, ...]:
         """Return a stable identity for suppression bookkeeping."""
 
-        return (self.generation, self.sequence, self.consumed_prompt_id, self.result)
+        return (self.generation, self.sequence, self.consumed_prompt_id, self.result, self.epoch)
 
 
 @dataclass(frozen=True)
@@ -167,6 +169,7 @@ class _HookProjection:
     holds_lifecycle: bool
     conflict_reasons: tuple[str, ...]
     latch: _HookTurnLatch | None
+    reader_orphan_generations: int = 0
 
 
 class LiveSessionTracker:
@@ -262,9 +265,14 @@ class LiveSessionTracker:
         self.m_hook_pending_explicit: deque[float] = deque(maxlen=32)
         self.m_hook_armed_explicit: deque[bool] = deque()
         self.m_hook_armed_at_monotonic: deque[float] = deque()
+        self.m_hook_armed_epochs: deque[int] = deque()
+        self.m_hook_next_turn_epoch: int = 0
         self.m_hook_blocked_cleared_key: tuple[int | None, int | None] | None = None
         self.m_hook_blocked_key: tuple[int | None, int | None] | None = None
-        self.m_hook_tui_interrupt_since_arm: bool = False
+        self.m_hook_tui_interrupt_epoch: int | None = None
+        self.m_hook_tui_interrupt_applied_epoch: int | None = None
+        self.m_hook_maintenance_epoch: int | None = None
+        self.m_hook_reader_orphan_generations: int = 0
         self.m_hook_degraded_tui_settlement: _DegradedTuiSettlement | None = None
         self.m_hook_recovered_this_cycle: bool = False
         self.m_hook_previous_health_state: HookChannelState | None = None
@@ -598,7 +606,7 @@ class LiveSessionTracker:
             if self.m_hook_channel is not None:
                 self.m_hook_latch = None
                 self.m_hook_suppressed_latch_identity = None
-                self.m_hook_tui_interrupt_since_arm = False
+                self.m_hook_tui_interrupt_epoch = None
                 self.m_hook_pending_explicit.append(monotonic_ts)
             if self.m_tracker_session is not None:
                 self.m_tracker_session.on_input_submitted()
@@ -1258,6 +1266,7 @@ class LiveSessionTracker:
                 )
         if self.m_hook_posture is None:
             self.m_hook_posture = channel.reducer.posture
+        self.m_hook_reader_orphan_generations += cycle.dropped_old_generation_lines
         self.m_hook_cycle_reasons = self._hook_cycle_reasons_locked(
             posture=self.m_hook_posture,
             cycle=cycle,
@@ -1329,13 +1338,15 @@ class LiveSessionTracker:
             previous_armed_count = len(previous.armed_prompts)
         consumed_explicit: list[bool] = []
         consumed_armed_at: list[float] = []
+        consumed_epochs: list[int] = []
         if len(posture.armed_prompts) > previous_armed_count:
             for _ in range(len(posture.armed_prompts) - previous_armed_count):
                 self.m_hook_armed_explicit.append(
                     self._consume_explicit_submission_locked(monotonic_ts)
                 )
                 self.m_hook_armed_at_monotonic.append(monotonic_ts)
-                self.m_hook_tui_interrupt_since_arm = False
+                self.m_hook_next_turn_epoch += 1
+                self.m_hook_armed_epochs.append(self.m_hook_next_turn_epoch)
         elif len(posture.armed_prompts) < previous_armed_count:
             for _ in range(previous_armed_count - len(posture.armed_prompts)):
                 consumed_explicit.append(
@@ -1343,6 +1354,8 @@ class LiveSessionTracker:
                 )
                 if self.m_hook_armed_at_monotonic:
                     consumed_armed_at.append(self.m_hook_armed_at_monotonic.popleft())
+                if self.m_hook_armed_epochs:
+                    consumed_epochs.append(self.m_hook_armed_epochs.popleft())
         new_terminal = posture.terminal_result != "none" and (
             previous is None
             or not same_generation
@@ -1359,6 +1372,12 @@ class LiveSessionTracker:
                 sequence=posture.last_sequence,
                 armed_at_monotonic=consumed_armed_at[0] if consumed_armed_at else None,
                 at_utc=observed_at_utc,
+                epoch=(
+                    consumed_epochs[0]
+                    if consumed_epochs
+                    else (self.m_hook_latch.epoch if self.m_hook_latch else 0)
+                ),
+                created_cycle=self.m_cycle_seq,
             )
             self.m_hook_suppressed_latch_identity = None
         elif (
@@ -1376,7 +1395,26 @@ class LiveSessionTracker:
         else:
             self.m_hook_blocked_key = None
             self.m_hook_blocked_cleared_key = None
+        previous_maintenance = (
+            previous.maintenance_active if previous is not None and same_generation else False
+        )
+        if posture.maintenance_active and not previous_maintenance:
+            self.m_hook_maintenance_epoch = self._current_hook_turn_epoch_locked()
+            if (
+                self.m_hook_maintenance_epoch is not None
+                and self.m_hook_tui_interrupt_epoch == self.m_hook_maintenance_epoch
+            ):
+                self.m_hook_tui_interrupt_epoch = None
         self.m_hook_previous_posture = posture
+
+    def _current_hook_turn_epoch_locked(self) -> int | None:
+        """Return the turn epoch that currently owns hook lifecycle authority."""
+
+        if self.m_hook_armed_epochs:
+            return self.m_hook_armed_epochs[0]
+        if self.m_hook_latch is not None:
+            return self.m_hook_latch.epoch
+        return None
 
     def _note_tui_evidence_locked(
         self,
@@ -1399,7 +1437,17 @@ class LiveSessionTracker:
         posture = self.m_hook_posture
         if posture is None or not posture.blocked:
             return
-        if modal_dismissed or self.m_hook_tui_interrupt_since_arm:
+        current_epoch = self._current_hook_turn_epoch_locked()
+        maintenance_contaminated = (
+            current_epoch is not None and self.m_hook_maintenance_epoch == current_epoch
+        )
+        interrupt_evidence = (
+            current_epoch is not None
+            and self.m_hook_tui_interrupt_epoch == current_epoch
+            and not posture.maintenance_active
+            and not maintenance_contaminated
+        )
+        if (modal_dismissed and not posture.maintenance_active) or interrupt_evidence:
             if self.m_hook_blocked_key is not None:
                 self.m_hook_blocked_cleared_key = self.m_hook_blocked_key
             self._emit_debug(
@@ -1409,7 +1457,7 @@ class LiveSessionTracker:
                 cycle_seq=self.m_cycle_seq,
                 data={
                     "modal_dismissed": modal_dismissed,
-                    "tui_interrupt_evidence": self.m_hook_tui_interrupt_since_arm,
+                    "tui_interrupt_evidence": interrupt_evidence,
                 },
             )
 
@@ -1432,9 +1480,12 @@ class LiveSessionTracker:
         self.m_hook_suppressed_latch_identity = None
         self.m_hook_armed_explicit.clear()
         self.m_hook_armed_at_monotonic.clear()
+        self.m_hook_armed_epochs.clear()
         self.m_hook_blocked_cleared_key = None
         self.m_hook_blocked_key = None
-        self.m_hook_tui_interrupt_since_arm = False
+        self.m_hook_tui_interrupt_epoch = None
+        self.m_hook_tui_interrupt_applied_epoch = None
+        self.m_hook_maintenance_epoch = None
 
     def _note_tui_last_turn_transition_locked(
         self,
@@ -1450,8 +1501,25 @@ class LiveSessionTracker:
             return
         self.m_hook_previous_tui_last_turn_result = result
         if result == "interrupted":
+            epoch = self._current_hook_turn_epoch_locked()
+            armed_epoch = self.m_hook_armed_epochs[0] if self.m_hook_armed_epochs else None
+            latch_epoch = self.m_hook_latch.epoch if self.m_hook_latch is not None else None
+            same_cycle_latch_epoch = (
+                latch_epoch
+                if self.m_hook_latch is not None
+                and self.m_hook_latch.created_cycle == self.m_cycle_seq
+                else None
+            )
             armed_at = self.m_hook_armed_at_monotonic[0] if self.m_hook_armed_at_monotonic else None
-            self.m_hook_tui_interrupt_since_arm = armed_at is None or monotonic_ts >= armed_at
+            if (
+                epoch is not None
+                and epoch != self.m_hook_maintenance_epoch
+                and epoch in {armed_epoch, same_cycle_latch_epoch}
+                and (armed_at is None or monotonic_ts >= armed_at)
+            ):
+                self.m_hook_tui_interrupt_epoch = epoch
+            else:
+                self.m_hook_tui_interrupt_epoch = None
         elif result == "none":
             self.m_hook_degraded_tui_settlement = None
         health_state = self.m_hook_health.state if self.m_hook_health is not None else None
@@ -1486,14 +1554,19 @@ class LiveSessionTracker:
         if health.state != "active":
             if health.state == "stale":
                 reasons.append("hook_stale_tui_authoritative")
+            latched_last_turn = self._latched_last_turn_locked()
             return _HookProjection(
                 health=health,
                 posture=posture,
                 turn_phase=tracker_state.turn_phase,
-                last_turn=_build_tracker_last_turn(
-                    previous=previous_last_turn,
-                    tracker_state=tracker_state,
-                    observed_at_utc=observed_at_utc,
+                last_turn=(
+                    latched_last_turn
+                    if latched_last_turn is not None
+                    else _build_tracker_last_turn(
+                        previous=previous_last_turn,
+                        tracker_state=tracker_state,
+                        observed_at_utc=observed_at_utc,
+                    )
                 ),
                 work="unknown",
                 settled=False,
@@ -1501,6 +1574,7 @@ class LiveSessionTracker:
                 holds_lifecycle=False,
                 conflict_reasons=_bounded_hook_reasons(reasons),
                 latch=None,
+                reader_orphan_generations=self.m_hook_reader_orphan_generations,
             )
 
         blocked = posture.blocked and not self._hook_blocked_cleared(posture)
@@ -1540,6 +1614,7 @@ class LiveSessionTracker:
             holds_lifecycle=holds_lifecycle,
             conflict_reasons=_bounded_hook_reasons(reasons),
             latch=self.m_hook_latch,
+            reader_orphan_generations=self.m_hook_reader_orphan_generations,
         )
 
     def _merge_hook_last_turn_locked(
@@ -1576,6 +1651,7 @@ class LiveSessionTracker:
                 )
             if settlement.result == "interrupted":
                 self.m_hook_suppressed_latch_identity = latch_identity
+                self.m_hook_tui_interrupt_applied_epoch = latch.epoch
                 if latch.result == "success":
                     reasons.append("hook_success_tui_interrupted")
                 return tui_last_turn, reasons
@@ -1597,14 +1673,14 @@ class LiveSessionTracker:
                 },
             )
         if self.m_hook_suppressed_latch_identity == latch_identity:
-            if latch.result == "success" and tracker_state.last_turn_result == "interrupted":
+            if self._tui_interrupt_for_latch(tracker_state, latch):
                 reasons.append("hook_success_tui_interrupted")
             return tui_last_turn, reasons
         result: TrackedLastTurnResult = latch.result
         source: TrackedLastTurnSource = (
             "explicit_input" if latch.explicit_input else "hook_observation"
         )
-        if result == "success" and self._tui_interrupt_for_latch(tracker_state):
+        if result == "success" and self._tui_interrupt_for_latch(tracker_state, latch):
             result = "interrupted"
             reasons.append("hook_success_tui_interrupted")
         if result == "known_failure" and tracker_state.last_turn_result == "success":
@@ -1619,11 +1695,45 @@ class LiveSessionTracker:
             reasons,
         )
 
-    def _tui_interrupt_for_latch(self, tracker_state: TrackedStateSnapshot) -> bool:
-        """Return whether TUI interrupt evidence belongs to the latched turn."""
+    def _tui_interrupt_for_latch(
+        self,
+        tracker_state: TrackedStateSnapshot,
+        latch: _HookTurnLatch,
+    ) -> bool:
+        """Return whether TUI interrupt evidence belongs to the latched turn.
 
-        return (
-            tracker_state.last_turn_result == "interrupted" and self.m_hook_tui_interrupt_since_arm
+        Interrupt evidence is keyed to the turn epoch that produced the latch.
+        Evidence observed during or after a maintenance window for that epoch is
+        not interrupt evidence: compaction repaints can trip the TUI detector's
+        silent-abort inference even though the turn already terminated normally.
+        Once applied, the interrupt outcome sticks to the latch for its lifetime.
+        """
+
+        if tracker_state.last_turn_result != "interrupted":
+            return False
+        if self.m_hook_tui_interrupt_applied_epoch == latch.epoch:
+            return True
+        if self.m_hook_tui_interrupt_epoch != latch.epoch:
+            return False
+        if self.m_hook_maintenance_epoch == latch.epoch:
+            return False
+        self.m_hook_tui_interrupt_applied_epoch = latch.epoch
+        return True
+
+    def _latched_last_turn_locked(self) -> HoumaoTrackedLastTurn | None:
+        """Return the hook-latched last turn for degraded-channel publication."""
+
+        latch = self.m_hook_latch
+        if latch is None:
+            return None
+        result: TrackedLastTurnResult = latch.result
+        if self.m_hook_tui_interrupt_applied_epoch == latch.epoch:
+            result = "interrupted"
+        return HoumaoTrackedLastTurn(
+            result=result,
+            source=("explicit_input" if latch.explicit_input else "hook_observation"),
+            updated_at_utc=latch.at_utc,
+            error_class=latch.error_class if result == "known_failure" else None,
         )
 
     def _hook_blocked_cleared(self, posture: HookPosture) -> bool:
@@ -2429,7 +2539,11 @@ def _bounded_hook_reasons(reasons: Iterable[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(reasons))[:HOOK_CONFLICT_REASON_LIMIT]
 
 
-def _hook_counters_payload(posture: HookPosture) -> HoumaoHookObservationCounters:
+def _hook_counters_payload(
+    posture: HookPosture,
+    *,
+    reader_orphan_generations: int = 0,
+) -> HoumaoHookObservationCounters:
     """Return the public counter payload for one posture."""
 
     counters = posture.counters
@@ -2439,7 +2553,7 @@ def _hook_counters_payload(posture: HookPosture) -> HoumaoHookObservationCounter
         unknown_events=counters.unknown_events,
         malformed_events=counters.malformed_events,
         orphan_terminals=counters.orphan_terminals,
-        orphan_generations=counters.orphan_generations,
+        orphan_generations=counters.orphan_generations + reader_orphan_generations,
         duplicate_events=counters.duplicate_events,
     )
 
@@ -2462,7 +2576,10 @@ def _build_observation_channels(
             last_event_name=posture.last_event_name,
             last_event_at_utc=posture.last_event_at_utc,
             last_sequence=posture.last_sequence,
-            counters=_hook_counters_payload(posture),
+            counters=_hook_counters_payload(
+                posture,
+                reader_orphan_generations=projection.reader_orphan_generations,
+            ),
             conflict_reasons=list(projection.conflict_reasons),
         )
     ]
@@ -2479,7 +2596,10 @@ def _update_diagnostics_with_hook(
     return diagnostics.model_copy(
         update={
             "hook_channel_state": projection.health.state,
-            "hook_counters": _hook_counters_payload(projection.posture),
+            "hook_counters": _hook_counters_payload(
+                projection.posture,
+                reader_orphan_generations=projection.reader_orphan_generations,
+            ),
             "hook_conflict_reasons": list(projection.conflict_reasons),
         }
     )

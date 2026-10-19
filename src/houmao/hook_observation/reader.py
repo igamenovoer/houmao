@@ -40,7 +40,11 @@ from houmao.hook_observation.store import (
 
 
 READ_CHUNK_BYTES = MAX_ENVELOPE_LINE_BYTES + 1
+COLLECTOR_RECORD_FILENAME = "collector.json"
 _FORCED_HEALTH_STATES = frozenset({"disabled_by_policy", "untrusted_workspace", "error", "stopped"})
+_EXPLICIT_STATE_PRECEDES_COLLECTOR = frozenset(
+    {"unavailable", "installing", "disabled_by_policy", "untrusted_workspace", "error", "stopped"}
+)
 
 
 @dataclass(frozen=True)
@@ -344,6 +348,7 @@ class HookObservationChannel:
 
         self.m_reader = HookObservationReader(events_path)
         self.m_channel_path = Path(channel_path)
+        self.m_collector_path = self.m_channel_path.with_name(COLLECTOR_RECORD_FILENAME)
         self.m_reducer = reducer if reducer is not None else HookPostureReducer()
         self.m_status: dict[str, Any] | None = channel_status
         forced_state = _forced_health_state(self.m_status)
@@ -437,6 +442,12 @@ class HookObservationChannel:
 
         return self.m_channel_path
 
+    @property
+    def collector_path(self) -> Path:
+        """Return the collector liveness record path."""
+
+        return self.m_collector_path
+
     def read_cycle(
         self,
         *,
@@ -467,6 +478,15 @@ class HookObservationChannel:
         collector_status = _collector_status(status)
         forced_state = _forced_health_state(status)
         explicit_state = _explicit_channel_state(status)
+        if explicit_state not in _EXPLICIT_STATE_PRECEDES_COLLECTOR:
+            channel_generation = self.m_reader.current_generation
+            if channel_generation is None:
+                channel_generation = _status_generation(status)
+            if _collector_record_stopped(
+                self.m_collector_path,
+                channel_generation=channel_generation,
+            ):
+                collector_status = "stopped"
         if forced_state is not None and forced_state != self.m_health.forced_state:
             self.m_health = HookChannelHealthMonitor(
                 startup_grace_seconds=self.m_health.startup_grace_seconds,
@@ -647,6 +667,41 @@ def _install_detail(status: dict[str, Any] | None) -> str | None:
     if not isinstance(detail, str) or not detail.strip():
         return None
     return detail
+
+
+def _status_generation(status: dict[str, Any] | None) -> int | None:
+    """Return one integer generation stamp from a status document."""
+
+    if status is None:
+        return None
+    value = status.get("generation")
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+def _collector_record_stopped(
+    collector_path: Path,
+    *,
+    channel_generation: int | None,
+) -> bool:
+    """Return whether the collector liveness record reports a stopped collector.
+
+    A record from a different channel generation is ignored so a stale record
+    from a previous launch cannot stop the current generation.
+    """
+
+    record = read_channel_status(collector_path)
+    if record is None or record.get("status") != "stopped":
+        return False
+    record_generation = _status_generation(record)
+    if (
+        record_generation is not None
+        and channel_generation is not None
+        and record_generation != channel_generation
+    ):
+        return False
+    return True
 
 
 def _status_timestamp(status: dict[str, Any] | None) -> str | None:

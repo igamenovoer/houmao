@@ -23,9 +23,12 @@ The public state is intentionally small:
 | `surface.accepting_input` | `yes`, `no`, `unknown` | Whether typed input would currently land in the prompt area |
 | `surface.editing_input` | `yes`, `no`, `unknown` | Whether prompt-area input is actively being edited now |
 | `surface.ready_posture` | `yes`, `no`, `unknown` | Whether the visible surface looks ready for immediate submit |
-| `turn.phase` | `ready`, `active`, `unknown` | Current turn posture |
+| `turn.phase` | `ready`, `active`, `blocked`, `unknown` | Current turn posture; `blocked` is hook-only |
 | `last_turn.result` | `success`, `interrupted`, `known_failure`, `none` | Most recent completed terminal outcome |
-| `last_turn.source` | `explicit_input`, `surface_inference`, `none` | Where that recorded terminal turn came from |
+| `last_turn.source` | `explicit_input`, `surface_inference`, `hook_observation`, `none` | Where that recorded terminal turn came from |
+| `work` | `pending`, `clear`, `unknown` | Session-scoped background work when hook observation is active; `unknown` otherwise |
+| `settled` | boolean | Derived convenience: `turn.phase=ready` and `work=clear` |
+| `observation_channels` | optional list of `HoumaoObservationChannel` | Additive hook channel state; null when no channel is configured |
 | `chat_context` | `current`, `degraded`, `unknown` | Whether the current chat context is healthy, recoverably degraded, or unknown |
 | `stability` | `signature`, `stable`, `stable_for_seconds`, `stable_since_utc` | Generic visible-state stability for the published response |
 | `recent_transitions` | bounded list of `HoumaoRecentTransition` | Recent visible state changes kept in memory for diagnostics |
@@ -40,6 +43,8 @@ Low-level observation detail still remains available alongside the simplified mo
 - nullable `parsed_surface`
 - optional `probe_snapshot`
 - tracked-session metadata such as `tracked_session.observed_tool_version`
+- optional hook diagnostics: `diagnostics.hook_channel_state`, `diagnostics.hook_counters`, and `diagnostics.hook_conflict_reasons`
+- optional `last_turn.error_class`, populated for a hook-settled `known_failure`
 
 Server-owned lifecycle sidecars still remain available for consumers that need timing or authority detail:
 
@@ -124,9 +129,10 @@ Prompt-adjacent Codex compact/server error cells are recoverable degraded-contex
 
 - `ready`: the surface looks ready for another turn now
 - `active`: there is enough evidence that a turn is currently in flight
+- `blocked`: the provider is asking the operator for an action and will not proceed until it is settled; only hook observation enters this phase
 - `unknown`: the server cannot safely classify the posture as `ready` or `active`
 
-Explicit server-owned input acceptance is enough to arm an active turn immediately. Direct interactive prompting can still become `active` through shared-tracker raw-snapshot evidence without any parser-derived bridge.
+Explicit server-owned input acceptance is enough to arm an active turn immediately. Direct interactive prompting can still become `active` through shared-tracker raw-snapshot evidence without any parser-derived bridge. TUI parsing never emits `blocked`; a TUI-detected permission dialog keeps the existing `turn.phase=active` plus `operator_state=waiting_user_answer` presentation. Hook `PermissionRequest` enters `blocked`, and hook permission resolution, a hook terminal event, or TUI modal-dismissal evidence leaves it.
 
 There are two host-owned corrections on top of the shared tracker. The narrow stale-active correction clears an unanchored session after it stays submit-ready for the configured stale-active recovery window while the shared tracker is still stuck on stale `status_row` evidence. The final stable-active correction uses a longer default 20-second window and clears a stable false-active posture when `turn.phase=active` and the rendered-surface signature derived from the tmux capture remains unchanged for that window. Unlike the narrow stale-active path, final stable-active recovery is parser-independent; it exists as the backstop for detector false positives, so parser-derived fields cannot veto its timer or participate in its recovery key. These recoveries:
 
@@ -155,19 +161,93 @@ Two clarifications matter:
 
 The public `last_turn.source` field and the server-owned lifecycle anchor state are related, but they are not the same thing.
 
-The shared tracker can publish two turn sources:
+Tracked state records three turn sources:
 
 | Source | How it is armed | Public source |
 |--------|-----------------|---------------|
 | `terminal_input` | `POST /houmao/terminals/{terminal_id}/input` succeeds and the service calls `note_prompt_submission()` | `explicit_input` |
 | `surface_inference` | raw tmux snapshots show enough active/success evidence for the shared tracker to infer a direct in-terminal turn | `surface_inference` |
+| Hook terminal event (`Stop` or `StopFailure`) | latches the turn; a gateway submission record correlated with the same turn keeps `explicit_input` | `hook_observation` |
 
 Separately, the server still owns explicit-input lifecycle anchors for parser-fed `operator_state`, `lifecycle_timing`, and `lifecycle_authority`.
 
 - `explicit_input` can arm both the shared tracker and the server-owned lifecycle anchor.
 - `surface_inference` is tracker-owned only. It can produce public `last_turn.source=surface_inference` while server-owned `lifecycle_authority.turn_anchor_state` remains `absent`.
+- `hook_observation` is hook-owned. A hook terminal event settles the turn immediately, without waiting for the TUI settle window, and records the provider `error_class` for `known_failure`.
 - Parser-derived surface churn does not arm tracker authority. Parsed surface remains server-owned evidence and lifecycle input only.
 - Observed tool version for tracker profile selection comes from tracked-session metadata, primarily manifest launch-policy provenance with graceful fallback when unavailable.
+
+## Hook Observation Channel
+
+Managed Claude `local_interactive` sessions can opt into a hook observation channel that feeds provider-emitted lifecycle events into tracked state. The channel is off by default. Set `HOUMAO_HOOK_OBSERVATION_CLAUDE=1` before a managed launch; only the exact value `1` enables it, and any other value leaves behavior unchanged. v1 is Claude-only and applies to the managed `local_interactive` backend. `claude_headless`, joined sessions, unmanaged launches, Codex, and Kimi remain TUI-only.
+
+A session with the channel configured has one collector process bound to `127.0.0.1` on an ephemeral port. Deliveries authenticate with a per-session bearer token, and the collector appends normalized events to `<session_root>/hook-observation/claude/events.ndjson` with a secret-free `channel.json` alongside it. Every tracking consumer tails that file with its own offset and folds new observations at its next read or poll cycle, so the gateway-owned tracker, the retained `houmao-server` tracker, and the passive server can all track the same session independently.
+
+The channel is additive. When no channel is configured, every field described here keeps its previous value or default, and tracked behavior is byte-identical to TUI-only tracking.
+
+### Three Axes
+
+| Axis | Values | Authority |
+|---|---|---|
+| `surface.*` | `accepting_input`, `editing_input`, `ready_posture`, `pending_input`, `stability` | TUI only |
+| `turn.phase` | `ready`, `active`, `blocked`, `unknown` | Hook primary for lifecycle; TUI supplies surface-derived entry into `active` and `unknown` plus recovery |
+| `work` | `pending`, `clear`, `unknown` | Hook primary; `unknown` whenever hook evidence is absent or the channel is degraded |
+| `settled` | boolean | Derived: `turn.phase=ready` and `work=clear` |
+
+No axis silently impersonates another. `surface.*` never borrows hook facts, and a hook terminal event does not rewrite TUI surface fields. `blocked` is hook-only: a TUI-detected permission dialog keeps the existing `turn.phase=active` presentation. `settled` recovers the pre-background-work meaning of "you can assign the next task" without treating prompt readiness as task completion; `work=pending` never closes gateway admission by itself.
+
+### Channel Health
+
+| State | Meaning |
+|---|---|
+| `active` | Current-generation hook events are arriving. Only this state grants hook lifecycle authority. |
+| `unavailable` | Startup state before any event. After the 15-second startup grace with no event, or when the channel could not be installed, tracking is TUI-only. |
+| `stale` | An active channel delivered no event for more than 30 seconds while the visible TUI kept changing. TUI regains lifecycle authority, including settlement. During the degraded window, `last_turn` is published from TUI evidence, so a hook-only terminal result is temporarily not shown; it returns if the channel recovers with that terminal still latched. |
+| `disabled_by_policy` | Terminal policy state recognized from channel metadata. TUI-only. |
+| `untrusted_workspace` | Terminal policy state recognized from channel metadata. TUI-only. |
+| `error` | The event store could not be read. A read-failure error clears on the next healthy read; an `error` state published in channel metadata is terminal. |
+| `stopped` | The collector stopped, or the session stopped. Terminal. |
+
+Every state other than `active` is degraded: tracked state and gateway admission are equivalent to TUI-only behavior, `work` is `unknown`, and `settled` is `false`. A non-terminal channel moves to `active` on the first current-generation event and back to `active` from `stale` on the next event.
+
+### Authority And Conflict Diagnostics
+
+When the channel is active, hook facts win where they speak:
+
+| Situation | Resolution | Conflict reason |
+|---|---|---|
+| Hook `active`, TUI ready | Hook wins for lifecycle | `hook_active_tui_ready` |
+| Hook `blocked`, TUI ready | Hook wins | `hook_blocked_tui_ready` |
+| Hook terminal, TUI still active | Terminal latches; surface fields stay TUI-owned | `hook_terminal_tui_active` |
+| Hook success, TUI interrupt evidence | `interrupted` wins for that turn | `hook_success_tui_interrupted` |
+| Hook failure, TUI success | Hook failure wins for the current prompt | `hook_failure_tui_success` |
+| Stale channel, TUI still changing | TUI authoritative until recovery | `hook_stale_tui_authoritative` |
+| Recovery disagrees with a TUI settlement | Hook corrects with an audit trail | `hook_correction_after_staleness` |
+| Older-generation event | Dropped before correlation | `hook_orphan_generation` |
+| Unknown or malformed event | Skipped and counted | `hook_unknown_event`, `hook_malformed_event` |
+| Terminal without an armed prompt, or duplicate delivery | Counted, no `last_turn` manufactured | `hook_orphan_terminal`, `hook_duplicate_event` |
+
+Conflict reasons are bounded, deduplicated, secret-free, and carried in `observation_channels[].conflict_reasons` and `diagnostics.hook_conflict_reasons`. Posture diagnostics such as `prompt_id_missing`, `permission_without_armed_prompt`, and `hook_stop_hook_active` remain local reducer diagnostics; they are not part of the public conflict list.
+
+### Additive Public Fields
+
+The tracked-state response adds these optional fields. Existing consumers remain valid because every field is optional or has a backward-compatible default.
+
+| Field | Type | Notes |
+|---|---|---|
+| `turn.phase` | `TurnPhase` | Gains `blocked` |
+| `last_turn.source` | `TrackedLastTurnSource` | Gains `hook_observation` |
+| `last_turn.error_class` | `str` or null | Provider error class for a hook-settled `known_failure` |
+| `work` | `HookWorkState` | `pending`, `clear`, or `unknown`; defaults to `unknown` |
+| `settled` | boolean | Defaults to `false` |
+| `observation_channels` | list of `HoumaoObservationChannel` or null | Null when no channel is configured |
+| `diagnostics.hook_channel_state` | `HookChannelState` or null | Mirrors the first channel state |
+| `diagnostics.hook_counters` | `HoumaoHookObservationCounters` or null | Bounded counters |
+| `diagnostics.hook_conflict_reasons` | list of strings | Empty when no conflicts were observed |
+
+`HoumaoObservationChannel` carries exactly `channel`, `provider`, `state`, `detail`, `generation`, `last_event_name`, `last_event_at_utc`, `last_sequence`, `counters`, and `conflict_reasons`. `channel` is `"hook"` and `provider` is `"claude"` in v1. `HoumaoHookObservationCounters` carries `events_seen`, `normalized_events`, `unknown_events`, `malformed_events`, `orphan_terminals`, `orphan_generations`, and `duplicate_events`.
+
+The gateway publishes the same channel payload as `GatewayStatusV1.observation_channels` (`GatewayObservationChannelV1`, field-for-field identical) and records hook facts with prompt decisions. The passive server exposes `observation_channels` on `AgentTuiStateResponse` and `AgentTuiDetailResponse`; when the session store is not visible from the passive server host, the channel is reported as `state="unavailable"` with `detail="remote observation"`.
 
 ## Stability And Recent Transitions
 

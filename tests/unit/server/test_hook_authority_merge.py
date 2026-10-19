@@ -250,6 +250,109 @@ def test_tui_interrupt_overrides_hook_success(tmp_path: Path) -> None:
     assert "hook_success_tui_interrupted" in state.diagnostics.hook_conflict_reasons
 
 
+def test_tui_interrupt_before_hook_stop_still_overrides(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    harness.append("UserPromptSubmit", prompt_id="p1")
+    assert harness.cycle(at=0.0).turn.phase == "active"
+
+    harness.set_state(
+        _tracker_state(last_turn_result="interrupted", last_turn_source="surface_inference")
+    )
+    assert harness.cycle(at=1.0).last_turn.result == "interrupted"
+
+    harness.append("Stop", prompt_id="p1", background_tasks=[])
+    state = harness.cycle(at=2.0)
+
+    assert state.last_turn.result == "interrupted"
+    assert "hook_success_tui_interrupted" in state.diagnostics.hook_conflict_reasons
+
+
+def test_compaction_after_hook_stop_preserves_latched_success(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    harness.tracker.note_prompt_submission(
+        message="Read README.md and summarize in one sentence.",
+        observed_at_utc="2026-10-19T13:00:00+00:00",
+        monotonic_ts=0.0,
+    )
+    harness.append("UserPromptSubmit", prompt_id="p1")
+    harness.append("Stop", prompt_id="p1", background_tasks=[])
+    settled = harness.cycle(at=0.5)
+    latched_at = settled.last_turn.updated_at_utc
+
+    assert settled.last_turn.result == "success"
+    assert settled.last_turn.source == "explicit_input"
+
+    harness.append("PreCompact", trigger="manual")
+    during = harness.cycle(at=1.0)
+    assert during.turn.phase == "ready"
+    assert during.last_turn.result == "success"
+
+    harness.append("PostCompact", trigger="manual")
+    harness.set_state(
+        _tracker_state(last_turn_result="interrupted", last_turn_source="surface_inference")
+    )
+    after = harness.cycle(at=2.0)
+
+    assert after.turn.phase == "ready"
+    assert after.last_turn.result == "success"
+    assert after.last_turn.source == "explicit_input"
+    assert after.last_turn.updated_at_utc == latched_at
+    assert "hook_success_tui_interrupted" not in after.diagnostics.hook_conflict_reasons
+    assert after.observation_channels is not None
+    assert after.observation_channels[0].state == "active"
+
+
+def test_compaction_interrupt_evidence_during_maintenance_is_ignored(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    harness.append("UserPromptSubmit", prompt_id="p1")
+    harness.append("Stop", prompt_id="p1", background_tasks=[])
+    assert harness.cycle(at=0.0).last_turn.result == "success"
+
+    harness.append("PreCompact", trigger="auto")
+    harness.set_state(
+        _tracker_state(last_turn_result="interrupted", last_turn_source="surface_inference")
+    )
+    during = harness.cycle(at=1.0)
+
+    assert during.turn.phase == "ready"
+    assert during.last_turn.result == "success"
+    assert "hook_success_tui_interrupted" not in during.diagnostics.hook_conflict_reasons
+
+    harness.append("PostCompact", trigger="auto")
+    after = harness.cycle(at=2.0)
+
+    assert after.last_turn.result == "success"
+    assert "hook_success_tui_interrupted" not in after.diagnostics.hook_conflict_reasons
+
+
+def test_maintenance_does_not_consume_modal_dismissal_for_blocked_turn(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    harness.append("UserPromptSubmit", prompt_id="p1")
+    harness.append("PermissionRequest", prompt_id="p1", tool_name="Bash")
+    assert (
+        harness.cycle(
+            at=0.0, surface=_surface(ui_context="modal", business_state="awaiting_operator")
+        ).turn.phase
+        == "blocked"
+    )
+
+    harness.append("PreCompact", trigger="manual")
+    during = harness.cycle(at=1.0, surface=_surface())
+
+    assert during.turn.phase == "blocked"
+
+    harness.append("PostCompact", trigger="manual")
+    assert (
+        harness.cycle(
+            at=2.0, surface=_surface(ui_context="modal", business_state="awaiting_operator")
+        ).turn.phase
+        == "blocked"
+    )
+
+    dismissed = harness.cycle(at=3.0, surface=_surface())
+    assert dismissed.turn.phase == "active"
+
+
 def test_hook_failure_records_error_class_and_wins_over_tui_success(tmp_path: Path) -> None:
     harness = _Harness(tmp_path)
     harness.append("UserPromptSubmit", prompt_id="p1")
@@ -402,6 +505,76 @@ def test_stale_recovery_agreement_keeps_tui_source(tmp_path: Path) -> None:
     assert "hook_correction_after_staleness" not in recovered.diagnostics.hook_conflict_reasons
 
 
+def test_hook_latched_last_turn_persists_through_stale_window(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    harness.tracker.note_prompt_submission(
+        message="Reply with exactly: OK",
+        observed_at_utc="2026-10-19T13:00:00+00:00",
+        monotonic_ts=0.0,
+    )
+    harness.append("UserPromptSubmit", prompt_id="p1")
+    harness.append("Stop", prompt_id="p1", background_tasks=[])
+    latched = harness.cycle(at=0.0)
+    latched_at = latched.last_turn.updated_at_utc
+
+    assert latched.last_turn.result == "success"
+    assert latched.last_turn.source == "explicit_input"
+
+    stale = harness.cycle(at=31.0, output_text="surface-1")
+
+    assert stale.diagnostics.hook_channel_state == "stale"
+    assert stale.last_turn.result == "success"
+    assert stale.last_turn.source == "explicit_input"
+    assert stale.last_turn.updated_at_utc == latched_at
+    assert stale.work == "unknown"
+    assert stale.settled is False
+    assert "hook_stale_tui_authoritative" in stale.diagnostics.hook_conflict_reasons
+
+
+def test_stale_recovery_agreement_keeps_tui_source_with_prior_latch(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    harness.append("UserPromptSubmit", prompt_id="p1")
+    harness.append("Stop", prompt_id="p1", background_tasks=[])
+    assert harness.cycle(at=0.0, output_text="surface-0").last_turn.source == "hook_observation"
+
+    harness.set_state(
+        _tracker_state(last_turn_result="success", last_turn_source="surface_inference")
+    )
+    stale = harness.cycle(at=31.0, output_text="surface-1")
+    assert stale.diagnostics.hook_channel_state == "stale"
+    assert stale.last_turn.source == "hook_observation"
+
+    harness.append("PostToolUse", prompt_id="p1", tool_name="Bash", tool_use_id="tool-1")
+    recovered = harness.cycle(at=32.0, output_text="surface-2")
+
+    assert recovered.diagnostics.hook_channel_state == "active"
+    assert recovered.last_turn.result == "success"
+    assert recovered.last_turn.source == "surface_inference"
+    assert "hook_correction_after_staleness" not in recovered.diagnostics.hook_conflict_reasons
+
+
+def test_stale_recovery_correction_with_prior_latch(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    harness.append("UserPromptSubmit", prompt_id="p1")
+    harness.append("Stop", prompt_id="p1", background_tasks=[])
+    assert harness.cycle(at=0.0, output_text="surface-0").last_turn.result == "success"
+
+    harness.set_state(
+        _tracker_state(last_turn_result="success", last_turn_source="surface_inference")
+    )
+    assert harness.cycle(at=31.0, output_text="surface-1").diagnostics.hook_channel_state == "stale"
+
+    harness.append("UserPromptSubmit", prompt_id="p2")
+    harness.append("StopFailure", prompt_id="p2", error={"type": "api_error"})
+    recovered = harness.cycle(at=32.0, output_text="surface-2")
+
+    assert recovered.diagnostics.hook_channel_state == "active"
+    assert recovered.last_turn.result == "known_failure"
+    assert recovered.last_turn.source == "hook_observation"
+    assert recovered.last_turn.error_class == "api_error"
+    assert "hook_correction_after_staleness" in recovered.diagnostics.hook_conflict_reasons
+
+
 def test_background_work_axis_tracks_terminal_payloads(tmp_path: Path) -> None:
     harness = _Harness(tmp_path)
     harness.append("UserPromptSubmit", prompt_id="p1")
@@ -488,6 +661,10 @@ def test_older_generation_events_are_dropped_and_reported(tmp_path: Path) -> Non
     assert state.observation_channels is not None
     assert state.observation_channels[0].generation == 2
     assert "hook_orphan_generation" in state.diagnostics.hook_conflict_reasons
+    assert state.diagnostics.hook_counters is not None
+    assert state.diagnostics.hook_counters.orphan_generations == 2
+    assert state.observation_channels[0].counters is not None
+    assert state.observation_channels[0].counters.orphan_generations == 2
 
 
 def test_disabled_channel_publishes_tui_only_state(tmp_path: Path) -> None:

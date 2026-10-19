@@ -188,3 +188,79 @@ def test_channel_reports_disabled_state_without_reading_events(tmp_path: Path) -
 
     assert cycle.health.state == "disabled_by_policy"
     assert cycle.observations == ()
+
+
+def _write_collector_record(
+    *,
+    directory: Path,
+    status: str = "stopped",
+    generation: int = 1,
+) -> None:
+    payload = {
+        "schema_version": 1,
+        "status": status,
+        "pid": 999999,
+        "port": 43123,
+        "generation": generation,
+        "started_at_utc": "2026-10-19T13:00:00+00:00",
+        "stopped_at_utc": ("2026-10-19T13:00:10+00:00" if status == "stopped" else None),
+    }
+    (directory / "collector.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_collector_stop_record_degrades_channel_without_tui_change(tmp_path: Path) -> None:
+    store = HookObservationStore(tmp_path, generation=1)
+    channel = HookObservationChannel.from_session_root(tmp_path)
+    assert channel is not None
+    active = channel.read_cycle(
+        now_monotonic=0.0,
+        now_utc="2026-10-19T13:00:00+00:00",
+        tui_changed=False,
+    )
+    assert active.health.state == "active"
+
+    _write_collector_record(directory=store.directory)
+    stopped = channel.read_cycle(
+        now_monotonic=1.0,
+        now_utc="2026-10-19T13:00:01+00:00",
+        tui_changed=False,
+    )
+
+    assert stopped.health.state == "stopped"
+    assert stopped.health.detail == "The hook observation collector is stopped."
+
+
+def test_collector_stop_record_from_older_generation_is_ignored(tmp_path: Path) -> None:
+    store = HookObservationStore(tmp_path, generation=2)
+    _write_collector_record(directory=store.directory, generation=1)
+
+    channel = HookObservationChannel.from_session_root(tmp_path)
+    assert channel is not None
+    cycle = channel.read_cycle(
+        now_monotonic=0.0,
+        now_utc="2026-10-19T13:00:00+00:00",
+        tui_changed=False,
+    )
+
+    assert cycle.health.state == "active"
+
+
+def test_launch_unavailable_wins_over_stopped_collector(tmp_path: Path) -> None:
+    store = HookObservationStore(tmp_path, generation=1)
+    status = json.loads(store.channel_path.read_text(encoding="utf-8"))
+    status["status"] = "stopped"
+    status["channel_state"] = "unavailable"
+    status["install"] = {"detail": "settings conflict"}
+    store.channel_path.write_text(json.dumps(status), encoding="utf-8")
+    _write_collector_record(directory=store.directory)
+
+    channel = HookObservationChannel.from_session_root(tmp_path)
+    assert channel is not None
+    cycle = channel.read_cycle(
+        now_monotonic=0.0,
+        now_utc="2026-10-19T13:00:00+00:00",
+        tui_changed=False,
+    )
+
+    assert cycle.health.state == "unavailable"
+    assert cycle.health.detail == "settings conflict"

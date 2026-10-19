@@ -9,6 +9,67 @@ Use it together with:
 - [Shared Contracts](shared-contracts.md)
 - [Claude](claude.md)
 - [Runtime Lifecycle](runtime-lifecycle.md)
+- [Hook Observation Channel](../houmao-server/state-tracking.md#hook-observation-channel)
+
+## Hook Observation Support
+
+Hook observation is an optional second signal source for managed Claude `local_interactive` sessions. Its supported floor is Claude Code 2.1.296 or later, the same floor used for TUI tracking: the Claude launch policy declares `supported_versions: ">=2.1.296"` in `src/houmao/agents/launch_policy/registry/claude.yaml`, and the detector registry sets the Claude minimum supported version to `(2, 1, 296)` in `src/houmao/shared_tui_tracking/registry.py`. The hook installer itself does not re-check the version, so do not enable the channel on an unsupported Claude build. The channel is opt-in and off by default. Enable it for new managed launches with `HOUMAO_HOOK_OBSERVATION_CLAUDE=1`; only the exact value `1` enables it, and any other value leaves TUI-only behavior unchanged. v1 is Claude-only and covers the managed `local_interactive` backend. `claude_headless`, joined sessions, unmanaged launches, Codex, and Kimi do not get a channel.
+
+### v1 Event Set
+
+The observer subscribes to nine provider events. `SessionStart` uses a command handler because HTTP hooks cannot deliver it; the other eight use HTTP handlers that post to the loopback collector.
+
+| Event | Delivery | Posture contribution |
+|---|---|---|
+| `SessionStart` | Command hook (`houmao.hook_observation.emitter`) | Opens the session and can reset turn state for `startup`, `clear`, and `fork` sources |
+| `UserPromptSubmit` | HTTP | Arms a prompt; a provider-synthesized `<task-notification>` prompt marks a ghost turn rather than operator input |
+| `Stop` | HTTP | Latches a successful terminal and updates the background-work axis from its payload |
+| `StopFailure` | HTTP | Latches a `known_failure` terminal with the provider error class |
+| `PermissionRequest` | HTTP | Enters the hook-only `blocked` phase |
+| `PreCompact` | HTTP | Opens a maintenance window |
+| `PostCompact` | HTTP | Closes the maintenance window |
+| `PostToolUse` | HTTP | Records activity and resolves an outstanding permission wait |
+| `PostToolUseFailure` | HTTP | Records activity and resolves an outstanding permission wait |
+
+`PreToolUse`, `PostToolBatch`, `SubagentStart`, `SubagentStop`, `Notification`, and `SessionEnd` are not subscribed in v1.
+
+### Observer Injection
+
+The primary injection path is a marker merge into the managed home's `settings.json` (the `CLAUDE_CONFIG_DIR` user-settings layer). The installer identifies Houmao-owned entries by the `/v1/hook` URL path or the `houmao.hook_observation.emitter` module, replaces stale observer entries, and preserves operator, bundle, and plugin hook entries. It rewrites the block at every provider start and relaunch generation, so a reused home is repaired in place and receives the new collector port and generation.
+
+When the managed home settings file cannot be safely merged, the installer falls back to a session-scoped `--settings <session_root>/hook-observation/claude/observer-settings.json` argument. If neither path is safe (for example the resolved launch arguments already carry a `--settings` source), the channel reports `unavailable` and the session continues TUI-only. The observer block never embeds the bearer token: HTTP handlers reference `$HOUMAO_HOOK_TOKEN` through the provider's `allowedEnvVars` mechanism, and the token reaches the provider process through a `0600` launch wrapper rather than the launch plan environment.
+
+### Workspace Trust
+
+Claude withholds hooks for an untrusted workdir. At 2.1.296 the workspace trust dialog still renders even under `--dangerously-skip-permissions`, so the seeded trust keys are load-bearing. Managed Claude launches run `claude.ensure_project_trust`, which seeds the project entry in `.claude.json`:
+
+- `projects.<resolved_workdir>.hasCompletedProjectOnboarding`
+- `projects.<resolved_workdir>.hasTrustDialogAccepted`
+- `projects.<resolved_workdir>.projectOnboardingSeenCount`
+
+If trust is missing, no `SessionStart` event arrives and the channel stays `unavailable`. The current managed-launch path does not publish `untrusted_workspace` itself; that state is a defined terminal channel state that consumers honor when channel metadata carries it. Do not expect it to appear automatically on a managed launch today.
+
+### Collector And Store
+
+Each opted-in session runs one collector process bound to `127.0.0.1` on an ephemeral port. Deliveries go to `/v1/hook` with a bearer token; the collector also serves `/health`. Accepted events are stamped with `channel_generation`, `sequence`, and `received_at_utc` and appended to `<session_root>/hook-observation/claude/events.ndjson` with owner-only permissions. The directory also holds the secret-free `channel.json` status document and `collector.json` liveness record. Tracking consumers tail `events.ndjson` with their own offsets and fold new observations at their next read or poll cycle. The `SessionStart` command emitter always exits 0 and appends a fallback envelope directly to the store if HTTP delivery fails.
+
+### Channel States And Troubleshooting
+
+Read the current state from `observation_channels[0].state` (or `diagnostics.hook_channel_state`) on the terminal state response, or from `observation_channels` on gateway status. A passive server that cannot see the session root reports `state="unavailable"` with `detail="remote observation"`.
+
+| State | What it means | What to check |
+|---|---|---|
+| `active` | Current-generation events are arriving; hook facts have lifecycle authority. | No action. |
+| `unavailable` | No event yet, the 15-second startup grace elapsed with no event, the install failed, or the store is remote. | Confirm `HOUMAO_HOOK_OBSERVATION_CLAUDE=1`, a managed Claude `local_interactive` launch, and Claude at or above 2.1.296. Read `channel.json` `install.detail` for a settings conflict or collector-start failure, and inspect `collector.json` and `collector.log`. Confirm the provider process inherited `HOUMAO_HOOK_TOKEN`. |
+| `stale` | The channel was active, then delivered no event for more than 30 seconds while the visible TUI kept changing. TUI regains lifecycle authority. | Confirm the collector is alive in `collector.json` and answers `/health`, check whether `events.ndjson` is still growing, and verify the hook block survived the latest settings rewrite. During the stale window, a hook-only terminal result is temporarily not shown; it returns when the channel recovers with the terminal still latched. |
+| `untrusted_workspace` | Terminal trust state. Claude withheld hooks because the workspace is not trusted. | Verify the `claude.ensure_project_trust` seed in the managed `.claude.json` keys listed above, especially after a fresh scratch home or a changed workdir. The session remains TUI-only. |
+| `disabled_by_policy` | Terminal state; hooks are disabled by policy or client mode. | Remove the disabling policy or client mode. The session remains TUI-only. |
+| `error` | The event store could not be read. | Check ownership and permissions on `<session_root>/hook-observation/claude/`. A read failure clears on the next healthy read; an `error` published in channel metadata is terminal. |
+| `stopped` | The collector stopped or the session stopped. Terminal. | Expected at session stop. If it appears mid-session, the collector died; a later resume starts a new generation when no live collector exists, and a live collector is reused without a generation bump. |
+
+In v1, `untrusted_workspace` and `disabled_by_policy` are consumed from channel metadata but are not produced by the managed-launch path. The rows above describe how to respond if an external producer or a future launch path publishes them.
+
+Unsetting the flag prevents new launches from starting a collector or installing observer settings. A reused managed home can still carry an observer block from an earlier generation; it points at a stopped collector and produces no observations. The next opted-in launch rewrites the block with the current port and generation.
 
 ## Latest-Turn Scoping Rule
 
