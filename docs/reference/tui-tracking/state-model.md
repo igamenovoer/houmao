@@ -25,9 +25,11 @@ flowchart TD
     TSS --> HOST --> PUB
 ```
 
-`TrackedStateSnapshot` is the shared tracker output. Server and gateway hosts publish a larger public model on top of it by merging parsed-surface diagnostics, lifecycle timing sidecars, visible-state stability, and a small number of host-owned corrections such as stale-active and final stable-active recovery.
+`TrackedStateSnapshot` is the shared tracker output. Server and gateway hosts publish a larger public model on top of it by merging parsed-surface diagnostics, lifecycle timing sidecars, visible-state stability, a small number of host-owned corrections such as stale-active and final stable-active recovery, and, when the opt-in hook observation channel is active, hook-derived lifecycle facts. The hook channel is described in [Hook Observation Channel](../../developer/houmao-server/state-tracking.md#hook-observation-channel).
 
 ## TurnPhase State Machine
+
+This diagram shows the shared tracker's TUI-only phases. `blocked` is part of the public `TurnPhase` alias, but `TuiTrackerSession` never produces it; the host hook observation merge enters it from a hook `PermissionRequest` when the channel is active.
 
 ```mermaid
 stateDiagram-v2
@@ -46,6 +48,7 @@ stateDiagram-v2
 - Codex is the main example of this split. Current activity uses the live edge so stale scrollback rows do not keep the turn active forever, while temporal transcript growth can still keep the turn active when no spinner or running row is visible. Retry, reconnect, stream-recovery, and connection-loss status near the live edge count as current active evidence while visible.
 - Prompt-ready terminal failures and input readiness are independent facts. A detector may preserve `surface_ready_posture=yes` when the composer is genuinely ready while still blocking success and, for recognized terminal failure families, publishing `last_turn_result=known_failure`.
 - Host adapters may correct an unanchored stale `active` posture after a stable submit-ready window. That correction publishes `ready` without manufacturing `last_turn_result=success`.
+- Host adapters may also publish `turn_phase=blocked` when an active hook observation channel reports a permission wait. The shared tracker never emits that phase; TUI-detected permission dialogs keep `turn_phase=active` with the operator-state sidecar.
 
 ## Core Type Aliases
 
@@ -62,10 +65,10 @@ Three-valued logic for surface observations where the detector may not have enou
 ### TurnPhase
 
 ```python
-TurnPhase = Literal["ready", "active", "unknown"]
+TurnPhase = Literal["ready", "active", "blocked", "unknown"]
 ```
 
-Whether the tracker currently believes a turn is in flight, the surface is ready for another turn, or the posture is ambiguous.
+Whether the tracker currently believes a turn is in flight, the surface is ready for another turn, a hook-reported permission wait is blocking progress, or the posture is ambiguous. `blocked` is hook-only: the host projection enters it from a hook `PermissionRequest` while the observation channel is active, and `TuiTrackerSession` never emits it. TUI-detected permission dialogs keep `active` plus `operator_state=waiting_user_answer`.
 
 ### TransportState
 
@@ -121,15 +124,15 @@ Whether diagnostic information can be extracted from the current surface state.
 TrackedLastTurnResult = Literal["success", "interrupted", "known_failure", "none"]
 ```
 
-Outcome of the most recently completed turn as inferred by the detector.
+Outcome of the most recently completed turn, as inferred by the detector or settled by a hook terminal event. Failures settled by a hook terminal event also carry `last_turn.error_class` on the host response.
 
 ### TrackedLastTurnSource
 
 ```python
-TrackedLastTurnSource = Literal["explicit_input", "surface_inference", "none"]
+TrackedLastTurnSource = Literal["explicit_input", "surface_inference", "hook_observation", "none"]
 ```
 
-How the last turn was initiated — via explicit prompt submission or inferred from surface state transitions.
+How the last turn was initiated: via an explicit prompt submission, inferred from surface state transitions, or settled from a hook terminal event. `hook_observation` is applied by the host projection, and a gateway submission that correlates with the same hook turn keeps `explicit_input`.
 
 ### ChatContextState
 
@@ -178,6 +181,20 @@ Frozen dataclass representing a point-in-time snapshot of the tracked TUI state.
 | `chat_context` | `ChatContextState` | Whether the current chat context is healthy, recoverably degraded, or unknown |
 | `chat_context_diagnostic` | `DegradedChatContextDiagnostic \| None` | Tool-scoped degraded context details when available |
 
+## Host-Published Hook Observables
+
+`TrackedStateSnapshot` and `TuiTrackerSession` have no `work` or `settled` fields. The public terminal-state response adds them, along with `observation_channels`: `work` defaults to `unknown`, `settled` defaults to `false`, and `observation_channels` is null when no channel is configured.
+
+| Observable | Type | Meaning |
+|---|---|---|
+| `work` | `HookWorkState`: `pending`, `clear`, `unknown` | Session-scoped background work reported by hook terminal payloads. `unknown` when the channel is absent, degraded, or has not yet reported a terminal. |
+| `settled` | `bool` | Derived convenience: `turn.phase=ready` and `work=clear`. Always `false` for a degraded channel. |
+| `observation_channels` | list of `HoumaoObservationChannel` or null | Channel health, generation, last event, counters, and conflict reasons. |
+
+`work` starts each channel generation as `unknown`. A hook `turn_completed` payload sets `pending` when background tasks are listed and `clear` when none are; `turn_failed` leaves the axis unchanged. `settled` is stronger than prompt readiness because it also requires no outstanding background work, and `work=pending` never closes gateway admission by itself. A hook-latched terminal result persists through a stale window even though `work` becomes `unknown` and `settled` becomes `false`.
+
+The `blocked` phase, channel health states (`active`, `unavailable`, `stale`, `disabled_by_policy`, `untrusted_workspace`, `error`, `stopped`), the 15-second startup grace, the 30-second staleness threshold, and the conflict vocabulary are documented in [Hook Observation Channel](../../developer/houmao-server/state-tracking.md#hook-observation-channel). The source types for these host fields live in `src/houmao/hook_observation/models.py` and `src/houmao/server/models.py`, not in `shared_tui_tracking/models.py`.
+
 ## DetectedTurnSignals
 
 Frozen dataclass representing the raw signals extracted by a detector from a single observation frame. This is the detector's immediate output before the tracker session applies temporal hints, priority ordering, and settle timing.
@@ -216,6 +233,7 @@ Prompt-adjacent Codex compact/server error cells expose `chat_context=degraded` 
 
 ## See Also
 
-- [Why Prompt Admission Uses Readiness and Pending Input](../gateway/internals/prompt-admission-and-tui-observation.md) — how turn activity, surface stability, and provider-native pending input combine at the gateway boundary
+- [Why Prompt Admission Uses Readiness and Pending Input](../gateway/internals/prompt-admission-and-tui-observation.md) — how turn activity, surface stability, provider-native pending input, and hook posture combine at the gateway boundary
 - [Shared TUI Detector Profiles](detectors.md) — provider and version-specific signal extraction
 - [Gateway Lifecycle and Operator Flows](../gateway/operations/lifecycle.md) — direct prompt-admission policies
+- [Hook Observation Channel](../../developer/houmao-server/state-tracking.md#hook-observation-channel) — opt-in provider hooks, channel health, and merged lifecycle authority

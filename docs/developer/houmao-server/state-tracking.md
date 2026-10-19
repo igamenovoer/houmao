@@ -173,7 +173,7 @@ Separately, the server still owns explicit-input lifecycle anchors for parser-fe
 
 - `explicit_input` can arm both the shared tracker and the server-owned lifecycle anchor.
 - `surface_inference` is tracker-owned only. It can produce public `last_turn.source=surface_inference` while server-owned `lifecycle_authority.turn_anchor_state` remains `absent`.
-- `hook_observation` is hook-owned. A hook terminal event settles the turn immediately, without waiting for the TUI settle window, and records the provider `error_class` for `known_failure`.
+- `hook_observation` is hook-owned. A hook terminal event settles the turn immediately, without waiting for the TUI settle window, and records the provider `error_class` for `known_failure`. TUI temporal interrupt evidence for the same turn epoch, observed outside a maintenance window, may still override a hook success with `interrupted`.
 - Parser-derived surface churn does not arm tracker authority. Parsed surface remains server-owned evidence and lifecycle input only.
 - Observed tool version for tracker profile selection comes from tracked-session metadata, primarily manifest launch-policy provenance with graceful fallback when unavailable.
 
@@ -202,13 +202,13 @@ No axis silently impersonates another. `surface.*` never borrows hook facts, and
 |---|---|
 | `active` | Current-generation hook events are arriving. Only this state grants hook lifecycle authority. |
 | `unavailable` | Startup state before any event. After the 15-second startup grace with no event, or when the channel could not be installed, tracking is TUI-only. |
-| `stale` | An active channel delivered no event for more than 30 seconds while the visible TUI kept changing. TUI regains lifecycle authority, including settlement. During the degraded window, `last_turn` is published from TUI evidence, so a hook-only terminal result is temporarily not shown; it returns if the channel recovers with that terminal still latched. |
+| `stale` | An active channel delivered no event for more than 30 seconds while the visible TUI kept changing. TUI regains lifecycle authority for new evidence, including new settlements. A terminal result already latched from hook evidence persists through the stale window; `work` becomes `unknown` and `settled` becomes `false`. |
 | `disabled_by_policy` | Terminal policy state recognized from channel metadata. TUI-only. |
 | `untrusted_workspace` | Terminal policy state recognized from channel metadata. TUI-only. |
 | `error` | The event store could not be read. A read-failure error clears on the next healthy read; an `error` state published in channel metadata is terminal. |
-| `stopped` | The collector stopped, or the session stopped. Terminal. |
+| `stopped` | The collector stopped, or the session stopped. Terminal. A `collector.json` record with `status=stopped` for the same generation moves the channel to `stopped` on the next poll cycle. |
 
-Every state other than `active` is degraded: tracked state and gateway admission are equivalent to TUI-only behavior, `work` is `unknown`, and `settled` is `false`. A non-terminal channel moves to `active` on the first current-generation event and back to `active` from `stale` on the next event.
+Every state other than `active` is degraded: the channel contributes no new lifecycle authority, gateway admission matches TUI-only behavior, `work` is `unknown`, and `settled` is `false`. A hook-latched `last_turn` remains the one persisted hook lifecycle fact during a stale window. A non-terminal channel moves to `active` on the first current-generation event and back to `active` from `stale` on the next event.
 
 ### Authority And Conflict Diagnostics
 
@@ -221,7 +221,7 @@ When the channel is active, hook facts win where they speak:
 | Hook terminal, TUI still active | Terminal latches; surface fields stay TUI-owned | `hook_terminal_tui_active` |
 | Hook success, TUI interrupt evidence | `interrupted` wins for that turn | `hook_success_tui_interrupted` |
 | Hook failure, TUI success | Hook failure wins for the current prompt | `hook_failure_tui_success` |
-| Stale channel, TUI still changing | TUI authoritative until recovery | `hook_stale_tui_authoritative` |
+| Stale channel, TUI still changing | TUI authoritative for new evidence; a hook-latched `last_turn` persists | `hook_stale_tui_authoritative` |
 | Recovery disagrees with a TUI settlement | Hook corrects with an audit trail | `hook_correction_after_staleness` |
 | Older-generation event | Dropped before correlation | `hook_orphan_generation` |
 | Unknown or malformed event | Skipped and counted | `hook_unknown_event`, `hook_malformed_event` |

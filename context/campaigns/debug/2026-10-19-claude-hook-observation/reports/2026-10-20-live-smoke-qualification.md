@@ -31,13 +31,13 @@ Tracked state was read from the attached gateway's `GET /v1/control/tui/state`; 
 | Normal turn | PASS | PASS | `normal-latest/`, `normal-floor/` |
 | Direct pane input | PASS | PASS | `direct-input-latest/`, `direct-input-floor/` |
 | Permission wait + admission | PASS | PASS | `permission-latest/`, `permission-floor/` |
-| Compaction | **FAILED** (D1) | **FAILED** (D1) | `compaction-latest/`, `compaction-floor/` |
+| Compaction | **PASS** (rerun `e59b05bd`; originally D1) | **PASS** (rerun `e59b05bd`; originally D1) | `compaction-latest-rerun/`, `compaction-floor-rerun/`; original `compaction-latest/`, `compaction-floor/` |
 | Stop/relaunch | PASS (D3 note) | PASS (D3 note) | `stop-relaunch-latest/`, `stop-relaunch-floor/` |
-| Collector kill | **FAILED** (D2) | **FAILED** (D2) | `collector-kill-latest/`, `collector-kill-floor/` |
+| Collector kill | **PASS** (rerun `e59b05bd`; originally D2) | **PASS** (rerun `e59b05bd`; originally D2) | `collector-kill-latest-rerun/`, `collector-kill-floor-rerun/`; original `collector-kill-latest/`, `collector-kill-floor/` |
 | Hooks disabled | PASS | PASS | `hooks-disabled-latest/`, `hooks-disabled-floor/` |
 | Untrusted workspace (inspection) | PASS (D6 gap) | PASS (D6 gap) | `untrusted-latest/`, `untrusted-floor/` |
 
-The channel installed, authenticated, and delivered events in every launched session where the flag was set. Every launched agent remained controllable through the TUI, including in the failed compaction scenario and after collector death.
+The channel installed, authenticated, and delivered events in every launched session where the flag was set. Every launched agent remained controllable through the TUI, including in the originally failed compaction scenario and after collector death; both rerun legs passed after `e59b05bd` (see the rerun section below).
 
 ## Per-Scenario Evidence
 
@@ -83,7 +83,7 @@ Resolution: allowing the read modal (key `1`) produced `PostToolUse`, which clea
 
 Evidence: `permission-latest/admission-decisions.ndjson`, `permission-latest/state-snapshots/blocked_read_permission.json`, `permission-latest/hook-events-summary.json`; `permission-floor/` equivalents.
 
-### Compaction — FAILED
+### Compaction — FAILED in the Original Run (rerun PASS)
 
 Frozen prompts: `Read README.md and summarize in one sentence.`, then `/compact` via `send-keys`, then `Reply with exactly: OK`. `README.md` was a three-line file created in the run workdir.
 
@@ -113,7 +113,7 @@ Both versions:
 
 Evidence: `stop-relaunch-latest/channel-status.ndjson` (`launched` gen 1, `after_relaunch` gen 2), `stop-relaunch-latest/hook-events.ndjson` (both generations), `stop-relaunch-latest/merged-state.ndjson`; `stop-relaunch-floor/` equivalents.
 
-### Collector Kill — FAILED
+### Collector Kill — FAILED in the Original Run (rerun PASS)
 
 Procedure: turn 1 completed, then `SIGTERM` to the collector PID from `collector.json`, then turn 2 after the 30 s staleness threshold. Verdict: FAILED because the published channel state said `active` while the collector was dead; the TUI-only fallback itself worked.
 
@@ -148,6 +148,43 @@ Managed unattended launches seed trust before provider start. The `.claude.json`
 
 The `as_is` permission launches did show the workspace-trust dialog because trust seeding is a launch-policy action; the dialog was accepted manually, and the channel still reported `active` (not `untrusted_workspace`). This is the counterexample that explains why v1 has no `untrusted_workspace` producer (D6): the maintained managed path prevents the precondition rather than detecting it.
 
+## Rerun After Fix e59b05bd (2026-10-20)
+
+The two originally failed scenario legs were rerun at both versions after commit `e59b05bd` ("constrain TUI interrupt override by turn epoch, detect collector stop, persist hook latch through staleness"). Fresh evidence roots were used so the original packs remain intact.
+
+| Rerun leg | Version | Verdict | Evidence |
+| --- | --- | --- | --- |
+| Compaction | 2.1.303 | **PASS** | `compaction-latest-rerun/` |
+| Compaction | 2.1.296 | **PASS** | `compaction-floor-rerun/` |
+| Collector kill | 2.1.303 | **PASS** | `collector-kill-latest-rerun/` |
+| Collector kill | 2.1.296 | **PASS** | `collector-kill-floor-rerun/` |
+
+### Compaction Rerun
+
+The same frozen sequence was used: one completed turn, `/compact`, then one post-compaction turn. In both versions:
+
+- The completed turn latched `last_turn.result=success`; its `updated_at_utc` was the Stop time (2.1.303 `17:06:14Z`, 2.1.296 `17:07:07Z`).
+- Through `PreCompact`, the compaction `SessionStart` (`source=compact`), `PostCompact`, and an additional 8 s settle window, `last_turn.result` stayed `success` and `updated_at_utc` stayed at the Stop time.
+- No `hook_success_tui_interrupted` conflict was published. The only conflict observed was `hook_terminal_tui_active` during the maintenance repaint window, which cleared once compaction finished.
+- The channel stayed `active`; `work=clear`, `settled=true` at the settled snapshot; the post-compaction turn settled success.
+- Hook stream: `PreCompact` seq 6, `SessionStart` seq 7 (`source=compact`), `PostCompact` seq 8, then the post-compaction `UserPromptSubmit`/`Stop` pair.
+
+Evidence: `compaction-latest-rerun/state-snapshots/{turn1_completed,maintenance_precompact,maintenance_postcompact,post_compaction_settled}.json`, `compaction-latest-rerun/compaction-samples.ndjson`, `compaction-latest-rerun/conflicts.ndjson`, `compaction-latest-rerun/hook-events-summary.json`; the `compaction-floor-rerun/` equivalents. Per-leg reports: `compaction-latest-rerun/report.md`, `compaction-floor-rerun/report.md`.
+
+### Collector Kill Rerun
+
+The rerun completed turn 1, sent `SIGTERM` to the collector, and polled the gateway state every ~200 ms without changing the TUI.
+
+- The channel left `active` and published `stopped` after **441 ms** (2.1.303) and **654 ms** (2.1.296), within one or two 0.5 s gateway poll cycles, with detail `The hook observation collector is stopped.` No 30 s staleness wait and no TUI change were required.
+- The latched `last_turn.result=success` with the Stop timestamp persisted through the `stopped` channel state; `work=unknown`, `settled=false` as expected for a degraded channel.
+- Turn 2 was admitted with `ready_only` and settled success TUI-only; the channel remained `stopped` and added no hook events.
+- Recovery: after stop and `relaunch --chat-session-mode new`, the channel returned as generation 2 `active` with a new collector and `SessionStart`, and turn 3 settled success. The relaunch still requires the explicit `gateway attach` noted in D3.
+- D7 check: after relaunch, `conflict_reasons=["hook_orphan_generation"]` and `counters.orphan_generations=6` agree; the counter now reflects the reader's dropped old-generation lines.
+
+Evidence: `collector-kill-latest-rerun/channel-drop.ndjson` (441 ms kill-to-stopped timeline), `state-snapshots/{turn1_before_kill,after_kill_stopped,tui_only_turn,after_relaunch,after_relaunch_turn}.json`, `relaunch.json`, `gateway-attach.json`, `hook-events-summary.json`, `cleanup.json`; the `collector-kill-floor-rerun/` equivalents (654 ms). Per-leg reports: `collector-kill-latest-rerun/report.md`, `collector-kill-floor-rerun/report.md`.
+
+The optional stale-retention check was not run as a separate arm because it would require a new session and a 30 s idle window; the same degraded-channel publication path was exercised live through the `stopped` state, where the latched success and Stop timestamp persisted. The original stale-window evidence (collector kill before the fix) remains in `collector-kill-latest/` and `collector-kill-floor/`.
+
 ## Admission Decision Records
 
 The permission scenario is the only one that exercised admission against a hook posture. Full records are in `permission-latest/admission-decisions.ndjson` and `permission-floor/admission-decisions.ndjson`. Summary:
@@ -155,21 +192,25 @@ The permission scenario is the only one that exercised admission against a hook 
 - `ready_only` at `turn.phase=blocked` refused with `not_ready`; detail included `turn_phase='blocked'` and `blocked=true`.
 - `if_no_pending` at `turn.phase=blocked` refused with `pending_input_unknown`; detail included `turn_phase='blocked'` and `blocked=true`.
 - Both refusals were exit code 1 with `sent=false` and structured JSON on stderr.
-- No refusal was observed after collector death: `ready_only` admitted the next turn while the channel was still reported active, and the channel degraded to `stale` during that turn. This is consistent with “a degraded channel adds no refusal reasons”, although the admission itself happened before the stale transition was published.
+- No refusal was observed after collector death in the original run: `ready_only` admitted the next turn while the channel was still reported active, and the channel degraded to `stale` during that turn. This is consistent with “a degraded channel adds no refusal reasons”, although the admission itself happened before the stale transition was published. After `e59b05bd` the kill publishes `stopped`, which also adds no hook gate.
 
 A `ready_only` admission attempt from the manual-mode permission session before any turn was also refused with `not_ready` because the TUI surface axes were `unknown` (D4), not because of a hook fact.
 
 ## Defects
 
-### D1 — Compaction overwrites a hook-latched success with `interrupted` (major)
+### D1 — Compaction overwrites a hook-latched success with `interrupted` (major) — FIXED in `e59b05bd`
 
 A normal completed turn (`Stop` → `last_turn.result=success`) is later mutated to `interrupted` with conflict `hook_success_tui_interrupted`. The trigger is false TUI temporal-interrupt evidence produced by the compaction repaint; no Esc or user abort occurred. `last_turn.updated_at_utc` keeps the Stop timestamp, so the mutation is silent apart from the conflict reason.
 
-Reproduction: managed Claude session, one completed turn, `/compact` via the pane; watch `last_turn.result` and `observation_channels[0].conflict_reasons`. Reproduced at 2.1.303 (twice) and 2.1.296 (once). Evidence: `compaction-latest/state-snapshots/post_second_compaction_complete.json` (fields `last_turn.result`, `last_turn.updated_at_utc`, `observation_channels[0].conflict_reasons`), `compaction-latest/compaction-samples.ndjson`, `compaction-floor/state-snapshots/maintenance_postcompact.json`. This violates state-transitions section 4 (terminal latch) as exercised through the compaction scenario and G7.
+Reproduction: managed Claude session, one completed turn, `/compact` via the pane; watch `last_turn.result` and `observation_channels[0].conflict_reasons`. Reproduced at 2.1.303 (twice) and 2.1.296 (once). Evidence: `compaction-latest/state-snapshots/post_second_compaction_complete.json` (fields `last_turn.result`, `last_turn.updated_at_utc`, `observation_channels[0].conflict_reasons`), `compaction-latest/compaction-samples.ndjson`, `compaction-floor/state-snapshots/maintenance_postcompact.json`. This violated state-transitions section 4 (terminal latch) as exercised through the compaction scenario and G7.
 
-### D2 — External collector death is not detected from `collector.json` (medium)
+Status: fixed in `e59b05bd` (turn-epoch scoping plus maintenance-window contamination rejection for the TUI interrupt override). The rerun at both versions passed and kept `success` with the Stop timestamp through compaction; see `compaction-latest-rerun/` and `compaction-floor-rerun/`.
+
+### D2 — External collector death is not detected from `collector.json` (medium) — FIXED in `e59b05bd`
 
 `collector.json` correctly records `status=stopped` after SIGTERM, but the tracker's health reader uses `channel.json`, which still says `running` and `channel_state=active`. The channel therefore stays `active` while the TUI is stable (no code path reads the collector liveness record); it only degrades to `stale` after the 30 s threshold plus a TUI change. The health state machine's terminal `stopped` state is reachable only through the session stop path (`stop_collector` marks the channel stopped). Evidence: `collector-kill-latest/state-snapshots/after_kill_idle.json` (active at `16:42:13Z`, kill at `16:42:11Z`), `collector-kill-latest/channel-files/` (`collector.json` stopped while `channel.json` running), `collector-kill-latest/channel-degradation.ndjson`.
+
+Status: fixed in `e59b05bd` (the reader now consults the generation-matched `collector.json` liveness record). The rerun at both versions published `stopped` within one or two poll cycles (441 ms at 2.1.303, 654 ms at 2.1.296) with no TUI change; see `collector-kill-latest-rerun/` and `collector-kill-floor-rerun/`.
 
 ### D3 — Managed relaunch does not reattach the gateway and changes the tmux session name (medium, operational)
 
@@ -187,16 +228,18 @@ With the provider in manual permission mode (both 2.1.303 and 2.1.296), the pars
 
 The design risk table says workspace trust not seeded makes the channel report `untrusted_workspace`; no code path produces that state. Managed unattended launches seed trust, so the maintained path cannot reach it; an as_is launch that shows the trust dialog still reports `active`. The qualification scenario therefore verifies the precondition-prevention behavior and records the missing producer. Evidence: `untrusted-latest/`, `permission-latest/state-snapshots/` and the report note above.
 
-### D7 — `hook_orphan_generation` note without a counter increment (minor)
+### D7 — `hook_orphan_generation` note without a counter increment (minor) — FIXED in `e59b05bd`
 
-After the 2.1.303 relaunch, `observation_channels[0].conflict_reasons` contained `hook_orphan_generation` while `counters.orphan_generations` stayed 0. The reader's initial-scan drop is expected; the diagnostic/counter inconsistency is cosmetic. Evidence: `stop-relaunch-latest/state-snapshots/after_relaunch.json`.
+After the 2.1.303 relaunch, `observation_channels[0].conflict_reasons` contained `hook_orphan_generation` while `counters.orphan_generations` stayed 0. The reader's initial-scan drop is expected; the diagnostic/counter inconsistency was cosmetic. Evidence: `stop-relaunch-latest/state-snapshots/after_relaunch.json`.
+
+Status: fixed in `e59b05bd` (reader-dropped old-generation lines now feed the public counter). Both rerun relaunches reported `conflict_reasons=["hook_orphan_generation"]` with `orphan_generations=6`; see `collector-kill-latest-rerun/state-snapshots/after_relaunch.json` and the floor equivalent.
 
 ## Deviations
 
 1. The permission lane used the `as_is` specialist and manual permission mode because the maintained unattended launch always passes `--dangerously-skip-permissions`, which suppresses permission modals. Both versions boot a no-bypass launch into auto mode; manual mode was selected with Shift+Tab. Modal keys observed: allow `1`, deny `3`.
 2. The as_is launches showed the workspace-trust dialog (trust seeding lives in the launch policy); the dialog was accepted manually. This is recorded as the untrusted counterexample, not as a managed unattended behavior.
 3. The floor leg used a PATH shim to the side-by-side 2.1.296 install; the managed launch itself was unchanged. The pane banner confirmed 2.1.296.
-4. Collector-kill event summaries are reconstructed from the `channel.json` stop snapshot because cleanup removed the raw store before the summary command ran; the summary files state this explicitly.
+4. The original collector-kill event summaries are reconstructed from the `channel.json` stop snapshot because cleanup removed the raw store before the summary command ran; the summary files state this explicitly. The rerun summaries were generated before cleanup.
 5. Direct-input packs contain a `not_applicable` admission record because no gateway submission was used.
 6. The untrusted scenarios are inspection-only; no provider session was launched, and the pack files say `not_applicable` where a session would normally supply data.
 
@@ -204,7 +247,9 @@ After the 2.1.303 relaunch, `observation_channels[0].conflict_reasons` contained
 
 Every launched scenario pack has `cleanup.json` with: collector alive after stop `false`, hook subtree present after stop (where a channel existed) and absent after `cleanup session`, session root absent after cleanup, and tmux session absent. The permission-latest pack's cleanup record was written manually after its manual stop/cleanup because the scenario predated the helper; it records the same checks.
 
-Final host checks after all scenarios:
+The four rerun packs (`compaction-*-rerun/`, `collector-kill-*-rerun/`) record the same cleanup outcome, including the relaunch tmux name where applicable.
+
+Final host checks after all scenarios, including the rerun:
 
 - `tmux ls | grep -Ei 'houmao-smoke|hook-smoke'` returned no campaign sessions.
 - `pgrep -af '[h]ook_observation.collector'` returned no collectors.
@@ -212,10 +257,10 @@ Final host checks after all scenarios:
 
 ## Qualification Verdict
 
-G5 (live provider smoke) is satisfied for normal turn, direct input, permission wait, and stop: the channel installed, delivered events, merged posture correctly, and every session stayed controllable. G6 is satisfied for disabled hooks; collector death fails the expected channel-state requirement because the channel stays `active` until staleness (D2), and untrusted workspace is satisfied only as precondition prevention because no `untrusted_workspace` state exists (D6). G7 compaction outcome preservation fails on both supported versions (D1).
+G5 (live provider smoke) is satisfied for normal turn, direct input, permission wait, and stop: the channel installed, delivered events, merged posture correctly, and every session stayed controllable. In the original run, G6 was satisfied for disabled hooks but collector death failed the expected channel-state requirement because the channel stayed `active` until staleness (D2), and G7 compaction outcome preservation failed on both supported versions (D1).
 
-Phase 0 opt-in remains appropriate. Default-on should wait for D1 (terminal-outcome mutation) and preferably D2 (collector liveness) before G7 can be claimed.
+After the `e59b05bd` rerun, the previously failing G6 collector-state check and G7 compaction-outcome check pass at both versions: collector death publishes `stopped` within one or two poll cycles without a TUI change, and compaction preserves the hook-latched `success` outcome and Stop timestamp. D1, D2, and D7 are verified fixed. D6 remains a named gap: v1 has no `untrusted_workspace` producer; the managed launch policy prevents the precondition. Phase 0 opt-in remains appropriate; the rerun removes the earlier default-on blockers.
 
 ## No-Product-Change Declaration
 
-This campaign changed no file under `src/`, `tests/`, or `openspec/`. Findings above are reported for a follow-up fix; they were not repaired here.
+This campaign changed no file under `src/`, `tests/`, or `openspec/`. Findings above are reported for a follow-up fix; they were not repaired in the original campaign. The follow-up fix commit `e59b05bd` addressed D1, D2, and D7, and this report records the rerun evidence.

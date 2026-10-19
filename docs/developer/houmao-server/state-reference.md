@@ -267,7 +267,7 @@ Type: `TrackedLastTurnResult` — one of `success`, `interrupted`, `known_failur
 
 This field answers: "What was the outcome of the most recent completed turn?" It is **sticky** — it only updates when a tracked turn reaches a terminal outcome, not on every poll cycle.
 
-When the hook observation channel is active, a hook `Stop` or `StopFailure` latches the turn immediately, ahead of the TUI settle window. A hook failure records its provider error class in `last_turn.error_class`; the field is null for other results. Once a hook terminal event latches a turn, later TUI settlement for that turn is suppressed, except that TUI temporal interrupt evidence may still flip the result to `interrupted`.
+When the hook observation channel is active, a hook `Stop` or `StopFailure` latches the turn immediately, ahead of the TUI settle window. A hook failure records its provider error class in `last_turn.error_class`; the field is null for other results. Once a hook terminal event latches a turn, later TUI settlement for that turn is suppressed, except that TUI temporal interrupt evidence for the same turn epoch, observed outside a maintenance window, may still flip the result to `interrupted`.
 
 > See [state-transitions.md § Last-Turn Result](state-transitions.md#last-turn-result) for the full statechart diagram with all transitions.
 
@@ -430,11 +430,11 @@ Type: list of `HoumaoObservationChannel`, or null when no channel is configured.
 |---|---|---|
 | `active` | Hook events are flowing | Current-generation events have arrived. Only this state grants hook lifecycle authority. |
 | `unavailable` | No usable channel | Startup state before any event, after the 15-second startup grace with no event, or after a failed install. Tracking is TUI-only. |
-| `stale` | An active channel went quiet | No event for more than 30 seconds while the visible TUI kept changing. TUI regains lifecycle authority. `last_turn` is published from TUI evidence during the degraded window, so a hook-only terminal result is temporarily not shown and returns if the channel recovers with that terminal still latched. |
+| `stale` | An active channel went quiet | No event for more than 30 seconds while the visible TUI kept changing. TUI regains lifecycle authority. A terminal result already latched from hook evidence persists through the stale window; `work` becomes `unknown` and `settled` becomes `false`. |
 | `disabled_by_policy` | Hooks are disabled by policy | Terminal state recognized from channel metadata. TUI-only. |
 | `untrusted_workspace` | Workspace trust is missing | Terminal state recognized from channel metadata. TUI-only. |
 | `error` | The event store is unreadable | A read failure clears on the next healthy read; an `error` published in channel metadata is terminal. Until then, TUI-only. |
-| `stopped` | The collector stopped | Terminal. Published when the collector stops or the session stops. |
+| `stopped` | The collector stopped | Terminal. Published when the collector stops or the session stops; a same-generation `collector.json` record with `status=stopped` is detected on the next poll cycle. |
 
 The passive server reports a hook-applicable session whose session root is not visible from its host as `state="unavailable"` with `detail="remote observation"`. Every state other than `active` is degraded: `work` is `unknown`, `settled` is `false`, and admission matches TUI-only behavior.
 

@@ -86,10 +86,10 @@ When the opt-in hook observation channel is `active`, hook facts merge into the 
 
 1. A hook `Stop` sets `last_turn.result=success`; a hook `StopFailure` sets `known_failure` and records the provider error class in `last_turn.error_class`. Settlement is immediate.
 2. `last_turn.source` is `hook_observation` for hook-settled turns, or `explicit_input` when a gateway submission record correlates with the same turn.
-3. Once a hook terminal event latches a turn, the pending TUI settle for that turn is suppressed. Later TUI evidence is discarded except that TUI temporal interrupt evidence may still flip the result to `interrupted`, reported as `hook_success_tui_interrupted`.
+3. Once a hook terminal event latches a turn, the pending TUI settle for that turn is suppressed. Later TUI evidence is discarded except that TUI temporal interrupt evidence for the same turn epoch, observed outside a maintenance window, may still flip the result to `interrupted`, reported as `hook_success_tui_interrupted`. Compaction repaints during the same epoch do not count as interrupt evidence.
 4. TUI settlement rules run unchanged when no hook terminal event exists for the turn.
 5. Hook events never settle `interrupted`.
-6. While the channel is degraded, `last_turn` is published from TUI evidence. A hook-only terminal result is therefore temporarily not shown during a stale window; it returns when the channel recovers with the terminal still latched. On recovery, agreement with a TUI settlement keeps the TUI source. Disagreement applies the hook result as an explicit correction (`hook_correction_after_staleness`), except that a TUI `interrupted` settlement keeps `interrupted`.
+6. If the channel goes stale after a hook terminal event latched the turn, the latched `last_turn` persists through the degraded window with `work=unknown` and `settled=false`. On recovery, agreement with a TUI settlement keeps the TUI source. Disagreement applies the hook result as an explicit correction (`hook_correction_after_staleness`), except that a TUI `interrupted` settlement keeps `interrupted`.
 
 ### Work And Settled
 
@@ -103,13 +103,13 @@ When the opt-in hook observation channel is `active`, hook facts merge into the 
 |---|---|
 | `active` | Hook facts have lifecycle authority; `work` and `settled` are published from hook evidence. |
 | `unavailable` | Startup state before any event; after the 15-second startup grace with no event, tracking is TUI-only. |
-| `stale` | No event for more than 30 seconds while the TUI keeps changing; TUI regains lifecycle authority, including settlement. |
+| `stale` | No event for more than 30 seconds while the TUI keeps changing; TUI regains lifecycle authority for new evidence, including new settlements. A hook-latched `last_turn` persists. |
 | `disabled_by_policy` | Terminal policy state from channel metadata; TUI-only. |
 | `untrusted_workspace` | Terminal policy state from channel metadata; TUI-only. |
 | `error` | Event store read failure; a healthy read restores `active` or `unavailable`. |
-| `stopped` | Collector or session stopped; terminal. |
+| `stopped` | Collector or session stopped; terminal. A same-generation `collector.json` record with `status=stopped` moves the channel to `stopped` on the next poll cycle. |
 
-Every state other than `active` is degraded: tracked state and admission are byte-equivalent to TUI-only behavior, `work` is `unknown`, and `settled` is `false`.
+Every state other than `active` is degraded: the channel contributes no new lifecycle authority, admission is byte-equivalent to TUI-only behavior, `work` is `unknown`, and `settled` is `false`. A hook-latched `last_turn` is the one persisted hook lifecycle fact during a stale window.
 
 ---
 

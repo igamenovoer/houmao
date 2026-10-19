@@ -31,7 +31,7 @@ sequenceDiagram
 
 ## Three Independent Facts
 
-Prompt admission must keep three facts separate:
+Prompt admission must keep three TUI facts separate:
 
 | Fact | Question It Answers | What It Does Not Prove |
 |---|---|---|
@@ -46,7 +46,10 @@ submit_ready =
     prompt-ready turn and surface posture
     AND tracked state is stable
     AND surface.pending_input = no
+    AND hook posture admissible (active hook channel only)
 ```
+
+An active hook observation channel adds a fourth lifecycle fact: whether the provider itself reports an active turn or a permission wait. That fact is not a substitute for surface readiness or pending input, but it can hold admission closed when the TUI surface alone looks ready. The channel is described in [Hook Observation Channel](../../../developer/houmao-server/state-tracking.md#hook-observation-channel).
 
 An unstable surface should be described as settling or not submit-ready. It should not automatically be labeled busy. Idle terminal chrome can repaint, and a busy CLI can remain visually static; folding stability into the busy state would make both concepts less precise.
 
@@ -79,13 +82,25 @@ Final stable-active recovery makes the first role especially important. That rec
 
 The direct TUI prompt-control policies use the latest observed surface as follows:
 
-| Policy | Readiness and Stability | Pending Input | Intended Use |
-|---|---|---|---|
-| `ready_only` | Must satisfy the stable prompt-ready contract. | Must be `no`. | Submit only for immediate processing. |
-| `if_no_pending` | Ignored. The provider may be busy. | Must be `no`. | Permit one queued follow-up when the visible provider queue is empty. |
-| `always` | Ignored. | Ignored. | Submit regardless of tracked TUI posture. |
+| Policy | Readiness and Stability | Pending Input | Hook Posture (channel `active`) | Intended Use |
+|---|---|---|---|---|
+| `ready_only` | Must satisfy the stable prompt-ready contract. | Must be `no`. | Merged `turn.phase` must be neither `active` nor `blocked`. | Submit only for immediate processing. |
+| `if_no_pending` | Ignored. The provider may be busy. | Must be `no`. | Merged `turn.phase` must not be `blocked`. | Permit one queued follow-up when the visible provider queue is empty. |
+| `always` | Ignored. | Ignored. | No hook gate. | Submit regardless of tracked TUI posture. |
 
 Both conditional policies fail closed when pending input is `unknown`.
+
+### Hook Posture Gates
+
+When a TUI-backed target has an active hook observation channel, the merged `turn.phase` can be `active` or `blocked` even while the TUI surface looks prompt-ready. A hook terminal event can also settle a turn ahead of the TUI settle window. The gateway therefore evaluates the hook posture after the TUI checks:
+
+- `ready_only` refuses while the merged `turn.phase` is `active` or `blocked`.
+- `if_no_pending` refuses while the merged `turn.phase` is `blocked`. It still permits an `active` turn, because that policy intentionally allows one queued follow-up when pending input is absent.
+- `always` has no hook gate.
+
+The gate applies only to TUI-backed direct prompt control with channel state `active`. Every other channel state (`unavailable`, `stale`, `disabled_by_policy`, `untrusted_workspace`, `error`, `stopped`) adds no refusal reasons, so admission is exactly the TUI-only contract above. Hook `work=pending` and a maintenance window never close admission by themselves. Hook refusals return HTTP `409` with `error_code=not_ready`, and the detail names the non-admissible posture (for example `hook.turn_phase='blocked'` or `hook.blocked=true`).
+
+The gate reads the latest merged tracked snapshot, which folds hook events at the tracker's poll boundary. A just-arrived hook event can therefore affect admission only on the next cycle. Both `control_prompt_submitted` and `control_prompt_refused` events in `events.jsonl` record `hook_channel_state`, `hook_turn_phase`, `hook_blocked`, `hook_terminal_result`, `hook_terminal_source`, and `hook_conflict_reasons` alongside the tracked admission facts.
 
 These decisions are observational rather than transactional. A successful submission note immediately arms Houmao's turn tracking, which reduces repeated admission through the same tracker. It does not reserve a provider queue slot, and the provider queue may not repaint before another closely spaced caller observes the previous snapshot. Two calls can therefore both dispatch before `pending_input=yes` becomes visible. The pending signal limits later submissions after observation; it does not claim to eliminate the pre-repaint window.
 
@@ -99,7 +114,7 @@ Provider-specific detector improvements can reduce false-ready intervals, but te
 
 ## Scope of This Guarantee
 
-The `ready_only | if_no_pending | always` contract belongs to direct prompt control through `POST /v1/control/prompt` and its managed-agent proxy. It does not redefine every prompt-producing gateway subsystem.
+The `ready_only | if_no_pending | always` contract belongs to direct prompt control through `POST /v1/control/prompt` and its managed-agent proxy. It does not redefine every prompt-producing gateway subsystem. The hook posture gate follows the same scope and applies only to TUI-backed targets with an active hook observation channel; headless targets have no hook channel.
 
 The durable `/v1/requests` queue, prompt reminders, and the mail notifier have their own scheduling and admission behavior. Gateway-durable queue depth is also distinct from provider-native pending input. Developers adding a new automatic prompt path must choose and document its tracked-readiness and pending-input policy explicitly rather than assuming that direct-control admission runs automatically.
 
@@ -107,11 +122,12 @@ The durable `/v1/requests` queue, prompt reminders, and the mail notifier have t
 
 When diagnosing unexpected queued prompts:
 
-1. Inspect `turn.phase`, `surface.ready_posture`, and `stability.stable` immediately before submission.
+1. Inspect `turn.phase`, `surface.ready_posture`, and `stability.stable` immediately before submission. When a hook channel is configured, also inspect `observation_channels[0].state`; only `active` adds hook refusal reasons.
 2. Check whether the provider was visibly producing output or was in a quiet interval during a longer turn.
 3. Inspect `surface.pending_input` after the provider repaints.
-4. Distinguish the direct prompt-control route from durable requests, reminders, and notifier-generated prompts.
-5. Treat a ready observation followed by `pending_input=yes` as evidence that readiness admission was too optimistic, not as evidence that pending-input detection was redundant.
+4. When the hook channel is active, check `diagnostics.hook_conflict_reasons` and `last_turn.error_class` for lifecycle evidence that the TUI surface missed.
+5. Distinguish the direct prompt-control route from durable requests, reminders, and notifier-generated prompts.
+6. Treat a ready observation followed by `pending_input=yes` as evidence that readiness admission was too optimistic, not as evidence that pending-input detection was redundant.
 
 ## See Also
 

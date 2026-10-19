@@ -42,13 +42,14 @@
 ## 7. Recorded Replay and Live Qualification
 
 - [x] 7.1 Extend the terminal-recorder evidence model with an optional `hook_events.ndjson` sidecar and make the replay path consume it; verify tests replay existing Claude fixtures unchanged without a sidecar and produce the expected hook-driven corrections with a synthesized sidecar mapped to sample ids
-- [ ] 7.2 Run the live smoke campaign (managed Claude at 2.1.296 and latest: normal turn, direct pane input, permission wait, compaction, stop/relaunch, collector kill, hooks disabled, untrusted workspace) with the evidence-pack layout from the feature qualification doc under `tmp/`, and verify the campaign report records channel timelines, admission decisions, and cleanup evidence for every scenario
+- [x] 7.2 Run the live smoke campaign (managed Claude at 2.1.296 and latest: normal turn, direct pane input, permission wait, compaction, stop/relaunch, collector kill, hooks disabled, untrusted workspace) with the evidence-pack layout from the feature qualification doc under `tmp/`, and verify the campaign report records channel timelines, admission decisions, and cleanup evidence for every scenario
+  - Completed 2026-10-20: `context/campaigns/debug/2026-10-19-claude-hook-observation/reports/2026-10-20-live-smoke-qualification.md` (14 sessions, evidence packs under `tmp/hook-observation-smoke/`; defects D1/D2/D7 found and fixed in `e59b05bd`, rerun legs pass at both versions; D6 untrusted-producer remains a named gap).
 
 ## 8. Documentation
 
-- [ ] 8.1 Update the TUI tracking state-model doc with the channel status, authority table, and conflict diagnostics, and verify the documented fields match the implemented payload models
-- [ ] 8.2 Update the gateway prompt-admission doc with hook gates and degraded-channel behavior, and verify the documented policies match the implemented admission checks
-- [ ] 8.3 Update the Claude provider support doc with the hook version matrix, trust preconditions, and troubleshooting for channel states, and verify the documented floor matches the launch policy and detector registry pins
+- [x] 8.1 Update the TUI tracking state-model doc with the channel status, authority table, and conflict diagnostics, and verify the documented fields match the implemented payload models
+- [x] 8.2 Update the gateway prompt-admission doc with hook gates and degraded-channel behavior, and verify the documented policies match the implemented admission checks
+- [x] 8.3 Update the Claude provider support doc with the hook version matrix, trust preconditions, and troubleshooting for channel states, and verify the documented floor matches the launch policy and detector registry pins
 
 ## Workflow follow-up
 
