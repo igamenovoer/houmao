@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from houmao.hook_observation.reader import HookObservationChannel, HookObservationReader
 from houmao.hook_observation.store import HookObservationStore
 
@@ -124,6 +126,129 @@ def test_reader_rescans_after_truncation(tmp_path: Path) -> None:
 
     assert [observation.kind for observation in batch.observations] == ["prompt_submitted"]
     assert batch.observations[0].prompt_id == "after-truncate"
+
+
+def _write_kimi_events(events_path: Path, *provider_events: dict[str, object]) -> None:
+    lines = [
+        json.dumps(
+            {
+                "sequence": index,
+                "received_at_utc": f"2026-10-20T13:00:{index:02d}+00:00",
+                "channel_generation": 1,
+                "via": "http",
+                "provider_event": provider_event,
+            }
+        )
+        for index, provider_event in enumerate(provider_events, start=1)
+    ]
+    events_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_reader_selects_the_kimi_normalizer(tmp_path: Path) -> None:
+    events_path = tmp_path / "events.ndjson"
+    _write_kimi_events(
+        events_path,
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "session-1",
+            "prompt": [{"type": "text", "text": "Reply with exactly: OK"}],
+            "is_steer": False,
+        },
+        {
+            "hook_event_name": "TurnStarted",
+            "session_id": "session-1",
+            "turn_id": 0,
+            "origin_kind": "user",
+        },
+        {
+            "hook_event_name": "UserPromptQueued",
+            "session_id": "session-1",
+            "prompt_id": "msg_1",
+            "queue_length": 1,
+        },
+    )
+
+    reader = HookObservationReader(events_path, adapter="kimi")
+    batch = reader.read_new()
+
+    assert reader.adapter == "kimi"
+    assert [observation.kind for observation in batch.observations] == [
+        "prompt_submitted",
+        "turn_started",
+        "prompt_queued",
+    ]
+    assert batch.observations[0].prompt_text == "Reply with exactly: OK"
+    assert batch.observations[1].turn_id == "0"
+    assert batch.observations[2].queue_length == 1
+
+    claude_reader = HookObservationReader(events_path, adapter="claude")
+    claude_batch = claude_reader.read_new()
+    assert [observation.kind for observation in claude_batch.observations] == [
+        "prompt_submitted",
+        "unknown",
+        "unknown",
+    ]
+
+
+def test_reader_rejects_an_unsupported_adapter(tmp_path: Path) -> None:
+    events_path = tmp_path / "events.ndjson"
+    events_path.write_text("", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unsupported hook observation adapter"):
+        HookObservationReader(events_path, adapter="other")  # type: ignore[arg-type]
+
+
+def test_channel_from_session_root_supports_the_kimi_adapter(tmp_path: Path) -> None:
+    channel_dir = tmp_path / "hook-observation" / "kimi"
+    channel_dir.mkdir(parents=True)
+    (channel_dir / "channel.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "status": "running",
+                "generation": 1,
+                "started_at_utc": "2026-10-20T13:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write_kimi_events(
+        channel_dir / "events.ndjson",
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "session-1",
+            "prompt": [{"type": "text", "text": "OK"}],
+            "is_steer": False,
+        },
+        {
+            "hook_event_name": "TurnStarted",
+            "session_id": "session-1",
+            "turn_id": 0,
+            "origin_kind": "user",
+        },
+    )
+
+    channel = HookObservationChannel.from_session_root(tmp_path, adapter="kimi")
+    assert channel is not None
+    assert channel.adapter == "kimi"
+    assert channel.events_path == channel_dir / "events.ndjson"
+
+    cycle = channel.read_cycle(
+        now_monotonic=0.0,
+        now_utc="2026-10-20T13:00:00+00:00",
+        tui_changed=False,
+    )
+    assert [observation.kind for observation in cycle.observations] == [
+        "prompt_submitted",
+        "turn_started",
+    ]
+
+    posture = None
+    for observation in cycle.observations:
+        posture = channel.reducer.reduce(observation)
+    assert posture is not None
+    assert posture.turn_phase == "active"
+    assert posture.turn_id == "0"
 
 
 def test_channel_from_session_root_requires_channel_status(tmp_path: Path) -> None:

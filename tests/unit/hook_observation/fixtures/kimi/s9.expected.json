@@ -1,0 +1,158 @@
+{
+  "capture": "s9/run-20261020T135227Z",
+  "events": [
+    "SessionStart",
+    "UserPromptSubmit",
+    "TurnStarted",
+    "PreToolUse",
+    "TurnStarted",
+    "SubagentStart",
+    "Stop",
+    "SubagentStop",
+    "PostToolUse",
+    "Stop",
+    "SessionEnd"
+  ],
+  "fallback_events": 0,
+  "final": {
+    "counters": {
+      "allow_settles": 0,
+      "blocked_windows": 0,
+      "compaction_boundaries": 0,
+      "deny_settles": 0,
+      "events_seen": 11,
+      "heartbeats": 0,
+      "interrupts": 0,
+      "permission_requests": 0,
+      "queued_prompts": 0,
+      "steer_events": 0,
+      "subagent_starts": 1,
+      "subagent_stops": 1,
+      "terminal_gaps": 0,
+      "turn_epochs": 1
+    },
+    "diagnostics_include": [
+      "hook_nested_scope_opened",
+      "hook_nested_scope_closed"
+    ],
+    "generation": 1,
+    "last_turn_result": "success",
+    "presence": "lost",
+    "session_start_source": "startup",
+    "turn_phase": "ready",
+    "unavailable_families": [
+      "StopFailure",
+      "TaskStarted",
+      "Notification"
+    ],
+    "work": "unknown"
+  },
+  "finish": {
+    "headless": false,
+    "process_returncode": null
+  },
+  "generations": 1,
+  "rows": [
+    {
+      "blocked": false,
+      "event": "SessionStart",
+      "last_turn_result": "none",
+      "maintenance_active": false,
+      "presence": "present",
+      "turn_id": null,
+      "turn_phase": "ready"
+    },
+    {
+      "blocked": false,
+      "event": "UserPromptSubmit",
+      "last_turn_result": "none",
+      "maintenance_active": false,
+      "presence": "present",
+      "turn_id": null,
+      "turn_phase": "active"
+    },
+    {
+      "blocked": false,
+      "event": "TurnStarted",
+      "last_turn_result": "none",
+      "maintenance_active": false,
+      "presence": "present",
+      "turn_id": "0",
+      "turn_phase": "active"
+    },
+    {
+      "blocked": false,
+      "event": "PreToolUse",
+      "last_turn_result": "none",
+      "maintenance_active": false,
+      "presence": "present",
+      "turn_id": "0",
+      "turn_phase": "active"
+    },
+    {
+      "blocked": false,
+      "event": "TurnStarted",
+      "last_turn_result": "none",
+      "maintenance_active": false,
+      "presence": "present",
+      "turn_id": "0",
+      "turn_phase": "active"
+    },
+    {
+      "blocked": false,
+      "event": "SubagentStart",
+      "last_turn_result": "none",
+      "maintenance_active": false,
+      "presence": "present",
+      "turn_id": "0",
+      "turn_phase": "active"
+    },
+    {
+      "blocked": false,
+      "event": "Stop",
+      "last_turn_result": "none",
+      "maintenance_active": false,
+      "presence": "present",
+      "turn_id": "0",
+      "turn_phase": "active"
+    },
+    {
+      "blocked": false,
+      "event": "SubagentStop",
+      "last_turn_result": "none",
+      "maintenance_active": false,
+      "presence": "present",
+      "turn_id": "0",
+      "turn_phase": "active"
+    },
+    {
+      "blocked": false,
+      "event": "PostToolUse",
+      "last_turn_result": "none",
+      "maintenance_active": false,
+      "presence": "present",
+      "turn_id": "0",
+      "turn_phase": "active"
+    },
+    {
+      "blocked": false,
+      "event": "Stop",
+      "last_turn_result": "success",
+      "maintenance_active": false,
+      "presence": "present",
+      "turn_id": null,
+      "turn_phase": "ready"
+    },
+    {
+      "blocked": false,
+      "event": "SessionEnd",
+      "last_turn_result": "success",
+      "maintenance_active": false,
+      "presence": "lost",
+      "turn_id": null,
+      "turn_phase": "ready"
+    }
+  ],
+  "scenario": "s9",
+  "source": "campaign replay_reduce.py --all --timeline (2026-10-20, zero expectation mismatches); expectations ported, never imported"
+}

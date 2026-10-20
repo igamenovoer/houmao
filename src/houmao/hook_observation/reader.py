@@ -28,6 +28,7 @@ from houmao.hook_observation.health import (
     HookChannelState,
     coerce_channel_state,
 )
+from houmao.hook_observation.kimi_normalizer import KimiEventNormalizer
 from houmao.hook_observation.models import (
     HookAdapter,
     HookEventEnvelope,
@@ -48,10 +49,21 @@ from houmao.hook_observation.store import (
 READ_CHUNK_BYTES = MAX_ENVELOPE_LINE_BYTES + 1
 EnvelopeNormalizer = Callable[[HookEventEnvelope], HookObservation]
 COLLECTOR_RECORD_FILENAME = "collector.json"
+SUPPORTED_ADAPTERS: tuple[HookAdapter, ...] = ("claude", "codex", "kimi")
 _FORCED_HEALTH_STATES = frozenset({"disabled_by_policy", "untrusted_workspace", "error", "stopped"})
 _EXPLICIT_STATE_PRECEDES_COLLECTOR = frozenset(
     {"unavailable", "installing", "disabled_by_policy", "untrusted_workspace", "error", "stopped"}
 )
+
+
+def _envelope_normalizer(adapter: HookAdapter) -> EnvelopeNormalizer:
+    """Return the stateful envelope normalizer bound to one adapter."""
+
+    if adapter == "codex":
+        return CodexEventNormalizer().normalize_envelope
+    if adapter == "kimi":
+        return KimiEventNormalizer().normalize_envelope
+    return normalize_envelope
 
 
 @dataclass(frozen=True)
@@ -133,13 +145,11 @@ class HookObservationReader:
             so existing callers keep the provider-neutral Claude mapping.
         """
 
-        if adapter not in ADAPTER_DIRNAMES:
+        if adapter not in SUPPORTED_ADAPTERS:
             raise ValueError(f"unsupported hook observation adapter {adapter!r}")
         self.m_events_path: Path = Path(events_path)
         self.m_adapter: HookAdapter = adapter
-        self.m_normalize: EnvelopeNormalizer = (
-            CodexEventNormalizer().normalize_envelope if adapter == "codex" else normalize_envelope
-        )
+        self.m_normalize: EnvelopeNormalizer = _envelope_normalizer(adapter)
         self.m_offset: int = 0
         self.m_current_generation: int | None = None
         self.m_initialized: bool = False
@@ -379,7 +389,7 @@ class HookObservationChannel:
             ``"claude"`` so existing callers are unchanged.
         """
 
-        if adapter not in ADAPTER_DIRNAMES:
+        if adapter not in SUPPORTED_ADAPTERS:
             raise ValueError(f"unsupported hook observation adapter {adapter!r}")
         self.m_adapter: HookAdapter = adapter
         self.m_reader = HookObservationReader(events_path, adapter=adapter)
@@ -438,9 +448,9 @@ class HookObservationChannel:
 
         if session_root is None or not str(session_root).strip():
             return None
-        adapter_dirname = ADAPTER_DIRNAMES.get(adapter)
-        if adapter_dirname is None:
+        if adapter not in SUPPORTED_ADAPTERS:
             raise ValueError(f"unsupported hook observation adapter {adapter!r}")
+        adapter_dirname = ADAPTER_DIRNAMES.get(adapter) or adapter
         channel_dir = Path(session_root).expanduser() / HOOK_OBSERVATION_DIRNAME
         channel_dir = channel_dir / adapter_dirname
         channel_path = channel_dir / CHANNEL_FILENAME

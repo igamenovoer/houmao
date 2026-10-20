@@ -1,9 +1,9 @@
 """Data models for the provider-neutral hook observation channel.
 
 The models in this module are the stable vocabulary shared by the session
-store, the Claude event normalizer, and the posture reducer. They are plain
-frozen dataclasses so they can be compared, logged by field, and serialized
-without provider-specific imports.
+store, the per-adapter event normalizers, and the posture reducer. They are
+plain frozen dataclasses so they can be compared, logged by field, and
+serialized without provider-specific imports.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
 
-HookAdapter = Literal["claude", "codex"]
+HookAdapter = Literal["claude", "codex", "kimi"]
 HookDeliveryVia = Literal["http", "command", "command_fallback", "unknown"]
 HookRecordType = Literal["event", "generation_boundary"]
 HookStoreStatus = Literal["running", "stopped"]
@@ -28,17 +28,23 @@ EnvelopeParseOutcome = Literal[
 NormalizedHookKind = Literal[
     "session_started",
     "prompt_submitted",
+    "prompt_queued",
     "activity",
     "tool_started",
     "tool_completed",
+    "tool_failed",
     "permission_requested",
     "permission_resolved",
+    "turn_started",
     "turn_completed",
     "turn_interrupted",
     "turn_failed",
     "maintenance_started",
     "maintenance_ended",
+    "session_heartbeat",
     "session_ended",
+    "subagent_started",
+    "subagent_stopped",
     "generation_started",
     "unknown",
 ]
@@ -67,6 +73,17 @@ HookPostureDiagnosticKind = Literal[
     "hook_terminal_gap",
     "hook_session_end_with_open_turn",
     "hook_unavailable_event_family",
+    "hook_prompt_queued",
+    "hook_nested_scope_opened",
+    "hook_nested_scope_closed",
+    "hook_turn_started_without_prompt",
+    "hook_turn_started_without_turn_id",
+    "hook_tool_without_turn",
+    "hook_permission_turn_mismatch",
+    "hook_permission_result_without_blocked",
+    "hook_permission_result_unexercised_decision",
+    "hook_headless_session_end_gap",
+    "hook_heartbeat_liveness_unavailable",
 ]
 
 
@@ -183,14 +200,18 @@ class HookBackgroundTask:
 class HookObservation:
     """One provider event normalized into the provider-neutral vocabulary.
 
-    The observation never carries prompt text, tool input, tool output, or
-    assistant message text. Text-bearing provider fields are reduced to flags
-    or bounded class names before they reach this model.
+    The observation never carries tool input, tool output, or assistant
+    message text. Text-bearing provider fields are reduced to flags or bounded
+    class names before they reach this model. ``prompt_text`` is the one
+    deliberate exception: the Kimi adapter collapses a structured
+    ``ContentPart[]`` prompt to its joined text at the provider contract's
+    request, and ``prompt_part_count`` keeps the collapsed shape visible.
 
     ``turn_id`` is the provider's turn-epoch key when the provider exposes one
-    (Codex does; Claude correlates by ``prompt_id``). ``steer`` marks a second
-    prompt submission that belongs to the running turn rather than minting a
-    new epoch.
+    (Codex and Kimi do; Claude correlates by ``prompt_id``). Kimi's integer
+    turn identifiers are carried as their decimal string form. ``steer`` marks
+    a second prompt submission that belongs to the running turn rather than
+    minting a new epoch.
     """
 
     kind: NormalizedHookKind
@@ -205,10 +226,18 @@ class HookObservation:
     tool_name: str | None = None
     tool_use_id: str | None = None
     agent_id: str | None = None
+    agent_name: str | None = None
     turn_state_hint: HookTurnStateHint = "none"
     terminal_hint: HookTerminalHint = "none"
     maintenance_trigger: str | None = None
     source: str | None = None
+    reason: str | None = None
+    origin_kind: str | None = None
+    origin_name: str | None = None
+    permission_decision: str | None = None
+    prompt_text: str | None = None
+    prompt_part_count: int | None = None
+    queue_length: int | None = None
     background_tasks: tuple[HookBackgroundTask, ...] = ()
     background_work_pending: bool | None = None
     stop_hook_active: bool | None = None
@@ -273,6 +302,13 @@ class HookPostureCounters:
     allow_settles: int = 0
     deny_settles: int = 0
     terminal_gaps: int = 0
+    permission_requests: int = 0
+    blocked_windows: int = 0
+    queued_prompts: int = 0
+    interrupts: int = 0
+    subagent_starts: int = 0
+    subagent_stops: int = 0
+    heartbeats: int = 0
 
     def to_payload(self) -> dict[str, Any]:
         """Return a JSON-serializable payload."""
@@ -314,6 +350,7 @@ class HookPosture:
     presence: HookPresence = "unknown"
     turn_id: str | None = None
     blocked_tool_use_id: str | None = None
+    terminal_source: str | None = None
 
     @property
     def prompt_active(self) -> bool:

@@ -14,6 +14,7 @@ from collections import deque
 from reactivex import Observable, abc, operators as ops
 
 from houmao.hook_observation.codex_normalizer import CODEX_UNAVAILABLE_FLOOR_FAMILIES
+from houmao.hook_observation.kimi_normalizer import KIMI_SILENT_FLOOR_FAMILIES
 from houmao.hook_observation.models import (
     HookAdapter,
     HookArmedPrompt,
@@ -45,6 +46,13 @@ class HookPostureReducer:
     from the Codex hook-observation state-transition design: ``turn_id``
     correlation, steer-within-epoch, ``Interrupt`` settlement, deny-aborts-turn
     blocked settling, compaction windows, and truthful terminal gaps.
+    ``adapter="kimi"`` selects the Kimi rules from
+    ``openspec/changes/add-kimi-hook-observation/design/state-transitions.md``:
+    two-phase arm/bind turn correlation, ``PermissionResult``-settled blocked
+    windows with a non-terminal deny path, hook-settled ``Interrupt``,
+    compaction windows with a fresh post-compact epoch, nested subagent
+    scopes, queue evidence, and truthful terminal gaps including the headless
+    clean-exit case.
     """
 
     def __init__(
@@ -68,7 +76,7 @@ class HookPostureReducer:
             duplicate detection.
         """
 
-        if adapter not in ("claude", "codex"):
+        if adapter not in ("claude", "codex", "kimi"):
             raise ValueError(f"unknown adapter {adapter!r}")
         if diagnostic_capacity < 1:
             raise ValueError("diagnostic_capacity must be positive")
@@ -94,6 +102,7 @@ class HookPostureReducer:
         self.m_terminal_consumed_prompt_id: str | None = None
         self.m_terminal_stop_hook_active: bool | None = None
         self.m_terminal_message_present: bool | None = None
+        self.m_terminal_source: str | None = None
         self.m_blocked: bool = False
         self.m_blocked_tool_name: str | None = None
         self.m_blocked_tool_use_id: str | None = None
@@ -104,6 +113,8 @@ class HookPostureReducer:
         self.m_turn_id: str | None = None
         self.m_turn_phase: HookTurnPhase = "unknown"
         self.m_pre_maintenance_phase: HookTurnPhase | None = None
+        self.m_pending_epoch: bool = False
+        self.m_nested_scope_depth: int = 0
         self.m_seen_event_names: set[str] = set()
         self.m_finished: bool = False
         self.m_events_seen: int = 0
@@ -119,6 +130,13 @@ class HookPostureReducer:
         self.m_allow_settles: int = 0
         self.m_deny_settles: int = 0
         self.m_terminal_gaps: int = 0
+        self.m_permission_requests: int = 0
+        self.m_blocked_windows: int = 0
+        self.m_queued_prompts: int = 0
+        self.m_interrupts: int = 0
+        self.m_subagent_starts: int = 0
+        self.m_subagent_stops: int = 0
+        self.m_heartbeats: int = 0
         self.m_last_event_name: str | None = None
         self.m_last_event_kind: NormalizedHookKind | None = None
         self.m_last_event_at_utc: str | None = None
@@ -128,7 +146,7 @@ class HookPostureReducer:
     def posture(self) -> HookPosture:
         """Return the current immutable posture snapshot."""
 
-        if self.m_adapter == "codex":
+        if self.m_adapter in ("codex", "kimi"):
             turn_phase: HookTurnPhase = self.m_turn_phase
         elif self.m_armed_prompts:
             turn_phase = "blocked" if self.m_blocked else "active"
@@ -151,6 +169,13 @@ class HookPostureReducer:
             allow_settles=self.m_allow_settles,
             deny_settles=self.m_deny_settles,
             terminal_gaps=self.m_terminal_gaps,
+            permission_requests=self.m_permission_requests,
+            blocked_windows=self.m_blocked_windows,
+            queued_prompts=self.m_queued_prompts,
+            interrupts=self.m_interrupts,
+            subagent_starts=self.m_subagent_starts,
+            subagent_stops=self.m_subagent_stops,
+            heartbeats=self.m_heartbeats,
         )
         return HookPosture(
             generation=self.m_generation,
@@ -185,6 +210,7 @@ class HookPostureReducer:
             presence=self.m_presence,
             turn_id=self.m_turn_id,
             blocked_tool_use_id=self.m_blocked_tool_use_id,
+            terminal_source=self.m_terminal_source,
         )
 
     def reduce(self, observation: HookObservation) -> HookPosture:
@@ -237,6 +263,9 @@ class HookPostureReducer:
         if self.m_adapter == "codex":
             self._apply_codex_observation(observation)
             return self.posture
+        if self.m_adapter == "kimi":
+            self._apply_kimi_observation(observation)
+            return self.posture
 
         if observation.kind == "session_started":
             self._apply_session_started(observation)
@@ -260,18 +289,32 @@ class HookPostureReducer:
             self._count_unknown(observation)
         return self.posture
 
-    def finish(self, *, reason: str = "stream_end") -> HookPosture:
+    def finish(
+        self,
+        *,
+        reason: str = "stream_end",
+        headless: bool = False,
+        process_returncode: int | None = None,
+    ) -> HookPosture:
         """Close the observation stream and return the final posture.
 
-        Only the Codex adapter defines a stream-end transition: an open turn
-        without ``Stop``/``Interrupt``/``SessionEnd`` is a terminal gap with
-        truthful ``unknown`` turn state. The Claude adapter has no such rule,
-        so this is a no-op there.
+        The Codex and Kimi adapters define a stream-end transition: an open
+        turn without ``Stop``/``Interrupt``/``SessionEnd`` is a terminal gap
+        with truthful ``unknown`` turn state. Kimi additionally settles a
+        headless run that exited cleanly after a latched ``Stop`` without a
+        ``SessionEnd`` and names the missing session end as a diagnostic. The
+        Claude adapter has no stream-end rule, so this is a no-op there.
 
         Parameters
         ----------
         reason:
             Bounded reason label recorded in the terminal-gap diagnostic.
+        headless:
+            Whether the provider ran in print/headless mode. Ignored by the
+            Claude and Codex adapters.
+        process_returncode:
+            Provider process exit code when known. A clean (``0``) headless
+            exit after a latched terminal is terminal-settled.
 
         Returns
         -------
@@ -279,6 +322,12 @@ class HookPostureReducer:
             Final posture after the stream-end fallback.
         """
 
+        if self.m_adapter == "kimi":
+            return self._finish_kimi(
+                reason=reason,
+                headless=headless,
+                process_returncode=process_returncode,
+            )
         if self.m_adapter != "codex":
             return self.posture
         if self.m_finished:
@@ -666,6 +715,480 @@ class HookPostureReducer:
         self.m_maintenance_active = False
         self.m_pre_maintenance_phase = None
 
+    def _apply_kimi_observation(self, observation: HookObservation) -> None:
+        """Dispatch one observation through the Kimi arm/bind rules."""
+
+        self.m_seen_event_names.add(observation.event_name)
+        if observation.kind == "session_started":
+            self._apply_kimi_session_started(observation)
+        elif observation.kind == "session_ended":
+            self._apply_kimi_session_ended(observation)
+        elif observation.kind == "session_heartbeat":
+            self._apply_kimi_session_heartbeat(observation)
+        elif observation.kind == "prompt_submitted":
+            self._apply_kimi_prompt_submitted(observation)
+        elif observation.kind == "prompt_queued":
+            self._apply_kimi_prompt_queued(observation)
+        elif observation.kind == "turn_started":
+            self._apply_kimi_turn_started(observation)
+        elif observation.kind in ("tool_started", "tool_completed", "tool_failed"):
+            self._apply_kimi_tool_activity(observation)
+        elif observation.kind == "permission_requested":
+            self._apply_kimi_permission_requested(observation)
+        elif observation.kind == "permission_resolved":
+            self._apply_kimi_permission_resolved(observation)
+        elif observation.kind == "turn_completed":
+            self._apply_kimi_terminal(observation, result="success")
+        elif observation.kind == "turn_failed":
+            self._apply_kimi_terminal(observation, result="known_failure")
+        elif observation.kind == "turn_interrupted":
+            self._apply_kimi_terminal(observation, result="interrupted")
+        elif observation.kind == "maintenance_started":
+            self._apply_kimi_maintenance_started(observation)
+        elif observation.kind == "maintenance_ended":
+            self._apply_kimi_maintenance_ended(observation)
+        elif observation.kind == "subagent_started":
+            self._apply_kimi_subagent_started(observation)
+        elif observation.kind == "subagent_stopped":
+            self._apply_kimi_subagent_stopped(observation)
+        else:
+            self._count_unknown(observation)
+
+    def _apply_kimi_session_started(self, observation: HookObservation) -> None:
+        """Establish presence; a provider start resets turn state."""
+
+        self.m_presence = "present"
+        if observation.session_id is not None:
+            self.m_session_id = observation.session_id
+        self.m_session_started = True
+        self.m_session_start_source = observation.source
+        if observation.source == "compact":
+            self.m_compaction_boundaries += 1
+            self._diagnose(
+                "hook_compaction_boundary",
+                observation,
+                detail=observation.source,
+            )
+            if self.m_turn_phase == "unknown":
+                self.m_turn_phase = self.m_pre_maintenance_phase or "ready"
+            return
+        self._reset_turn_state()
+        self.m_turn_phase = "ready"
+
+    def _apply_kimi_prompt_submitted(self, observation: HookObservation) -> None:
+        """Arm a new turn epoch; steered input stays in the running epoch."""
+
+        self.m_presence = "present"
+        if observation.steer and self._kimi_epoch_open():
+            self.m_steer_events += 1
+            self._diagnose(
+                "hook_steer_same_turn",
+                observation,
+                detail="steered input",
+            )
+            if self.m_turn_phase == "blocked":
+                self._diagnose("hook_prompt_during_blocked", observation)
+                self._clear_blocked()
+            self.m_turn_phase = "active"
+            return
+        if observation.steer:
+            self.m_steer_events += 1
+            self._diagnose(
+                "hook_steer_same_turn",
+                observation,
+                detail="without open turn",
+            )
+        if self._kimi_epoch_open():
+            self._diagnose(
+                "hook_turn_epoch_superseded",
+                observation,
+                detail=f"{self.m_turn_id or 'pending'}->pending",
+            )
+        if self.m_maintenance_active:
+            self._diagnose("hook_prompt_during_maintenance", observation)
+            self.m_maintenance_active = False
+            self.m_pre_maintenance_phase = None
+        self._kimi_arm_epoch(observation)
+
+    def _apply_kimi_prompt_queued(self, observation: HookObservation) -> None:
+        """Record queue evidence without arming a second prompt submission."""
+
+        self.m_presence = "present"
+        self.m_queued_prompts += 1
+        queue_length = observation.queue_length
+        self._diagnose(
+            "hook_prompt_queued",
+            observation,
+            detail=(
+                f"prompt_id={observation.prompt_id or '-'},"
+                f"queue_length={queue_length if queue_length is not None else '-'}"
+            ),
+        )
+
+    def _apply_kimi_turn_started(self, observation: HookObservation) -> None:
+        """Bind the armed epoch; nested turns open a scope instead."""
+
+        self.m_presence = "present"
+        if observation.origin_kind == "system_trigger" or observation.origin_name == "subagent":
+            self.m_nested_scope_depth += 1
+            self._diagnose(
+                "hook_nested_scope_opened",
+                observation,
+                detail=observation.origin_name or observation.origin_kind,
+            )
+            return
+        if observation.turn_id is None:
+            self._diagnose("hook_turn_started_without_turn_id", observation)
+            return
+        if self.m_pending_epoch or (
+            self.m_turn_phase in ("active", "blocked") and self.m_turn_id is None
+        ):
+            self._kimi_bind_turn_id(observation)
+            return
+        if self.m_turn_phase in ("active", "blocked") and self.m_turn_id is not None:
+            if observation.turn_id == self.m_turn_id:
+                self.m_duplicate_events += 1
+                self._diagnose(
+                    "hook_duplicate_event",
+                    observation,
+                    detail=f"TurnStarted {observation.turn_id}",
+                )
+                return
+            self._diagnose(
+                "hook_turn_epoch_superseded",
+                observation,
+                detail=f"{self.m_turn_id}->{observation.turn_id}",
+            )
+        else:
+            self._diagnose(
+                "hook_turn_started_without_prompt",
+                observation,
+                detail=observation.turn_id,
+            )
+        self._kimi_arm_epoch(observation)
+        self._kimi_bind_turn_id(observation)
+
+    def _apply_kimi_tool_activity(self, observation: HookObservation) -> None:
+        """Apply tool activity; the blocked window settles only at its result."""
+
+        self.m_presence = "present"
+        if self.m_turn_phase == "blocked":
+            return
+        if self._kimi_epoch_open():
+            self.m_turn_phase = "active"
+            return
+        self._diagnose("hook_tool_without_turn", observation, detail=observation.tool_name)
+
+    def _apply_kimi_permission_requested(self, observation: HookObservation) -> None:
+        """Enter the hooks-only blocked phase for the open epoch."""
+
+        self.m_presence = "present"
+        if not self._kimi_epoch_open():
+            self._diagnose("permission_without_armed_prompt", observation)
+            return
+        if observation.turn_id is not None:
+            if self.m_turn_id is None:
+                self.m_turn_id = observation.turn_id
+                self.m_pending_epoch = False
+            elif observation.turn_id != self.m_turn_id:
+                self._diagnose(
+                    "hook_permission_turn_mismatch",
+                    observation,
+                    detail=f"{observation.turn_id}!={self.m_turn_id}",
+                )
+        self.m_permission_requests += 1
+        self.m_blocked_windows += 1
+        self.m_blocked = True
+        self.m_blocked_tool_name = observation.tool_name
+        self.m_blocked_tool_use_id = observation.tool_use_id
+        self.m_turn_phase = "blocked"
+        if observation.tool_use_id is None:
+            self._diagnose(
+                "hook_permission_pair_unresolved",
+                observation,
+                detail=observation.tool_name,
+            )
+
+    def _apply_kimi_permission_resolved(self, observation: HookObservation) -> None:
+        """Settle the blocked window for both approval and rejection."""
+
+        self.m_presence = "present"
+        if not self.m_blocked:
+            self._diagnose("hook_permission_result_without_blocked", observation)
+            return
+        if (
+            observation.tool_use_id is not None
+            and self.m_blocked_tool_use_id is not None
+            and observation.tool_use_id != self.m_blocked_tool_use_id
+        ):
+            self._diagnose(
+                "hook_blocked_tool_mismatch",
+                observation,
+                detail=f"{self.m_blocked_tool_use_id}!={observation.tool_use_id}",
+            )
+        self._clear_blocked()
+        if self._kimi_epoch_open():
+            self.m_turn_phase = "active"
+        decision = observation.permission_decision
+        if decision == "approved":
+            self.m_allow_settles += 1
+        elif decision == "rejected":
+            self.m_deny_settles += 1
+        else:
+            self._diagnose(
+                "hook_permission_result_unexercised_decision",
+                observation,
+                detail=decision,
+            )
+
+    def _apply_kimi_terminal(
+        self,
+        observation: HookObservation,
+        *,
+        result: HookTerminalResult,
+    ) -> None:
+        """Latch success, interrupted, or known_failure for the open epoch."""
+
+        self.m_presence = "present"
+        if observation.kind == "turn_completed" and observation.stop_hook_active is True:
+            self._diagnose(
+                "hook_stop_hook_active",
+                observation,
+                detail="turn_completed",
+            )
+            if self._kimi_epoch_open():
+                self.m_turn_phase = "active"
+            return
+        if result == "interrupted":
+            self.m_interrupts += 1
+        if observation.kind == "turn_completed" and self.m_nested_scope_depth > 0:
+            self.m_nested_scope_depth -= 1
+            self._diagnose(
+                "hook_nested_scope_closed",
+                observation,
+                detail="Stop",
+            )
+            return
+        if not self._kimi_epoch_open():
+            self.m_orphan_terminals += 1
+            self._diagnose(
+                "hook_orphan_terminal",
+                observation,
+                detail=f"terminal={observation.kind}",
+            )
+            return
+        if (
+            observation.turn_id is not None
+            and self.m_turn_id is not None
+            and observation.turn_id != self.m_turn_id
+        ):
+            self.m_orphan_terminals += 1
+            self._diagnose(
+                "hook_orphan_terminal",
+                observation,
+                detail=(
+                    f"terminal={observation.kind}:turn_mismatch "
+                    f"{observation.turn_id}!={self.m_turn_id}"
+                ),
+            )
+            return
+        consumed = self.m_armed_prompts.popleft() if self.m_armed_prompts else None
+        self.m_terminal_result = result
+        self.m_terminal_source = "hook_observation"
+        self.m_terminal_error_class = observation.error_class if result == "known_failure" else None
+        self.m_terminal_prompt_id = observation.prompt_id
+        self.m_terminal_consumed_prompt_id = (
+            self.m_turn_id or observation.turn_id or (consumed.prompt_id if consumed else None)
+        )
+        self.m_terminal_stop_hook_active = observation.stop_hook_active
+        self.m_terminal_message_present = observation.last_assistant_message_present
+        self.m_turn_id = None
+        self.m_pending_epoch = False
+        self.m_turn_phase = "ready"
+        self.m_armed_prompts.clear()
+        self.m_nested_scope_depth = 0
+        self._clear_blocked()
+
+    def _apply_kimi_maintenance_started(self, observation: HookObservation) -> None:
+        """Open a compaction window and hold the current posture across it."""
+
+        self.m_presence = "present"
+        if not self.m_maintenance_active:
+            self.m_pre_maintenance_phase = self.m_turn_phase
+            self.m_maintenance_active = True
+            self.m_compaction_boundaries += 1
+            self._diagnose(
+                "hook_compaction_boundary",
+                observation,
+                detail=observation.maintenance_trigger,
+            )
+        if self.m_turn_phase == "unknown":
+            self.m_turn_phase = "ready"
+
+    def _apply_kimi_maintenance_ended(self, observation: HookObservation) -> None:
+        """Close the compaction window without minting a turn epoch."""
+
+        del observation
+        self.m_maintenance_active = False
+        if self.m_turn_phase == "unknown":
+            self.m_turn_phase = self.m_pre_maintenance_phase or "ready"
+        self.m_pre_maintenance_phase = None
+
+    def _apply_kimi_session_heartbeat(self, observation: HookObservation) -> None:
+        """Record liveness evidence; the heartbeat never shapes turn posture."""
+
+        del observation
+        self.m_presence = "present"
+        self.m_heartbeats += 1
+
+    def _apply_kimi_subagent_started(self, observation: HookObservation) -> None:
+        """Open a nested subagent scope under the parent turn."""
+
+        self.m_presence = "present"
+        self.m_subagent_starts += 1
+        self.m_nested_scope_depth += 1
+        self._diagnose(
+            "hook_nested_scope_opened",
+            observation,
+            detail=observation.agent_name or "subagent",
+        )
+
+    def _apply_kimi_subagent_stopped(self, observation: HookObservation) -> None:
+        """Close the nested subagent scope; the parent turn stays open."""
+
+        self.m_presence = "present"
+        self.m_subagent_stops += 1
+        if self.m_nested_scope_depth > 0:
+            self.m_nested_scope_depth -= 1
+            detail = observation.agent_name or "subagent"
+        else:
+            detail = "unmatched"
+        self._diagnose("hook_nested_scope_closed", observation, detail=detail)
+
+    def _apply_kimi_session_ended(self, observation: HookObservation) -> None:
+        """Lose presence; an open turn becomes a truthful terminal gap."""
+
+        self.m_presence = "lost"
+        if self._kimi_epoch_open():
+            self.m_terminal_gaps += 1
+            self._diagnose(
+                "hook_session_end_with_open_turn",
+                observation,
+                detail=self.m_turn_id or ("pending" if self.m_pending_epoch else None),
+            )
+            self.m_turn_phase = "unknown"
+            self.m_turn_id = None
+            self.m_pending_epoch = False
+            self.m_armed_prompts.clear()
+            self.m_nested_scope_depth = 0
+            self._clear_blocked()
+            self._clear_terminal()
+        self.m_maintenance_active = False
+        self.m_pre_maintenance_phase = None
+
+    def _finish_kimi(
+        self,
+        *,
+        reason: str,
+        headless: bool,
+        process_returncode: int | None,
+    ) -> HookPosture:
+        """Apply the Kimi stream-end terminal fallbacks."""
+
+        if self.m_finished:
+            return self.posture
+        self.m_finished = True
+        if self._kimi_epoch_open():
+            self.m_terminal_gaps += 1
+            self._diagnose_at(
+                "hook_terminal_gap",
+                event_name=self.m_last_event_name or "<stream>",
+                received_at_utc=self.m_last_event_at_utc or "",
+                detail=f"{reason}:open_turn",
+            )
+            if self.m_heartbeats == 0:
+                self._diagnose_at(
+                    "hook_heartbeat_liveness_unavailable",
+                    event_name=self.m_last_event_name or "<stream>",
+                    received_at_utc=self.m_last_event_at_utc or "",
+                    detail="no heartbeat before the gap",
+                )
+            self.m_presence = "lost" if self.m_presence == "present" else self.m_presence
+            self.m_turn_phase = "unknown"
+            self.m_turn_id = None
+            self.m_pending_epoch = False
+            self.m_armed_prompts.clear()
+            self.m_nested_scope_depth = 0
+            self._clear_blocked()
+            self._clear_terminal()
+        elif self.m_presence == "present":
+            if headless and process_returncode == 0:
+                self.m_presence = "lost"
+                self._diagnose_at(
+                    "hook_headless_session_end_gap",
+                    event_name=self.m_last_event_name or "<stream>",
+                    received_at_utc=self.m_last_event_at_utc or "",
+                    detail="clean process exit, no SessionEnd",
+                )
+            else:
+                self.m_presence = "unknown"
+        for family in KIMI_SILENT_FLOOR_FAMILIES:
+            if family in self.m_seen_event_names:
+                continue
+            self._diagnose_at(
+                "hook_unavailable_event_family",
+                event_name=family,
+                received_at_utc=self.m_last_event_at_utc or "",
+                detail="not dispatched at the supported floor",
+            )
+        return self.posture
+
+    def _kimi_epoch_open(self) -> bool:
+        """Return whether an armed or bound Kimi turn epoch is open."""
+
+        return (
+            self.m_pending_epoch
+            or self.m_turn_id is not None
+            or self.m_turn_phase in ("active", "blocked")
+        )
+
+    def _kimi_arm_epoch(self, observation: HookObservation) -> None:
+        """Arm a new epoch; the following TurnStarted binds its turn_id."""
+
+        self.m_turn_id = None
+        self.m_pending_epoch = True
+        self.m_turn_phase = "active"
+        self._clear_blocked()
+        self._clear_terminal()
+        self.m_armed_prompts.clear()
+        self.m_armed_prompts.append(
+            HookArmedPrompt(
+                prompt_id=observation.prompt_id,
+                provider_initiated=observation.provider_initiated,
+                sequence=observation.sequence,
+                armed_at_utc=observation.received_at_utc,
+            )
+        )
+        self.m_work = "unknown"
+        self.m_turn_epochs += 1
+
+    def _kimi_bind_turn_id(self, observation: HookObservation) -> None:
+        """Bind the armed epoch to the provider's turn identifier."""
+
+        self.m_turn_id = observation.turn_id
+        self.m_pending_epoch = False
+        if not self.m_armed_prompts:
+            self.m_armed_prompts.append(
+                HookArmedPrompt(
+                    prompt_id=observation.prompt_id,
+                    provider_initiated=observation.provider_initiated,
+                    sequence=observation.sequence,
+                    armed_at_utc=observation.received_at_utc,
+                )
+            )
+        if self.m_turn_phase == "unknown":
+            self.m_turn_phase = "active"
+
     def _count_unknown(self, observation: HookObservation) -> None:
         """Count one unknown or malformed observation without posture changes."""
 
@@ -696,6 +1219,7 @@ class HookPostureReducer:
         self.m_terminal_consumed_prompt_id = None
         self.m_terminal_stop_hook_active = None
         self.m_terminal_message_present = None
+        self.m_terminal_source = None
 
     def _seen_sequence(self, *, generation: int, sequence: int) -> bool:
         """Return whether a sequence was already consumed, recording new keys."""
@@ -759,6 +1283,7 @@ class HookPostureReducer:
         self.m_terminal_consumed_prompt_id = None
         self.m_terminal_stop_hook_active = None
         self.m_terminal_message_present = None
+        self.m_terminal_source = None
         self.m_blocked = False
         self.m_blocked_tool_name = None
         self.m_blocked_tool_use_id = None
@@ -766,6 +1291,8 @@ class HookPostureReducer:
         self.m_pre_maintenance_phase = None
         self.m_turn_id = None
         self.m_turn_phase = "unknown"
+        self.m_pending_epoch = False
+        self.m_nested_scope_depth = 0
         self.m_work = "unknown"
         self.m_last_activity_is_interrupt = None
         self.m_recent_terminals.clear()

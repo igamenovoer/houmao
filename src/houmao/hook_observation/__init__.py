@@ -1,7 +1,7 @@
 """Provider-neutral CLI hook observation channel primitives.
 
-This package owns the raw event envelope and session store, the Claude and
-Codex event normalizers, and the pure hook-posture reducer. Collector
+This package owns the raw event envelope and session store, the Claude,
+Codex, and Kimi event normalizers, and the pure hook-posture reducer. Collector
 transport, the command emitter, and observer settings generation are separate
 modules in the same package.
 """
@@ -9,6 +9,11 @@ modules in the same package.
 from houmao.hook_observation.codex_normalizer import (
     CodexEventNormalizer,
     CodexNormalizerSummary,
+)
+from houmao.hook_observation.kimi_hooks_generator import KIMI_EVENTS
+from houmao.hook_observation.kimi_normalizer import (
+    KimiEventNormalizer,
+    KimiNormalizerSummary,
 )
 from houmao.hook_observation.models import (
     HookAdapter,
@@ -33,10 +38,13 @@ from houmao.hook_observation.store import (
 
 
 __all__ = [
+    "KIMI_EVENTS",
     "MAX_PROVIDER_EVENT_BYTES",
     "CodexEventNormalizer",
     "CodexNormalizerSummary",
     "HookAdapter",
+    "KimiEventNormalizer",
+    "KimiNormalizerSummary",
     "HookEventEnvelope",
     "HookObservation",
     "HookObservationStore",
