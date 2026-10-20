@@ -33,9 +33,9 @@
 
 ## 6. Recorded Replay and Live Qualification
 
-- [ ] 6.1 Recorded validation: `pixi run test`, `pixi run lint`, and `pixi run typecheck` green, including the 3.3 fixture replays
-- [ ] 6.2 Live smoke (`tests/manual/manual_kimi_hook_observation_smoke.py`, mirroring the codex smoke, secret-free): managed-launch multi-turn success, Esc interrupt, compaction, kill-gap; verify tracked state, channel health, and secret-free public projection for each. The kimi auth bundle `tests/fixtures/auth-bundles/kimi/personal-a-default/` is host-local and absent on some machines — gate on its presence (preflight-fail with a clear message, per the bundle README) or support the campaign's seeded-scratch-home lane; a machine without either credential source records a named gap
-- [ ] 6.3 Floor repeat of the multi-turn smoke at the lowest supported kimi version from `kimi.yaml` (side-by-side install), or a named gap if the floor cannot be installed
+- [x] 6.1 Recorded validation: `pixi run test`, `pixi run lint`, and `pixi run typecheck` green, including the 3.3 fixture replays
+- [x] 6.2 Live smoke (`tests/manual/manual_kimi_hook_observation_smoke.py`, mirroring the codex smoke, secret-free): managed-launch multi-turn success, Esc interrupt, compaction, kill-gap; verify tracked state, channel health, and secret-free public projection for each. The kimi auth bundle `tests/fixtures/auth-bundles/kimi/personal-a-default/` is host-local and absent on some machines — gate on its presence (preflight-fail with a clear message, per the bundle README) or support the campaign's seeded-scratch-home lane; a machine without either credential source records a named gap
+- [x] 6.3 Floor repeat of the multi-turn smoke at the lowest supported kimi version from `kimi.yaml` (side-by-side install), or a named gap if the floor cannot be installed
 
 ## 7. Documentation
 
