@@ -27,9 +27,9 @@
 
 ## 5. Tracker Merge
 
-- [ ] 5.1 Extend `server/tui/tracking.py` merge for the Kimi adapter: `_HOOK_ADAPTER_BY_TOOL["kimi"]`, hook-derived `interrupted` for Kimi sessions only (Claude stays TUI-derived), blocked enter/settle per the Kimi rules (settle at `PermissionResult`), compaction-window suppression of TUI idle heuristics, terminal-gap publication; decide each existing codex-only branch for kimi per the design (liveness-lost, TUI interrupt evidence, terminal-gap reason, maintenance hold, `tui_interrupt_authority`)
-- [ ] 5.2 Unit tests over the merged tracker: Kimi Esc interrupt, permission allow/deny windows, compaction continuity, kill-gap, queue/steer, resume generation, plus a Claude regression proving interrupted stays TUI-derived there and a Codex regression proving deny still aborts there
-- [ ] 5.3 Confirm gateway prompt admission treats Kimi `blocked` correctly with no admission-policy change (test only; the policies are already generic)
+- [x] 5.1 Extend `server/tui/tracking.py` merge for the Kimi adapter: `_HOOK_ADAPTER_BY_TOOL["kimi"]`, hook-derived `interrupted` for Kimi sessions only (Claude stays TUI-derived), blocked enter/settle per the Kimi rules (settle at `PermissionResult`), compaction-window suppression of TUI idle heuristics, terminal-gap publication; decide each existing codex-only branch for kimi per the design (liveness-lost, TUI interrupt evidence, terminal-gap reason, maintenance hold, `tui_interrupt_authority`)
+- [x] 5.2 Unit tests over the merged tracker: Kimi Esc interrupt, permission allow/deny windows, compaction continuity, kill-gap, queue/steer, resume generation, plus a Claude regression proving interrupted stays TUI-derived there and a Codex regression proving deny still aborts there
+- [x] 5.3 Confirm gateway prompt admission treats Kimi `blocked` correctly with no admission-policy change (test only; the policies are already generic)
 
 ## 6. Recorded Replay and Live Qualification
 

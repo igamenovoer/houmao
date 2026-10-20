@@ -127,6 +127,7 @@ HOOK_CONFLICT_REASON_LIMIT = 8
 _HOOK_ADAPTER_BY_TOOL: dict[str, HookAdapter] = {
     "claude": "claude",
     "codex": "codex",
+    "kimi": "kimi",
 }
 
 
@@ -1255,10 +1256,11 @@ class LiveSessionTracker:
     ) -> None:
         """Read and fold new hook observations at one poll-cycle boundary.
 
-        For the Codex adapter, provider liveness loss with no further stream
-        records closes the stream through the reducer's terminal-gap fallback.
-        The collector must still be healthy: a stopped collector is channel
-        degradation, not provider evidence (state-transitions section 4).
+        For the Codex and Kimi adapters, provider liveness loss with no
+        further stream records closes the stream through the reducer's
+        terminal-gap fallback. The collector must still be healthy: a stopped
+        collector is channel degradation, not provider evidence
+        (state-transitions section 4).
         """
 
         channel = self.m_hook_channel
@@ -1289,7 +1291,7 @@ class LiveSessionTracker:
         if self.m_hook_posture is None:
             self.m_hook_posture = channel.reducer.posture
         if (
-            self.m_hook_adapter == "codex"
+            self.m_hook_adapter in ("codex", "kimi")
             and provider_liveness_lost
             and not cycle.observations
             and cycle.health.state == "active"
@@ -1462,11 +1464,13 @@ class LiveSessionTracker:
         """Record TUI modal-dismissal evidence for the hook blocked exit.
 
         Codex blocked settles only on the paired ``PostToolUse`` or
-        ``Interrupt`` hook events, so TUI evidence contributes nothing there.
+        ``Interrupt`` hook events, and Kimi blocked settles only at
+        ``PermissionResult``, so TUI evidence contributes nothing for either
+        adapter. Claude keeps the provider-neutral modal-dismissal exit.
         """
 
         del observed_at_utc
-        if self.m_hook_adapter == "codex":
+        if self.m_hook_adapter in ("codex", "kimi"):
             return
         modal_dismissed = False
         if parsed_surface is not None:
@@ -1529,6 +1533,18 @@ class LiveSessionTracker:
         self.m_hook_tui_interrupt_applied_epoch = None
         self.m_hook_maintenance_epoch = None
 
+    def _tui_interrupt_authority(self) -> bool:
+        """Return whether TUI interrupt evidence may settle a hook outcome.
+
+        Claude has no provider interrupt hook event, so its temporal TUI
+        interrupt evidence remains authoritative for the latched turn. Codex
+        and Kimi ``Interrupt`` are hook events that settle ``interrupted``
+        themselves; no TUI heuristic may rewrite their latched outcome
+        (state-transitions section 3).
+        """
+
+        return self.m_hook_adapter not in ("codex", "kimi")
+
     def _note_tui_last_turn_transition_locked(
         self,
         *,
@@ -1542,7 +1558,7 @@ class LiveSessionTracker:
         if result == self.m_hook_previous_tui_last_turn_result:
             return
         self.m_hook_previous_tui_last_turn_result = result
-        if result == "interrupted" and self.m_hook_adapter != "codex":
+        if result == "interrupted" and self._tui_interrupt_authority():
             epoch = self._current_hook_turn_epoch_locked()
             armed_epoch = self.m_hook_armed_epochs[0] if self.m_hook_armed_epochs else None
             latch_epoch = self.m_hook_latch.epoch if self.m_hook_latch is not None else None
@@ -1585,8 +1601,8 @@ class LiveSessionTracker:
         A maintenance window holds an armed turn active but makes no lifecycle
         claim when no prompt is armed; TUI surface facts govern admission during
         operator-invoked compaction (state-transitions section 3, rules 7-8).
-        A Codex terminal gap publishes truthful presence loss: the turn is
-        unknown and no TUI observation may turn it into a success.
+        A Codex or Kimi terminal gap publishes truthful presence loss: the turn
+        is unknown and no TUI observation may turn it into a success.
         """
 
         channel = self.m_hook_channel
@@ -1597,7 +1613,7 @@ class LiveSessionTracker:
         health = self.m_hook_health if self.m_hook_health is not None else channel.health.snapshot()
         reasons: list[str] = list(self.m_hook_cycle_reasons)
         if (
-            adapter == "codex"
+            adapter in ("codex", "kimi")
             and posture.presence == "lost"
             and posture.turn_phase == "unknown"
             and posture.counters.terminal_gaps > 0
@@ -1654,7 +1670,9 @@ class LiveSessionTracker:
 
         blocked = posture.blocked and not self._hook_blocked_cleared(posture)
         armed_turn = posture.armed_prompt_count > 0
-        holds_lifecycle = armed_turn or (adapter == "codex" and posture.maintenance_active)
+        holds_lifecycle = armed_turn or (
+            adapter in ("codex", "kimi") and posture.maintenance_active
+        )
         if blocked:
             turn_phase: TurnPhase = "blocked"
         elif armed_turn:
@@ -1703,13 +1721,14 @@ class LiveSessionTracker:
         """Apply hook terminal authority to the tracked last-turn record.
 
         Claude keeps the provider-neutral carve-out where temporal TUI
-        interrupt evidence may override a hook success. Codex `Interrupt` is a
-        hook event, so a latched Codex outcome is final for its epoch and no
-        TUI heuristic may rewrite it (state-transitions section 3).
+        interrupt evidence may override a hook success. Codex and Kimi
+        ``Interrupt`` are hook events, so a latched outcome for either adapter
+        is final for its epoch and no TUI heuristic may rewrite it
+        (state-transitions section 3).
         """
 
         reasons: list[str] = []
-        tui_interrupt_authority = self.m_hook_adapter != "codex"
+        tui_interrupt_authority = self._tui_interrupt_authority()
         tui_last_turn = _build_tracker_last_turn(
             previous=previous,
             tracker_state=tracker_state,
