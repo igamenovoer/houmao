@@ -34,8 +34,8 @@
 ## 6. Recorded Replay and Live Qualification
 
 - [x] 6.1 Recorded validation: `pixi run test` and `pixi run typecheck` green, including the 3.3 fixture replays
-- [ ] 6.2 Live smoke (opt-in flag, codex-openlux-auto lane, frozen short prompts): multi-turn success, permission-lane allow/deny with `blocked` visible on tracked state, Esc interrupt, compaction, kill-gap; verify tracked state, channel health, and secret-free public projection for each
-- [ ] 6.3 Floor repeat of the multi-turn smoke at the lowest supported Codex version from `codex.yaml` (side-by-side install), or a named gap if the floor cannot be installed
+- [x] 6.2 Live smoke (opt-in flag, codex-openlux-auto lane, frozen short prompts): multi-turn success, permission-lane allow/deny with `blocked` visible on tracked state, Esc interrupt, compaction, kill-gap; verify tracked state, channel health, and secret-free public projection for each
+- [x] 6.3 Floor repeat of the multi-turn smoke at the lowest supported Codex version from `codex.yaml` (side-by-side install), or a named gap if the floor cannot be installed
 
 ## 7. Documentation
 
