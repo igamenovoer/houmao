@@ -7,16 +7,16 @@
 
 ## 2. Install and Gating Extension
 
-- [ ] 2.1 Extend `install.py` for the Kimi adapter: `HOUMAO_HOOK_OBSERVATION_KIMI` env flag, `("kimi", "local_interactive")` in `HOOK_OBSERVATION_PAIRS`, `kimi` entry in `ADAPTER_DIRNAMES` (`store.py`), keeping Claude and Codex behavior byte-identical
-- [ ] 2.2 Add the Kimi install path: merge + strict-validate the observer block into the launch-owned runtime home's `config.toml` via `kimi_hooks_generator.py`, degrade to `unavailable` on any validation or write failure without failing the launch, remove the block on channel cleanup
-- [ ] 2.3 Unit tests for Kimi enablement gating, block install/merge/removal, validation-failure degradation, and cleanup (existing Claude and Codex install tests must keep passing unmodified)
+- [x] 2.1 Extend `install.py` for the Kimi adapter: `HOUMAO_HOOK_OBSERVATION_KIMI` env flag, `("kimi", "local_interactive")` in `HOOK_OBSERVATION_PAIRS`, `kimi` entry in `ADAPTER_DIRNAMES` (`store.py`), keeping Claude and Codex behavior byte-identical
+- [x] 2.2 Add the Kimi install path: merge + strict-validate the observer block into the launch-owned runtime home's `config.toml` via `kimi_hooks_generator.py`, degrade to `unavailable` on any validation or write failure without failing the launch, remove the block on channel cleanup
+- [x] 2.3 Unit tests for Kimi enablement gating, block install/merge/removal, validation-failure degradation, and cleanup (existing Claude and Codex install tests must keep passing unmodified)
 
 ## 3. Kimi Normalizer and Reducer Rules
 
 - [x] 3.1 Add `kimi_normalizer.py`: PascalCase event mapping to the provider-neutral model, ContentPart[] `prompt` collapse to joined text (raw shape in diagnostics), two-phase arm/bind turn correlation (`UserPromptSubmit` arms, `TurnStarted` binds the integer session-scoped `turn_id`), ordering-based attribution for tool events and `Stop` (no `turn_id` on them), `tool_call_id` tool pairing, `UserPromptQueued` queue evidence without a second prompt-submit, subagent nested scopes (`SubagentStart`/`SubagentStop`, nested `TurnStarted`), `SessionHeartbeat` as liveness evidence, unknown/silent families tolerated and counted
 - [x] 3.2 Extend `reducer.py` with Kimi posture rules per `design/state-transitions.md`: `Stop` success latch (defensive `stop_hook_active` continuation), `Interrupt(reason=cancelled)` interrupted settlement, blocked enter at `PermissionRequest` and settle at `PermissionResult` for both decisions (deny → non-terminal `PostToolUseFailure`, turn continues to `Stop`), compaction window hold + fresh post-compact epoch (no `SessionStart(source=compact)`), terminal-gap and `SessionEnd`-with-open-turn truthful unknown, `headless_session_end_gap` diagnostic, generation/resume reset with continuing `turn_id` counter
 - [x] 3.3 Extend `reader.py` normalizer selection for adapter `kimi`, and commit sanitized hermetic fixtures derived from the campaign streams (S0, S1, S3, S4, S5, S6, S7, F1, D1) replayed in unit tests against expected timelines, mirroring the campaign's `replay_reduce.py` expectations
-- [ ] 3.4 Unit tests mirroring the Codex adapter's suites: `test_kimi_hooks_generator.py`, `test_kimi_normalizer.py`, `test_kimi_reducer.py`, kimi fixtures, plus kimi cases in `test_install.py`/`test_reader.py`/`test_store.py`
+- [x] 3.4 Unit tests mirroring the Codex adapter's suites: `test_kimi_hooks_generator.py`, `test_kimi_normalizer.py`, `test_kimi_reducer.py`, kimi fixtures, plus kimi cases in `test_install.py`/`test_reader.py`/`test_store.py`
 
 ## 4. Launch Integration
 

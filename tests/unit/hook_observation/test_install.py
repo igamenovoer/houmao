@@ -23,6 +23,8 @@ from houmao.hook_observation.install import (
     CODEX_PRETRUST_END_MARKER,
     HOOK_OBSERVATION_CLAUDE_ENV_FLAG,
     HOOK_OBSERVATION_CODEX_ENV_FLAG,
+    HOOK_OBSERVATION_KIMI_ENV_FLAG,
+    KIMI_CONFIG_FILENAME,
     ObserverSettingsError,
     allocate_next_generation,
     claude_hook_artifact_dir,
@@ -31,13 +33,21 @@ from houmao.hook_observation.install import (
     hook_observation_applies,
     hook_observation_enabled,
     install_codex_observer_configuration,
+    install_kimi_observer_configuration,
+    kimi_hook_artifact_dir,
     merge_codex_pretrust_block,
     read_channel_generation,
     remove_codex_observer_configuration,
+    remove_kimi_observer_configuration,
     render_codex_pretrust_block,
     strip_codex_pretrust_block,
     write_channel_install_status,
     write_launch_wrapper,
+)
+from houmao.hook_observation.kimi_hooks_generator import (
+    KIMI_EVENTS,
+    KimiHookConfigError,
+    validate_hooks_file,
 )
 from houmao.hook_observation.trust_hash import hook_hash, hook_state_key, iter_handlers
 
@@ -47,6 +57,14 @@ PYTHON = "/usr/bin/python3"
 EMITTER_COMMAND = f"{PYTHON} {EMITTER}"
 USER_STATE_KEY = "/opt/operator/hooks.json:stop:0:0"
 USER_CONFIG = f'model = "gpt-5"\n\n[hooks.state."{USER_STATE_KEY}"]\ntrusted_hash = "sha256:user"\n'
+KIMI_USER_CONFIG = (
+    'default_model = "managed:kimi-code/kimi-k2.5"\n'
+    'default_permission_mode = "auto"\n'
+    '\n[models."kimi-k2.5"]\n'
+    'provider = "managed"\n'
+    'model = "kimi-k2.5"\n'
+)
+KIMI_USER_HOOK = '\n[[hooks]]\nevent = "Notification"\ncommand = "notify-send kimi"\ntimeout = 10\n'
 
 
 def _document(emitter_command: str = EMITTER_COMMAND) -> dict[str, Any]:
@@ -97,6 +115,11 @@ def test_enablement_flags_are_per_tool() -> None:
         hook_observation_enabled({HOOK_OBSERVATION_CODEX_ENV_FLAG: "true"}, tool="codex") is False
     )
     assert hook_observation_enabled({HOOK_OBSERVATION_CODEX_ENV_FLAG: "1"}, tool="kimi") is False
+    assert hook_observation_enabled({HOOK_OBSERVATION_KIMI_ENV_FLAG: "1"}, tool="kimi") is True
+    assert hook_observation_enabled({HOOK_OBSERVATION_KIMI_ENV_FLAG: "1"}) is False
+    assert hook_observation_enabled({HOOK_OBSERVATION_KIMI_ENV_FLAG: "1"}, tool="codex") is False
+    assert hook_observation_enabled({HOOK_OBSERVATION_CLAUDE_ENV_FLAG: "1"}, tool="kimi") is False
+    assert hook_observation_enabled({HOOK_OBSERVATION_KIMI_ENV_FLAG: "true"}, tool="kimi") is False
 
 
 @pytest.mark.parametrize(
@@ -104,9 +127,10 @@ def test_enablement_flags_are_per_tool() -> None:
     [
         ("claude", "local_interactive", True),
         ("codex", "local_interactive", True),
+        ("kimi", "local_interactive", True),
         ("claude", "claude_headless", False),
         ("codex", "codex_headless", False),
-        ("kimi", "local_interactive", False),
+        ("kimi", "kimi_headless", False),
     ],
 )
 def test_applicability_covers_supported_tool_backend_pairs(
@@ -120,9 +144,11 @@ def test_applicability_covers_supported_tool_backend_pairs(
 def test_artifact_dirs_are_per_adapter(tmp_path: Path) -> None:
     assert claude_hook_artifact_dir(tmp_path) == tmp_path / "hook-observation" / "claude"
     assert codex_hook_artifact_dir(tmp_path) == tmp_path / "hook-observation" / "codex"
+    assert kimi_hook_artifact_dir(tmp_path) == tmp_path / "hook-observation" / "kimi"
     assert hook_artifact_dir(tmp_path, tool="codex") == codex_hook_artifact_dir(tmp_path)
+    assert hook_artifact_dir(tmp_path, tool="kimi") == kimi_hook_artifact_dir(tmp_path)
     with pytest.raises(ValueError):
-        hook_artifact_dir(tmp_path, tool="kimi")
+        hook_artifact_dir(tmp_path, tool="gemini")
 
 
 def test_generation_counters_are_per_adapter(tmp_path: Path) -> None:
@@ -612,3 +638,279 @@ def test_remove_tolerates_missing_home_and_malformed_config(tmp_path: Path) -> N
     config_path.write_text("model = [\n", encoding="utf-8")
     remove_codex_observer_configuration(home_path=home)
     assert config_path.read_text(encoding="utf-8") == "model = [\n"
+
+
+def _kimi_home(tmp_path: Path) -> Path:
+    home = tmp_path / "kimi-home"
+    home.mkdir()
+    return home
+
+
+def _kimi_observer_entries(
+    config_text: str,
+    emitter_command: str = EMITTER_COMMAND,
+) -> list[dict[str, Any]]:
+    hooks = tomllib.loads(config_text)["hooks"]
+    return [entry for entry in hooks if entry["command"] == emitter_command]
+
+
+def test_kimi_install_writes_a_validated_block_alongside_operator_config(
+    tmp_path: Path,
+) -> None:
+    home = _kimi_home(tmp_path)
+    config_path = home / KIMI_CONFIG_FILENAME
+    config_path.write_text(KIMI_USER_CONFIG + KIMI_USER_HOOK, encoding="utf-8")
+    original_mode = stat.S_IMODE(config_path.stat().st_mode)
+
+    result = install_kimi_observer_configuration(
+        home_path=home,
+        generation=3,
+        emitter=EMITTER,
+        python_executable=PYTHON,
+    )
+
+    assert result.install_path == "managed_home"
+    assert result.generation == 3
+    assert result.config_path == config_path
+    assert result.detail is None
+
+    config_text = config_path.read_text(encoding="utf-8")
+    assert config_text.startswith(KIMI_USER_CONFIG + KIMI_USER_HOOK)
+    assert config_text.count("[[hooks]]") == len(KIMI_EVENTS) + 1
+    assert "generation 3" in config_text
+    document = tomllib.loads(config_text)
+    assert document["default_model"] == "managed:kimi-code/kimi-k2.5"
+    assert document["models"]["kimi-k2.5"]["provider"] == "managed"
+
+    observer = _kimi_observer_entries(config_text)
+    assert [entry["event"] for entry in observer] == list(KIMI_EVENTS)
+    for entry in observer:
+        assert set(entry) == {"event", "command", "timeout"}
+        assert entry["timeout"] == 5
+    operator = [entry for entry in document["hooks"] if entry["command"] == "notify-send kimi"]
+    assert operator == [{"event": "Notification", "command": "notify-send kimi", "timeout": 10}]
+
+    report = validate_hooks_file(config_path)
+    assert report.entry_count == len(KIMI_EVENTS) + 1
+    assert stat.S_IMODE(config_path.stat().st_mode) == original_mode
+
+
+def test_kimi_install_accepts_a_fully_rendered_emitter_command(tmp_path: Path) -> None:
+    home = _kimi_home(tmp_path)
+    command = (
+        f"{PYTHON} {EMITTER} --collector-url http://127.0.0.1:4321/v1/hook "
+        f"--store {tmp_path / 'store'} --generation 3"
+    )
+
+    result = install_kimi_observer_configuration(
+        home_path=home,
+        generation=3,
+        emitter_command=command,
+    )
+
+    assert result.install_path == "managed_home"
+    config_text = (home / KIMI_CONFIG_FILENAME).read_text(encoding="utf-8")
+    assert len(_kimi_observer_entries(config_text, emitter_command=command)) == len(KIMI_EVENTS)
+
+
+def test_kimi_install_degrades_on_an_unvalidatable_operator_hook(tmp_path: Path) -> None:
+    home = _kimi_home(tmp_path)
+    config_path = home / KIMI_CONFIG_FILENAME
+    original = (
+        KIMI_USER_CONFIG
+        + '\n[[hooks]]\nevent = "Stop"\ncommand = "operator-hook"\ntimeout = 5\n'
+        + 'unsupported = "key"\n'
+    )
+    config_path.write_text(original, encoding="utf-8")
+
+    result = install_kimi_observer_configuration(
+        home_path=home,
+        generation=1,
+        emitter=EMITTER,
+        python_executable=PYTHON,
+    )
+
+    assert result.install_path == "unavailable"
+    assert result.config_path is None
+    assert "unsupported key" in (result.detail or "")
+    assert config_path.read_text(encoding="utf-8") == original
+
+
+def test_kimi_install_degrades_on_malformed_config(tmp_path: Path) -> None:
+    home = _kimi_home(tmp_path)
+    config_path = home / KIMI_CONFIG_FILENAME
+    config_path.write_text("default_model = [\n", encoding="utf-8")
+
+    result = install_kimi_observer_configuration(
+        home_path=home,
+        generation=1,
+        emitter=EMITTER,
+        python_executable=PYTHON,
+    )
+
+    assert result.install_path == "unavailable"
+    assert result.config_path is None
+    assert "TOML" in (result.detail or "")
+    assert config_path.read_text(encoding="utf-8") == "default_model = [\n"
+
+
+def test_kimi_install_degrades_on_symlinked_config(tmp_path: Path) -> None:
+    home = _kimi_home(tmp_path)
+    target = tmp_path / "operator-config.toml"
+    target.write_text(KIMI_USER_CONFIG, encoding="utf-8")
+    (home / KIMI_CONFIG_FILENAME).symlink_to(target)
+
+    result = install_kimi_observer_configuration(
+        home_path=home,
+        generation=1,
+        emitter=EMITTER,
+        python_executable=PYTHON,
+    )
+
+    assert result.install_path == "unavailable"
+    assert "symlink" in (result.detail or "")
+    assert target.read_text(encoding="utf-8") == KIMI_USER_CONFIG
+
+
+def test_kimi_install_degrades_when_the_runtime_home_is_missing(tmp_path: Path) -> None:
+    result = install_kimi_observer_configuration(
+        home_path=tmp_path / "missing-home",
+        generation=1,
+        emitter=EMITTER,
+        python_executable=PYTHON,
+    )
+
+    assert result.install_path == "unavailable"
+    assert "missing" in (result.detail or "")
+
+
+def test_kimi_install_restores_config_after_a_failed_read_back(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = _kimi_home(tmp_path)
+    config_path = home / KIMI_CONFIG_FILENAME
+    config_path.write_text(KIMI_USER_CONFIG, encoding="utf-8")
+
+    def _fail_read_back(path: Path, **kwargs: object) -> None:
+        del path, kwargs
+        raise KimiHookConfigError("simulated read-back failure")
+
+    monkeypatch.setattr(
+        "houmao.hook_observation.kimi_hooks_generator.validate_hooks_file",
+        _fail_read_back,
+    )
+
+    result = install_kimi_observer_configuration(
+        home_path=home,
+        generation=1,
+        emitter=EMITTER,
+        python_executable=PYTHON,
+    )
+
+    assert result.install_path == "unavailable"
+    assert "simulated read-back failure" in (result.detail or "")
+    assert config_path.read_text(encoding="utf-8") == KIMI_USER_CONFIG
+
+
+def test_kimi_install_degrades_on_a_write_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = _kimi_home(tmp_path)
+    config_path = home / KIMI_CONFIG_FILENAME
+    config_path.write_text(KIMI_USER_CONFIG, encoding="utf-8")
+
+    def _fail_write(path: Path, text: str, *, mode: int) -> None:
+        del path, text, mode
+        raise OSError("simulated write failure")
+
+    monkeypatch.setattr(
+        "houmao.hook_observation.install._write_text_atomic",
+        _fail_write,
+    )
+
+    result = install_kimi_observer_configuration(
+        home_path=home,
+        generation=1,
+        emitter=EMITTER,
+        python_executable=PYTHON,
+    )
+
+    assert result.install_path == "unavailable"
+    assert "simulated write failure" in (result.detail or "")
+    assert config_path.read_text(encoding="utf-8") == KIMI_USER_CONFIG
+
+
+def test_kimi_install_rewrites_the_block_per_generation_and_is_idempotent(
+    tmp_path: Path,
+) -> None:
+    home = _kimi_home(tmp_path)
+    config_path = home / KIMI_CONFIG_FILENAME
+    config_path.write_text(KIMI_USER_CONFIG, encoding="utf-8")
+
+    first = install_kimi_observer_configuration(
+        home_path=home,
+        generation=1,
+        emitter=STALE_EMITTER,
+        python_executable=PYTHON,
+    )
+    assert first.install_path == "managed_home"
+    first_text = config_path.read_text(encoding="utf-8")
+    assert str(STALE_EMITTER) in first_text
+    assert "generation 1" in first_text
+
+    second = install_kimi_observer_configuration(
+        home_path=home,
+        generation=2,
+        emitter=EMITTER,
+        python_executable=PYTHON,
+    )
+    assert second.install_path == "managed_home"
+    second_text = config_path.read_text(encoding="utf-8")
+    assert second_text != first_text
+    assert second_text.count("# >>> houmao kimi hook observation") == 1
+    assert "generation 2" in second_text
+    assert str(STALE_EMITTER) not in second_text
+    assert second_text.startswith(KIMI_USER_CONFIG)
+    assert [entry["event"] for entry in _kimi_observer_entries(second_text)] == list(KIMI_EVENTS)
+
+    repeated = install_kimi_observer_configuration(
+        home_path=home,
+        generation=2,
+        emitter=EMITTER,
+        python_executable=PYTHON,
+    )
+    assert repeated.install_path == "managed_home"
+    assert config_path.read_text(encoding="utf-8") == second_text
+
+
+def test_kimi_remove_restores_operator_config_bytes(tmp_path: Path) -> None:
+    home = _kimi_home(tmp_path)
+    config_path = home / KIMI_CONFIG_FILENAME
+    original = KIMI_USER_CONFIG + KIMI_USER_HOOK
+    config_path.write_text(original, encoding="utf-8")
+    installed = install_kimi_observer_configuration(
+        home_path=home,
+        generation=1,
+        emitter=EMITTER,
+        python_executable=PYTHON,
+    )
+    assert installed.install_path == "managed_home"
+    assert "# >>> houmao kimi hook observation" in config_path.read_text(encoding="utf-8")
+
+    remove_kimi_observer_configuration(home_path=home)
+
+    assert config_path.read_text(encoding="utf-8") == original
+    hooks = tomllib.loads(original)["hooks"]
+    assert hooks == [{"event": "Notification", "command": "notify-send kimi", "timeout": 10}]
+
+
+def test_kimi_remove_tolerates_missing_home_and_malformed_config(tmp_path: Path) -> None:
+    remove_kimi_observer_configuration(home_path=tmp_path / "missing-home")
+
+    home = _kimi_home(tmp_path)
+    config_path = home / KIMI_CONFIG_FILENAME
+    config_path.write_text("default_model = [\n", encoding="utf-8")
+    remove_kimi_observer_configuration(home_path=home)
+    assert config_path.read_text(encoding="utf-8") == "default_model = [\n"

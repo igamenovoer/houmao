@@ -14,12 +14,20 @@ into that home's ``config.toml``. The marker block is rewritten once per
 generation and removed on cleanup; every other line of ``config.toml``,
 including operator-owned ``[hooks.state]`` entries, is preserved byte-for-byte.
 
+The Kimi injection path merges a marker-delimited ``[[hooks]]`` block into the
+launch-owned ``KIMI_CODE_HOME/config.toml`` through
+:mod:`houmao.hook_observation.kimi_hooks_generator`. The merged file is
+strictly validated by read-back, because Kimi silently voids the whole hooks
+section on any malformed entry; the block is rewritten per generation and
+removed on cleanup with all other bytes preserved.
+
 When a Claude home file cannot be safely merged, the installer falls back to a
 launch-owned ``--settings <observer-settings.json>`` document under the
 session's hook artifact directory. If neither path is safe (for example the
 resolved arguments already carry a ``--settings`` source), the installer
-reports ``unavailable`` and the session proceeds TUI-only. The Codex installer
-has no fallback: any unsafe write reports ``unavailable`` with a detail.
+reports ``unavailable`` and the session proceeds TUI-only. The Codex and Kimi
+installers have no fallback: any unsafe write or validation failure reports
+``unavailable`` with a detail.
 
 The module also owns the small launch-owned artifacts: per-adapter channel
 generation counters, the ``0600`` provider launch wrapper that carries the
@@ -40,6 +48,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final, Literal, Mapping, Sequence
 
+from houmao.hook_observation import kimi_hooks_generator
 from houmao.hook_observation.codex_hooks_generator import (
     build_emitter_command,
     build_observer_hooks_document,
@@ -60,21 +69,25 @@ from houmao.hook_observation.store import (
 
 HOOK_OBSERVATION_CLAUDE_ENV_FLAG: Final[str] = "HOUMAO_HOOK_OBSERVATION_CLAUDE"
 HOOK_OBSERVATION_CODEX_ENV_FLAG: Final[str] = "HOUMAO_HOOK_OBSERVATION_CODEX"
+HOOK_OBSERVATION_KIMI_ENV_FLAG: Final[str] = "HOUMAO_HOOK_OBSERVATION_KIMI"
 HOOK_OBSERVATION_ENABLED_VALUE: Final[str] = "1"
 HOOK_OBSERVATION_ENV_FLAGS: Final[Mapping[str, str]] = {
     "claude": HOOK_OBSERVATION_CLAUDE_ENV_FLAG,
     "codex": HOOK_OBSERVATION_CODEX_ENV_FLAG,
+    "kimi": HOOK_OBSERVATION_KIMI_ENV_FLAG,
 }
 HOOK_OBSERVATION_PAIRS: Final[frozenset[tuple[str, str]]] = frozenset(
     {
         ("claude", "local_interactive"),
         ("codex", "local_interactive"),
+        ("kimi", "local_interactive"),
     }
 )
 SETTINGS_FILENAME: Final[str] = "settings.json"
 OBSERVER_SETTINGS_FILENAME: Final[str] = "observer-settings.json"
 CODEX_HOOKS_FILENAME: Final[str] = "hooks.json"
 CODEX_CONFIG_FILENAME: Final[str] = "config.toml"
+KIMI_CONFIG_FILENAME: Final[str] = "config.toml"
 CODEX_PRETRUST_BEGIN_MARKER: Final[str] = "# >>> houmao hook observation"
 CODEX_PRETRUST_END_MARKER: Final[str] = "# <<< houmao hook observation"
 GENERATION_FILENAME: Final[str] = "generation.json"
@@ -92,6 +105,7 @@ _CODEX_PRETRUST_BLOCK_PATTERN: Final[re.Pattern[str]] = re.compile(
 
 ObserverInstallPath = Literal["managed_home", "settings_file", "unavailable"]
 CodexObserverInstallPath = Literal["managed_home", "unavailable"]
+KimiObserverInstallPath = Literal["managed_home", "unavailable"]
 ChannelInstallState = Literal["installing", "active", "unavailable", "stopped"]
 
 
@@ -153,6 +167,30 @@ class CodexObserverInstallResult:
     detail: str | None = None
 
 
+@dataclass(frozen=True)
+class KimiObserverInstallResult:
+    """Outcome of one Kimi observer configuration installation attempt.
+
+    Parameters
+    ----------
+    install_path:
+        ``managed_home`` when the validated ``[[hooks]]`` block was written,
+        or ``unavailable`` when validation or a write was unsafe.
+    generation:
+        Channel generation the block was rendered for.
+    config_path:
+        Runtime-home ``config.toml`` carrying the observer block, or ``None``
+        when installation failed.
+    detail:
+        Short, secret-free explanation for logs and ``channel.json``.
+    """
+
+    install_path: KimiObserverInstallPath
+    generation: int
+    config_path: Path | None = None
+    detail: str | None = None
+
+
 def hook_observation_enabled(
     env: Mapping[str, str] | None = None,
     *,
@@ -173,7 +211,8 @@ def hook_observation_enabled(
         ``True`` only when the tool's ``HOUMAO_HOOK_OBSERVATION_*`` flag is
         exactly ``"1"``. The Claude flag remains
         ``HOUMAO_HOOK_OBSERVATION_CLAUDE``; the Codex flag is
-        ``HOUMAO_HOOK_OBSERVATION_CODEX``.
+        ``HOUMAO_HOOK_OBSERVATION_CODEX``; the Kimi flag is
+        ``HOUMAO_HOOK_OBSERVATION_KIMI``.
     """
 
     flag = HOOK_OBSERVATION_ENV_FLAGS.get(tool)
@@ -197,7 +236,7 @@ def hook_artifact_dir(session_root: Path | str, *, tool: str = "claude") -> Path
     session_root:
         Session root that owns the hook subtree.
     tool:
-        Provider tool name; ``claude`` and ``codex`` are supported.
+        Provider tool name; ``claude``, ``codex``, and ``kimi`` are supported.
 
     Returns
     -------
@@ -226,6 +265,12 @@ def codex_hook_artifact_dir(session_root: Path | str) -> Path:
     """Return the Codex hook artifact directory under one session root."""
 
     return hook_artifact_dir(session_root, tool="codex")
+
+
+def kimi_hook_artifact_dir(session_root: Path | str) -> Path:
+    """Return the Kimi hook artifact directory under one session root."""
+
+    return hook_artifact_dir(session_root, tool="kimi")
 
 
 def merge_observer_hooks_block(
@@ -703,6 +748,132 @@ def remove_codex_observer_configuration(*, home_path: Path) -> None:
         pass
 
 
+def install_kimi_observer_configuration(
+    *,
+    home_path: Path,
+    generation: int,
+    emitter: Path | str | None = None,
+    emitter_command: str | None = None,
+    python_executable: str | None = None,
+) -> KimiObserverInstallResult:
+    """Install the Kimi observer ``[[hooks]]`` block for one generation.
+
+    The marker-delimited block is merged into the runtime home's
+    ``config.toml`` and the merged file is parsed back with the full provider
+    schema check before the install reports success. Because the provider
+    silently voids the entire hooks section on any malformed entry, every
+    validation or write failure returns ``unavailable`` instead of raising; a
+    failed read-back restores the pre-install text.
+
+    Parameters
+    ----------
+    home_path:
+        Managed Kimi home (``KIMI_CODE_HOME``).
+    generation:
+        Channel generation stamped into the block header.
+    emitter:
+        Emitter script invoked by every entry; defaults to the packaged
+        :mod:`houmao.hook_observation.emitter` module file.
+    emitter_command:
+        Fully rendered handler command, for callers that bake collector
+        coordinates into argv. Mutually exclusive with ``emitter``.
+    python_executable:
+        Interpreter used by the handler command; defaults to the current one.
+
+    Returns
+    -------
+    KimiObserverInstallResult
+        Injection outcome with the written ``config.toml`` path, or
+        ``unavailable`` with a secret-free detail.
+    """
+
+    home = Path(home_path)
+    config_path = home / KIMI_CONFIG_FILENAME
+    try:
+        if not home.is_dir():
+            raise ObserverSettingsError(f"runtime home `{home}` is missing or not a directory")
+        if emitter is not None and emitter_command is not None:
+            raise ObserverSettingsError("pass either `emitter` or `emitter_command`, not both")
+        command = emitter_command
+        if command is None:
+            command = kimi_hooks_generator.build_emitter_command(
+                emitter=(
+                    Path(emitter)
+                    if emitter is not None
+                    else kimi_hooks_generator.default_emitter_path()
+                ),
+                python_executable=python_executable,
+            )
+        block = kimi_hooks_generator.render_observer_block(
+            emitter_command=command,
+            generation=generation,
+        )
+        _require_safe_text_target(config_path, label=KIMI_CONFIG_FILENAME)
+        existing_config = _read_optional_text(config_path)
+        merged_config = kimi_hooks_generator.merge_observer_block(
+            existing_config,
+            block,
+            path=config_path,
+        )
+        config_mode = _file_mode(config_path, default=PRIVATE_FILE_MODE)
+        config_changed = merged_config != existing_config
+        if config_changed:
+            _write_text_atomic(config_path, merged_config, mode=config_mode)
+        try:
+            kimi_hooks_generator.validate_hooks_file(config_path)
+        except BaseException:
+            if config_changed:
+                try:
+                    _write_text_atomic(config_path, existing_config, mode=config_mode)
+                except OSError:
+                    pass
+            raise
+    except (
+        ObserverSettingsError,
+        kimi_hooks_generator.KimiHookConfigError,
+        OSError,
+        ValueError,
+    ) as exc:
+        return KimiObserverInstallResult(
+            install_path="unavailable",
+            generation=generation,
+            detail=str(exc),
+        )
+    return KimiObserverInstallResult(
+        install_path="managed_home",
+        generation=generation,
+        config_path=config_path,
+    )
+
+
+def remove_kimi_observer_configuration(*, home_path: Path) -> None:
+    """Best-effort removal of the Kimi observer block from one home.
+
+    Every other ``config.toml`` byte, including operator-authored ``[[hooks]]``
+    entries, is preserved.
+    """
+
+    home = Path(home_path)
+    config_path = home / KIMI_CONFIG_FILENAME
+    try:
+        if config_path.is_file() and not config_path.is_symlink():
+            config_text = _read_optional_text(config_path)
+            stripped = kimi_hooks_generator.strip_observer_block(config_text)
+            if stripped != config_text:
+                _write_text_atomic(
+                    config_path,
+                    stripped,
+                    mode=_file_mode(config_path, default=PRIVATE_FILE_MODE),
+                )
+    except (
+        ObserverSettingsError,
+        kimi_hooks_generator.KimiHookConfigError,
+        OSError,
+        ValueError,
+    ):
+        pass
+
+
 def write_launch_wrapper(
     *,
     session_root: Path,
@@ -1121,7 +1292,10 @@ __all__ = [
     "HOOK_OBSERVATION_CODEX_ENV_FLAG",
     "HOOK_OBSERVATION_ENABLED_VALUE",
     "HOOK_OBSERVATION_ENV_FLAGS",
+    "HOOK_OBSERVATION_KIMI_ENV_FLAG",
     "HOOK_OBSERVATION_PAIRS",
+    "KIMI_CONFIG_FILENAME",
+    "KimiObserverInstallResult",
     "OBSERVER_SETTINGS_FILENAME",
     "ObserverInstallResult",
     "ObserverSettingsError",
@@ -1133,12 +1307,15 @@ __all__ = [
     "hook_observation_applies",
     "hook_observation_enabled",
     "install_codex_observer_configuration",
+    "install_kimi_observer_configuration",
     "install_observer_configuration",
+    "kimi_hook_artifact_dir",
     "mark_channel_stopped",
     "merge_codex_pretrust_block",
     "merge_observer_hooks_block",
     "read_channel_generation",
     "remove_codex_observer_configuration",
+    "remove_kimi_observer_configuration",
     "remove_launch_wrapper",
     "remove_observer_configuration",
     "render_codex_pretrust_block",

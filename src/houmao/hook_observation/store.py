@@ -4,8 +4,8 @@ The store is the neutral fan-out primitive for the observation channel. One
 writer appends one JSON envelope per line under an exclusive file lock and
 maintains a secret-free ``channel.json`` status document with an atomic
 write-tmp-then-rename update. Each adapter owns a sibling directory under
-``<session_root>/hook-observation/`` so Claude and Codex channels never share
-a generation counter or event file.
+``<session_root>/hook-observation/`` so Claude, Codex, and Kimi channels never
+share a generation counter or event file.
 """
 
 from __future__ import annotations
@@ -31,9 +31,11 @@ from houmao.hook_observation.models import (
 HOOK_OBSERVATION_DIRNAME = "hook-observation"
 CLAUDE_ADAPTER_DIRNAME = "claude"
 CODEX_ADAPTER_DIRNAME = "codex"
+KIMI_ADAPTER_DIRNAME = "kimi"
 ADAPTER_DIRNAMES: Final[Mapping[str, str]] = {
     "claude": CLAUDE_ADAPTER_DIRNAME,
     "codex": CODEX_ADAPTER_DIRNAME,
+    "kimi": KIMI_ADAPTER_DIRNAME,
 }
 EVENTS_FILENAME = "events.ndjson"
 CHANNEL_FILENAME = "channel.json"
@@ -72,8 +74,8 @@ class HookObservationStore:
             existing record appends a generation boundary; the newest existing
             generation is resumed; an older request is rejected.
         adapter:
-            Adapter directory name under ``hook-observation/``; ``claude`` and
-            ``codex`` are supported.
+            Adapter directory name under ``hook-observation/``; ``claude``,
+            ``codex``, and ``kimi`` are supported.
 
         Raises
         ------

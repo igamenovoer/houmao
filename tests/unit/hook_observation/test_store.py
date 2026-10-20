@@ -11,7 +11,12 @@ import pytest
 import houmao.hook_observation.store as store_module
 from houmao.hook_observation.normalizer import normalize_envelope
 from houmao.hook_observation.reducer import HookPostureReducer
-from houmao.hook_observation.store import HookObservationStore, parse_envelope_line, read_store
+from houmao.hook_observation.store import (
+    ADAPTER_DIRNAMES,
+    HookObservationStore,
+    parse_envelope_line,
+    read_store,
+)
 
 
 SAMPLE_EVENTS = (
@@ -413,3 +418,15 @@ def test_reads_real_captured_sample() -> None:
     assert posture.work == "clear"
     assert posture.armed_prompt_count == 0
     assert posture.counters.orphan_terminals == 0
+
+
+def test_kimi_adapter_uses_the_kimi_directory(tmp_path: Path) -> None:
+    assert ADAPTER_DIRNAMES["kimi"] == "kimi"
+
+    store = HookObservationStore(tmp_path, generation=1, adapter="kimi")
+    store.append_event({"hook_event_name": "SessionStart"})
+
+    assert store.directory == tmp_path / "hook-observation" / "kimi"
+    assert store.events_path.is_file()
+    assert store.channel_path.is_file()
+    assert not (tmp_path / "hook-observation" / "claude").exists()
