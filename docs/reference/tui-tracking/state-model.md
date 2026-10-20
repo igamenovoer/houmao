@@ -124,7 +124,7 @@ Whether diagnostic information can be extracted from the current surface state.
 TrackedLastTurnResult = Literal["success", "interrupted", "known_failure", "none"]
 ```
 
-Outcome of the most recently completed turn, as inferred by the detector or settled by a hook terminal event. Failures settled by a hook terminal event also carry `last_turn.error_class` on the host response.
+Outcome of the most recently completed turn, as inferred by the detector or settled by a hook terminal event, including a Codex `Interrupt`. Failures settled by a hook terminal event also carry `last_turn.error_class` on the host response.
 
 ### TrackedLastTurnSource
 
@@ -187,11 +187,11 @@ Frozen dataclass representing a point-in-time snapshot of the tracked TUI state.
 
 | Observable | Type | Meaning |
 |---|---|---|
-| `work` | `HookWorkState`: `pending`, `clear`, `unknown` | Session-scoped background work reported by hook terminal payloads. `unknown` when the channel is absent, degraded, or has not yet reported a terminal. |
+| `work` | `HookWorkState`: `pending`, `clear`, `unknown` | Session-scoped background work reported by Claude hook terminal payloads. Always `unknown` for Codex, and when the channel is absent, degraded, or has not yet reported a terminal. |
 | `settled` | `bool` | Derived convenience: `turn.phase=ready` and `work=clear`. Always `false` for a degraded channel. |
 | `observation_channels` | list of `HoumaoObservationChannel` or null | Channel health, generation, last event, counters, and conflict reasons. |
 
-`work` starts each channel generation as `unknown`. A hook `turn_completed` payload sets `pending` when background tasks are listed and `clear` when none are; `turn_failed` leaves the axis unchanged. `settled` is stronger than prompt readiness because it also requires no outstanding background work, and `work=pending` never closes gateway admission by itself. A hook-latched terminal result persists through a stale window even though `work` becomes `unknown` and `settled` becomes `false`.
+`work` starts each channel generation as `unknown`. A Claude hook `turn_completed` payload sets `pending` when background tasks are listed and `clear` when none are; `turn_failed` leaves the axis unchanged. Codex has no background-work mirror, so its adapter keeps `work=unknown` and hooks alone never produce `settled`. `settled` is stronger than prompt readiness because it also requires no outstanding background work, and `work=pending` never closes gateway admission by itself. A hook-latched terminal result persists through a stale window even though `work` becomes `unknown` and `settled` becomes `false`.
 
 The `blocked` phase, channel health states (`active`, `unavailable`, `stale`, `disabled_by_policy`, `untrusted_workspace`, `error`, `stopped`), the 15-second startup grace, the 30-second staleness threshold, and the conflict vocabulary are documented in [Hook Observation Channel](../../developer/houmao-server/state-tracking.md#hook-observation-channel). The source types for these host fields live in `src/houmao/hook_observation/models.py` and `src/houmao/server/models.py`, not in `shared_tui_tracking/models.py`.
 

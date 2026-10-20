@@ -247,7 +247,7 @@ When `chat_context=degraded` is also present, the surface is promptable but the 
 
 **Intuitive meaning:** The provider is asking the operator for an action, such as a permission decision, and will not proceed until it is settled.
 
-**Derivation:** Only hook observation enters `blocked`, from a hook `PermissionRequest` while a prompt is armed. The posture records the blocked tool name when the payload carries one. Hook `permission_resolved`, a hook terminal event, or TUI modal-dismissal evidence (including a positive `User rejected` line) leaves `blocked`. TUI parsing never enters this phase; a TUI-detected permission dialog keeps `turn.phase=active` with `operator_state=waiting_user_answer`.
+**Derivation:** Only hook observation enters `blocked`, from a hook `PermissionRequest` while a prompt is armed. The posture records the blocked tool name when the payload carries one. For Claude, hook `permission_resolved`, a hook terminal event, or TUI modal-dismissal evidence (including a positive `User rejected` line) leaves `blocked`. For Codex, the paired `PostToolUse` (allow) or `Interrupt` (deny, which settles the turn interrupted) leaves `blocked`; TUI evidence does not settle a Codex blocked wait. TUI parsing never enters this phase; a TUI-detected permission dialog keeps `turn.phase=active` with `operator_state=waiting_user_answer`.
 
 **Operational implications:** Do not send a new prompt through an admission policy that treats blocked posture as non-admissible. `ready_only` refuses while the merged phase is `active` or `blocked`, and `if_no_pending` refuses while it is `blocked`. `always` is unaffected. `work=pending` does not add a refusal.
 
@@ -267,7 +267,7 @@ Type: `TrackedLastTurnResult` — one of `success`, `interrupted`, `known_failur
 
 This field answers: "What was the outcome of the most recent completed turn?" It is **sticky** — it only updates when a tracked turn reaches a terminal outcome, not on every poll cycle.
 
-When the hook observation channel is active, a hook `Stop` or `StopFailure` latches the turn immediately, ahead of the TUI settle window. A hook failure records its provider error class in `last_turn.error_class`; the field is null for other results. Once a hook terminal event latches a turn, later TUI settlement for that turn is suppressed, except that TUI temporal interrupt evidence for the same turn epoch, observed outside a maintenance window, may still flip the result to `interrupted`.
+When the hook observation channel is active, a hook `Stop` or `StopFailure` latches the turn immediately, ahead of the TUI settle window; for Codex, a hook `Interrupt` latches `interrupted` with the same immediacy. A hook failure records its provider error class in `last_turn.error_class`; the field is null for other results. Once a hook terminal event latches a turn, later TUI settlement for that turn is suppressed. On Claude, TUI temporal interrupt evidence for the same turn epoch, observed outside a maintenance window, may still flip the result to `interrupted`; on Codex, the latched outcome is final for its epoch.
 
 > See [state-transitions.md § Last-Turn Result](state-transitions.md#last-turn-result) for the full statechart diagram with all transitions.
 
@@ -301,7 +301,7 @@ stateDiagram-v2
 
 **Intuitive meaning:** The most recent turn was interrupted — the user or system halted the agent's work before completion.
 
-**Derivation:** The detector saw a tool-specific interruption signature (e.g., Claude's `⎿ Interrupted · What should Claude do instead?` pattern followed by a prompt, or Codex's interruption text). The reducer immediately promotes to `interrupted` and cancels any pending success timer.
+**Derivation:** The detector saw a tool-specific interruption signature (e.g., Claude's `⎿ Interrupted · What should Claude do instead?` pattern followed by a prompt, or Codex's interruption text). On Codex, an active hook observation channel can also settle `interrupted` from the provider `Interrupt` event, which covers Esc and the approval-modal deny path. The reducer immediately promotes to `interrupted` and cancels any pending success timer.
 
 **Operational implications:** The agent stopped before completing. The prompt is typically ready for a new instruction. Previous partial work may be visible in the TUI output.
 
@@ -309,7 +309,7 @@ stateDiagram-v2
 
 **Intuitive meaning:** The most recent turn ended with a recognized failure — the agent encountered a supported error pattern.
 
-**Derivation:** The detector saw a tool-specific failure signature (e.g., Claude's colored error status line followed by a prompt). The reducer immediately promotes to `known_failure` and cancels any pending success timer. With hook observation active, a hook `StopFailure` also produces `known_failure` and records the provider error class in `last_turn.error_class`.
+**Derivation:** The detector saw a tool-specific failure signature (e.g., Claude's colored error status line followed by a prompt). The reducer immediately promotes to `known_failure` and cancels any pending success timer. With Claude hook observation active, a hook `StopFailure` also produces `known_failure` and records the provider error class in `last_turn.error_class`. Codex has no hook failure event at the supported floor; a Codex stream that ends with an open turn is published as a terminal gap with `turn.phase=unknown`, never as `known_failure` or success.
 
 **Operational implications:** The turn failed. Inspect the TUI output for error details, and read `last_turn.error_class` when hook observation supplied the result. The prompt is typically ready for a retry or a different instruction.
 
@@ -349,9 +349,9 @@ This field answers: "How was the most recent completed turn initiated?"
 
 **Intuitive meaning:** The most recent terminal outcome was settled from a hook terminal event rather than from TUI settlement.
 
-**Derivation:** A hook `Stop` sets `last_turn.result=success` and a hook `StopFailure` sets `last_turn.result=known_failure`. The source is `hook_observation` unless a gateway submission record correlates with the same turn, in which case the source is `explicit_input`.
+**Derivation:** A hook `Stop` sets `last_turn.result=success`, a hook `StopFailure` sets `last_turn.result=known_failure`, and a Codex hook `Interrupt` sets `last_turn.result=interrupted`. The source is `hook_observation` unless a gateway submission record correlates with the same turn, in which case the source is `explicit_input`.
 
-**Operational implications:** Settlement timing reflects provider lifecycle events, not the TUI settle window. Treat the result as authoritative for the turn, while remembering that TUI temporal interrupt evidence can still override a hook success with `interrupted`.
+**Operational implications:** Settlement timing reflects provider lifecycle events, not the TUI settle window. Treat the result as authoritative for the turn. On Claude, TUI temporal interrupt evidence can still override a hook success with `interrupted`; on Codex, the latched outcome is final for its epoch.
 
 ### `none`
 
@@ -373,7 +373,7 @@ This field answers: "Does the session still have background work outstanding aft
 
 **Intuitive meaning:** At least one provider background task is still outstanding.
 
-**Derivation:** The most recent hook `turn_completed` payload listed background tasks. The reducer sets `work` from the payload of every successful terminal turn, including the provider-synthesized ghost turns that report background task notifications.
+**Derivation:** The most recent Claude hook `turn_completed` payload listed background tasks. The reducer sets `work` from the payload of every successful Claude terminal turn, including the provider-synthesized ghost turns that report background task notifications. Codex never publishes `pending`: no Codex hook payload carries a background-task mirror.
 
 **Operational implications:** The session is not `settled`. Do not treat prompt readiness alone as "ready for the next assignment". `work=pending` never closes gateway prompt admission by itself.
 
@@ -381,13 +381,13 @@ This field answers: "Does the session still have background work outstanding aft
 
 **Intuitive meaning:** No provider background task is outstanding.
 
-**Derivation:** The most recent hook `turn_completed` payload listed no background tasks. Combined with `turn.phase=ready`, this makes `settled=true`.
+**Derivation:** The most recent Claude hook `turn_completed` payload listed no background tasks. Combined with `turn.phase=ready`, this makes `settled=true`. Codex never publishes `clear` because it has no background-work mirror.
 
 ### `unknown`
 
 **Intuitive meaning:** The current background-work state is unknown.
 
-**Derivation:** This is the initial value for each channel generation. It is also the published value whenever the channel is absent, degraded, or has not yet produced a `turn_completed` payload. A hook `turn_failed` makes no background-work statement and leaves the previous value unchanged.
+**Derivation:** This is the initial value for each channel generation. It is also the published value whenever the channel is absent, degraded, or has not yet produced a `turn_completed` payload. A hook `turn_failed` makes no background-work statement and leaves the previous value unchanged. The Codex adapter publishes `unknown` for every sample.
 
 **Operational implications:** Do not infer either pending work or a cleared session. Wait for a `turn_completed` observation or for the channel to recover.
 
@@ -411,8 +411,8 @@ Type: list of `HoumaoObservationChannel`, or null when no channel is configured.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `channel` | string | `"hook"` in v1 |
-| `provider` | string | `"claude"` in v1 |
+| `channel` | string | `"hook"` |
+| `provider` | string | Active adapter: `"claude"` or `"codex"` |
 | `state` | `HookChannelState` | Channel health, described below |
 | `detail` | string or null | Bounded, secret-free reason for the current state |
 | `generation` | integer or null | Channel generation that produced the current posture |
@@ -422,7 +422,7 @@ Type: list of `HoumaoObservationChannel`, or null when no channel is configured.
 | `counters` | `HoumaoHookObservationCounters` or null | Bounded counters |
 | `conflict_reasons` | list of strings | Conflicts observed for the current sample |
 
-`HoumaoHookObservationCounters` carries `events_seen`, `normalized_events`, `unknown_events`, `malformed_events`, `orphan_terminals`, `orphan_generations`, and `duplicate_events`.
+`HoumaoHookObservationCounters` carries `events_seen`, `normalized_events`, `unknown_events`, `malformed_events`, `orphan_terminals`, `orphan_generations`, `duplicate_events`, `steer_events`, `turn_epochs`, `compaction_boundaries`, `allow_settles`, `deny_settles`, and `terminal_gaps`.
 
 ### `observation_channels[].state`
 

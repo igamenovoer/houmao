@@ -26,7 +26,7 @@ The public state is intentionally small:
 | `turn.phase` | `ready`, `active`, `blocked`, `unknown` | Current turn posture; `blocked` is hook-only |
 | `last_turn.result` | `success`, `interrupted`, `known_failure`, `none` | Most recent completed terminal outcome |
 | `last_turn.source` | `explicit_input`, `surface_inference`, `hook_observation`, `none` | Where that recorded terminal turn came from |
-| `work` | `pending`, `clear`, `unknown` | Session-scoped background work when hook observation is active; `unknown` otherwise |
+| `work` | `pending`, `clear`, `unknown` | Session-scoped background work from Claude hook payloads; `unknown` for Codex and whenever hook evidence is absent or degraded |
 | `settled` | boolean | Derived convenience: `turn.phase=ready` and `work=clear` |
 | `observation_channels` | optional list of `HoumaoObservationChannel` | Additive hook channel state; null when no channel is configured |
 | `chat_context` | `current`, `degraded`, `unknown` | Whether the current chat context is healthy, recoverably degraded, or unknown |
@@ -132,7 +132,7 @@ Prompt-adjacent Codex compact/server error cells are recoverable degraded-contex
 - `blocked`: the provider is asking the operator for an action and will not proceed until it is settled; only hook observation enters this phase
 - `unknown`: the server cannot safely classify the posture as `ready` or `active`
 
-Explicit server-owned input acceptance is enough to arm an active turn immediately. Direct interactive prompting can still become `active` through shared-tracker raw-snapshot evidence without any parser-derived bridge. TUI parsing never emits `blocked`; a TUI-detected permission dialog keeps the existing `turn.phase=active` plus `operator_state=waiting_user_answer` presentation. Hook `PermissionRequest` enters `blocked`, and hook permission resolution, a hook terminal event, or TUI modal-dismissal evidence leaves it.
+Explicit server-owned input acceptance is enough to arm an active turn immediately. Direct interactive prompting can still become `active` through shared-tracker raw-snapshot evidence without any parser-derived bridge. TUI parsing never emits `blocked`; a TUI-detected permission dialog keeps the existing `turn.phase=active` plus `operator_state=waiting_user_answer` presentation. Hook `PermissionRequest` enters `blocked`. For Claude, hook permission resolution, a hook terminal event, or TUI modal-dismissal evidence leaves it; for Codex, the paired `PostToolUse` (allow path) or `Interrupt` (deny path, which settles the turn interrupted) leaves it.
 
 There are two host-owned corrections on top of the shared tracker. The narrow stale-active correction clears an unanchored session after it stays submit-ready for the configured stale-active recovery window while the shared tracker is still stuck on stale `status_row` evidence. The final stable-active correction uses a longer default 20-second window and clears a stable false-active posture when `turn.phase=active` and the rendered-surface signature derived from the tmux capture remains unchanged for that window. Unlike the narrow stale-active path, final stable-active recovery is parser-independent; it exists as the backstop for detector false positives, so parser-derived fields cannot veto its timer or participate in its recovery key. These recoveries:
 
@@ -148,7 +148,7 @@ There are two host-owned corrections on top of the shared tracker. The narrow st
 `last_turn` is sticky and only changes when a tracked turn reaches a terminal outcome:
 
 - `success`: the latest answer-bearing ready surface passed the settle window and has no current interrupt, failure, or advisory blocker
-- `interrupted`: the detector saw a supported current interruption signature
+- `interrupted`: the detector saw a supported current interruption signature, or a Codex hook `Interrupt` settled the turn
 - `known_failure`: the detector saw a specifically supported failure signature
 - `none`: no terminal result has been recorded yet
 
@@ -167,23 +167,36 @@ Tracked state records three turn sources:
 |--------|-----------------|---------------|
 | `terminal_input` | `POST /houmao/terminals/{terminal_id}/input` succeeds and the service calls `note_prompt_submission()` | `explicit_input` |
 | `surface_inference` | raw tmux snapshots show enough active/success evidence for the shared tracker to infer a direct in-terminal turn | `surface_inference` |
-| Hook terminal event (`Stop` or `StopFailure`) | latches the turn; a gateway submission record correlated with the same turn keeps `explicit_input` | `hook_observation` |
+| Hook terminal event (`Stop`, `StopFailure`, or Codex `Interrupt`) | latches the turn; a gateway submission record correlated with the same turn keeps `explicit_input` | `hook_observation` |
 
 Separately, the server still owns explicit-input lifecycle anchors for parser-fed `operator_state`, `lifecycle_timing`, and `lifecycle_authority`.
 
 - `explicit_input` can arm both the shared tracker and the server-owned lifecycle anchor.
 - `surface_inference` is tracker-owned only. It can produce public `last_turn.source=surface_inference` while server-owned `lifecycle_authority.turn_anchor_state` remains `absent`.
-- `hook_observation` is hook-owned. A hook terminal event settles the turn immediately, without waiting for the TUI settle window, and records the provider `error_class` for `known_failure`. TUI temporal interrupt evidence for the same turn epoch, observed outside a maintenance window, may still override a hook success with `interrupted`.
+- `hook_observation` is hook-owned. A hook terminal event settles the turn immediately, without waiting for the TUI settle window, and records the provider `error_class` for `known_failure`. On Claude, TUI temporal interrupt evidence for the same turn epoch, observed outside a maintenance window, may still override a hook success with `interrupted`. On Codex, the hook `Interrupt` event supplies the interrupted outcome, and a latched Codex outcome is final for its epoch.
 - Parser-derived surface churn does not arm tracker authority. Parsed surface remains server-owned evidence and lifecycle input only.
 - Observed tool version for tracker profile selection comes from tracked-session metadata, primarily manifest launch-policy provenance with graceful fallback when unavailable.
 
 ## Hook Observation Channel
 
-Managed Claude `local_interactive` sessions can opt into a hook observation channel that feeds provider-emitted lifecycle events into tracked state. The channel is off by default. Set `HOUMAO_HOOK_OBSERVATION_CLAUDE=1` before a managed launch; only the exact value `1` enables it, and any other value leaves behavior unchanged. v1 is Claude-only and applies to the managed `local_interactive` backend. `claude_headless`, joined sessions, unmanaged launches, Codex, and Kimi remain TUI-only.
+Managed `local_interactive` sessions can opt into a hook observation channel that feeds provider-emitted lifecycle events into tracked state. The channel is off by default and opt-in per adapter: set `HOUMAO_HOOK_OBSERVATION_CLAUDE=1` for Claude Code 2.1.296 or later, or `HOUMAO_HOOK_OBSERVATION_CODEX=1` for Codex 0.162.1 or later. Only the exact value `1` enables an adapter, and any other value leaves behavior unchanged. The supported pairs are `("claude", "local_interactive")` and `("codex", "local_interactive")`. `claude_headless`, `codex_headless`, joined sessions, unmanaged launches, and Kimi remain TUI-only.
 
-A session with the channel configured has one collector process bound to `127.0.0.1` on an ephemeral port. Deliveries authenticate with a per-session bearer token, and the collector appends normalized events to `<session_root>/hook-observation/claude/events.ndjson` with a secret-free `channel.json` alongside it. Every tracking consumer tails that file with its own offset and folds new observations at its next read or poll cycle, so the gateway-owned tracker, the retained `houmao-server` tracker, and the passive server can all track the same session independently.
+A session with the channel configured has one collector process bound to `127.0.0.1` on an ephemeral port. Deliveries authenticate with a per-session bearer token, and the collector appends normalized events to `<session_root>/hook-observation/<adapter>/events.ndjson` with a secret-free `channel.json` alongside it; `<adapter>` is `claude` or `codex`. Every tracking consumer tails that file with its own offset and folds new observations at its next read or poll cycle, so the gateway-owned tracker, the retained `houmao-server` tracker, and the passive server can all track the same session independently.
 
 The channel is additive. When no channel is configured, every field described here keeps its previous value or default, and tracked behavior is byte-identical to TUI-only tracking.
+
+### Adapter Coverage
+
+Both adapters reuse the collector, store, health monitor, and reader. They differ in injection, event vocabulary, and posture rules.
+
+| Adapter | Enablement | Observer injection | Subscribed events |
+|---|---|---|---|
+| Claude Code | `HOUMAO_HOOK_OBSERVATION_CLAUDE=1`, floor 2.1.296 | Marker merge into the managed home `settings.json`, with a session-scoped `--settings` fallback | Nine events |
+| Codex | `HOUMAO_HOOK_OBSERVATION_CODEX=1`, floor 0.162.1 | Observer `hooks.json` in the runtime-owned `CODEX_HOME` plus a pre-trust block in the runtime-home `config.toml`; no bypass flag and no operator file | Fourteen events, ten dispatched at the supported floor |
+
+Codex subscribes `PreModelRequest`, `PostModelRequest`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop`, `Stop`, and `Interrupt`. At the supported floor, `PreModelRequest`, `PostModelRequest`, `SubagentStart`, and `SubagentStop` never fire; the reducer counts them as unavailable event families in diagnostics rather than failures and keeps the other ten families as the posture evidence. `SessionStart` is lazy: Codex dispatches it at the first turn start, not at process launch. Model-request events and `Stop` carry no token usage, and no Codex payload exposes a background-work mirror, so the Codex adapter publishes `work=unknown` and never claims `settled` from hook evidence alone.
+
+Codex trust is automatic on the managed path. The launch writes the observer `hooks.json` into the runtime home and pre-trusts every handler through Houmao-owned `[hooks.state."<absolute hooks.json path>:<snake_case event label>:<group index>:<handler index>"]` entries with `trusted_hash` values in the same home's `config.toml`. The marker-delimited block is generation-scoped, rewritten at every provider start, and removed on cleanup; operator-authored `hooks.state` entries and every other `config.toml` line are preserved. The managed path never adds `--dangerously-bypass-hook-trust`, never writes the operator's Codex home or profile, and requires no operator action. See the [Codex Signal Reference](../tui-parsing/codex-signals.md#hook-observation-support) for the event and payload details.
 
 ### Three Axes
 
@@ -191,7 +204,7 @@ The channel is additive. When no channel is configured, every field described he
 |---|---|---|
 | `surface.*` | `accepting_input`, `editing_input`, `ready_posture`, `pending_input`, `stability` | TUI only |
 | `turn.phase` | `ready`, `active`, `blocked`, `unknown` | Hook primary for lifecycle; TUI supplies surface-derived entry into `active` and `unknown` plus recovery |
-| `work` | `pending`, `clear`, `unknown` | Hook primary; `unknown` whenever hook evidence is absent or the channel is degraded |
+| `work` | `pending`, `clear`, `unknown` | Hook primary on Claude; always `unknown` for Codex; `unknown` whenever hook evidence is absent or the channel is degraded |
 | `settled` | boolean | Derived: `turn.phase=ready` and `work=clear` |
 
 No axis silently impersonates another. `surface.*` never borrows hook facts, and a hook terminal event does not rewrite TUI surface fields. `blocked` is hook-only: a TUI-detected permission dialog keeps the existing `turn.phase=active` presentation. `settled` recovers the pre-background-work meaning of "you can assign the next task" without treating prompt readiness as task completion; `work=pending` never closes gateway admission by itself.
@@ -210,6 +223,8 @@ No axis silently impersonates another. `surface.*` never borrows hook facts, and
 
 Every state other than `active` is degraded: the channel contributes no new lifecycle authority, gateway admission matches TUI-only behavior, `work` is `unknown`, and `settled` is `false`. A hook-latched `last_turn` remains the one persisted hook lifecycle fact during a stale window. A non-terminal channel moves to `active` on the first current-generation event and back to `active` from `stale` on the next event.
 
+Codex adds one startup nuance. Because `SessionStart` is dispatched lazily at the first turn start, a fresh session that sits idle at the composer can legitimately report `unavailable` past the 15-second grace; the first turn's event still moves the channel to `active`. A provider upgrade that changes the trust hash algorithm or event names makes Codex skip the untrusted handlers silently. The channel detects that as startup event silence with a live collector, reports `unavailable` (degraded), and keeps tracking TUI-only; a channel that was already active and then loses events follows the ordinary staleness rule to `stale`. The trust-hash fixture tests pin Codex's published vectors, so an upstream algorithm change fails CI before a managed launch silently loses hooks.
+
 ### Authority And Conflict Diagnostics
 
 When the channel is active, hook facts win where they speak:
@@ -219,8 +234,9 @@ When the channel is active, hook facts win where they speak:
 | Hook `active`, TUI ready | Hook wins for lifecycle | `hook_active_tui_ready` |
 | Hook `blocked`, TUI ready | Hook wins | `hook_blocked_tui_ready` |
 | Hook terminal, TUI still active | Terminal latches; surface fields stay TUI-owned | `hook_terminal_tui_active` |
-| Hook success, TUI interrupt evidence | `interrupted` wins for that turn | `hook_success_tui_interrupted` |
+| Hook success, TUI interrupt evidence (Claude) | `interrupted` wins for that turn | `hook_success_tui_interrupted` |
 | Hook failure, TUI success | Hook failure wins for the current prompt | `hook_failure_tui_success` |
+| Codex stream ends with an open turn, or `SessionEnd` arrives with an open turn | Presence lost, turn `unknown`, no success recorded | `hook_terminal_gap` |
 | Stale channel, TUI still changing | TUI authoritative for new evidence; a hook-latched `last_turn` persists | `hook_stale_tui_authoritative` |
 | Recovery disagrees with a TUI settlement | Hook corrects with an audit trail | `hook_correction_after_staleness` |
 | Older-generation event | Dropped before correlation | `hook_orphan_generation` |
@@ -245,7 +261,7 @@ The tracked-state response adds these optional fields. Existing consumers remain
 | `diagnostics.hook_counters` | `HoumaoHookObservationCounters` or null | Bounded counters |
 | `diagnostics.hook_conflict_reasons` | list of strings | Empty when no conflicts were observed |
 
-`HoumaoObservationChannel` carries exactly `channel`, `provider`, `state`, `detail`, `generation`, `last_event_name`, `last_event_at_utc`, `last_sequence`, `counters`, and `conflict_reasons`. `channel` is `"hook"` and `provider` is `"claude"` in v1. `HoumaoHookObservationCounters` carries `events_seen`, `normalized_events`, `unknown_events`, `malformed_events`, `orphan_terminals`, `orphan_generations`, and `duplicate_events`.
+`HoumaoObservationChannel` carries exactly `channel`, `provider`, `state`, `detail`, `generation`, `last_event_name`, `last_event_at_utc`, `last_sequence`, `counters`, and `conflict_reasons`. `channel` is `"hook"` and `provider` is the active adapter (`"claude"` or `"codex"`). `HoumaoHookObservationCounters` carries `events_seen`, `normalized_events`, `unknown_events`, `malformed_events`, `orphan_terminals`, `orphan_generations`, `duplicate_events`, `steer_events`, `turn_epochs`, `compaction_boundaries`, `allow_settles`, `deny_settles`, and `terminal_gaps`.
 
 The gateway publishes the same channel payload as `GatewayStatusV1.observation_channels` (`GatewayObservationChannelV1`, field-for-field identical) and records hook facts with prompt decisions. The passive server exposes `observation_channels` on `AgentTuiStateResponse` and `AgentTuiDetailResponse`; when the session store is not visible from the passive server host, the channel is reported as `state="unavailable"` with `detail="remote observation"`.
 

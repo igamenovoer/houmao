@@ -59,6 +59,19 @@ Provider hooks are named actions within a strategy that perform provider-specifi
 | `codex.ensure_model_migration_state` | Migrates known legacy Codex model pins without creating a model selection when none exists. |
 | `codex.append_unattended_cli_overrides` | Appends final Codex CLI `-c` override arguments for `approval_policy`, `sandbox_mode`, `notice.hide_full_access_warning`, and `tui.show_tooltips` so project-local `config.toml` cannot weaken unattended posture. |
 
+### Codex Hook Observation Pre-Trust
+
+The Codex strategy also declares the launch-owned surfaces for the opt-in hook observation channel. Enablement is per adapter: `HOUMAO_HOOK_OBSERVATION_CODEX=1` covers managed `local_interactive` launches only, and any value other than `1` leaves the session TUI-only.
+
+| Owned path | Keys | Purpose |
+|---|---|---|
+| `hooks.json` | `hooks.<Event>[<group index>].hooks[<handler index>]` (observer document presence) | Observer document written into the runtime home, with one synchronous command handler per subscribed event |
+| `config.toml` | `hooks.state."<absolute hooks.json path>:<snake_case event label>:<group index>:<handler index>".trusted_hash` | Pre-trust entry for every generated handler |
+
+The launch writes the observer `hooks.json` into the runtime-owned `CODEX_HOME` and merges a marker-delimited, generation-scoped `[hooks.state]` block into the runtime-home `config.toml` that it already synthesizes for project trust and unattended posture. Each `trusted_hash` reproduces Codex's own handler fingerprint over the normalized event label, matcher, timeout, and command, so Codex installs the handlers without a trust-review prompt. The block is rewritten at each provider start and removed on cleanup, and every operator-authored `hooks.state` entry and other `config.toml` line is preserved. The managed path never adds `--dangerously-bypass-hook-trust`; that flag remains a manual-lane fallback for invocations outside the managed launch. If either runtime-home surface cannot be written safely, the channel reports `unavailable` and the session launches TUI-only.
+
+The evidence for this surface is the 2026-10-20 debug campaign (`context/campaigns/debug/2026-10-20-codex-hook-observation/`, including the E1 trust decision and the pre-trusted-hash probes) plus the upstream hook discovery and hashing code under `extern/orphan/codex/codex-rs/hooks/`.
+
 ### Kimi Hooks
 
 | Hook | Description |

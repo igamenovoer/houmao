@@ -39,9 +39,9 @@
 
 ## 7. Documentation
 
-- [ ] 7.1 Update the hook observation reference docs for the Codex adapter (event set, trust model, enablement flag, degradation behavior)
-- [ ] 7.2 Update the launch-policy reference for the new codex owned keys and the pre-trust mechanism
-- [ ] 7.3 Update AGENTS.md-facing or developer docs that enumerate the observation channel's provider coverage
+- [x] 7.1 Update the hook observation reference docs for the Codex adapter (event set, trust model, enablement flag, degradation behavior)
+- [x] 7.2 Update the launch-policy reference for the new codex owned keys and the pre-trust mechanism
+- [x] 7.3 Update AGENTS.md-facing or developer docs that enumerate the observation channel's provider coverage
 
 ## Workflow follow-up
 

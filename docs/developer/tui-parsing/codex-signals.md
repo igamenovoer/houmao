@@ -7,7 +7,61 @@ Use it together with:
 - [Shared Contracts](shared-contracts.md)
 - [Codex](codex.md)
 - [Runtime Lifecycle](runtime-lifecycle.md)
-The concrete examples here were confirmed from the maintained complex capture logged in [20260323-124129.md](../../../context/logs/runs/20260323-124129-robust-tui-turn-lifecycle-quality-gate-signals/20260323-124129.md) and updated for Codex 0.162.x from the blind-labeled 0.162.1 recordings of the [2026-10-12 codex TUI parsing campaign](../../../context/campaigns/debug/2026-10-12-codex-tui-parsing/), which is the current qualification evidence.
+- [Hook Observation Channel](../houmao-server/state-tracking.md#hook-observation-channel)
+
+The concrete examples here were confirmed from the maintained complex capture logged in [20260323-124129.md](../../../context/logs/runs/20260323-124129-robust-tui-turn-lifecycle-quality-gate-signals/20260323-124129.md) and updated for Codex 0.162.x from the blind-labeled 0.162.1 recordings of the [2026-10-12 codex TUI parsing campaign](../../../context/campaigns/debug/2026-10-12-codex-tui-parsing/), which is the current qualification evidence. The hook adapter contract below was validated against codex-cli 0.163.0 in the [2026-10-20 Codex hook observation campaign](../../../context/campaigns/debug/2026-10-20-codex-hook-observation/), with the trust hash mirroring `extern/orphan/codex/codex-rs/hooks/` (`src/lib.rs`, `src/events/common.rs`, and `src/events/session_end.rs`).
+
+## Hook Observation Support
+
+Hook observation is an optional second signal source for managed Codex `local_interactive` sessions. Its supported floor is Codex 0.162.1 or later, the same floor used for TUI tracking: the Codex launch policy declares `supported_versions: ">=0.162.1"` in `src/houmao/agents/launch_policy/registry/codex.yaml`, and Codex hooks are stable and enabled by default across that range. The channel is opt-in and off by default. Enable the Codex adapter for new managed launches with `HOUMAO_HOOK_OBSERVATION_CODEX=1`; only the exact value `1` enables it, and any other value leaves TUI-only behavior unchanged. The adapter covers the managed `local_interactive` backend. `codex_headless`, joined sessions, unmanaged launches, and Kimi do not get this adapter; Claude uses the separate `HOUMAO_HOOK_OBSERVATION_CLAUDE` flag described in the [Claude Signal Reference](claude-signals.md#hook-observation-support).
+
+### Event Set
+
+The observer subscribes all 14 Codex hook events with one synchronous command handler each. Every handler runs the packaged emitter, which posts to the loopback collector and falls back to a file append; handlers always exit 0 and write nothing to standard output. Matchers are omitted so each handler observes every occurrence. `SessionEnd` uses a 2-second timeout inside Codex's 1-3 second clamp, and every other event uses 5 seconds.
+
+| Event | Dispatched at the supported floor | Posture contribution |
+|---|---|---|
+| `SessionStart` | Yes, lazily at first turn start | Opens the session; `source` is `startup`, `resume`, `compact`, `clear`, or `fork` |
+| `UserPromptSubmit` | Yes | Arms a turn; a second event carrying the running `turn_id` is steered input, not a new turn |
+| `PreToolUse` | Yes | Starts a tool call keyed by `tool_use_id` |
+| `PermissionRequest` | Yes | Enters `blocked`; carries no `tool_use_id`, so it pairs back to the preceding `PreToolUse` in the same turn by tool name and `tool_input.command` |
+| `PostToolUse` | Yes | Completes the tool call and settles an allow-path blocked wait |
+| `PreCompact` | Yes | Opens a maintenance window; `trigger` is `manual` or `auto` |
+| `PostCompact` | Yes | Closes the maintenance window |
+| `Stop` | Yes | Latches turn success; `stop_hook_active=true` marks a non-terminal stop |
+| `Interrupt` | Yes | Settles `interrupted`; also the deny path of an approval modal |
+| `SessionEnd` | Yes | Ends presence; an open turn becomes a terminal gap |
+| `PreModelRequest` | No | Counted as an unavailable event family |
+| `PostModelRequest` | No | Counted as an unavailable event family |
+| `SubagentStart` | No | Counted as an unavailable event family |
+| `SubagentStop` | No | Counted as an unavailable event family |
+
+The four non-dispatching events stay subscribed for forward compatibility. The reducer counts them as unavailable families in diagnostics and does not fail or degrade because of their silence. No model-request event and no `Stop` payload carries token usage, and no Codex payload exposes background-task state, so the `work` axis stays `unknown` for Codex sessions and hooks alone never produce `settled`. Codex also has no hook failure event at this floor, so a hook-settled `known_failure` remains Claude-only; a Codex stream that ends without `Stop`, `Interrupt`, or `SessionEnd` leaves the open turn truthfully `unknown`.
+
+### Trust Model
+
+Codex requires a trust decision for every hook handler. The managed launch writes the observer `hooks.json` into the runtime-owned `CODEX_HOME` and pre-trusts each handler with a Houmao-owned `[hooks.state."<absolute hooks.json path>:<snake_case event label>:<group index>:<handler index>"]` table carrying a `trusted_hash` value in the runtime-home `config.toml`. The generated hash reproduces Codex's own normalization: the matcher is kept only for matcher-capable events, the timeout is normalized (including the `SessionEnd`/`Interrupt` clamp), `commandWindows` is cleared, and `additionalContextLimit` is retained only for context-capable events and only when non-default.
+
+The pre-trust block is marker-delimited and generation-scoped, rewritten at every provider start. Cleanup removes the block and the observer `hooks.json` while preserving operator-authored `hooks.state` entries and every other `config.toml` line. The managed path does not add `--dangerously-bypass-hook-trust`, does not write the operator's Codex home or profile, and requires no operator action. The bypass flag remains a manual-lane fallback only. If either runtime-home surface cannot be written safely, the channel reports `unavailable` and the launch proceeds TUI-only.
+
+### Collector And Store
+
+Each opted-in session runs one collector process bound to `127.0.0.1` on an ephemeral port, using the same implementation as the Claude adapter but scoped to `<session_root>/hook-observation/codex/`. Deliveries authenticate with a per-session bearer token; the token reaches the provider through a `0600` launch wrapper rather than the launch plan environment. The collector appends accepted events to `events.ndjson` with owner-only permissions and publishes the secret-free `channel.json` and `collector.json` alongside it. Tracking consumers tail the file with their own offsets.
+
+### Channel States And Troubleshooting
+
+Read the current state from `observation_channels[0].state` (or `diagnostics.hook_channel_state`) on the terminal state response, or from `observation_channels` on gateway status. A passive server that cannot see the session root reports `state="unavailable"` with `detail="remote observation"`.
+
+| State | What it means | What to check |
+|---|---|---|
+| `active` | Current-generation events are arriving; hook facts have lifecycle authority. | No action. |
+| `unavailable` | No event yet, the 15-second startup grace elapsed with no event, the install failed, or the store is remote. Because `SessionStart` is lazy, an idle session can legitimately show `unavailable` before its first prompt. | Confirm `HOUMAO_HOOK_OBSERVATION_CODEX=1`, a managed Codex `local_interactive` launch, and Codex at or above 0.162.1. Read `channel.json` `install.detail`, verify the observer `hooks.json` and the pre-trust block in the runtime-home `config.toml`, and confirm the provider process inherited `HOUMAO_HOOK_TOKEN`. |
+| `stale` | The channel was active, then delivered no event for more than 30 seconds while the visible TUI kept changing. TUI regains lifecycle authority. | Confirm the collector is alive in `collector.json` and answers `/health`, check whether `events.ndjson` is still growing, and verify the pre-trust block survived the latest `config.toml` rewrite. A hook-latched terminal result persists through the stale window. |
+| `error` | The event store could not be read. | Check ownership and permissions on `<session_root>/hook-observation/codex/`. A read failure clears on the next healthy read; an `error` published in channel metadata is terminal. |
+| `stopped` | The collector stopped or the session stopped. Terminal. | Expected at session stop. If it appears mid-session, the collector died; a same-generation `collector.json` record with `status=stopped` is detected on the next poll cycle. |
+| `disabled_by_policy`, `untrusted_workspace` | Terminal policy states consumed from channel metadata. | The managed Codex launch path does not publish these today; honor them if an external producer does. The session remains TUI-only. |
+
+A provider upgrade that changes the trust hash algorithm or event names makes Codex skip the untrusted handlers silently. The channel detects this as startup event silence with a live collector, reports `unavailable` (a degraded channel), and keeps tracking TUI-only; a channel that was already active and then loses events follows the ordinary staleness rule to `stale`. The trust-hash fixture tests pin Codex's published vectors, so an upstream algorithm change fails CI before a production launch silently loses hooks.
 
 ## Scoping Rules
 

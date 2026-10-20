@@ -73,27 +73,28 @@ stateDiagram-v2
 When the opt-in hook observation channel is `active`, hook facts merge into the tracker at its existing projection layer. `surface.*` stays TUI-owned. The merged transitions are:
 
 1. Hook `prompt_submitted` enters `active` from any non-terminal posture, (re)arms the turn, and clears the previous terminal result. A prompt submitted while another prompt is armed enqueues behind it; terminal events consume armed prompts in arrival order.
-2. Only hook `permission_requested` enters `blocked`, and it records the blocked tool name when the payload carries one. TUI parsing never enters `blocked`.
-3. `blocked` exits to `active` on hook `permission_resolved` or TUI modal-dismissal evidence, including a positive `User rejected` line. The turn remains armed.
-4. A hook terminal event moves `active` or `blocked` to `ready` immediately, without waiting for the TUI repaint or settle window. The repaint window remains visible through `surface.*` and is reported as `hook_terminal_tui_active`.
+2. Only hook `permission_requested` enters `blocked`, and it records the blocked tool name when the payload carries one. For Codex it also records the paired tool call from the preceding `PreToolUse`. TUI parsing never enters `blocked`.
+3. For Claude, `blocked` exits to `active` on hook `permission_resolved` or TUI modal-dismissal evidence, including a positive `User rejected` line; the turn remains armed. For Codex, `blocked` exits on the paired `PostToolUse` (allow) or on `Interrupt` (deny, which settles the turn interrupted); TUI evidence does not settle a Codex blocked wait.
+4. A hook terminal event (`Stop`, `StopFailure`, or Codex `Interrupt`) moves `active` or `blocked` to `ready` immediately, without waiting for the TUI repaint or settle window. The repaint window remains visible through `surface.*` and is reported as `hook_terminal_tui_active`.
 5. Hook `active` or `blocked` holds `turn.phase` against a ready-looking TUI surface, reported as `hook_active_tui_ready` or `hook_blocked_tui_ready`.
-6. `maintenance_started` marks a maintenance window without invalidating the previous terminal outcome. `maintenance_ended` restores `active` when a turn is still armed, otherwise the pre-maintenance posture. Maintenance posture does not close admission by itself; TUI surface facts govern admission during compaction.
+6. `maintenance_started` marks a maintenance window without invalidating the previous terminal outcome. `maintenance_ended` restores `active` when a turn is still armed, otherwise the pre-maintenance posture. Maintenance posture does not close admission by itself; TUI surface facts govern admission during compaction. For Codex, the window holds posture across `PreCompact`/`PostCompact`, suppresses TUI idle heuristics, and the post-compact turn starts a new `turn_id` epoch.
 7. TUI stale-active and final stable-active recovery rules are unchanged and may return `active` to `ready`.
 8. A hook terminal event with no armed prompt is an orphan diagnostic (`hook_orphan_terminal`) and never manufactures a `last_turn`. Duplicate terminal deliveries for the same prompt are idempotent; the first terminal result wins.
 9. Events from an older channel generation are dropped before correlation (`hook_orphan_generation`).
+10. For Codex, stream end without `Stop`, `Interrupt`, or `SessionEnd` for an open turn, or `SessionEnd` with an open turn, publishes presence loss, `turn.phase=unknown`, and `hook_terminal_gap`; it never records success.
 
 ### Last-Turn Settlement With Hooks
 
-1. A hook `Stop` sets `last_turn.result=success`; a hook `StopFailure` sets `known_failure` and records the provider error class in `last_turn.error_class`. Settlement is immediate.
+1. A hook `Stop` sets `last_turn.result=success` and a hook `StopFailure` sets `known_failure` with the provider error class in `last_turn.error_class`. For Codex, `Interrupt` sets `last_turn.result=interrupted`. Settlement is immediate.
 2. `last_turn.source` is `hook_observation` for hook-settled turns, or `explicit_input` when a gateway submission record correlates with the same turn.
-3. Once a hook terminal event latches a turn, the pending TUI settle for that turn is suppressed. Later TUI evidence is discarded except that TUI temporal interrupt evidence for the same turn epoch, observed outside a maintenance window, may still flip the result to `interrupted`, reported as `hook_success_tui_interrupted`. Compaction repaints during the same epoch do not count as interrupt evidence.
+3. Once a hook terminal event latches a turn, the pending TUI settle for that turn is suppressed. For Claude, later TUI evidence is discarded except that TUI temporal interrupt evidence for the same turn epoch, observed outside a maintenance window, may still flip the result to `interrupted`, reported as `hook_success_tui_interrupted`. For Codex, the latched outcome is final for its epoch and no TUI heuristic rewrites it. Compaction repaints during the same epoch do not count as interrupt evidence.
 4. TUI settlement rules run unchanged when no hook terminal event exists for the turn.
-5. Hook events never settle `interrupted`.
-6. If the channel goes stale after a hook terminal event latched the turn, the latched `last_turn` persists through the degraded window with `work=unknown` and `settled=false`. On recovery, agreement with a TUI settlement keeps the TUI source. Disagreement applies the hook result as an explicit correction (`hook_correction_after_staleness`), except that a TUI `interrupted` settlement keeps `interrupted`.
+5. Hook events settle `interrupted` only through the Codex `Interrupt` event; Claude has no interrupt hook and keeps the outcome TUI-derived.
+6. If the channel goes stale after a hook terminal event latched the turn, the latched `last_turn` persists through the degraded window with `work=unknown` and `settled=false`. On recovery, agreement with a TUI settlement keeps the TUI source. Disagreement applies the hook result as an explicit correction (`hook_correction_after_staleness`), except that on Claude a TUI `interrupted` settlement keeps `interrupted` and on Codex the hook latch stands.
 
 ### Work And Settled
 
-`work` starts each channel generation as `unknown`. A `turn_completed` payload replaces it: listed background tasks set `pending`, none set `clear`. A `turn_failed` event makes no background-work statement and leaves the axis unchanged. Whenever the channel is not `active`, `work` is `unknown`.
+`work` starts each channel generation as `unknown`. A Claude `turn_completed` payload replaces it: listed background tasks set `pending`, none set `clear`. A `turn_failed` event makes no background-work statement and leaves the axis unchanged. The Codex adapter publishes `work=unknown` for every sample because no Codex payload carries a background-task mirror. Whenever the channel is not `active`, `work` is `unknown`.
 
 `settled` is derived, not stored independently: `turn.phase=ready` and `work=clear`. It is `false` for a degraded channel. `work=pending` never blocks admission in this release.
 
@@ -110,6 +111,8 @@ When the opt-in hook observation channel is `active`, hook facts merge into the 
 | `stopped` | Collector or session stopped; terminal. A same-generation `collector.json` record with `status=stopped` moves the channel to `stopped` on the next poll cycle. |
 
 Every state other than `active` is degraded: the channel contributes no new lifecycle authority, admission is byte-equivalent to TUI-only behavior, `work` is `unknown`, and `settled` is `false`. A hook-latched `last_turn` is the one persisted hook lifecycle fact during a stale window.
+
+Codex dispatches `SessionStart` lazily at the first turn start, so an idle session can remain `unavailable` past the 15-second startup grace until its first prompt; the first event still moves the channel to `active`. A provider upgrade that changes the trust hash algorithm makes Codex skip the untrusted handlers silently, which the channel observes as startup event silence with a live collector and reports as `unavailable` (degraded). A channel that was already active and then loses events follows the ordinary staleness rule to `stale`.
 
 ---
 

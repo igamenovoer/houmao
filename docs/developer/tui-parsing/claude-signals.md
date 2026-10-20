@@ -13,9 +13,9 @@ Use it together with:
 
 ## Hook Observation Support
 
-Hook observation is an optional second signal source for managed Claude `local_interactive` sessions. Its supported floor is Claude Code 2.1.296 or later, the same floor used for TUI tracking: the Claude launch policy declares `supported_versions: ">=2.1.296"` in `src/houmao/agents/launch_policy/registry/claude.yaml`, and the detector registry sets the Claude minimum supported version to `(2, 1, 296)` in `src/houmao/shared_tui_tracking/registry.py`. The hook installer itself does not re-check the version, so do not enable the channel on an unsupported Claude build. The channel is opt-in and off by default. Enable it for new managed launches with `HOUMAO_HOOK_OBSERVATION_CLAUDE=1`; only the exact value `1` enables it, and any other value leaves TUI-only behavior unchanged. v1 is Claude-only and covers the managed `local_interactive` backend. `claude_headless`, joined sessions, unmanaged launches, Codex, and Kimi do not get a channel.
+Hook observation is an optional second signal source for managed Claude `local_interactive` sessions. Its supported floor is Claude Code 2.1.296 or later, the same floor used for TUI tracking: the Claude launch policy declares `supported_versions: ">=2.1.296"` in `src/houmao/agents/launch_policy/registry/claude.yaml`, and the detector registry sets the Claude minimum supported version to `(2, 1, 296)` in `src/houmao/shared_tui_tracking/registry.py`. The hook installer itself does not re-check the version, so do not enable the channel on an unsupported Claude build. The channel is opt-in and off by default. Enable the Claude adapter for new managed launches with `HOUMAO_HOOK_OBSERVATION_CLAUDE=1`; only the exact value `1` enables it, and any other value leaves TUI-only behavior unchanged. This adapter covers the managed `local_interactive` backend only; `claude_headless`, joined sessions, and unmanaged launches remain TUI-only. Codex uses the separate adapter enabled by `HOUMAO_HOOK_OBSERVATION_CODEX`, documented in the [Codex Signal Reference](codex-signals.md#hook-observation-support).
 
-### v1 Event Set
+### Event Set
 
 The observer subscribes to nine provider events. `SessionStart` uses a command handler because HTTP hooks cannot deliver it; the other eight use HTTP handlers that post to the loopback collector.
 
@@ -31,7 +31,7 @@ The observer subscribes to nine provider events. `SessionStart` uses a command h
 | `PostToolUse` | HTTP | Records activity and resolves an outstanding permission wait |
 | `PostToolUseFailure` | HTTP | Records activity and resolves an outstanding permission wait |
 
-`PreToolUse`, `PostToolBatch`, `SubagentStart`, `SubagentStop`, `Notification`, and `SessionEnd` are not subscribed in v1.
+`PreToolUse`, `PostToolBatch`, `SubagentStart`, `SubagentStop`, `Notification`, and `SessionEnd` are not subscribed by the Claude adapter.
 
 ### Observer Injection
 
@@ -67,7 +67,7 @@ Read the current state from `observation_channels[0].state` (or `diagnostics.hoo
 | `error` | The event store could not be read. | Check ownership and permissions on `<session_root>/hook-observation/claude/`. A read failure clears on the next healthy read; an `error` published in channel metadata is terminal. |
 | `stopped` | The collector stopped or the session stopped. Terminal. | Expected at session stop. If it appears mid-session, the collector died; a same-generation `collector.json` record with `status=stopped` is detected on the next poll cycle, not through the 30-second staleness threshold. A later resume starts a new generation when no live collector exists, and a live collector is reused without a generation bump. |
 
-In v1, `untrusted_workspace` and `disabled_by_policy` are consumed from channel metadata but are not produced by the managed-launch path. The rows above describe how to respond if an external producer or a future launch path publishes them.
+The Claude adapter consumes `untrusted_workspace` and `disabled_by_policy` from channel metadata but does not produce them on the managed-launch path. The rows above describe how to respond if an external producer or a future launch path publishes them.
 
 Unsetting the flag prevents new launches from starting a collector or installing observer settings. A reused managed home can still carry an observer block from an earlier generation; it points at a stopped collector and produces no observations. The next opted-in launch rewrites the block with the current port and generation.
 
