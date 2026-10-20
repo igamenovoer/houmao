@@ -45,4 +45,4 @@
 
 ## Workflow follow-up
 
-- [ ] 8.1 During apply, keep `scripts/explore/codex-hook-observation/` frozen as campaign evidence; port (never import) from it, and record any upstream drift found via the trust-hash fixture tests as a dated note in the campaign directory
+- [x] 8.1 During apply, keep `scripts/explore/codex-hook-observation/` frozen as campaign evidence; port (never import) from it, and record any upstream drift found via the trust-hash fixture tests as a dated note in the campaign directory
