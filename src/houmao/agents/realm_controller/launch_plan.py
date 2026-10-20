@@ -51,8 +51,14 @@ from houmao.hook_observation.install import (
     hook_observation_applies,
     hook_observation_enabled,
     install_codex_observer_configuration,
+    install_kimi_observer_configuration,
     install_observer_configuration,
+    kimi_hook_artifact_dir,
+    remove_kimi_observer_configuration,
     write_channel_install_status,
+)
+from houmao.hook_observation.kimi_hooks_generator import (
+    build_collector_emitter_command as build_kimi_collector_emitter_command,
 )
 from .errors import LaunchPlanError, LaunchPolicyResolutionError
 from .loaders import RolePackage, parse_allowlisted_env
@@ -181,6 +187,14 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     if override_strategy:
         policy_env[_LAUNCH_POLICY_OVERRIDE_ENV_VAR] = override_strategy
 
+    if request.intent == "provider_start":
+        _strip_kimi_observer_block_before_policy_synthesis(
+            tool=tool,
+            backend=request.backend,
+            operator_prompt_mode=requested_operator_prompt_mode,
+            home_path=home_path,
+        )
+
     try:
         launch_policy_result = apply_launch_policy(
             LaunchPolicyRequest(
@@ -298,6 +312,32 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     )
 
 
+def _strip_kimi_observer_block_before_policy_synthesis(
+    *,
+    tool: str,
+    backend: BackendKind,
+    operator_prompt_mode: OperatorPromptMode | None,
+    home_path: Path,
+) -> None:
+    """Remove a persisted Kimi observer block before the launch policy writes fields.
+
+    The launch policy's ``toml.set`` surface re-renders the whole run-time
+    ``config.toml`` with a minimal serializer that cannot represent an existing
+    ``[[hooks]]`` array-of-tables, so a block left by an earlier generation
+    would fail policy synthesis on relaunch. Stripping first keeps the two
+    writers ordered: policy fields are synthesized here, and
+    :func:`_install_hook_observation_for_launch` re-merges the block afterwards.
+    Only the Kimi TUI unattended strategy writes ``config.toml`` fields, so
+    every other tool/backend/mode combination is left untouched.
+    """
+
+    if tool != "kimi" or backend != "local_interactive":
+        return
+    if operator_prompt_mode != "unattended":
+        return
+    remove_kimi_observer_configuration(home_path=home_path)
+
+
 def _install_hook_observation_for_launch(
     *,
     request: LaunchPlanRequest,
@@ -310,8 +350,9 @@ def _install_hook_observation_for_launch(
     The launch planner installs a provisional configuration with collector port
     ``0`` for the selected adapter. Runtime activation rewrites it with the real
     collector port before the provider starts. Flag-off,
-    non-``local_interactive``, unsupported-tool, and missing-session-root
-    requests are exact no-ops.
+    non-``local_interactive``, and missing-session-root requests are exact
+    no-ops. The launch policy's ``config.toml`` synthesis already ran before
+    this call, so the Kimi ``[[hooks]]`` merge never races a TOML re-render.
 
     Returns
     -------
@@ -327,8 +368,6 @@ def _install_hook_observation_for_launch(
     if not hook_observation_applies(tool=tool, backend=request.backend):
         return args, None
     if not hook_observation_enabled(tool=tool):
-        return args, None
-    if tool not in {"claude", "codex"}:
         return args, None
 
     session_root = request.session_root
@@ -362,6 +401,27 @@ def _install_hook_observation_for_launch(
             settings_path = codex_result.config_path
             appended_args = []
             detail = codex_result.detail
+    elif tool == "kimi":
+        try:
+            kimi_result = install_kimi_observer_configuration(
+                home_path=home_path,
+                generation=generation,
+                emitter_command=build_kimi_collector_emitter_command(
+                    port=0,
+                    store=kimi_hook_artifact_dir(session_root),
+                    generation=generation,
+                ),
+            )
+        except Exception as exc:
+            install_path = "unavailable"
+            settings_path = None
+            appended_args = []
+            detail = f"kimi observer install failed: {exc}"
+        else:
+            install_path = kimi_result.install_path
+            settings_path = kimi_result.config_path
+            appended_args = []
+            detail = kimi_result.detail
     else:
         try:
             result = install_observer_configuration(

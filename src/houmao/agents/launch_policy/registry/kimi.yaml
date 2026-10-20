@@ -15,6 +15,9 @@ strategies:
         - This strategy declares Kimi prompt-mode startup compatibility; credential readiness stays owned by the managed auth-bundle projection.
         - Kimi prompt mode internally uses auto permission handling and rejects --auto, --yolo, and --plan when combined with -p.
         - Houmao owns prompt placement, output format, session selectors, and managed --skills-dir injection for kimi_headless turns.
+        - Kimi hooks are stable across the supported range (>=2.1.1) with the full enriched payload contract since upstream 0.32.0 (2026-08-04), below the registry floor; managed hook observation is limited to local_interactive sessions and is opt-in per adapter via HOUMAO_HOOK_OBSERVATION_KIMI=1.
+        - In local_interactive sessions, managed hook observation merges a Houmao-owned marker-delimited 20-entry [[hooks]] observer block into the runtime-home config.toml and validates the merged file by strict read-back; Kimi silently voids the whole hooks section when any entry is malformed.
+        - "Kimi has no hook trust mechanism: managed launches need no trust pre-seed and no bypass flag, and the provider loads its hook table once per process, so install-before-start ordering is sufficient."
     system_prompt:
       method: native_home_system_prompt
       owned_surface: SYSTEM.md
@@ -39,6 +42,21 @@ strategies:
       - kind: live_probe
         ref: /home/huangzhe/.kimi-code/bin/kimi --version
         note: Installed Kimi Code 2.1.1 exposes maintained prompt-mode options and the native SYSTEM.md contract.
+      - kind: live_probe
+        ref: context/campaigns/debug/2026-10-20-kimi-hook-observation/reports/2026-10-20-kimi-hook-observation-synthesis.md
+        note: Campaign at kimi 2.2.0 proved the 20-event [[hooks]] schema, the absence of a trust gate, the load-once hook table, and strict read-back as the injection tripwire; enriched payloads date to upstream 0.32.0, below the >=2.1.1 floor.
+      - kind: live_probe
+        ref: context/campaigns/debug/2026-10-20-kimi-hook-observation/evidences/2026-10-20-s0-gate-smoke.md
+        note: S0 merged the observer entries into a seeded KIMI_CODE_HOME and launched kimi --auto unattended with zero prompts and hooks firing; SessionStart arrived after the first prompt because the TUI creates its session lazily.
+      - kind: live_probe
+        ref: context/campaigns/debug/2026-10-20-kimi-hook-observation/evidences/2026-10-20-s2-malformed-control.md
+        note: S2 added one unsupported [[hooks]] key and the provider dropped the entire section with only a warning, which is why the installer validates every merged file by strict read-back.
+      - kind: source_reference
+        ref: extern/orphan/kimi-code/packages/agent-core-v2/src/features/externalHooks/configSection.ts
+        note: Kimi source at 67325c1 declares the strict [[hooks]] schema (event, matcher, command, and timeout only) whose violation silently drops the whole section.
+      - kind: source_reference
+        ref: extern/orphan/kimi-code/packages/agent-core-v2/src/features/externalHooks/internal/types.ts
+        note: Kimi source at 67325c1 pins the 20 HOOK_EVENT_TYPES names the observer block subscribes.
     owned_paths:
       - path: config.toml
         keys:
@@ -50,6 +68,9 @@ strategies:
           - access_token
           - refresh_token
           - expires_at
+      - path: config.toml
+        keys:
+          - "hooks.[<entry index>].{event, matcher, command, timeout} (Houmao observer [[hooks]] block presence; local_interactive only)"
     actions:
       - kind: provider_hook.call
         params:
@@ -71,6 +92,10 @@ strategies:
         - This strategy declares Kimi TUI startup compatibility; credential readiness stays owned by the managed auth-bundle projection.
         - Kimi TUI unattended launch uses the native --auto flag for both fresh and resumed sessions; default_permission_mode = auto remains inspectable fallback state.
         - Houmao owns low-level Kimi permission and provider-session startup flags for unattended local-interactive launch; relaunch policy appends --continue or --session only when needed and does not submit a policy-changing chat command.
+        - Kimi hooks are stable across the supported range (>=2.1.1) with the full enriched payload contract since upstream 0.32.0 (2026-08-04), below the registry floor; managed hook observation is limited to local_interactive sessions and is opt-in per adapter via HOUMAO_HOOK_OBSERVATION_KIMI=1.
+        - Managed hook observation merges a Houmao-owned marker-delimited 20-entry [[hooks]] observer block into the runtime-home config.toml and validates the merged file by strict read-back; Kimi silently voids the whole hooks section when any entry is malformed.
+        - "Kimi has no hook trust mechanism: managed launches need no trust pre-seed and no bypass flag, and the provider loads its hook table once per process, so install-before-start ordering is sufficient."
+        - Launch-policy config.toml field synthesis runs before the observer merge and strips a persisted observer block first, because the policy TOML writer re-renders the file and cannot serialize an existing [[hooks]] array-of-tables.
     system_prompt:
       method: native_home_system_prompt
       owned_surface: SYSTEM.md
@@ -101,6 +126,21 @@ strategies:
       - kind: live_probe
         ref: /home/huangzhe/.kimi-code/bin/kimi --version
         note: Installed Kimi Code 2.1.1 accepts native --auto startup with current TUI session selectors and the v2 SYSTEM.md prompt surface.
+      - kind: live_probe
+        ref: context/campaigns/debug/2026-10-20-kimi-hook-observation/reports/2026-10-20-kimi-hook-observation-synthesis.md
+        note: Campaign at kimi 2.2.0 proved the 20-event [[hooks]] schema, the absence of a trust gate, the load-once hook table, and strict read-back as the injection tripwire; enriched payloads date to upstream 0.32.0, below the >=2.1.1 floor.
+      - kind: live_probe
+        ref: context/campaigns/debug/2026-10-20-kimi-hook-observation/evidences/2026-10-20-s0-gate-smoke.md
+        note: S0 merged the observer entries into a seeded KIMI_CODE_HOME and launched kimi --auto unattended with zero prompts and hooks firing; SessionStart arrived after the first prompt because the TUI creates its session lazily.
+      - kind: live_probe
+        ref: context/campaigns/debug/2026-10-20-kimi-hook-observation/evidences/2026-10-20-s2-malformed-control.md
+        note: S2 added one unsupported [[hooks]] key and the provider dropped the entire section with only a warning, which is why the installer validates every merged file by strict read-back.
+      - kind: source_reference
+        ref: extern/orphan/kimi-code/packages/agent-core-v2/src/features/externalHooks/configSection.ts
+        note: Kimi source at 67325c1 declares the strict [[hooks]] schema (event, matcher, command, and timeout only) whose violation silently drops the whole section.
+      - kind: source_reference
+        ref: extern/orphan/kimi-code/packages/agent-core-v2/src/features/externalHooks/internal/types.ts
+        note: Kimi source at 67325c1 pins the 20 HOOK_EVENT_TYPES names the observer block subscribes.
     owned_paths:
       - path: config.toml
         keys:
@@ -108,6 +148,9 @@ strategies:
       - path: .skip-migration-from-kimi-cli
         keys:
           - presence
+      - path: config.toml
+        keys:
+          - "hooks.[<entry index>].{event, matcher, command, timeout} (Houmao observer [[hooks]] block presence)"
     actions:
       - kind: provider_hook.call
         params:

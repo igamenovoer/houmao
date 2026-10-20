@@ -1,7 +1,7 @@
 """Runtime lifecycle for the CLI hook observation channel.
 
-This module owns the provider-launch side of the observation channel for both
-adapters:
+This module owns the provider-launch side of the observation channel for the
+Claude, Codex, and Kimi adapters:
 
 - starting the per-session loopback collector before the provider process
   exists, capturing its ephemeral port, and waiting until it answers health
@@ -11,8 +11,9 @@ adapters:
   launch wrapper, never through ``plan.env``);
 - rewriting the adapter's observer configuration with the real collector port
   and installing it before the provider starts: Claude's ``settings.json``
-  block or Codex's runtime-home ``hooks.json`` plus ``[hooks.state]``
-  pre-trust block;
+  block, Codex's runtime-home ``hooks.json`` plus ``[hooks.state]`` pre-trust
+  block, or Kimi's marker-delimited ``[[hooks]]`` block in the runtime-home
+  ``config.toml``;
 - allocating a new channel generation on every provider start or relaunch,
   and when a resume has to restart a dead collector, while adopting a live
   collector on control-plane resume;
@@ -50,12 +51,18 @@ from houmao.hook_observation.install import (
     hook_artifact_dir,
     hook_observation_enabled,
     install_codex_observer_configuration,
+    install_kimi_observer_configuration,
     install_observer_configuration,
+    kimi_hook_artifact_dir,
     mark_channel_stopped,
     read_channel_generation,
     remove_codex_observer_configuration,
+    remove_kimi_observer_configuration,
     remove_observer_configuration,
     write_channel_install_status,
+)
+from houmao.hook_observation.kimi_hooks_generator import (
+    build_collector_emitter_command as build_kimi_collector_emitter_command,
 )
 from houmao.hook_observation.settings_generator import TOKEN_ENV_VAR
 
@@ -444,6 +451,22 @@ def _install_observer_for_tool(
             appended_args=(),
             detail=codex_result.detail,
         )
+    if tool == "kimi":
+        kimi_result = install_kimi_observer_configuration(
+            home_path=plan.home_path,
+            generation=generation,
+            emitter_command=build_kimi_collector_emitter_command(
+                port=port,
+                store=kimi_hook_artifact_dir(session_root),
+                generation=generation,
+            ),
+        )
+        return _AdapterInstall(
+            install_path=kimi_result.install_path,
+            settings_path=kimi_result.config_path,
+            appended_args=(),
+            detail=kimi_result.detail,
+        )
     if tool != "claude":
         return _AdapterInstall(
             install_path="unavailable",
@@ -564,6 +587,8 @@ def _degrade(
     args = _strip_observer_settings_args(plan.args, metadata)
     if tool == "codex":
         remove_codex_observer_configuration(home_path=plan.home_path)
+    elif tool == "kimi":
+        remove_kimi_observer_configuration(home_path=plan.home_path)
     else:
         remove_observer_configuration(home_path=plan.home_path, session_root=session_root)
     write_channel_install_status(

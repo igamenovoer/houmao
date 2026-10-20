@@ -1029,3 +1029,106 @@ def test_codex_registry_documents_hook_observation_owned_surfaces() -> None:
         "context/campaigns/debug/2026-10-20-codex-hook-observation/" in ref for ref in evidence_refs
     )
     assert any("extern/orphan/codex/codex-rs/hooks/" in ref for ref in evidence_refs)
+
+
+def test_kimi_canonicalizers_leave_config_toml_hooks_untouched(tmp_path: Path) -> None:
+    home = tmp_path / "kimi-home"
+    home.mkdir()
+    config_path = home / "config.toml"
+    original_config = (
+        'default_permission_mode = "manual"\n'
+        "\n[[hooks]]\n"
+        'event = "Stop"\n'
+        'command = "houmao-emitter --generation 1"\n'
+        "timeout = 5\n"
+    )
+    config_path.write_text(original_config, encoding="utf-8")
+
+    headless_args = ["--auto", "--session", "session-1", "--model", "kimi-code"]
+    provider_hooks.run_provider_hook(
+        hook_id="kimi.canonicalize_unattended_launch_inputs",
+        request=LaunchPolicyRequest(
+            tool="kimi",
+            backend="kimi_headless",
+            executable="kimi",
+            base_args=(),
+            requested_operator_prompt_mode="unattended",
+            working_directory=tmp_path / "workspace",
+            home_path=home,
+            env={"KIMI_CODE_LEGACY_FLAG": "0"},
+        ),
+        args=headless_args,
+    )
+
+    assert headless_args == ["--model", "kimi-code"]
+    assert config_path.read_text(encoding="utf-8") == original_config
+
+    tui_args = ["--continue", "--session", "session-1"]
+    provider_hooks.run_provider_hook(
+        hook_id="kimi.canonicalize_unattended_tui_launch_inputs",
+        request=LaunchPolicyRequest(
+            tool="kimi",
+            backend="raw_launch",
+            executable="kimi",
+            base_args=(),
+            requested_operator_prompt_mode="unattended",
+            working_directory=tmp_path / "workspace",
+            home_path=home,
+            env={"KIMI_CODE_LEGACY_FLAG": "0"},
+        ),
+        args=tui_args,
+    )
+
+    assert tui_args == ["--auto"]
+    assert config_path.read_text(encoding="utf-8") == original_config
+
+
+def test_kimi_policy_toml_writer_cannot_serialize_an_existing_hooks_array(
+    tmp_path: Path,
+) -> None:
+    """Pin the constraint behind installing the observer block last."""
+
+    config_path = tmp_path / "config.toml"
+    original_config = (
+        'default_model = "kimi-code/kimi-for-coding"\n'
+        "\n[[hooks]]\n"
+        'event = "Stop"\n'
+        'command = "houmao-emitter --generation 1"\n'
+        "timeout = 5\n"
+    )
+    config_path.write_text(original_config, encoding="utf-8")
+
+    with pytest.raises(LaunchPolicyError, match="Unsupported TOML scalar value"):
+        provider_hooks.set_toml_key(
+            path=config_path,
+            key_path=("default_permission_mode",),
+            value="auto",
+        )
+
+    assert config_path.read_text(encoding="utf-8") == original_config
+
+
+def test_kimi_registry_documents_hook_observation_owned_surfaces() -> None:
+    documents = load_registry_documents(tool="kimi")
+
+    for strategy in documents[0].strategies:
+        config_keys = [
+            key for spec in strategy.owned_paths if spec.path == "config.toml" for key in spec.keys
+        ]
+        assert any(
+            "hooks." in key and "event, matcher, command, timeout" in key for key in config_keys
+        )
+
+        notes = "\n".join(strategy.minimal_inputs.notes)
+        assert "hooks are stable" in notes
+        assert ">=2.1.1" in notes
+        assert "0.32.0" in notes
+        assert "HOUMAO_HOOK_OBSERVATION_KIMI=1" in notes
+        assert "[[hooks]]" in notes
+
+        evidence_refs = [item.ref for item in strategy.evidence]
+        assert any(
+            "context/campaigns/debug/2026-10-20-kimi-hook-observation/" in ref
+            for ref in evidence_refs
+        )
+        assert any("extern/orphan/kimi-code/" in ref for ref in evidence_refs)

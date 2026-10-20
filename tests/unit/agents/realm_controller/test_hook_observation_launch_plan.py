@@ -6,6 +6,7 @@ import json
 import os
 import stat
 import subprocess
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -25,9 +26,19 @@ from houmao.agents.realm_controller.loaders import load_role_package
 from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
 from houmao.hook_observation.install import (
     HOOK_OBSERVATION_CLAUDE_ENV_FLAG,
+    HOOK_OBSERVATION_CODEX_ENV_FLAG,
+    HOOK_OBSERVATION_KIMI_ENV_FLAG,
+    KIMI_CONFIG_FILENAME,
     allocate_next_generation,
     claude_hook_artifact_dir,
     hook_observation_enabled,
+    kimi_hook_artifact_dir,
+    remove_kimi_observer_configuration,
+)
+from houmao.hook_observation.kimi_hooks_generator import (
+    KIMI_EVENTS,
+    OBSERVER_BLOCK_BEGIN_MARKER,
+    validate_hooks_file,
 )
 from houmao.hook_observation.settings_generator import (
     HTTP_EVENTS,
@@ -36,6 +47,8 @@ from houmao.hook_observation.settings_generator import (
 )
 
 FLAG = HOOK_OBSERVATION_CLAUDE_ENV_FLAG
+CODEX_FLAG = HOOK_OBSERVATION_CODEX_ENV_FLAG
+KIMI_FLAG = HOOK_OBSERVATION_KIMI_ENV_FLAG
 
 
 def _write(path: Path, text: str) -> None:
@@ -53,7 +66,15 @@ def _manifest(
     home_path = tmp_path / "home"
     home_path.mkdir(parents=True, exist_ok=True)
     env_file = tmp_path / "vars.env"
-    env_var = "ANTHROPIC_API_KEY" if tool == "claude" else "OPENAI_API_KEY"
+    if tool == "claude":
+        env_var = "ANTHROPIC_API_KEY"
+        home_env_var = "CLAUDE_CONFIG_DIR"
+    elif tool == "codex":
+        env_var = "OPENAI_API_KEY"
+        home_env_var = "CODEX_HOME"
+    else:
+        env_var = "KIMI_MODEL_API_KEY"
+        home_env_var = "KIMI_CODE_HOME"
     env_file.write_text(f"{env_var}=secret\n", encoding="utf-8")
     runtime: dict[str, Any] = {
         "runtime_root": str(tmp_path),
@@ -62,7 +83,7 @@ def _manifest(
         "launch_helper": str(home_path / "launch.sh"),
         "launch_executable": tool,
         "launch_home_selector": {
-            "env_var": "CLAUDE_CONFIG_DIR" if tool == "claude" else "CODEX_HOME",
+            "env_var": home_env_var,
             "value": str(home_path),
         },
         "launch_contract": {
@@ -514,3 +535,229 @@ def test_published_tmux_environment_never_contains_the_token(
     assert TOKEN_ENV_VAR not in published
     assert token not in published.values()
     assert token not in plan.env.values()
+
+
+def _stub_kimi_version(monkeypatch: pytest.MonkeyPatch, version: str = "2.1.1") -> None:
+    """Stub the provider version probes the Kimi launch flow performs."""
+
+    def _fake_run(
+        command: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+    ) -> subprocess.CompletedProcess[str]:
+        del check, capture_output, text
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout=f"kimi {version}",
+            stderr="",
+        )
+
+    monkeypatch.setattr("houmao.agents.launch_policy.engine.subprocess.run", _fake_run)
+
+
+def _kimi_config(home_path: Path) -> dict[str, Any]:
+    return tomllib.loads((home_path / KIMI_CONFIG_FILENAME).read_text(encoding="utf-8"))
+
+
+def _kimi_observer_entries(home_path: Path) -> list[dict[str, Any]]:
+    return [
+        entry
+        for entry in _kimi_config(home_path).get("hooks", [])
+        if "emitter.py" in entry.get("command", "")
+    ]
+
+
+def test_kimi_gate_is_open_for_local_interactive(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _stub_kimi_version(monkeypatch)
+    monkeypatch.setenv(KIMI_FLAG, "1")
+    session_root = tmp_path / "session"
+
+    plan = _build(
+        tmp_path,
+        manifest=_manifest(tmp_path, tool="kimi"),
+        session_root=session_root,
+    )
+
+    metadata = plan.metadata["hook_observation"]
+    assert metadata["install_path"] == "managed_home"
+    assert metadata["generation"] == 1
+    assert metadata["port"] is None
+    assert metadata["settings_path"] == str(tmp_path / "home" / KIMI_CONFIG_FILENAME)
+    assert metadata["settings_args"] == []
+    assert plan.env.get(TOKEN_ENV_VAR) is None
+    assert "--settings" not in plan.args
+
+    entries = _kimi_observer_entries(tmp_path / "home")
+    assert [entry["event"] for entry in entries] == list(KIMI_EVENTS)
+    for entry in entries:
+        assert set(entry) == {"event", "command", "timeout"}
+        assert entry["timeout"] == 5
+        assert "http://127.0.0.1:0/v1/hook" in entry["command"]
+        assert str(kimi_hook_artifact_dir(session_root)) in entry["command"]
+        assert "--generation 1" in entry["command"]
+    assert validate_hooks_file(tmp_path / "home" / KIMI_CONFIG_FILENAME).entry_count == len(
+        KIMI_EVENTS
+    )
+
+    channel = json.loads(
+        (kimi_hook_artifact_dir(session_root) / "channel.json").read_text(encoding="utf-8")
+    )
+    assert channel["channel_state"] == "installing"
+    assert channel["install"]["path"] == "managed_home"
+    assert channel["install"]["generation"] == 1
+    assert not (session_root / "hook-observation" / "claude").exists()
+    assert not (session_root / "hook-observation" / "codex").exists()
+
+
+def test_kimi_flag_is_required_and_headless_is_a_noop(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _stub_kimi_version(monkeypatch)
+    monkeypatch.delenv(KIMI_FLAG, raising=False)
+    monkeypatch.setenv(FLAG, "1")
+    monkeypatch.setenv(CODEX_FLAG, "1")
+    local_session_root = tmp_path / "local-session"
+
+    local_plan = _build(
+        tmp_path,
+        manifest=_manifest(tmp_path, tool="kimi"),
+        session_root=local_session_root,
+    )
+
+    assert "hook_observation" not in local_plan.metadata
+    assert not (tmp_path / "home" / KIMI_CONFIG_FILENAME).exists()
+    assert not local_session_root.exists()
+
+    monkeypatch.setenv(KIMI_FLAG, "1")
+    headless_session_root = tmp_path / "headless-session"
+    headless_plan = _build(
+        tmp_path,
+        manifest=_manifest(tmp_path, tool="kimi"),
+        session_root=headless_session_root,
+        backend="kimi_headless",
+    )
+
+    assert "hook_observation" not in headless_plan.metadata
+    assert not headless_session_root.exists()
+
+
+def test_kimi_managed_home_block_coexists_with_launch_policy_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _stub_kimi_version(monkeypatch)
+    monkeypatch.setenv(KIMI_FLAG, "1")
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / KIMI_CONFIG_FILENAME).write_text(
+        """
+default_model = "kimi-code/kimi-for-coding"
+extra_skill_dirs = ["/project/skills"]
+
+[providers."managed:kimi-code"]
+type = "moonshot"
+
+[models."kimi-k2.5"]
+provider = "managed"
+""".lstrip(),
+        encoding="utf-8",
+    )
+    session_root = tmp_path / "session"
+
+    plan = _build(
+        tmp_path,
+        manifest=_manifest(tmp_path, tool="kimi", operator_prompt_mode="unattended"),
+        session_root=session_root,
+    )
+
+    config_text = (home / KIMI_CONFIG_FILENAME).read_text(encoding="utf-8")
+    payload = _kimi_config(home)
+    assert payload["default_permission_mode"] == "auto"
+    assert payload["default_model"] == "kimi-code/kimi-for-coding"
+    assert payload["extra_skill_dirs"] == ["/project/skills"]
+    assert payload["providers"]["managed:kimi-code"]["type"] == "moonshot"
+    assert payload["models"]["kimi-k2.5"]["provider"] == "managed"
+    assert config_text.count(OBSERVER_BLOCK_BEGIN_MARKER) == 1
+    assert config_text.index("default_permission_mode") < config_text.index(
+        OBSERVER_BLOCK_BEGIN_MARKER
+    )
+    assert len(_kimi_observer_entries(home)) == len(KIMI_EVENTS)
+    report = validate_hooks_file(home / KIMI_CONFIG_FILENAME)
+    assert report.entry_count == len(KIMI_EVENTS)
+    assert "--auto" in plan.args
+    assert plan.metadata["hook_observation"]["install_path"] == "managed_home"
+
+
+def test_kimi_observer_block_survives_the_policy_rerender_on_relaunch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _stub_kimi_version(monkeypatch)
+    monkeypatch.setenv(KIMI_FLAG, "1")
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / KIMI_CONFIG_FILENAME).write_text(
+        'default_model = "kimi-code/kimi-for-coding"\n',
+        encoding="utf-8",
+    )
+    session_root = tmp_path / "session"
+
+    first = _build(
+        tmp_path,
+        manifest=_manifest(tmp_path, tool="kimi", operator_prompt_mode="unattended"),
+        session_root=session_root,
+    )
+    second = _build(
+        tmp_path,
+        manifest=_manifest(tmp_path, tool="kimi", operator_prompt_mode="unattended"),
+        session_root=session_root,
+    )
+
+    assert first.metadata["hook_observation"]["generation"] == 1
+    assert second.metadata["hook_observation"]["generation"] == 2
+    config_text = (home / KIMI_CONFIG_FILENAME).read_text(encoding="utf-8")
+    assert config_text.count(OBSERVER_BLOCK_BEGIN_MARKER) == 1
+    assert "generation 2" in config_text
+    assert "generation 1" not in config_text
+    payload = _kimi_config(home)
+    assert payload["default_permission_mode"] == "auto"
+    assert payload["default_model"] == "kimi-code/kimi-for-coding"
+    entries = _kimi_observer_entries(home)
+    assert len(entries) == len(KIMI_EVENTS)
+    assert all("--generation 2" in entry["command"] for entry in entries)
+    assert validate_hooks_file(home / KIMI_CONFIG_FILENAME).entry_count == len(KIMI_EVENTS)
+
+
+def test_kimi_teardown_removes_the_installed_block(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _stub_kimi_version(monkeypatch)
+    monkeypatch.setenv(KIMI_FLAG, "1")
+    home = tmp_path / "home"
+    home.mkdir()
+    original_config = (
+        'default_model = "kimi-code/kimi-for-coding"\n'
+        'extra_skill_dirs = ["/project/skills"]\n'
+        '\n[[hooks]]\nevent = "Notification"\ncommand = "notify-send kimi"\ntimeout = 10\n'
+    )
+    (home / KIMI_CONFIG_FILENAME).write_text(original_config, encoding="utf-8")
+    session_root = tmp_path / "session"
+
+    _build(
+        tmp_path,
+        manifest=_manifest(tmp_path, tool="kimi"),
+        session_root=session_root,
+    )
+    assert OBSERVER_BLOCK_BEGIN_MARKER in (home / KIMI_CONFIG_FILENAME).read_text(encoding="utf-8")
+
+    remove_kimi_observer_configuration(home_path=home)
+
+    assert (home / KIMI_CONFIG_FILENAME).read_text(encoding="utf-8") == original_config

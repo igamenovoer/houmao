@@ -20,10 +20,10 @@
 
 ## 4. Launch Integration
 
-- [ ] 4.1 Extend `hook_observation_launch.py` install dispatch with the Kimi branch (merge + validate + cleanup); collector lifecycle, token, wrapper env, and generation handling unchanged
-- [ ] 4.2 Open the `launch_plan.py` adapter gate to kimi (`{"claude", "codex"}` early-out removed); verify the kimi launch canonicalizers (`canonicalize_kimi_*`) never touch `config.toml` `[[hooks]]` entries, with a regression test either way (design D8)
-- [ ] 4.3 Update `registry/kimi.yaml`: document the Houmao-owned `[[hooks]]` observer block in `config.toml`, evidence refs (campaign + `extern/orphan/kimi-code` source), and the version-floor note (full payload contract since upstream 0.32.0, below the 2.1.1 floor)
-- [ ] 4.4 Launch-policy tests: synthesized runtime home contains the validated observer block alongside launch-policy-owned fields, wrapper env carries token/collector coordinates (never `plan.env`), relaunch allocates a new generation and rewrites the block, teardown removes it; mirror the codex registry content test for kimi.yaml
+- [x] 4.1 Extend `hook_observation_launch.py` install dispatch with the Kimi branch (merge + validate + cleanup); collector lifecycle, token, wrapper env, and generation handling unchanged
+- [x] 4.2 Open the `launch_plan.py` adapter gate to kimi (`{"claude", "codex"}` early-out removed); verify the kimi launch canonicalizers (`canonicalize_kimi_*`) never touch `config.toml` `[[hooks]]` entries, with a regression test either way (design D8)
+- [x] 4.3 Update `registry/kimi.yaml`: document the Houmao-owned `[[hooks]]` observer block in `config.toml`, evidence refs (campaign + `extern/orphan/kimi-code` source), and the version-floor note (full payload contract since upstream 0.32.0, below the 2.1.1 floor)
+- [x] 4.4 Launch-policy tests: synthesized runtime home contains the validated observer block alongside launch-policy-owned fields, wrapper env carries token/collector coordinates (never `plan.env`), relaunch allocates a new generation and rewrites the block, teardown removes it; mirror the codex registry content test for kimi.yaml
 
 ## 5. Tracker Merge
 
