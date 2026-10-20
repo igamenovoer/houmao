@@ -6,7 +6,7 @@ Each run creates an isolated scratch ``CODEX_HOME`` under
 ``tmp/codex-hook-capture/<scenario>/run-<UTCts>/``, writes the trust preseed
 and observer ``hooks.json``, starts the loopback collector, launches Codex in
 a detached tmux session through a credential launcher (default
-``~/.local/bin/codex-openlux-auto``; the ``codex-gac`` lane is also mapped),
+``~/.local/bin/codex-openlux-auto``),
 drives one frozen scenario arm, records the pane at 5 fps with the repo's
 terminal-record tool, and writes a labels template plus a ``launch.json``
 manifest (versions, flags, ports, paths, UTC/monotonic pairs, and codex binary
@@ -82,17 +82,6 @@ EVENT_NAMES: tuple[str, ...] = (
 SESSION_END_TIMEOUT_SECONDS = 2
 DEFAULT_HOOK_TIMEOUT_SECONDS = 5
 
-GAC_PROFILE_CONTENT = """model_provider = "gac"
-disable_response_storage = true
-
-[model_providers.gac]
-name = "GAC"
-base_url = "https://gaccode.com/codex/v1"
-wire_api = "responses"
-env_key = "GAC_API_KEY"
-requires_openai_auth = false
-"""
-
 OPENLUX_PROFILE_CONTENT = """model_provider = "openlux"
 disable_response_storage = true
 
@@ -130,12 +119,6 @@ LANES: dict[str, LaneSpec] = {
         profile_name="openlux-auto",
         profile_content=OPENLUX_PROFILE_CONTENT,
     ),
-    "gac": LaneSpec(
-        name="gac",
-        launcher_name="codex-gac",
-        profile_name="gac",
-        profile_content=GAC_PROFILE_CONTENT,
-    ),
 }
 
 
@@ -144,15 +127,12 @@ def resolve_lane(launcher: Path, override: str = "auto") -> LaneSpec:
 
     ``--lane`` wins when set. Otherwise the launcher basename selects the lane;
     an unknown custom launcher falls back to the default lane, which the
-    manifest records. Pass ``--lane gac`` for a custom GAC-profile launcher.
+    manifest records.
     """
 
     if override != "auto":
         return LANES[override]
-    name = launcher.name
-    if name == "codex-gac":
-        return LANES["gac"]
-    if "openlux" in name:
+    if "openlux" in launcher.name:
         return LANES["openlux-auto"]
     return LANES[DEFAULT_LANE]
 
@@ -2155,8 +2135,8 @@ def run_scenario(
     lane = resolve_lane(launcher, lane_override)
     if spec.requires_permission_lane and not allow_permission_lane:
         print(
-            "ABORTED (s3): credential launchers such as codex-openlux-auto and "
-            "codex-gac hardcode --dangerously-bypass-approvals-and-sandbox, and that "
+            "ABORTED (s3): the default codex-openlux-auto launcher "
+            "hardcodes --dangerously-bypass-approvals-and-sandbox, and that "
             "harness override wins over -c approval_policy, so PermissionRequest can "
             "never fire. Supply a custom launcher without the bypass via --launcher, "
             "name its lane with --lane, and add --allow-permission-lane.",
@@ -2768,17 +2748,16 @@ def self_test() -> int:
     checks.append(("scratch-home-pretrust-and-wrapper", prepared_ok, prepared_note))
 
     lane_checks = (
-        resolve_lane(Path("/x/codex-gac")).name == "gac",
         resolve_lane(Path("/x/codex-openlux-auto")).name == "openlux-auto",
         resolve_lane(Path("/x/custom-launcher")).name == DEFAULT_LANE,
-        resolve_lane(Path("/x/custom-launcher"), "gac").name == "gac",
+        resolve_lane(Path("/x/custom-launcher"), "openlux-auto").name == "openlux-auto",
     )
     checks.append(
         (
             "lane-mapping",
             all(lane_checks),
-            f"default={DEFAULT_LANE} gac={lane_checks[0]} openlux={lane_checks[1]} "
-            f"fallback={lane_checks[2]} override={lane_checks[3]}",
+            f"default={DEFAULT_LANE} openlux={lane_checks[0]} "
+            f"fallback={lane_checks[1]} override={lane_checks[2]}",
         )
     )
 

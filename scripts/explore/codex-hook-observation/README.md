@@ -7,7 +7,7 @@ implementing the harness checklist in
 
 **Throwaway experiment harness.** Nothing under this directory is production code, and nothing under `src/`, `tests/`, `openspec/`, `context/`, or `tools/` is modified by it. Delete the directory when the campaign closes.
 
-The harness captures Codex hook events from live TUI sessions: a loopback collector receives command-hook POSTs, a generated `$CODEX_HOME/hooks.json` subscribes all 14 events, a one-command runner creates an isolated scratch `CODEX_HOME`, launches Codex in detached tmux through the `codex-gac` credential lane, drives a frozen scenario arm with tracker-blind `tmux send-keys`, records the pane at 5 fps, and writes a labels template plus a `launch.json` manifest.
+The harness captures Codex hook events from live TUI sessions: a loopback collector receives command-hook POSTs, a generated `$CODEX_HOME/hooks.json` subscribes all 14 events, a one-command runner creates an isolated scratch `CODEX_HOME`, launches Codex in detached tmux through the `codex-openlux-auto` credential lane, drives a frozen scenario arm with tracker-blind `tmux send-keys`, records the pane at 5 fps, and writes a labels template plus a `launch.json` manifest.
 
 The provider-free G0 gate is built in and is the only execution the harness build requires. Live captures belong to the campaign execution checklist.
 
@@ -53,10 +53,10 @@ pixi run python scripts/explore/codex-hook-observation/run_capture.py --scenario
 # --interactive-trust is given.
 pixi run python scripts/explore/codex-hook-observation/run_capture.py --scenario s2
 
-# S3 permission lane. Refuses to run with the default codex-gac launcher; see
+# S3 permission lane. Refuses to run with the default codex-openlux-auto launcher; see
 # "Permission lane limitation" below.
 pixi run python scripts/explore/codex-hook-observation/run_capture.py --scenario s3 \
-  --launcher ~/.local/bin/<gac-launcher-without-approvals-bypass> --allow-permission-lane
+  --launcher <abs path to launcher-without-approvals-bypass> --allow-permission-lane
 
 # S4 manual compaction via /compact.
 pixi run python scripts/explore/codex-hook-observation/run_capture.py --scenario s4
@@ -82,7 +82,7 @@ pixi run python scripts/explore/codex-hook-observation/run_capture.py --scenario
 pixi run python scripts/explore/codex-hook-observation/run_capture.py --scenario t2
 ```
 
-Every arm except `s2` and `t1` passes `--dangerously-bypass-hook-trust` through the launcher. The default launcher is `codex-openlux-auto` (lane `openlux-auto`); `--launcher ~/.local/bin/codex-gac` selects the GAC profile, and `--lane gac` selects GAC for a custom launcher name. Both credential launchers hardcode `--dangerously-bypass-approvals-and-sandbox`; the S3 permission lane requires a custom launcher that does not.
+Every arm except `s2` and `t1` passes `--dangerously-bypass-hook-trust` through the launcher. The default (and only mapped) lane is `codex-openlux-auto` (`openlux-auto`); a custom launcher whose basename contains `openlux` selects the same profile, and any other name falls back to the default lane. The lane launcher hardcodes `--dangerously-bypass-approvals-and-sandbox`; the S3 permission lane requires a custom launcher that does not.
 
 **SessionStart timing.** Codex 0.163 queues the startup `SessionStart` source at session creation and dispatches it from `run_pending_session_start_hooks` only when the first turn starts (`core/src/session/turn.rs:340`). The bootstrap therefore observes the pre-prompt surface for 3 s but does not require the event there; each arm's first frozen prompt waits for `SessionStart` with `require_session_start_on_first_turn()`. Do not "fix" this back into a pre-prompt gate: a TUI at an idle composer never emits the event at this version.
 
@@ -111,7 +111,7 @@ tmp/codex-hook-capture/<scenario>/run-<UTCts>/
   codex-home/
     config.toml                    # [projects."<workdir>"] trust_level = "trusted"; [notice]
     hooks.json                     # 14 events, one sync command handler each (absent for T2)
-    <lane>.config.toml             # secret-free profile template, mode 0600 (openlux-auto or gac)
+    openlux-auto.config.toml       # secret-free profile template, mode 0600
   workdir/                         # git-less scratch cwd (s4 gets a small README.md)
   collector/
     events.ndjson                  # one envelope per event (sequence, received_at_utc ms,
@@ -169,13 +169,13 @@ Validation status: the canonicalizer reproduces two declaration hashes hard-code
 
 ## Scratch home and credential lane
 
-`run_capture.py` creates `codex-home/` before launch (Codex requires `CODEX_HOME` to exist), pre-writes the secret-free profile for the selected lane (`openlux-auto.config.toml` or `gac.config.toml`), exports `CODEX_HOME` in the wrapper, and execs the selected launcher with `--refresh-profile` on the first generation only. The launcher then rewrites the same profile, exports the provider key itself, and execs `codex --profile <lane> --dangerously-bypass-approvals-and-sandbox "$@"`. Extra args pass through, so `--dangerously-bypass-hook-trust`, `-c`, and `resume <id>` reach Codex. The live-verified default is OpenLux; the GAC lane is retained for comparison.
+`run_capture.py` creates `codex-home/` before launch (Codex requires `CODEX_HOME` to exist), pre-writes the secret-free `openlux-auto.config.toml` profile, exports `CODEX_HOME` in the wrapper, and execs the selected launcher with `--refresh-profile` on the first generation only. The launcher then rewrites the same profile, exports the provider key itself, and execs `codex --profile openlux-auto --dangerously-bypass-approvals-and-sandbox "$@"`. Extra args pass through, so `--dangerously-bypass-hook-trust`, `-c`, and `resume <id>` reach Codex.
 
 Credential hygiene: the provider API key is never read, printed, copied, or embedded by the harness. Only the per-run random bearer token appears in artifacts, inside the mode-0600 wrapper; `collector.json` and `launch.json` are token-free. Raw `events.ndjson` may contain prompt text and tool payloads; treat run roots as sensitive campaign evidence.
 
 ## Permission lane limitation (S3)
 
-Both `codex-openlux-auto` and `codex-gac` hardcode `--dangerously-bypass-approvals-and-sandbox`. Codex applies that flag as a harness override, which wins over `-c approval_policy=...`; therefore `PermissionRequest` cannot fire through either default lane. Build a permission launcher by copying the lane launcher with the flag removed (do not print the launcher's key line):
+`codex-openlux-auto` hardcodes `--dangerously-bypass-approvals-and-sandbox`. Codex applies that flag as a harness override, which wins over `-c approval_policy=...`; therefore `PermissionRequest` cannot fire through the default lane. Build a permission launcher by copying the lane launcher with the flag removed, exactly as the campaign did for `tmp/codex-hook-capture/launchers/codex-openlux-permission` (do not print the launcher's key line):
 
 ```bash
 mkdir -p tmp/codex-hook-capture/launchers
@@ -227,7 +227,7 @@ The reducer uses `turn_id` epochs, pairs `PermissionRequest` back to the precedi
 - Codex clamps `Interrupt` timeouts to 3 s; `hooks.json` declares 5 s, and `hash_hook.py` hashes the clamped value 3 s. The clamping warning is expected.
 - S2's `--interactive-trust` path was live-exercised on 2026-10-20: the marker moved `Review hooks` -> `Trust all and continue` with `Down`, `Enter` confirmed, and Codex wrote 12 `[hooks.state]` entries whose hashes matched `hash_hook.py` exactly (12/12).
 - T1's perturbation relaunch was live-exercised on 2026-10-20: changing only the `SessionStart` command in place painted the `1 hook is new or changed.` modal and no event ran; no keypress was sent.
-- The GAC lane is dead on this host (HTTP 402 "No active subscription", 2026-10-20). The campaign switched to `codex-openlux-auto`; the OpenLux S0 run completed a full OK turn.
+- The GAC lane is dead on this host (HTTP 402 "No active subscription", 2026-10-20) and its launcher was removed; the harness maps only the OpenLux lane. The campaign's S0 run on OpenLux completed a full OK turn.
 - `PreModelRequest`/`PostModelRequest` never fired in the 2026-10-20 TUI captures (S1, S4, S5, S6, S7, F1); the schema exists but the installed binary does not dispatch them in TUI mode.
 - S6's predeclared "second turn after queued input" is not what 0.163.0 does: the second prompt steers the running turn (same turn_id, one Stop). The runner now records this instead of waiting 240 s for a nonexistent Stop.
 - F1's pane recording ends with a pane-resolution failure (the tmux pane vanished on SIGKILL); this is the expected terminal-gap signature, not a recorder bug.
