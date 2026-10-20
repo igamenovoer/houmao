@@ -1,7 +1,7 @@
 """Per-consumer tailing reader for the session hook event store.
 
 Every tracking consumer owns one reader over the session-local
-``hook-observation/claude/events.ndjson`` file. The reader resumes from its
+``hook-observation/<adapter>/events.ndjson`` file. The reader resumes from its
 in-memory byte offset, refuses to consume an unterminated final line (the
 collector may still be writing it), drops records from older channel
 generations, and counts malformed or garbage lines instead of failing.
@@ -14,10 +14,12 @@ reducer, and health monitor. The tracker supplies the scheduler and drives one
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from houmao.hook_observation.codex_normalizer import CodexEventNormalizer
 from houmao.hook_observation.health import (
     STARTUP_GRACE_SECONDS,
     STALENESS_THRESHOLD_SECONDS,
@@ -26,12 +28,16 @@ from houmao.hook_observation.health import (
     HookChannelState,
     coerce_channel_state,
 )
-from houmao.hook_observation.models import HookEventEnvelope, HookObservation
+from houmao.hook_observation.models import (
+    HookAdapter,
+    HookEventEnvelope,
+    HookObservation,
+)
 from houmao.hook_observation.normalizer import normalize_envelope
 from houmao.hook_observation.reducer import HookPostureReducer
 from houmao.hook_observation.store import (
+    ADAPTER_DIRNAMES,
     CHANNEL_FILENAME,
-    CLAUDE_ADAPTER_DIRNAME,
     EVENTS_FILENAME,
     HOOK_OBSERVATION_DIRNAME,
     MAX_ENVELOPE_LINE_BYTES,
@@ -40,6 +46,7 @@ from houmao.hook_observation.store import (
 
 
 READ_CHUNK_BYTES = MAX_ENVELOPE_LINE_BYTES + 1
+EnvelopeNormalizer = Callable[[HookEventEnvelope], HookObservation]
 COLLECTOR_RECORD_FILENAME = "collector.json"
 _FORCED_HEALTH_STATES = frozenset({"disabled_by_policy", "untrusted_workspace", "error", "stopped"})
 _EXPLICIT_STATE_PRECEDES_COLLECTOR = frozenset(
@@ -108,7 +115,12 @@ class HookObservationReader:
     the next read. Later reads resume from the retained offset.
     """
 
-    def __init__(self, events_path: Path | str) -> None:
+    def __init__(
+        self,
+        events_path: Path | str,
+        *,
+        adapter: HookAdapter = "claude",
+    ) -> None:
         """Initialize one reader bound to an events file.
 
         Parameters
@@ -116,12 +128,27 @@ class HookObservationReader:
         events_path:
             Path to the session-local ``events.ndjson`` file. The file may not
             exist yet.
+        adapter:
+            Provider normalizer used for the stream. Defaults to ``"claude"``
+            so existing callers keep the provider-neutral Claude mapping.
         """
 
+        if adapter not in ADAPTER_DIRNAMES:
+            raise ValueError(f"unsupported hook observation adapter {adapter!r}")
         self.m_events_path: Path = Path(events_path)
+        self.m_adapter: HookAdapter = adapter
+        self.m_normalize: EnvelopeNormalizer = (
+            CodexEventNormalizer().normalize_envelope if adapter == "codex" else normalize_envelope
+        )
         self.m_offset: int = 0
         self.m_current_generation: int | None = None
         self.m_initialized: bool = False
+
+    @property
+    def adapter(self) -> HookAdapter:
+        """Return the provider normalizer selected for this reader."""
+
+        return self.m_adapter
 
     @property
     def events_path(self) -> Path:
@@ -216,6 +243,7 @@ class HookObservationReader:
         observations, dropped = _current_generation_observations(
             envelopes=chunk.envelopes,
             generation=generation,
+            normalize=self.m_normalize,
         )
         return HookReadBatch(
             observations=observations,
@@ -282,6 +310,7 @@ class HookObservationReader:
         observations, dropped = _current_generation_observations(
             envelopes=tuple(envelopes),
             generation=generation,
+            normalize=self.m_normalize,
         )
         return HookReadBatch(
             observations=observations,
@@ -327,6 +356,7 @@ class HookObservationChannel:
         startup_grace_seconds: float = STARTUP_GRACE_SECONDS,
         staleness_threshold_seconds: float = STALENESS_THRESHOLD_SECONDS,
         reducer: HookPostureReducer | None = None,
+        adapter: HookAdapter = "claude",
     ) -> None:
         """Initialize one channel input for a consumer.
 
@@ -344,12 +374,18 @@ class HookObservationChannel:
             Event-gap threshold for the stale state.
         reducer:
             Optional caller-owned posture reducer.
+        adapter:
+            Provider normalizer and posture rules for the channel. Defaults to
+            ``"claude"`` so existing callers are unchanged.
         """
 
-        self.m_reader = HookObservationReader(events_path)
+        if adapter not in ADAPTER_DIRNAMES:
+            raise ValueError(f"unsupported hook observation adapter {adapter!r}")
+        self.m_adapter: HookAdapter = adapter
+        self.m_reader = HookObservationReader(events_path, adapter=adapter)
         self.m_channel_path = Path(channel_path)
         self.m_collector_path = self.m_channel_path.with_name(COLLECTOR_RECORD_FILENAME)
-        self.m_reducer = reducer if reducer is not None else HookPostureReducer()
+        self.m_reducer = reducer if reducer is not None else HookPostureReducer(adapter=adapter)
         self.m_status: dict[str, Any] | None = channel_status
         forced_state = _forced_health_state(self.m_status)
         explicit_state = _explicit_channel_state(self.m_status)
@@ -370,6 +406,7 @@ class HookObservationChannel:
         cls,
         session_root: str | Path | None,
         *,
+        adapter: HookAdapter = "claude",
         startup_grace_seconds: float = STARTUP_GRACE_SECONDS,
         staleness_threshold_seconds: float = STALENESS_THRESHOLD_SECONDS,
         reducer: HookPostureReducer | None = None,
@@ -381,6 +418,10 @@ class HookObservationChannel:
         session_root:
             Session root that owns the hook subtree. ``None`` disables the
             channel.
+        adapter:
+            Adapter-owned artifact directory and posture rules. Defaults to
+            ``"claude"`` so existing callers keep reading
+            ``hook-observation/claude/``.
         startup_grace_seconds:
             Startup silence window for the health machine.
         staleness_threshold_seconds:
@@ -391,14 +432,17 @@ class HookObservationChannel:
         Returns
         -------
         HookObservationChannel | None
-            A channel when ``hook-observation/claude/channel.json`` exists and
-            parses as a JSON object; ``None`` otherwise.
+            A channel when the adapter's ``channel.json`` exists and parses as
+            a JSON object; ``None`` otherwise.
         """
 
         if session_root is None or not str(session_root).strip():
             return None
+        adapter_dirname = ADAPTER_DIRNAMES.get(adapter)
+        if adapter_dirname is None:
+            raise ValueError(f"unsupported hook observation adapter {adapter!r}")
         channel_dir = Path(session_root).expanduser() / HOOK_OBSERVATION_DIRNAME
-        channel_dir = channel_dir / CLAUDE_ADAPTER_DIRNAME
+        channel_dir = channel_dir / adapter_dirname
         channel_path = channel_dir / CHANNEL_FILENAME
         status = read_channel_status(channel_path)
         if status is None:
@@ -410,7 +454,14 @@ class HookObservationChannel:
             startup_grace_seconds=startup_grace_seconds,
             staleness_threshold_seconds=staleness_threshold_seconds,
             reducer=reducer,
+            adapter=adapter,
         )
+
+    @property
+    def adapter(self) -> HookAdapter:
+        """Return the provider adapter selected for this channel."""
+
+        return self.m_adapter
 
     @property
     def reader(self) -> HookObservationReader:
@@ -603,6 +654,7 @@ def _current_generation_observations(
     *,
     envelopes: tuple[HookEventEnvelope, ...],
     generation: int | None,
+    normalize: EnvelopeNormalizer = normalize_envelope,
 ) -> tuple[tuple[HookObservation, ...], int]:
     """Normalize current-generation envelopes and count dropped older rows."""
 
@@ -614,7 +666,7 @@ def _current_generation_observations(
         if envelope.channel_generation < generation:
             dropped += 1
             continue
-        observations.append(normalize_envelope(envelope))
+        observations.append(normalize(envelope))
     return tuple(observations), dropped
 
 

@@ -13,13 +13,16 @@ from collections import deque
 
 from reactivex import Observable, abc, operators as ops
 
+from houmao.hook_observation.codex_normalizer import CODEX_UNAVAILABLE_FLOOR_FAMILIES
 from houmao.hook_observation.models import (
+    HookAdapter,
     HookArmedPrompt,
     HookObservation,
     HookPosture,
     HookPostureCounters,
     HookPostureDiagnostic,
     HookPostureDiagnosticKind,
+    HookPresence,
     HookTerminalResult,
     HookTurnPhase,
     HookWorkState,
@@ -36,11 +39,18 @@ class HookPostureReducer:
     Each call to :meth:`reduce` consumes one observation in arrival order and
     returns the resulting immutable posture. Duplicate re-deliveries are
     idempotent when the envelope carries a sequence number.
+
+    ``adapter="claude"`` (the default) keeps the provider-neutral FIFO
+    armed-prompt rules. ``adapter="codex"`` selects the Codex turn-epoch rules
+    from the Codex hook-observation state-transition design: ``turn_id``
+    correlation, steer-within-epoch, ``Interrupt`` settlement, deny-aborts-turn
+    blocked settling, compaction windows, and truthful terminal gaps.
     """
 
     def __init__(
         self,
         *,
+        adapter: HookAdapter = "claude",
         diagnostic_capacity: int = 32,
         duplicate_window: int = 512,
     ) -> None:
@@ -48,6 +58,9 @@ class HookPostureReducer:
 
         Parameters
         ----------
+        adapter:
+            Provider posture-rule set. Defaults to ``"claude"`` so existing
+            callers keep the FIFO armed-prompt semantics.
         diagnostic_capacity:
             Maximum retained diagnostics. Older entries are discarded.
         duplicate_window:
@@ -55,10 +68,13 @@ class HookPostureReducer:
             duplicate detection.
         """
 
+        if adapter not in ("claude", "codex"):
+            raise ValueError(f"unknown adapter {adapter!r}")
         if diagnostic_capacity < 1:
             raise ValueError("diagnostic_capacity must be positive")
         if duplicate_window < 1:
             raise ValueError("duplicate_window must be positive")
+        self.m_adapter: HookAdapter = adapter
         self.m_diagnostic_capacity: int = diagnostic_capacity
         self.m_duplicate_window: int = duplicate_window
         self.m_diagnostics: deque[HookPostureDiagnostic] = deque(maxlen=diagnostic_capacity)
@@ -80,9 +96,16 @@ class HookPostureReducer:
         self.m_terminal_message_present: bool | None = None
         self.m_blocked: bool = False
         self.m_blocked_tool_name: str | None = None
+        self.m_blocked_tool_use_id: str | None = None
         self.m_maintenance_active: bool = False
         self.m_work: HookWorkState = "unknown"
         self.m_last_activity_is_interrupt: bool | None = None
+        self.m_presence: HookPresence = "unknown"
+        self.m_turn_id: str | None = None
+        self.m_turn_phase: HookTurnPhase = "unknown"
+        self.m_pre_maintenance_phase: HookTurnPhase | None = None
+        self.m_seen_event_names: set[str] = set()
+        self.m_finished: bool = False
         self.m_events_seen: int = 0
         self.m_normalized_events: int = 0
         self.m_unknown_events: int = 0
@@ -90,6 +113,12 @@ class HookPostureReducer:
         self.m_orphan_terminals: int = 0
         self.m_orphan_generations: int = 0
         self.m_duplicate_events: int = 0
+        self.m_steer_events: int = 0
+        self.m_turn_epochs: int = 0
+        self.m_compaction_boundaries: int = 0
+        self.m_allow_settles: int = 0
+        self.m_deny_settles: int = 0
+        self.m_terminal_gaps: int = 0
         self.m_last_event_name: str | None = None
         self.m_last_event_kind: NormalizedHookKind | None = None
         self.m_last_event_at_utc: str | None = None
@@ -99,8 +128,10 @@ class HookPostureReducer:
     def posture(self) -> HookPosture:
         """Return the current immutable posture snapshot."""
 
-        if self.m_armed_prompts:
-            turn_phase: HookTurnPhase = "blocked" if self.m_blocked else "active"
+        if self.m_adapter == "codex":
+            turn_phase: HookTurnPhase = self.m_turn_phase
+        elif self.m_armed_prompts:
+            turn_phase = "blocked" if self.m_blocked else "active"
         elif self.m_terminal_result != "none":
             turn_phase = "ready"
         else:
@@ -114,6 +145,12 @@ class HookPostureReducer:
             orphan_terminals=self.m_orphan_terminals,
             orphan_generations=self.m_orphan_generations,
             duplicate_events=self.m_duplicate_events,
+            steer_events=self.m_steer_events,
+            turn_epochs=self.m_turn_epochs,
+            compaction_boundaries=self.m_compaction_boundaries,
+            allow_settles=self.m_allow_settles,
+            deny_settles=self.m_deny_settles,
+            terminal_gaps=self.m_terminal_gaps,
         )
         return HookPosture(
             generation=self.m_generation,
@@ -145,12 +182,16 @@ class HookPostureReducer:
             last_event_kind=self.m_last_event_kind,
             last_event_at_utc=self.m_last_event_at_utc,
             last_sequence=self.m_last_sequence,
+            presence=self.m_presence,
+            turn_id=self.m_turn_id,
+            blocked_tool_use_id=self.m_blocked_tool_use_id,
         )
 
     def reduce(self, observation: HookObservation) -> HookPosture:
         """Consume one observation in arrival order and return the posture."""
 
         self.m_events_seen += 1
+        self.m_finished = False
         generation = observation.channel_generation
         if self.m_generation is not None:
             if generation < self.m_generation:
@@ -193,6 +234,10 @@ class HookPostureReducer:
         self.m_last_event_at_utc = observation.received_at_utc
         self.m_last_sequence = observation.sequence
 
+        if self.m_adapter == "codex":
+            self._apply_codex_observation(observation)
+            return self.posture
+
         if observation.kind == "session_started":
             self._apply_session_started(observation)
         elif observation.kind == "prompt_submitted":
@@ -214,6 +259,94 @@ class HookPostureReducer:
         else:
             self._count_unknown(observation)
         return self.posture
+
+    def finish(self, *, reason: str = "stream_end") -> HookPosture:
+        """Close the observation stream and return the final posture.
+
+        Only the Codex adapter defines a stream-end transition: an open turn
+        without ``Stop``/``Interrupt``/``SessionEnd`` is a terminal gap with
+        truthful ``unknown`` turn state. The Claude adapter has no such rule,
+        so this is a no-op there.
+
+        Parameters
+        ----------
+        reason:
+            Bounded reason label recorded in the terminal-gap diagnostic.
+
+        Returns
+        -------
+        HookPosture
+            Final posture after the stream-end fallback.
+        """
+
+        if self.m_adapter != "codex":
+            return self.posture
+        if self.m_finished:
+            return self.posture
+        self.m_finished = True
+        open_turn = (
+            self.m_turn_id is not None
+            or self.m_turn_phase in ("active", "blocked")
+            or bool(self.m_armed_prompts)
+        )
+        if open_turn:
+            self.m_terminal_gaps += 1
+            self._diagnose_at(
+                "hook_terminal_gap",
+                event_name=self.m_last_event_name or "<stream>",
+                received_at_utc=self.m_last_event_at_utc or "",
+                detail=f"{reason}:open_turn",
+            )
+            self.m_presence = "lost" if self.m_presence == "present" else self.m_presence
+            self.m_turn_phase = "unknown"
+            self.m_turn_id = None
+            self.m_armed_prompts.clear()
+            self._clear_blocked()
+            self._clear_terminal()
+        elif self.m_presence == "present":
+            self.m_presence = "unknown"
+        seen = self.m_seen_event_names
+        for family in CODEX_UNAVAILABLE_FLOOR_FAMILIES:
+            if family in seen:
+                continue
+            self._diagnose_at(
+                "hook_unavailable_event_family",
+                event_name=family,
+                received_at_utc=self.m_last_event_at_utc or "",
+                detail="not dispatched at the supported floor",
+            )
+        return self.posture
+
+    def _apply_codex_observation(self, observation: HookObservation) -> None:
+        """Dispatch one observation through the Codex turn-epoch rules."""
+
+        self.m_seen_event_names.add(observation.event_name)
+        if observation.kind == "session_started":
+            self._apply_codex_session_started(observation)
+        elif observation.kind == "prompt_submitted":
+            self._apply_codex_prompt_submitted(observation)
+        elif observation.kind in ("tool_started", "tool_completed", "activity"):
+            self._apply_codex_tool_activity(observation)
+        elif observation.kind == "permission_requested":
+            self._apply_codex_permission_requested(observation)
+        elif observation.kind == "permission_resolved":
+            self._clear_blocked()
+            if self.m_turn_id is not None:
+                self.m_turn_phase = "active"
+        elif observation.kind == "turn_completed":
+            self._apply_codex_terminal(observation, result="success")
+        elif observation.kind == "turn_interrupted":
+            self._apply_codex_terminal(observation, result="interrupted")
+        elif observation.kind == "turn_failed":
+            self._apply_codex_terminal(observation, result="known_failure")
+        elif observation.kind == "maintenance_started":
+            self._apply_codex_maintenance_started(observation)
+        elif observation.kind == "maintenance_ended":
+            self._apply_codex_maintenance_ended(observation)
+        elif observation.kind == "session_ended":
+            self._apply_codex_session_ended(observation)
+        else:
+            self._count_unknown(observation)
 
     def _apply_session_started(self, observation: HookObservation) -> None:
         """Apply one SessionStart with source-specific reset semantics."""
@@ -301,6 +434,238 @@ class HookPostureReducer:
         if result == "success" and observation.background_work_pending is not None:
             self.m_work = "pending" if observation.background_work_pending else "clear"
 
+    def _apply_codex_session_started(self, observation: HookObservation) -> None:
+        """Apply SessionStart: reset on start/resume, mark compact boundaries."""
+
+        self.m_presence = "present"
+        if observation.session_id is not None:
+            self.m_session_id = observation.session_id
+        self.m_session_started = True
+        self.m_session_start_source = observation.source
+        if observation.source == "compact":
+            self.m_compaction_boundaries += 1
+            self._diagnose(
+                "hook_compaction_boundary",
+                observation,
+                detail=observation.source,
+            )
+            if self.m_turn_phase == "unknown":
+                self.m_turn_phase = self.m_pre_maintenance_phase or "ready"
+            return
+        self._reset_turn_state()
+        self.m_turn_phase = "ready"
+
+    def _apply_codex_prompt_submitted(self, observation: HookObservation) -> None:
+        """Start a turn epoch, or keep a same-turn repeat as steered input."""
+
+        self.m_presence = "present"
+        same_turn = (
+            observation.turn_id is not None
+            and observation.turn_id == self.m_turn_id
+            and self.m_turn_phase in ("active", "blocked")
+        )
+        if observation.steer or same_turn:
+            self.m_steer_events += 1
+            self._diagnose(
+                "hook_steer_same_turn",
+                observation,
+                detail=observation.turn_id,
+            )
+            if self.m_turn_phase == "blocked":
+                self._diagnose("hook_prompt_during_blocked", observation)
+            else:
+                self.m_turn_phase = "active"
+            return
+        if self.m_turn_id is not None or self.m_armed_prompts:
+            self._diagnose(
+                "hook_turn_epoch_superseded",
+                observation,
+                detail=f"{self.m_turn_id}->{observation.turn_id}",
+            )
+        if self.m_maintenance_active:
+            self._diagnose("hook_prompt_during_maintenance", observation)
+            self.m_maintenance_active = False
+            self.m_pre_maintenance_phase = None
+        self.m_turn_id = observation.turn_id
+        self.m_turn_phase = "active"
+        self.m_armed_prompts.clear()
+        self.m_armed_prompts.append(
+            HookArmedPrompt(
+                prompt_id=observation.prompt_id,
+                provider_initiated=observation.provider_initiated,
+                sequence=observation.sequence,
+                armed_at_utc=observation.received_at_utc,
+            )
+        )
+        self._clear_blocked()
+        self._clear_terminal()
+        self.m_work = "unknown"
+        self.m_turn_epochs += 1
+
+    def _apply_codex_tool_activity(self, observation: HookObservation) -> None:
+        """Apply tool activity, settling blocked only on the paired completion."""
+
+        self.m_presence = "present"
+        self.m_last_activity_is_interrupt = observation.is_interrupt
+        if self.m_turn_id is None:
+            return
+        if observation.turn_id is not None and observation.turn_id != self.m_turn_id:
+            return
+        if observation.kind != "tool_completed":
+            if self.m_turn_phase != "blocked":
+                self.m_turn_phase = "active"
+            return
+        if self.m_blocked:
+            if self.m_blocked_tool_use_id is None or (
+                observation.tool_use_id == self.m_blocked_tool_use_id
+            ):
+                self.m_allow_settles += 1
+                self._clear_blocked()
+                self.m_turn_phase = "active"
+            else:
+                self._diagnose(
+                    "hook_blocked_tool_mismatch",
+                    observation,
+                    detail=f"{self.m_blocked_tool_use_id}!={observation.tool_use_id}",
+                )
+            return
+        self.m_turn_phase = "active"
+
+    def _apply_codex_permission_requested(self, observation: HookObservation) -> None:
+        """Enter blocked with the paired PreToolUse attribution when available."""
+
+        self.m_presence = "present"
+        if self.m_turn_id is None or (
+            observation.turn_id is not None and observation.turn_id != self.m_turn_id
+        ):
+            self._diagnose("permission_without_armed_prompt", observation)
+            return
+        self.m_blocked = True
+        self.m_blocked_tool_name = observation.tool_name
+        self.m_blocked_tool_use_id = observation.tool_use_id
+        self.m_turn_phase = "blocked"
+        if observation.tool_use_id is None:
+            self._diagnose(
+                "hook_permission_pair_unresolved",
+                observation,
+                detail=observation.tool_name,
+            )
+
+    def _apply_codex_terminal(
+        self,
+        observation: HookObservation,
+        *,
+        result: HookTerminalResult,
+    ) -> None:
+        """Latch success, interrupted, or known_failure for the open epoch."""
+
+        if observation.kind == "turn_completed" and observation.stop_hook_active is True:
+            self._diagnose(
+                "hook_stop_hook_active",
+                observation,
+                detail=f"terminal={observation.kind}",
+            )
+            if self.m_turn_id is not None:
+                self.m_turn_phase = "active"
+            return
+        if self.m_turn_id is None:
+            if observation.prompt_id is not None and self._is_recent_terminal(
+                generation=observation.channel_generation,
+                prompt_id=observation.prompt_id,
+            ):
+                self.m_duplicate_events += 1
+                self._diagnose(
+                    "hook_duplicate_event",
+                    observation,
+                    detail="terminal re-delivery",
+                )
+                return
+            self.m_orphan_terminals += 1
+            self._diagnose(
+                "hook_orphan_terminal",
+                observation,
+                detail=f"terminal={observation.kind}",
+            )
+            return
+        if observation.turn_id is not None and observation.turn_id != self.m_turn_id:
+            self.m_orphan_terminals += 1
+            self._diagnose(
+                "hook_orphan_terminal",
+                observation,
+                detail=(
+                    f"terminal={observation.kind}:turn_mismatch "
+                    f"{observation.turn_id}!={self.m_turn_id}"
+                ),
+            )
+            return
+        if result == "interrupted" and self.m_blocked:
+            self.m_deny_settles += 1
+            self._diagnose(
+                "hook_deny_aborted_turn",
+                observation,
+                detail=self.m_blocked_tool_name,
+            )
+        consumed = self.m_armed_prompts.popleft() if self.m_armed_prompts else None
+        self._note_terminal(
+            generation=observation.channel_generation,
+            prompt_id=observation.prompt_id or self.m_turn_id,
+        )
+        self.m_terminal_result = result
+        self.m_terminal_error_class = observation.error_class if result == "known_failure" else None
+        self.m_terminal_prompt_id = observation.prompt_id
+        self.m_terminal_consumed_prompt_id = (
+            consumed.prompt_id if consumed is not None else self.m_turn_id
+        )
+        self.m_terminal_stop_hook_active = observation.stop_hook_active
+        self.m_terminal_message_present = observation.last_assistant_message_present
+        self.m_turn_id = None
+        self.m_turn_phase = "ready"
+        self.m_armed_prompts.clear()
+        self._clear_blocked()
+
+    def _apply_codex_maintenance_started(self, observation: HookObservation) -> None:
+        """Open a compaction window and hold the current posture across it."""
+
+        self.m_presence = "present"
+        if not self.m_maintenance_active:
+            self.m_pre_maintenance_phase = self.m_turn_phase
+            self.m_maintenance_active = True
+        if self.m_turn_phase == "unknown":
+            self.m_turn_phase = "ready"
+
+    def _apply_codex_maintenance_ended(self, observation: HookObservation) -> None:
+        """Close the compaction window without minting a turn epoch."""
+
+        del observation
+        self.m_maintenance_active = False
+        if self.m_turn_phase == "unknown":
+            self.m_turn_phase = self.m_pre_maintenance_phase or "ready"
+        self.m_pre_maintenance_phase = None
+
+    def _apply_codex_session_ended(self, observation: HookObservation) -> None:
+        """Lose presence; an open turn becomes a truthful terminal gap."""
+
+        self.m_presence = "lost"
+        open_turn = (
+            self.m_turn_id is not None
+            or self.m_turn_phase in ("active", "blocked")
+            or bool(self.m_armed_prompts)
+        )
+        if open_turn:
+            self.m_terminal_gaps += 1
+            self._diagnose(
+                "hook_session_end_with_open_turn",
+                observation,
+                detail=self.m_turn_id,
+            )
+            self.m_turn_phase = "unknown"
+            self.m_turn_id = None
+            self.m_armed_prompts.clear()
+            self._clear_blocked()
+            self._clear_terminal()
+        self.m_maintenance_active = False
+        self.m_pre_maintenance_phase = None
+
     def _count_unknown(self, observation: HookObservation) -> None:
         """Count one unknown or malformed observation without posture changes."""
 
@@ -320,6 +685,7 @@ class HookPostureReducer:
 
         self.m_blocked = False
         self.m_blocked_tool_name = None
+        self.m_blocked_tool_use_id = None
 
     def _clear_terminal(self) -> None:
         """Clear the previous terminal latch for a newly armed turn."""
@@ -380,6 +746,7 @@ class HookPostureReducer:
         self.m_last_event_kind = None
         self.m_last_event_at_utc = None
         self.m_last_sequence = None
+        self.m_presence = "unknown"
         self._reset_turn_state()
 
     def _reset_turn_state(self) -> None:
@@ -394,7 +761,11 @@ class HookPostureReducer:
         self.m_terminal_message_present = None
         self.m_blocked = False
         self.m_blocked_tool_name = None
+        self.m_blocked_tool_use_id = None
         self.m_maintenance_active = False
+        self.m_pre_maintenance_phase = None
+        self.m_turn_id = None
+        self.m_turn_phase = "unknown"
         self.m_work = "unknown"
         self.m_last_activity_is_interrupt = None
         self.m_recent_terminals.clear()
@@ -415,6 +786,26 @@ class HookPostureReducer:
                 event_name=observation.event_name,
                 channel_generation=observation.channel_generation,
                 received_at_utc=observation.received_at_utc,
+                detail=detail,
+            )
+        )
+
+    def _diagnose_at(
+        self,
+        kind: HookPostureDiagnosticKind,
+        *,
+        event_name: str,
+        received_at_utc: str,
+        detail: str | None = None,
+    ) -> None:
+        """Append one diagnostic that is not tied to a single observation."""
+
+        self.m_diagnostics.append(
+            HookPostureDiagnostic(
+                kind=kind,
+                event_name=event_name,
+                channel_generation=self.m_generation or 0,
+                received_at_utc=received_at_utc,
                 detail=detail,
             )
         )

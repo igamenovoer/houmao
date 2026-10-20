@@ -1,6 +1,7 @@
-"""Runtime lifecycle for the Claude hook observation channel.
+"""Runtime lifecycle for the CLI hook observation channel.
 
-This module owns the provider-launch side of the observation channel:
+This module owns the provider-launch side of the observation channel for both
+adapters:
 
 - starting the per-session loopback collector before the provider process
   exists, capturing its ephemeral port, and waiting until it answers health
@@ -8,15 +9,19 @@ This module owns the provider-launch side of the observation channel:
 - generating the per-session bearer token and carrying it through the launch
   plan metadata only (the provider receives it through the ``local_interactive``
   launch wrapper, never through ``plan.env``);
-- rewriting the observer settings block with the real collector port and
-  installing it before the provider starts;
+- rewriting the adapter's observer configuration with the real collector port
+  and installing it before the provider starts: Claude's ``settings.json``
+  block or Codex's runtime-home ``hooks.json`` plus ``[hooks.state]``
+  pre-trust block;
 - allocating a new channel generation on every provider start or relaunch,
   and when a resume has to restart a dead collector, while adopting a live
   collector on control-plane resume;
 - stopping the collector when the session stops.
 
-Every observation failure degrades to ``unavailable`` and returns the original
-launch plan shape; instrumentation never fails a managed session.
+Artifacts are adapter-scoped under
+``<session_root>/hook-observation/<adapter>/``. Every observation failure
+degrades to ``unavailable`` and returns the original launch plan shape;
+instrumentation never fails a managed session.
 """
 
 from __future__ import annotations
@@ -36,16 +41,19 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Final, Mapping
 
+from houmao.hook_observation.codex_hooks_generator import build_collector_emitter_command
 from houmao.hook_observation.install import (
     COLLECTOR_RECORD_FILENAME,
     ObserverInstallPath,
-    ObserverInstallResult,
     allocate_next_generation,
-    claude_hook_artifact_dir,
+    codex_hook_artifact_dir,
+    hook_artifact_dir,
     hook_observation_enabled,
+    install_codex_observer_configuration,
     install_observer_configuration,
     mark_channel_stopped,
     read_channel_generation,
+    remove_codex_observer_configuration,
     remove_observer_configuration,
     write_channel_install_status,
 )
@@ -73,12 +81,22 @@ class CollectorHandle:
     generation: int
 
 
+@dataclass(frozen=True)
+class _AdapterInstall:
+    """Provider-neutral view of one adapter's observer install outcome."""
+
+    install_path: ObserverInstallPath
+    settings_path: Path | None
+    appended_args: tuple[str, ...]
+    detail: str | None
+
+
 def activate_hook_observation_for_provider_start(
     plan: LaunchPlan,
     *,
     session_root: Path,
 ) -> LaunchPlan:
-    """Start the collector and install observer settings before a provider start.
+    """Start the collector and install observer configuration before a provider start.
 
     The returned plan carries the fresh token in its ``hook_observation``
     metadata for the ``local_interactive`` launch wrapper. The plan environment
@@ -103,6 +121,7 @@ def activate_hook_observation_for_provider_start(
         return plan
     if metadata.get("install_path") == "unavailable":
         return plan
+    tool = plan.tool
     generation_value = metadata.get("generation")
     if (
         isinstance(generation_value, int)
@@ -111,11 +130,11 @@ def activate_hook_observation_for_provider_start(
     ):
         generation = generation_value
     else:
-        allocated = _allocate_generation(session_root)
+        allocated = _allocate_generation(session_root, tool=tool)
         if allocated is None:
             return plan
         generation = allocated
-    generation = max(generation, read_channel_generation(session_root))
+    generation = max(generation, read_channel_generation(session_root, tool=tool))
     return _activate(
         plan,
         session_root=session_root,
@@ -155,12 +174,13 @@ def ensure_hook_observation_on_resume(
     metadata = _hook_metadata(plan)
     if metadata is None or not metadata.get("enabled"):
         return plan
-    if not hook_observation_enabled(env):
+    tool = plan.tool
+    if not hook_observation_enabled(env, tool=tool):
         return plan
     if metadata.get("install_path") == "unavailable":
         return plan
 
-    existing = live_collector(session_root)
+    existing = live_collector(session_root, tool=tool)
     if existing is not None:
         updated_metadata = {
             **metadata,
@@ -178,10 +198,11 @@ def ensure_hook_observation_on_resume(
             settings_path=_optional_path(metadata.get("settings_path")),
             port=existing.port,
             collector_pid=existing.pid,
+            tool=tool,
         )
         return _with_hook_metadata(plan, updated_metadata)
 
-    generation = _allocate_generation(session_root)
+    generation = _allocate_generation(session_root, tool=tool)
     if generation is None:
         return plan
     return _activate(
@@ -192,21 +213,21 @@ def ensure_hook_observation_on_resume(
     )
 
 
-def _allocate_generation(session_root: Path) -> int | None:
+def _allocate_generation(session_root: Path, *, tool: str = "claude") -> int | None:
     """Allocate a generation, or return ``None`` when artifacts are unwritable."""
 
     try:
-        return allocate_next_generation(session_root)
+        return allocate_next_generation(session_root, tool=tool)
     except OSError:
         return None
 
 
-def stop_hook_observation(session_root: Path | None) -> None:
+def stop_hook_observation(session_root: Path | None, *, tool: str = "claude") -> None:
     """Stop the session's collector, tolerating an already-dead process."""
 
     if session_root is None:
         return
-    stop_collector(session_root)
+    stop_collector(session_root, tool=tool)
 
 
 def start_collector(
@@ -215,6 +236,7 @@ def start_collector(
     generation: int,
     token: str,
     timeout_seconds: float = COLLECTOR_START_TIMEOUT_SECONDS,
+    tool: str = "claude",
 ) -> CollectorHandle:
     """Start a detached collector subprocess and wait until it accepts traffic.
 
@@ -228,6 +250,8 @@ def start_collector(
         Bearer token passed only through the collector's environment.
     timeout_seconds:
         Maximum time to wait for the ``PORT`` line and a ready health endpoint.
+    tool:
+        Provider tool whose adapter directory owns the collector artifacts.
 
     Returns
     -------
@@ -241,7 +265,7 @@ def start_collector(
         healthy.
     """
 
-    artifact_dir = claude_hook_artifact_dir(session_root)
+    artifact_dir = hook_artifact_dir(session_root, tool=tool)
     artifact_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(artifact_dir, 0o700)
     log_path = artifact_dir / COLLECTOR_LOG_FILENAME
@@ -283,7 +307,7 @@ def start_collector(
     except BaseException:
         _terminate_process(process)
         raise
-    _COLLECTOR_PROCESSES[session_root.resolve()] = process
+    _COLLECTOR_PROCESSES[(session_root.resolve(), tool)] = process
     return CollectorHandle(pid=process.pid, port=port, generation=generation)
 
 
@@ -291,6 +315,7 @@ def stop_collector(
     session_root: Path,
     *,
     timeout_seconds: float = COLLECTOR_STOP_TIMEOUT_SECONDS,
+    tool: str = "claude",
 ) -> bool:
     """Stop the collector recorded in ``collector.json``.
 
@@ -300,6 +325,8 @@ def stop_collector(
         Session root that owns the hook artifact directory.
     timeout_seconds:
         Grace period after ``SIGTERM`` before ``SIGKILL``.
+    tool:
+        Provider tool whose adapter directory owns the collector artifacts.
 
     Returns
     -------
@@ -308,42 +335,42 @@ def stop_collector(
         collector existed or the record was unreadable.
     """
 
-    record = _read_collector_record(session_root)
+    record = _read_collector_record(session_root, tool=tool)
     if record is None:
         return False
     pid = _int_value(record.get("pid"))
     if pid is None or pid <= 0 or not _pid_running(pid):
-        _reap_registered_process(session_root)
-        _mark_channel_stopped_from_record(session_root, record)
+        _reap_registered_process(session_root, tool=tool)
+        _mark_channel_stopped_from_record(session_root, record, tool=tool)
         return False
     try:
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
-        _reap_registered_process(session_root)
-        _mark_channel_stopped_from_record(session_root, record)
+        _reap_registered_process(session_root, tool=tool)
+        _mark_channel_stopped_from_record(session_root, record, tool=tool)
         return False
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         if not _pid_running(pid):
-            _reap_registered_process(session_root)
-            _mark_channel_stopped_from_record(session_root, record)
+            _reap_registered_process(session_root, tool=tool)
+            _mark_channel_stopped_from_record(session_root, record, tool=tool)
             return True
-        if _collector_record_status(session_root) == "stopped":
-            _reap_registered_process(session_root)
-            _mark_channel_stopped_from_record(session_root, record)
+        if _collector_record_status(session_root, tool=tool) == "stopped":
+            _reap_registered_process(session_root, tool=tool)
+            _mark_channel_stopped_from_record(session_root, record, tool=tool)
             return True
         time.sleep(_POLL_INTERVAL_SECONDS)
     try:
         os.kill(pid, signal.SIGKILL)
     except ProcessLookupError:
-        _reap_registered_process(session_root)
-        _mark_channel_stopped_from_record(session_root, record)
+        _reap_registered_process(session_root, tool=tool)
+        _mark_channel_stopped_from_record(session_root, record, tool=tool)
         return True
     deadline = time.monotonic() + 2.0
     while time.monotonic() < deadline:
         if not _pid_running(pid):
-            _reap_registered_process(session_root)
-            _mark_channel_stopped_from_record(session_root, record)
+            _reap_registered_process(session_root, tool=tool)
+            _mark_channel_stopped_from_record(session_root, record, tool=tool)
             return True
         time.sleep(_POLL_INTERVAL_SECONDS)
     return False
@@ -353,6 +380,7 @@ def live_collector(
     session_root: Path,
     *,
     generation: int | None = None,
+    tool: str = "claude",
 ) -> CollectorHandle | None:
     """Return the running collector for one session, or ``None``.
 
@@ -362,6 +390,8 @@ def live_collector(
         Session root that owns the hook artifact directory.
     generation:
         Optional required generation.
+    tool:
+        Provider tool whose adapter directory owns the collector artifacts.
 
     Returns
     -------
@@ -370,7 +400,7 @@ def live_collector(
         answers.
     """
 
-    record = _read_collector_record(session_root)
+    record = _read_collector_record(session_root, tool=tool)
     if record is None or record.get("status") != "running":
         return None
     pid = _int_value(record.get("pid"))
@@ -387,6 +417,55 @@ def live_collector(
     return CollectorHandle(pid=pid, port=port, generation=record_generation)
 
 
+def _install_observer_for_tool(
+    *,
+    plan: LaunchPlan,
+    tool: str,
+    session_root: Path,
+    generation: int,
+    port: int,
+    resolved_args: list[str],
+) -> _AdapterInstall:
+    """Install one adapter's observer configuration for a live collector port."""
+
+    if tool == "codex":
+        codex_result = install_codex_observer_configuration(
+            home_path=plan.home_path,
+            generation=generation,
+            emitter_command=build_collector_emitter_command(
+                port=port,
+                store=codex_hook_artifact_dir(session_root),
+                generation=generation,
+            ),
+        )
+        return _AdapterInstall(
+            install_path=codex_result.install_path,
+            settings_path=codex_result.config_path,
+            appended_args=(),
+            detail=codex_result.detail,
+        )
+    if tool != "claude":
+        return _AdapterInstall(
+            install_path="unavailable",
+            settings_path=None,
+            appended_args=(),
+            detail=f"unsupported hook observation adapter {tool!r}",
+        )
+    result = install_observer_configuration(
+        home_path=plan.home_path,
+        session_root=session_root,
+        generation=generation,
+        port=port,
+        resolved_args=resolved_args,
+    )
+    return _AdapterInstall(
+        install_path=result.install_path,
+        settings_path=result.settings_path,
+        appended_args=tuple(result.appended_args),
+        detail=result.detail,
+    )
+
+
 def _activate(
     plan: LaunchPlan,
     *,
@@ -394,18 +473,20 @@ def _activate(
     generation: int,
     token: str,
 ) -> LaunchPlan:
-    """Start the collector, install settings, and return the updated plan."""
+    """Start the collector, install observer configuration, and return the plan."""
 
+    tool = plan.tool
     metadata = _hook_metadata(plan) or {}
     args = _strip_observer_settings_args(plan.args, metadata)
-    existing = live_collector(session_root)
+    existing = live_collector(session_root, tool=tool)
     if existing is not None:
-        stop_collector(session_root)
+        stop_collector(session_root, tool=tool)
     try:
         collector = start_collector(
             session_root=session_root,
             generation=generation,
             token=token,
+            tool=tool,
         )
     except Exception as exc:
         return _degrade(
@@ -416,29 +497,30 @@ def _activate(
         )
 
     try:
-        result = install_observer_configuration(
-            home_path=plan.home_path,
+        result = _install_observer_for_tool(
+            plan=plan,
+            tool=tool,
             session_root=session_root,
             generation=generation,
             port=collector.port,
             resolved_args=args,
         )
     except Exception as exc:
-        stop_collector(session_root)
+        stop_collector(session_root, tool=tool)
         return _degrade(
             plan,
             session_root=session_root,
             generation=generation,
-            detail=f"observer settings install failed: {exc}",
+            detail=f"observer configuration install failed: {exc}",
         )
 
     if result.install_path == "unavailable":
-        stop_collector(session_root)
+        stop_collector(session_root, tool=tool)
         return _degrade(
             plan,
             session_root=session_root,
             generation=generation,
-            detail=result.detail or "observer settings unavailable",
+            detail=result.detail or "observer configuration unavailable",
         )
 
     updated_metadata = _installed_metadata(
@@ -459,6 +541,7 @@ def _activate(
         settings_path=result.settings_path,
         port=collector.port,
         collector_pid=collector.pid,
+        tool=tool,
     )
     return replace(
         plan,
@@ -476,15 +559,20 @@ def _degrade(
 ) -> LaunchPlan:
     """Return a TUI-only plan after an observation failure."""
 
+    tool = plan.tool
     metadata = _hook_metadata(plan) or {}
     args = _strip_observer_settings_args(plan.args, metadata)
-    remove_observer_configuration(home_path=plan.home_path, session_root=session_root)
+    if tool == "codex":
+        remove_codex_observer_configuration(home_path=plan.home_path)
+    else:
+        remove_observer_configuration(home_path=plan.home_path, session_root=session_root)
     write_channel_install_status(
         session_root=session_root,
         generation=generation,
         install_path="unavailable",
         channel_state="unavailable",
         detail=detail,
+        tool=tool,
     )
     updated_metadata = {
         **metadata,
@@ -510,7 +598,7 @@ def _degrade(
 def _installed_metadata(
     *,
     plan: LaunchPlan,
-    result: ObserverInstallResult,
+    result: _AdapterInstall,
     generation: int,
     port: int,
     collector_pid: int,
@@ -657,10 +745,14 @@ def _collector_health(port: int) -> bool:
     return isinstance(payload, dict) and payload.get("state") == "running"
 
 
-def _read_collector_record(session_root: Path) -> dict[str, Any] | None:
+def _read_collector_record(
+    session_root: Path,
+    *,
+    tool: str = "claude",
+) -> dict[str, Any] | None:
     """Read the secret-free collector liveness record."""
 
-    path = claude_hook_artifact_dir(session_root) / COLLECTOR_RECORD_FILENAME
+    path = hook_artifact_dir(session_root, tool=tool) / COLLECTOR_RECORD_FILENAME
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -671,19 +763,21 @@ def _read_collector_record(session_root: Path) -> dict[str, Any] | None:
 def _mark_channel_stopped_from_record(
     session_root: Path,
     record: Mapping[str, Any],
+    *,
+    tool: str = "claude",
 ) -> None:
     """Publish a stopped channel state using one collector record."""
 
     generation = _int_value(record.get("generation"))
     if generation is None:
         return
-    mark_channel_stopped(session_root=session_root, generation=generation)
+    mark_channel_stopped(session_root=session_root, generation=generation, tool=tool)
 
 
-def _collector_record_status(session_root: Path) -> str | None:
+def _collector_record_status(session_root: Path, *, tool: str = "claude") -> str | None:
     """Return the collector record status label, if readable."""
 
-    record = _read_collector_record(session_root)
+    record = _read_collector_record(session_root, tool=tool)
     status = record.get("status") if record is not None else None
     return status if isinstance(status, str) else None
 
@@ -718,10 +812,10 @@ def _pid_running(pid: int) -> bool:
     return True
 
 
-def _reap_registered_process(session_root: Path) -> None:
+def _reap_registered_process(session_root: Path, *, tool: str = "claude") -> None:
     """Reap a collector child this process started, when present."""
 
-    process = _COLLECTOR_PROCESSES.pop(session_root.resolve(), None)
+    process = _COLLECTOR_PROCESSES.pop((session_root.resolve(), tool), None)
     if process is None:
         return
     try:
@@ -747,4 +841,4 @@ def _terminate_process(process: subprocess.Popen[bytes]) -> None:
             return
 
 
-_COLLECTOR_PROCESSES: dict[Path, subprocess.Popen[bytes]] = {}
+_COLLECTOR_PROCESSES: dict[tuple[Path, str], subprocess.Popen[bytes]] = {}

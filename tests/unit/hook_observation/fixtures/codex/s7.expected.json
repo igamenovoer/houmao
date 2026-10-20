@@ -1,0 +1,103 @@
+{
+  "scenario": "s7",
+  "capture": "s7/run-20261020T042433Z",
+  "source": "campaign replay_reduce.py RunSpec + tmp/codex-hook-capture/replay-all-timeline.log (2026-10-20 iteration-1 merge replay, zero mismatches)",
+  "events": [
+    "SessionStart",
+    "UserPromptSubmit",
+    "Stop",
+    "SessionEnd",
+    "SessionStart",
+    "UserPromptSubmit",
+    "Stop",
+    "SessionEnd"
+  ],
+  "rows": [
+    {
+      "event": "SessionStart",
+      "presence": "present",
+      "turn_phase": "ready",
+      "blocked": false,
+      "maintenance_active": false,
+      "last_turn_result": "none"
+    },
+    {
+      "event": "UserPromptSubmit",
+      "presence": "present",
+      "turn_phase": "active",
+      "blocked": false,
+      "maintenance_active": false,
+      "last_turn_result": "none"
+    },
+    {
+      "event": "Stop",
+      "presence": "present",
+      "turn_phase": "ready",
+      "blocked": false,
+      "maintenance_active": false,
+      "last_turn_result": "success"
+    },
+    {
+      "event": "SessionEnd",
+      "presence": "lost",
+      "turn_phase": "ready",
+      "blocked": false,
+      "maintenance_active": false,
+      "last_turn_result": "success"
+    },
+    {
+      "event": "SessionStart",
+      "presence": "present",
+      "turn_phase": "ready",
+      "blocked": false,
+      "maintenance_active": false,
+      "last_turn_result": "none"
+    },
+    {
+      "event": "UserPromptSubmit",
+      "presence": "present",
+      "turn_phase": "active",
+      "blocked": false,
+      "maintenance_active": false,
+      "last_turn_result": "none"
+    },
+    {
+      "event": "Stop",
+      "presence": "present",
+      "turn_phase": "ready",
+      "blocked": false,
+      "maintenance_active": false,
+      "last_turn_result": "success"
+    },
+    {
+      "event": "SessionEnd",
+      "presence": "lost",
+      "turn_phase": "ready",
+      "blocked": false,
+      "maintenance_active": false,
+      "last_turn_result": "success"
+    }
+  ],
+  "final": {
+    "presence": "lost",
+    "turn_phase": "ready",
+    "last_turn_result": "success",
+    "work": "unknown",
+    "generation": 2,
+    "counters": {
+      "events_seen": 8,
+      "turn_epochs": 2,
+      "steer_events": 0,
+      "compaction_boundaries": 0,
+      "allow_settles": 0,
+      "deny_settles": 0,
+      "terminal_gaps": 0
+    },
+    "unavailable_families": [
+      "PostModelRequest",
+      "PreModelRequest",
+      "SubagentStart",
+      "SubagentStop"
+    ]
+  }
+}

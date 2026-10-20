@@ -315,6 +315,12 @@ class HoumaoHookObservationCounters(_HoumaoModel):
     orphan_terminals: int = 0
     orphan_generations: int = 0
     duplicate_events: int = 0
+    steer_events: int = 0
+    turn_epochs: int = 0
+    compaction_boundaries: int = 0
+    allow_settles: int = 0
+    deny_settles: int = 0
+    terminal_gaps: int = 0
 
 
 class HoumaoObservationChannel(_HoumaoModel):

@@ -19,6 +19,7 @@ from reactivex.subject import Subject
 
 from houmao.hook_observation.health import HookChannelHealthSnapshot, HookChannelState
 from houmao.hook_observation.models import (
+    HookAdapter,
     HookObservation,
     HookPosture,
     HookPostureCounters,
@@ -123,6 +124,10 @@ class _FinalStableActiveRecoveryCandidate:
 
 EXPLICIT_INPUT_CORRELATION_SECONDS = 30.0
 HOOK_CONFLICT_REASON_LIMIT = 8
+_HOOK_ADAPTER_BY_TOOL: dict[str, HookAdapter] = {
+    "claude": "claude",
+    "codex": "codex",
+}
 
 
 @dataclass(frozen=True)
@@ -169,6 +174,7 @@ class _HookProjection:
     holds_lifecycle: bool
     conflict_reasons: tuple[str, ...]
     latch: _HookTurnLatch | None
+    adapter: HookAdapter = "claude"
     reader_orphan_generations: int = 0
 
 
@@ -251,6 +257,7 @@ class LiveSessionTracker:
         )
         self.m_active_turn_previous_last_turn = self.m_last_state.last_turn
         self.m_hook_channel: HookObservationChannel | None = None
+        self.m_hook_adapter: HookAdapter | None = None
         self.m_hook_subject: Subject[HookObservation] | None = None
         self.m_hook_posture_queue: deque[HookPosture] = deque()
         self.m_hook_posture: HookPosture | None = None
@@ -377,9 +384,13 @@ class LiveSessionTracker:
         with self.m_lock:
             if self.m_hook_channel is not None:
                 return True
-            if self.m_identity.tool != "claude":
+            adapter = _HOOK_ADAPTER_BY_TOOL.get(self.m_identity.tool)
+            if adapter is None:
                 return False
-            channel = HookObservationChannel.from_session_root(session_root)
+            channel = HookObservationChannel.from_session_root(
+                session_root,
+                adapter=adapter,
+            )
             if channel is None:
                 return False
             self._attach_hook_channel_locked(channel)
@@ -389,6 +400,7 @@ class LiveSessionTracker:
         """Attach one hook channel and its posture pipeline to this tracker."""
 
         self.m_hook_channel = channel
+        self.m_hook_adapter = channel.adapter
         self.m_hook_subject = Subject()
         self.m_hook_posture_queue = deque()
         self.m_hook_posture = channel.reducer.posture
@@ -740,6 +752,9 @@ class LiveSessionTracker:
                 monotonic_ts=monotonic_ts,
                 observed_at_utc=observed_at_utc,
                 output_text=output_text,
+                provider_liveness_lost=(
+                    transport_state == "tmux_missing" or process_state == "tui_down"
+                ),
             )
             if output_text is not None and self.m_tracker_session is not None:
                 self.m_tracker_session.on_snapshot(output_text)
@@ -1236,8 +1251,15 @@ class LiveSessionTracker:
         monotonic_ts: float,
         observed_at_utc: str,
         output_text: str | None,
+        provider_liveness_lost: bool,
     ) -> None:
-        """Read and fold new hook observations at one poll-cycle boundary."""
+        """Read and fold new hook observations at one poll-cycle boundary.
+
+        For the Codex adapter, provider liveness loss with no further stream
+        records closes the stream through the reducer's terminal-gap fallback.
+        The collector must still be healthy: a stopped collector is channel
+        degradation, not provider evidence (state-transitions section 4).
+        """
 
         channel = self.m_hook_channel
         if channel is None or self.m_hook_subject is None:
@@ -1266,6 +1288,18 @@ class LiveSessionTracker:
                 )
         if self.m_hook_posture is None:
             self.m_hook_posture = channel.reducer.posture
+        if (
+            self.m_hook_adapter == "codex"
+            and provider_liveness_lost
+            and not cycle.observations
+            and cycle.health.state == "active"
+        ):
+            self.m_hook_posture = channel.reducer.finish(reason="provider_liveness_lost")
+            self._note_hook_fold_locked(
+                posture=self.m_hook_posture,
+                monotonic_ts=monotonic_ts,
+                observed_at_utc=observed_at_utc,
+            )
         self.m_hook_reader_orphan_generations += cycle.dropped_old_generation_lines
         self.m_hook_cycle_reasons = self._hook_cycle_reasons_locked(
             posture=self.m_hook_posture,
@@ -1316,6 +1350,8 @@ class LiveSessionTracker:
                 reasons.append("hook_duplicate_event")
             if counters.orphan_generations > previous.orphan_generations:
                 reasons.append("hook_orphan_generation")
+            if counters.terminal_gaps > previous.terminal_gaps:
+                reasons.append("hook_terminal_gap")
         if cycle.dropped_old_generation_lines > 0:
             reasons.append("hook_orphan_generation")
         return _bounded_hook_reasons(reasons)
@@ -1423,9 +1459,15 @@ class LiveSessionTracker:
         monotonic_ts: float,
         observed_at_utc: str,
     ) -> None:
-        """Record TUI modal-dismissal evidence for the hook blocked exit."""
+        """Record TUI modal-dismissal evidence for the hook blocked exit.
+
+        Codex blocked settles only on the paired ``PostToolUse`` or
+        ``Interrupt`` hook events, so TUI evidence contributes nothing there.
+        """
 
         del observed_at_utc
+        if self.m_hook_adapter == "codex":
+            return
         modal_dismissed = False
         if parsed_surface is not None:
             if (
@@ -1500,7 +1542,7 @@ class LiveSessionTracker:
         if result == self.m_hook_previous_tui_last_turn_result:
             return
         self.m_hook_previous_tui_last_turn_result = result
-        if result == "interrupted":
+        if result == "interrupted" and self.m_hook_adapter != "codex":
             epoch = self._current_hook_turn_epoch_locked()
             armed_epoch = self.m_hook_armed_epochs[0] if self.m_hook_armed_epochs else None
             latch_epoch = self.m_hook_latch.epoch if self.m_hook_latch is not None else None
@@ -1543,14 +1585,46 @@ class LiveSessionTracker:
         A maintenance window holds an armed turn active but makes no lifecycle
         claim when no prompt is armed; TUI surface facts govern admission during
         operator-invoked compaction (state-transitions section 3, rules 7-8).
+        A Codex terminal gap publishes truthful presence loss: the turn is
+        unknown and no TUI observation may turn it into a success.
         """
 
         channel = self.m_hook_channel
         if channel is None:
             return None
+        adapter: HookAdapter = self.m_hook_adapter or channel.adapter
         posture = self.m_hook_posture or channel.reducer.posture
         health = self.m_hook_health if self.m_hook_health is not None else channel.health.snapshot()
         reasons: list[str] = list(self.m_hook_cycle_reasons)
+        if (
+            adapter == "codex"
+            and posture.presence == "lost"
+            and posture.turn_phase == "unknown"
+            and posture.counters.terminal_gaps > 0
+        ):
+            if "hook_terminal_gap" not in reasons:
+                reasons.append("hook_terminal_gap")
+            gap_last_turn = self._latched_last_turn_locked()
+            if gap_last_turn is None:
+                gap_last_turn = HoumaoTrackedLastTurn(
+                    result="none",
+                    source="none",
+                    updated_at_utc=None,
+                )
+            return _HookProjection(
+                health=health,
+                posture=posture,
+                turn_phase="unknown",
+                last_turn=gap_last_turn,
+                work="unknown",
+                settled=False,
+                blocked=False,
+                holds_lifecycle=False,
+                conflict_reasons=_bounded_hook_reasons(reasons),
+                latch=self.m_hook_latch,
+                adapter=adapter,
+                reader_orphan_generations=self.m_hook_reader_orphan_generations,
+            )
         if health.state != "active":
             if health.state == "stale":
                 reasons.append("hook_stale_tui_authoritative")
@@ -1574,12 +1648,13 @@ class LiveSessionTracker:
                 holds_lifecycle=False,
                 conflict_reasons=_bounded_hook_reasons(reasons),
                 latch=None,
+                adapter=adapter,
                 reader_orphan_generations=self.m_hook_reader_orphan_generations,
             )
 
         blocked = posture.blocked and not self._hook_blocked_cleared(posture)
         armed_turn = posture.armed_prompt_count > 0
-        holds_lifecycle = armed_turn
+        holds_lifecycle = armed_turn or (adapter == "codex" and posture.maintenance_active)
         if blocked:
             turn_phase: TurnPhase = "blocked"
         elif armed_turn:
@@ -1614,6 +1689,7 @@ class LiveSessionTracker:
             holds_lifecycle=holds_lifecycle,
             conflict_reasons=_bounded_hook_reasons(reasons),
             latch=self.m_hook_latch,
+            adapter=adapter,
             reader_orphan_generations=self.m_hook_reader_orphan_generations,
         )
 
@@ -1624,9 +1700,16 @@ class LiveSessionTracker:
         previous: HoumaoTrackedLastTurn,
         observed_at_utc: str,
     ) -> tuple[HoumaoTrackedLastTurn, list[str]]:
-        """Apply hook terminal authority to the tracked last-turn record."""
+        """Apply hook terminal authority to the tracked last-turn record.
+
+        Claude keeps the provider-neutral carve-out where temporal TUI
+        interrupt evidence may override a hook success. Codex `Interrupt` is a
+        hook event, so a latched Codex outcome is final for its epoch and no
+        TUI heuristic may rewrite it (state-transitions section 3).
+        """
 
         reasons: list[str] = []
+        tui_interrupt_authority = self.m_hook_adapter != "codex"
         tui_last_turn = _build_tracker_last_turn(
             previous=previous,
             tracker_state=tracker_state,
@@ -1649,7 +1732,7 @@ class LiveSessionTracker:
                     ),
                     reasons,
                 )
-            if settlement.result == "interrupted":
+            if settlement.result == "interrupted" and tui_interrupt_authority:
                 self.m_hook_suppressed_latch_identity = latch_identity
                 self.m_hook_tui_interrupt_applied_epoch = latch.epoch
                 if latch.result == "success":
@@ -1673,14 +1756,18 @@ class LiveSessionTracker:
                 },
             )
         if self.m_hook_suppressed_latch_identity == latch_identity:
-            if self._tui_interrupt_for_latch(tracker_state, latch):
+            if tui_interrupt_authority and self._tui_interrupt_for_latch(tracker_state, latch):
                 reasons.append("hook_success_tui_interrupted")
             return tui_last_turn, reasons
         result: TrackedLastTurnResult = latch.result
         source: TrackedLastTurnSource = (
             "explicit_input" if latch.explicit_input else "hook_observation"
         )
-        if result == "success" and self._tui_interrupt_for_latch(tracker_state, latch):
+        if (
+            result == "success"
+            and tui_interrupt_authority
+            and self._tui_interrupt_for_latch(tracker_state, latch)
+        ):
             result = "interrupted"
             reasons.append("hook_success_tui_interrupted")
         if result == "known_failure" and tracker_state.last_turn_result == "success":
@@ -2555,6 +2642,12 @@ def _hook_counters_payload(
         orphan_terminals=counters.orphan_terminals,
         orphan_generations=counters.orphan_generations + reader_orphan_generations,
         duplicate_events=counters.duplicate_events,
+        steer_events=counters.steer_events,
+        turn_epochs=counters.turn_epochs,
+        compaction_boundaries=counters.compaction_boundaries,
+        allow_settles=counters.allow_settles,
+        deny_settles=counters.deny_settles,
+        terminal_gaps=counters.terminal_gaps,
     )
 
 
@@ -2569,7 +2662,7 @@ def _build_observation_channels(
     return [
         HoumaoObservationChannel(
             channel="hook",
-            provider="claude",
+            provider=projection.adapter,
             state=projection.health.state,
             detail=projection.health.detail,
             generation=posture.generation,

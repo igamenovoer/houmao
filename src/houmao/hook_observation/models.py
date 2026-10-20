@@ -12,9 +12,11 @@ from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
 
+HookAdapter = Literal["claude", "codex"]
 HookDeliveryVia = Literal["http", "command", "command_fallback", "unknown"]
 HookRecordType = Literal["event", "generation_boundary"]
 HookStoreStatus = Literal["running", "stopped"]
+HookPresence = Literal["unknown", "present", "lost"]
 EnvelopeParseOutcome = Literal[
     "ok",
     "blank",
@@ -27,20 +29,24 @@ NormalizedHookKind = Literal[
     "session_started",
     "prompt_submitted",
     "activity",
+    "tool_started",
+    "tool_completed",
     "permission_requested",
     "permission_resolved",
     "turn_completed",
+    "turn_interrupted",
     "turn_failed",
     "maintenance_started",
     "maintenance_ended",
+    "session_ended",
     "generation_started",
     "unknown",
 ]
 HookTurnStateHint = Literal["none", "active", "blocked", "maintenance", "ended"]
-HookTerminalHint = Literal["none", "success", "known_failure"]
+HookTerminalHint = Literal["none", "success", "interrupted", "known_failure"]
 HookTurnPhase = Literal["ready", "active", "blocked", "unknown"]
 HookWorkState = Literal["pending", "clear", "unknown"]
-HookTerminalResult = Literal["success", "known_failure", "none"]
+HookTerminalResult = Literal["success", "interrupted", "known_failure", "none"]
 HookPostureDiagnosticKind = Literal[
     "hook_unknown_event",
     "hook_malformed_event",
@@ -50,6 +56,17 @@ HookPostureDiagnosticKind = Literal[
     "hook_stop_hook_active",
     "prompt_id_missing",
     "permission_without_armed_prompt",
+    "hook_steer_same_turn",
+    "hook_turn_epoch_superseded",
+    "hook_prompt_during_blocked",
+    "hook_prompt_during_maintenance",
+    "hook_permission_pair_unresolved",
+    "hook_blocked_tool_mismatch",
+    "hook_deny_aborted_turn",
+    "hook_compaction_boundary",
+    "hook_terminal_gap",
+    "hook_session_end_with_open_turn",
+    "hook_unavailable_event_family",
 ]
 
 
@@ -169,6 +186,11 @@ class HookObservation:
     The observation never carries prompt text, tool input, tool output, or
     assistant message text. Text-bearing provider fields are reduced to flags
     or bounded class names before they reach this model.
+
+    ``turn_id`` is the provider's turn-epoch key when the provider exposes one
+    (Codex does; Claude correlates by ``prompt_id``). ``steer`` marks a second
+    prompt submission that belongs to the running turn rather than minting a
+    new epoch.
     """
 
     kind: NormalizedHookKind
@@ -178,6 +200,8 @@ class HookObservation:
     sequence: int | None = None
     session_id: str | None = None
     prompt_id: str | None = None
+    turn_id: str | None = None
+    steer: bool = False
     tool_name: str | None = None
     tool_use_id: str | None = None
     agent_id: str | None = None
@@ -243,6 +267,12 @@ class HookPostureCounters:
     orphan_terminals: int = 0
     orphan_generations: int = 0
     duplicate_events: int = 0
+    steer_events: int = 0
+    turn_epochs: int = 0
+    compaction_boundaries: int = 0
+    allow_settles: int = 0
+    deny_settles: int = 0
+    terminal_gaps: int = 0
 
     def to_payload(self) -> dict[str, Any]:
         """Return a JSON-serializable payload."""
@@ -281,6 +311,9 @@ class HookPosture:
     last_event_kind: NormalizedHookKind | None
     last_event_at_utc: str | None
     last_sequence: int | None
+    presence: HookPresence = "unknown"
+    turn_id: str | None = None
+    blocked_tool_use_id: str | None = None
 
     @property
     def prompt_active(self) -> bool:

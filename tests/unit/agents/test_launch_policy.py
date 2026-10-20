@@ -966,3 +966,66 @@ def test_installed_claude_version_is_covered_by_declared_supported_versions_when
         f"for backend={backend!r}: version={detected_version.raw!r}, "
         f"matches={[item.strategy_id for item in matches]!r}"
     )
+
+
+def test_codex_canonicalization_preserves_hook_config_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The owned-surface deny-list never strips launch-owned or caller hook config."""
+
+    _stub_version(monkeypatch, output="codex-cli 0.162.1")
+    home = tmp_path / "codex-home"
+    home.mkdir()
+    (home / "auth.json").write_text('{"session_id":"abc"}\n', encoding="utf-8")
+    state_override = 'hooks.state."/runtime/home/hooks.json:stop:0:0".trusted_hash="sha256:abc"'
+    hooks_override = 'hooks.SessionStart=[{"hooks":[{"type":"command","command":"audit"}]}]'
+
+    result = apply_launch_policy(
+        LaunchPolicyRequest(
+            tool="codex",
+            backend="raw_launch",
+            executable="codex",
+            base_args=(
+                "-c",
+                state_override,
+                "--config",
+                hooks_override,
+                "-c",
+                'approval_policy="on-request"',
+            ),
+            requested_operator_prompt_mode="unattended",
+            working_directory=tmp_path / "workspace",
+            home_path=home,
+            env={},
+        )
+    )
+
+    assert state_override in result.args
+    assert hooks_override in result.args
+    assert '--config=approval_policy="never"' in result.args
+    assert 'approval_policy="on-request"' not in result.args
+    assert "--dangerously-bypass-hook-trust" not in result.args
+
+
+def test_codex_registry_documents_hook_observation_owned_surfaces() -> None:
+    documents = load_registry_documents(tool="codex")
+
+    strategy = documents[0].strategies[0]
+    owned = {spec.path: spec.keys for spec in strategy.owned_paths}
+    config_keys = owned["config.toml"]
+    assert any("hooks.state." in key and "trusted_hash" in key for key in config_keys)
+    assert len(owned["hooks.json"]) == 1
+    assert "hooks.<Event>" in owned["hooks.json"][0]
+
+    notes = "\n".join(strategy.minimal_inputs.notes)
+    assert "hooks are stable" in notes
+    assert ">=0.162.1" in notes
+    assert "HOUMAO_HOOK_OBSERVATION_CODEX=1" in notes
+    assert "--dangerously-bypass-hook-trust" in notes
+
+    evidence_refs = [item.ref for item in strategy.evidence]
+    assert any(
+        "context/campaigns/debug/2026-10-20-codex-hook-observation/" in ref for ref in evidence_refs
+    )
+    assert any("extern/orphan/codex/codex-rs/hooks/" in ref for ref in evidence_refs)

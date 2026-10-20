@@ -435,6 +435,7 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
             wrapper_path = write_launch_wrapper(
                 session_root=self._session_manifest_path.parent,
                 script=script,
+                tool=self._plan.tool,
             )
         except OSError as exc:
             _LOGGER.warning(

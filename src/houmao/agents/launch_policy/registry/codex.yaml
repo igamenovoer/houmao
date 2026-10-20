@@ -21,6 +21,8 @@ strategies:
         - User-authored no-prompt config files are not required.
         - Codex 0.162 removed the `-a untrusted` approval flag; only `on-request` and `never` remain.
         - Codex 0.162 renders the workspace-trust screen under full bypass in untrusted git workdirs, so the runtime-owned trust preseed stays load-bearing for unattended startup.
+        - Codex hooks are stable and default-on across the supported range (>=0.162.1); managed hook observation is limited to local_interactive sessions and is opt-in per adapter via HOUMAO_HOOK_OBSERVATION_CODEX=1.
+        - Managed hook observation pre-trusts every generated handler through runtime-home config.toml `[hooks.state]` entries and never adds `--dangerously-bypass-hook-trust` to managed launch args.
     system_prompt:
       method: native_developer_instructions
       owned_surface: developer_instructions
@@ -37,9 +39,27 @@ strategies:
       - kind: source_reference
         ref: extern/orphan/codex/codex-rs/core/src/config/edit.rs
         note: Codex source defines project trust, notice.hide_full_access_warning, model_migrations, and TUI config edit surfaces.
+      - kind: source_reference
+        ref: extern/orphan/codex/codex-rs/hooks/src/engine/discovery.rs
+        note: Codex installs a handler only when enabled and either trust-bypassed, managed, or the stored trusted_hash equals the normalized current hash; the managed path therefore pre-writes the hash instead of bypassing trust.
+      - kind: source_reference
+        ref: extern/orphan/codex/codex-rs/hooks/src/events/common.rs
+        note: Codex normalizes the handler identity (event label, matcher only where supported, timeout normalization, commandWindows clearing) before hashing, which the generator mirrors.
+      - kind: source_reference
+        ref: extern/orphan/codex/codex-rs/hooks/src/events/session_end.rs
+        note: SessionEnd clamps its timeout to 1-3 s; the observer uses 2 s for that event and 5 s elsewhere.
       - kind: live_probe
         ref: codex --version
         note: Fresh-home probe on installed codex-cli 0.162.1 (2026-10-12) reached the unattended ready composer with runtime-owned trust preseed, approval_policy=never, sandbox_mode=danger-full-access, and notice/tooltip suppression; the same probe without the trust preseed rendered the `Trust this folder?` screen under full bypass in an untrusted git workdir.
+      - kind: live_probe
+        ref: context/campaigns/debug/2026-10-20-codex-hook-observation/key-questions/KQ-1-unattended-trust-injection.md
+        note: Campaign at codex-cli 0.163.0 proved that runtime-home `[hooks.state."<key>".trusted_hash]` runs hooks unattended with no bypass flag and no trust modal, and that Codex's own trust-all writes hashes byte-identical to the generated ones.
+      - kind: live_probe
+        ref: context/campaigns/debug/2026-10-20-codex-hook-observation/evidences/2026-10-20-t1-pretrusted-hash.md
+        note: Generated pre-trust hashes were validated against the Codex runtime trust mechanism; perturbing a command invalidated its hash and stopped that handler.
+      - kind: live_probe
+        ref: context/campaigns/debug/2026-10-20-codex-hook-observation/evidences/2026-10-20-s2-trust-control-and-interactive.md
+        note: Control session with hooks but no trust wrote the review modal and dispatched no events; after trust-all the same hooks ran, confirming the pre-trust requirement.
     owned_paths:
       - path: config.toml
         keys:
@@ -49,6 +69,10 @@ strategies:
           - tui.show_tooltips
           - notice.model_migrations.gpt-5.3-codex
           - projects.<resolved_workdir>.trust_level
+          - hooks.state."<hook-observation hooks.json absolute path>:<snake_case event label>:<group index>:<handler index>".trusted_hash
+      - path: hooks.json
+        keys:
+          - hooks.<Event>[<group index>].hooks[<handler index>] (observer document presence)
     actions:
       - kind: provider_hook.call
         params:

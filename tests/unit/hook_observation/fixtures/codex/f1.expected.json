@@ -1,0 +1,49 @@
+{
+  "scenario": "f1",
+  "capture": "f1/run-20261020T042538Z",
+  "source": "campaign replay_reduce.py RunSpec + tmp/codex-hook-capture/replay-all-timeline.log (2026-10-20 iteration-1 merge replay, zero mismatches)",
+  "events": [
+    "SessionStart",
+    "UserPromptSubmit"
+  ],
+  "rows": [
+    {
+      "event": "SessionStart",
+      "presence": "present",
+      "turn_phase": "ready",
+      "blocked": false,
+      "maintenance_active": false,
+      "last_turn_result": "none"
+    },
+    {
+      "event": "UserPromptSubmit",
+      "presence": "present",
+      "turn_phase": "active",
+      "blocked": false,
+      "maintenance_active": false,
+      "last_turn_result": "none"
+    }
+  ],
+  "final": {
+    "presence": "lost",
+    "turn_phase": "unknown",
+    "last_turn_result": "none",
+    "work": "unknown",
+    "generation": 1,
+    "counters": {
+      "events_seen": 2,
+      "turn_epochs": 1,
+      "steer_events": 0,
+      "compaction_boundaries": 0,
+      "allow_settles": 0,
+      "deny_settles": 0,
+      "terminal_gaps": 1
+    },
+    "unavailable_families": [
+      "PostModelRequest",
+      "PreModelRequest",
+      "SubagentStart",
+      "SubagentStop"
+    ]
+  }
+}

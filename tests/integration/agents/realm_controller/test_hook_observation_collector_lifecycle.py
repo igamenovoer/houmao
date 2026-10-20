@@ -40,8 +40,10 @@ from houmao.agents.realm_controller.runtime import (
 )
 from houmao.hook_observation.install import (
     HOOK_OBSERVATION_CLAUDE_ENV_FLAG,
+    HOOK_OBSERVATION_CODEX_ENV_FLAG,
     allocate_next_generation,
     claude_hook_artifact_dir,
+    codex_hook_artifact_dir,
     install_observer_configuration,
 )
 from houmao.hook_observation.settings_generator import TOKEN_ENV_VAR
@@ -169,6 +171,39 @@ def test_collector_start_auth_and_stop(tmp_path: Path) -> None:
     assert record["status"] == "stopped"
     assert live_collector(session_root) is None
     assert stop_collector(session_root) is False
+
+
+def test_codex_collector_uses_the_codex_artifact_dir(tmp_path: Path) -> None:
+    session_root = tmp_path / "session"
+    token = "integration-codex-token"
+    handle = start_collector(session_root=session_root, generation=1, token=token, tool="codex")
+    try:
+        assert live_collector(session_root, tool="codex") == handle
+        assert live_collector(session_root) is None
+        assert _post(handle.port, {"hook_event_name": "Stop"}, token=None) == 403
+        assert _post(handle.port, {"hook_event_name": "SessionStart"}, token=token) == 204
+        deadline = time.monotonic() + 5.0
+        envelopes: tuple[Any, ...] = ()
+        while time.monotonic() < deadline:
+            envelopes = read_store(
+                codex_hook_artifact_dir(session_root) / "events.ndjson"
+            ).envelopes
+            if any(item.event_name == "SessionStart" for item in envelopes):
+                break
+            time.sleep(0.05)
+        accepted = [item for item in envelopes if item.event_name == "SessionStart"]
+        assert len(accepted) == 1
+        assert accepted[0].channel_generation == 1
+        assert not claude_hook_artifact_dir(session_root).exists()
+    finally:
+        assert stop_collector(session_root, tool="codex") is True
+
+    assert _wait_for_pid_exit(handle.pid)
+    record = json.loads(
+        (codex_hook_artifact_dir(session_root) / "collector.json").read_text(encoding="utf-8")
+    )
+    assert record["status"] == "stopped"
+    assert live_collector(session_root, tool="codex") is None
 
 
 def test_generation_isolation_across_collector_restarts(tmp_path: Path) -> None:
@@ -353,22 +388,28 @@ def test_activation_settings_conflict_degrades_and_leaves_no_collector(
     )
 
 
-def _seed_manifest(tmp_path: Path) -> Path:
+def _seed_manifest(tmp_path: Path, *, tool: str = "claude") -> Path:
     home_path = tmp_path / "home"
     home_path.mkdir(parents=True, exist_ok=True)
-    (home_path / "settings.json").write_text(
-        json.dumps({"skipDangerousModePermissionPrompt": True}) + "\n",
-        encoding="utf-8",
-    )
+    if tool == "claude":
+        (home_path / "settings.json").write_text(
+            json.dumps({"skipDangerousModePermissionPrompt": True}) + "\n",
+            encoding="utf-8",
+        )
+        env_name = "ANTHROPIC_API_KEY"
+        home_env_var = "CLAUDE_CONFIG_DIR"
+    else:
+        env_name = "OPENAI_API_KEY"
+        home_env_var = "CODEX_HOME"
     env_file = tmp_path / "vars.env"
-    env_file.write_text("ANTHROPIC_API_KEY=secret\n", encoding="utf-8")
+    env_file.write_text(f"{env_name}=secret\n", encoding="utf-8")
     manifest_path = tmp_path / "brain.yaml"
     manifest_path.write_text(
         "\n".join(
             [
                 "schema_version: 3",
                 "inputs:",
-                "  tool: claude",
+                f"  tool: {tool}",
                 "  skills: []",
                 "  setup: default",
                 "  auth: default",
@@ -379,9 +420,9 @@ def _seed_manifest(tmp_path: Path) -> Path:
                 "  home_id: test-home",
                 f"  home_path: {home_path}",
                 f"  launch_helper: {home_path / 'launch.sh'}",
-                "  launch_executable: claude",
+                f"  launch_executable: {tool}",
                 "  launch_home_selector:",
-                "    env_var: CLAUDE_CONFIG_DIR",
+                f"    env_var: {home_env_var}",
                 f"    value: {home_path}",
                 "  launch_contract:",
                 "    adapter_defaults:",
@@ -403,7 +444,7 @@ def _seed_manifest(tmp_path: Path) -> Path:
                 "  env_contract:",
                 f"    source_file: {env_file}",
                 "    allowlisted_env_vars:",
-                "      - ANTHROPIC_API_KEY",
+                f"      - {env_name}",
                 "launch_policy:",
                 "  operator_prompt_mode: as_is",
             ]
@@ -469,6 +510,57 @@ def test_start_runtime_session_starts_collector_before_backend_creation(
     assert len(session_roots) == 1
     assert _wait_for_pid_exit(handle.pid)
     assert live_collector(session_roots[0]) is None
+
+
+def test_codex_start_runtime_session_starts_collector_before_backend_creation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(HOOK_OBSERVATION_CODEX_ENV_FLAG, "1")
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(tmp_path / "registry"))
+    agent_def_dir = tmp_path / "repo"
+    _write(agent_def_dir / "roles/r/system-prompt.md", "Role prompt\n")
+    brain_manifest_path = _seed_manifest(tmp_path, tool="codex")
+    observed: dict[str, Any] = {}
+
+    def _fake_create_backend_session(**kwargs: Any) -> object:
+        manifest_path = Path(kwargs["session_manifest_path"])
+        session_root = manifest_path.parent
+        plan: LaunchPlan = kwargs["launch_plan"]
+        handle = live_collector(session_root, tool="codex")
+        observed["handle"] = handle
+        observed["hook_metadata"] = plan.metadata.get("hook_observation")
+        observed["hooks"] = json.loads((plan.home_path / "hooks.json").read_text(encoding="utf-8"))
+        raise _StopLaunch
+
+    monkeypatch.setattr(
+        runtime_module,
+        "_create_backend_session",
+        _fake_create_backend_session,
+    )
+
+    with pytest.raises(_StopLaunch):
+        start_runtime_session(
+            agent_def_dir=agent_def_dir,
+            brain_manifest_path=brain_manifest_path,
+            role_name="r",
+            runtime_root=tmp_path / "runtime",
+            backend="local_interactive",
+            working_directory=tmp_path,
+            agent_name="hookobs-codex",
+        )
+
+    handle = observed["handle"]
+    assert handle is not None
+    metadata = observed["hook_metadata"]
+    assert metadata["port"] == handle.port
+    command = observed["hooks"]["hooks"]["Stop"][0]["hooks"][0]["command"]
+    assert f"http://127.0.0.1:{handle.port}/v1/hook" in command
+
+    session_roots = list((tmp_path / "runtime" / "sessions" / "local_interactive").iterdir())
+    assert len(session_roots) == 1
+    assert _wait_for_pid_exit(handle.pid)
+    assert live_collector(session_roots[0], tool="codex") is None
 
 
 class _FakeBackend:

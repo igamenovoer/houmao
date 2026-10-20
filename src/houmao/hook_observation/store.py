@@ -1,9 +1,11 @@
-"""Append-only per-session store for raw Claude hook envelopes.
+"""Append-only per-session store for raw CLI hook envelopes.
 
 The store is the neutral fan-out primitive for the observation channel. One
 writer appends one JSON envelope per line under an exclusive file lock and
 maintains a secret-free ``channel.json`` status document with an atomic
-write-tmp-then-rename update.
+write-tmp-then-rename update. Each adapter owns a sibling directory under
+``<session_root>/hook-observation/`` so Claude and Codex channels never share
+a generation counter or event file.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ import threading
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Mapping, cast
+from typing import Any, Final, Mapping, cast
 
 from houmao.hook_observation.models import (
     EnvelopeParseResult,
@@ -28,6 +30,11 @@ from houmao.hook_observation.models import (
 
 HOOK_OBSERVATION_DIRNAME = "hook-observation"
 CLAUDE_ADAPTER_DIRNAME = "claude"
+CODEX_ADAPTER_DIRNAME = "codex"
+ADAPTER_DIRNAMES: Final[Mapping[str, str]] = {
+    "claude": CLAUDE_ADAPTER_DIRNAME,
+    "codex": CODEX_ADAPTER_DIRNAME,
+}
 EVENTS_FILENAME = "events.ndjson"
 CHANNEL_FILENAME = "channel.json"
 CHANNEL_TMP_FILENAME = "channel.json.tmp"
@@ -45,10 +52,16 @@ def _utc_now_iso() -> str:
 
 
 class HookObservationStore:
-    """Single-writer append-only store for one session's hook envelopes."""
+    """Single-writer append-only store for one session and adapter."""
 
-    def __init__(self, session_root: Path | str, *, generation: int = 1) -> None:
-        """Open or create the session store for one channel generation.
+    def __init__(
+        self,
+        session_root: Path | str,
+        *,
+        generation: int = 1,
+        adapter: str = "claude",
+    ) -> None:
+        """Open or create the session store for one adapter and generation.
 
         Parameters
         ----------
@@ -58,18 +71,25 @@ class HookObservationStore:
             Requested channel generation. A generation newer than every
             existing record appends a generation boundary; the newest existing
             generation is resumed; an older request is rejected.
+        adapter:
+            Adapter directory name under ``hook-observation/``; ``claude`` and
+            ``codex`` are supported.
 
         Raises
         ------
         ValueError
-            If ``generation`` is not positive or is older than the store.
+            If ``generation`` is not positive, ``adapter`` is unknown, or the
+            generation is older than the store.
         """
 
         if generation < 1:
             raise ValueError("generation must be positive")
+        adapter_dirname = ADAPTER_DIRNAMES.get(adapter)
+        if adapter_dirname is None:
+            raise ValueError(f"unsupported hook observation adapter {adapter!r}")
         self.m_session_root: Path = Path(session_root)
         self.m_observation_root: Path = self.m_session_root / HOOK_OBSERVATION_DIRNAME
-        self.m_directory: Path = self.m_observation_root / CLAUDE_ADAPTER_DIRNAME
+        self.m_directory: Path = self.m_observation_root / adapter_dirname
         self.m_events_path: Path = self.m_directory / EVENTS_FILENAME
         self.m_channel_path: Path = self.m_directory / CHANNEL_FILENAME
         self.m_write_lock: threading.Lock = threading.Lock()

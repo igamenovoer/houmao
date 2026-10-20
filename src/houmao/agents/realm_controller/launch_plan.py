@@ -41,12 +41,16 @@ from houmao.agents.launch_overrides import (
 )
 from houmao.agents.launch_overrides.models import SupportedLaunchBackend
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
+from houmao.hook_observation.codex_hooks_generator import build_collector_emitter_command
 from houmao.hook_observation.install import (
     TOKEN_ENV_VAR,
+    ObserverInstallPath,
     ObserverInstallResult,
     allocate_next_generation,
+    codex_hook_artifact_dir,
     hook_observation_applies,
     hook_observation_enabled,
+    install_codex_observer_configuration,
     install_observer_configuration,
     write_channel_install_status,
 )
@@ -303,16 +307,17 @@ def _install_hook_observation_for_launch(
 ) -> tuple[list[str], dict[str, Any] | None]:
     """Install the observer configuration for one provider-start plan.
 
-    The launch planner installs a provisional block with port ``0``. Runtime
-    activation rewrites it with the real collector port before the provider
-    starts. Flag-off, non-Claude, non-``local_interactive``, and
-    missing-session-root requests are exact no-ops.
+    The launch planner installs a provisional configuration with collector port
+    ``0`` for the selected adapter. Runtime activation rewrites it with the real
+    collector port before the provider starts. Flag-off,
+    non-``local_interactive``, unsupported-tool, and missing-session-root
+    requests are exact no-ops.
 
     Returns
     -------
     tuple[list[str], dict | None]
-        Effective arguments (the fallback pair appended when needed) and the
-        hook observation metadata, or the original arguments and ``None``.
+        Effective arguments (the Claude fallback pair appended when needed) and
+        the hook observation metadata, or the original arguments and ``None``.
     """
 
     if request.intent != "provider_start":
@@ -321,48 +326,83 @@ def _install_hook_observation_for_launch(
         return args, None
     if not hook_observation_applies(tool=tool, backend=request.backend):
         return args, None
-    if not hook_observation_enabled():
+    if not hook_observation_enabled(tool=tool):
+        return args, None
+    if tool not in {"claude", "codex"}:
         return args, None
 
     session_root = request.session_root
     try:
-        generation = allocate_next_generation(session_root)
+        generation = allocate_next_generation(session_root, tool=tool)
     except Exception:
         return args, None
-    try:
-        result = install_observer_configuration(
-            home_path=home_path,
-            session_root=session_root,
-            generation=generation,
-            port=0,
-            resolved_args=args,
-        )
-    except Exception as exc:
-        result = ObserverInstallResult(
-            install_path="unavailable",
-            generation=generation,
-            detail=f"observer install failed: {exc}",
-        )
+
+    install_path: ObserverInstallPath
+    settings_path: Path | None
+    appended_args: list[str]
+    detail: str | None
+    if tool == "codex":
+        try:
+            codex_result = install_codex_observer_configuration(
+                home_path=home_path,
+                generation=generation,
+                emitter_command=build_collector_emitter_command(
+                    port=0,
+                    store=codex_hook_artifact_dir(session_root),
+                    generation=generation,
+                ),
+            )
+        except Exception as exc:
+            install_path = "unavailable"
+            settings_path = None
+            appended_args = []
+            detail = f"codex observer install failed: {exc}"
+        else:
+            install_path = codex_result.install_path
+            settings_path = codex_result.config_path
+            appended_args = []
+            detail = codex_result.detail
+    else:
+        try:
+            result = install_observer_configuration(
+                home_path=home_path,
+                session_root=session_root,
+                generation=generation,
+                port=0,
+                resolved_args=args,
+            )
+        except Exception as exc:
+            result = ObserverInstallResult(
+                install_path="unavailable",
+                generation=generation,
+                detail=f"observer install failed: {exc}",
+            )
+        install_path = result.install_path
+        settings_path = result.settings_path
+        appended_args = list(result.appended_args)
+        detail = result.detail
+
     metadata: dict[str, Any] = {
         "enabled": True,
-        "install_path": result.install_path,
+        "install_path": install_path,
         "generation": generation,
         "port": None,
-        "settings_path": (str(result.settings_path) if result.settings_path is not None else None),
-        "settings_args": list(result.appended_args),
-        "detail": result.detail,
+        "settings_path": (str(settings_path) if settings_path is not None else None),
+        "settings_args": appended_args,
+        "detail": detail,
         "session_root": str(session_root.resolve()),
         "token_env": TOKEN_ENV_VAR,
     }
     write_channel_install_status(
         session_root=session_root,
         generation=generation,
-        install_path=result.install_path,
-        channel_state=("unavailable" if result.install_path == "unavailable" else "installing"),
-        detail=result.detail,
-        settings_path=result.settings_path,
+        install_path=install_path,
+        channel_state=("unavailable" if install_path == "unavailable" else "installing"),
+        detail=detail,
+        settings_path=settings_path,
+        tool=tool,
     )
-    return [*args, *result.appended_args], metadata
+    return [*args, *appended_args], metadata
 
 
 def _ensure_kimi_native_system_prompt_for_start(

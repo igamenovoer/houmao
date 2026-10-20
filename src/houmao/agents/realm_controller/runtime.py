@@ -1472,7 +1472,7 @@ def start_runtime_session(
             cao_parsing_mode=cao_parsing_mode,
         )
     except BaseException:
-        stop_hook_observation(hook_observation_root)
+        stop_hook_observation(hook_observation_root, tool=launch_plan.tool)
         raise
 
     resolved_tmux_session_name: str | None = None
@@ -3053,7 +3053,10 @@ def _activate_hook_observation_for_controller(
 def _stop_hook_observation_for_controller(controller: RuntimeSessionController) -> None:
     """Stop the controller session's collector, tolerating a missing record."""
 
-    stop_hook_observation(_hook_observation_session_root(controller))
+    stop_hook_observation(
+        _hook_observation_session_root(controller),
+        tool=controller.launch_plan.tool,
+    )
 
 
 def _memory_from_controller(
