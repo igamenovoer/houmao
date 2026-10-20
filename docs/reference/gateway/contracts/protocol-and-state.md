@@ -266,7 +266,7 @@ A representative configured hook channel on status:
 }
 ```
 
-`provider` names the active adapter, `"claude"` or `"codex"`. Counter fields omitted from the example keep their zero defaults; the full counter set is documented under [`observation_channels`](../../../developer/houmao-server/state-reference.md#observation_channels). `state` is one of `active`, `unavailable`, `stale`, `disabled_by_policy`, `untrusted_workspace`, `error`, or `stopped`. Only `active` grants hook lifecycle authority. See [Hook Observation Channel](../../../developer/houmao-server/state-tracking.md#hook-observation-channel) for the state machine and thresholds.
+`provider` names the active adapter, `"claude"`, `"codex"`, or `"kimi"`. Counter fields omitted from the example keep their zero defaults; the full counter set is documented under [`observation_channels`](../../../developer/houmao-server/state-reference.md#observation_channels). `state` is one of `active`, `unavailable`, `stale`, `disabled_by_policy`, `untrusted_workspace`, `error`, or `stopped`. Only `active` grants hook lifecycle authority. See [Hook Observation Channel](../../../developer/houmao-server/state-tracking.md#hook-observation-channel) for the state machine and thresholds.
 
 ### `POST /v1/requests`
 

@@ -39,10 +39,10 @@
 
 ## 7. Documentation
 
-- [ ] 7.1 Update the hook observation reference docs (`docs/developer/houmao-server/state-tracking.md`, `state-reference.md`, `state-transitions.md`) for the Kimi adapter: event set, no-trust install model, enablement flag, degradation behavior, kimi-specific settle rules
-- [ ] 7.2 Update the launch-policy reference (`docs/reference/build-phase/launch-policy.md`) and gateway contract docs (`docs/reference/gateway/contracts/protocol-and-state.md` adapter enumeration) for the kimi owned `[[hooks]]` surface and `HOUMAO_HOOK_OBSERVATION_KIMI`
-- [ ] 7.3 Add `docs/developer/tui-parsing/kimi-signals.md` (or the kimi section alongside `claude-signals.md`/`codex-signals.md`) describing the kimi hook adapter contract and its interaction with the 2.1.x detector profile
+- [x] 7.1 Update the hook observation reference docs (`docs/developer/houmao-server/state-tracking.md`, `state-reference.md`, `state-transitions.md`) for the Kimi adapter: event set, no-trust install model, enablement flag, degradation behavior, kimi-specific settle rules
+- [x] 7.2 Update the launch-policy reference (`docs/reference/build-phase/launch-policy.md`) and gateway contract docs (`docs/reference/gateway/contracts/protocol-and-state.md` adapter enumeration) for the kimi owned `[[hooks]]` surface and `HOUMAO_HOOK_OBSERVATION_KIMI`
+- [x] 7.3 Add `docs/developer/tui-parsing/kimi-signals.md` (or the kimi section alongside `claude-signals.md`/`codex-signals.md`) describing the kimi hook adapter contract and its interaction with the 2.1.x detector profile
 
 ## 8. Campaign Hygiene
 
-- [ ] 8.1 During apply, keep `scripts/explore/kimi-hook-observation/` frozen as campaign evidence; port (never import) from it, and record any upstream drift found (event renames, schema changes at the supported floor) as a dated note in the campaign directory
+- [x] 8.1 During apply, keep `scripts/explore/kimi-hook-observation/` frozen as campaign evidence; port (never import) from it, and record any upstream drift found (event renames, schema changes at the supported floor) as a dated note in the campaign directory

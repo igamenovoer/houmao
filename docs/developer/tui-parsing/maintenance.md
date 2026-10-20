@@ -60,6 +60,7 @@ Use this checklist when changing parser behavior:
   - `claude-signals.md`
   - `codex.md`
   - `codex-signals.md`
+  - `kimi-signals.md`
 - update the short reference/troubleshooting pages if their quick guidance changed
 
 ## Diagram Maintenance

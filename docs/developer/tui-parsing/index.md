@@ -23,9 +23,10 @@ The TUI parsing stack turns raw tmux pane snapshots (for `local_interactive` ses
 | [Claude Signals](claude-signals.md) | See the concrete on-screen Claude cues currently used for reliable tracking and fixture authoring |
 | [Codex](codex.md) | Review Codex-specific state vocabulary, supported output families, preset/version behavior, and projection rules |
 | [Codex Signals](codex-signals.md) | See the concrete on-screen Codex cues currently used for reliable tracking and fixture authoring |
+| [Kimi Signals](kimi-signals.md) | See the concrete Kimi Code cues plus the hook adapter contract, event set, injection model, and 2.1.x detector interaction |
 | [Maintenance](maintenance.md) | See the update checklist for parser drift, docs/spec alignment, and fixture/test refreshes |
 
-> **Provider note:** Claude, Codex, and Kimi have maintained local-interactive TUI tracking profiles; Kimi's shared detector lives under `shared_tui_tracking/apps/kimi_code/`, although this guide does not yet have a dedicated Kimi signal page.
+> **Provider note:** Claude, Codex, and Kimi have maintained local-interactive TUI tracking profiles. Kimi's shared detector lives under `shared_tui_tracking/apps/kimi_code/`, and its hook observation adapter is documented in [Kimi Signals](kimi-signals.md).
 
 ## Source Of Truth Map
 

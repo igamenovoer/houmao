@@ -82,6 +82,22 @@ The evidence for this surface is the 2026-10-20 debug campaign (`context/campaig
 
 Hooks run within a provider state mutation lock for thread-safe file access.
 
+### Kimi Hook Observation
+
+The Kimi strategy also declares the launch-owned surface for the opt-in hook observation channel. Enablement is per adapter: `HOUMAO_HOOK_OBSERVATION_KIMI=1` covers managed `local_interactive` launches only, and any value other than `1` leaves the session TUI-only.
+
+| Owned path | Keys | Purpose |
+|---|---|---|
+| `config.toml` | `hooks.[<entry index>].{event, matcher, command, timeout}` (observer block presence) | Marker-delimited, generation-scoped `[[hooks]]` observer block with one entry per subscribed event |
+
+The launch merges the observer block into the launch-owned runtime-home `KIMI_CODE_HOME/config.toml` after launch-policy field synthesis, rewrites it at every provider start, and removes it on cleanup. Every byte outside the block, including operator-authored `[[hooks]]` entries, is preserved. The block subscribes all 20 Kimi events with one entry each, omits `matcher` (match all), uses a 5-second timeout, and invokes the packaged emitter through a shell-quoted absolute command. Kimi has no hook trust mechanism, so the managed path needs no pre-trust seed and no bypass flag; the provider loads its hook table once per process, which makes install-before-start ordering sufficient.
+
+Kimi validates the hooks section against its own schema and drops the entire section when any entry carries an unknown key, an unknown event, or a bad timeout; the TUI shows no warning, and only print-mode stderr carries the diagnostic. The installer therefore validates the merged file by strict `tomllib` read-back: every key must be in `{event, matcher, command, timeout}`, every event must be in the pinned 20-name enum, and every timeout must be an integer in `1..600`. Any violation restores the pre-install text and degrades the channel to `unavailable`; the session launches TUI-only instead of carrying a silently dead channel.
+
+Kimi emits `PermissionRequest` and `PermissionResult` only under an ask permission policy. The managed unattended strategy runs the TUI with native `--auto`, so permission events are normally absent; that absence is expected and is not channel degradation.
+
+The supported floor is Kimi Code 2.1.1, the same floor as TUI tracking. The full enriched hook payload contract has existed since upstream 0.32.0 (2026-08-04), below the registry floor, so every supported version can carry the channel. The evidence for this surface is the 2026-10-20 debug campaign (`context/campaigns/debug/2026-10-20-kimi-hook-observation/`, including the S2 malformed-section control and the S7 load-once probe) plus the upstream hook schema under `extern/orphan/kimi-code/packages/agent-core-v2/src/features/externalHooks/`.
+
 ## Kimi Unattended Posture
 
 Maintained Kimi unattended startup requires Kimi Code 2.1.1 or later, with no upper version limit, and has two backend contracts:
