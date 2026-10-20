@@ -17,7 +17,7 @@ That active control plane SHALL remain responsible for live tmux or process obse
 
 The active control-plane adapter SHALL feed raw captured TUI snapshot text and any explicit prompt-submission evidence into the shared tracker. Parser-derived data MAY still exist as sidecar evidence, but it SHALL NOT replace raw snapshot text as tracker input and SHALL NOT arm tracker authority through parser-derived surface-inference heuristics.
 
-When a `cli-hook-observation` channel is active for the session, the active control plane MAY additionally consume normalized provider-hook observation evidence and use it as the primary authority for provider lifecycle facts: turn start, turn end, terminal failure, permission waits, maintenance windows, and background work. Hook observation evidence SHALL NOT replace raw TUI snapshot text as the shared tracker's own input, SHALL NOT alter TUI-owned surface facts (`surface.*`, stability, pending or draft input, modal rendering, and interrupt outcomes), and SHALL be ignored entirely while the channel is degraded, leaving the TUI-only reduction unchanged.
+When a `cli-hook-observation` channel is active for the session, the active control plane MAY additionally consume normalized provider-hook observation evidence and use it as the primary authority for provider lifecycle facts: turn start, turn end, terminal failure, permission waits, maintenance windows, and background work. Hook observation evidence SHALL NOT replace raw TUI snapshot text as the shared tracker's own input, SHALL NOT alter TUI-owned surface facts (`surface.*`, stability, pending or draft input, and modal rendering), and SHALL be ignored entirely while the channel is degraded, leaving the TUI-only reduction unchanged. Interrupt outcomes remain TUI-owned except where an active Codex hook observation channel settles them from a provider interrupt event per the `cli-hook-observation` Codex adapter rules.
 
 #### Scenario: Attached gateway owns tracker reduction for an attached managed TUI agent
 - **WHEN** a managed TUI agent has an eligible attached live gateway and that gateway records one live tracking cycle
@@ -161,7 +161,7 @@ Ambiguous menus, selection boxes, permission prompts, slash-command UI, and simi
 
 The system SHALL NOT publish a generic catch-all failure outcome. Only specifically recognized failure signatures SHALL produce `last_turn.result=known_failure`. Failure-like but unmatched surfaces SHALL degrade to `turn.phase=unknown` unless stronger evidence supports another state.
 
-When a `cli-hook-observation` channel is active, provider-hook terminal evidence MAY produce `last_turn.source=hook_observation` for turns it completes, including turns started by direct provider input without explicit Houmao submission evidence. When explicit-input evidence correlates with the same turn, `last_turn.source` SHALL remain `explicit_input`. The `interrupted` outcome SHALL remain TUI-derived; no hook event settles it in this phase.
+When a `cli-hook-observation` channel is active, provider-hook terminal evidence MAY produce `last_turn.source=hook_observation` for turns it completes, including turns started by direct provider input without explicit Houmao submission evidence. When explicit-input evidence correlates with the same turn, `last_turn.source` SHALL remain `explicit_input`. The `interrupted` outcome SHALL remain TUI-derived for sessions whose hook adapter provides no interrupt event; for sessions observed through the Codex hook adapter, a provider interrupt hook event SHALL settle the `interrupted` outcome from hook evidence.
 
 #### Scenario: Ready posture surfaces a ready turn
 - **WHEN** the live TUI surface is supported, accepting prompt input, and visibly ready for immediate submit
@@ -202,6 +202,12 @@ When a `cli-hook-observation` channel is active, provider-hook terminal evidence
 #### Scenario: Hook terminal evidence records a hook-observed outcome
 - **WHEN** a turn ends with a provider hook completion or failure event while the hook channel is active
 - **THEN** the tracked state records `last_turn.result` as `success` or `known_failure` from that event
+- **AND THEN** the tracked state reports `last_turn.source=hook_observation` unless explicit-input evidence correlates with the same turn
+
+#### Scenario: Codex hook interrupt evidence records an interrupted outcome
+
+- **WHEN** a Codex turn ends through a provider interrupt hook event while the Codex hook channel is active
+- **THEN** the tracked state records `last_turn.result=interrupted` from hook evidence
 - **AND THEN** the tracked state reports `last_turn.source=hook_observation` unless explicit-input evidence correlates with the same turn
 
 ### Requirement: Prompt-ready terminal failures preserve readiness while blocking success
