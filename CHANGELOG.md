@@ -4,6 +4,28 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [2.4.0] - 2026-10-22
+
+### Added
+
+- **CLI hook observation channel**: a new `hook_observation` core package (collector, emitter, settings generator) turns CLI tool hooks into a live activity-posture signal, injected as a managed-home settings merge. Hook observation is wired into managed launch, tracker merge, and recorder replay, and hook posture gates now feed gateway admission and passive observation surfaces.
+- **Claude hook observation adapter**: Claude Code hooks feed the channel, qualified by a recorded debug campaign and a documented live smoke run.
+- **Codex hook observation adapter**: Codex hooks feed the channel, with tracking and launch reference coverage and a managed-path live smoke harness.
+- **Kimi hook observation adapter**: a Kimi hooks generator, normalizer, and reducer rules feed the channel, gated by Kimi install path and enablement checks, wired into managed launch and launch policy, and merged into TUI tracked state, with a managed-path live smoke harness and tracking, launch, and signal reference coverage.
+
+### Fixed
+
+- **TUI interrupt override and hook latch correctness**: the TUI interrupt override is constrained by turn epoch, collector stop is detected, and the hook latch persists through staleness.
+
+### Docs
+
+- Archived the `add-cli-hook-observation-channel`, `add-codex-hook-observation`, and `add-kimi-hook-observation` OpenSpec changes and synced their delta specs into the main specs; published the Claude and Codex hook observation debug campaigns under `context/campaigns/`.
+
+### Notes
+
+- This release bumps the minor segment for the hook observation channel and its three CLI adapters, each qualified by live managed-path smoke harnesses.
+- The `gh release create v2.4.0` event triggers `pypi-release.yml`, `docs.yml`, and the houmao-skills sync workflow.
+
 ## [2.3.0] - 2026-10-16
 
 ### Changed
