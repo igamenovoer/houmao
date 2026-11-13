@@ -3,6 +3,7 @@
 ## Purpose
 TBD - created by archiving change add-houmao-dev-behavior-testing. Update Purpose after archive.
 ## Requirements
+
 ### Requirement: TUI qualification uses an explicit skill identity
 The repository SHALL provide the existing TUI tracking qualification workflow at `skillset/dev/houmao-dev-tui-testing` with frontmatter name `houmao-dev-tui-testing` and matching `agents/openai.yaml` metadata.
 
@@ -45,10 +46,9 @@ Tracked invocations, metadata, and development documentation SHALL use `houmao-d
 - **THEN** they contain no active `houmao-dev-testing` invocation or default root
 
 ### Requirement: Development testing skills remain outside runtime packs
-Neither `houmao-dev-tui-testing` nor `houmao-dev-behavior-testing` SHALL be declared in the public system-skill manifest, a runtime actor pack, or managed auto-skill projection.
+Neither `houmao-dev-tui-testing` nor `houmao-dev-behavior-testing` SHALL be declared in the public system-skill manifest or a runtime actor pack.
 
 #### Scenario: Runtime catalog is inspected after the rename
 - **WHEN** the packaged system-skill manifest is loaded
 - **THEN** it contains the same six standalone public roots as before this change
 - **AND THEN** it contains neither development testing skill
-

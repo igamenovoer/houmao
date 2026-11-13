@@ -1,6 +1,7 @@
 ## Purpose
 Define packaged catalog, selection, projection, and install-state behavior for the current Houmao-owned system-skill set.
 ## Requirements
+
 ### Requirement: Shared installer supports Copilot system-skill projection
 The shared Houmao system-skill installer SHALL support Copilot as a current explicit installation target without adding Copilot-specific catalog entries.
 
@@ -91,29 +92,6 @@ System-skill install, sync, status, and uninstall workflows SHALL NOT treat `ski
 - **THEN** the stale LLM Wiki path is not reported as a current or retired Houmao-owned skill
 - **AND THEN** the stale LLM Wiki path is not removed by Houmao-owned system-skill cleanup
 
-### Requirement: System-skill policy does not control managed auto skills
-Houmao system-skill installation, status, sync, and removal workflows SHALL manage only catalog-known Houmao system skills.
-
-Managed auto skills SHALL remain outside system-skill catalog selection, named sets, CLI-default installation, managed-launch system-skill policy, and explicit uninstall behavior.
-
-Disabling or replacing system-skill selection for a managed launch SHALL NOT disable a required managed auto skill.
-
-#### Scenario: Disabled system-skill selection leaves auto skill eligible
-- **WHEN** managed launch resolves disabled system-skill installation for a home
-- **AND WHEN** launch policy requires `houmao-auto-system-prompt`
-- **THEN** system-skill installation resolves no system skills
-- **AND THEN** auto-skill projection remains eligible through the separate managed auto-skill projection path
-
-#### Scenario: System-skill uninstall does not remove auto skill by catalog sweep
-- **WHEN** an operator runs a Houmao system-skill uninstall workflow for a tool home
-- **THEN** the workflow targets catalog-known current or retired system-skill projections
-- **AND THEN** it does not treat `houmao-auto-system-prompt` as a system-skill catalog entry
-
-#### Scenario: System-skill status omits auto-skill inventory
-- **WHEN** an operator inspects system-skill status for a tool home
-- **THEN** the status reports catalog-known Houmao system skills
-- **AND THEN** it does not report `houmao-auto-system-prompt` as an installed system skill
-
 ### Requirement: Shared system-skill projection has no Gemini destination
 The shared system-skill installer, status discovery, synchronization, and removal contracts SHALL NOT recognize Gemini or `.gemini/skills` as a Houmao target.
 
@@ -138,7 +116,7 @@ Copy projection SHALL preserve the checked-in frontmatter bytes. Symlink project
 - **AND THEN** only an explicit doctor invocation reports the mismatch as version evidence
 
 ### Requirement: Version metadata remains diagnostic in lifecycle configuration
-The v4 system-skill manifest SHALL remain the static collection authority. `houmao-skill-config.v1` SHALL record one collection-level `houmao_version` and complete-tree digests without duplicating a required per-skill release field.
+The v5 system-skill manifest SHALL remain the static collection authority. It SHALL contain no managed auto-skill ownership field. `houmao-skill-config.v1` SHALL record one collection-level `houmao_version` and complete-tree digests without duplicating a required per-skill release field.
 
 Doctor SHALL read each installed root's frontmatter directly and SHALL NOT migrate or rewrite the skill config while diagnosing versions.
 
@@ -237,7 +215,7 @@ Shared routines and both loop skills SHALL remain top-level siblings of the sele
 ### Requirement: Managed system-skill policy selects packs
 Stored source and launch-profile system-skill policy SHALL retain the supported policy modes `default`, `inherit`, `extend`, `replace`, and `none` where each lane permits them, but SHALL store and resolve `packs` rather than `sets` and `skills`.
 
-The policy resolver SHALL reject unknown pack ids, invalid mode and selector combinations, and any attempt to select a protected logical id as an install unit. System-skill policy SHALL continue to exclude managed auto skills.
+The policy resolver SHALL reject unknown pack ids, invalid mode and selector combinations, and any attempt to select a protected logical id as an install unit. System-skill policy SHALL govern only catalog-backed system-skill packs; provider-native role-prompt files are brain construction outputs rather than skill install units.
 
 #### Scenario: Profile extends source policy with admin pack
 - **WHEN** a valid profile policy extends a source selection with the admin pack
@@ -249,8 +227,13 @@ The policy resolver SHALL reject unknown pack ids, invalid mode and selector com
 - **THEN** policy validation fails
 - **AND THEN** managed home construction does not begin
 
+#### Scenario: Native role prompt is not a system-skill selector
+- **WHEN** a managed Kimi brain resolves a native `SYSTEM.md` role prompt
+- **THEN** the system-skill policy contains no selector or ownership record for that file
+- **AND THEN** system-skill lifecycle commands do not install or remove the native role prompt
+
 ### Requirement: Shared installer resolves packs to static standalone members
-The shared system-skill installer SHALL resolve the `admin` and `agent` pack ids to deduplicated standalone skill records from the v4 manifest.
+The shared system-skill installer SHALL resolve the `admin` and `agent` pack ids to deduplicated standalone skill records from the v5 manifest.
 
 The admin pack SHALL resolve to `houmao-admin-welcome`, `houmao-admin-entrypoint`, `houmao-shared-routines`, `houmao-agent-loop-pro`, and `houmao-agent-loop-lite`. The agent pack SHALL resolve to `houmao-agent-entrypoint`, `houmao-shared-routines`, `houmao-agent-loop-pro`, and `houmao-agent-loop-lite`.
 

@@ -1,6 +1,7 @@
 ## Purpose
 Define the runtime-owned registry contract for version-scoped launch-policy strategies that suppress startup operator prompts for supported tools and backends.
 ## Requirements
+
 ### Requirement: Launch policy strategies are version-scoped and runtime-owned
 The system SHALL maintain a runtime-owned launch policy registry for supported tools and backends. Each registry strategy SHALL bind one operator prompt policy mode to one or more compatible tool-version ranges and backends.
 
@@ -133,95 +134,61 @@ The registry resolution path SHALL allow a transient strategy-id override for co
 - **AND THEN** the override does not alter the registry YAML, the recipe, or the resolved brain manifest
 
 ### Requirement: Registry declares maintained Kimi unattended strategy coverage
-The launch-policy registry SHALL include maintained Kimi 0.23.x unattended strategy coverage for the `kimi_headless` backend and for the `raw_launch` backend used by Kimi Code local-interactive TUI launch.
+The launch-policy registry SHALL include maintained Kimi Code unattended strategy coverage for the `kimi_headless` backend and for the `raw_launch` backend used by Kimi Code local-interactive TUI launch. The compatible version expression SHALL be `>=2.1.1` with no upper version limit; no strategy SHALL match an earlier Kimi version.
 
-That Kimi strategy coverage SHALL remain version-scoped and SHALL declare:
+That Kimi strategy coverage SHALL declare the minimal provider-ready inputs, current source and live-probe evidence, runtime-owned startup surfaces, v2-engine requirement, native `SYSTEM.md` system-prompt surface, ordered pre-launch actions, and validation required before Kimi starts.
 
-- the compatible Kimi Code CLI version range,
-- the minimal input contract needed after provider selection is resolved,
-- evidence provenance from current local source analysis and live prompt-mode or TUI probes,
-- the Kimi startup surfaces Houmao owns for unattended prompt-mode launch and unattended TUI launch,
-- any runtime-home config keys Houmao owns, and
-- the ordered actions or validation needed before Kimi provider start.
+For `kimi_headless`, maintained coverage SHALL avoid prompt-mode-incompatible startup flags such as `--auto`, `--yolo`, and `--plan`. For `raw_launch`, maintained unattended coverage SHALL add native `--auto` to fresh and resumed TUI startup commands and SHALL NOT submit a conversational command to establish launch policy. Credential readiness SHALL remain separate from unattended and system-prompt compatibility.
 
-For `kimi_headless`, maintained coverage SHALL avoid prompt-mode-incompatible startup flags such as `--auto`, `--yolo`, and `--plan`. Kimi prompt mode's native approval and question handlers SHALL provide the unattended posture.
+#### Scenario: Maintainer inspects Kimi native-prompt strategy metadata
+- **WHEN** a maintainer inspects the maintained Kimi headless and local-interactive strategies
+- **THEN** both declare the minimum-only `>=2.1.1` range and current baseline evidence
+- **AND THEN** both declare v2-engine and native `SYSTEM.md` ownership separately from credential readiness
 
-For `raw_launch`, maintained unattended coverage SHALL add native `--auto` to the final Kimi TUI startup command for both fresh and resumed sessions. It SHALL NOT submit `/auto on` or another conversational command to establish launch policy. The strategy MAY also set `default_permission_mode = "auto"` as inspectable fallback state, but the final CLI argument SHALL define the startup authority.
+#### Scenario: Below-floor Kimi launch is rejected
+- **WHEN** a managed Kimi launch detects a version earlier than 2.1.1
+- **THEN** the registry reports that no compatible strategy exists
+- **AND THEN** launch fails without selecting a legacy or best-effort path
 
-The Kimi strategy metadata SHALL separate credential readiness from unattended startup compatibility and SHALL describe Kimi's maintained auth readiness in terms of projected OAuth config/token storage or Kimi env-model variables.
+#### Scenario: Newer Kimi launch uses the minimum-version strategy
+- **WHEN** a managed Kimi launch detects Kimi 2.3.0 or any later parseable version
+- **THEN** the registry selects the maintained `>=2.1.1` strategy
+- **AND THEN** it does not impose an upper-version compatibility failure
+
+#### Scenario: Headless and resumed TUI commands remain valid
+- **WHEN** a compatible Kimi 2.1.1-or-later strategy resolves an unattended launch
+- **THEN** headless mode excludes prompt-mode-incompatible permission flags
+- **AND THEN** fresh or resumed TUI mode includes native `--auto` without a policy-changing chat command
 
 #### Scenario: Maintainer inspects Kimi headless unattended strategy metadata
 - **WHEN** a maintainer inspects the maintained Kimi headless strategy
-- **THEN** the entry declares `kimi_headless`, the Kimi 0.23.x range, evidence, owned startup surfaces, and validation
-- **AND THEN** credential readiness remains distinct from unattended startup ownership
+- **THEN** the entry declares `kimi_headless`, the minimum-only `>=2.1.1` range, evidence, owned startup surfaces, and validation
+- **AND THEN** credential readiness remains distinct from unattended startup and native role-prompt ownership
 
 #### Scenario: Maintainer inspects Kimi TUI unattended strategy metadata
 - **WHEN** a maintainer inspects the maintained Kimi local-interactive unattended strategy
-- **THEN** the entry declares `raw_launch` and native `--auto` ownership
-- **AND THEN** it declares no runtime `/auto on` bootstrap action
+- **THEN** the entry declares `raw_launch`, native `--auto`, native `SYSTEM.md`, and v2-engine ownership
+- **AND THEN** it declares no runtime policy or role chat bootstrap action
 
 #### Scenario: Kimi headless strategy rejects prompt-mode-incompatible launch args
-- **WHEN** a compatible Kimi headless unattended strategy receives caller arguments containing `--auto`, `--yolo`, or `--plan`
+- **WHEN** a compatible Kimi headless unattended strategy receives `--auto`, `--yolo`, or `--plan`
 - **THEN** the strategy rejects or removes those arguments before provider start
-- **AND THEN** the final `-p` command remains valid and unattended
+- **AND THEN** the final prompt-mode command remains valid and unattended
 
 #### Scenario: Kimi resumed TUI keeps native auto mode
 - **WHEN** a compatible unattended Kimi TUI launch resumes through `--continue` or `--session <session_id>`
 - **THEN** the final provider command also contains `--auto`
-- **AND THEN** Houmao does not send a policy-changing chat command after readiness
+- **AND THEN** Houmao sends no policy-changing chat command after readiness
 
 #### Scenario: Unknown Kimi version does not silently use maintained strategy
-- **WHEN** a Kimi unattended launch requests a version outside the declared compatible strategy range
+- **WHEN** a Kimi unattended launch reports an unparseable version or a version below 2.1.1
 - **THEN** the registry reports that no compatible strategy exists
 - **AND THEN** launch fails explicitly
 
 #### Scenario: Kimi TUI strategy owns automatic permission config
-- **WHEN** the runtime resolves a compatible Kimi raw-launch unattended strategy
-- **AND WHEN** the managed Kimi runtime-home `config.toml` omits `default_permission_mode` or sets it to `manual` or `yolo`
-- **THEN** the strategy writes `default_permission_mode = "auto"` before provider start
+- **WHEN** the runtime resolves a compatible Kimi TUI unattended strategy
+- **THEN** strategy-owned permission inputs resolve to auto mode before provider start
 - **AND THEN** unrelated Kimi provider, model, OAuth, skill, and telemetry config remains intact
-
-### Requirement: Launch policy declares system-prompt bootstrap capabilities
-The launch-policy registry SHALL model provider system-prompt bootstrap capability separately from unattended startup capability.
-
-For each supported tool/backend/version strategy that participates in managed role injection, the registry or resolved strategy metadata SHALL declare whether the provider supports native system-prompt injection, whether it supports provider skills, and whether skill metadata is visible in the provider's native startup or post-compaction context.
-
-Skill-based system-prompt fallback SHALL require startup-visible skill metadata, not merely the ability to install skill files.
-
-#### Scenario: Kimi strategy declares startup-visible skill bootstrap evidence
-- **WHEN** a maintainer inspects a maintained Kimi launch-policy strategy that lacks native system-prompt support
-- **THEN** the strategy metadata declares that Kimi has provider skills and startup-visible skill metadata for the supported version range
-- **AND THEN** the evidence identifies the source or probe basis for that startup-visible skill assumption
-
-#### Scenario: Generic skill installation is insufficient for fallback
-- **WHEN** a future provider strategy declares that skill files can be installed
-- **AND WHEN** it does not declare that skill metadata is visible in native startup or post-compaction context
-- **THEN** launch policy does not select auto-skill system-prompt injection for that strategy
-
-### Requirement: Launch policy selects auto-skill system-prompt injection for eligible non-native tools
-When a managed launch requires a role/system prompt and the selected provider strategy lacks native system-prompt injection but declares startup-visible skill metadata support, launch policy SHALL select the auto-skill system-prompt role injection method.
-
-When the selected provider strategy declares native system-prompt injection, launch policy SHALL prefer native injection over auto-skill fallback.
-
-When the selected provider strategy declares neither native system-prompt injection nor startup-visible skill metadata support, launch policy SHALL produce an explicit incompatibility result.
-
-#### Scenario: Kimi uses auto-skill injection instead of bootstrap chat
-- **WHEN** a maintained Kimi strategy for a supported version lacks CLI-native system-prompt injection
-- **AND WHEN** the strategy declares startup-visible skill metadata support
-- **AND WHEN** managed launch requires a Houmao role/system prompt
-- **THEN** launch policy selects auto-skill system-prompt injection
-- **AND THEN** it does not select ordinary chat bootstrap as the maintained method
-
-#### Scenario: Native prompt provider keeps native injection
-- **WHEN** a maintained provider strategy declares native system-prompt injection support
-- **AND WHEN** managed launch requires a Houmao role/system prompt
-- **THEN** launch policy selects the native role injection method for that provider
-- **AND THEN** it does not inject `houmao-auto-system-prompt` only to replace a native provider instruction surface
-
-#### Scenario: Unsupported provider reports incompatibility
-- **WHEN** a maintained provider strategy declares no native system-prompt support and no startup-visible skill metadata support
-- **AND WHEN** managed launch requires a Houmao role/system prompt
-- **THEN** strategy resolution reports that no supported system-prompt injection method exists for that provider/backend/version
 
 ### Requirement: Launch-policy registry contains no Gemini strategies or hooks
 The packaged launch-policy registry SHALL contain no Gemini registry file, strategy identifier, backend coverage, owned path, evidence entry, or provider hook.
@@ -229,3 +196,29 @@ The packaged launch-policy registry SHALL contain no Gemini registry file, strat
 #### Scenario: Registry inventory excludes Gemini
 - **WHEN** a maintainer lists all packaged launch-policy strategies and hook identifiers
 - **THEN** no entry names `gemini`, `gemini_cli`, or `gemini_headless`
+
+### Requirement: Launch policy declares native system-prompt capabilities
+Launch policy SHALL model native system-prompt support separately from unattended startup and provider skills. Each qualified tool/backend/version strategy used for managed role injection SHALL identify its native surface, owned path, precedence constraints, engine mode, and evidence of application before the first user turn. Skill installation or startup visibility SHALL NOT qualify as native prompt support.
+
+#### Scenario: Kimi strategy declares native home prompt evidence
+- **WHEN** a maintainer inspects a maintained Kimi 2.1.1-or-later strategy
+- **THEN** the metadata identifies `<KIMI_CODE_HOME>/SYSTEM.md` as the native system-prompt surface
+- **AND THEN** it identifies Kimi agent-selection precedence and v2-engine constraints that launch validation must enforce
+
+#### Scenario: Skill support is not prompt support
+- **WHEN** a provider strategy declares that skill files can be installed or are visible at startup
+- **AND WHEN** it declares no native system-prompt surface
+- **THEN** launch policy does not treat the skill capability as supported role injection
+
+### Requirement: Launch policy requires native system-prompt injection
+When a managed launch requires a role or system prompt, launch policy SHALL select the qualified provider strategy's native system-prompt method. It SHALL produce an explicit incompatibility result if the strategy has no applicable native method or if a higher-precedence provider input would bypass that method.
+
+#### Scenario: Kimi selects native home system prompt
+- **WHEN** a maintained Kimi 2.1.1-or-later launch requires a Houmao role or system prompt
+- **THEN** launch policy selects the native managed-home `SYSTEM.md` method
+- **AND THEN** it selects neither managed auto-skill injection nor ordinary chat bootstrap
+
+#### Scenario: Unsupported provider reports incompatibility
+- **WHEN** a managed launch requires a role or system prompt
+- **AND WHEN** the qualified strategy has no applicable native system-prompt method
+- **THEN** strategy resolution reports that no supported injection method exists for that tool, backend, and version

@@ -3,6 +3,7 @@
 ## Purpose
 Define the maintained minimal runnable demo surface, its tracked agent assets, and the overlay-local execution contract used for the tutorial workflow.
 ## Requirements
+
 ### Requirement: `scripts/demo/` publishes a supported minimal launch tutorial surface
 
 The repository SHALL publish one supported runnable tutorial demo under `scripts/demo/minimal-agent-launch/` and SHALL present it from `scripts/demo/README.md` as the maintained demo surface. Historical material under `scripts/demo/legacy/` SHALL remain clearly labeled as archived reference content.
@@ -32,38 +33,37 @@ The tracked demo tree SHALL NOT commit plaintext auth contents under `inputs/age
 - **AND THEN** the tracked tree does not contain committed plaintext auth bundles
 
 ### Requirement: The demo creates provider-specific local auth aliases at run time
-The demo run workflow SHALL create a generated working tree under the demo output root and SHALL materialize one demo-local auth alias named `default` for the selected provider by symlinking to the corresponding local fixture auth bundle under `tests/fixtures/auth-bundles/<tool>/`.
+
+The demo SHALL prepare a private external project run from the selected generic API case and materialize its provider-specific credential under a run-local alias such as `default`. Credentials SHALL come from selected local references, without a repository-local auth symlink or personal bundle default. Tracked inputs SHALL remain secret-free.
 
 #### Scenario: Claude run aliases local fixture auth
-- **WHEN** an operator runs the demo for provider `claude_code`
-- **THEN** the generated working tree contains `tools/claude/auth/default` as a symlink to one maintained Claude bundle under `tests/fixtures/auth-bundles/claude/`
-- **AND THEN** the tracked Claude preset may continue to declare `auth: default`
+- **WHEN** an operator runs the demo for `claude_code` with a configured API case
+- **THEN** its private project receives a Claude credential derived from that selected case
+- **AND THEN** a demo-local `default` credential selection can resolve without a link to the reusable credential source
 
 #### Scenario: Codex run aliases local fixture auth
-- **WHEN** an operator runs the demo for provider `codex`
-- **THEN** the generated working tree contains `tools/codex/auth/default` as a symlink to one maintained Codex bundle under `tests/fixtures/auth-bundles/codex/`
-- **AND THEN** the tracked Codex preset may continue to declare `auth: default`
+- **WHEN** an operator runs the demo for `codex` with a configured API case
+- **THEN** its private project receives a Codex credential and matching Responses endpoint configuration
+- **AND THEN** the tracked preset requires no fixed Yunwu routing or bundle name
 
 #### Scenario: Missing fixture auth fails during preflight
-- **WHEN** an operator runs the demo for one provider
-- **AND WHEN** the expected source fixture auth bundle for that provider is absent on the host
-- **THEN** the demo fails before launch with a clear error identifying the missing fixture auth path
+- **WHEN** a selected case is missing a required credential or endpoint input
+- **THEN** the demo fails before launching a client
+- **AND THEN** the error identifies the missing configuration reference and how to supply it without printing secrets
 
 ### Requirement: The demo launches the same role selector through either supported provider
 
-The demo SHALL use one shared role selector, `minimal-launch`, and SHALL support launching that role through either `claude_code` or `codex` in headless mode via `houmao-mgr agents launch`.
+The demo SHALL use the shared `minimal-launch` role for Claude and Codex. It SHALL create a fresh project specialist from the demo's tracked inputs and launch through `houmao-mgr project agents launch`, preserving TUI/headless selection and unattended posture. Follow-up operations SHALL use scoped selected-agent or maintained gateway/passive-server surfaces.
 
 #### Scenario: Claude headless demo run succeeds through the shared role selector
-- **WHEN** an operator runs the supported demo for provider `claude_code`
-- **THEN** the demo launches `houmao-mgr agents launch` using selector `minimal-launch`
-- **AND THEN** the resolved preset comes from `presets/minimal-launch-claude-default.yaml`
-- **AND THEN** the launch runs in headless mode
+- **WHEN** an operator selects `claude_code` and the headless lane
+- **THEN** the prepared project specialist uses the shared `minimal-launch` prompt and Claude seed preset
+- **AND THEN** the run launches through the maintained project headless surface
 
 #### Scenario: Codex headless demo run succeeds through the shared role selector
-- **WHEN** an operator runs the supported demo for provider `codex`
-- **THEN** the demo launches `houmao-mgr agents launch` using selector `minimal-launch`
-- **AND THEN** the resolved preset comes from `presets/minimal-launch-codex-default.yaml`
-- **AND THEN** the launch runs in headless mode
+- **WHEN** an operator selects `codex` and the headless lane
+- **THEN** the prepared project specialist uses the shared `minimal-launch` prompt and Codex seed preset with selected API routing
+- **AND THEN** the run launches through the maintained project headless surface
 
 ### Requirement: The demo remains tutorial-shaped and records reproducible outputs
 
@@ -71,17 +71,17 @@ The supported demo SHALL include:
 - one tutorial markdown document,
 - one tracked prompt input,
 - one runnable script,
-- one generated outputs area for the produced working tree and command artifacts.
+- one private generated outputs area for the produced working tree and command artifacts.
 
-The tutorial SHALL explain prerequisites, the provider selection input, the generated outputs, verification steps, and common failure modes.
+The tutorial SHALL explain prerequisites, provider and case selection, model/endpoint configuration, generated outputs, verification steps, and common failure modes. It SHALL direct credential setup to local env references or the shared external credential discovery/import flow.
 
-The maintained runner and tutorial SHALL describe one generated project-aware overlay root for each run as the local Houmao-owned state anchor. The maintained demo SHALL NOT require separate root env overrides for agent-definition and runtime placement merely to keep the run self-contained.
+The maintained runner and tutorial SHALL describe one generated project-aware overlay root for each run as the local Houmao-owned state anchor. Credential-bearing outputs SHALL live outside the checkout. The demo SHALL NOT require separate root env overrides for agent-definition and runtime placement merely to keep the run self-contained.
 
-Important generated outputs for every lane SHALL include:
-- `workdir/.houmao/agents/`: generated launch tree with the demo-local auth alias
+Important generated outputs relative to the private run root SHALL include:
+- `workdir/.houmao/agents/`: generated project launch projection
 - `workdir/.houmao/runtime/`: built homes, manifests, and session artifacts
-- `workdir/.houmao/jobs/`: overlay-local per-session job directories when the run materializes them
-- `logs/preflight-stop.log`: best-effort cleanup of a stale agent with the same demo name
+- `workdir/.houmao/jobs/`: overlay-local per-session job directories when materialized
+- `logs/preflight-stop.log`: scoped best-effort cleanup when explicitly reusing a demo identity
 - `logs/launch.log`
 - `logs/state.log`
 - `summary.json`
@@ -90,10 +90,12 @@ Headless-only generated outputs SHALL include:
 - `logs/prompt.log`
 - `logs/stop.log`
 
+Command logs and summaries SHALL exclude key values and raw auth contents. Explicitly exported shareable summaries SHALL remain separate from private credential-bearing state.
+
 #### Scenario: Reader follows the tutorial document
 - **WHEN** a reader opens the minimal demo tutorial
-- **THEN** they find an explicit question, prerequisites, implementation idea, run command, representative outputs, verification guidance, and troubleshooting notes
-- **AND THEN** the full runnable flow points to the tracked script rather than embedding the entire implementation inline
+- **THEN** they find its question, prerequisites, implementation idea, supported run commands, representative outputs, verification guidance, and troubleshooting notes
+- **AND THEN** the runnable flow points to the tracked script and explains the external private run root
 
 ### Requirement: The minimal demo uses one generated overlay root for local Houmao-owned state
 
@@ -106,3 +108,10 @@ The maintained runner MAY continue to use one explicit `HOUMAO_PROJECT_OVERLAY_D
 - **THEN** the generated run tree selects one project-aware overlay root under that lane's output root
 - **AND THEN** the launch resolves agent definitions, runtime state, and jobs state from that one selected overlay rather than from separate root env overrides
 
+### Requirement: The minimal demo selects backend cases independently of provider and transport
+
+The runner SHALL expose generic `self-hosted` and `cloud-api` case selection independently of its existing Claude/Codex and TUI/headless choices. Case resolution SHALL use the shared fixture helper and SHALL NOT require editing the tracked demo inputs to switch model or endpoint.
+
+#### Scenario: Same demo lane uses a different backend case
+- **WHEN** an operator changes only the configured case for one supported provider/transport lane
+- **THEN** the demo preserves its role and transport behavior while resolving the selected model, endpoint, and credential source for the new run

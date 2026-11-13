@@ -1,6 +1,7 @@
 ## Purpose
 Define the operator-facing `houmao-mgr system-skills` CLI for listing, installing, and inspecting Houmao-owned system skills.
 ## Requirements
+
 ### Requirement: System-skills doctor diagnoses an expected static pack
 `houmao-mgr system-skills doctor` SHALL perform a read-only diagnostic of repeatable `--pack admin|agent` selections. Omitted pack selection SHALL default to `agent`.
 
@@ -120,12 +121,17 @@ Doctor SHALL report config evidence separately when present and SHALL use config
 ### Requirement: System-skills CLI exposes pack lifecycle commands
 `houmao-mgr system-skills` SHALL expose `list`, `install`, `status`, `doctor`, `upgrade`, and `uninstall` for Houmao system-skill packs.
 
-The command group SHALL manage standalone pack projections and the tool-scoped skill config. It SHALL NOT expose parent-scoped shared children or managed auto skills as independent install units.
+The command group SHALL manage standalone pack projections and the tool-scoped skill config. It SHALL NOT expose parent-scoped shared children or provider-native system-prompt files as independent install units.
 
 #### Scenario: Operator opens system-skills help
 - **WHEN** an operator runs `houmao-mgr system-skills --help`
 - **THEN** help lists all six lifecycle and diagnostic commands
 - **AND THEN** it describes shared children as parent-scoped routes rather than install selectors
+
+#### Scenario: Operator inspects a Kimi system-skill pack
+- **WHEN** an operator runs a system-skill lifecycle command against a managed Kimi home
+- **THEN** the command scopes its output and mutations to catalog-backed skill projections and skill config
+- **AND THEN** it neither lists nor mutates `<KIMI_CODE_HOME>/SYSTEM.md`
 
 ### Requirement: System-skills CLI retains supported target and output behavior
 Pack lifecycle commands SHALL retain effective-home resolution, explicit tool-home overrides, plain output, and root `--print-json` structured output for Claude, Codex, Copilot, Kimi, and universal targets.

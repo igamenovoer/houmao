@@ -3,6 +3,7 @@
 ## Purpose
 Define the documentation requirements for Houmao run-phase reference content.
 ## Requirements
+
 ### Requirement: LaunchPlan composition documented
 
 The run-phase reference SHALL include a page documenting `LaunchPlan` composition: how `build_launch_plan()` takes a `LaunchPlanRequest` (brain_manifest + role_package + backend + working_directory) and produces a `LaunchPlan` with backend-specific launch arguments. Content SHALL be derived from `launch_plan.py` docstrings.
@@ -102,23 +103,26 @@ When the launch policy reference mentions launch surfaces, it SHALL clarify the 
 - **AND THEN** the page notes that `raw_launch` maps to `local_interactive` at runtime
 
 ### Requirement: Role injection documented per backend
+The run-phase reference SHALL document how `plan_role_injection()` produces a `RoleInjectionPlan` with backend-specific strategies and SHALL explain why each backend uses its selected native surface.
 
-The run-phase reference SHALL include a page documenting role injection: how `plan_role_injection()` produces a `RoleInjectionPlan` with backend-specific strategies. The reference SHALL explain the rationale for per-backend differences.
+The documented `RoleInjectionMethod` values SHALL match the code type and SHALL include the managed-home native system-prompt method used by Kimi 2.1.1 and later. The per-backend strategy table and Mermaid diagram SHALL map Kimi headless and local-interactive launches to native managed-home `SYSTEM.md` projection, and SHALL use `cao_profile` for the legacy `cao_rest` and `houmao_server_rest` backends.
 
-The `RoleInjectionMethod` enumeration in the docs SHALL use the literal values from the code type: `native_developer_instructions`, `native_append_system_prompt`, `bootstrap_message`, and `cao_profile`. The docs SHALL NOT use the stale name `profile_based`.
-
-The per-backend strategy table and Mermaid diagram SHALL use `cao_profile` for the `cao_rest` and `houmao_server_rest` backends.
+The reference SHALL state that the complete effective launch prompt, not the raw role source alone, is projected before Kimi starts. It SHALL explain built-in prompt preservation, rejection of every `${identifier}` placeholder in Houmao prompt text, v2-engine enforcement, precedence conflicts, and manifest provenance.
 
 #### Scenario: Reader understands why role injection differs by backend
-
 - **WHEN** a reader opens the role-injection page
-- **THEN** they find a table or list mapping each backend to its injection method with a rationale for the difference
+- **THEN** they find a table mapping each maintained backend to its injection method and provider surface
+- **AND THEN** Kimi `>=2.1.1` maps to native managed-home system-prompt projection with no upper version limit
+
+#### Scenario: Reader sees current RoleInjectionMethod values
+- **WHEN** a reader checks the `RoleInjectionMethod` enumeration in the role-injection reference
+- **THEN** the listed values match the implementation after native Kimi home-prompt support is added
+- **AND THEN** neither `profile_based` nor an auto-skill injection method appears as current behavior
 
 #### Scenario: Reader sees correct RoleInjectionMethod values
-
-- **WHEN** a reader checks the `RoleInjectionMethod` enumeration in the role injection reference
-- **THEN** the listed values are `native_developer_instructions`, `native_append_system_prompt`, `bootstrap_message`, and `cao_profile`
-- **AND THEN** the name `profile_based` does not appear anywhere on the page
+- **WHEN** a reader compares the role-injection reference with the current code type
+- **THEN** every documented literal matches the current enumeration
+- **AND THEN** the Kimi mapping names the native managed-home system-prompt method
 
 ### Requirement: Legacy backend documentation carries an unmaintained deprecation banner
 
@@ -158,65 +162,63 @@ The run-phase reference SHALL document provider-native chat continuation during 
 
 The session-lifecycle reference SHALL explain that relaunch reuses the managed session home and tmux window `0`, while the optional relaunch chat-session selector controls whether the provider starts fresh or resumes provider-native history.
 
-The backend reference SHALL include the provider-native startup mapping for Claude Code, Codex, Kimi Code, and Gemini CLI for local interactive relaunch paths and for each provider's maintained native headless relaunch path.
+The backend reference SHALL include provider-native startup mappings for every maintained local-interactive and native headless relaunch path. For Kimi 2.1.1 and later, it SHALL show `--auto` combined with `--continue` or `--session <session_id>` for unattended TUI relaunch, preserve `--model <alias>`, and explain that the native `SYSTEM.md` contract is validated before respawn.
 
-The backend reference SHALL document that Kimi Code TUI resumed startup cannot combine `--continue` or `--session <session_id>` with `--yolo`, `--auto`, or `--plan`, and that `--model <alias>` remains valid with resumed startup.
-
-The backend or launch reference SHALL document that managed `--skills-dir` projection remains Kimi headless prompt-mode behavior and is not claimed for Kimi TUI launch.
-
-The backend or launch reference SHALL document that managed Kimi TUI launches suppress the interactive update preflight by setting `KIMI_CODE_NO_AUTO_UPDATE=1`.
-
-Run-phase reference pages SHALL present Kimi Code before Gemini in neutral provider lists while preserving backend-specific accuracy. Run-phase diagrams or compact examples that list only three providers SHALL include Claude, Codex, and Kimi.
-
-Run-phase references that explain Kimi role injection SHALL warn that Kimi Code 0.11.0 does not expose a native system-prompt flag. The warning SHALL state that Kimi role delivery can rely on bootstrap or managed auto-skill workflows, and that Kimi users may need to invoke `houmao-auto-system-prompt` manually before substantive chat begins when automatic skill startup has not confirmed the prompt.
+The backend or launch reference SHALL document managed Kimi skill projection and `KIMI_CODE_NO_AUTO_UPDATE=1` accurately for each backend. Kimi role-injection guidance SHALL state that Houmao projects the complete role prompt natively before startup and SHALL contain no manual auto-skill or role-bootstrap instruction.
 
 The launch-profile guide or linked run-phase documentation SHALL explain that launch-profile relaunch chat-session policy applies only to later relaunch of instances created from that profile and does not resume provider history on first launch.
 
 #### Scenario: Reader understands TUI relaunch continuation
 - **WHEN** a reader opens the run-phase session lifecycle or backend reference
-- **THEN** the documentation explains that TUI relaunch continuation is implemented by provider-native startup args before the TUI is respawned
-- **AND THEN** it distinguishes that behavior from sending `/resume` or another prompt after startup
+- **THEN** the documentation explains that TUI relaunch continuation uses provider-native startup arguments before the TUI is respawned
+- **AND THEN** it distinguishes that behavior from sending a resume request after startup
 
 #### Scenario: Reader understands launch-profile relaunch policy scope
 - **WHEN** a reader opens launch-profile or run-phase documentation for relaunch chat-session policy
-- **THEN** the documentation states that the policy applies to relaunch of future instances created from the profile
-- **AND THEN** it states that first launch remains normal fresh provider startup
+- **THEN** the documentation states that the policy applies to later relaunch of instances created from the profile
+- **AND THEN** first launch remains normal fresh provider startup
 
 #### Scenario: Reader sees provider mapping table
 - **WHEN** a reader needs to verify provider behavior for relaunch continuation
-- **THEN** the backend reference includes the Claude Code, Codex, Kimi Code, and Gemini CLI native command forms for maintained TUI and headless latest/exact continuation paths
+- **THEN** the backend reference includes native command forms for every maintained provider's TUI and headless continuation paths
+- **AND THEN** unsupported provider/version combinations are not presented as compatible
 
 #### Scenario: Reader sees Kimi-specific launch constraints
-- **WHEN** a reader opens the Kimi Code local interactive backend reference
-- **THEN** the documentation describes Kimi resume conflicts with `--yolo`, `--auto`, and `--plan`
-- **AND THEN** it explains that `--model <alias>` is still allowed and that managed update preflight suppression uses `KIMI_CODE_NO_AUTO_UPDATE=1`
+- **WHEN** a reader opens the Kimi Code local-interactive backend reference
+- **THEN** it documents the `>=2.1.1` resume, auto-mode, model, update-suppression, and native prompt constraints
+- **AND THEN** it states that role and policy chat bootstraps are absent
+
+#### Scenario: Reader sees Kimi-specific relaunch and prompt constraints
+- **WHEN** a reader opens the Kimi Code local-interactive backend reference
+- **THEN** it documents native resume arguments, native auto mode, model selection, managed update suppression, and pre-start `SYSTEM.md` validation
+- **AND THEN** it documents no post-readiness policy or role bootstrap command
 
 ### Requirement: Run-phase reference documents Kimi unattended TUI startup and relaunch
-The run-phase backend and lifecycle references SHALL document that maintained Kimi Code 0.23.x local-interactive sessions can run with `operator_prompt_mode = unattended` while remaining visible TUI sessions.
+The run-phase backend and lifecycle references SHALL document that maintained Kimi Code 2.1.1-or-later local-interactive sessions can run with `operator_prompt_mode = unattended` while remaining visible TUI sessions.
 
-The reference SHALL explain that unattended Kimi TUI startup uses native `--auto` before managed prompts are submitted and that current Kimi accepts this flag with `--continue` and `--session <session_id>`. It SHALL state that Houmao does not refresh auto mode through a chat command.
+The reference SHALL explain that unattended Kimi TUI startup uses native `--auto` after native managed-home role-prompt projection and that maintained Kimi 2.1.1-or-later behavior accepts this flag with `--continue` and `--session <session_id>`. It SHALL state that Houmao sends neither an auto-mode chat command nor a role-bootstrap chat turn.
 
-The reference SHALL distinguish Kimi `as_is` TUI launch from unattended TUI launch and SHALL describe current source evidence for Kimi's system-prompt limitations without retaining a stale 0.11 version claim.
+The reference SHALL distinguish Kimi `as_is` TUI launch from unattended TUI launch, identify 2.1.1 as the minimum maintained version, state that Kimi releases before it are unsupported, and state that support has no upper version limit.
 
 #### Scenario: Reader sees Kimi TUI unattended behavior
 - **WHEN** a reader opens the Kimi local-interactive backend reference
 - **THEN** it states that unattended startup includes native `--auto`
-- **AND THEN** it states that the mode applies before role bootstrap or workload prompts
+- **AND THEN** it states that native role instructions are in place before workload prompts
 
 #### Scenario: Reader sees Kimi resumed startup behavior
 - **WHEN** a reader opens the Kimi relaunch reference
 - **THEN** it shows native `--auto` combined with `--continue` or `--session <session_id>`
-- **AND THEN** it describes no post-readiness `/auto on` command
+- **AND THEN** it describes no post-readiness auto-mode or role-prompt command
 
 #### Scenario: Reader can distinguish as-is from unattended
 - **WHEN** a reader compares Kimi launch prompt modes
 - **THEN** `as_is` preserves provider approval behavior
-- **AND THEN** `unattended` is the maintained no-question mode
+- **AND THEN** `unattended` is the maintained no-question mode without changing the native role-prompt method
 
 #### Scenario: Reader sees current Kimi system-prompt evidence
 - **WHEN** a reader opens the Kimi role-injection reference
-- **THEN** the documentation describes the maintained Kimi 0.23.x system-prompt integration from current source evidence
-- **AND THEN** it does not present Kimi 0.11.0 as the maintained version
+- **THEN** the documentation describes the Kimi `>=2.1.1` native `SYSTEM.md` integration from current baseline source evidence
+- **AND THEN** it presents no below-floor compatibility path
 
 ### Requirement: Run-phase reference excludes Gemini
 Maintained backend, launch-plan, manifest, lifecycle, role-injection, gateway, and realm-controller documentation SHALL not describe Gemini runtime behavior.

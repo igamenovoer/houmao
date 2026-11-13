@@ -1,6 +1,7 @@
 ## Purpose
 Define the README structure and onboarding order for the primary Houmao project documentation entry point.
 ## Requirements
+
 ### Requirement: README section ordering follows specialist-first onboarding
 
 The README SHALL present an agent-first onboarding order: title/intro, Motivation, audience list, What It Is (with name origin), Why This Design, Architecture at a Glance, Quick Start, agent-driven examples, Core Concepts, Agent Loops, concise System Skills summary, Subsystems, Demos and Examples, CLI Entry Points, Full Documentation, Development, License. The former Typical Use Cases section is removed; audience signposting in the "who this is for" list and the Agent Loops and Demos sections carry that content.
@@ -120,26 +121,19 @@ The capabilities table in step 5 (Adopt an Existing Session) SHALL include at le
 - **THEN** they find a row for memory inspection, memo operations, or page resolution that references `houmao-mgr agents memory`
 
 ### Requirement: README What It Is section acknowledges Copilot system-skills target
+The README opening "What It Is" paragraph SHALL mention Copilot as a supported system-skills install target alongside the three primary launch-capable tools (`claude`, `codex`, `kimi`). The mention SHALL make clear that Copilot is a skill-install surface, not a launch backend.
 
-The README opening "What It Is" paragraph SHALL mention Copilot as a supported system-skills install target alongside the three primary launch-capable tools (`claude`, `codex`, `kimi`). The mention SHALL use a qualifier that makes clear Copilot is a skill-install surface, not a launch backend.
-
-When the README opening paragraph or nearby first-screen prose mentions all maintained launch-capable providers, it SHALL order them as `claude`, `codex`, `kimi`, then `gemini`.
-
-The README SHALL include a Kimi Code note that reflects the maintained release line (currently 0.23.x): Houmao delivers role context to managed Kimi sessions through managed bootstrap or auto-skill workflows and projects `houmao-auto-system-prompt` into managed Kimi homes. The note SHALL tell readers to invoke `houmao-auto-system-prompt` before substantive chat when the Houmao role prompt is not confirmed loaded. The note SHALL NOT pin guidance to the retired 0.11.0 system-prompt-flag wording.
+The README SHALL include a Kimi Code note that identifies 2.1.1 as the minimum supported version and states that support has no upper version limit. It SHALL explain that Houmao applies the complete composed role prompt before provider startup through the managed Kimi home's native `SYSTEM.md`, while preserving Kimi's built-in instructions. It SHALL contain no below-floor compatibility, manual auto-skill invocation, or role-bootstrap guidance.
 
 #### Scenario: Reader understands Copilot scope
-
 - **WHEN** a reader reads the README "What It Is" section
-- **THEN** they see that Houmao manages `claude`, `codex`, and `kimi` as the primary launch backend examples
-- **AND THEN** they see Gemini only after Kimi when a complete launch-provider list appears
-- **AND THEN** they see that Houmao additionally supports `copilot` for system-skill installation
-- **AND THEN** they do not conclude that Copilot is a launch backend
+- **THEN** they see that Houmao manages `claude`, `codex`, and `kimi` as primary launch backend examples
+- **AND THEN** they see that Houmao additionally supports `copilot` for system-skill installation without treating it as a launch backend
 
 #### Scenario: Reader sees current Kimi role-prompt guidance
-
 - **WHEN** a reader scans the README Kimi provider guidance
-- **THEN** they see guidance matching the maintained Kimi Code release line and the `houmao-auto-system-prompt` projection behavior
-- **AND THEN** they are told to invoke `houmao-auto-system-prompt` manually when the role prompt is not confirmed loaded
+- **THEN** they see the Kimi 2.1.1 floor, no upper limit, and native managed-home role-prompt behavior
+- **AND THEN** they see no below-floor or skill-based prompt-delivery workaround
 
 ### Requirement: README demos section includes writer-team example
 

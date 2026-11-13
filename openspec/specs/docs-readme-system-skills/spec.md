@@ -3,6 +3,7 @@
 ## Purpose
 Define README requirements for documenting Houmao system skills and keeping top-level usage examples accurate.
 ## Requirements
+
 ### Requirement: README accuracy pass for recent refactors
 
 The `README.md` SHALL be reviewed for accuracy against the current codebase. Any stale command examples, flag names, or descriptions introduced by recent refactors SHALL be corrected.
@@ -156,12 +157,12 @@ The README SHALL explain that welcome is read-only and hands concrete work to `$
 ### Requirement: README distinguishes external and managed pack defaults
 The README SHALL state that explicit external-home installation defaults to the admin pack, while managed launch, rebuild, relaunch, and join default to the agent pack.
 
-It SHALL state that the admin welcome and entrypoint install atomically, no default installs both actors, and `houmao-auto-system-prompt` remains separate managed bootstrap content.
+It SHALL state that the admin welcome and entrypoint install atomically and that no default installs both actors. It SHALL distinguish catalog-backed system-skill packs from provider-native role-prompt files created by brain construction and SHALL contain no managed auto-skill category.
 
 #### Scenario: Reader compares two homes
 - **WHEN** a reader compares a human-operated CLI-agent home with a Houmao-managed home
 - **THEN** the README identifies the admin pack for the first and the agent pack for the second
-- **AND THEN** it does not describe `core`, `extensions`, or `all` as current selectors
+- **AND THEN** it does not describe provider-native prompt files as skills or pack members
 
 ### Requirement: README examples use public entrypoint invocations
 System-skill examples SHALL begin with one of the three public skill names.

@@ -3,6 +3,7 @@
 ## Purpose
 TBD - created by archiving change add-ag-ui-workbench-app. Update Purpose after archive.
 ## Requirements
+
 ### Requirement: Standalone AG-UI workbench app
 The repository SHALL provide a standalone AG-UI workbench application under `apps/ag-ui-workbench/` for testing and operating Houmao AG-UI protocol behavior without including the GUI in the Python package distribution.
 
@@ -290,17 +291,19 @@ The deterministic fixture path SHALL cover AG-UI, Debug Agent, tmux bridge, and 
 - **AND THEN** the test does not depend on Vite-only plugin routes for host integration behavior
 
 ### Requirement: Kimi Code headless live validation guidance
-The workbench documentation SHALL describe how to perform live/manual validation for this change with a Kimi Code headless Houmao agent while keeping deterministic fake-server E2E as the required automated test path.
+
+Workbench guidance SHALL describe live/manual validation with a Kimi headless agent prepared through the shared generic fixture flow, while retaining deterministic fake-server E2E as the required automated path. Credential setup SHALL use selected local API references or explicit imported native state outside the checkout rather than a fixed personal fixture path.
 
 #### Scenario: Documentation names Kimi Code headless live lane
-- **WHEN** a developer reads the workbench README or change documentation for live validation
-- **THEN** the documentation names Kimi Code headless as the preferred real-agent lane for this change
-- **AND THEN** the documentation identifies the local Kimi credential fixture path `tests/fixtures/auth-bundles/kimi/personal-a-default/` as the preferred fixture when available
+- **WHEN** a developer reads the workbench live-validation guidance
+- **THEN** it names Kimi headless as the preferred real-agent lane and explains generic fixture preparation with an explicit model and backend case
+- **AND THEN** it points native auth setup to local discovery/import when that method is selected
+- **AND THEN** it does not require `tests/fixtures/auth-bundles/kimi/personal-a-default/`
 
 #### Scenario: Live validation attaches to existing agent gateway
-- **WHEN** a developer runs the workbench against a live Kimi Code headless Houmao agent
-- **THEN** the workbench attaches to the already-running agent gateway through AG-UI connect or run routes
-- **AND THEN** the workbench does not start, stop, restart, shut down, or interrupt the Kimi Code headless agent as part of GUI lifecycle
+- **WHEN** a developer connects the workbench to a prepared live Kimi headless agent
+- **THEN** the workbench attaches through the existing gateway AG-UI routes
+- **AND THEN** GUI lifecycle does not start, stop, restart, shut down, or interrupt that agent
 
 ### Requirement: Workbench renders Houmao typed components from standard AG-UI events
 The workbench SHALL render known Houmao typed components carried by standard AG-UI tool-call or custom events.
@@ -1113,4 +1116,3 @@ Manual or smoke validation for real tmux TUI sessions SHALL include evidence tha
 - **WHEN** a tester validates the workbench against a real tmux session running a Claude or Kimi TUI
 - **AND WHEN** that TUI emits long output without user input
 - **THEN** the smoke evidence records enough terminal geometry and visible rendering evidence to distinguish newline parsing errors from tmux pane-size mismatches
-

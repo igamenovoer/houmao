@@ -3,37 +3,6 @@
 ## Purpose
 TBD - created by archiving change add-kimi-tui-support. Update Purpose after archive.
 ## Requirements
-### Requirement: Kimi Code TUI launches as a maintained local interactive provider
-The system SHALL support `tool = kimi` as a maintained tmux-backed `local_interactive` TUI provider.
-
-Kimi TUI launch SHALL remain distinct from the `kimi_headless` backend. A request for local interactive Kimi SHALL start the interactive Kimi Code TUI, while a request for headless Kimi SHALL continue using the prompt-mode headless backend.
-
-The local interactive Kimi runtime SHALL preserve the existing tmux primary-surface contract, managed runtime home projection, launch-profile environment handling, gateway attachability, and managed-agent metadata publication used by other maintained local interactive providers.
-
-Kimi Code `local_interactive` role injection SHALL use a bootstrap-message turn rather than an unverified native TUI system prompt flag.
-
-Managed Kimi Code TUI launches SHALL project `KIMI_CODE_NO_AUTO_UPDATE=1` into the launched process environment so Kimi does not stop startup on an interactive update preflight.
-
-#### Scenario: Kimi local interactive launch starts the TUI
-- **WHEN** an operator launches a managed agent for tool `kimi` with local interactive posture
-- **THEN** the runtime starts the Kimi Code interactive TUI in the managed tmux primary surface
-- **AND THEN** the managed session records backend `local_interactive`
-- **AND THEN** the process inspector can later recognize the Kimi TUI as supported
-
-#### Scenario: Kimi headless remains separate
-- **WHEN** an operator launches a managed agent for tool `kimi` with headless posture
-- **THEN** the runtime continues using backend `kimi_headless`
-- **AND THEN** the launch does not inherit Kimi TUI parser, prompt, or relaunch assumptions solely because both modes use the same provider CLI
-
-#### Scenario: Kimi TUI launch suppresses update preflight
-- **WHEN** Houmao starts a managed Kimi Code local interactive session
-- **THEN** the launched Kimi process environment includes `KIMI_CODE_NO_AUTO_UPDATE=1`
-- **AND THEN** Houmao does not depend on an interactive Kimi update prompt being absent by chance
-
-#### Scenario: Kimi TUI role injection uses bootstrap message
-- **WHEN** a managed Kimi Code local interactive launch has a role prompt
-- **THEN** Houmao plans bootstrap-message role injection for Kimi TUI
-- **AND THEN** it does not add an unverified Kimi TUI system-prompt CLI flag
 
 ### Requirement: Kimi Code TUI launch does not project prompt-mode-only skills-dir arguments
 Houmao SHALL NOT add managed `--skills-dir` arguments to Kimi Code `local_interactive` launch commands until Kimi exposes a maintained TUI skills-dir startup mechanism.
@@ -83,7 +52,7 @@ The Kimi TUI relaunch translation SHALL be:
 
 An exact Kimi relaunch selector SHALL require a non-empty provider-native session id. The runtime SHALL NOT use bare `kimi --session` because that starts Kimi's interactive session picker.
 
-For maintained Kimi 0.23.x, unattended relaunch SHALL combine strategy-owned `--auto` with `--continue` or `--session <session_id>`. The runtime SHALL reject a final command that combines `--auto` with `--yolo`, but it SHALL NOT reject native auto mode solely because a resume selector is present. Kimi TUI relaunch SHALL continue to permit launch-owned `--model <alias>` arguments with resume selectors.
+For maintained Kimi 2.1.1 or later, unattended relaunch SHALL combine strategy-owned `--auto` with `--continue` or `--session <session_id>`. The runtime SHALL reject a final command that combines `--auto` with `--yolo`, but it SHALL NOT reject native auto mode solely because a resume selector is present. Kimi TUI relaunch SHALL continue to permit launch-owned `--model <alias>` arguments with resume selectors and SHALL validate the native `SYSTEM.md` contract before respawn.
 
 #### Scenario: Kimi TUI relaunch starts a fresh chat by default
 - **WHEN** an operator relaunches a Kimi TUI managed session without a chat-session selector
@@ -92,7 +61,7 @@ For maintained Kimi 0.23.x, unattended relaunch SHALL combine strategy-owned `--
 #### Scenario: Kimi TUI relaunch resumes latest chat unattended
 - **WHEN** an unattended Kimi TUI session relaunches with mode `tool_last_or_new`
 - **THEN** the runtime respawns Kimi with `--auto --continue`
-- **AND THEN** it does not send a resume or auto-mode request as a prompt after startup
+- **AND THEN** it does not send a resume, auto-mode, or role-prompt request as a chat turn after startup
 
 #### Scenario: Kimi TUI relaunch resumes exact chat unattended
 - **WHEN** an unattended Kimi TUI session relaunches with mode `exact` and provider session id `session_abc`
@@ -142,14 +111,19 @@ The system SHALL NOT treat footer model metadata such as a model name followed b
 - **THEN** the tracked state does not report an active turn solely from that footer text
 
 ### Requirement: Kimi unattended TUI startup establishes policy without a conversational turn
-Maintained Kimi 0.23.x unattended TUI startup SHALL use native `--auto` before role bootstrap or workload submission. Houmao SHALL NOT submit `/auto on`, answer a confirmation, or send another conversational command to establish the unattended posture.
+Maintained Kimi 2.1.1-or-later unattended TUI startup SHALL use native `--auto` after native role-prompt projection and before workload submission. Houmao SHALL NOT submit `/auto on`, a role bootstrap, an answered confirmation, or another conversational command to establish launch policy or role identity.
 
 Normal unattended startup and work SHALL not enter approval, waiting-for-answer, or confirmation states. If Kimi hard-codes an intervention that no supported setting can suppress, Houmao SHALL retain evidence and report it as an explicit exception rather than silently answering it.
 
+#### Scenario: Fresh unattended Kimi starts without policy or role chat
+- **WHEN** Houmao launches a fresh maintained Kimi 2.1.1-or-later TUI with unattended prompt mode
+- **THEN** the final launch command includes `--auto` and the managed native prompt is already projected
+- **AND THEN** the first managed conversational input is workload content
+
 #### Scenario: Fresh unattended Kimi starts prompt-free
 - **WHEN** Houmao launches a fresh maintained Kimi TUI with unattended prompt mode
-- **THEN** the final launch command includes `--auto`
-- **AND THEN** the first managed conversational input is role bootstrap or workload content, not a policy command
+- **THEN** native `--auto` and native `SYSTEM.md` projection establish policy and role before conversation
+- **AND THEN** startup sends no policy or role bootstrap prompt
 
 #### Scenario: Avoidable confirmation fails unattended validation
 - **WHEN** a normal unattended Kimi scenario displays a confirmation or user-question surface
@@ -192,3 +166,26 @@ Maintained Kimi 0.34.0-or-later unattended TUI startup SHALL suppress the provid
 - **WHEN** a maintained unattended Kimi TUI scenario is recorded for qualification
 - **THEN** its labeled timeline contains no trust-confirmation intervention for the launch working directory
 - **AND THEN** any residual provider confirmation surface is reported as an explicit exception with evidence
+
+### Requirement: Maintained Kimi Code TUI launches with native role instructions
+Kimi Code >=2.1.1 SHALL run as a maintained tmux-backed `local_interactive` TUI with no upper version limit. Launch SHALL project native `SYSTEM.md` role instructions before provider start, enforce the v2 engine, and set `KIMI_CODE_NO_AUTO_UPDATE=1`. It SHALL preserve shared TUI/runtime/gateway contracts, remain distinct from `kimi_headless`, and send no role-bootstrap turn.
+
+#### Scenario: Kimi local interactive launch starts with native role instructions
+- **WHEN** an operator launches a managed Kimi 2.1.1-or-later agent with local-interactive posture and a non-empty role prompt
+- **THEN** the runtime starts the interactive Kimi Code TUI in the managed tmux primary surface after `SYSTEM.md` projection succeeds
+- **AND THEN** the first conversational input is not a role bootstrap message
+
+#### Scenario: Kimi headless remains separate
+- **WHEN** an operator launches a managed Kimi agent with headless posture
+- **THEN** the runtime uses backend `kimi_headless`
+- **AND THEN** the launch does not inherit Kimi TUI parser, prompt-submission, or relaunch assumptions solely because both modes use the same provider CLI
+
+#### Scenario: Kimi TUI launch suppresses update preflight and legacy mode
+- **WHEN** Houmao starts a managed Kimi Code local-interactive session
+- **THEN** the launched process environment includes `KIMI_CODE_NO_AUTO_UPDATE=1`
+- **AND THEN** the process cannot select the legacy engine for this managed launch
+
+#### Scenario: Kimi TUI retains the shared managed runtime contract
+- **WHEN** a maintained Kimi local-interactive agent starts
+- **THEN** its launch preserves the tmux primary surface, managed runtime home, launch-profile environment, gateway attachability, and managed-agent metadata publication
+- **AND THEN** its tool identity remains `kimi`

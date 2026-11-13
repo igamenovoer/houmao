@@ -3,6 +3,7 @@
 ## Purpose
 TBD - created by archiving change add-system-skill-version-doctor. Update Purpose after archive.
 ## Requirements
+
 ### Requirement: Standalone system skills declare their Houmao release
 Each of the six standalone public system-skill `SKILL.md` files SHALL declare exactly one quoted, non-empty `houmao_version` YAML frontmatter value equal to the Houmao project release version.
 
@@ -17,16 +18,6 @@ The version SHALL apply to the complete owned standalone tree. The sixteen paren
 - **WHEN** an operator inspects the installed `houmao-shared-routines` root
 - **THEN** its top-level `SKILL.md` declares the release version
 - **AND THEN** that version covers all sixteen owned child trees
-
-### Requirement: Non-collection skills remain outside the version contract
-The top-level version contract SHALL exclude legacy system skills, generated execplan skills, project-authored skills, and the separately managed `houmao-auto-system-prompt` asset.
-
-The presence or absence of `houmao_version` in those excluded assets SHALL NOT affect system-skill doctor results for the static public collection.
-
-#### Scenario: Managed auto prompt is installed
-- **WHEN** doctor inspects a managed agent home containing `houmao-auto-system-prompt`
-- **THEN** it does not require or compare `houmao_version` on that auto skill
-- **AND THEN** it evaluates only the expected standalone static pack roots
 
 ### Requirement: Release validation keeps static assets synchronized
 Source and distribution validation SHALL compare each of the exact six standalone `houmao_version` strings with `[project].version` from `pyproject.toml`.
@@ -76,3 +67,18 @@ Parsing SHALL NOT require a Houmao lifecycle receipt and SHALL NOT rewrite the s
 - **WHEN** an installed root contains a non-string or invalid `houmao_version`
 - **THEN** parsing reports the field as invalid for that root
 - **AND THEN** no install, upgrade, or repair action is attempted
+
+### Requirement: Non-collection assets remain outside the system-skill version contract
+The top-level version contract SHALL exclude legacy system skills, generated execplan skills, and project-authored skills.
+
+The presence or absence of `houmao_version` in those excluded assets SHALL NOT affect system-skill doctor results for the static public collection. Provider-native system-prompt files SHALL be inspected through brain provenance rather than parsed as skills.
+
+#### Scenario: Project-authored skill is installed
+- **WHEN** doctor inspects a managed agent home containing a project-authored skill outside the static public collection
+- **THEN** it does not require or compare `houmao_version` on that project-authored skill
+- **AND THEN** it evaluates only the expected standalone static pack roots
+
+#### Scenario: Managed Kimi native prompt is present
+- **WHEN** doctor inspects a managed Kimi home containing `SYSTEM.md`
+- **THEN** it does not treat the file as a system skill or require skill release metadata on it
+- **AND THEN** system-prompt integrity remains the responsibility of brain provenance inspection

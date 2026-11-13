@@ -3,6 +3,7 @@
 ## Purpose
 Define the supported shared TUI tracking demo-pack surface, its demo-local launch assets, and its run-local agent bootstrap contract.
 ## Requirements
+
 ### Requirement: `scripts/demo/` SHALL publish a supported shared TUI tracking demo pack
 
 The repository SHALL publish a supported runnable shared TUI tracking demo under `scripts/demo/shared-tui-tracking-demo-pack/` and SHALL present it from `scripts/demo/README.md` as part of the maintained demo surface.
@@ -49,27 +50,23 @@ The generated agent-definition directory SHALL be derived from the tracked demo-
 - **AND THEN** the runtime build for that run uses the generated local agent-definition directory rather than a repository-wide plain direct-dir fixture root
 
 ### Requirement: The restored demo SHALL materialize a demo-local `default` auth alias for the selected tool
-The restored demo run workflow SHALL create a generated working tree for each run and SHALL materialize one demo-local auth alias named `default` for the selected tool by linking or projecting to a host-local fixture auth bundle under `tests/fixtures/auth-bundles/<tool>/`.
 
-Tracked demo presets MAY therefore continue to declare `auth: default`.
-
-If the expected host-local auth source for the selected tool is absent, the demo SHALL fail before launch with a clear error identifying the missing path.
+Each credential-bearing demo run SHALL prepare an external private working tree and a selected-tool `default` credential alias from the configured generic API case or an explicitly selected imported native bundle. It SHALL materialize a run-local copy rather than link the live runtime to a reusable source bundle. Tracked presets MAY retain `auth: default`. Missing selected inputs SHALL fail preflight.
 
 #### Scenario: Claude run creates a local default auth alias
-- **WHEN** an operator starts the restored demo for Claude
-- **THEN** the generated working tree contains `tools/claude/auth/default` for that run
-- **AND THEN** that alias resolves to one host-local fixture auth source under `tests/fixtures/auth-bundles/claude/`
+- **WHEN** an operator starts a configured Claude demo run
+- **THEN** its generated tree receives a run-local Claude `default` credential selection
+- **AND THEN** the material derives from the selected API case or external imported bundle without a repository-local credential source
 
 #### Scenario: Codex run creates a local default auth alias
-- **WHEN** an operator starts the restored demo for Codex
-- **THEN** the generated working tree contains `tools/codex/auth/default` for that run
-- **AND THEN** that alias resolves to one host-local fixture auth source under `tests/fixtures/auth-bundles/codex/`
+- **WHEN** an operator starts a configured Codex demo run
+- **THEN** its generated tree receives a run-local Codex `default` credential selection and matching provider routing
+- **AND THEN** it does not require the fixed Yunwu bundle or endpoint
 
 #### Scenario: Missing local auth source fails during preflight
-- **WHEN** an operator starts the restored demo for one supported tool
-- **AND WHEN** the expected host-local fixture auth source for that tool is absent
-- **THEN** the demo fails before launch
-- **AND THEN** the error identifies the missing auth source path
+- **WHEN** a selected credential source or required API reference is absent
+- **THEN** the demo fails before launching the client
+- **AND THEN** the error names the missing input and supported discovery/import or configuration action
 
 ### Requirement: The restored demo pack SHALL support Kimi as a first-class demo tool
 The restored shared TUI tracking demo pack SHALL admit `kimi` as a supported tool alongside Claude and Codex in demo-local type catalogs, command routing, run manifests, fixture manifests, scenario definitions, ownership metadata, and tests.
@@ -95,22 +92,18 @@ The tracked Kimi assets SHALL NOT commit plaintext Kimi OAuth credentials, Kimi 
 - **AND THEN** the tracked tree contains no plaintext Kimi credential material
 
 ### Requirement: The restored demo SHALL materialize a Kimi default auth alias from host-local state
-The restored demo run workflow SHALL materialize `tools/kimi/auth/default` in the generated run-local agent-definition tree from a host-local Kimi auth bundle.
 
-The default Kimi auth-bundle convention SHALL be documented and SHALL support importing or linking a logged-in Kimi Code home without committing secrets. At minimum, the documented bundle shape SHALL cover `config.toml`, `credentials/kimi-code.json`, and optional Kimi env values accepted by the Kimi adapter.
-
-If the expected host-local Kimi auth source is absent, the workflow SHALL fail before launching tmux and SHALL identify the missing path.
+The Kimi demo SHALL prepare its `default` credential from the selected API configuration or an explicit external imported Kimi bundle. Native imports SHALL cover supported `config.toml`, `credentials/kimi-code.json`, and allowlisted env values without copying unrelated home state. API runs SHALL require no OAuth file. Missing selected inputs SHALL fail before tmux launch.
 
 #### Scenario: Kimi run creates a local default auth alias
-- **WHEN** an operator starts the restored demo for Kimi and the expected host-local Kimi auth bundle exists
-- **THEN** the generated working tree contains `tools/kimi/auth/default` for that run
-- **AND THEN** the alias resolves to the host-local Kimi auth source
+- **WHEN** an operator starts a Kimi demo with an available selected credential source
+- **THEN** its external generated tree contains a run-local Kimi `default` credential selection
+- **AND THEN** native credentials are copied from the selected imported bundle or API credentials are resolved from the configured case
 
 #### Scenario: Missing Kimi auth source fails during preflight
-- **WHEN** an operator starts the restored demo for Kimi
-- **AND WHEN** the expected host-local Kimi auth bundle is absent
+- **WHEN** the selected Kimi credential source or required API input is unavailable
 - **THEN** the demo fails before launching tmux
-- **AND THEN** the error identifies the missing Kimi auth source path
+- **AND THEN** it identifies the missing input without requiring `tests/fixtures/auth-bundles/kimi/personal-a-default/`
 
 ### Requirement: Kimi demo process metadata SHALL recognize `kimi-code` and `kimi`
 The restored demo pack SHALL recognize live Kimi TUI processes for runtime observations and deliberate diagnostics-loss actions.
@@ -125,3 +118,18 @@ The maintained Kimi process-name set for the demo SHALL include both `kimi-code`
 - **WHEN** a demo-owned tmux pane process tree contains a Kimi TUI process named `kimi`
 - **THEN** runtime observation reports a supported Kimi process pid as alive
 
+### Requirement: Live tracker workflows accept explicit prepared fixture inputs
+
+Live-watch and recorded-capture entrypoints SHALL accept a prepared run selection through `--prepared-run`. They SHALL validate its selected tool and usable external assets before launching. Missing or incompatible prepared inputs SHALL produce an actionable error without falling back to personal auth paths. Offline validation without client execution SHALL remain credential-free.
+
+#### Scenario: Prepared configuration reaches the selected tracker workflow
+- **WHEN** a live tracker workflow receives compatible prepared inputs for its selected tool
+- **THEN** it copies the selected setup/auth material into its own private generated tree and retains its existing capture ownership
+
+#### Scenario: Prepared tool differs from requested capture tool
+- **WHEN** a capture selects Kimi but receives prepared inputs for another tool
+- **THEN** the workflow fails before client launch and identifies the mismatch
+
+#### Scenario: Offline validation needs no credentials
+- **WHEN** recorded evidence is validated without launching a client
+- **THEN** the workflow requires neither a prepared authenticated run nor a local credential store

@@ -3,6 +3,7 @@
 ## Purpose
 Define the expected structure and semantics for reusable agent components, declarative presets, and runtime brain construction inputs.
 ## Requirements
+
 ### Requirement: User-facing source directories
 
 When the system consumes a filesystem-backed reusable agent-definition source tree, it SHALL organize that source under a stable on-disk layout rooted at `agents/`.
@@ -286,21 +287,13 @@ The preset name SHALL be derived from the preset filename stem. The preset file 
 
 ### Requirement: Tracked canonical presets for live role variants
 
-The repository SHALL provide tracked, declarative, secret-free presets under `agents/presets/` for the live role variants that the repo documents and verifies.
-
-At minimum, the tracked preset set SHALL include:
-
-- `agents/presets/gpu-kernel-coder-claude-default.yaml`
-- `agents/presets/gpu-kernel-coder-codex-default.yaml`
-- `agents/presets/gpu-kernel-coder-codex-yunwu-openai.yaml`
-
-Each tracked preset SHALL select one role, one tool, selected skills, one setup, and optional default auth by identifier only and SHALL NOT embed secret material.
+Repository-owned filesystem seed trees SHALL provide secret-free named presets for documented role variants. The plain fixture GPU role SHALL include Claude default, Codex default, and Codex `api-compatible` variants. Presets SHALL identify role, tool, setup, selected skills, and optional auth by identifier only. They SHALL NOT require a personal credential name or the removed Yunwu fixture setup.
 
 #### Scenario: Developer can locate tracked preset variants for the GPU demo role
-
-- **WHEN** a developer needs to inspect or update the supported launch variants for `gpu-kernel-coder`
-- **THEN** the repo SHALL contain tracked named presets under `agents/presets/` for the documented tool and setup variants
-- **AND THEN** those presets SHALL remain declarative and secret-free
+- **WHEN** a developer inspects supported `gpu-kernel-coder` variants in `tests/fixtures/plain-agent-def/presets/`
+- **THEN** the tree contains `gpu-kernel-coder-claude-default.yaml`, `gpu-kernel-coder-codex-default.yaml`, and `gpu-kernel-coder-codex-api-compatible.yaml`
+- **AND THEN** those presets remain declarative and secret-free
+- **AND THEN** model, endpoint, and effective credential selection can be supplied for the prepared run without editing tracked files
 
 ### Requirement: Resolved runtime manifest
 
@@ -644,4 +637,3 @@ The maintained Kimi headless backend MAY continue to own headless prompt-mode `-
 - **WHEN** the managed Kimi runtime home is selected with `KIMI_CODE_HOME`
 - **THEN** the system does not assume that `<KIMI_CODE_HOME>/skills` is automatically scanned by Kimi Code
 - **AND THEN** it configures the managed projected skill root through Kimi-supported additive configuration when managed skills must be visible
-

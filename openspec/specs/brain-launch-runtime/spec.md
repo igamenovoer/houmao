@@ -2,6 +2,7 @@
 Define expected runtime behaviors for brain launch session orchestration,
 CLI session control, backend continuity, and CAO/tmux integrations.
 ## Requirements
+
 ### Requirement: Launch plan composition from `{brain, role}`
 The system SHALL compose a tool launch plan from a resolved brain manifest and a role package.
 
@@ -3136,57 +3137,21 @@ The internal direct build command SHALL preserve the existing build behavior for
 - **THEN** the maintained ordinary path is `houmao-mgr project agents launch`
 - **AND THEN** the operator does not need to run direct brain-build plumbing manually
 
-### Requirement: Brain construction projects required managed auto skills
-When a launch plan selects an auto-skill based role injection method, brain construction SHALL project the required packaged auto skills into the managed home before provider start.
-
-Auto-skill projection SHALL use the same provider-visible skill destination root as ordinary managed skill projection for that tool, such as `skills/` for Kimi and `.gemini/skills/` for Gemini.
-
-Auto-skill projection SHALL be independent from project skill selection, profile-private skill projection, and managed system-skill selection.
-
-Auto-skill projection SHALL be counted as projected skill content for provider setup that needs a skill root registration, including Kimi `extra_skill_dirs`.
-
-Brain construction SHALL record auto-skill provenance including selected auto-skill names, the selection reason, projected relative directories, and the destination root.
-
-#### Scenario: Kimi home registers skill root when only auto skill is projected
-- **WHEN** brain construction builds a Kimi managed home whose only projected skill is `houmao-auto-system-prompt`
-- **THEN** the managed home contains the projected skill under the Kimi-visible skill root
-- **AND THEN** Kimi configuration registers that projected skill root for discovery
-- **AND THEN** construction provenance records the auto-skill selection and projected relative directory
-
-#### Scenario: Disabled system-skill policy does not suppress required auto skill
-- **WHEN** managed launch resolves a system-skill policy that installs no system skills
-- **AND WHEN** the role injection method requires `houmao-auto-system-prompt`
-- **THEN** brain construction still projects `houmao-auto-system-prompt`
-- **AND THEN** construction provenance distinguishes the auto-skill projection from the empty system-skill selection
-
-### Requirement: Runtime supports auto-skill system-prompt role injection
-The runtime SHALL support a role injection method that stores the effective Houmao system prompt for self-service retrieval and uses `houmao-auto-system-prompt` as the provider bootstrap path.
-
-For this method, runtime startup SHALL NOT send the effective Houmao system prompt as an ordinary chat bootstrap message.
-
-Runtime manifests SHALL describe the method as auto-skill based and SHALL record the prompt reference or hash needed for diagnostics without claiming the provider has applied the prompt solely because the skill was projected.
-
-#### Scenario: Auto-skill role injection does not send chat bootstrap
-- **WHEN** a Kimi managed launch resolves auto-skill system-prompt injection
-- **THEN** the launch plan does not include a chat bootstrap message containing the effective Houmao system prompt
-- **AND THEN** the managed home includes `houmao-auto-system-prompt`
-- **AND THEN** the effective prompt remains available to `houmao-mgr agents self system-prompt show --format text`
-
-#### Scenario: Manifest records projected but not applied
-- **WHEN** a managed launch projects `houmao-auto-system-prompt`
-- **THEN** the runtime or construction manifest records that the auto skill was projected
-- **AND THEN** the manifest does not report the system prompt as applied unless a supported observable signal proves the provider loaded it
-
 ### Requirement: Runtime rejects unsupported system-prompt fallback cases
-When a managed agent requires an effective role or system prompt, runtime planning SHALL fail clearly if the selected tool has neither native system-prompt support nor startup-visible skill metadata support.
+When a managed agent requires an effective role or system prompt, runtime planning SHALL fail clearly if the selected tool, backend, and qualified version do not declare a native system-prompt mechanism that applies before the first user turn.
 
-The runtime SHALL NOT silently fall back to memo-only injection or ordinary chat bootstrap for such tools.
+The runtime SHALL NOT fall back to managed auto skills, memo-only injection, or ordinary chat bootstrap to compensate for a missing native system-prompt mechanism.
+
+#### Scenario: Tool without native prompt support fails
+- **WHEN** a managed launch requires a role or system prompt
+- **AND WHEN** the selected tool capability metadata declares no applicable native system-prompt mechanism
+- **THEN** launch planning fails with a diagnostic that names the unsupported system-prompt injection path
+- **AND THEN** no provider process is started with a skill, memo, or chat-only fallback
 
 #### Scenario: Tool without native prompt or startup-visible skills fails
-- **WHEN** a managed launch requires a role/system prompt
-- **AND WHEN** the selected tool capability metadata declares no native system-prompt support and no startup-visible skill metadata support
-- **THEN** launch planning fails with a diagnostic that names the unsupported system-prompt injection path
-- **AND THEN** no provider process is started with a best-effort memo or chat-only fallback
+- **WHEN** a managed launch requires a role or system prompt and the selected tool has no native prompt surface
+- **THEN** launch planning fails even if the tool supports startup-visible skills
+- **AND THEN** no provider process is started through the retired skill fallback
 
 ### Requirement: Kimi unattended local-interactive launch runs in automatic no-question mode
 When a Kimi Code local-interactive launch resolves `operator_prompt_mode = unattended`, the runtime SHALL start the provider in Kimi auto permission mode before submitting any Houmao role bootstrap, mailbox notification, or workload prompt.
@@ -3267,3 +3232,36 @@ When a managed Kimi Code launch resolves `operator_prompt_mode = as_is`, the run
 - **WHEN** Houmao launches a managed Kimi session with `operator_prompt_mode = as_is`
 - **THEN** the runtime writes no workspace-trust record
 - **AND THEN** the provider's native trust interaction is preserved for the operator
+
+### Requirement: Managed Kimi role prompts use native SYSTEM.md projection
+For maintained Kimi Code >=2.1.1, Houmao SHALL project the complete effective launch prompt into `<KIMI_CODE_HOME>/SYSTEM.md` before provider start, preserving built-in instructions with leading `${base_prompt}`. Native projection SHALL validate placeholders and prompt precedence, enforce the v2 engine, remove stale managed files for empty prompts, and record typed provenance.
+
+#### Scenario: Non-empty Kimi role prompt is native before startup
+- **WHEN** Houmao builds and launches a Kimi 2.1.1-or-later brain whose effective launch prompt is non-empty
+- **THEN** `<KIMI_CODE_HOME>/SYSTEM.md` contains the built-in prompt reference followed by the complete effective Houmao prompt
+- **AND THEN** the Kimi process uses the v2 engine and starts only after projection succeeds
+
+#### Scenario: Kimi template placeholder in a role is rejected
+- **WHEN** the effective Houmao prompt contains a token such as `${cwd}`, `${base_prompt}`, or `${future_name}`
+- **THEN** projection fails with a diagnostic that identifies the placeholder token
+- **AND THEN** Houmao does not start Kimi with silently substituted role text
+
+#### Scenario: Empty effective prompt removes stale managed state
+- **WHEN** a Kimi brain is rebuilt with no effective launch prompt after an earlier build projected `SYSTEM.md`
+- **THEN** the stale Houmao-managed `SYSTEM.md` is absent before provider start
+- **AND THEN** the manifest records that no native role prompt was projected
+
+#### Scenario: Higher-priority Kimi agent override is rejected
+- **WHEN** a managed Kimi launch would select an explicit or discovered main-agent definition that takes precedence over `SYSTEM.md`
+- **THEN** launch fails with a diagnostic naming the conflicting agent-selection surface
+- **AND THEN** no Kimi process starts with an unverified role prompt
+
+#### Scenario: Bare-dollar prompt text remains literal
+- **WHEN** effective Houmao prompt text contains bare dollar signs or other text outside Kimi's `${identifier}` placeholder grammar
+- **THEN** projection preserves those bytes unchanged
+- **AND THEN** every token inside that grammar is rejected even if the baseline Kimi release does not recognize its name, because Kimi provides no escape syntax
+
+#### Scenario: Brain manifest records native prompt provenance
+- **WHEN** brain construction projects a managed Kimi native role prompt
+- **THEN** the brain manifest records the native injection method, managed relative path, effective-prompt digest, projected-file digest, and required Kimi engine
+- **AND THEN** provenance introduces no secret content beyond the effective prompt already owned by the managed brain

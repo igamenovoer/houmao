@@ -3,6 +3,7 @@
 ## Purpose
 Define the restored shared TUI tracking recorded-capture, replay-validation, and sweep workflows around public tracked-state comparison.
 ## Requirements
+
 ### Requirement: Recorded capture SHALL drive demo-local tool sessions through scenario-owned actions
 
 The restored shared TUI tracking demo pack SHALL provide a recorded-capture workflow under `scripts/demo/shared-tui-tracking-demo-pack/` that launches one real Claude or Codex tmux session from the restored demo-local launch assets, records the pane evidence, and drives the live tool through scenario-owned actions.
@@ -177,9 +178,11 @@ Kimi sweep contracts SHALL support the same required-label, required-sequence, t
 - **AND THEN** each Kimi fixture is replayed through the shared Kimi tracker profile family
 
 ### Requirement: Current Codex and Kimi validation uses high-rate truth and varied sparse replay
-Recorded validation for Codex 0.162.x and Kimi 2.1.x SHALL capture unattended live TUI sessions at about 20 frames per second. Maintainers SHALL manually label the high-rate source timeline before using tracker output as an oracle.
+Recorded validation for Codex 0.162.x and the Kimi 2.1.1 baseline SHALL capture unattended live TUI sessions at about 20 frames per second. Maintainers SHALL manually label the high-rate source timeline before using tracker output as an oracle. The Kimi baseline evidence SHALL support the maintained `>=2.1.1` profile without imposing an upper version limit.
 
 Validation SHALL derive multiple lower-rate streams or delay schedules from the same source recording, including regular and jittered sampling. Strict comparisons MAY allow skipped transient labels, but every replay SHALL preserve meaningful state ordering, avoid false operator-blocked prompts in unattended mode, and avoid impossible terminal-to-active transitions caused only by capture delay.
+
+Kimi validation SHALL record that native role-prompt projection completed before TUI startup and SHALL contain no role-bootstrap chat turn. Recordings from below-floor Kimi releases SHALL NOT qualify maintained Kimi behavior.
 
 #### Scenario: One source recording drives several delay simulations
 - **WHEN** a maintainer validates a current Codex or Kimi TUI scenario
@@ -190,6 +193,11 @@ Validation SHALL derive multiple lower-rate streams or delay schedules from the 
 - **WHEN** a sparse replay misses a short manually labeled transition
 - **THEN** validation may accept a different sample-aligned label sequence
 - **AND THEN** it still rejects sequences that falsely report readiness, operator confirmation, or terminal success while later evidence shows the same turn active
+
+#### Scenario: Kimi qualification uses the maintained version and prompt path
+- **WHEN** a Kimi recording is used to qualify the maintained tracker profile
+- **THEN** its metadata identifies the Kimi 2.1.1 baseline and native pre-start role-prompt projection
+- **AND THEN** it contains neither a below-floor compatibility claim nor a role-bootstrap chat turn
 
 ### Requirement: Recorded pending-input qualification uses audited labels and cadence variants
 

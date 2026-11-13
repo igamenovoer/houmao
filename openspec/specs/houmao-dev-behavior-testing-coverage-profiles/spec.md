@@ -3,6 +3,7 @@
 ## Purpose
 TBD - created by archiving change organize-behavior-test-coverage-profiles. Update Purpose after archive.
 ## Requirements
+
 ### Requirement: Cases are owned by functional areas
 The behavior-testing catalog SHALL organize every committed case under exactly one of `activation`, `managed-bootstrap`, `admin-entrypoint`, `agent-entrypoint`, `shared-routines`, `agent-loops`, or `generated-prompts`.
 
@@ -85,9 +86,8 @@ A report MUST NOT state that a selected profile was qualified when required cell
 - **AND THEN** it links the incomplete cell and preserves its reason
 
 ### Requirement: Functional profiles remain development-only skill data
-Functional areas and coverage profiles SHALL remain committed Markdown resources of `houmao-dev-behavior-testing`. They SHALL NOT add a runtime dependency, packaged system skill, admin or agent pack member, or managed auto-skill projection.
+Functional areas and coverage profiles SHALL remain committed Markdown resources of `houmao-dev-behavior-testing`. They SHALL NOT add a runtime dependency, packaged system skill, or admin or agent pack member.
 
 #### Scenario: Runtime skill manifest is inspected
 - **WHEN** the packaged system-skill manifest and actor packs are resolved
 - **THEN** behavior-testing functional areas and coverage profiles do not appear as installable runtime skills
-

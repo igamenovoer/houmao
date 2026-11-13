@@ -4,75 +4,75 @@
 Define repo-owned Yunwu/OpenAI-compatible Codex setup and auth bundles plus their validation expectations.
 
 ## Requirements
-### Requirement: Repo-owned Yunwu Codex setup bundle
-The system SHALL provide a secret-free Codex setup bundle for a repo-owned OpenAI-compatible provider named `yunwu-openai`.
-
-#### Scenario: Setup bundle selects the Yunwu provider
-- **WHEN** a developer builds a Codex runtime selecting setup `yunwu-openai`
-- **THEN** the constructed runtime home SHALL contain a `config.toml` that selects `model_provider = "yunwu-openai"`
-- **AND THEN** the `yunwu-openai` provider block SHALL set `base_url` to the Yunwu endpoint, `env_key = "OPENAI_API_KEY"`, `requires_openai_auth = false`, and `wire_api = "responses"`
-- **AND THEN** the committed setup bundle SHALL remain free of secret values
-
-### Requirement: Repo-owned Yunwu Codex auth bundle
-The system SHALL provide a local-only Codex auth bundle named `yunwu-openai` under `tests/fixtures/auth-bundles/codex/yunwu-openai/` that stores the launch-time API key and endpoint routing values in `env/vars.env` using the env var names accepted by the current Codex adapter.
-
-#### Scenario: Auth env file carries launch-time values
-- **WHEN** a developer prepares `tests/fixtures/auth-bundles/codex/yunwu-openai/env/vars.env`
-- **THEN** the file SHALL support plain-text `OPENAI_API_KEY` and `OPENAI_BASE_URL` entries
-- **AND THEN** a Codex launch built from that auth bundle SHALL inject those values into the tool process through the existing auth-env mechanism
-- **AND THEN** committed presets, setup bundles, and manifests SHALL NOT contain the secret values themselves
-
-### Requirement: Yunwu Codex auth bundle supports env-only and login-state auth paths
-The system SHALL support the `yunwu-openai` Codex auth bundle when authentication is provided either by env-backed provider credentials alone or by those credentials plus a local `auth.json` login-state file.
-
-#### Scenario: Builder supports env-only Yunwu auth
-- **WHEN** a developer builds a Codex runtime selecting auth bundle `yunwu-openai`
-- **AND WHEN** that local-only auth bundle provides `OPENAI_API_KEY` and `OPENAI_BASE_URL` in `env/vars.env`
-- **AND WHEN** the auth bundle does not provide `files/auth.json`
-- **THEN** brain construction SHALL still succeed
-- **AND THEN** the constructed runtime home SHALL still receive the auth bundle's env-based credentials
-
-#### Scenario: Optional Yunwu auth.json is still projected when present
-- **WHEN** a developer builds a Codex runtime selecting auth bundle `yunwu-openai`
-- **AND WHEN** that local-only auth bundle also provides `files/auth.json`
-- **THEN** the builder SHALL still be able to project that file into the constructed runtime home without requiring committed secret material outside the local-only auth bundle
-
-### Requirement: Yunwu-backed Codex brain composition is discoverable
-The system SHALL provide a secret-free preset or equivalent repo-owned guidance that identifies the `yunwu-openai` setup and auth bundle names needed to build the Yunwu-backed Codex agent.
-
-#### Scenario: Developer identifies the Yunwu builder inputs
-- **WHEN** a developer inspects the tracked Codex presets or the repo-owned agent fixture docs
-- **THEN** they SHALL be able to identify the `yunwu-openai` setup and auth bundle names needed to build the Codex agent
-- **AND THEN** the documented workflow SHALL not require embedding API keys in committed files
-
-### Requirement: Yunwu-backed Codex profile passes a live smoke prompt
-The system SHALL support a live Codex CLI verification flow for the `yunwu-openai` setup plus auth bundle using valid local credentials.
-
-#### Scenario: Codex returns the exact expected smoke token
-- **WHEN** a developer launches a Codex CLI instance using the `yunwu-openai` setup and auth bundle with valid local credentials
-- **AND WHEN** they submit the prompt `Respond with exactly this text and nothing else: YUNWU_CODEX_SMOKE_OK`
-- **THEN** the CLI SHALL reach the configured Yunwu-backed provider without requiring first-party OpenAI login
-- **AND THEN** it SHALL return exactly `YUNWU_CODEX_SMOKE_OK`
 
 ### Requirement: Repo-owned Codex setup bundles avoid fixed model defaults
-Repo-owned Codex setup bundles SHALL NOT set a fixed Codex model name solely to provide a default model.
 
-Repo-owned Codex setup bundles MAY set provider routing, reasoning-effort defaults, personality, and non-model TUI startup configuration.
-
-Provider-specific setup bundles MAY document how an operator can explicitly select a model when the selected OpenAI-compatible provider requires one, but committed repo-owned defaults SHALL remain free of stale model pins.
+Repo-owned Codex setup bundles SHALL NOT pin a model solely to provide a default. Setups MAY contain provider routing, supported reasoning defaults, personality, and TUI startup preferences. Model selection SHALL remain explicit launch configuration, and generic fixtures SHALL NOT inherit model-specific reasoning or context assumptions from a prior qualification.
 
 #### Scenario: Default Codex setup carries no model pin
-- **WHEN** a developer inspects the repo-owned default Codex setup bundle
-- **THEN** the setup config does not contain a `model` key
-- **AND THEN** the setup may still contain `model_reasoning_effort` and non-model Codex preferences
+- **WHEN** a developer inspects the repo-owned default setup
+- **THEN** it contains no fixed `model` key
+- **AND THEN** supported non-model preferences may remain
+
+#### Scenario: Generic setup keeps protocol selection without a model pin
+- **WHEN** a developer inspects the tracked `api-compatible` setup
+- **THEN** it describes Responses routing and environment-based authentication without a fixed model or account endpoint
 
 #### Scenario: Yunwu Codex setup keeps provider routing without model pin
-- **WHEN** a developer inspects the repo-owned `yunwu-openai` Codex setup bundle
-- **THEN** the setup config selects `model_provider = "yunwu-openai"`
-- **AND THEN** the `yunwu-openai` provider block remains configured for the OpenAI-compatible endpoint
-- **AND THEN** the setup config does not contain a fixed `model` key
+- **WHEN** a maintained fixture consumer that previously selected the Yunwu setup is migrated
+- **THEN** it selects `api-compatible` with an explicit endpoint and model
+- **AND THEN** the replacement tracked setup retains Responses routing without preserving a Yunwu endpoint or fixed model
 
 #### Scenario: Explicit provider model remains an operator choice
-- **WHEN** a developer needs a specific model for a provider-specific Codex launch
-- **THEN** they can provide that model through launch-owned model configuration or copied native Codex config
-- **AND THEN** the repo-owned setup bundle does not need to embed that model as its default
+- **WHEN** a developer prepares a specific compatible model
+- **THEN** the selected run receives its explicit model and supported metadata without changing tracked setup defaults
+
+### Requirement: Repo-owned generic API-compatible Codex setup bundle
+
+The repository SHALL provide a secret-free `api-compatible` Codex setup. Prepared config SHALL select its generic provider with the explicitly resolved base URL, `env_key = "OPENAI_API_KEY"`, `requires_openai_auth = false`, and `wire_api = "responses"`. Tracked setup inputs SHALL NOT embed a live key or fixed Yunwu endpoint; unresolved routing SHALL fail preparation.
+
+#### Scenario: Setup bundle selects the generic provider
+- **WHEN** a developer prepares Codex with setup `api-compatible` and an explicit compatible endpoint
+- **THEN** the runtime config selects that resolved endpoint and the Responses protocol
+- **AND THEN** authentication comes from the selected environment credential rather than an inline bearer token
+- **AND THEN** tracked setup inputs remain secret-free
+
+### Requirement: Codex API credentials resolve into private local state
+
+The selected API case SHALL map its key and routing into private Codex credential state using `OPENAI_API_KEY` and the configured endpoint. The runtime provider config SHALL agree with that routing. The workflow SHALL NOT require a `yunwu-openai` bundle or repository-local auth fixture. Manifests and reports SHALL contain no resolved key values.
+
+#### Scenario: Auth env file carries launch-time values
+- **WHEN** the selected case supplies an API key and endpoint
+- **THEN** preparation injects the selected key through the existing allowlisted Codex credential channel
+- **AND THEN** the rendered provider base URL matches the selected endpoint
+- **AND THEN** committed presets, setups, manifests, and shareable reports contain no secret value
+
+### Requirement: Codex construction preserves env-only and optional login-state inputs
+
+Codex construction SHALL support env-only API credentials without `auth.json` and SHALL retain optional auth-file projection when explicitly selected for a native login test. Generic API case preparation SHALL NOT discover or add native login state as an implicit fallback.
+
+#### Scenario: Builder supports env-only API auth
+- **WHEN** the selected private bundle provides the API key and endpoint without `files/auth.json`
+- **THEN** brain construction succeeds and receives its environment credentials
+
+#### Scenario: Optional auth json is still projected when present
+- **WHEN** a native login test explicitly selects an imported Codex auth file
+- **THEN** construction projects that file into its isolated home without requiring committed secret material
+
+### Requirement: API-compatible Codex composition is discoverable
+
+Tracked fixture presets and guidance SHALL identify the generic setup, explicit model/endpoint inputs, and credential source needed to prepare an API-compatible Codex agent. They SHALL NOT require a fixed personal bundle or embedding a key in tracked configuration.
+
+#### Scenario: Developer identifies the builder inputs
+- **WHEN** a developer inspects tracked Codex presets or fixture guidance
+- **THEN** they can select `api-compatible` and either generic API case with an explicit model and endpoint
+- **AND THEN** the guidance explains how the selected key enters private local credential state
+
+### Requirement: API-compatible Codex profile passes a live smoke prompt
+
+The repository SHALL provide a live Codex smoke flow using the generic setup against configured DeepSeek Responses endpoints. The flow SHALL use local credentials, avoid first-party OpenAI login, and record actual client/model/protocol metadata and the observed prompt outcome.
+
+#### Scenario: Codex returns the expected smoke token
+- **WHEN** a developer launches the configured cloud Codex case and submits `Respond with exactly this text and nothing else: API_COMPATIBLE_CODEX_SMOKE_OK`
+- **THEN** the client reaches the selected DeepSeek Responses endpoint without first-party login
+- **AND THEN** the smoke verifies the expected token and retains sanitized qualification evidence

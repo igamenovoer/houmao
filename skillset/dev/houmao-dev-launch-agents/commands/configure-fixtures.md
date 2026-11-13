@@ -48,7 +48,7 @@ pixi run python scripts/agents/test-fixtures/fixture.py check \
   --env-file "$HOME/.config/houmao/test-fixtures/deepseek.env"
 ```
 
-The [2026-11-13 qualification](../../../../openspec/changes/refresh-test-agent-fixtures/tests/qualification.md) used `deepseek-flash`, context `1048576`, Codex effort `low`, and Kimi reasoning key `reasoning_content`. This is a recorded tested combination, not an automatic model default. Use it when selected by the developer or when model selection is delegated; use explicit overrides for another model. Generic fixtures must not inherit those model-specific settings blindly.
+The [2026-11-13 qualification](../../../../openspec/changes/archive/2026-11-13-refresh-test-agent-fixtures/tests/qualification.md) used `deepseek-flash`, context `1048576`, Codex effort `low`, and Kimi reasoning key `reasoning_content`. This is a recorded tested combination, not an automatic model default. Use it when selected by the developer or when model selection is delegated; use explicit overrides for another model. Generic fixtures must not inherit those model-specific settings blindly.
 
 ## Self-Hosted Setup
 

@@ -3,6 +3,7 @@
 ## Purpose
 Define the documentation requirements for Houmao getting-started documentation.
 ## Requirements
+
 ### Requirement: Architecture overview explains two-phase lifecycle
 
 The getting-started section SHALL include an architecture overview document that explains the two-phase lifecycle (build phase → run phase), the agent definition directory model, the backend abstraction, and the current operator-facing CLI surfaces. The content SHALL be derived from `brain_builder.py`, `realm_controller/`, and the current `houmao-mgr` and `houmao-server` command trees. The build-phase mermaid diagram SHALL reference the current manifest schema version (`schema_version=4`).
@@ -114,7 +115,6 @@ At minimum, this requirement SHALL apply to:
 - **AND THEN** the docs do not tell them to create, copy, or retain `.agentsys/agents` as part of the supported setup flow
 
 ### Requirement: Quickstart guide covers build and launch
-
 The getting-started section SHALL include a quickstart page that teaches the current recommended first-run Houmao workflow as agent-driven use through installed Houmao system skills. The page SHALL help a reader start from their existing CLI-agent surface, install or project Houmao system skills, invoke `houmao-touring`, and ask that agent for a useful managed-agent outcome.
 
 The quickstart SHALL:
@@ -122,9 +122,9 @@ The quickstart SHALL:
 - present the user's current CLI agent as the primary operator of Houmao workflows,
 - explain that Houmao system skills guide that CLI agent toward maintained `houmao-mgr` command surfaces,
 - show the preferred installed-user setup path with `uv tool install houmao`, `tmux` verification, and `npx skills add https://github.com/igamenovoer/houmao-skills` when `npx` and internet access are available,
-- show the Houmao-owned `houmao-mgr system-skills install --tool <tool>[,<tool>...]` path for offline, installed-package-local, explicit-home, named-set, subset-skill, symlink/copy, or cleanup needs,
+- show the Houmao-owned `houmao-mgr system-skills install --tool <tool>[,<tool>...]` path for offline, installed-package-local, explicit-home, pack, symlink/copy, or cleanup needs,
 - include a from-source note that source checkout commands use `pixi run houmao-mgr ...` while installed users use `houmao-mgr ...`,
-- instruct the reader to start Claude Code, Codex, Kimi, Gemini, or another supported CLI-agent surface from the target project directory and ask for `$houmao-touring start a guided tour`,
+- instruct the reader to start Claude Code, Codex, Kimi 2.1.1 or later, or another maintained CLI-agent surface from the target project directory and ask for `$houmao-touring start a guided tour`,
 - include a first useful agent-mediated prompt that asks the user's CLI agent to create or select a specialist, prepare a reusable project profile when useful, launch a managed agent, send an initial prompt, inspect the result, and stop or leave the agent running according to the user's instruction,
 - explain the resulting concepts in user-facing terms: project overlay, specialist, project profile, managed agent, gateway, messaging, inspection, memory, mailbox, and loop follow-up,
 - state that manual command examples are the underlying machinery the agent may run, manual fallback for debugging, or source-developer reference rather than the primary first-run path,
@@ -132,44 +132,40 @@ The quickstart SHALL:
 - preserve `agents self join` as the supported adoption workflow for an already-running provider TUI and position it after the primary agent-driven path,
 - keep the `agents self join` Mermaid sequence diagram or an equivalent diagram illustrating adoption from provider TUI to managed-agent registry/gateway artifacts,
 - use current supported command surfaces such as `houmao-mgr project init`, `houmao-mgr project specialist ...`, `houmao-mgr project profile ...`, `houmao-mgr project agents launch|stop`, `houmao-mgr agents single ...`, `houmao-mgr agents self ...`, and `houmao-mgr system-skills ...`,
-- avoid presenting retired or removed surfaces such as `houmao-cli`, standalone `houmao-server`, standalone CAO launcher workflows, `agents terminate`, or manual `.agentsys` setup as current first-run guidance,
-- link to `docs/getting-started/system-skills-overview.md`, `docs/getting-started/easy-specialists.md`, `docs/getting-started/launch-profiles.md`, `docs/getting-started/managed-memory-dirs.md`, gateway and mailbox references when those concepts appear, and `docs/reference/cli/houmao-mgr.md` or dedicated CLI reference pages for flag-level details.
+- avoid presenting retired or removed surfaces such as `houmao-cli`, standalone `houmao-server`, standalone CAO launcher workflows, `agents terminate`, `agents self system-prompt show`, or manual `.agentsys` setup as current first-run guidance,
+- link to the maintained getting-started, gateway, mailbox, and CLI references when those concepts appear.
 
-The getting-started overview and quickstart SHALL present Kimi Code as a primary supported provider alongside Claude and Codex. Neutral provider lists SHALL order maintained launch-capable providers as Claude, Codex, Kimi, then Gemini; compact three-provider examples and diagrams SHALL use Claude, Codex, and Kimi.
-
-Getting-started docs that introduce Kimi Code SHALL include a Kimi Code 0.11.0 warning that this version does not expose a native system-prompt flag. The warning SHALL tell readers to invoke `houmao-auto-system-prompt` manually before substantive Kimi chat begins when the Houmao system prompt has not been confirmed loaded.
+The overview and quickstart SHALL present Kimi Code 2.1.1 or later as a primary supported provider alongside Claude and Codex. They SHALL state that Kimi releases before 2.1.1 are unsupported, support has no upper version limit, and managed role prompts are applied natively before startup. They SHALL not instruct readers to invoke a role-delivery skill or send a role bootstrap turn.
 
 #### Scenario: Quickstart starts with the agent-driven path
-
 - **WHEN** a new reader opens `docs/getting-started/quickstart.md`
 - **THEN** the first workflow teaches them to install Houmao and Houmao system skills, start their CLI agent in the target project, and invoke `houmao-touring`
 - **AND THEN** the page presents manual `houmao-mgr` command sequences only after the agent-driven entrypoint is established
 
 #### Scenario: Reader sees a first useful managed-agent outcome
-
 - **WHEN** a reader follows the primary quickstart workflow
-- **THEN** they see an outcome-oriented prompt they can give to their CLI agent
-- **AND THEN** the prompt covers creating or selecting a specialist, preparing a project profile when useful, launching a managed agent, prompting it, inspecting the result, and handling stop or follow-up
-- **AND THEN** the page explains those steps as Houmao outcomes rather than requiring the reader to type every command manually
+- **THEN** they see an outcome-oriented prompt covering specialist selection, profile preparation, launch, prompting, inspection, and follow-up or stop
+- **AND THEN** the page explains those steps as Houmao outcomes rather than requiring every command manually
 
 #### Scenario: Source checkout readers understand launcher translation
-
 - **WHEN** a source checkout reader follows the quickstart
 - **THEN** the page explains that installed-user examples using `houmao-mgr ...` translate to `pixi run houmao-mgr ...` in the source checkout
 - **AND THEN** the page does not require installed users to run `pixi install && pixi shell`
 
 #### Scenario: Manual fallback uses maintained command surfaces
-
 - **WHEN** a reader reaches the manual fallback or underlying-machinery section
-- **THEN** the examples use maintained `houmao-mgr` command families for project setup, specialist/profile authoring, launch, prompt or gateway communication, inspection, stop, system-skill installation, and join
-- **AND THEN** the examples do not use removed or retired command surfaces as recommended current guidance
+- **THEN** the examples use maintained `houmao-mgr` command families for project setup, specialist and profile authoring, launch, communication, inspection, stop, system-skill installation, and join
+- **AND THEN** the examples do not use removed command or auto-skill surfaces
 
 #### Scenario: Join is documented as adoption
-
 - **WHEN** a reader already has a provider TUI running in tmux
-- **THEN** the quickstart provides an `agents self join` adoption workflow
-- **AND THEN** that workflow appears after the primary agent-driven first-run path
-- **AND THEN** it includes a Mermaid sequence diagram or equivalent visual showing Houmao wrapping the existing provider session with managed-agent artifacts
+- **THEN** the quickstart provides an `agents self join` adoption workflow after the primary first-run path
+- **AND THEN** it illustrates Houmao wrapping the existing provider session with managed-agent artifacts
+
+#### Scenario: Kimi reader sees native role delivery and version floor
+- **WHEN** a reader follows the Kimi quickstart path
+- **THEN** the page requires Kimi 2.1.1 or later with no upper limit and describes native pre-start role-prompt application
+- **AND THEN** it contains no auto-skill or bootstrap-role workaround
 
 ### Requirement: Quickstart covers both workflows end-to-end without truncation
 
@@ -360,9 +356,9 @@ Maintained onboarding, quickstart, overview, specialist, profile, credential, ma
 - **AND THEN** no Gemini setup prerequisite or workflow is offered
 
 ### Requirement: Getting-started guidance describes maintained current Kimi behavior
-Getting-started pages SHALL describe Kimi 0.23.x as the maintained Kimi Code family. They SHALL remove Kimi 0.11-specific launch and system-prompt statements and SHALL not instruct users to issue a policy-changing confirmation or `/auto on` bootstrap step during unattended operation.
+Getting-started pages SHALL describe Kimi 2.1.1 as the minimum supported version and SHALL state that later Kimi versions remain supported without an upper limit. They SHALL explain that Houmao projects the complete effective role prompt through the managed Kimi home's native `SYSTEM.md` before startup and SHALL not document below-floor behavior, managed auto-skill role delivery, manual role bootstrap, or policy-changing chat commands.
 
 #### Scenario: New reader sees current Kimi baseline
 - **WHEN** a reader opens the overview, quickstart, or system-skills overview
-- **THEN** the guidance describes the maintained current Kimi contract
-- **AND THEN** it contains no Kimi 0.11.0 compatibility claim
+- **THEN** the guidance describes the maintained Kimi `>=2.1.1` native prompt contract with no upper limit
+- **AND THEN** it contains no below-floor compatibility claim or workaround

@@ -3,10 +3,11 @@
 ## Purpose
 TBD - created by archiving change add-houmao-dev-behavior-testing. Update Purpose after archive.
 ## Requirements
+
 ### Requirement: Behavior qualification is a manual development skill
 The repository SHALL provide `skillset/dev/houmao-dev-behavior-testing` as a host-discoverable development skill with top-level `SKILL.md` and `agents/openai.yaml`.
 
-The skill MUST require explicit invocation and MUST NOT be included in the packaged Houmao system-skill manifest, admin pack, agent pack, managed auto-skill projection, or ordinary user installation lifecycle.
+The skill MUST require explicit invocation and MUST NOT be included in the packaged Houmao system-skill manifest, admin pack, agent pack, or ordinary user installation lifecycle.
 
 #### Scenario: Maintainer explicitly invokes behavior qualification
 - **WHEN** a maintainer invokes `houmao-dev-behavior-testing` for a system-skill behavior case
@@ -14,7 +15,7 @@ The skill MUST require explicit invocation and MUST NOT be included in the packa
 - **AND THEN** it does not present itself as a runtime Houmao system skill
 
 #### Scenario: Managed system-skill installation remains unchanged
-- **WHEN** Houmao resolves an admin pack, agent pack, or managed auto skill
+- **WHEN** Houmao resolves an admin pack or agent pack
 - **THEN** neither development testing skill appears in the resolved install set
 
 ### Requirement: Behavior qualification follows the Imsight complex-procedure format
@@ -34,9 +35,9 @@ Detailed command pages SHALL contain their own numbered workflow. Case families 
 - **AND THEN** it does not require every case-family page in context
 
 ### Requirement: The case catalog is committed and reviewable
-The skill SHALL include a committed `references/case-catalog.md` and family pages for activation/bootstrap, admin routing, managed-agent routing, shared routines, loops, and generated prompts.
+The skill SHALL include a committed `references/case-catalog.md` and family pages for activation and native prompt delivery, admin routing, managed-agent routing, shared routines, loops, and generated prompts.
 
-Every catalog case SHALL declare a stable id, revision, applicable providers, context type, required pack, auto-skill posture, activation mode, exact stimulus, expected root and route, required observables, forbidden observables, permitted effects, evidence requirements, repetitions, timeout, and cleanup.
+Every catalog case SHALL declare a stable id, revision, applicable providers, context type, required pack, native system-prompt posture when applicable, activation mode, exact stimulus, expected root and route, required observables, forbidden observables, permitted effects, evidence requirements, repetitions, timeout, and cleanup.
 
 The skill MUST NOT generate or rewrite its case oracle dynamically from the current runtime manifest. It MAY compare the committed catalog with the manifest to report drift.
 
@@ -51,7 +52,7 @@ The skill MUST NOT generate or rewrite its case oracle dynamically from the curr
 - **AND THEN** the skill does not silently regenerate expectations from the changed manifest
 
 ### Requirement: The initial catalog covers critical system-skill behavior
-The activation family SHALL cover narrow implicit welcome activation, unrelated-task non-activation, explicit-only root non-activation, explicit root selection, managed auto-prompt startup, and managed auto-prompt reload after resume, relaunch, or context compaction.
+The activation and native-prompt family SHALL cover narrow implicit welcome activation, unrelated-task non-activation, explicit-only root non-activation, explicit root selection, native managed role-prompt delivery before the first turn, rejection of every `${identifier}` placeholder, stale projection removal, and role-prompt persistence across supported rebuild and relaunch flows.
 
 The admin family SHALL cover help, empty invocation delegation, ordinary shared routing, target ambiguity, agent-only route rejection, welcome handoff, actor-spoof rejection, and joined-session adoption.
 
@@ -75,11 +76,11 @@ The generated-prompt family SHALL cover notifier mail rounds, ordinary mailbox p
 ### Requirement: Every run uses isolated and frozen context
 Each run SHALL use a fresh root below `tmp/houmao-dev-behavior-testing/<run-id>/` and SHALL freeze a run manifest before the first stimulus.
 
-The context snapshot SHALL record Git revision and dirty posture, Houmao release, skill installation method, pinned `houmao-skills` source and tag when applicable, public skill version and digests, selected pack or explicit sibling set, managed auto-skill posture, provider executable and version, model when observable, context type, fixture identifiers, generated prompt digest when applicable, and allowed mutation roots. It MUST NOT record credential values or hidden reasoning.
+The context snapshot SHALL record Git revision and dirty posture, Houmao release, skill installation method, pinned `houmao-skills` source and tag when applicable, public skill version and digests, selected pack or explicit sibling set, native provider system-prompt method and digests when applicable, provider executable and version, model when observable, context type, fixture identifiers, generated prompt digest when applicable, and allowed mutation roots. It MUST NOT record credential values or hidden reasoning.
 
 Current-checkout qualification SHALL use package-local manager installation or its supported symlink mode. Published-release qualification SHALL pin `https://github.com/igamenovoer/houmao-skills#<houmao-release-tag>` to the release under test. The unqualified repository URL SHALL be reserved for cases that explicitly qualify latest-stable discovery or default installation behavior.
 
-Raw admin cases SHALL use an isolated skill projection and SHALL delegate provider launch to `houmao-dev-launch-agents`. Managed-agent cases SHALL use supported Houmao launch or join surfaces so the agent pack, auto prompt, and self-identity authority are genuine.
+Raw admin cases SHALL use an isolated skill projection and SHALL delegate provider launch to `houmao-dev-launch-agents`. Managed-agent cases SHALL use supported Houmao launch or join surfaces so the agent pack, native prompt projection, and self-identity authority are genuine.
 
 #### Scenario: Behavior case prepares an admin provider context
 - **WHEN** an admin-context case starts
@@ -89,7 +90,7 @@ Raw admin cases SHALL use an isolated skill projection and SHALL delegate provid
 #### Scenario: Behavior case prepares a managed-agent context
 - **WHEN** a managed-agent case starts
 - **THEN** the agent is created through a supported Houmao managed launch or join path
-- **AND THEN** the run records agent-pack, auto-prompt, and verified identity authority evidence
+- **AND THEN** the run records agent-pack, native prompt, and verified identity authority evidence
 
 #### Scenario: Behavior case qualifies a published release
 - **WHEN** a case targets one released `houmao-mgr` version
