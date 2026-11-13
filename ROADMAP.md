@@ -4,7 +4,7 @@
 
 This roadmap sequences the eleven feature requests filed on 2026-11-13 as GitHub issues [#74 through #84](https://github.com/igamenovoer/houmao/issues). It uses commit `1675029c` (`v2.4.0`) as its code baseline. All eleven issues were open when this roadmap was written.
 
-Status as of 2026-11-13: **1 of 11 work packages is done**. Usage records (#83) are implemented, validated, and archived; the remaining ten work packages are pending. Completion evidence appears in the first work package below.
+Status as of 2026-11-13: **2 of 11 work packages are done**. Usage records (#83) and the gateway plugin API (#76) are implemented and validated; the remaining nine work packages are pending. Completion evidence appears in the first two work packages below.
 
 The common goal is to let an external hub provision identities, capabilities, budgets, and execution contexts while Houmao remains the per-agent runtime, gateway, and mailbox layer. Houmao should not become the hub's account provisioner, budget-policy engine, central task planner, or combined chat/mail service.
 
@@ -21,7 +21,7 @@ The common goal is to let an external hub provision identities, capabilities, bu
 | Order | Status | Issue | Primary Output | Reason For This Position |
 | --- | --- | --- | --- | --- |
 | 1 | Done | [#83](https://github.com/igamenovoer/houmao/issues/83): Normalized agent usage records | Queryable usage records with stable IDs, units, explicit unknowns, and incremental cursors | Defines the telemetry contract that DSH and Pi must implement |
-| 2 | Pending | [#76](https://github.com/igamenovoer/houmao/issues/76): Gateway plugin API | Namespaced routes, owner-bound context, admission hooks, and plugin lifecycle | Enables both CCCC integrations and provides lifecycle machinery for later runtime changes |
+| 2 | Done | [#76](https://github.com/igamenovoer/houmao/issues/76): Gateway plugin API | Namespaced routes, owner-bound context, admission hooks, and plugin lifecycle | Enables both CCCC integrations and provides lifecycle machinery for later runtime changes |
 | 3 | Pending | [#80](https://github.com/igamenovoer/houmao/issues/80): Bounded Stalwart queries and incremental sync | Metadata-only listing, bounded filters, JMAP change tracking, and efficient notifications | Removes expensive mailbox behavior before more consumers depend on it |
 | 4 | Pending | [#79](https://github.com/igamenovoer/houmao/issues/79): Live Stalwart mailbox attachment | Runtime attach, refresh, detach, and notifier reconfiguration without body restart | Builds on the improved client and notifier instead of reworking them later |
 | 5 | Pending | [#77](https://github.com/igamenovoer/houmao/issues/77): CCCC chat gateway plugin | Live CCCC Group/Actor attachment and chat through the per-agent gateway | First real plugin consumer; validates #76 before CCCC Mail is added |
@@ -72,9 +72,15 @@ The [usage reference](docs/reference/run-phase/usage-records.md) documents provi
 
 #### 2. #76: Provide A Supported Gateway Plugin API For External Service Integrations
 
-- Introduce plugin configuration, startup, shutdown, health, route-namespacing, collision detection, event admission, and cancellable background workers around `create_app` in `src/houmao/agents/realm_controller/gateway_service.py`.
-- Bind backend credentials and sender identity to the gateway owner. Plugin routes must not grant service-administration or operator-interrupt authority to ordinary callers.
-- Complete the issue when an example plugin and tests cover collisions, initialization failure, cleanup, recovery, and ordinary-event admission without disabling core operator control.
+**Done (2026-11-13).** Implemented in [commit `bd6f4f94`](https://github.com/igamenovoer/houmao/commit/bd6f4f9442228a28c7cecd0a567b64d7bae84e99). The [completed change](openspec/changes/add-gateway-plugin-api/proposal.md) has [31 completed tasks](openspec/changes/add-gateway-plugin-api/tasks.md) and an [acceptance map covering all 70 spec scenarios](openspec/changes/add-gateway-plugin-api/verification.md). Spec sync and archiving remain separate maintenance steps.
+
+- [x] Publish the versioned `houmao.gateway.plugins` SDK, selected-only package discovery, strict configuration, Python launch/attach inputs, and scoped manager configuration. Persist selections across gateway restarts and document gateway-only restart requirements for code or immutable configuration changes.
+- [x] Bind context, private state, credentials, and sender identity to the gateway owner. Validate the full namespaced route inventory before activation, disable every conflicting instance, and preserve core control and sanitized plugin status.
+- [x] Supervise startup, workers, connection reporting, cancellation, and cleanup. Confirm ordinary event handoff against current readiness and body incarnation; return errors without queueing or automatic resend, leaving retention and retry to the sender.
+
+Verification on 2026-11-13: **3,455 unit tests passed** (14 skipped), **19 targeted integration tests passed**, and **2 installed-wheel tests passed**. The [installed qualification](examples/gateway-plugin/qualification.md) covers detached and same-session gateway processes, body/gateway loss, recovery without replay, cursor continuity, sender retries, and completed cleanup. Formatting, lint, type checking, strict documentation, distribution builds, and strict OpenSpec validation passed.
+
+The [plugin author and operator guide](docs/reference/gateway/plugins.md) and [independent example](examples/gateway-plugin/README.md) document the supported trusted-package contract. Actual CCCC chat and Mail integrations (#77 and #78), authenticated remote access (#84), and the broader public SDK (#69) remain separate work.
 
 ### Phase 2: Scale And Reconfigure Mailboxes
 
