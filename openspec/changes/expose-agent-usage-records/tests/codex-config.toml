@@ -1,0 +1,15 @@
+# Codex configuration for the H20-hosted Qwen3.8 Responses endpoint.
+# codex-qwen38.sh installs this file into an isolated CODEX_HOME as config.toml.
+
+model = "Qwen/Qwen3.8-27B-FP8"
+model_provider = "h20-qwen"
+model_reasoning_effort = "xhigh"
+model_context_window = 262144
+
+[model_providers.h20-qwen]
+name = "H20 SGLang Qwen3.8"
+base_url = "http://127.0.0.1:14888/v1"
+env_key = "QWEN_API_KEY"
+env_key_instructions = "Set QWEN_API_KEY=EMPTY before launching codex."
+requires_openai_auth = false
+wire_api = "responses"
