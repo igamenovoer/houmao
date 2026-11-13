@@ -2,56 +2,23 @@
 
 ## Workflow
 
-1. **Resolve common inputs** from [../references/common-launch.md](../references/common-launch.md).
-2. **Resolve `command -v codex` and native auto credential posture** from [../references/credential-resolution.md](../references/credential-resolution.md).
-3. **Inspect the proxy environment** and preserve its existing proxy settings for the Codex child process without exposing their values.
-4. **Build the Codex TUI command.** Use unattended bypass by default or omit it for explicit `as_is`.
-5. **Launch in a fresh tmux session and verify** process identity plus visible startup surface.
-6. **Write non-secret launch metadata and return the attach command.**
+1. **Resolve raw TUI inputs** from [../references/common-launch.md](../references/common-launch.md), including any exact workdir/session and permission posture.
+2. **Resolve the selected credential route** through [../references/credential-resolution.md](../references/credential-resolution.md). Use `configure-fixtures` for missing local inputs.
+3. **Resolve `codex` and its version**, preserving inherited proxy settings without exposing their values.
+4. **Prepare `--client codex --surface raw --mode tui`** with the selected API case or imported native bundle.
+5. **Launch through the common helper or exact-workdir adapter** and verify the Codex process, actual workdir, and visible TUI.
+6. **Return safe launch evidence**, the verified session/pane, attach command, and owner-specific cleanup command.
 
-If the request needs a custom Codex model, profile, resume target, or writable directory set, use the native planning tool to add only user-supplied provider arguments while preserving auto credential, environment-derived proxy, tmux, and secret-hygiene gates.
+If the request needs additional Codex arguments, use the native planning tool to check the selected executable's supported options, then apply only explicitly selected arguments through the common adapter without changing credential routing or mode.
 
-## Guidance
+## Provider Rules
 
-Read this section as the Codex-specific execution procedure. Follow it after common inputs are fixed.
+API cases use the prepared Responses provider, explicit model, and private key projection. A DeepSeek API launch does not require `codex login status` or a saved `auth.json`. Native login instead uses an explicitly imported bundle, with no API-case env injection. Never run login/logout or fall back to personal home/profile settings.
 
-1. **Resolve the executable.** Capture the path from `command -v codex` and run `codex --version`.
-2. **Validate auto credentials.** Run `codex login status` without printing native auth files. Block when neither login status nor a recognized inherited credential lane is usable.
-3. **Resolve proxy posture.** Inspect `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`, and their lowercase equivalents in the inherited environment. Preserve the variables that are already set for the Codex child process. Do not invent, override, or hard-code a proxy server.
-4. **Build arguments.** Use `codex --dangerously-bypass-approvals-and-sandbox -C <workdir>` for unattended launch. Use `codex -C <workdir>` for explicit `as_is`. Append only user-provided model, profile, search, image, resume, or directory arguments.
-5. **Launch and verify.** Apply the common tmux workflow, then confirm a Codex process and Codex TUI surface remain live.
+The helper builds unattended TUI arguments with `--dangerously-bypass-approvals-and-sandbox`. Explicit `as_is` uses the common adapter to remove that flag. Respect the actual working directory; avoid adding a conflicting `-C`. User-selected resume, profile, search, image, or directory options require validation against the prepared routing and requested test.
 
-## Preferences
+Keep `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`, and lowercase equivalents when inherited. Record only variable names; do not invent a proxy or print credential-bearing URLs. Record explicit context/reasoning settings from the selected configuration rather than historical model defaults.
 
-Read these preferences as defaults after the workflow's hard checks.
+## Success Gate
 
-- Prefer `codex login status` as auto-credential proof (if an explicit inherited API-key lane is selected, record only the variable name).
-- Prefer the proxy settings already present in the environment. Record only the variable names that Codex inherits, not their values.
-- Prefer unattended launch for automated testing (if the user asks to observe approval behavior, use `as_is`).
-
-## Constraints
-
-Read these constraints as hard validity boundaries.
-
-- The workflow must not run `codex login` or `codex logout`.
-- The command must not print or embed `auth.json`, API keys, or access tokens.
-- Unattended launch must use the current Codex bypass flag, not a stale approval-mode approximation.
-- Launch success must include a live Codex child process and visible TUI evidence.
-
-## Quality Gates
-
-Read these gates after the session starts.
-
-### Metrics
-
-- Auto-credential confidence: strength of non-secret provider status evidence; stronger is better.
-- Startup latency: time until a stable Codex surface appears; lower is better.
-- Confirmation prompts: approval or migration prompts during unattended startup; lower is better and zero is expected.
-
-### Checks
-
-- Executable: the recorded path matches `command -v codex`.
-- Credential: auto-credential proof succeeded without auth mutation.
-- Proxy: inherited proxy variables were inspected and their names were recorded without values.
-- Runtime: the tmux pane contains a live Codex process.
-- Surface: visible output is a Codex TUI, not an authentication, migration, or shell error.
+Require a live Codex process and a visible Codex TUI in the captured pane, with no unattended approval, authentication, migration, or shell failure. Preserve failed-start diagnostics privately. Startup alone does not qualify a model response or token usage.

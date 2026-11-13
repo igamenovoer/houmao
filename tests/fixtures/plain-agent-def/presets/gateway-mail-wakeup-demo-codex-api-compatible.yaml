@@ -1,0 +1,8 @@
+role: gateway-mail-wakeup-demo
+tool: codex
+setup: api-compatible
+skills:
+- openspec-apply-change
+- openspec-verify-change
+launch:
+  prompt_mode: unattended

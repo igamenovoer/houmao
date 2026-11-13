@@ -32,8 +32,8 @@ SweepStateLabel = Literal[
 _DEFAULT_CONFIG_RELATIVE_PATH: Final[Path] = Path(
     "scripts/demo/shared-tui-tracking-demo-pack/demo-config.toml"
 )
-_DEFAULT_RECORDED_ROOT: Final[str] = "tmp/demo/shared-tui-tracking-demo-pack/recorded"
-_DEFAULT_LIVE_ROOT: Final[str] = "tmp/demo/shared-tui-tracking-demo-pack/live"
+_DEFAULT_RECORDED_ROOT: Final[str] = "~/.local/state/houmao/test-fixtures/shared-tui/recorded"
+_DEFAULT_LIVE_ROOT: Final[str] = "~/.local/state/houmao/test-fixtures/shared-tui/live"
 _DEFAULT_SWEEPS_ROOT: Final[str] = "tmp/demo/shared-tui-tracking-demo-pack/sweeps"
 _DEFAULT_FIXTURES_ROOT: Final[str] = "tests/fixtures/shared_tui_tracking/recorded"
 _DEFAULT_DEMO_ID: Final[str] = "shared-tui-tracking-demo-pack"

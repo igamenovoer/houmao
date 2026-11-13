@@ -26,17 +26,17 @@
     "claude": {
       "provider": "claude_code",
       "setup": "default",
-      "auth_name": "kimi-coding",
-      "auth_fixture_dir": "tests/fixtures/auth-bundles/claude/kimi-coding",
+      "auth_name": "fixture",
+      "auth_fixture_dir": "/external/selected-claude-run/assets/tools/claude/auth/default",
       "specialist_name_prefix": "single-headless-mail-claude",
       "instance_name_prefix": "single-headless-mail-claude",
       "session_name_prefix": "hm-single-headless-mail-claude"
     },
     "codex": {
       "provider": "codex",
-      "setup": "yunwu-openai",
-      "auth_name": "yunwu-openai",
-      "auth_fixture_dir": "tests/fixtures/auth-bundles/codex/yunwu-openai",
+      "setup": "api-compatible",
+      "auth_name": "fixture",
+      "auth_fixture_dir": "/external/selected-codex-run/assets/tools/codex/auth/default",
       "specialist_name_prefix": "single-headless-mail-codex",
       "instance_name_prefix": "single-headless-mail-codex",
       "session_name_prefix": "hm-single-headless-mail-codex"

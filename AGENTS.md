@@ -65,7 +65,7 @@ Framework: `pytest` (with some `unittest` compatibility). Follow file naming fro
 
 Keep unit tests deterministic and isolated; prefer fixtures over network access. Run `pixi run test` before opening a PR, and add integration coverage when behavior spans subprocesses, tmux, or CAO paths.
 For browser checks, Playwright is available from the Bun global toolchain. Use `bunx playwright ...` for CLI commands, or run small Bun scripts that import `playwright`; the installed Playwright browser bundle can launch Chromium headlessly.
-When testing agent flows against local fixture credentials, prefer `tests/fixtures/auth-bundles/claude/kimi-coding/` for Claude Code and `tests/fixtures/auth-bundles/codex/yunwu-openai/` for Codex by default unless the task explicitly requires a different auth bundle.
+When testing agent flows, use `scripts/agents/test-fixtures/fixture.py` with an explicitly selected `self-hosted` or `cloud-api` case and model. The cloud case uses DeepSeek references from an explicitly selected local env file. Native login tests require a deliberately imported bundle from the external local auth store. Keep credentials and credential-bearing runs outside the checkout; never save real keys in tracked files or choose ambient auth as a fallback.
 When testing TUI agents automatically, default to unattended mode unless the task explicitly requests interactive or `as_is` behavior.
 
 ## Commit & Pull Request Guidelines

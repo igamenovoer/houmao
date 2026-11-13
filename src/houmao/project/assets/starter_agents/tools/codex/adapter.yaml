@@ -21,7 +21,7 @@ auth_projection:
   file_mappings:
     - source: auth.json
       destination: auth.json
-      mode: symlink
+      mode: copy
       required: false
   env:
     source: env/vars.env

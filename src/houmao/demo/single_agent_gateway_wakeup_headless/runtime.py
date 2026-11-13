@@ -8,9 +8,18 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-from typing import Any, Iterator, Mapping, Sequence
+from typing import Any, Iterator, Mapping, Sequence, cast
 
 import click
+
+from houmao.demo.fixture_inputs import (
+    FixtureTool,
+    invoke_private_credential_command,
+    managed_subprocess_command,
+    prepared_root_from_auth,
+    prepared_runtime_env,
+    read_prepared_run,
+)
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
@@ -149,6 +158,7 @@ def prepare_output_root(*, paths: DemoPaths, allow_reprovision: bool) -> None:
                 shutil.rmtree(target)
     for target in create_paths:
         target.mkdir(parents=True, exist_ok=True)
+    paths.output_root.chmod(0o700)
 
 
 def prepare_persistent_overlay_roots(*, paths: DemoPaths) -> None:
@@ -191,7 +201,7 @@ def run_command(
     stderr_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         completed = subprocess.run(
-            list(command),
+            managed_subprocess_command(command, cwd=cwd),
             check=False,
             capture_output=True,
             cwd=str(cwd),
@@ -228,6 +238,21 @@ def run_json_command(
     timeout_seconds: float,
 ) -> dict[str, Any]:
     """Run one command and parse its stdout as JSON."""
+
+    parts = list(command)
+    if "houmao-mgr" in parts:
+        arguments = parts[parts.index("houmao-mgr") + 1 :]
+        if "project" in arguments and "credentials" in arguments:
+            try:
+                return invoke_private_credential_command(
+                    args=arguments,
+                    project=cwd,
+                    env=env or dict(os.environ),
+                    stdout_path=stdout_path,
+                    stderr_path=stderr_path,
+                )
+            except RuntimeError as exc:
+                raise DemoRuntimeError(str(exc)) from exc
 
     result = run_command(
         command,
@@ -275,8 +300,10 @@ def import_project_auth_from_fixture(
     repo_root: Path,
     timeout_seconds: float,
 ) -> dict[str, Any]:
-    """Import one project-local auth bundle from a tracked fixture directory."""
+    """Import selected external auth without passing its secrets to a subprocess."""
 
+    if paths.output_root.resolve().is_relative_to(repo_root.resolve()):
+        raise DemoRuntimeError("Live credentials require an external --demo-output-dir")
     fixture_dir = (
         tool_parameters.auth_fixture_dir
         if tool_parameters.auth_fixture_dir.is_absolute()
@@ -368,6 +395,41 @@ def import_project_auth_from_fixture(
         env=env,
         timeout_seconds=timeout_seconds,
     )
+    selected_run = prepared_root_from_auth(
+        auth_dir=fixture_dir, repo_root=repo_root, tool=cast(FixtureTool, tool)
+    )
+    if selected_run is not None:
+        metadata = read_prepared_run(
+            prepared_run=selected_run, repo_root=repo_root, tool=cast(FixtureTool, tool)
+        )
+        source = Path(str(metadata["assets_root"])) / "tools" / tool / "setups/fixture"
+        if not source.resolve().is_relative_to(selected_run) or any(
+            path.is_symlink() for path in source.rglob("*")
+        ):
+            raise DemoRuntimeError("Selected setup escapes its private prepared run")
+        setup = run_json_command(
+            manager_cli_command(
+                [
+                    "internals",
+                    "native-agent",
+                    "tools",
+                    tool,
+                    "setups",
+                    "get",
+                    "--name",
+                    tool_parameters.setup,
+                    "--native-agent-root",
+                    str(overlay.agents_root),
+                ]
+            ),
+            cwd=paths.project_dir,
+            stdout_path=paths.logs_dir / "setup-import.stdout",
+            stderr_path=paths.logs_dir / "setup-import.stderr",
+            env=env,
+            timeout_seconds=timeout_seconds,
+        )
+        shutil.copytree(source, Path(setup["path"]), dirs_exist_ok=True)
+        payload["prepared_run"] = str(selected_run)
     payload = {"auth_operation": auth_operation, **payload}
     write_json(paths.auth_import_path, payload)
     return payload
@@ -383,27 +445,40 @@ def create_specialist(
     system_prompt_file: Path,
     timeout_seconds: float,
 ) -> dict[str, Any]:
-    """Create one project-local specialist through `project easy`."""
+    """Create a specialist with the selected prepared model and runtime metadata."""
 
+    arguments = [
+        "project",
+        "specialist",
+        "create",
+        "--name",
+        specialist_name,
+        "--tool",
+        tool,
+        "--setup",
+        tool_parameters.setup,
+        "--credential",
+        tool_parameters.auth_name,
+        "--system-prompt-file",
+        str(system_prompt_file),
+    ]
+    if paths.auth_import_path.is_file():
+        imported = json.loads(paths.auth_import_path.read_text())
+        selected = imported.get("prepared_run")
+        if isinstance(selected, str):
+            root = Path(selected)
+            metadata = read_prepared_run(
+                prepared_run=root, repo_root=paths.project_dir, tool=cast(FixtureTool, tool)
+            )
+            config = metadata["configuration"]
+            if isinstance(config, dict) and config.get("model"):
+                arguments.extend(["--model", str(config["model"])])
+            for key, value in prepared_runtime_env(
+                prepared_run=root, repo_root=paths.project_dir, tool=cast(FixtureTool, tool)
+            ).items():
+                arguments.extend(["--env-set", f"{key}={value}"])
     payload = run_json_command(
-        manager_cli_command(
-            [
-                "project",
-                "easy",
-                "specialist",
-                "create",
-                "--name",
-                specialist_name,
-                "--tool",
-                tool,
-                "--setup",
-                tool_parameters.setup,
-                "--credential",
-                tool_parameters.auth_name,
-                "--system-prompt-file",
-                str(system_prompt_file),
-            ]
-        ),
+        manager_cli_command(arguments),
         cwd=paths.project_dir,
         stdout_path=paths.logs_dir / "specialist-create.stdout",
         stderr_path=paths.logs_dir / "specialist-create.stderr",

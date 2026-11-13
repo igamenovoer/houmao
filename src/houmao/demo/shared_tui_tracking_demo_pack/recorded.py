@@ -12,7 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from houmao.agents.brain_builder import BuildRequest, build_brain_home, load_brain_recipe
+from houmao.agents.brain_builder import BuildRequest, build_brain_home
+from houmao.agents.definition_parser import parse_agent_preset
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     ensure_tmux_available,
     parse_tmux_control_input,
@@ -23,6 +24,8 @@ from houmao.shared_tui_tracking.registry import DetectorProfileRegistry, app_id_
 from houmao.terminal_record.models import TerminalRecordManifest, load_manifest
 from houmao.terminal_record.runtime_bridge import append_managed_control_input_for_tmux_session
 from houmao.terminal_record.service import start_terminal_record
+
+from houmao.demo.fixture_inputs import prepared_runtime_env, private_demo_root
 
 from .agent_assets import materialize_generated_agent_tree
 from .comparison import TimelineComparison, compare_timelines
@@ -184,9 +187,12 @@ def run_recorded_capture(
     demo_config: ResolvedDemoConfig,
     output_root: Path | None,
     cleanup_session: bool,
+    prepared_run: Path | None = None,
 ) -> RecordedCaptureResult:
     """Launch one real tmux session, record it, and persist replay-grade artifacts."""
 
+    if prepared_run is None:
+        raise RuntimeError("Live capture requires explicit --prepared-run")
     ensure_tmux_available()
     run_root = _resolve_recorded_run_root(
         repo_root=repo_root,
@@ -197,7 +203,8 @@ def run_recorded_capture(
     )
     if run_root.exists():
         raise RuntimeError(f"Run root already exists: {run_root}")
-    run_root.mkdir(parents=True, exist_ok=False)
+    private_demo_root(path=run_root, repo_root=repo_root)
+    run_root.mkdir(parents=True, exist_ok=False, mode=0o700)
     recording_root = run_root / "recording"
     runtime_root = run_root / "runtime"
     workdir = run_root / "workdir"
@@ -237,8 +244,9 @@ def run_recorded_capture(
             repo_root=repo_root,
             workdir=workdir,
             tool=scenario.tool,
+            prepared_run=prepared_run,
         )
-        recipe = load_brain_recipe(selected_recipe_path)
+        recipe = parse_agent_preset(selected_recipe_path)
         if recipe.tool != scenario.tool:
             raise RuntimeError(
                 f"Scenario `{scenario.scenario_id}` expects tool `{scenario.tool}`, "
@@ -249,17 +257,22 @@ def run_recorded_capture(
                 agent_def_dir=generated_agent_def_dir,
                 tool=recipe.tool,
                 skills=list(recipe.skills),
-                config_profile=recipe.config_profile,
-                credential_profile=recipe.credential_profile,
-                recipe_path=selected_recipe_path,
-                recipe_launch_overrides=getattr(recipe, "launch_overrides", None),
+                setup=recipe.setup,
+                auth=recipe.auth,
+                preset_path=selected_recipe_path,
+                preset_launch_overrides=recipe.launch.overrides,
                 runtime_root=runtime_root,
                 mailbox=recipe.mailbox,
                 agent_name=recipe.default_agent_name,
                 launch_overrides=tool_metadata.launch_overrides,
                 operator_prompt_mode=tool_metadata.operator_prompt_mode
                 or recipe.operator_prompt_mode,
-                persistent_env_records=recipe.launch_env_records,
+                persistent_env_records={
+                    **recipe.launch_env_records,
+                    **prepared_runtime_env(
+                        prepared_run=prepared_run, repo_root=repo_root, tool=scenario.tool
+                    ),
+                },
             )
         )
         observed_version = detect_tool_version(tool=scenario.tool)

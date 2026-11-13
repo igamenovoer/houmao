@@ -1,6 +1,6 @@
 interface:
   display_name: "Houmao Dev Launch Agents"
-  short_description: "Launch Codex, Claude, or Kimi development TUIs"
-  default_prompt: "Use $houmao-dev-launch-agents use help to see provider subcommands, or use launch-codex, launch-claude-code, or launch-kimi-code to start a local development TUI in tmux."
+  short_description: "Configure local fixtures and launch test agents"
+  default_prompt: "Use $houmao-dev-launch-agents use configure-fixtures for local DeepSeek, self-hosted API, or imported native-auth setup. Use launch-fixture for a selected raw or managed test lane, or launch-codex, launch-claude-code, or launch-kimi-code for a raw TUI in tmux. Use help for prerequisites and safe launch outputs."
 policy:
   allow_implicit_invocation: false

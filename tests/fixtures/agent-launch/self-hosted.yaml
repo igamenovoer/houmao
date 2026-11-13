@@ -1,0 +1,16 @@
+schema_version: 1
+case: self-hosted
+model_env: HOUMAO_TEST_SELF_HOSTED_MODEL
+api_key_env: HOUMAO_TEST_SELF_HOSTED_API_KEY
+endpoints:
+  anthropic_messages:
+    base_url_env: HOUMAO_TEST_SELF_HOSTED_ANTHROPIC_BASE_URL
+  openai_responses:
+    base_url_env: HOUMAO_TEST_SELF_HOSTED_OPENAI_BASE_URL
+  openai_chat:
+    base_url_env: HOUMAO_TEST_SELF_HOSTED_OPENAI_BASE_URL
+metadata:
+  context_window_env: HOUMAO_TEST_SELF_HOSTED_CONTEXT_WINDOW
+  capabilities_env: HOUMAO_TEST_SELF_HOSTED_CAPABILITIES
+  reasoning_key_env: HOUMAO_TEST_SELF_HOSTED_REASONING_KEY
+  reasoning_effort_env: HOUMAO_TEST_SELF_HOSTED_REASONING_EFFORT

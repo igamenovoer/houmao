@@ -425,6 +425,7 @@ class HeadlessCliRunner:
         wait_signal = f"houmao-headless-turn-{turn_index}-{uuid.uuid4().hex[:10]}".lower()
         pane_target = tmux_pane_target
         launched_at_utc = datetime.now(UTC).isoformat(timespec="seconds")
+        environment_path = turn_dir / f".provider-env-{uuid.uuid4().hex}.json"
         bridge_args = [
             sys.executable,
             "-m",
@@ -445,8 +446,8 @@ class HeadlessCliRunner:
             display_detail,
             "--launched-at-utc",
             launched_at_utc,
-            "--env-json",
-            json.dumps(env, sort_keys=True),
+            "--env-file",
+            str(environment_path),
             "--",
             *command,
         ]
@@ -477,6 +478,11 @@ class HeadlessCliRunner:
                 ) from exc
 
         try:
+            descriptor = os.open(environment_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                json.dump(env, handle, sort_keys=True)
+                handle.flush()
+                os.fsync(handle.fileno())
             launch = run_tmux_shared(
                 [
                     "respawn-pane",
@@ -487,9 +493,11 @@ class HeadlessCliRunner:
                 ]
             )
         except TmuxCommandError as exc:
+            environment_path.unlink(missing_ok=True)
             raise BackendExecutionError(f"Failed to launch tmux headless turn: {exc}") from exc
 
         if launch.returncode != 0:
+            environment_path.unlink(missing_ok=True)
             detail = tmux_error_detail_shared(launch) or "unknown tmux error"
             raise BackendExecutionError(
                 f"Failed to launch tmux headless turn in `{tmux_session_name}` on the "
@@ -560,6 +568,7 @@ class HeadlessCliRunner:
                 completion_source="process_exit",
             )
         finally:
+            environment_path.unlink(missing_ok=True)
             self._active_tmux_session_name = None
             self._active_tmux_pane_target = None
             self._active_tmux_wait_signal = None

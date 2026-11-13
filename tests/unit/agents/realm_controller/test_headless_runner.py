@@ -409,6 +409,7 @@ def test_headless_runner_tmux_bridge_preserves_raw_stdout_and_writes_canonical_e
         "\n".join(
             [
                 "#!/usr/bin/env bash",
+                'printf "%s" "$FIXTURE_SECRET" > observed-secret.txt',
                 (
                     "echo "
                     "'{"
@@ -438,6 +439,11 @@ def test_headless_runner_tmux_bridge_preserves_raw_stdout_and_writes_canonical_e
 
     def _fake_run_tmux(args: list[str]) -> subprocess.CompletedProcess[str]:
         if args[:1] == ["respawn-pane"]:
+            assert "synthetic-bridge-secret" not in str(args)
+            assert "--env-json" not in str(args)
+            files = list((tmp_path / "turn-artifacts").rglob(".provider-env-*.json"))
+            assert len(files) == 1 and files[0].stat().st_mode & 0o777 == 0o600
+            assert json.loads(files[0].read_text())["FIXTURE_SECRET"] == "synthetic-bridge-secret"
             result = subprocess.run(
                 ["bash", "-lc", str(args[-1])],
                 cwd=tmp_path,
@@ -466,7 +472,7 @@ def test_headless_runner_tmux_bridge_preserves_raw_stdout_and_writes_canonical_e
     runner = HeadlessCliRunner()
     result = runner.run(
         command=[str(script)],
-        env={},
+        env={"FIXTURE_SECRET": "synthetic-bridge-secret"},
         cwd=tmp_path,
         turn_index=1,
         output_format="stream-json",
@@ -478,6 +484,8 @@ def test_headless_runner_tmux_bridge_preserves_raw_stdout_and_writes_canonical_e
     )
 
     assert result.returncode == 0
+    assert (tmp_path / "observed-secret.txt").read_text() == "synthetic-bridge-secret"
+    assert not list((tmp_path / "turn-artifacts").rglob(".provider-env-*.json"))
     assert result.session_id == "sess-bridge"
     assert result.stdout_path is not None
     assert result.canonical_path is not None

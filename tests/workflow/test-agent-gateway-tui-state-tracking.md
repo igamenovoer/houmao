@@ -29,7 +29,7 @@ This is not the pair-managed `houmao-server + houmao-mgr` workflow.
 - `tmux` is installed and available on `PATH`.
 - `codex` is installed and available on `PATH`.
 - The local fixture agent definitions exist under `tests/fixtures/plain-agent-def`.
-- The local Codex auth bundle exists under `tests/fixtures/plain-agent-def/tools/codex/auth/personal-a-default/`.
+- The local Codex auth bundle exists under `/external/codex-run/assets/tools/codex/auth/default/`.
 
 Useful checks:
 
@@ -308,3 +308,7 @@ This workflow demonstrates two distinct facts:
 2. the serverless `houmao-mgr agents single ... state` path is not an equivalent observer for the same attached-session transition evidence
 
 If this workflow is used during debugging, treat gateway-owned tracked state plus explicit prompt-note evidence as the authoritative local/serverless surface for attached-session prompt lifecycle inspection.
+
+## Fixture Preparation
+
+Prepare an explicit Codex case/model through [the fixture helper](../../scripts/agents/test-fixtures/README.md). Use an external run for both credentials and output, then follow the captured managed ID. Cloud validation uses the selected DeepSeek key/base URL references; native login requires deliberate external discovery/import.

@@ -81,7 +81,7 @@ houmao-mgr project agent-definitions plan <revision> \
   --specialist-name review-specialist \
   --profile-name review-profile \
   --tool kimi \
-  --credential kimi-coding \
+  --credential fixture \
   --workdir . \
   --set task_objective="review this repository"
 ```
@@ -105,7 +105,7 @@ houmao-mgr project agent-definitions batch-plan <revision> \
   --name-prefix review \
   --delegate-names \
   --tool kimi \
-  --credential kimi-coding
+  --credential fixture
 houmao-mgr project agent-definitions batch-apply <batch-plan.json>
 ```
 
@@ -335,3 +335,7 @@ The compatibility `.houmao/agents/` tree can still be inspected directly, but pr
 - `project agents launch|stop ...` is the higher-level runtime lifecycle path when you want to materialize or stop managed-agent instances from those compiled specialists.
 - one-off runtime env belongs to `project agents launch --env-set NAME=value|NAME`; it applies to the current live session only and is dropped by relaunch.
 - `project agents ...` is the low-level maintenance surface when you want to inspect or mutate the compatibility projection directly.
+
+## Test-Agent Credentials
+
+For test-oriented agents, use [the fixture helper](../../scripts/agents/test-fixtures/README.md) to select a generic API case with an explicit model or deliberately imported native state. Credential-bearing projects and runs live outside the checkout. API keys stay in local env/private credential files; never save them in tracked definitions.

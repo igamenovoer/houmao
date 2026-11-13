@@ -38,32 +38,32 @@ Generated outputs are ignored through [outputs/.gitignore](outputs/.gitignore).
 - `pixi`
 - `tmux`
 - `claude` for the Claude lane or `codex` for the Codex lane
-- local fixture auth bundles at:
-  - `tests/fixtures/auth-bundles/claude/kimi-coding`
-  - `tests/fixtures/auth-bundles/codex/yunwu-openai`
+- an explicitly prepared external credential source and local parameter file.
 
-The demo fails early and names the missing fixture path when a required auth bundle is absent.
+Prepare credentials with `pixi run python scripts/agents/test-fixtures/fixture.py prepare --case cloud-api --client TOOL --model MODEL --env-file .env` (Kimi also needs `--context-window TOKENS`). Select `self-hosted` for a compatible local API or explicitly imported native-login state separately. Use only the returned external run-owned credential inputs and external demo outputs. See [the fixture helper](../../agents/test-fixtures/README.md).
+
+Copy `inputs/demo_parameters.json` to a private external file and set the selected tool's `auth_fixture_dir` to `/external/prepared-run/assets/tools/TOOL/auth/default`. The checked-in paths are placeholders. Pass that file using `--parameters` and set `--demo-output-dir` to a private external directory for start/auto and follow-up commands. Codex uses the generic `api-compatible` Responses setup.
 
 ## Commands
 
 One-shot automatic run:
 
 ```bash
-scripts/demo/single-agent-mail-wakeup/run_demo.sh auto --tool claude
-scripts/demo/single-agent-mail-wakeup/run_demo.sh auto --tool codex
+scripts/demo/single-agent-mail-wakeup/run_demo.sh auto --demo-output-dir /external/single-agent-mail-wakeup --parameters /external/single-agent-mail-wakeup-parameters.json --tool claude
+scripts/demo/single-agent-mail-wakeup/run_demo.sh auto --demo-output-dir /external/single-agent-mail-wakeup --parameters /external/single-agent-mail-wakeup-parameters.json --tool codex
 ```
 
 Stepwise workflow:
 
 ```bash
-scripts/demo/single-agent-mail-wakeup/run_demo.sh start --tool claude
-scripts/demo/single-agent-mail-wakeup/run_demo.sh attach
-scripts/demo/single-agent-mail-wakeup/run_demo.sh watch-gateway --follow
-scripts/demo/single-agent-mail-wakeup/run_demo.sh notifier status
-scripts/demo/single-agent-mail-wakeup/run_demo.sh send
-scripts/demo/single-agent-mail-wakeup/run_demo.sh inspect
-scripts/demo/single-agent-mail-wakeup/run_demo.sh verify
-scripts/demo/single-agent-mail-wakeup/run_demo.sh stop
+scripts/demo/single-agent-mail-wakeup/run_demo.sh start --demo-output-dir /external/single-agent-mail-wakeup --parameters /external/single-agent-mail-wakeup-parameters.json --tool claude
+scripts/demo/single-agent-mail-wakeup/run_demo.sh attach --demo-output-dir /external/single-agent-mail-wakeup --parameters /external/single-agent-mail-wakeup-parameters.json
+scripts/demo/single-agent-mail-wakeup/run_demo.sh watch-gateway --demo-output-dir /external/single-agent-mail-wakeup --parameters /external/single-agent-mail-wakeup-parameters.json --follow
+scripts/demo/single-agent-mail-wakeup/run_demo.sh notifier --demo-output-dir /external/single-agent-mail-wakeup --parameters /external/single-agent-mail-wakeup-parameters.json status
+scripts/demo/single-agent-mail-wakeup/run_demo.sh send --demo-output-dir /external/single-agent-mail-wakeup --parameters /external/single-agent-mail-wakeup-parameters.json
+scripts/demo/single-agent-mail-wakeup/run_demo.sh inspect --demo-output-dir /external/single-agent-mail-wakeup --parameters /external/single-agent-mail-wakeup-parameters.json
+scripts/demo/single-agent-mail-wakeup/run_demo.sh verify --demo-output-dir /external/single-agent-mail-wakeup --parameters /external/single-agent-mail-wakeup-parameters.json
+scripts/demo/single-agent-mail-wakeup/run_demo.sh stop --demo-output-dir /external/single-agent-mail-wakeup --parameters /external/single-agent-mail-wakeup-parameters.json
 ```
 
 During stepwise `start`, the demo attaches the gateway in a foreground auxiliary tmux window while leaving the agent TUI in the primary agent window. `attach` re-enters the live agent session, and `watch-gateway` prints the gateway console by polling that auxiliary tmux window so the operator does not need to inspect tmux window metadata manually.
@@ -71,16 +71,16 @@ During stepwise `start`, the demo attaches the gateway in a foreground auxiliary
 Additional stepwise controls:
 
 ```bash
-scripts/demo/single-agent-mail-wakeup/run_demo.sh notifier on --seconds 2
-scripts/demo/single-agent-mail-wakeup/run_demo.sh notifier off
-scripts/demo/single-agent-mail-wakeup/run_demo.sh notifier set-interval --seconds 5
-scripts/demo/single-agent-mail-wakeup/run_demo.sh send --body-file path/to/message.md
+scripts/demo/single-agent-mail-wakeup/run_demo.sh notifier --demo-output-dir /external/single-agent-mail-wakeup --parameters /external/single-agent-mail-wakeup-parameters.json on --seconds 2
+scripts/demo/single-agent-mail-wakeup/run_demo.sh notifier --demo-output-dir /external/single-agent-mail-wakeup --parameters /external/single-agent-mail-wakeup-parameters.json off
+scripts/demo/single-agent-mail-wakeup/run_demo.sh notifier --demo-output-dir /external/single-agent-mail-wakeup --parameters /external/single-agent-mail-wakeup-parameters.json set-interval --seconds 5
+scripts/demo/single-agent-mail-wakeup/run_demo.sh send --demo-output-dir /external/single-agent-mail-wakeup --parameters /external/single-agent-mail-wakeup-parameters.json --body-file path/to/message.md
 ```
 
 Matrix run across both supported tools:
 
 ```bash
-scripts/demo/single-agent-mail-wakeup/run_demo.sh matrix
+scripts/demo/single-agent-mail-wakeup/run_demo.sh matrix --demo-output-dir /external/single-agent-mail-wakeup --parameters /external/single-agent-mail-wakeup-parameters.json
 ```
 
 ## Verification Contract
@@ -105,3 +105,5 @@ The new stepwise controls are for live observation and experimentation only. `in
 - the agent does not create the requested output file with the expected deterministic content
 - `agents mail check --unread-only` never reaches zero
 - a fresh run finds an active prior session that has not been stopped yet
+
+Prepared inputs supply both credentials and the selected setup/model. Import runs in-process, and credential diagnostics redact key values. The demo copies the prepared setup through the existing tool surface before specialist creation; credential-owned env remains separate from runtime env. New live credential imports reject checkout-local output roots.

@@ -1,42 +1,27 @@
 # Plain Agent Definition Fixture Root
 
-This fixture lane is the maintained secret-free direct native-agent tree for explicit `--native-agent-root` internals workflows and copied temp-root tests. It models the plain filesystem contract only; it is not a project-overlay substitute, a public managed-agent launch root, or a source of host-local credentials.
+This secret-free seed supplies roles, skills, presets, adapters, and setups for explicit direct native construction. It is not a mutable project overlay or a credential store. Use the [test-fixture helper](../../../scripts/agents/test-fixtures/README.md) to select an API case and prepare live agents outside the checkout.
 
 ```text
-tests/fixtures/plain-agent-def/
-  skills/<skill>/SKILL.md
+plain-agent-def/
   roles/<role>/system-prompt.md
-  presets/<preset>.yaml
-  launch-profiles/<name>.yaml
+  skills/<skill>/SKILL.md
+  presets/<role>-<tool>-<setup>.yaml
+  launch-profiles/<profile>.yaml
   tools/<tool>/adapter.yaml
   tools/<tool>/setups/<setup>/...
-  tools/<tool>/auth/
+  tools/<tool>/auth/.gitignore
 ```
-
-## Use This Lane When
-
-- a direct-dir test or helper needs one tracked secret-free source tree
-- a workflow wants to copy a plain agent-definition root into a temp workdir
-- a manual smoke flow needs seed prompt, preset, skill, setup, or adapter material before creating its own temp project or direct-dir root
-
-## Do Not Use This Lane When
-
-- you need host-local credentials directly; use `tests/fixtures/auth-bundles/`
-- you need a maintained project-aware source tree; use a fresh `.houmao/` overlay
-- you need public managed-agent birth; use `houmao-mgr project agents launch`
-- you need one maintained demo-local source tree; use that demo's tracked `inputs/agents/`
 
 ## Auth Contract
 
-`tools/<tool>/auth/` exists here only as the plain direct-dir mount point. The tracked tree stays secret-free.
-
-When a direct-dir workflow needs local credentials, materialize them into a copied temp root under `tools/<tool>/auth/<name>/`, or create a run-local alias from `tests/fixtures/auth-bundles/<tool>/<bundle>/`.
+Reusable plain presets have no personal auth default. Select credentials explicitly when copying the tree into a private external run. API cases need no native auth JSON. Native login requires explicit discovery/import into the external XDG auth store. Copy selected credentials before starting a client; never point a writable native home at a reusable store or original vendor file.
 
 ## Recommended Workflow
 
-1. Select a tracked preset such as `tests/fixtures/plain-agent-def/presets/gpu-kernel-coder-claude-default.yaml`.
-2. Build explicitly from this root:
-   - `pixi run houmao-mgr internals native-agent brain build --native-agent-root tests/fixtures/plain-agent-def --preset tests/fixtures/plain-agent-def/presets/gpu-kernel-coder-claude-default.yaml`
-3. If the run needs host-local auth, copy or link the chosen bundle from `tests/fixtures/auth-bundles/` into a temp direct-dir root instead of mutating the tracked tree.
-4. If the run needs public managed-agent birth, create or select a project overlay, register the desired prompt/credential/skills there, and launch with `pixi run houmao-mgr project agents launch`.
-5. After launch, use scoped follow-up commands such as `pixi run houmao-mgr agents single --agent-id <id> state`, `stop`, or `cleanup session`, or `pixi run houmao-mgr agents self ...` from inside the managed tmux session.
+1. Prepare a selected `self-hosted` or `cloud-api` case through `scripts/agents/test-fixtures/fixture.py prepare`, with an explicit model. Kimi also needs a context window.
+2. For direct builds, use the prepared external assets with `houmao-mgr internals native-agent brain build --native-agent-root /external/run/assets --preset /external/run/assets/presets/ROLE-TOOL-fixture.yaml`.
+3. For managed creation, the helper initializes a project and registers its credential and specialist through existing behavior. `houmao-mgr project agents launch` owns birth.
+4. Follow up using `houmao-mgr agents single --agent-id <id> state`, `stop`, or `cleanup session`, with the run's registry/runtime roots selected. The helper's `check` and `stop` commands select these automatically.
+
+Codex's `api-compatible` setup uses Responses and requires explicit routing. Its tracked template contains no endpoint/model account default; brain construction resolves `OPENAI_BASE_URL` from the selected credential and rejects missing or conflicting URLs. `default` remains the native-provider setup. Inspect the [case descriptors](../agent-launch/README.md) for supported protocols and metadata.

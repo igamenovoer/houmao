@@ -1,113 +1,25 @@
 # Claude Vendor Login Files
 
-This page explains how Houmao handles Claude Code vendor login files, what CLI shape to use, and what to avoid when turning an existing Claude login into a Houmao auth bundle or specialist.
+For contributors testing vendor-native login, use explicitly imported local state. Generic API cases use their selected key/base URL and require no vendor JSON. Native login does not inject DeepSeek routing.
 
-## The File Roles
-
-For the maintained Claude vendor-login lane, treat these files as a set:
-
-- `.credentials.json`: the actual vendor login credential store
-- `.claude.json`: companion Claude global/runtime state
-
-Houmao treats `.credentials.json` as opaque vendor state. Do not normalize it into a Houmao-specific format, do not rename it, and do not assume only one key inside it matters.
-
-Houmao treats `.claude.json` as companion runtime state. When present, Houmao carries it with the vendor login lane. For local fixture or smoke-validation use, this file may be minimized to a valid JSON object such as `{}`.
-
-Separate from those files:
-
-- `claude_state.template.json` is optional reusable Houmao bootstrap state, not a Claude credential-providing method
-- `settings.json` comes from the selected Claude setup bundle, not from the vendor login import
-
-## Supported CLI Shape
-
-Pass the Claude config root directory, not the individual files.
-
-Low-level auth bundle import:
+## Discover and Import
 
 ```bash
-houmao-mgr project credentials claude add \
-  --name official-login \
-  --config-dir ~/.claude
+pixi run python scripts/agents/test-fixtures/fixture.py discover-auth --client claude
+pixi run python scripts/agents/test-fixtures/fixture.py import-auth --client claude --source /selected/claude-home --name work
 ```
 
-Easy-specialist import:
+Discovery checks the configured Claude home and standard local home, plus any explicitly supplied bounded search roots. It reads `.credentials.json` and supported companion `.claude.json` state. The default home's companion may live in its parent directory. Candidate output shows paths, filenames, auth kind, and importability without credential contents. It does not authenticate, refresh, or run helpers. Keychain-only, helper-only, malformed, and empty state remain explicit limitations.
+
+Import requires an explicit source/candidate, preserves opaque file bytes, and leaves source files unchanged. It publishes a private bundle under `${XDG_DATA_HOME:-~/.local/share}/houmao/test-fixtures/auth/claude/NAME`; `--auth-root` overrides this outside the checkout. Replacing a name requires `--replace`. Never copy a full personal home or save native auth in tracked files.
+
+## Prepare and Smoke
 
 ```bash
-houmao-mgr project specialist create \
-  --name claude-reviewer \
-  --tool claude \
-  --system-prompt "You are a Claude-based code reviewer." \
-  --claude-config-dir ~/.claude
+pixi run python scripts/agents/test-fixtures/fixture.py prepare --client claude --auth-method native-login --auth-bundle work --mode headless --surface manager
+pixi run python tests/manual/manual_claude_official_login_smoke.py --auth-bundle work
 ```
 
-In both cases, Houmao imports `.credentials.json` from that config root and also carries companion `.claude.json` when present.
+The smoke prepares a unique private external project, registers selected credentials and the smoke role through current project behavior, launches unattended headless, submits a short prompt, and stops the captured identity even on failure. The source home and reusable bundle remain unchanged. Real validation is optional and requires explicitly selected valid state; synthetic discovery/import/preparation coverage runs without personal login.
 
-Optional Claude settings such as `--base-url`, launch-owned `--model`, and launch-owned `--reasoning-level` can be layered on top of the vendor login lane. For Claude, Houmao currently interprets `--reasoning-level` as `1=low`, `2=medium`, `3=high`, and `4=max` only on models that support Claude `max`; higher values saturate to the highest maintained Claude preset. `--claude-model` remains a compatibility alias for `--model` on the easy-specialist surface only. `--claude-state-template-file` remains optional bootstrap state only.
-
-## What Not To Do
-
-Do not pass `.credentials.json` and `.claude.json` as separate create-command flags. The maintained CLI contract is directory-oriented through `--config-dir` or `--claude-config-dir`.
-
-Do not treat `claude_state.template.json` as one of the ways to provide Claude credentials. It is only bootstrap/runtime seed state.
-
-Do not import a standalone `.claude.json` without the maintained `.credentials.json` login-state file and expect that to count as a supported Claude credential lane.
-
-Do not commit vendor login files into tracked repository content. Use `tests/fixtures/auth-bundles/claude/official-login/` for this local-only bundle lane.
-
-## Runtime Behavior
-
-Houmao projects vendor login files into an isolated runtime-owned `CLAUDE_CONFIG_DIR`. It does not repurpose the launched repo's `.claude/` tree as the runtime Claude home.
-
-When projected `.claude.json` is already present, Houmao does not require `claude_state.template.json` for unattended Claude startup. The runtime preserves projected `.credentials.json` and only mutates strategy-owned startup and trust keys in `.claude.json`.
-
-For the maintained vendor-login lane, a minimized projected `.claude.json` such as `{}` is valid as long as Houmao can merge the strategy-owned onboarding, trust, and approval state it needs at launch time.
-
-## Local Fixture Workflow
-
-For local smoke validation, reserve this local-only fixture name:
-
-```text
-tests/fixtures/auth-bundles/claude/official-login/
-  env/vars.env
-  files/.credentials.json
-  files/.claude.json
-```
-
-Use these rules:
-
-- copy vendor `.credentials.json` unchanged into `files/.credentials.json`
-- keep `files/.claude.json` present; for local validation `{}` is acceptable
-- keep `env/vars.env` empty unless you intentionally want a local override
-- do not add `claude_state.template.json` for this lane
-
-The maintained local smoke workflow is:
-
-```bash
-pixi run python tests/manual/manual_claude_official_login_smoke.py \
-  --source-config-dir ~/.claude
-```
-
-That script:
-
-- provisions or refreshes the local-only `official-login` bundle
-- launches `server-api-smoke` from a fresh workdir under `tmp/`
-- copies `tests/fixtures/plain-agent-def/` into one temporary direct-dir root under `tmp/`
-- materializes `tools/claude/auth/official-login/` there from `tests/fixtures/auth-bundles/claude/official-login/`
-- sets `HOUMAO_NATIVE_AGENT_ROOT` to that temporary direct-dir root
-- forces an overlay-local `.houmao` inside the temp workdir
-- runs the Claude launch with `--auth official-login --headless` while the tracked `server-api-smoke` preset keeps `launch.prompt_mode: unattended`
-- stops and cleans up the managed session after validation
-
-If you only want to refresh the local fixture without launching, run:
-
-```bash
-pixi run python tests/manual/manual_claude_official_login_smoke.py \
-  --source-config-dir ~/.claude \
-  --prepare-only
-```
-
-## Related Docs
-
-- [Easy Specialists](../getting-started/easy-specialists.md)
-- [houmao-mgr CLI](cli/houmao-mgr.md)
-- [System Files: Operator Preparation](system-files/operator-preparation.md)
+Read the [helper guide](../../scripts/agents/test-fixtures/README.md) for path overrides, supported auth shapes, and scoped follow-up. Claude state is tool-owned; preserve opaque fields rather than reconstructing a token document.

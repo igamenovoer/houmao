@@ -165,7 +165,7 @@ def _create_repo_local_plan(tmp_path: Path):
         shutil.copy2(_REPO_ROOT / relative, destination)
     return create_or_resume_plan(
         repo_root=repo_root,
-        requested_run_root=Path("tmp/run"),
+        requested_run_root=tmp_path / "run",
         selected_cells=("codex:st-05",),
     )
 

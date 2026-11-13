@@ -31,7 +31,9 @@ def test_default_demo_config_accepts_kimi_tool() -> None:
 def test_driver_accepts_kimi_tool_choices() -> None:
     parser = driver._build_parser()
 
-    start_args = parser.parse_args(["start", "--tool", "kimi"])
+    start_args = parser.parse_args(
+        ["start", "--tool", "kimi", "--prepared-run", "/external/prepared"]
+    )
     validate_args = parser.parse_args(
         ["recorded-validate", "--fixture-root", "fixture-root", "--tool", "kimi"]
     )

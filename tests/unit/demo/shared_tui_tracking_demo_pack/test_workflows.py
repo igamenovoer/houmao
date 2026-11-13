@@ -27,11 +27,6 @@ from houmao.demo.shared_tui_tracking_demo_pack.scenario import (
 
 _WORKSPACE_ROOT = Path(__file__).resolve().parents[4]
 _DEMO_INPUTS_SOURCE = _WORKSPACE_ROOT / "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents"
-_FIXTURE_AUTH_RELATIVE_BY_TOOL = {
-    "claude": Path("tests/fixtures/auth-bundles/claude/kimi-coding"),
-    "codex": Path("tests/fixtures/auth-bundles/codex/yunwu-openai"),
-    "kimi": Path("tests/fixtures/auth-bundles/kimi/personal-a-default"),
-}
 
 
 def _seed_demo_repo(repo_root: Path) -> None:
@@ -40,17 +35,30 @@ def _seed_demo_repo(repo_root: Path) -> None:
     shutil.copytree(_DEMO_INPUTS_SOURCE, destination)
 
 
-def _seed_fixture_auth_bundle(repo_root: Path, *, tool: str) -> None:
-    fixture_root = repo_root / _FIXTURE_AUTH_RELATIVE_BY_TOOL[tool]
-    env_dir = fixture_root / "env"
-    env_dir.mkdir(parents=True, exist_ok=True)
-    env_path = env_dir / "vars.env"
-    if tool == "claude":
-        env_path.write_text("ANTHROPIC_API_KEY=test-key\n", encoding="utf-8")
-    elif tool == "codex":
-        env_path.write_text("OPENAI_API_KEY=test-key\n", encoding="utf-8")
-    else:
-        env_path.write_text("KIMI_MODEL_API_KEY=test-key\n", encoding="utf-8")
+def _seed_prepared_run(repo_root: Path, *, tool: str) -> Path:
+    """Create synthetic external inputs using the shared preparation contract."""
+
+    root = repo_root.parent / f"prepared-{tool}"
+    target = root / "assets/tools" / tool
+    source = _WORKSPACE_ROOT / "tests/fixtures/plain-agent-def/tools" / tool
+    target.mkdir(parents=True)
+    shutil.copyfile(source / "adapter.yaml", target / "adapter.yaml")
+    (target / "setups/fixture").mkdir(parents=True)
+    (target / "auth/default/env").mkdir(parents=True)
+    (target / "auth/default/files").mkdir()
+    (target / "auth/default/env/vars.env").write_text("FIXTURE_SYNTHETIC_KEY=test-key\n")
+    (root / "private-env.json").write_text("{}")
+    (root / "run.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "run_dir": str(root.resolve()),
+                "assets_root": str(root / "assets"),
+                "configuration": {"client": tool},
+            }
+        )
+    )
+    return root
 
 
 def _build_demo_config(repo_root: Path) -> ResolvedDemoConfig:
@@ -126,7 +134,7 @@ def test_start_live_watch_builds_from_generated_demo_local_agent_tree(
 ) -> None:
     repo_root = tmp_path / "repo"
     _seed_demo_repo(repo_root)
-    _seed_fixture_auth_bundle(repo_root, tool=tool)
+    prepared_run = _seed_prepared_run(repo_root, tool=tool)
     demo_config = _build_demo_config(repo_root)
     run_root = tmp_path / "live-run"
     build_requests: list[object] = []
@@ -160,6 +168,7 @@ def test_start_live_watch_builds_from_generated_demo_local_agent_tree(
         runtime_observer_interval_seconds=0.2,
         settle_seconds=1.0,
         trace_enabled=False,
+        prepared_run=prepared_run,
     )
 
     assert result.run_root == run_root.resolve()
@@ -168,7 +177,7 @@ def test_start_live_watch_builds_from_generated_demo_local_agent_tree(
     generated_agent_def_dir = (run_root / "workdir/.houmao/agents").resolve()
     assert build_request.agent_def_dir == generated_agent_def_dir
     assert (
-        build_request.recipe_path
+        build_request.preset_path
         == (
             repo_root
             / "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/presets/interactive-watch-claude-default.yaml"
@@ -179,7 +188,7 @@ def test_start_live_watch_builds_from_generated_demo_local_agent_tree(
             / "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/presets/interactive-watch-kimi-default.yaml"
         ).resolve()
     )
-    assert (generated_agent_def_dir / "tools" / tool / "auth/default").is_symlink()
+    assert not (generated_agent_def_dir / "tools" / tool / "auth/default").is_symlink()
 
 
 @pytest.mark.parametrize("tool", ["codex", "kimi"])
@@ -190,7 +199,7 @@ def test_run_recorded_capture_builds_from_generated_demo_local_agent_tree(
 ) -> None:
     repo_root = tmp_path / "repo"
     _seed_demo_repo(repo_root)
-    _seed_fixture_auth_bundle(repo_root, tool=tool)
+    prepared_run = _seed_prepared_run(repo_root, tool=tool)
     demo_config = _build_demo_config(repo_root)
     run_root = tmp_path / "recorded-run"
     build_requests: list[object] = []
@@ -251,6 +260,7 @@ def test_run_recorded_capture_builds_from_generated_demo_local_agent_tree(
         demo_config=demo_config,
         output_root=run_root,
         cleanup_session=False,
+        prepared_run=prepared_run,
     )
 
     assert result.run_root == run_root.resolve()
@@ -259,7 +269,7 @@ def test_run_recorded_capture_builds_from_generated_demo_local_agent_tree(
     generated_agent_def_dir = (run_root / "workdir/.houmao/agents").resolve()
     assert build_request.agent_def_dir == generated_agent_def_dir
     assert (
-        build_request.recipe_path
+        build_request.preset_path
         == (
             repo_root
             / "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/presets/interactive-watch-codex-default.yaml"
@@ -270,7 +280,7 @@ def test_run_recorded_capture_builds_from_generated_demo_local_agent_tree(
             / "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/presets/interactive-watch-kimi-default.yaml"
         ).resolve()
     )
-    assert (generated_agent_def_dir / "tools" / tool / "auth/default").is_symlink()
+    assert not (generated_agent_def_dir / "tools" / tool / "auth/default").is_symlink()
 
 
 def test_validate_recorded_fixture_persists_validation_outputs(

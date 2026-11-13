@@ -18,7 +18,7 @@ _EXAMPLE_FIELDS: Mapping[str, Mapping[str, str]] = {
     "project.specialist": {
         "name": "general-kimi",
         "tool": "kimi",
-        "credential": "kimi-coding",
+        "credential": "fixture",
     },
     "project.profile": {
         "name": "reviewer-fast",

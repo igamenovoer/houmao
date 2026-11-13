@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -14,11 +15,6 @@ from houmao.demo.shared_tui_tracking_demo_pack.agent_assets import (
 
 _WORKSPACE_ROOT = Path(__file__).resolve().parents[4]
 _DEMO_INPUTS_SOURCE = _WORKSPACE_ROOT / "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents"
-_FIXTURE_AUTH_RELATIVE_BY_TOOL = {
-    "claude": Path("tests/fixtures/auth-bundles/claude/kimi-coding"),
-    "codex": Path("tests/fixtures/auth-bundles/codex/yunwu-openai"),
-    "kimi": Path("tests/fixtures/auth-bundles/kimi/personal-a-default"),
-}
 
 
 def _seed_demo_repo(repo_root: Path) -> None:
@@ -27,18 +23,30 @@ def _seed_demo_repo(repo_root: Path) -> None:
     shutil.copytree(_DEMO_INPUTS_SOURCE, destination)
 
 
-def _seed_fixture_auth_bundle(repo_root: Path, *, tool: str) -> Path:
-    fixture_root = repo_root / _FIXTURE_AUTH_RELATIVE_BY_TOOL[tool]
-    env_dir = fixture_root / "env"
-    env_dir.mkdir(parents=True, exist_ok=True)
-    env_path = env_dir / "vars.env"
-    if tool == "claude":
-        env_path.write_text("ANTHROPIC_API_KEY=test-key\n", encoding="utf-8")
-    elif tool == "codex":
-        env_path.write_text("OPENAI_API_KEY=test-key\n", encoding="utf-8")
-    else:
-        env_path.write_text("KIMI_MODEL_API_KEY=test-key\n", encoding="utf-8")
-    return fixture_root
+def _seed_prepared_run(repo_root: Path, *, tool: str) -> Path:
+    """Create synthetic external inputs using the shared preparation contract."""
+
+    root = repo_root.parent / f"prepared-{tool}"
+    target = root / "assets/tools" / tool
+    source = _WORKSPACE_ROOT / "tests/fixtures/plain-agent-def/tools" / tool
+    target.mkdir(parents=True)
+    shutil.copyfile(source / "adapter.yaml", target / "adapter.yaml")
+    (target / "setups/fixture").mkdir(parents=True)
+    (target / "auth/default/env").mkdir(parents=True)
+    (target / "auth/default/files").mkdir()
+    (target / "auth/default/env/vars.env").write_text("FIXTURE_SYNTHETIC_KEY=test-key\n")
+    (root / "private-env.json").write_text("{}")
+    (root / "run.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "run_dir": str(root.resolve()),
+                "assets_root": str(root / "assets"),
+                "configuration": {"client": tool},
+            }
+        )
+    )
+    return root
 
 
 @pytest.mark.parametrize("tool", ["claude", "codex", "kimi"])
@@ -48,12 +56,13 @@ def test_materialize_generated_agent_tree_projects_default_auth_alias(
 ) -> None:
     repo_root = tmp_path / "repo"
     _seed_demo_repo(repo_root)
-    fixture_auth_root = _seed_fixture_auth_bundle(repo_root, tool=tool)
+    prepared_run = _seed_prepared_run(repo_root, tool=tool)
     workdir = tmp_path / "workdir"
 
     generated_agent_def_dir = materialize_generated_agent_tree(
         repo_root=repo_root,
         workdir=workdir,
+        prepared_run=prepared_run,
         tool=tool,  # type: ignore[arg-type]
     )
 
@@ -67,8 +76,13 @@ def test_materialize_generated_agent_tree_projects_default_auth_alias(
         generated_agent_def_dir / "presets" / f"interactive-watch-{tool}-default.yaml"
     ).is_file()
     auth_default = generated_agent_def_dir / "tools" / tool / "auth" / "default"
-    assert auth_default.is_symlink()
-    assert auth_default.resolve() == fixture_auth_root.resolve()
+    assert auth_default.is_dir() and not auth_default.is_symlink()
+    assert (auth_default / "env/vars.env").read_text() == "FIXTURE_SYNTHETIC_KEY=test-key\n"
+    (auth_default / "env/vars.env").write_text("changed")
+    assert (
+        "test-key"
+        in (prepared_run / "assets/tools" / tool / "auth/default/env/vars.env").read_text()
+    )
 
 
 @pytest.mark.parametrize("tool", ["claude", "codex", "kimi"])
@@ -79,7 +93,7 @@ def test_materialize_generated_agent_tree_requires_host_local_auth_bundle(
     repo_root = tmp_path / "repo"
     _seed_demo_repo(repo_root)
 
-    with pytest.raises(RuntimeError, match="Fixture auth bundle missing"):
+    with pytest.raises(RuntimeError, match="explicit --prepared-run"):
         materialize_generated_agent_tree(
             repo_root=repo_root,
             workdir=tmp_path / "workdir",
@@ -103,3 +117,24 @@ def test_codex_demo_adapter_projects_proxy_environment() -> None:
         "all_proxy",
         "no_proxy",
     }.issubset(allowlist)
+
+
+@pytest.mark.parametrize("tool", ["claude", "codex", "kimi"])
+def test_prepared_inputs_reject_wrong_tool_and_allow_credential_free_offline_validation(
+    tmp_path: Path,
+    tool: str,
+) -> None:
+    """Tool selection is explicit while offline asset projection needs no auth state."""
+
+    repo = tmp_path / "repo"
+    _seed_demo_repo(repo)
+    selected = _seed_prepared_run(repo, tool="codex" if tool != "codex" else "kimi")
+    with pytest.raises(RuntimeError, match="another tool"):
+        materialize_generated_agent_tree(
+            repo_root=repo, workdir=tmp_path / "live", tool=tool, prepared_run=selected
+        )
+    generated = materialize_generated_agent_tree(
+        repo_root=repo, workdir=tmp_path / "offline", tool=tool, allow_missing_auth=True
+    )
+    assert generated.is_dir()
+    assert not (generated / "tools" / tool / "auth/default").exists()

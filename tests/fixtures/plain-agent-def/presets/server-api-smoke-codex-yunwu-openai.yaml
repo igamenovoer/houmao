@@ -1,7 +1,0 @@
-role: server-api-smoke
-tool: codex
-setup: yunwu-openai
-skills: []
-auth: yunwu-openai
-launch:
-  prompt_mode: unattended

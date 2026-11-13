@@ -190,7 +190,7 @@ def _owned_paths(*, tmp_path: Path) -> LongHorizonRunPaths:
     repo = tmp_path / "repo"
     paths = LongHorizonRunPaths.from_requested_root(
         repo_root=repo,
-        requested_root=Path("tmp/run"),
+        requested_root=tmp_path / "run",
     )
     initialize_owned_run_root(paths=paths, suite_id="suite")
     return paths

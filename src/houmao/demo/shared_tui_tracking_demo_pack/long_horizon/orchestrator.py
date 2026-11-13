@@ -61,12 +61,20 @@ def plan_suite(*, repo_root: Path, run_root: Path) -> dict[str, Any]:
 
 
 def preflight_cells(
-    *, repo_root: Path, run_root: Path, selected_cells: tuple[str, ...]
+    *,
+    repo_root: Path,
+    run_root: Path,
+    selected_cells: tuple[str, ...],
+    prepared_runs: dict[str, Path] | None = None,
 ) -> dict[str, Any]:
     """Prepare fresh projects and provider homes, then run raw native probes."""
 
     paths, plan = _load_full_plan(repo_root=repo_root, run_root=run_root)
     cells = _select_cells(plan=plan, selected_cells=selected_cells)
+    if prepared_runs is None or any(cell.provider not in prepared_runs for cell in cells):
+        raise ValueError(
+            "Preflight requires explicit --prepared-run TOOL=PATH for every selected tool"
+        )
     suite = load_suite_catalog(repo_root=repo_root)
     results: list[dict[str, Any]] = []
     for cell in cells:
@@ -87,6 +95,7 @@ def preflight_cells(
                 provider=cell.provider,
                 cell_id=cell.cell_id,
                 attempt_number=attempt_number,
+                prepared_run=prepared_runs[cell.provider],
             )
             probe = run_disposable_probe(
                 paths=paths,
@@ -116,6 +125,7 @@ def preflight_cells(
                 provider=cell.provider,
                 cell_id=cell.cell_id,
                 attempt_number=attempt_number,
+                prepared_run=prepared_runs[cell.provider],
             )
             transition_attempt(
                 attempt_root=attempt_root,

@@ -27,34 +27,34 @@ from houmao.demo.shared_tui_tracking_demo_pack.long_horizon.planner import (
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 
 
-def test_run_root_must_be_proper_tmp_descendant(tmp_path: Path) -> None:
-    """Path resolution rejects the tmp root and every outside path."""
+def test_run_root_must_be_private_and_external(tmp_path: Path) -> None:
+    """Path resolution rejects checkout and broad roots while accepting private external roots."""
 
     repo = tmp_path / "repo"
     (repo / "tmp").mkdir(parents=True)
 
-    with pytest.raises(ValueError, match="proper descendant"):
+    with pytest.raises(ValueError, match="outside the checkout"):
         LongHorizonRunPaths.from_requested_root(repo_root=repo, requested_root=Path("tmp"))
-    with pytest.raises(ValueError, match="proper descendant"):
+    with pytest.raises(ValueError, match="outside the checkout"):
         LongHorizonRunPaths.from_requested_root(
             repo_root=repo,
-            requested_root=Path("../outside"),
+            requested_root=Path("/tmp"),
         )
 
 
 def test_symlink_escape_is_rejected(tmp_path: Path) -> None:
-    """A requested output symlink cannot redirect writes outside repo tmp."""
+    """An external output symlink cannot redirect writes into the checkout."""
 
     repo = tmp_path / "repo"
     outside = tmp_path / "outside"
     outside.mkdir()
     (repo / "tmp").mkdir(parents=True)
-    (repo / "tmp" / "escape").symlink_to(outside, target_is_directory=True)
+    (outside / "escape").symlink_to(repo / "tmp", target_is_directory=True)
 
-    with pytest.raises(ValueError, match="proper descendant"):
+    with pytest.raises(ValueError, match="outside the checkout"):
         LongHorizonRunPaths.from_requested_root(
             repo_root=repo,
-            requested_root=Path("tmp/escape/run"),
+            requested_root=outside / "escape/run",
         )
 
 
@@ -62,7 +62,7 @@ def test_nonempty_unowned_root_is_rejected(tmp_path: Path) -> None:
     """Existing non-empty directories require matching ownership metadata."""
 
     repo = tmp_path / "repo"
-    run = repo / "tmp" / "run"
+    run = tmp_path / "run"
     run.mkdir(parents=True)
     (run / "foreign.txt").write_text("foreign", encoding="utf-8")
     paths = LongHorizonRunPaths.from_requested_root(repo_root=repo, requested_root=run)
@@ -77,12 +77,12 @@ def test_plan_resume_and_attempt_lifecycle(tmp_path: Path) -> None:
     repo = _seed_catalog_repo(tmp_path / "repo")
     paths, plan = create_or_resume_plan(
         repo_root=repo,
-        requested_run_root=Path("tmp/run"),
+        requested_run_root=tmp_path / "run",
         selected_cells=("codex:st-05",),
     )
     resumed_paths, resumed_plan = create_or_resume_plan(
         repo_root=repo,
-        requested_run_root=Path("tmp/run"),
+        requested_run_root=tmp_path / "run",
         selected_cells=("codex:st-05",),
     )
 
@@ -148,7 +148,7 @@ def test_cleanup_target_requires_ownership(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     paths = LongHorizonRunPaths.from_requested_root(
         repo_root=repo,
-        requested_root=Path("tmp/run"),
+        requested_root=tmp_path / "run",
     )
     initialize_owned_run_root(paths=paths, suite_id="suite")
 
@@ -167,7 +167,7 @@ def test_long_horizon_cleanup_removes_only_sensitive_runtime(
     repo = _seed_catalog_repo(tmp_path / "repo")
     paths, _plan = create_or_resume_plan(
         repo_root=repo,
-        requested_run_root=Path("tmp/run"),
+        requested_run_root=tmp_path / "run",
     )
     attempt_root, _state = create_attempt(paths=paths, cell_id="codex:st-01")
     provider_home = paths.provider_homes_dir / "codex-st-01-a001" / "homes" / "brain"

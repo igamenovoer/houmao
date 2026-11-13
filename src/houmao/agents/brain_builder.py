@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
+from urllib.parse import urlsplit
 
 from houmao.agents.codex_cli_config import (
     CodexCliConfigOverride,
@@ -745,6 +746,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     _validate_relative_path(adapter.auth_env_source, field="auth_projection.env.source")
     auth_env_file = auth_dir / adapter.auth_env_source
     env_values = _parse_env_file(auth_env_file)
+    _resolve_codex_api_routing(tool=request.tool, home_path=home_path, env_values=env_values)
     selected_env_names = [key for key in adapter.auth_env_allowlist if key in env_values]
     derived_launch_env_records = _derive_tool_launch_env_records(
         tool=request.tool,
@@ -1110,6 +1112,53 @@ def _codex_cli_config_overrides(
         config_payload = {}
     overrides.extend(codex_provider_cli_config_overrides(config_payload))
     return tuple(overrides)
+
+
+def _resolve_codex_api_routing(*, tool: str, home_path: Path, env_values: dict[str, str]) -> None:
+    """Resolve the generic Responses setup without falling back to first-party routing."""
+
+    if tool != "codex":
+        return
+    path = home_path / "config.toml"
+    config = load_toml_state(path, repair_invalid=True)
+    if config.get("model_provider") != "api-compatible":
+        return
+    providers = config.get("model_providers")
+    provider = providers.get("api-compatible") if isinstance(providers, dict) else None
+    if not isinstance(provider, dict):
+        raise BuildError("The api-compatible setup requires its Responses provider block")
+    configured = provider.get("base_url")
+    requested = env_values.get("OPENAI_BASE_URL", "").strip()
+    selected = requested or (configured.strip() if isinstance(configured, str) else "")
+    if not selected:
+        raise BuildError("The api-compatible setup requires an explicit OPENAI_BASE_URL")
+    if (
+        requested
+        and isinstance(configured, str)
+        and configured.strip()
+        and (requested.rstrip("/") != configured.strip().rstrip("/"))
+    ):
+        raise BuildError("The api-compatible setup and auth environment select different endpoints")
+    try:
+        parts = urlsplit(selected)
+    except ValueError as exc:
+        raise BuildError("The api-compatible endpoint is not a valid HTTP(S) base URL") from exc
+    if (
+        parts.scheme not in {"http", "https"}
+        or not parts.hostname
+        or parts.username
+        or parts.password
+        or parts.query
+        or parts.fragment
+    ):
+        raise BuildError(
+            "The api-compatible endpoint requires a base URL without inline credentials"
+        )
+    set_toml_key(
+        path=path,
+        key_path=("model_providers", "api-compatible", "base_url"),
+        value=selected.rstrip("/"),
+    )
 
 
 def _extract_native_model_config_baseline(

@@ -65,6 +65,7 @@ def main(argv: list[str] | None = None) -> int:
                 demo_config=demo_config,
                 output_root=_optional_path(args.output_root),
                 cleanup_session=demo_config.evidence.cleanup_session and not args.keep_session,
+                prepared_run=_optional_path(args.prepared_run),
             )
             _emit_payload(
                 {
@@ -181,6 +182,7 @@ def main(argv: list[str] | None = None) -> int:
                 runtime_observer_interval_seconds=demo_config.evidence.runtime_observer_interval_seconds,
                 settle_seconds=demo_config.semantics.settle_seconds,
                 trace_enabled=bool(args.trace),
+                prepared_run=_optional_path(args.prepared_run),
             )
             _emit_payload(
                 {
@@ -254,6 +256,7 @@ def _build_parser() -> argparse.ArgumentParser:
     capture.add_argument("--profile")
     capture.add_argument("--output-root")
     capture.add_argument("--recipe")
+    capture.add_argument("--prepared-run", required=True)
     capture.add_argument("--sample-interval-seconds", type=float, default=None)
     capture.add_argument("--runtime-observer-interval-seconds", type=float, default=None)
     capture.add_argument("--settle-seconds", type=float, default=None)
@@ -306,6 +309,7 @@ def _build_parser() -> argparse.ArgumentParser:
     start.add_argument("--profile")
     start.add_argument("--output-root")
     start.add_argument("--recipe")
+    start.add_argument("--prepared-run", required=True)
     start.add_argument("--sample-interval-seconds", type=float, default=None)
     start.add_argument("--runtime-observer-interval-seconds", type=float, default=None)
     start.add_argument("--settle-seconds", type=float, default=None)
@@ -362,6 +366,10 @@ def _build_parser() -> argparse.ArgumentParser:
     for name in ("preflight", "capture", "replay"):
         command = long_horizon_subparsers.add_parser(name)
         command.add_argument("--run-root", required=True)
+        if name == "preflight":
+            command.add_argument(
+                "--prepared-run", action="append", required=True, metavar="TOOL=PATH"
+            )
         selection = command.add_mutually_exclusive_group(required=True)
         selection.add_argument("--cell", action="append")
         selection.add_argument("--all", action="store_true")
@@ -394,6 +402,7 @@ def _run_long_horizon_command(args: argparse.Namespace) -> int:
             repo_root=repo_root,
             run_root=run_root,
             selected_cells=selected_cells,
+            prepared_runs=_prepared_run_selections(args.prepared_run),
         )
     elif command == "capture":
         payload = capture_long_horizon_cells(
@@ -515,3 +524,15 @@ def _demo_config_cli_overrides(
             review_video_fps
         )
     return overrides
+
+
+def _prepared_run_selections(values: list[str]) -> dict[str, Path]:
+    """Validate explicit per-tool prepared fixture selections for live preflight."""
+
+    result: dict[str, Path] = {}
+    for value in values:
+        tool, separator, path = value.partition("=")
+        if not separator or tool not in _SUPPORTED_TOOLS or not path or tool in result:
+            raise ValueError("Use one --prepared-run TOOL=PATH per selected tool")
+        result[tool] = Path(path).expanduser().resolve()
+    return result

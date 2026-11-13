@@ -45,7 +45,7 @@ Select the matching skill subcommand and request unattended launch in the isolat
 - Codex: `$houmao-dev-launch-agents use launch-codex ...`
 - Kimi: `$houmao-dev-launch-agents use launch-kimi-code ...`
 
-Pass the test-project workdir, unattended posture, a unique tmux session name, and `<run-root>/launch/` as the requested launch-artifact location. Do not reconstruct or bypass the selected provider command. Require the delegated result to identify a verified live tmux session and pane before starting the recorder. Copy or reference its non-secret launch metadata from the test report.
+Pass the test-project workdir, unattended posture, a unique tmux session name, and `<run-root>/launch/` as the requested launch-artifact location. The launch skill's [exact-workdir adapter](../../houmao-dev-launch-agents/references/common-launch.md#exact-workdir-tui-adapter) preserves these inputs while using externally prepared credentials. Keep its private run and provider home outside the checkout; `<run-root>/launch/` receives only sanitized metadata or a pointer. Do not reconstruct or bypass the selected provider command. Require the delegated result to identify a verified live tmux session and pane before starting the recorder. Copy or reference its non-secret launch metadata from the test report.
 
 When the user supplies an already-running agent session, verify that it was launched through `houmao-dev-launch-agents` for this test. If its launch provenance is unavailable, launch a fresh session through that skill rather than adopting it.
 

@@ -66,7 +66,7 @@ If the request does not map cleanly to this workflow, use the native planning to
 
 ```text
 <chosen houmao-mgr launcher> project specialist get --name <specialist>
-<chosen houmao-mgr launcher> internals config-drafts generate --id project.specialist --intent '{"fields":{"name":"general-kimi","tool":"kimi","credential":"kimi-coding"}}'
+<chosen houmao-mgr launcher> internals config-drafts generate --id project.specialist --intent '{"fields":{"name":"general-kimi","tool":"kimi","credential":"fixture"}}'
 <chosen houmao-mgr launcher> project profile get --name <profile>
 <chosen houmao-mgr launcher> internals config-drafts generate --id project.profile --intent '{"fields":{"name":"reviewer-fast","specialist":"reviewer","credential":"reviewer-creds"}}'
 ```

@@ -34,8 +34,8 @@
     "claude": {
       "provider": "claude_code",
       "setup": "default",
-      "auth_name": "kimi-coding",
-      "auth_fixture_dir": "tests/fixtures/auth-bundles/claude/kimi-coding",
+      "auth_name": "fixture",
+      "auth_fixture_dir": "/external/selected-claude-run/assets/tools/claude/auth/default",
       "specialist_name_prefix": "single-inject-claude",
       "instance_name_prefix": "single-inject-claude",
       "session_name_prefix": "hm-single-inject-claude"

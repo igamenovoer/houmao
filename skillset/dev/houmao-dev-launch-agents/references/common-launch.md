@@ -2,109 +2,111 @@
 
 ## Workflow
 
-1. **Resolve inputs.** Confirm provider, trusted workdir, launch posture, unique tmux session name, and optional provider arguments.
-2. **Create a fresh run root.** Use `tmp/houmao-dev-launch-agents/<UTC timestamp>-<provider>/` without reusing a non-empty directory.
-3. **Preflight shared tools.** Require `tmux`, the selected provider executable, and a credential strategy that passes its provider gate.
-4. **Build a secret-free launch command.** Put secret loading inside a restricted helper when required.
-5. **Launch and verify.** Check tmux authority, provider process identity, and visible startup posture.
-6. **Write launch metadata and report the attach command.** Preserve failures and clean up only resources owned by this run.
+1. **Resolve inputs** using **Launch Inputs** and [credential-resolution.md](credential-resolution.md).
+2. **Prepare a private run** using **Shared Preparation**. Keep generated homes and credentials outside the checkout.
+3. **Select the execution path** from **Raw TUI Execution** or [../commands/launch-fixture.md](../commands/launch-fixture.md) for headless and managed lanes.
+4. **Launch and verify** the captured process and authority using **Startup Verification**. Preserve the requested workdir, posture, and ownership.
+5. **Write safe launch evidence** using **Evidence and Cleanup**, then return the actual identity, attach command when applicable, and scoped cleanup command.
 
-If a requested launch needs generated Houmao state, gateway attachment, recording, or a managed profile, use the native planning tool to select the maintained harness alternative below while preserving the same provider, workdir, secret, and verification boundaries.
+If a test needs additional native arguments or a maintained harness, use the native planning tool to map the requested behavior to prepared fixture inputs and the supported launch surface, then execute that plan without changing credential selection or launch ownership.
 
-## Required Inputs
+## Launch Inputs
 
-- Provider subcommand
-- Trusted workdir, defaulting to the repository root
-- Prompt posture: `unattended` by default or explicit `as_is`
-- Unique tmux session name, defaulting to `HMDEV-<provider>-<UTC timestamp>`
-- Optional model, initial prompt, resume option, or provider-native arguments supplied by the user
+Resolve the client, API case or imported native bundle, explicit model metadata, surface, mode, permission posture, and any requested workdir/session. Provider-specific commands mean raw TUI, with unattended posture by default. Unattended TUI is still interactive terminal execution; it is not headless mode.
 
-Do not guess a model, resume target, extra writable directory, or initial prompt. Do not reinterpret unattended posture as a headless request.
+With no requested workdir or session name, use the helper's fresh private workdir and generated session name. For an exact trusted workdir/session, explicit `as_is` posture, or additional native arguments, use **Exact-Workdir TUI Adapter**. Never silently ignore such inputs. A requested session name must be unused; report a collision or agree on a fresh name without replacing the existing session.
 
-## Guidance
+Resolve the repository root and selected executable path, capture `--version`, and check tmux when required. Preserve inherited proxy settings without printing values or assuming a proxy address. A model, initial prompt, resume target, extra writable directory, or native argument requires explicit selection or delegated judgment. Native arguments must not override the selected credential/home/endpoint, switch mode, carry secrets, or contradict the permission posture.
 
-Read this section as the shared execution procedure. Each step leaves inspectable launch evidence for the provider page and final report.
+## Shared Preparation
 
-1. **Resolve the repository root.** Use the current Git worktree root and reject an untrusted or missing workdir.
-2. **Reserve run identity.** Create a fresh run root and a tmux session name that does not exist according to `tmux has-session -t <name>`.
-3. **Capture non-secret preflight.** Record provider command path, `--version` output, workdir, launch posture, credential strategy name, and source path or variable names without values.
-4. **Assemble the command.** Quote each non-secret argument and keep secret resolution inside the child environment. For a `.env` route, create a run-local helper with mode `0700` that reads only the selected assignments as data and then `exec`s the provider.
-5. **Start tmux.** Use one detached session with the workdir set by tmux and one provider process as the pane command.
-6. **Verify bounded startup.** Poll for a short bounded interval until the pane exists, the provider process remains alive, and the visible pane shows a provider startup surface; fail with captured pane diagnostics when the process exits.
-7. **Persist metadata.** Write `launch.json` and `launch-report.md`, excluding secrets, then return `tmux attach-session -t <name>`.
-
-## Tmux Command Shape
-
-Construct one safely quoted shell command and pass it as the tmux pane command:
+Use the repository's [fixture helper](../../../../scripts/agents/test-fixtures/README.md) rather than implementing another credential parser, provider configuration generator, or managed launch protocol. Run its Python entrypoint through Pixi from the checkout. For example, after configuring the selected cloud file:
 
 ```bash
-tmux new-session -d \
-  -s "<unique-session-name>" \
-  -c "<trusted-workdir>" \
-  "exec <selected-launcher> <provider-arguments>"
+pixi run python scripts/agents/test-fixtures/fixture.py prepare \
+  --case cloud-api --client codex --surface raw --mode tui \
+  --env-file "$HOME/.config/houmao/test-fixtures/deepseek.env"
 ```
 
-For a run-local helper, the final pane command is `exec <run-root>/launch-provider.sh <provider-arguments>`. The helper may read a trusted secret source internally; the tmux command and metadata must not contain the values.
+Replace the client and case with the selected values. For native auth, replace `--case` and `--env-file` with `--auth-method native-login --auth-bundle NAME` and an explicit `--auth-root` when needed. Supply supported model/context/reasoning overrides only when selected. For an alternate resolved executable, use `--executable PATH`.
 
-## Preferences
+Capture `run_dir` from the result. It owns `home/`, `assets/`, `workdir/`, `private-env.json`, and `run.json`. Runs default to `${XDG_STATE_HOME:-~/.local/state}/houmao/test-fixtures/runs/`; explicit `--run-root` or `HOUMAO_TEST_RUN_ROOT` must also be external. Source auth and reusable imports remain unchanged. Preparation is offline and validates imported native content; a native configuration check alone does not validate the bundle or prove live authentication.
 
-Read these preferences as defaults. Record the reason whenever the selected route differs.
+Stage only test-authorized inputs in the workdir before launch. Raw preparation does not initialize Git automatically; initialize the disposable project only when the test requires it. The fixture helper does not install the caller's skill pack or adjudicate its oracle.
 
-- Prefer TUI launch in detached tmux (if the user asks for headless execution, use the provider's headless surface outside this skill).
-- Prefer `unattended` for automated development and testing (if the user explicitly asks for normal permission prompts, use `as_is`).
-- Prefer a new session name (if the requested name exists, derive another name rather than replacing it).
-- Prefer direct raw provider launch for ordinary TUI observation (if generated Houmao assets or gateway behavior are under test, use a maintained harness).
+## Raw TUI Execution
 
-## Constraints
+### Helper-Owned Session
 
-Read these constraints as validity boundaries. `Must` and `must not` requirements are hard gates.
+Use this path when the helper's generated workdir, session name, and unattended policy satisfy the request:
 
-- The workdir must exist and be trusted before an unattended launch.
-- The launch command must not contain secret values.
-- The run must not kill, reuse, or modify a tmux session it does not own.
-- A provider login command must not run as part of auto credential discovery.
-- Failed launches must retain non-secret diagnostics and must not be reported as live.
-- Cleanup must target only the recorded tmux session and run-local helpers.
+```bash
+pixi run python scripts/agents/test-fixtures/fixture.py launch --run-dir /external/prepared-run
+```
 
-## Quality Gates
+Read `identity.tmux_session_name` from the result, then resolve the actual pane with `tmux list-panes`. Verify startup before sending a requested prompt. Use the helper's `stop` command for this session.
 
-Read these gates after startup and before claiming success. Weak metrics or failed checks require diagnosis, retry under a new session identity, or a blocker report.
+### Exact-Workdir TUI Adapter
 
-### Metrics
+The helper does not accept `--workdir`, `--session-name`, `as_is`, or arbitrary native arguments. For these raw TUI requests, keep preparation unchanged and run a small adapter inside the private run. Do not rewrite `run.json` to reference an external workdir: `load_run` deliberately rejects that mutation.
 
-- Startup latency: elapsed time from tmux creation to a stable provider surface; lower is better, but correctness is primary.
-- Evidence completeness: fraction of required non-secret metadata fields present; more complete is better.
-- Unexpected prompt count: confirmation or login prompts under unattended mode; lower is better and zero is expected.
+Write a mode-`0600` `tui-request.json` containing absolute `repo_root`, `prepared_run`, and trusted existing `workdir` paths, `posture` (`unattended` or `as_is`), and a vetted `extra_args` string array. The request contains no secrets. Write this mode-`0700` `launch-provider.py` beside it:
 
-### Checks
+```python
+"""Execute a prepared raw TUI in the explicitly selected test workdir."""
 
-- Session authority: the recorded tmux session exists and matches the selected name.
-- Process identity: the pane process tree contains the selected provider launcher or its expected provider child.
-- Surface readiness: captured visible pane text is non-empty and consistent with the selected CLI rather than a shell error.
-- Secret hygiene: metadata and command text contain no credential values.
-- Attachability: `tmux attach-session -t <name>` addresses the live session.
+import json
+import os
+from pathlib import Path
+import sys
 
-## Maintained Houmao Harness Alternatives
+os.umask(0o077)
+request = json.loads(Path(sys.argv[1]).read_text())
+repo = Path(request["repo_root"]).resolve(strict=True)
+sys.path.insert(0, str(repo / "scripts/agents/test-fixtures"))
 
-Use these only when their owned behavior is the test subject:
+from fixturelib.launch import raw_command, run_environment
+from fixturelib.prepare import load_run
 
-- Minimal generated-home launch: `scripts/demo/minimal-agent-launch/scripts/run_demo.sh --provider claude_code|codex`
-- Shared TUI tracking live watch: `scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool claude|codex|kimi`
-- Recorder-backed capture: use the `houmao-dev-tui-testing` skill, which composes the shared TUI tracking demo and terminal recorder
-- Plain agent-definition experiment: copy `tests/fixtures/plain-agent-def/` and selected `tests/fixtures/auth-bundles/` content into a fresh run-local tree
+run = load_run(Path(request["prepared_run"]))
+config = run["configuration"]
+if config["surface"] != "raw" or config["mode"] != "tui":
+    raise ValueError("The adapter requires a prepared raw TUI")
+argv = raw_command(run)
+posture = request["posture"]
+if posture == "as_is":
+    bypass = {
+        "claude": "--dangerously-skip-permissions",
+        "codex": "--dangerously-bypass-approvals-and-sandbox",
+        "kimi": "--auto",
+    }[config["client"]]
+    argv.remove(bypass)
+elif posture != "unattended":
+    raise ValueError("Unknown permission posture")
+argv.extend(request.get("extra_args", []))
+env = run_environment(run)
+os.chdir(Path(request["workdir"]).resolve(strict=True))
+os.execvpe(argv[0], argv, env)
+```
 
-Never route new work through `scripts/demo/legacy/`, historical `brains/`, `blueprints/`, or `api-creds` trees.
+Resolve the managed interpreter once with `pixi run python -c 'import sys; print(sys.executable)'`. Build a shell pane command from that absolute interpreter, adapter path, and request path using `shlex.join`, prefixed with `exec`. Pass it to `tmux new-session -d -s NAME -c WORKDIR` using a structured subprocess argument list. Do not run `pixi run` inside the pane: its project directory handling can change the requested workdir. Keys are loaded inside the child through `run_environment`; they never become tmux command arguments.
 
-## Launch Metadata
+The skill owns this custom session. Record `owner: skill-adapter`, the exact session and pane, selected workdir, and prepared run path in `launch.json`. The helper run remains `prepared`, and `fixture.py stop` cannot stop this custom session. Use `tmux kill-session -t CAPTURED_NAME` for its cleanup. Do not call the helper's `launch`, `prompt`, or `stop` on this adapter session. Send any explicitly requested interaction to the verified pane through the calling workflow's input surface.
 
-`launch.json` contains only:
+## Startup Verification
 
-- schema version and run ID
-- provider and provider version
-- workdir and run root
-- tmux session and pane identity
-- launcher command name and resolved path
-- credential strategy name
-- credential source path and variable names when applicable, without values
-- requested posture and non-secret provider arguments
-- startup verification status and diagnostics paths
+Use a bounded startup interval. Check that the captured session and pane exist, their process tree contains the selected client, and visible pane text shows its TUI. A live tmux session alone does not establish readiness. An unattended login, permission, migration, or configuration prompt is a failed/incomplete startup; do not click through it as routine setup.
+
+For exact-workdir launches, verify the client's actual working directory. Capture diagnostics privately and inspect them before sharing a sanitized finding. A successful startup is not proof of a completed model turn. Headless and managed completion checks belong to the selected fixture launch routine.
+
+## Evidence and Cleanup
+
+Keep `launch.json` and `launch-report.md` in the private run, alongside the helper's `run.json` and `report.json`. Include schema version, client/version/executable path, selected route and source path/reference names, explicit model metadata, surface/mode/posture, actual workdir, owner, session/pane or managed identity, verification result, private diagnostic paths, and the scoped cleanup command. Return an attach command only for a verified live TUI.
+
+A caller may request `<test-run>/launch/` inside the checkout. Write only sanitized launch metadata/report or a pointer there; keep generated homes, env files, credential copies, native output, and mutable private state external. Record explicit arguments only after checking that they contain no secrets. Do not copy the complete run tree into a repository-local report.
+
+Cleanup only the captured authority: helper-owned runs use `fixture.py stop --run-dir PATH`; adapter-owned sessions use their recorded tmux name. Retain failure evidence and report failed cleanup. Do not stop a shared tmux server, unrelated session, or pre-existing passive server.
+
+## Maintained Harnesses
+
+When the test subject needs a demo's additional behavior, use its maintained entrypoint and explicit fixture inputs: [minimal launch](../../../../scripts/demo/minimal-agent-launch/tut-agent-launch-minimal.md), [shared TUI tracking](../../../../scripts/demo/shared-tui-tracking-demo-pack/README.md), or the `houmao-dev-tui-testing` recorder workflow. Let that harness own its lifecycle. Do not duplicate its launch or claim a raw session has a managed identity.

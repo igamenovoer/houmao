@@ -68,6 +68,7 @@ tmp/brains/
 .aws/cli-agent-orchestrator/
 
 # Repo auth bundles: ignore live credential material by default
+/tests/fixtures/auth-bundles/
 **/agents/tools/*/auth/**/env/*.env
 **/agents/tools/*/auth/**/files/auth.json
 **/agents/tools/*/auth/**/files/oauth_creds.json

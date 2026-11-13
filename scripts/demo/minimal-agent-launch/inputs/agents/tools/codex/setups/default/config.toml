@@ -1,5 +1,4 @@
-model_provider = "yunwu-openai"
-model_reasoning_effort = "medium"
+model_provider = "api-compatible"
 personality = "friendly"
 
 [tui]
@@ -7,10 +6,11 @@ show_tooltips = false
 
 [model_providers]
 
-[model_providers.yunwu-openai]
-name = "Yunwu OpenAI-compatible endpoint"
-base_url = "https://api3.wlai.vip/v1"
+[model_providers.api-compatible]
+name = "Selected Responses-compatible API"
+# Preparation resolves this required field from the selected case/auth environment.
+base_url = ""
 env_key = "OPENAI_API_KEY"
-env_key_instructions = "Set OPENAI_API_KEY in your environment before launching codex."
+env_key_instructions = "Select an explicit API case with a local key reference."
 requires_openai_auth = false
 wire_api = "responses"

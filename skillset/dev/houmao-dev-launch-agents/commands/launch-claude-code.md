@@ -2,71 +2,23 @@
 
 ## Workflow
 
-1. **Resolve common inputs** from [../references/common-launch.md](../references/common-launch.md).
-2. **Evaluate the Claude resolver in strict order:** `claude-kimi`, trusted `.env` Kimi pair, `claude-yunwu`, other `claude-*` launchers, then native Claude auto credential.
-3. **Build the selected launcher command.** Invoke wrappers as-is; use a restricted helper for `.env`; add the native unattended flag only to direct `claude` routes.
-4. **Launch in a fresh tmux session and verify** both the wrapper/provider process chain and visible Claude Code surface.
-5. **Write non-secret resolution and launch metadata.** Include tried strategies and rejection reasons without values.
-6. **Return the attach command or final credential blocker.**
+1. **Resolve raw TUI inputs** from [../references/common-launch.md](../references/common-launch.md), including any exact workdir/session and permission posture.
+2. **Resolve the selected credential route** through [../references/credential-resolution.md](../references/credential-resolution.md). Use `configure-fixtures` for missing local inputs.
+3. **Resolve `claude` and its version**, without searching personal wrappers or loading ambient `.env` files.
+4. **Prepare `--client claude --surface raw --mode tui`** with the selected API case or imported native bundle.
+5. **Launch through the common helper or exact-workdir adapter** and verify the Claude Code process, actual workdir, and visible TUI.
+6. **Return safe launch evidence**, the verified session/pane, attach command, and owner-specific cleanup command.
 
-If the request supplies a model, session resume, allowed tools, additional directories, or explicit permission posture, use the native planning tool to add only those arguments after the ordered resolver selects launch authority.
+If the request needs additional Claude arguments, use the native planning tool to check the selected executable's supported options, then apply only explicitly selected arguments through the common adapter without changing credential routing or mode.
 
-## Guidance
+## Provider Rules
 
-Read this section as the Claude-specific execution procedure. Resolver order is authoritative.
+API cases use the prepared Anthropic Messages endpoint, token, and model aliases. Claude expects the service's API root, without adding a trailing `/v1`. The fixture helper performs provider projection; do not remap dotenv values in a shell command. API launch does not require vendor OAuth or a successful native auth-status probe.
 
-1. **Try `claude-kimi`.** Run `command -v claude-kimi`; when usable, select it and stop resolution.
-2. **Try trusted `.env`.** Inspect the bounded workdir/repository `.env` files as data for a complete recognized Kimi endpoint/key pair. When found, create a mode-`0700` run-local helper that maps the pair to `ANTHROPIC_BASE_URL` and `ANTHROPIC_API_KEY`, then executes `claude`.
-3. **Try `claude-yunwu`.** Run `command -v claude-yunwu`; when usable, select it and stop resolution.
-4. **Try other `claude-*` launchers.** Enumerate sorted candidates, run `command -v` for each, and select the first bounded probe that identifies a usable Claude launcher.
-5. **Try native auto credential.** Resolve `command -v claude` and require `claude auth status --json` or a coherent recognized inherited credential lane.
-6. **Build arguments.** Invoke selected wrappers without adding duplicate permission flags. For the `.env` helper or native `claude`, add `--dangerously-skip-permissions` in unattended mode and omit it for explicit `as_is`.
-7. **Launch and verify.** Apply the common tmux workflow and confirm the selected wrapper leads to a live Claude Code process and surface.
+Native login uses the explicitly selected imported bundle and run-owned home. Do not run login, logout, or setup-token. Missing credentials stay blocked; the old `claude-kimi`, `claude-yunwu`, and sorted `claude-*` fallback chain is retired for fixture testing.
 
-## Ordered Resolver
+The helper builds unattended arguments with `--dangerously-skip-permissions`; explicit `as_is` uses the common adapter to remove it. Any selected resume, allowed-tools, or additional-directory arguments must preserve the prepared home/endpoint and selected posture.
 
-| Priority | Strategy | Launcher | Credential Authority |
-| ---: | --- | --- | --- |
-| 1 | `claude-kimi` | Resolved wrapper | Wrapper-owned environment/state |
-| 2 | Trusted `.env` Kimi pair | Run-local helper → `claude` | Selected Kimi endpoint/key names |
-| 3 | `claude-yunwu` | Resolved wrapper | Wrapper-owned environment/state |
-| 4 | Other `claude-*` | First sorted usable wrapper | Wrapper-owned environment/state |
-| 5 | Native auto credential | `claude` | Claude inherited environment/native home |
+## Success Gate
 
-## Preferences
-
-Read these preferences only after applying strict precedence.
-
-- Prefer executing a wrapper over extracting its environment.
-- Prefer the workdir `.env` over the repository-root `.env` when both are complete.
-- Prefer `claude auth status --json` for final native-auto proof.
-- Prefer unattended direct launch for automated testing (if permission behavior is under observation, use explicit `as_is`).
-
-## Constraints
-
-Read these constraints as hard validity boundaries.
-
-- The resolver must not skip or reorder a strategy.
-- Wrapper secrets and `.env` values must not appear in output or tmux command text.
-- `.env` must be parsed as data and must not execute shell expressions.
-- Selected wrappers must be invoked as the launcher without blindly appending duplicate unattended flags.
-- The workflow must not run Claude login, logout, or setup-token commands.
-- Launch success must include a live Claude Code process and visible TUI evidence.
-
-## Quality Gates
-
-Read these gates after resolution and startup.
-
-### Metrics
-
-- Resolver completeness: proportion of higher-priority strategies conclusively checked before selection; more complete is better and 100% is required.
-- Secret exposure count: selected secret values appearing in artifacts or output; lower is better and zero is required.
-- Startup latency: time until a stable Claude Code surface appears; lower is better.
-
-### Checks
-
-- Precedence: every strategy before the selected one has explicit unavailable or unusable evidence.
-- Launcher: the selected command path was resolved through `command -v` or is the recorded run-local helper.
-- Credential: the selected strategy has non-mutating usability evidence.
-- Runtime: the tmux process tree reaches Claude Code.
-- Surface: visible output is Claude Code rather than onboarding, authentication, or shell failure.
+Require a live Claude Code process and a visible Claude Code TUI in the captured pane, with no unattended onboarding, authentication, permission, or shell failure. Preserve failed-start diagnostics privately. Startup alone does not qualify a model response or token usage.

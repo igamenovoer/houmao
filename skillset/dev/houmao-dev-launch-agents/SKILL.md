@@ -1,56 +1,63 @@
 ---
 name: houmao-dev-launch-agents
-description: Use when a Houmao maintainer explicitly invokes this development skill to launch a local Codex, Claude Code, or Kimi Code TUI agent in tmux, select native auto credentials, or resolve the ordered Claude launcher and Kimi-compatible `.env` fallbacks.
+description: Use when a Houmao maintainer explicitly invokes this development skill for local test-fixture setup, DeepSeek or self-hosted API configuration, imported native login, or Claude Code, Codex, or Kimi Code test launches.
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Houmao Development Agent Launcher
 
-## Overview
-
-Launch one local provider TUI in a fresh tmux session with a reproducible, secret-safe record of the selected executable and credential strategy. This is a manual development skill; do not invoke it implicitly for ordinary agent lifecycle work.
-
-## When to Use
-
-Use this skill for repository development, smoke testing, TUI observation, or recorder setup that needs a raw Codex, Claude Code, or Kimi Code process. Use the maintained Houmao demo alternatives when the generated home, gateway, recorder, or managed-agent pipeline is itself under test.
-
-Do not use it for production lifecycle administration, credential creation or login, headless-only prompts, Gemini CLI, or launching through retired `brains`, `blueprints`, `api-creds`, or legacy demo trees.
-
 ## Workflow
 
-1. **Resolve common launch inputs.** Determine the repository root, trusted workdir, fresh run root, unique tmux session, optional initial arguments, and requested `unattended` or explicit `as_is` posture from [references/common-launch.md](references/common-launch.md).
-2. **Select the provider subcommand** from **Subcommands**; do not infer a provider when the request is ambiguous.
-3. **Resolve the executable and credential strategy** using the selected command page and [references/credential-resolution.md](references/credential-resolution.md).
-4. **Launch the TUI in tmux** without exposing secret values in command output, process arguments, metadata, or logs.
-5. **Verify the live provider process and report evidence.** A created tmux session alone is not a successful launch.
+1. **Select a routine** from **Subcommands** using the developer's requested setup or test launch. For `help`, explain the routes and stop without setup or launch.
+2. **Resolve the client and credential selection** through [references/credential-resolution.md](references/credential-resolution.md). A named DeepSeek service selects `cloud-api`; model and client choices remain explicit.
+3. **Prepare local inputs** using `configure-fixtures` when prerequisites or selected credentials are missing. Configuration alone does not launch clients or contact a model API.
+4. **Execute a requested launch** using [references/common-launch.md](references/common-launch.md). Preserve its raw or managed ownership, mode, workdir, and permission contract. Skip this step for setup-only requests.
+5. **Verify and hand off** the configuration result or actual launch identity, private evidence paths, and scoped cleanup command when applicable. Report unavailable inputs and failed launches explicitly.
 
-If the task does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from the provider subcommands, credential precedence, and common launch constraints, then execute the plan.
+If the task does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from the selected routine, fixture interfaces, and constraints, then execute the plan.
 
-## Invocation Contract
+## Scope
 
-Preferred forms are `$houmao-dev-launch-agents use <subcommand> ...` and `$houmao-dev-launch-agents <provider launch request>`. These are skill subcommands, not shell commands.
+This manually invoked development skill owns local test-fixture configuration and test-agent launch preparation. It supports explicit API cases and imported native login for Claude Code, Codex, and Kimi Code. It does not administer production agents or create provider accounts, API keys, or interactive logins.
+
+The provider-specific commands retain their raw TUI contract for recorder and behavior-test callers. `launch-fixture` also covers raw headless execution and explicitly selected manager or passive-server test surfaces. Launching a raw client does not establish a Houmao managed identity. Test oracles, recording, skill-pack installation, and behavior adjudication remain owned by their calling workflows.
 
 ## Subcommands
 
+These are peer routines; each can consume already configured inputs. Read only the selected detail page and its required shared references.
+
 | Subcommand | Use For | Detail |
 | --- | --- | --- |
-| `launch-codex` | Launch a Codex TUI with native auto credentials | [commands/launch-codex.md](commands/launch-codex.md) |
-| `launch-claude-code` | Launch Claude Code through the ordered local launcher and credential fallback chain | [commands/launch-claude-code.md](commands/launch-claude-code.md) |
-| `launch-kimi-code` | Launch a Kimi Code TUI with native auto credentials | [commands/launch-kimi-code.md](commands/launch-kimi-code.md) |
-| `help` | Explain provider routes, required inputs, credential precedence, and outputs without launching anything | This entrypoint |
+| `configure-fixtures` | Prepare local API settings or import explicitly selected native auth without launching | [commands/configure-fixtures.md](commands/configure-fixtures.md) |
+| `launch-codex` | Launch a raw Codex TUI with selected fixture inputs | [commands/launch-codex.md](commands/launch-codex.md) |
+| `launch-claude-code` | Launch a raw Claude Code TUI with selected fixture inputs | [commands/launch-claude-code.md](commands/launch-claude-code.md) |
+| `launch-kimi-code` | Launch a raw Kimi Code TUI with selected fixture inputs | [commands/launch-kimi-code.md](commands/launch-kimi-code.md) |
+| `launch-fixture` | Prepare and launch an explicit raw, manager, or passive-server test lane | [commands/launch-fixture.md](commands/launch-fixture.md) |
+| `help` | Explain prerequisites, API/native choices, supported surfaces, and outputs without launching | This entrypoint |
 
-## Shared Invariants
+## Invocation Contract
 
-- Run from the Houmao repository and place temporary metadata under `tmp/houmao-dev-launch-agents/<run-id>/`.
-- Default development and automated-test launches to `unattended`. Use `as_is` only when the user explicitly requests an interactive permission posture.
-- Treat `auto` as a credential-discovery strategy, never as a literal credential bundle name or a request to perform login.
-- Do not print, log, commit, interpolate into tmux command strings, or include in reports any API key, token, credential JSON, or secret-bearing `.env` value.
-- Preserve an existing tmux session. Choose a new session name instead of killing or replacing an unrelated session.
-- Keep maintained demo and fixture lanes available, but do not use `scripts/demo/legacy/` or restore old shared credential trees.
+Use `houmao-dev-launch-agents->configure-fixtures()` for local setup, `houmao-dev-launch-agents->launch-fixture()` for a selected test surface, or a provider-specific launch routine for raw TUI testing. Natural-language requests and the existing `$houmao-dev-launch-agents use <subcommand> ...` form may select the same declared routines.
 
-## Common Mistakes
+Default a provider-specific launch to raw TUI and unattended posture. For `launch-fixture`, resolve the surface and mode from the test subject; ask when that distinction is material and unspecified. A setup-only request ends after offline configuration checks.
 
-- Treating `tmux new-session` exit code zero as proof the provider stayed alive. Verify pane PID, child process, and visible TUI output.
-- Passing `.env` secret values on the shell command line. Use a mode-`0700` run-local helper that reads a trusted file as data inside the tmux process.
-- Skipping a higher-priority Claude launcher after finding a lower-priority one. Follow the entire ordered resolver and stop at the first usable strategy.
-- Running `codex login`, `kimi login`, or `claude auth login` during auto discovery. Report a credential blocker instead.
-- Appending a second unattended flag to a Claude wrapper that already owns its launch flags. Invoke the selected wrapper as the launcher.
+## Guardrails
+
+- DO NOT expose keys, tokens, auth JSON, or resolved secret env values in chat, OS arguments, tmux commands, reports, or tracked files.
+- DO NOT place credential-bearing env files, generated provider homes, prepared fixture projects, or private run state inside the checkout, including repository-local evidence directories.
+- DO NOT substitute ambient login, a personal wrapper, or another API case when the selected route is missing an input or fails.
+- DO NOT guess a model, context window, capability, resume target, or initial prompt without user delegation or selected configuration.
+- DO NOT log in, refresh auth during discovery, copy a complete personal home, or replace an imported bundle without explicit selection and replacement intent.
+- DO NOT kill, reuse, or modify sessions or authorities outside the captured run ownership.
+- DO NOT claim passive-server TUI birth, managed identity for a raw client, or successful qualification from configuration checks alone.
+- DO NOT route new launches through retired `brains`, `blueprints`, `api-creds`, or legacy demo trees, or add unsupported Gemini CLI launches.

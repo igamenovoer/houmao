@@ -172,7 +172,7 @@ Legacy `houmao.chart.bar`, `houmao.chart.line`, `houmao.chart.pie`, experimental
 
 ## Live Kimi Code Headless Check
 
-For live/manual validation of this change, use a Kimi Code headless Houmao agent through an already-running per-agent gateway. When fixture credentials are present, prefer `tests/fixtures/auth-bundles/kimi/personal-a-default/`.
+For live/manual validation, prepare a Kimi headless manager run with `pixi run python scripts/agents/test-fixtures/fixture.py prepare --client kimi --case cloud-api --model MODEL --context-window TOKENS --env-file .env --mode headless --surface manager`. Use an explicit qualified DeepSeek model/context, or select a compatible self-hosted case. Launch the returned external run with the helper and use its existing per-agent gateway. Credentials stay in private external state. Native login requires explicit discovery/import and selection.
 
 Start or discover the Kimi headless agent with the existing Houmao workflow, then point an operator or agent pane at the gateway URL, for example `http://127.0.0.1:<gateway_port>/v1/ag-ui`. The workbench should attach through AG-UI connect or submit one run through AG-UI runs without managing the Kimi headless process lifecycle.
 

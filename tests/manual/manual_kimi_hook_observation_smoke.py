@@ -1,42 +1,8 @@
-"""Manual live qualification for Kimi hook observation through the managed path.
+"""Qualify Kimi hook scenarios with explicitly imported external credentials.
 
-This script drives real Kimi Code TUI sessions in tmux through the
-realm-controller compatibility CLI (``start-session``, ``send-keys``,
-``attach-gateway``, ``gateway-status``, ``stop-session``) with the Kimi hook
-observation channel opted in (``HOUMAO_HOOK_OBSERVATION_KIMI=1``). It covers
-the OpenSpec ``add-kimi-hook-observation`` live smoke scenarios:
-
-- multi-turn success with hook-settled turns;
-- Escape interrupt mid-generation (hook-derived ``interrupted``);
-- manual compaction followed by a post-compact turn;
-- provider ``kill -9`` mid-turn (presence lost, truthful unknown, terminal gap);
-- the same multi-turn leg against a side-by-side floor install (``--scenario
-  floor --kimi-bin <path>``).
-
-Every scenario uses an isolated scratch ``KIMI_CODE_HOME`` under
-``tmp/kimi-hook-smoke/`` seeded from the host-local auth bundle at
-``tests/fixtures/auth-bundles/kimi/personal-a-default/``. When that bundle is
-absent, the script creates it by copying the operator's real ``~/.kimi-code``
-state at runtime, after proving with ``git check-ignore`` that the bundle path
-is ignored. Credential files are copied byte-for-byte with :mod:`shutil`; this
-script never prints, embeds, or logs their contents. Only file names, sizes,
-and modes are recorded.
-
-Each checkpoint writes the raw gateway status, tracked TUI state, channel
-status, and event summary under the run directory. ``QUALIFICATION.md`` is
-rendered from an accumulated ledger so repeated invocations (for example an
-``all`` run followed by a ``floor`` run) keep every verdict.
-
-Usage::
-
-    pixi run python tests/manual/manual_kimi_hook_observation_smoke.py \
-        --scenario multi-turn
-    pixi run python tests/manual/manual_kimi_hook_observation_smoke.py --scenario all
-    pixi run python tests/manual/manual_kimi_hook_observation_smoke.py \
-        --scenario floor --kimi-bin tmp/kimi-floor/node_modules/.bin/kimi
-
-The script is not part of CI. It spends real provider credit per turn; the
-prompts are frozen and short.
+Use --auth-bundle NAME after discovery/import with the shared fixture helper.
+Every scenario owns a unique private run and uses current manager creation and
+scoped cleanup. Source auth homes and reusable bundles remain unchanged.
 """
 
 from __future__ import annotations
@@ -58,10 +24,14 @@ from pathlib import Path
 from typing import Any, Callable
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT / "scripts/agents/test-fixtures"))
+from fixturelib.auth import bundle_path, external_root, validate_external_path  # noqa: E402
+from fixturelib.config import ResolvedConfig  # noqa: E402
+from fixturelib.launch import launch_run, run_environment, stop_run  # noqa: E402
+from fixturelib.prepare import prepare_run  # noqa: E402
+
 AGENT_DEF_DIR = REPO_ROOT / "tests" / "fixtures" / "plain-agent-def"
-DEFAULT_RUN_ROOT = REPO_ROOT / "tmp" / "kimi-hook-smoke"
-KIMI_BUNDLE_DIR = REPO_ROOT / "tests" / "fixtures" / "auth-bundles" / "kimi" / "personal-a-default"
-OPERATOR_KIMI_HOME = Path.home() / ".kimi-code"
+DEFAULT_RUN_ROOT = Path.home() / ".local/state/houmao/test-fixtures/kimi-hook-smoke"
 ROLE_NAME = "gpu-kernel-coder"
 
 KIMI_BUNDLE_CONFIG = Path("files") / "config.toml"
@@ -117,11 +87,11 @@ class ScenarioFailure(RuntimeError):
 
 @dataclass
 class BundleProvenance:
-    """Credential-bundle origin and gitignore proof, never file contents."""
+    """Explicit credential-bundle origin and external storage check, never contents."""
 
     lane: str
     path: Path
-    gitignore_check: dict[str, Any]
+    storage_check: dict[str, Any]
     files: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -149,7 +119,7 @@ class RunContext:
 
     @property
     def session_manifest(self) -> Path:
-        """Return the session manifest path recorded by ``start-session``."""
+        """Return the session manifest path recorded by the manager."""
 
         return self.run_dir / "session-manifest.txt"
 
@@ -193,54 +163,6 @@ def _read_json(path: Path) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-
-
-def _controller_command(*args: str) -> list[str]:
-    """Return one realm-controller compatibility CLI command."""
-
-    return ["pixi", "run", "python", "-m", "houmao.agents.realm_controller", *args]
-
-
-def _cli(
-    *args: str,
-    env: dict[str, str] | None = None,
-    timeout: float = 180.0,
-) -> subprocess.CompletedProcess[str]:
-    """Run one managed CLI command from the repository root."""
-
-    return subprocess.run(
-        _controller_command(*args),
-        cwd=str(REPO_ROOT),
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
-
-
-def _cli_json(
-    *args: str,
-    env: dict[str, str] | None = None,
-    timeout: float = 180.0,
-) -> dict[str, Any]:
-    """Run one managed CLI command and parse its JSON payload."""
-
-    process = _cli(*args, env=env, timeout=timeout)
-    if process.returncode != 0:
-        raise ScenarioFailure(
-            f"command failed ({process.returncode}): {' '.join(args)}\n"
-            f"stdout:\n{process.stdout}\nstderr:\n{process.stderr}"
-        )
-    try:
-        payload = json.loads(process.stdout)
-    except json.JSONDecodeError as exc:
-        raise ScenarioFailure(
-            f"command did not emit JSON: {' '.join(args)}\nstdout:\n{process.stdout}"
-        ) from exc
-    if not isinstance(payload, dict):
-        raise ScenarioFailure(f"command emitted a non-object payload: {' '.join(args)}")
-    return payload
 
 
 def _tmux(*args: str) -> subprocess.CompletedProcess[str]:
@@ -421,17 +343,23 @@ def _tracked_facts(tracked: dict[str, Any]) -> dict[str, Any]:
 
 
 def _gateway_status(ctx: RunContext, session: SessionState) -> dict[str, Any]:
-    """Run the managed ``gateway-status`` command and return the payload."""
+    """Read current gateway status from the captured authority."""
 
-    return _cli_json(
-        "gateway-status",
-        "--agent-def-dir",
-        str(AGENT_DEF_DIR),
-        "--agent-identity",
-        str(session.manifest_path),
-        env=ctx.env,
-        timeout=120.0,
+    return _gateway_request(session, "/v1/status")
+
+
+def _gateway_request(
+    session: SessionState, path: str, body: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Call the captured local gateway without logging private request diagnostics."""
+
+    request = urllib.request.Request(
+        f"http://{session.gateway_host}:{session.gateway_port}{path}",
+        data=json.dumps(body).encode() if body is not None else None,
+        headers={"Content-Type": "application/json"},
     )
+    with urllib.request.urlopen(request, timeout=20) as response:
+        return json.load(response)
 
 
 def _pane_list(tmux_session: str) -> list[dict[str, str]]:
@@ -469,29 +397,6 @@ def _capture_pane(tmux_session: str) -> str:
     return result.stdout if result.returncode == 0 else ""
 
 
-def _gitignore_check(path: Path) -> dict[str, Any]:
-    """Return the ``git check-ignore`` verdict for one repository path."""
-
-    try:
-        relative = str(path.resolve().relative_to(REPO_ROOT))
-    except ValueError:
-        relative = str(path.resolve())
-    result = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "check-ignore", "-v", relative],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=False,
-    )
-    return {
-        "path": relative,
-        "command": f"git -C <repo> check-ignore -v {relative}",
-        "exit_code": result.returncode,
-        "stdout": result.stdout.strip(),
-        "ignored": result.returncode == 0,
-    }
-
-
 def _bundle_files(bundle: Path) -> list[dict[str, Any]]:
     """Return secret-free name/size/mode records for bundle files."""
 
@@ -510,65 +415,20 @@ def _bundle_files(bundle: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def _ensure_bundle(run_root: Path) -> BundleProvenance:
-    """Resolve the credential bundle, creating the host-local copy when absent.
+def _ensure_bundle(run_root: Path, selected: Path) -> BundleProvenance:
+    """Require explicitly imported external state without ambient-home fallback."""
 
-    The creation lane copies the operator's ``~/.kimi-code`` credential files
-    byte-for-byte after proving the destination is gitignored. File contents
-    are never read into Python, printed, or embedded in an artifact.
-    """
-
-    if KIMI_BUNDLE_CONFIG.is_file() and KIMI_BUNDLE_CREDENTIALS.is_file():
-        provenance = BundleProvenance(
-            lane="existing-host-local-bundle",
-            path=KIMI_BUNDLE_DIR,
-            gitignore_check=_gitignore_check(KIMI_BUNDLE_DIR),
-            files=_bundle_files(KIMI_BUNDLE_DIR),
-        )
-        _write_bundle_provenance(run_root, provenance)
-        return provenance
-
-    source_config = OPERATOR_KIMI_HOME / "config.toml"
-    source_credentials = OPERATOR_KIMI_HOME / "credentials" / "kimi-code.json"
-    if not source_config.is_file() or not source_credentials.is_file():
-        raise ScenarioFailure(
-            "named gap: no Kimi credential source. Expected the host-local bundle at "
-            f"`{KIMI_BUNDLE_DIR}` or a usable `{OPERATOR_KIMI_HOME}` with config.toml "
-            "and credentials/kimi-code.json."
-        )
-
-    ignore = _gitignore_check(KIMI_BUNDLE_DIR)
-    if not ignore["ignored"]:
-        raise ScenarioFailure(
-            "refusing to create the host-local Kimi bundle because the destination is not "
-            f"gitignored: {ignore}"
-        )
-
-    (KIMI_BUNDLE_DIR / "files" / "credentials").mkdir(parents=True, exist_ok=True)
-    (KIMI_BUNDLE_DIR / "env").mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source_config, KIMI_BUNDLE_DIR / KIMI_BUNDLE_CONFIG)
-    shutil.copy2(source_credentials, KIMI_BUNDLE_DIR / KIMI_BUNDLE_CREDENTIALS)
-    optional_sources = (
-        (OPERATOR_KIMI_HOME / "oauth" / "kimi-code", Path("files") / "oauth" / "kimi-code"),
-        (OPERATOR_KIMI_HOME / "device_id", Path("files") / "device_id"),
-    )
-    for source, relative in optional_sources:
-        if not source.is_file():
-            continue
-        destination = KIMI_BUNDLE_DIR / relative
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, destination)
-    (KIMI_BUNDLE_DIR / KIMI_BUNDLE_ENV).write_text(
-        "# Host-local Kimi auth bundle created by the hook-observation smoke.\n"
-        "# Credential material lives in files/ and stays untracked.\n",
-        encoding="utf-8",
-    )
-
+    selected = validate_external_path(selected)
+    if (
+        not (selected / "import.json").is_file()
+        or not (selected / KIMI_BUNDLE_CREDENTIALS).is_file()
+    ):
+        raise ScenarioFailure("Import a Kimi native bundle explicitly before running this smoke")
     provenance = BundleProvenance(
-        lane="created-from-operator-home",
-        path=KIMI_BUNDLE_DIR,
-        gitignore_check=ignore,
-        files=_bundle_files(KIMI_BUNDLE_DIR),
+        lane="explicit-imported-bundle",
+        path=selected,
+        storage_check={"outside_checkout": True},
+        files=_bundle_files(selected),
     )
     _write_bundle_provenance(run_root, provenance)
     return provenance
@@ -580,7 +440,7 @@ def _write_bundle_provenance(run_root: Path, provenance: BundleProvenance) -> No
     payload = {
         "lane": provenance.lane,
         "path": str(provenance.path),
-        "gitignore_check": provenance.gitignore_check,
+        "storage_check": provenance.storage_check,
         "files": provenance.files,
         "recorded_at_utc": _utc_now(),
     }
@@ -728,56 +588,19 @@ def _wait_tracked(
 
 
 def _submit_text(ctx: RunContext, session: SessionState, text: str) -> None:
-    """Type one literal prompt and press Enter through ``send-keys``."""
+    """Send literal text and Enter through maintained gateway control."""
 
-    typed = _cli(
-        "send-keys",
-        "--agent-def-dir",
-        str(AGENT_DEF_DIR),
-        "--agent-identity",
-        str(session.manifest_path),
-        "--sequence",
-        text,
-        "--escape-special-keys",
-        env=ctx.env,
-        timeout=60.0,
+    _gateway_request(
+        session, "/v1/control/send-keys", {"sequence": text, "escape_special_keys": True}
     )
-    if typed.returncode != 0:
-        raise ScenarioFailure(f"send-keys literal failed: {typed.stderr.strip()}")
     time.sleep(0.2)
-    entered = _cli(
-        "send-keys",
-        "--agent-def-dir",
-        str(AGENT_DEF_DIR),
-        "--agent-identity",
-        str(session.manifest_path),
-        "--sequence",
-        "<[Enter]>",
-        env=ctx.env,
-        timeout=60.0,
-    )
-    if entered.returncode != 0:
-        raise ScenarioFailure(f"send-keys Enter failed: {entered.stderr.strip()}")
+    _gateway_request(session, "/v1/control/send-keys", {"sequence": "<[Enter]>"})
 
 
 def _send_key(ctx: RunContext, session: SessionState, key: str) -> None:
-    """Send one named tmux key through ``send-keys``."""
+    """Send one named key through the captured gateway."""
 
-    result = _cli(
-        "send-keys",
-        "--agent-def-dir",
-        str(AGENT_DEF_DIR),
-        "--agent-identity",
-        str(session.manifest_path),
-        "--sequence",
-        f"<[{key}]>",
-        env=ctx.env,
-        timeout=60.0,
-    )
-    if result.returncode != 0:
-        raise ScenarioFailure(
-            f"send-keys {key} failed: {result.stderr.strip()} {result.stdout.strip()}"
-        )
+    _gateway_request(session, "/v1/control/send-keys", {"sequence": f"<[{key}]>"})
 
 
 def _prepare_run(
@@ -789,93 +612,32 @@ def _prepare_run(
     bundle: BundleProvenance,
     stamp: str,
 ) -> RunContext:
-    """Create the scratch home, env file, workdir, and brain manifest."""
+    """Prepare one real private project through the shared fixture helper."""
 
-    run_dir = run_root / f"{scenario.name}-{stamp}"
-    workdir = run_dir / "workdir"
-    kimi_home = run_dir / "kimi-home"
-    evidence = run_dir / "evidence"
-    for path in (workdir, kimi_home, evidence):
-        path.mkdir(parents=True, exist_ok=True)
-    (workdir / "README.md").write_text(S4_README_TEXT, encoding="utf-8")
-
-    files_root = bundle.path / "files"
-    for source in sorted(files_root.rglob("*")):
-        if not source.is_file():
-            continue
-        destination = kimi_home / source.relative_to(files_root)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, destination)
-
-    env_file = run_dir / "vars.env"
-    env_file.write_text("KIMI_SMOKE_LANE=host-local-bundle\n", encoding="utf-8")
-    manifest = run_dir / "brain.yaml"
-    manifest.write_text(
-        "\n".join(
-            [
-                "schema_version: 3",
-                "inputs:",
-                "  tool: kimi",
-                "  skills: []",
-                "  setup: default",
-                "  auth: default",
-                "  adapter_path: /tmp/kimi-smoke-adapter.yaml",
-                "  preset_path: null",
-                "runtime:",
-                f"  runtime_root: {run_dir}",
-                f"  home_id: kimi-hook-smoke-{scenario.name}",
-                f"  home_path: {kimi_home}",
-                f"  launch_helper: {kimi_bin}",
-                f"  launch_executable: {kimi_bin}",
-                "  launch_home_selector:",
-                "    env_var: KIMI_CODE_HOME",
-                f"    value: {kimi_home}",
-                "  launch_contract:",
-                "    adapter_defaults:",
-                "      args: []",
-                "      tool_params: {}",
-                "    requested_overrides:",
-                "      preset: null",
-                "      direct: null",
-                "    tool_metadata:",
-                "      tool_params: {}",
-                "    construction_provenance:",
-                "      adapter_path: /tmp/kimi-smoke-adapter.yaml",
-                "      preset_path: null",
-                "      preset_overrides_present: false",
-                "      direct_overrides_present: false",
-                "credentials:",
-                f"  auth_path: {run_dir / 'auth'}",
-                "  projected_files: []",
-                "  env_contract:",
-                f"    source_file: {env_file}",
-                "    allowlisted_env_vars:",
-                "      - KIMI_SMOKE_LANE",
-                "launch_policy:",
-                "  operator_prompt_mode: unattended",
-                "",
-            ]
-        ),
-        encoding="utf-8",
+    config = ResolvedConfig(
+        client="kimi",
+        mode="tui",
+        surface="manager",
+        auth_method="native-login",
+        native_bundle=bundle.path,
     )
-
-    env = dict(os.environ)
-    env["HOUMAO_HOOK_OBSERVATION_KIMI"] = "1"
-    env["HOUMAO_GLOBAL_REGISTRY_DIR"] = str(run_dir / "registry")
-
-    agent_name = f"kimi-hook-{scenario.name.replace('_', '-')}-{os.getpid()}"
+    run = prepare_run(config, run_root=run_root, role=ROLE_NAME, executable=str(kimi_bin))
+    run_dir = Path(run["run_dir"])
+    (run_dir / "evidence").mkdir(mode=0o700)
+    workdir = Path(run["workdir"])
+    (workdir / "README.md").write_text(S4_README_TEXT)
     return RunContext(
         scenario=scenario,
         run_dir=run_dir,
         workdir=workdir,
-        kimi_home=kimi_home,
-        manifest=manifest,
-        env_file=env_file,
-        agent_name=agent_name,
+        kimi_home=Path(run["home_path"]),
+        manifest=run_dir / "run.json",
+        env_file=run_dir / "private-env.json",
+        agent_name=run_dir.name,
         kimi_bin=kimi_bin,
         kimi_version=kimi_version,
         bundle=bundle,
-        env=env,
+        env=run_environment(run),
     )
 
 
@@ -916,78 +678,25 @@ def _verify_install(ctx: RunContext, session_root: Path) -> dict[str, Any]:
 
 
 def _start_session(ctx: RunContext) -> SessionState:
-    """Start the managed session, attach the gateway, and verify the install."""
+    """Launch through the project manager and retain its authoritative coordinates."""
 
-    start = _cli_json(
-        "start-session",
-        "--agent-def-dir",
-        str(AGENT_DEF_DIR),
-        "--runtime-root",
-        str(ctx.run_dir / "runtime"),
-        "--brain-manifest",
-        str(ctx.manifest),
-        "--role",
-        ROLE_NAME,
-        "--backend",
-        "local_interactive",
-        "--workdir",
-        str(ctx.workdir),
-        "--agent-identity",
-        ctx.agent_name,
-        env=ctx.env,
-        timeout=240.0,
-    )
-    _write_json(ctx.run_dir / "start.json", start)
-    manifest_path = Path(str(start["session_manifest"])).resolve()
-    ctx.session_manifest.write_text(str(manifest_path) + "\n", encoding="utf-8")
-    tmux_session = str(start.get("tmux_session_name") or "")
-    if not tmux_session:
-        raise ScenarioFailure("start-session did not report a tmux_session_name")
-
-    session_root = _session_root(manifest_path)
-    install = _verify_install(ctx, session_root)
-    _write_json(ctx.run_dir / "install-verify.json", install)
-
-    attach = _cli_json(
-        "attach-gateway",
-        "--agent-def-dir",
-        str(AGENT_DEF_DIR),
-        "--agent-identity",
-        str(manifest_path),
-        env=ctx.env,
-        timeout=120.0,
-    )
-    _write_json(ctx.run_dir / "attach.json", attach)
-    host = str(attach.get("gateway_host") or "")
-    port_value = attach.get("gateway_port")
-    if attach.get("status") != "ok" or not host or not isinstance(port_value, int):
-        raise ScenarioFailure(f"attach-gateway failed: {attach}")
-    port = int(port_value)
-
+    result = launch_run(ctx.run_dir)
+    identity = result["identity"]
+    manifest_path = Path(identity["manifest_path"])
+    ctx.session_manifest.write_text(str(manifest_path) + "\n")
+    manifest = json.loads(manifest_path.read_text())
+    ctx.kimi_home = Path(manifest["launch_plan"]["home_path"])
     session = SessionState(
         manifest_path=manifest_path,
-        session_root=session_root,
-        tmux_session_name=tmux_session,
-        gateway_host=host,
-        gateway_port=port,
+        session_root=_session_root(manifest_path),
+        tmux_session_name=identity["tmux_session_name"],
+        gateway_host=identity["gateway_host"],
+        gateway_port=identity["gateway_port"],
     )
-    _write_json(
-        ctx.run_dir / "manifest-preview.json",
-        {
-            "session_manifest": str(manifest_path),
-            "session_root": str(session_root),
-            "tmux_session_name": tmux_session,
-            "gateway_host": host,
-            "gateway_port": port,
-            "kimi_home": str(ctx.kimi_home),
-            "kimi_bin": str(ctx.kimi_bin),
-            "kimi_version": ctx.kimi_version,
-            "scenario": ctx.scenario.name,
-            "bundle_lane": ctx.bundle.lane,
-        },
-    )
+    _write_json(ctx.run_dir / "start.json", result)
+    _write_json(ctx.run_dir / "install-verify.json", _verify_install(ctx, session.session_root))
     _wait_for(
-        lambda: _tracked_state(host, port),
+        lambda: _tracked_state(session.gateway_host, session.gateway_port),
         timeout_seconds=30.0,
         description="live gateway tracked state",
     )
@@ -1400,29 +1109,9 @@ def _copy_archival_evidence(ctx: RunContext, session: SessionState) -> None:
 
 
 def _teardown(ctx: RunContext, session: SessionState | None) -> None:
-    """Stop the managed session and ensure its tmux session is gone."""
+    """Stop only the managed identity recorded in the selected private run."""
 
-    tmux_session = session.tmux_session_name if session is not None else ""
-    manifest = session.manifest_path if session is not None else None
-    if manifest is not None:
-        result = _cli(
-            "stop-session",
-            "--agent-def-dir",
-            str(AGENT_DEF_DIR),
-            "--agent-identity",
-            str(manifest),
-            "--force-cleanup",
-            env=ctx.env,
-            timeout=120.0,
-        )
-        if result.returncode != 0:
-            (ctx.run_dir / "stop-session.stderr.txt").write_text(result.stderr, encoding="utf-8")
-    if tmux_session:
-        for _ in range(10):
-            if _tmux("has-session", "-t", tmux_session).returncode != 0:
-                break
-            _tmux("kill-session", "-t", tmux_session)
-            time.sleep(0.5)
+    stop_run(ctx.run_dir)
 
 
 def _run_scenario(
@@ -1596,7 +1285,7 @@ def _update_ledger(
         "bundle": {
             "lane": bundle.lane,
             "path": str(bundle.path),
-            "gitignore_check": bundle.gitignore_check,
+            "storage_check": bundle.storage_check,
         },
         "entries": entries,
         "stamps": [*ledger.get("stamps", []), stamp],
@@ -1609,7 +1298,7 @@ def _render_qualification(run_root: Path, ledger: dict[str, Any]) -> None:
     """Render the secret-free ``QUALIFICATION.md`` summary from the ledger."""
 
     bundle = ledger.get("bundle", {})
-    gitignore = bundle.get("gitignore_check", {})
+    storage = bundle.get("storage_check", {})
     lines = [
         "# Kimi Hook Observation Live Qualification",
         "",
@@ -1623,8 +1312,7 @@ def _render_qualification(run_root: Path, ledger: dict[str, Any]) -> None:
         "",
         f"- Lane: `{bundle.get('lane', 'unknown')}`",
         f"- Path: `{bundle.get('path', 'unknown')}`",
-        f"- Gitignore proof: `{gitignore.get('command', '')}` exited "
-        f"{gitignore.get('exit_code')} (`{gitignore.get('stdout', '')}`)",
+        f"- External private storage: `{storage.get('outside_checkout', False)}`",
         "",
         "## Verdicts",
         "",
@@ -1679,22 +1367,26 @@ def main(argv: list[str] | None = None) -> int:
         "--run-root",
         type=Path,
         default=DEFAULT_RUN_ROOT,
-        help="Scratch root for runs and evidence (default: tmp/kimi-hook-smoke).",
+        help="External private parent for unique scenario runs.",
     )
     parser.add_argument(
         "--kimi-bin",
         default=None,
         help="Kimi binary override (use for the side-by-side floor install).",
     )
+    parser.add_argument("--auth-bundle", required=True)
+    parser.add_argument("--auth-root", type=Path)
     args = parser.parse_args(argv)
 
     if shutil.which("tmux") is None:
         raise ScenarioFailure("tmux not found on PATH")
-    run_root = args.run_root.expanduser().resolve()
-    run_root.mkdir(parents=True, exist_ok=True)
+    run_root = external_root("run", override=args.run_root, create=True)
 
     try:
-        bundle = _ensure_bundle(run_root)
+        bundle = _ensure_bundle(
+            run_root,
+            bundle_path(external_root("auth", override=args.auth_root), "kimi", args.auth_bundle),
+        )
         kimi_bin, kimi_version = _resolve_kimi_bin(args.kimi_bin)
     except ScenarioFailure as exc:
         stamp = _utc_stamp()

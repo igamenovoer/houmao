@@ -15,7 +15,7 @@ OWNERSHIP_SCHEMA_VERSION = 1
 
 @dataclass(frozen=True)
 class LongHorizonRunPaths:
-    """Canonical paths contained by one repository-local temporary run root."""
+    """Canonical paths contained by one private external run root."""
 
     repo_root: Path
     run_root: Path
@@ -36,18 +36,20 @@ class LongHorizonRunPaths:
         repo_root: Path,
         requested_root: Path,
     ) -> "LongHorizonRunPaths":
-        """Resolve and validate one caller-selected `tmp/<subdir>` root."""
+        """Resolve and validate one caller-selected private external root."""
 
         resolved_repo = repo_root.resolve()
-        tmp_root = (resolved_repo / "tmp").resolve()
         candidate = requested_root
         if not candidate.is_absolute():
             candidate = resolved_repo / candidate
         resolved_run = candidate.resolve()
-        if resolved_run == tmp_root or not resolved_run.is_relative_to(tmp_root):
+        if resolved_run.is_relative_to(resolved_repo) or resolved_run in {
+            Path("/"),
+            Path("/tmp"),
+            Path.home().resolve(),
+        }:
             raise ValueError(
-                "Long-horizon run root must be a proper descendant of the repository tmp/ "
-                f"directory: {resolved_run}"
+                "Long-horizon run root must be a private directory outside the checkout"
             )
         return cls(
             repo_root=resolved_repo,

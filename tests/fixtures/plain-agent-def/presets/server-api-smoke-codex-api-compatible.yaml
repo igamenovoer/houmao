@@ -1,0 +1,6 @@
+role: server-api-smoke
+tool: codex
+setup: api-compatible
+skills: []
+launch:
+  prompt_mode: unattended

@@ -1,0 +1,16 @@
+model_provider = "api-compatible"
+personality = "friendly"
+
+[tui]
+show_tooltips = false
+
+[model_providers]
+
+[model_providers.api-compatible]
+name = "Selected Responses-compatible API"
+# Preparation resolves this required field from the selected case/auth environment.
+base_url = ""
+env_key = "OPENAI_API_KEY"
+env_key_instructions = "Select an explicit API case with a local key reference."
+requires_openai_auth = false
+wire_api = "responses"

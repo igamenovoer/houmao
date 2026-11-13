@@ -5,7 +5,7 @@
 1. **Select one context type** from **Context Matrix** after resolving the case.
 2. **Create a disposable workdir and isolated tool or managed home.** Preserve the maintainer's ordinary home and active agents.
 3. **Install or project exactly the required skill pack** and record `system-skills doctor` evidence where the context supports it.
-4. **Select repository fixture credentials** and delegate provider or managed launch without copying secret values into run artifacts.
+4. **Select local fixture credentials** and delegate provider or managed launch without copying secret values into run artifacts.
 5. **Capture allowed roots and before-state** before the exact stimulus.
 6. **Verify cleanup authority** before launch and record cleanup after the attempt.
 
@@ -36,7 +36,7 @@ Skills CLI installation does not resolve Houmao packs. Select every required sta
 
 ## Provider and Credential Defaults
 
-The initial live matrix is Claude Code, Codex, and Kimi Code. Use unattended posture unless a case explicitly tests permission UI. Prefer repository fixture bundles documented in `AGENTS.md`: `tests/fixtures/auth-bundles/claude/kimi-coding/` for Claude Code, `tests/fixtures/auth-bundles/codex/yunwu-openai/` for Codex, and `tests/fixtures/auth-bundles/kimi/personal-a-default/` for Kimi when the host-local bundle exists. Kimi requires version 2.1.1 or later and uses the same maintained native launch-policy resolution as managed operation.
+The initial live matrix is Claude Code, Codex, and Kimi Code. Use unattended posture unless a case explicitly tests permission UI. Select `cloud-api` for DeepSeek or `self-hosted` for an explicitly configured compatible API; native login is a separate explicit import into an external private store. Delegate missing local setup to the launch skill's [configure-fixtures routine](../../houmao-dev-launch-agents/commands/configure-fixtures.md). API cases need no native auth JSON. Do not select personal launchers or repository auth-bundle paths as defaults. Kimi requires version 2.1.1 or later and uses the maintained native launch-policy resolution for managed operation.
 
 Record the fixture or strategy name, source path, provider version, and selected non-secret launcher identifier. Never include credential JSON, API-key values, cookies, bearer headers, or secret-bearing environment contents.
 

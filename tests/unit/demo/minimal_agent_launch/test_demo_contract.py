@@ -1,34 +1,83 @@
+"""Controlled minimal-demo checks with explicit shared fixture selection."""
+
 from __future__ import annotations
 
+import importlib.util
+import json
 from pathlib import Path
 
+import pytest
 
-_WORKSPACE_ROOT = Path(__file__).resolve().parents[4]
-_RUNNER_PATH = _WORKSPACE_ROOT / "scripts/demo/minimal-agent-launch/scripts/run_demo.sh"
-_TUTORIAL_PATH = _WORKSPACE_ROOT / "scripts/demo/minimal-agent-launch/tut-agent-launch-minimal.md"
-
-
-def test_runner_uses_one_overlay_override_without_legacy_root_overrides() -> None:
-    script_text = _RUNNER_PATH.read_text(encoding="utf-8")
-
-    assert 'overlay_root="${workdir}/.houmao"' in script_text
-    assert "tests/fixtures/auth-bundles/claude/kimi-coding" in script_text
-    assert "tests/fixtures/auth-bundles/codex/yunwu-openai" in script_text
-    assert "unset HOUMAO_AGENT_DEF_DIR HOUMAO_GLOBAL_RUNTIME_DIR" in script_text
-    assert 'export HOUMAO_PROJECT_OVERLAY_DIR="${overlay_root}"' in script_text
-    assert "export HOUMAO_AGENT_DEF_DIR" not in script_text
-    assert "export HOUMAO_GLOBAL_RUNTIME_DIR" not in script_text
+REPO = Path(__file__).resolve().parents[4]
+SCRIPT = REPO / "scripts/demo/minimal-agent-launch/scripts/run_demo.py"
 
 
-def test_tutorial_documents_overlay_local_runtime_and_jobs_layout() -> None:
-    tutorial_text = _TUTORIAL_PATH.read_text(encoding="utf-8")
+@pytest.mark.parametrize("provider", ["claude_code", "codex"])
+@pytest.mark.parametrize("headless", [False, True])
+def test_minimal_demo_preserves_role_transport_and_scoped_cleanup(
+    tmp_path, monkeypatch, provider, headless
+):
+    """Both providers use the same role and current prepared-run lifecycle."""
 
-    assert 'overlay_root="${run_root}/workdir/.houmao"' in tutorial_text
-    assert "tests/fixtures/auth-bundles/claude/kimi-coding" in tutorial_text
-    assert "tests/fixtures/auth-bundles/codex/yunwu-openai" in tutorial_text
-    assert "unset HOUMAO_AGENT_DEF_DIR HOUMAO_GLOBAL_RUNTIME_DIR" in tutorial_text
-    assert 'HOUMAO_PROJECT_OVERLAY_DIR="$PWD/${overlay_root}" \\' in tutorial_text
-    assert "HOUMAO_AGENT_DEF_DIR=" not in tutorial_text
-    assert "HOUMAO_GLOBAL_RUNTIME_DIR=" not in tutorial_text
-    assert "`workdir/.houmao/runtime/`" in tutorial_text
-    assert "`workdir/.houmao/jobs/`" in tutorial_text
+    spec = importlib.util.spec_from_file_location("minimal_fixture_demo", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "synthetic-key")
+    monkeypatch.setenv("DEEPSEEK_BASE_URL_OPENAI", "https://cloud.example/v1")
+    monkeypatch.setenv("DEEPSEEK_BASE_URL_ANTHROPIC", "https://cloud.example/anthropic")
+    calls = []
+    root = tmp_path / "private-run"
+
+    def prepare(config, **kwargs):
+        root.mkdir()
+        calls.append(("prepare", config, kwargs))
+        assert kwargs["role"] == "minimal-launch"
+        assert kwargs["prompt_file"].is_file()
+        return {"run_dir": str(root), "status": "prepared"}
+
+    monkeypatch.setattr(module, "prepare_run", prepare)
+    monkeypatch.setattr(
+        module,
+        "launch_run",
+        lambda path, **kw: (
+            calls.append(("launch", path, kw)) or {"identity": {"agent_id": "captured-id"}}
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "check_run",
+        lambda path, **kw: calls.append(("check", path, kw)) or {"status": "launched"},
+    )
+    monkeypatch.setattr(
+        module, "stop_run", lambda path: calls.append(("stop", path)) or {"status": "stopped"}
+    )
+    argv = [
+        "--provider",
+        provider,
+        "--case",
+        "cloud-api",
+        "--model",
+        "explicit-model",
+        "--output-dir",
+        str(tmp_path),
+    ]
+    if headless:
+        argv.append("--headless")
+    assert module.main(argv) == 0
+    config = calls[0][1]
+    assert config.client == ("claude" if provider == "claude_code" else "codex")
+    assert config.surface == "manager" and config.mode == ("headless" if headless else "tui")
+    assert bool(calls[1][2]["prompt"]) == headless
+    assert any(call[0] == "stop" for call in calls) == headless
+    summary = json.loads((root / "summary.json").read_text())
+    assert summary["identity"]["agent_id"] == "captured-id"
+    assert "synthetic-key" not in (root / "summary.json").read_text()
+
+
+def test_minimal_tutorial_uses_external_preparation():
+    """The tutorial explains required selection and external state."""
+
+    tutorial = (SCRIPT.parents[1] / "tut-agent-launch-minimal.md").read_text()
+    assert "--case cloud-api" in tutorial and "--model MODEL" in tutorial
+    assert "fixture.py stop --run-dir" in tutorial
+    assert "tests/fixtures/auth-bundles" not in tutorial

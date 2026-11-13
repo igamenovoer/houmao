@@ -46,17 +46,19 @@ def test_project_agent_starter_codex_setups_do_not_pin_default_model(
     default_payload = tomllib.loads(
         (setup_root / "default" / "config.toml").read_text(encoding="utf-8")
     )
-    yunwu_payload = tomllib.loads(
-        (setup_root / "yunwu-openai" / "config.toml").read_text(encoding="utf-8")
+    compatible_payload = tomllib.loads(
+        (setup_root / "api-compatible" / "config.toml").read_text(encoding="utf-8")
     )
 
     assert "model" not in default_payload
     assert default_payload["model_reasoning_effort"] == "medium"
     assert default_payload["tui"]["show_tooltips"] is False
-    assert "model" not in yunwu_payload
-    assert yunwu_payload["model_provider"] == "yunwu-openai"
-    assert yunwu_payload["model_providers"]["yunwu-openai"]["wire_api"] == "responses"
-    assert yunwu_payload["tui"]["show_tooltips"] is False
+    assert "model" not in compatible_payload
+    assert compatible_payload["model_provider"] == "api-compatible"
+    assert compatible_payload["model_providers"]["api-compatible"]["wire_api"] == "responses"
+    assert compatible_payload["tui"]["show_tooltips"] is False
+    assert compatible_payload["model_providers"]["api-compatible"]["base_url"] == ""
+    assert "model_reasoning_effort" not in compatible_payload
 
 
 def test_project_catalog_exposes_sql_views_and_integrity_checks(

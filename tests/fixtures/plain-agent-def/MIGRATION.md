@@ -13,7 +13,7 @@ The maintained tracked plain-direct-dir fixture tree now lives under `tests/fixt
 ## What Changed
 
 - `brains/cli-configs/<tool>/<profile>/...` became `tools/<tool>/setups/<setup>/...`
-- `brains/api-creds/<tool>/<profile>/...` became `tools/<tool>/auth/<auth>/...` for populated plain-direct-dir roots, while maintained host-local bundles now live under `tests/fixtures/auth-bundles/<tool>/<auth>/...`
+- `brains/api-creds/<tool>/<profile>/...` became `tools/<tool>/auth/<auth>/...` for populated plain-direct-dir roots, while reusable native bundles live in the external XDG auth store
 - `brains/brain-recipes/<tool>/<name>.yaml` became `presets/<role>-<tool>-<setup>.yaml`
 - preset identity is now filename-derived, and tracked preset YAML carries explicit `role`, `tool`, and `setup` instead of `default_agent_name`
 - `blueprints/` are no longer the canonical reusable launch layer
@@ -29,8 +29,8 @@ The maintained tracked plain-direct-dir fixture tree now lives under `tests/fixt
 
 ## Auth Notes
 
-- Keep the tracked plain fixture tree secret-free. Maintained host-local bundles now live under `tests/fixtures/auth-bundles/<tool>/<auth>/`.
-- When a direct-dir workflow needs auth inside its own tree, materialize the selected bundle into `plain-agent-def/tools/<tool>/auth/<auth>/` under a copied temp root.
-- Presets choose a default auth bundle by name, and operators may override it at launch time with `--auth`.
-- Concurrent runs may reuse the same auth bundle when the provider/tool allows it.
-- If you need a separate rate-limit lane, create a new auth bundle and update the affected preset or launch command.
+- Keep the tracked tree secret-free. Use [the fixture helper](../../../scripts/agents/test-fixtures/README.md) for explicit API configuration or deliberate native discovery/import.
+- Credential-bearing state lives outside the checkout. Each run receives copies of only the selected credential files and setup.
+- Reusable presets no longer choose personal auth bundles. Pass an explicit credential selection in a prepared external tree.
+- The fixed Codex provider setup is replaced by `api-compatible`; corresponding presets use that name. Its Responses endpoint must be supplied explicitly.
+- Historical sanitized usage evidence retains its original model/version facts.

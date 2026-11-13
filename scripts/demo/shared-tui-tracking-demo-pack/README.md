@@ -8,7 +8,7 @@ For the developer-facing contract on how human ground truth is compared against 
 
 The demo-owned configuration surface is [demo-config.toml](/data1/huangzhe/code/houmao/scripts/demo/shared-tui-tracking-demo-pack/demo-config.toml). By default it aligns tmux capture cadence with the Houmao server baseline of `0.2s`, and review-video cadence matches the underlying capture cadence unless you explicitly override it. The checked-in demo now treats `2 Hz` capture frequency, meaning `sample_interval_seconds <= 0.5`, as the lower robustness floor for tracked public state.
 
-The tracked launch assets live under [inputs/agents/](/data1/huangzhe/code/houmao/scripts/demo/shared-tui-tracking-demo-pack/inputs/agents). Each live-watch or recorded-capture run copies that tree into `workdir/.houmao/agents/`, then projects one selected-tool `auth/default` alias from the host-local fixture bundles under `tests/fixtures/auth-bundles/<tool>/`.
+Live launch requires `--prepared-run /external/selected-run` from the shared [fixture helper](../../agents/test-fixtures/README.md). The selected tool must match. The demo copies run-owned setup, adapter, and credential files into its private generated tree; source/store files remain unchanged. Missing or wrong-tool preparation fails before launch. Offline replay/validation requires no credentials.
 
 The maintained provider set is Claude Code, Codex, and Kimi Code. Gemini CLI is unsupported and must not appear in new scenarios, long-horizon catalogs, or qualification artifacts.
 
@@ -20,6 +20,7 @@ Capture a real session with the recorder in active mode:
 
 ```bash
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-capture \
+  --prepared-run /external/selected-run \
   --scenario scripts/demo/shared-tui-tracking-demo-pack/scenarios/claude-explicit-success.json \
   --profile canonical_fixture
 ```
@@ -46,7 +47,7 @@ HOUMAO_SHARED_TUI_TRACKING_LOG_LEVEL=DEBUG \
   scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate-corpus --skip-video
 ```
 
-Recorded validation writes under `tmp/demo/shared-tui-tracking-demo-pack/recorded/...` unless `--output-root` overrides it.
+Recorded validation writes under `~/.local/state/houmao/test-fixtures/shared-tui/recorded/...` unless `--output-root` overrides it.
 
 Each recorded-capture run now persists a run-local `session_ownership.json` before tmux launch and tags demo-owned tmux sessions with matching recovery pointers in tmux session environment. If a capture dies after tmux startup but before `capture_manifest.json` is written, the run is still recoverable through `cleanup`.
 
@@ -94,13 +95,13 @@ The checked-in `capture_frequency` sweep is meant to validate robustness only do
 
 ## UC-02 Long-Horizon Qualification
 
-The nested `long-horizon` workflow executes the reviewed 12-cell Boltons pressure-test matrix. Every live provider uses `unattended`; the driver aborts if a provider asks for confirmation. Choose a proper repository-local `tmp/<subdir>` root. The driver rejects `tmp/` itself, paths outside it, symlink escapes, and non-empty unowned roots.
+The nested `long-horizon` workflow executes the reviewed 12-cell Boltons matrix. Select a private external run root and explicit `--prepared-run TOOL=/external/run` for every tool in live `preflight`. Each provider receives copied selected inputs; no personal home or fixed proxy is selected implicitly. Owned cleanup preserves captured evidence.
 
 Create and review the immutable 12-cell, 242-operation plan:
 
 ```bash
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh long-horizon plan \
-  --run-root tmp/tui-state-tracking-long-horizon/<run-id> \
+  --run-root /external/tui-state-tracking-long-horizon/<run-id> \
   --json
 ```
 
@@ -108,34 +109,35 @@ Run preflight and capture serially. Use `--cell <provider>:<st-id>` for one cell
 
 ```bash
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh long-horizon preflight \
-  --run-root tmp/tui-state-tracking-long-horizon/<run-id> \
+  --prepared-run codex=/external/codex-run \
+  --run-root /external/tui-state-tracking-long-horizon/<run-id> \
   --cell codex:st-03 \
   --json
 
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh long-horizon capture \
-  --run-root tmp/tui-state-tracking-long-horizon/<run-id> \
+  --run-root /external/tui-state-tracking-long-horizon/<run-id> \
   --cell codex:st-03 \
   --json
 ```
 
-Codex preflight and capture require a reachable proxy at `127.0.0.1:7990`. The generated provider manifest records upper- and lower-case HTTP, HTTPS, and all-proxy variable names and the proxy URL, never credential values.
+Preflight consumes the selected prepared provider configuration directly. It does not require a fixed proxy or import ambient personal credentials. Sanitized provider manifests exclude credential values.
 
 The required phase order is `planned -> preflight_passed -> capturing -> awaiting_manual_labels -> labels_complete -> replaying -> reported`. Capture freezes the native 20 Hz recording before creating a tracker-free review template. Complete the labels without viewing tracker output, then admit them and replay:
 
 ```bash
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh long-horizon label-status \
-  --run-root tmp/tui-state-tracking-long-horizon/<run-id> \
+  --run-root /external/tui-state-tracking-long-horizon/<run-id> \
   --cell codex:st-03 \
   --labels-path /absolute/path/to/operator-labels.json \
   --json
 
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh long-horizon replay \
-  --run-root tmp/tui-state-tracking-long-horizon/<run-id> \
+  --run-root /external/tui-state-tracking-long-horizon/<run-id> \
   --cell codex:st-03 \
   --json
 
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh long-horizon report \
-  --run-root tmp/tui-state-tracking-long-horizon/<run-id> \
+  --run-root /external/tui-state-tracking-long-horizon/<run-id> \
   --json
 ```
 
@@ -145,7 +147,7 @@ After live capture, remove copied credentials and reap attempt-owned tmux resour
 
 ```bash
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh long-horizon cleanup \
-  --run-root tmp/tui-state-tracking-long-horizon/<run-id> \
+  --run-root /external/tui-state-tracking-long-horizon/<run-id> \
   --json
 ```
 
@@ -156,31 +158,31 @@ The run layout separates `projects/`, sensitive transient `provider-homes/`, num
 Start a live watch dashboard for Claude:
 
 ```bash
-scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool claude
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --prepared-run /external/selected-run --tool claude
 ```
 
 Start a live watch dashboard for Codex:
 
 ```bash
-scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool codex
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --prepared-run /external/selected-run --tool codex
 ```
 
 Start a live watch dashboard for Kimi Code:
 
 ```bash
-scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool kimi
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --prepared-run /external/selected-run --tool kimi
 ```
 
 Enable recorder-backed live capture only when you want replay-debug artifacts from the same run:
 
 ```bash
-scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool claude --with-recorder
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --prepared-run /external/selected-run --tool claude --with-recorder
 ```
 
 Kimi Code uses the same recorder-backed live path:
 
 ```bash
-scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool kimi --with-recorder
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --prepared-run /external/selected-run --tool kimi --with-recorder
 ```
 
 Use an alternate config file for live watch when you want different path roots, capture cadence, or sweep definitions:
@@ -213,7 +215,7 @@ Target one specific run root when you want recovery without relying on the lates
 
 ```bash
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh cleanup \
-  --run-root tmp/demo/shared-tui-tracking-demo-pack/live/claude/20260322T000000 \
+  --run-root ~/.local/state/houmao/test-fixtures/shared-tui/live/claude/20260322T000000 \
   --json
 ```
 
@@ -233,7 +235,7 @@ scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh cleanup \
   --json
 ```
 
-Live watch writes under `tmp/demo/shared-tui-tracking-demo-pack/live/<tool>/<run-id>/`.
+Live watch writes privately under `~/.local/state/houmao/test-fixtures/shared-tui/live/<tool>/<run-id>/`.
 
 The normal launch posture is intentionally permissive, and the default live-watch path is intentionally lightweight:
 
@@ -253,7 +255,7 @@ Each live or recorded run also keeps a run-local `session_ownership.json` with t
 
 The committed fixture corpus is under [tests/fixtures/shared_tui_tracking/recorded](/data1/huangzhe/code/houmao/tests/fixtures/shared_tui_tracking/recorded).
 
-Temporary authoring runs should go under `tmp/demo/shared-tui-tracking-demo-pack/authoring/<tool>/<case>/...` by passing `--output-root` to `recorded-capture` and `recorded-validate`. Do not capture directly into the committed fixture tree.
+Temporary authoring runs should go under `/external/shared-tui-authoring/<tool>/<case>/...` by passing `--output-root` to `recorded-capture` and `recorded-validate`. Do not capture directly into the committed fixture tree.
 
 ### First-Wave Case Matrix
 
@@ -305,28 +307,30 @@ When authoring or replacing a canonical fixture:
 1. Scout the live surface first when prompt timing is uncertain:
 
 ```bash
-bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool claude
-bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool codex
-bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool kimi
+bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --prepared-run /external/selected-run --tool claude
+bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --prepared-run /external/selected-run --tool codex
+bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --prepared-run /external/selected-run --tool kimi
 ```
 
 2. Capture the real session into a temporary authoring root:
 
 ```bash
 bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-capture \
+  --prepared-run /external/selected-run \
   --scenario scripts/demo/shared-tui-tracking-demo-pack/scenarios/claude-interrupted-after-active.json \
-  --output-root tmp/demo/shared-tui-tracking-demo-pack/authoring/claude/claude_interrupted_after_active/capture
+  --output-root /external/shared-tui-authoring/claude/claude_interrupted_after_active/capture
 ```
 
-For Kimi, prepare the local auth bundle first at `tests/fixtures/auth-bundles/kimi/personal-a-default/`. The demo intentionally does not commit this directory because it can contain live `config.toml`, `credentials/`, and `env/vars.env` material. A missing Kimi bundle fails during demo-local agent tree materialization, before tmux launch.
+Live launch requires `--prepared-run /external/selected-run` from the shared [fixture helper](../../agents/test-fixtures/README.md). The selected tool must match. The demo copies run-owned setup, adapter, and credential files into its private generated tree; source/store files remain unchanged. Missing or wrong-tool preparation fails before launch. Offline replay/validation requires no credentials.
 
 ```bash
 bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-capture \
+  --prepared-run /external/selected-run \
   --scenario scripts/demo/shared-tui-tracking-demo-pack/scenarios/kimi-interrupted-after-active.json \
-  --output-root tmp/demo/shared-tui-tracking-demo-pack/authoring/kimi/kimi_interrupted_after_active/capture
+  --output-root /external/shared-tui-authoring/kimi/kimi_interrupted_after_active/capture
 
 bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate \
-  --fixture-root tmp/demo/shared-tui-tracking-demo-pack/authoring/kimi/kimi_interrupted_after_active/capture \
+  --fixture-root /external/shared-tui-authoring/kimi/kimi_interrupted_after_active/capture \
   --tool kimi \
   --settle-seconds 1.0
 ```
@@ -347,8 +351,8 @@ bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate \
 
 ```bash
 bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate \
-  --fixture-root tmp/demo/shared-tui-tracking-demo-pack/authoring/claude/claude_interrupted_after_active/capture \
-  --output-root tmp/demo/shared-tui-tracking-demo-pack/authoring/claude/claude_interrupted_after_active/validation-skip-video \
+  --fixture-root /external/shared-tui-authoring/claude/claude_interrupted_after_active/capture \
+  --output-root /external/shared-tui-authoring/claude/claude_interrupted_after_active/validation-skip-video \
   --skip-video
 ```
 
@@ -357,8 +361,8 @@ bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate \
 
 ```bash
 bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate \
-  --fixture-root tmp/demo/shared-tui-tracking-demo-pack/authoring/claude/claude_interrupted_after_active/capture \
-  --output-root tmp/demo/shared-tui-tracking-demo-pack/authoring/claude/claude_interrupted_after_active/validation
+  --fixture-root /external/shared-tui-authoring/claude/claude_interrupted_after_active/capture \
+  --output-root /external/shared-tui-authoring/claude/claude_interrupted_after_active/validation
 ```
 
 7. Inspect `analysis/summary_report.md`, any `issues/*.md`, and `review/review.mp4`.
@@ -380,7 +384,7 @@ Each committed case keeps only the canonical replay-grade artifacts:
 - `recording/input_events.ndjson` when explicit-input authority matters
 - `recording/labels.json`
 
-Temporary authoring outputs stay under `tmp/` unless a later change decides to publish them:
+Credential-bearing authoring outputs stay outside the checkout unless a later change decides to publish them:
 
 - `analysis/summary_report.md`
 - `analysis/groundtruth_timeline.ndjson`
@@ -389,3 +393,5 @@ Temporary authoring outputs stay under `tmp/` unless a later change decides to p
 - `issues/*.md`
 - `review/frames/frame-*.png`
 - `review/review.mp4`
+
+Live/recorded output roots must resolve outside the checkout. Default live and recording roots are `~/.local/state/houmao/test-fixtures/shared-tui/{live,recorded}`. Offline validation and sweeps may use ignored scratch outputs. For API preparation, select `cloud-api` (DeepSeek) or `self-hosted` with an explicit model and protocol metadata. Never copy keys or auth JSON into tracked assets.

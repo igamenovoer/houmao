@@ -53,7 +53,7 @@ Supported draft ids are `project.specialist`, `project.profile`, and `internals.
 Examples:
 
 ```bash
-houmao-mgr internals config-drafts generate --id project.specialist --intent '{"fields":{"name":"general-kimi","tool":"kimi","credential":"kimi-coding"}}'
+houmao-mgr internals config-drafts generate --id project.specialist --intent '{"fields":{"name":"general-kimi","tool":"kimi","credential":"fixture"}}'
 houmao-mgr internals config-drafts generate --id project.profile --intent '{"fields":{"name":"reviewer-fast","specialist":"reviewer","credential":"reviewer-creds"}}'
 houmao-mgr internals config-drafts generate --id internals.native-agent.launch-dossier --intent '{"fields":{"name":"reviewer-native","recipe":"reviewer-codex","credential":"reviewer-creds"}}'
 ```
@@ -328,3 +328,5 @@ houmao-mgr --print-json internals graph low alg cycles --input graph.json --leng
 houmao-mgr --print-json internals graph low alg shortest-path --input graph.json --source master --target agent-b
 houmao-mgr --print-json internals graph low alg all-simple-paths --input graph.json --source master --target agent-b --cutoff 5 --limit 20
 ```
+
+Test-agent direct builds use explicitly prepared external inputs; see [the fixture helper](../../../scripts/agents/test-fixtures/README.md). The generic Codex setup requires a selected Responses endpoint. Reusable plain presets have no personal auth default.

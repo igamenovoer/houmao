@@ -175,17 +175,18 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--style", default="plain")
     parser.add_argument("--detail", default="concise")
     parser.add_argument("--launched-at-utc", required=True)
-    parser.add_argument("--env-json", default="{}")
+    parser.add_argument("--env-file", required=True, type=Path)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(list(argv) if argv is not None else None)
-    env_payload = args.env_json
-    if not isinstance(env_payload, str):
-        raise ValueError("env-json must be a JSON object string")
-
-    loaded_env = json.loads(env_payload)
-    if not isinstance(loaded_env, dict):
-        raise ValueError("env-json must decode to a JSON object")
-    args.env = {str(key): str(value) for key, value in loaded_env.items()}
+    try:
+        loaded_env = json.loads(args.env_file.read_text(encoding="utf-8"))
+    finally:
+        args.env_file.unlink(missing_ok=True)
+    if not isinstance(loaded_env, dict) or not all(
+        isinstance(key, str) and isinstance(value, str) for key, value in loaded_env.items()
+    ):
+        raise ValueError("env-file must contain a JSON object of string bindings")
+    args.env = loaded_env
     if args.command and args.command[0] == "--":
         args.command = args.command[1:]
     return args

@@ -1,0 +1,17 @@
+schema_version: 1
+case: cloud-api
+service: deepseek
+model_env: HOUMAO_TEST_CLOUD_MODEL
+api_key_env: DEEPSEEK_API_KEY
+endpoints:
+  anthropic_messages:
+    base_url_env: DEEPSEEK_BASE_URL_ANTHROPIC
+  openai_responses:
+    base_url_env: DEEPSEEK_BASE_URL_OPENAI
+  openai_chat:
+    base_url_env: DEEPSEEK_BASE_URL_OPENAI
+metadata:
+  context_window_env: HOUMAO_TEST_CLOUD_CONTEXT_WINDOW
+  capabilities_env: HOUMAO_TEST_CLOUD_CAPABILITIES
+  reasoning_key_env: HOUMAO_TEST_CLOUD_REASONING_KEY
+  reasoning_effort_env: HOUMAO_TEST_CLOUD_REASONING_EFFORT

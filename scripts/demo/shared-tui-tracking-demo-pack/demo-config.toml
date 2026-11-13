@@ -3,8 +3,8 @@ demo_id = "shared-tui-tracking-demo-pack"
 
 [paths]
 fixtures_root = "tests/fixtures/shared_tui_tracking/recorded"
-recorded_root = "tmp/demo/shared-tui-tracking-demo-pack/recorded"
-live_root = "tmp/demo/shared-tui-tracking-demo-pack/live"
+recorded_root = "~/.local/state/houmao/test-fixtures/shared-tui/recorded"
+live_root = "~/.local/state/houmao/test-fixtures/shared-tui/live"
 sweeps_root = "tmp/demo/shared-tui-tracking-demo-pack/sweeps"
 
 [tools.claude]

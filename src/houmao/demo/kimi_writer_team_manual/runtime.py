@@ -10,6 +10,8 @@ import subprocess
 import time
 from typing import Any, Mapping, Sequence
 
+from houmao.demo.fixture_inputs import invoke_private_credential_command, managed_subprocess_command
+
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
@@ -101,6 +103,7 @@ def prepare_output_root(*, paths: DemoPaths, reset: bool) -> None:
         paths.jobs_root,
     ):
         target.mkdir(parents=True, exist_ok=True)
+    paths.output_root.chmod(0o700)
 
 
 def provision_writer_team_project(*, source_dir: Path, project_dir: Path, reset: bool) -> Path:
@@ -132,7 +135,7 @@ def run_command(
     stderr_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         completed = subprocess.run(
-            list(command),
+            managed_subprocess_command(command, cwd=cwd),
             check=False,
             capture_output=True,
             cwd=str(cwd),
@@ -170,6 +173,21 @@ def run_json_command(
     stdin_text: str | None = None,
 ) -> dict[str, Any]:
     """Run one command and parse its stdout as a JSON object."""
+
+    parts = list(command)
+    if "houmao-mgr" in parts:
+        arguments = parts[parts.index("houmao-mgr") + 1 :]
+        if "project" in arguments and "credentials" in arguments:
+            try:
+                return invoke_private_credential_command(
+                    args=arguments,
+                    project=cwd,
+                    env=env or dict(os.environ),
+                    stdout_path=stdout_path,
+                    stderr_path=stderr_path,
+                )
+            except RuntimeError as exc:
+                raise DemoRuntimeError(str(exc)) from exc
 
     result = run_command(
         command,
@@ -313,6 +331,7 @@ def upsert_kimi_credential(
     credential_name: str,
     credential_args: Sequence[str],
     timeout_seconds: float,
+    fixture_bundle: Path | None = None,
 ) -> dict[str, Any]:
     """Create or update one project-scoped Kimi credential."""
 
@@ -327,24 +346,27 @@ def upsert_kimi_credential(
         else "add"
     )
     stdout_path, stderr_path = paths.log_paths("credential-kimi-upsert")
-    payload = run_json_command(
-        manager_cli_command(
-            [
-                "project",
-                "credentials",
-                "kimi",
-                operation,
-                "--name",
-                credential_name,
-                *credential_args,
-            ]
-        ),
-        cwd=paths.project_dir,
-        stdout_path=stdout_path,
-        stderr_path=stderr_path,
-        env=env,
-        timeout_seconds=timeout_seconds,
+    command = manager_cli_command(
+        ["project", "credentials", "kimi", operation, "--name", credential_name, *credential_args]
     )
+    if fixture_bundle is None:
+        payload = run_json_command(
+            command,
+            cwd=paths.project_dir,
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
+            env=env,
+            timeout_seconds=timeout_seconds,
+        )
+    else:
+        payload = invoke_private_credential_command(
+            args=command[command.index("houmao-mgr") + 1 :],
+            project=paths.project_dir,
+            env=env,
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
+            extra_env_values=parse_env_file(fixture_bundle / "env/vars.env"),
+        )
     wrapped = {"operation": operation, **payload}
     write_json(paths.control_json_path("credential-kimi-upsert"), wrapped)
     return wrapped

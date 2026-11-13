@@ -7,7 +7,7 @@ This document explains the supported configuration contract for the shared track
 The default operator workflow uses the companion config:
 
 ```bash
-scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool claude
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --prepared-run /external/selected-run --tool claude
 ```
 
 To switch to another config file, pass `--demo-config` on the operator-facing command:
@@ -83,8 +83,8 @@ Tool-specific launch defaults. The supported keys today are:
 - `operator_prompt_mode`: optional launch policy request (`as_is` or `unattended`); omitted mode follows the normal unattended default
 
 The demo currently expects `tools.claude`, `tools.codex`, and `tools.kimi`.
-The checked-in companion config points these recipe paths at the demo-owned `inputs/agents/presets/interactive-watch-<tool>-default.yaml` files. Those tracked presets keep `auth: default`, and each run materializes the concrete `tools/<tool>/auth/default` alias into the generated `workdir/.houmao/agents/` tree from the host-local fixture bundles under `tests/fixtures/auth-bundles/<tool>/`.
-The default fixture auth bundle paths are `tests/fixtures/auth-bundles/claude/kimi-coding`, `tests/fixtures/auth-bundles/codex/yunwu-openai`, and `tests/fixtures/auth-bundles/kimi/personal-a-default`. Kimi demo runs intentionally fail before tmux launch when `tests/fixtures/auth-bundles/kimi/personal-a-default` is absent, so local credential setup problems are visible before a session starts.
+Live launch requires `--prepared-run /external/selected-run` from the shared [fixture helper](../../agents/test-fixtures/README.md). The selected tool must match. The demo copies run-owned setup, adapter, and credential files into its private generated tree; source/store files remain unchanged. Missing or wrong-tool preparation fails before launch. Offline replay/validation requires no credentials.
+Live launch requires `--prepared-run /external/selected-run` from the shared [fixture helper](../../agents/test-fixtures/README.md). The selected tool must match. The demo copies run-owned setup, adapter, and credential files into its private generated tree; source/store files remain unchanged. Missing or wrong-tool preparation fails before launch. Offline replay/validation requires no credentials.
 
 ### `[evidence]`
 
@@ -205,6 +205,7 @@ Use an alternate config for recorded capture:
 
 ```bash
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-capture \
+  --prepared-run /external/selected-run \
   --scenario scripts/demo/shared-tui-tracking-demo-pack/scenarios/claude-explicit-success.json \
   --demo-config /path/to/alternate-demo-config.toml
 ```
@@ -236,3 +237,5 @@ scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start \
   --tool codex \
   --with-recorder
 ```
+
+Live/recorded output roots must resolve outside the checkout. Default live and recording roots are `~/.local/state/houmao/test-fixtures/shared-tui/{live,recorded}`. Offline validation and sweeps may use ignored scratch outputs. For API preparation, select `cloud-api` (DeepSeek) or `self-hosted` with an explicit model and protocol metadata. Never copy keys or auth JSON into tracked assets.

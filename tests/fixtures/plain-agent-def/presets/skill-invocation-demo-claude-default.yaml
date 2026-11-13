@@ -3,6 +3,5 @@ tool: claude
 setup: default
 skills:
 - skill-invocation-probe
-auth: personal-a-default
 launch:
   prompt_mode: unattended

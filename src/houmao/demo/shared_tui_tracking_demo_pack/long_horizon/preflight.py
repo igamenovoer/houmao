@@ -13,7 +13,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from houmao.agents.brain_builder import BuildRequest, build_brain_home, load_brain_recipe
+from houmao.agents.brain_builder import BuildRequest, build_brain_home
+from houmao.agents.definition_parser import parse_agent_preset
 from houmao.agents.launch_policy.engine import detect_tool_version, resolve_strategy
 from houmao.agents.launch_policy.models import LaunchPolicyRequest
 from houmao.agents.realm_controller.backends.tmux_runtime import (
@@ -21,6 +22,7 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     send_tmux_control_input,
 )
 from houmao.agents.system_skills import SystemSkillSelectionPolicy
+from houmao.demo.fixture_inputs import prepared_runtime_env
 from houmao.demo.shared_tui_tracking_demo_pack.agent_assets import (
     materialize_generated_agent_tree,
 )
@@ -125,6 +127,7 @@ def prepare_provider_home(
     provider: ProviderName,
     cell_id: str,
     attempt_number: int,
+    prepared_run: Path,
 ) -> PreparedProviderHome:
     """Build one unprompted unattended provider home beneath the run root."""
 
@@ -135,16 +138,15 @@ def prepare_provider_home(
         repo_root=repo_root,
         workdir=definition_workdir,
         tool=provider,
-        allow_missing_auth=True,
+        prepared_run=prepared_run,
     )
-    _project_current_host_auth(generated_agent_dir=generated_agent_dir, provider=provider)
     preset_path = (generated_agent_dir / "presets" / _PRESET_NAME_BY_PROVIDER[provider]).resolve()
-    recipe = load_brain_recipe(preset_path)
+    recipe = parse_agent_preset(preset_path)
     if recipe.tool != provider or recipe.skills:
         raise RuntimeError(f"Qualification preset is not bare for {provider}: {preset_path}")
-    environment = codex_proxy_environment() if provider == "codex" else {}
-    if provider == "codex":
-        require_codex_proxy()
+    environment = prepared_runtime_env(
+        prepared_run=prepared_run, repo_root=repo_root, tool=provider
+    )
     runtime_root = paths.provider_home_root(
         cell_id=cell_id,
         attempt_number=attempt_number,
@@ -155,15 +157,15 @@ def prepare_provider_home(
             agent_def_dir=generated_agent_dir,
             tool=recipe.tool,
             skills=list(recipe.skills),
-            config_profile=recipe.config_profile,
-            credential_profile=recipe.credential_profile,
-            recipe_path=preset_path,
-            recipe_launch_overrides=getattr(recipe, "launch_overrides", None),
+            setup=recipe.setup,
+            auth=recipe.auth,
+            preset_path=preset_path,
+            preset_launch_overrides=recipe.launch.overrides,
             runtime_root=runtime_root,
             mailbox=None,
             agent_name=None,
             operator_prompt_mode="unattended",
-            persistent_env_records={},
+            persistent_env_records=environment,
             source_system_skill_policy=SystemSkillSelectionPolicy(mode="none"),
             launch_profile_system_skill_policy=SystemSkillSelectionPolicy(mode="none"),
         )
@@ -391,50 +393,6 @@ def remove_sensitive_provider_home(
     if runtime_root == paths.provider_homes_dir:
         raise ValueError("Provider home does not identify a cell-owned runtime root")
     shutil.rmtree(runtime_root)
-
-
-def _project_current_host_auth(*, generated_agent_dir: Path, provider: ProviderName) -> None:
-    """Project current host CLI authentication into the disposable run definition."""
-
-    auth_root = generated_agent_dir / "tools" / provider / "auth" / "default"
-    if auth_root.is_symlink() or auth_root.is_file():
-        auth_root.unlink()
-    elif auth_root.is_dir():
-        shutil.rmtree(auth_root)
-    auth_root.mkdir(parents=True)
-    (auth_root / "env").mkdir()
-    (auth_root / "env" / "vars.env").write_text("", encoding="utf-8")
-    home = Path.home()
-    if provider == "claude":
-        source = home / ".config" / "claude-kimi" / "env"
-        if not source.is_file():
-            raise RuntimeError(f"Current claude-kimi authentication is missing: {source}")
-        source_text = source.read_text(encoding="utf-8")
-        if "ANTHROPIC_BASE_URL=" not in source_text:
-            source_text += "\nANTHROPIC_BASE_URL=https://api.kimi.com/coding/\n"
-        (auth_root / "env" / "vars.env").write_text(source_text, encoding="utf-8")
-        return
-    if provider == "codex":
-        source = home / ".codex" / "auth.json"
-        if not source.is_file():
-            raise RuntimeError(f"Current Codex host authentication is missing: {source}")
-        files_dir = auth_root / "files"
-        files_dir.mkdir()
-        (files_dir / "auth.json").symlink_to(source)
-        proxy_environment = codex_proxy_environment()
-        (auth_root / "env" / "vars.env").write_text(
-            "".join(f"{name}={value}\n" for name, value in proxy_environment.items()),
-            encoding="utf-8",
-        )
-        return
-    source_config = home / ".kimi-code" / "config.toml"
-    source_credentials = home / ".kimi-code" / "credentials"
-    if not source_config.is_file() or not source_credentials.is_dir():
-        raise RuntimeError("Current Kimi host authentication is missing under ~/.kimi-code")
-    files_dir = auth_root / "files"
-    files_dir.mkdir()
-    (files_dir / "config.toml").symlink_to(source_config)
-    (files_dir / "credentials").symlink_to(source_credentials, target_is_directory=True)
 
 
 def _assert_bare_manifest(manifest: dict[str, Any]) -> None:

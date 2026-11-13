@@ -1,39 +1,28 @@
 # Managed Agent Usage Qualification
 
-This utility directory supports local qualification of finalized accounting through `houmao-mgr` and `houmao-passive-server`. Disposable homes, credentials, native logs, and public accounting reports belong under `tmp/usage-qualification/`. The committed [provider fixtures](../../../tests/fixtures/agent-usage-records/) contain sanitized accounting and lifecycle evidence.
+Use the [test-fixture helper](../../agents/test-fixtures/README.md) for future raw and managed runs. Tracked [provider captures](../../../tests/fixtures/agent-usage-records/) retain their historical model/version facts. Completed change-local wrappers are reference evidence, rather than launch dependencies.
 
 ## Run a Qualification
 
-Start the Qwen endpoint used by the change-local launch aids. The qualified run used `http://127.0.0.1:14888`, model `Qwen/Qwen3.8-27B-FP8`, and fresh homes. Use the [Claude](../../../openspec/changes/expose-agent-usage-records/tests/claude-qwen38.sh), [Codex](../../../openspec/changes/expose-agent-usage-records/tests/codex-qwen38.sh), and [Kimi](../../../openspec/changes/expose-agent-usage-records/tests/kimi-qwen38.sh) aids for raw client captures before managed qualification.
-
-Initialize a disposable project with `houmao-mgr project init`, then create project credentials and specialists with `houmao-mgr project credentials` and `houmao-mgr project specialist create`. Configure the same provider, model, and home selectors as the raw capture. Codex needs the change's Responses configuration projected into its setup; its declared `env_key` must match a projected credential variable. Kimi uses its OpenAI env-model provider with `reasoning_content`, a 262144-token context, and the wrapper's model capabilities. Those `KIMI_MODEL_*` values belong to credential environment material, rather than specialist `--env-set` records.
-
-Launch ordinary managed clients with `houmao-mgr project agents launch --headless` or `--no-headless`. Unattended mode is the project default. TUI qualification opts into `HOUMAO_HOOK_OBSERVATION_CLAUDE=1`, `HOUMAO_HOOK_OBSERVATION_CODEX=1`, or `HOUMAO_HOOK_OBSERVATION_KIMI=1` before launch, so collection can bind an explicit provider session ID. Without a verified identity, usage reports its binding limitation.
-
-Start the maintained server with isolated roots:
+Select `self-hosted` with a compatible endpoint and an explicit non-Qwen3.8 model, or `cloud-api` with DeepSeek key/base URL references from an explicitly selected ignored env file. Do not put keys in arguments or tracked files. Kimi also requires a qualified context window. Declare Responses for Codex, Chat Completions for Kimi, and Anthropic Messages for Claude.
 
 ```bash
-HOUMAO_GLOBAL_RUNTIME_DIR="$scratch/native-runtime" \
-HOUMAO_GLOBAL_REGISTRY_DIR="$scratch/registry" \
-pixi run houmao-passive-server serve \
-  --host 127.0.0.1 --port 19987 \
-  --runtime-root "$scratch/server-runtime" \
-  --registry-root "$scratch/registry"
+pixi run python scripts/agents/test-fixtures/fixture.py prepare --case cloud-api --client codex --model MODEL --env-file .env --mode headless --surface raw
+pixi run python scripts/agents/test-fixtures/fixture.py launch --run-dir /external/raw-run --prompt 'Reply exactly OK. Do not use tools.'
+pixi run python scripts/agents/test-fixtures/fixture.py prompt --run-dir /external/raw-run --prompt 'Reply exactly DONE. Do not use tools.'
 ```
 
-Use `/houmao/agents/headless/launches` and `/houmao/agents/{agent_ref}/turns` for server-owned headless execution. A manager-launched headless client uses the maintained `/gateway/control/prompt` route. Direct TUI input uses `/gateway/control/send-keys`; send text and `<[Enter]>` separately so a client can finish processing pasted text. See the [managed API reference](../../../docs/reference/managed_agent_api.md) for request bodies.
+Repeat with `--surface manager` for each client in headless and unattended TUI modes. Managed headless prompts use existing gateway control; direct TUI input sends literal text and Enter separately. The helper records authoritative identities and enables selected hook observation for TUI. Start `houmao-passive-server` with external roots for passive headless birth and use `launch --passive-url http://127.0.0.1:PORT`. Passive TUI birth is unsupported.
 
-After each completed turn, compare the public record with its native source:
+Capture exact client versions, actual model, completed and resumed turns, routing, and available public usage evidence in sanitized reports. Private homes, env files, raw captures, and native logs stay in the external run. `check --run-dir /external/run --live` reads public usage. `stop --run-dir /external/run` stops only its captured identity. Missing or rejected credentials and unavailable protocols are gaps, never passes.
+
+For an existing passive authority, compare finalized counters independently:
 
 ```bash
-pixi run python scripts/qualification/agent-usage/verify_public_usage.py \
-  --agent "$agent_name" \
-  --expected-records 2 \
-  --native-file "$native_file" \
-  --output "$scratch/reports/$agent_name.json"
+pixi run python scripts/qualification/agent-usage/verify_public_usage.py --agent ID --expected-records 2 --native-file /external/native-file --output /external/report.json
 ```
 
-The verifier reads the provider's input/output request counters directly and checks public turn identities, deduplication by record ID, and cursor retention after an empty end page. Its output contains public accounting data and numeric comparisons. It excludes native paths, prompts, responses, and credentials. Use it on complete, qualified turns; interrupted turns can retain unknown counters.
+The verifier compares request increments and verifies cursor retention. It exports accounting data and numeric comparisons without prompts, responses, keys, or native source paths. See the [managed API reference](../../../docs/reference/managed_agent_api.md) for route details.
 
 ## Executed Qualification on 2026-11-13
 

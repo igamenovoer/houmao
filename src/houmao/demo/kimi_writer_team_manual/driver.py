@@ -296,6 +296,9 @@ def _start_demo(
 ) -> DemoState:
     """Start one manual Kimi writer-team run."""
 
+    if paths.output_root.resolve().is_relative_to(repo_root.resolve()):
+        raise DemoPackError("Live credentials require an external --demo-output-dir")
+
     existing_state = load_demo_state(paths.state_path) if paths.state_path.is_file() else None
     if existing_state is not None and existing_state.active and not args.reset:
         return existing_state
@@ -322,6 +325,9 @@ def _start_demo(
         credential_name=credential_name,
         credential_args=credential_args,
         timeout_seconds=parameters.command_timeout_seconds,
+        fixture_bundle=resolve_repo_relative_path(args.kimi_auth_bundle, repo_root=repo_root)
+        if args.kimi_auth_bundle is not None
+        else None,
     )
     _prepare_project_definitions(
         paths=paths,

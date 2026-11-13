@@ -36,33 +36,33 @@ Generated outputs are ignored through [outputs/.gitignore](outputs/.gitignore).
 - `pixi`
 - `tmux`
 - `claude` or `codex` for the selected lane
-- local fixture auth bundles at:
-  - `tests/fixtures/auth-bundles/claude/kimi-coding`
-  - `tests/fixtures/auth-bundles/codex/yunwu-openai`
+- an explicitly prepared external credential source and local parameter file.
 
-The demo fails early and names the missing fixture path when a required auth bundle is absent.
+Prepare credentials with `pixi run python scripts/agents/test-fixtures/fixture.py prepare --case cloud-api --client TOOL --model MODEL --env-file .env` (Kimi also needs `--context-window TOKENS`). Select `self-hosted` for a compatible local API or explicitly imported native-login state separately. Use only the returned external run-owned credential inputs and external demo outputs. See [the fixture helper](../../agents/test-fixtures/README.md).
+
+Copy `inputs/demo_parameters.json` to a private external file and set the selected tool's `auth_fixture_dir` to `/external/prepared-run/assets/tools/TOOL/auth/default`. The checked-in paths are placeholders. Pass that file using `--parameters` and set `--demo-output-dir` to a private external directory for start/auto and follow-up commands. Codex uses the generic `api-compatible` Responses setup.
 
 ## Commands
 
 One-shot automatic run:
 
 ```bash
-scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh auto --tool claude
-scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh auto --tool codex
+scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh auto --demo-output-dir /external/single-agent-gateway-wakeup-headless --parameters /external/single-agent-gateway-wakeup-headless-parameters.json --tool claude
+scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh auto --demo-output-dir /external/single-agent-gateway-wakeup-headless --parameters /external/single-agent-gateway-wakeup-headless-parameters.json --tool codex
 ```
 
 Stepwise workflow:
 
 ```bash
-scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh start --tool claude
-scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh attach
-scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh watch-gateway --follow
-scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh notifier status
-scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh ag-ui-smoke
-scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh send
-scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh inspect
-scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh verify
-scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh stop
+scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh start --demo-output-dir /external/single-agent-gateway-wakeup-headless --parameters /external/single-agent-gateway-wakeup-headless-parameters.json --tool claude
+scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh attach --demo-output-dir /external/single-agent-gateway-wakeup-headless --parameters /external/single-agent-gateway-wakeup-headless-parameters.json
+scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh watch-gateway --demo-output-dir /external/single-agent-gateway-wakeup-headless --parameters /external/single-agent-gateway-wakeup-headless-parameters.json --follow
+scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh notifier --demo-output-dir /external/single-agent-gateway-wakeup-headless --parameters /external/single-agent-gateway-wakeup-headless-parameters.json status
+scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh ag-ui-smoke --demo-output-dir /external/single-agent-gateway-wakeup-headless --parameters /external/single-agent-gateway-wakeup-headless-parameters.json
+scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh send --demo-output-dir /external/single-agent-gateway-wakeup-headless --parameters /external/single-agent-gateway-wakeup-headless-parameters.json
+scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh inspect --demo-output-dir /external/single-agent-gateway-wakeup-headless --parameters /external/single-agent-gateway-wakeup-headless-parameters.json
+scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh verify --demo-output-dir /external/single-agent-gateway-wakeup-headless --parameters /external/single-agent-gateway-wakeup-headless-parameters.json
+scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh stop --demo-output-dir /external/single-agent-gateway-wakeup-headless --parameters /external/single-agent-gateway-wakeup-headless-parameters.json
 ```
 
 During stepwise `start`, the demo keeps the managed agent in the demo-owned headless tmux session and attaches the gateway in a separate foreground auxiliary tmux window. `attach` re-enters that live tmux session for inspection, and `watch-gateway` reuses persisted gateway window metadata and live gateway status to print the gateway console without manual tmux discovery.
@@ -70,11 +70,11 @@ During stepwise `start`, the demo keeps the managed agent in the demo-owned head
 Additional stepwise controls:
 
 ```bash
-scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh notifier on --seconds 2
-scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh notifier off
-scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh notifier set-interval --seconds 5
-scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh send --body-file path/to/message.md
-scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh ag-ui-smoke --abort-after-run-start
+scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh notifier --demo-output-dir /external/single-agent-gateway-wakeup-headless --parameters /external/single-agent-gateway-wakeup-headless-parameters.json on --seconds 2
+scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh notifier --demo-output-dir /external/single-agent-gateway-wakeup-headless --parameters /external/single-agent-gateway-wakeup-headless-parameters.json off
+scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh notifier --demo-output-dir /external/single-agent-gateway-wakeup-headless --parameters /external/single-agent-gateway-wakeup-headless-parameters.json set-interval --seconds 5
+scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh send --demo-output-dir /external/single-agent-gateway-wakeup-headless --parameters /external/single-agent-gateway-wakeup-headless-parameters.json --body-file path/to/message.md
+scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh ag-ui-smoke --demo-output-dir /external/single-agent-gateway-wakeup-headless --parameters /external/single-agent-gateway-wakeup-headless-parameters.json --abort-after-run-start
 ```
 
 The AG-UI text smoke belongs in this demo pack because the pack already owns the maintained headless launch, gateway attach, isolated output root, fixture auth-bundle import, and cleanup flow. `ag-ui-smoke` posts AG-UI `RunAgentInput` JSON to the live per-agent gateway `POST /v1/ag-ui/runs` route, records stream events and durable gateway request state under `outputs/evidence/`, and verifies that stream abort does not enqueue an interrupt request when `--abort-after-run-start` is used.
@@ -82,7 +82,7 @@ The AG-UI text smoke belongs in this demo pack because the pack already owns the
 Matrix run across all supported tools:
 
 ```bash
-scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh matrix
+scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh matrix --demo-output-dir /external/single-agent-gateway-wakeup-headless --parameters /external/single-agent-gateway-wakeup-headless-parameters.json
 ```
 
 ## Verification Contract
@@ -109,3 +109,5 @@ The stepwise controls are for live observation and experimentation only. `inspec
 - the agent does not create the requested output file with the expected deterministic content
 - `agents mail check --unread-only` never reaches zero
 - a fresh run finds an active prior session that has not been stopped yet
+
+Prepared inputs supply both credentials and the selected setup/model. Import runs in-process, and credential diagnostics redact key values. The demo copies the prepared setup through the existing tool surface before specialist creation; credential-owned env remains separate from runtime env. New live credential imports reject checkout-local output roots.

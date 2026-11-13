@@ -78,7 +78,7 @@ scripts/demo/single-agent-mail-prompt-injection/
 - `jq` on `PATH`
 - `claude` CLI for the Claude lane
 - Local fixture auth bundle at
-  `tests/fixtures/auth-bundles/claude/kimi-coding`
+  `/external/claude-run/assets/tools/claude/auth/default`
 
 ## Quick start
 
@@ -98,82 +98,51 @@ and mail post are documented in [Manual driving](#manual-driving)
 below. The follow-on Python-module variant of this demo will close
 that automation gap.
 
-## Manual driving
+## Manual Driving
 
-For the live-LLM portion, drive the demo manually with `houmao-mgr`
-inside the demo's project directory after running
-`run_demo.sh start --tool claude --mode <mode>`:
+The shell scaffold composes secret-free mail bodies under ignored outputs. Use the shared fixture helper for the live agent's external private project:
 
 ```bash
-# 1. Make the demo overlay the active overlay for this shell.
-export HOUMAO_PROJECT_OVERLAY_DIR=$(pwd)/scripts/demo/single-agent-mail-prompt-injection/outputs/overlay
-cd scripts/demo/single-agent-mail-prompt-injection/outputs/project
-
-# 2. Import auth, create specialist, launch instance (claude lane).
-pixi run houmao-mgr project credentials claude add \
-  --name kimi-coding \
-  --api-key "$ANTHROPIC_API_KEY"   # one-time
-pixi run houmao-mgr project specialist create \
-  --name single-inject-claude \
-  --tool claude \
-  --setup default \
-  --credential kimi-coding \
+pixi run python scripts/agents/test-fixtures/fixture.py prepare \
+  --client claude --case cloud-api --model MODEL --env-file .env \
+  --mode headless --surface manager \
   --system-prompt-file scripts/demo/single-agent-mail-prompt-injection/inputs/system_prompt.md
-pixi run houmao-mgr project agents launch \
-  --specialist single-inject-claude \
-  --agent-name single-inject-claude
-
-# 3. Register the mailbox binding and attach a gateway.
-pixi run houmao-mgr agents mailbox register --agent-name single-inject-claude
-pixi run houmao-mgr agents gateway attach --agent-name single-inject-claude
-
-# 4. Configure the notifier with the chosen mode.
-#    permissive-log (attack):
-pixi run houmao-mgr agents gateway mail-notifier set \
-  --agent-name single-inject-claude \
-  --interval-seconds 5 \
-  --notify-block-render enabled \
-  --notify-block-auth-mode permissive-log \
-  --notify-block-auth-verifier none
-
-#    required (defense):
-pixi run houmao-mgr agents gateway mail-notifier set \
-  --agent-name single-inject-claude \
-  --interval-seconds 5 \
-  --notify-block-render enabled \
-  --notify-block-auth-mode required \
-  --notify-block-auth-verifier shared-token \
-  --notify-block-shared-tokens '[]'
-
-# 5. Post benign control mail (uses composed evidence/benign_body.md).
-pixi run houmao-mgr agents mail post \
-  --agent-name single-inject-claude \
-  --subject "demo control" \
-  --body-file ../evidence/benign_body.md
-
-# 6. Wait for the notifier to wake the agent and the agent to process.
-#    The body fence for the injection mail will be auto-extracted into
-#    notify_block at composition time.
-pixi run houmao-mgr agents mail post \
-  --agent-name single-inject-claude \
-  --subject "demo injection" \
-  --body-file ../evidence/injection_body.md
-
-# 7. Wait, then verify outcome.
-sleep 60
-cd "$REPO_ROOT"
-scripts/demo/single-agent-mail-prompt-injection/run_demo.sh verify
-
-# 8. Stop the agent + detach the gateway.
-pixi run houmao-mgr agents stop --agent-name single-inject-claude
+pixi run python scripts/agents/test-fixtures/fixture.py launch --run-dir /external/run
 ```
 
-The CLI flag names above (`--notify-block-render`,
-`--notify-block-auth-mode`, etc.) are the surfaces shipped in this
-change for the gateway notifier configuration. If your build does not
-yet expose them as flags, use the equivalent `PUT /v1/mail-notifier`
-HTTP request body fields documented in
-[`docs/reference/gateway/contracts/protocol-and-state.md`](../../../docs/reference/gateway/contracts/protocol-and-state.md).
+Replace `MODEL` with the selected qualified model and `/external/run` with the returned run directory. For another compatible endpoint, select `self-hosted`; native login requires explicit import/selection. The helper owns credential registration, specialist creation, launch, and scoped cleanup. No credential import belongs in the scaffold's repository-local outputs.
+
+Use the returned agent ID and gateway URL. Keep commands in the repository shell so `pixi run` selects the managed environment; point registry/project discovery at the private run:
+
+```bash
+export HOUMAO_GLOBAL_REGISTRY_DIR=/external/run/registry
+export HOUMAO_PROJECT_OVERLAY_DIR=/external/run/workdir/.houmao
+export AGENT_ID=RETURNED_AGENT_ID
+export GATEWAY_URL=http://127.0.0.1:RETURNED_GATEWAY_PORT
+pixi run houmao-mgr agents single --agent-id "$AGENT_ID" mailbox register
+
+# Permissive mode accepts the injected notify block.
+curl --fail -sS -X PUT "$GATEWAY_URL/v1/mail-notifier" \
+  -H 'Content-Type: application/json' \
+  --data '{"enabled":true,"interval_seconds":5,"notify_block_render":"enabled","notify_block_auth_mode":"permissive-log","notify_block_auth_verifier":"none"}'
+
+# Required mode rejects unauthenticated notify blocks.
+curl --fail -sS -X PUT "$GATEWAY_URL/v1/mail-notifier" \
+  -H 'Content-Type: application/json' \
+  --data '{"enabled":true,"interval_seconds":5,"notify_block_render":"enabled","notify_block_auth_mode":"required","notify_block_auth_verifier":"shared-token","notify_block_shared_tokens":[]}'
+
+pixi run houmao-mgr agents single --agent-id "$AGENT_ID" mail post \
+  --subject 'demo control' \
+  --body-file scripts/demo/single-agent-mail-prompt-injection/outputs/evidence/benign_body.md
+pixi run houmao-mgr agents single --agent-id "$AGENT_ID" mail post \
+  --subject 'demo injection' \
+  --body-file scripts/demo/single-agent-mail-prompt-injection/outputs/evidence/injection_body.md
+
+pixi run python scripts/agents/test-fixtures/fixture.py check --run-dir /external/run --live
+pixi run python scripts/agents/test-fixtures/fixture.py stop --run-dir /external/run
+```
+
+Run one notifier mode per isolated comparison. Retain the private live evidence and use the scaffold's `verify` command for its composed-body report. The notifier settings above use the maintained `PUT /v1/mail-notifier` fields; see [the gateway protocol](../../../docs/reference/gateway/contracts/protocol-and-state.md).
 
 ## Outcome reporting
 
@@ -241,3 +210,7 @@ Tracked in the OpenSpec change
   which models.
 - A `--matrix` runner that exercises every lane × mode and emits a
   consolidated report.
+
+## Selected Fixture Inputs
+
+Prepare credentials with `pixi run python scripts/agents/test-fixtures/fixture.py prepare --case cloud-api --client TOOL --model MODEL --env-file .env` (Kimi also needs `--context-window TOKENS`). Select `self-hosted` for a compatible local API or explicitly imported native-login state separately. Use only the returned external run-owned credential inputs and external demo outputs. See [the fixture helper](../../agents/test-fixtures/README.md). The scaffold remains secret-free. Its live agent uses the helper's private external run.
