@@ -1,0 +1,117 @@
+{
+  "metadata": {
+    "provider": "kimi",
+    "client_version": "2.6.0",
+    "upstream_protocol": "openai-compatible",
+    "upstream_model": "Qwen/Qwen3.8-27B-FP8",
+    "reference_revision": "67325c1",
+    "capture_date": "2026-11-13",
+    "sanitization": "Identity pseudonyms and accounting/lifecycle fields only; no prompt or response bodies.",
+    "findings": [
+      "stdout has no token usage",
+      "native usage.record is a request increment within current turn.prompt/turn.ended",
+      "step.end repeats usage.record counters",
+      "inputCacheRead is omitted in this upstream configuration",
+      "private-subagent inclusion is unknown"
+    ]
+  },
+  "provider_session_id": "identity-1",
+  "headless_turns": [
+    [
+      {
+        "type": "session.resume_hint",
+        "role": "meta",
+        "session_id": "identity-1"
+      }
+    ],
+    [
+      {
+        "type": "session.resume_hint",
+        "role": "meta",
+        "session_id": "identity-1"
+      }
+    ]
+  ],
+  "native_records": [
+    {
+      "type": "turn.prompt",
+      "turnId": 0,
+      "time": 1794549137251
+    },
+    {
+      "type": "usage.record",
+      "time": 1794549140097,
+      "usageScope": "turn",
+      "model": "__kimi_env_model__",
+      "usage": {
+        "inputOther": 20114,
+        "output": 40,
+        "inputCacheCreation": 0
+      }
+    },
+    {
+      "type": "context.append_loop_event",
+      "time": 1794549140098,
+      "event": {
+        "type": "step.end",
+        "turnId": "0",
+        "usage": {
+          "inputOther": 20114,
+          "output": 40,
+          "inputCacheCreation": 0
+        }
+      }
+    },
+    {
+      "type": "turn.ended",
+      "turnId": 0,
+      "time": 1794549140098,
+      "reason": "completed"
+    },
+    {
+      "type": "prompt.completed",
+      "time": 1794549140099,
+      "reason": "completed"
+    },
+    {
+      "type": "turn.prompt",
+      "turnId": 1,
+      "time": 1794549260308
+    },
+    {
+      "type": "usage.record",
+      "time": 1794549263417,
+      "usageScope": "turn",
+      "model": "__kimi_env_model__",
+      "usage": {
+        "inputOther": 20242,
+        "output": 24,
+        "inputCacheCreation": 0
+      }
+    },
+    {
+      "type": "context.append_loop_event",
+      "time": 1794549263419,
+      "event": {
+        "type": "step.end",
+        "turnId": "1",
+        "usage": {
+          "inputOther": 20242,
+          "output": 24,
+          "inputCacheCreation": 0
+        }
+      }
+    },
+    {
+      "type": "turn.ended",
+      "turnId": 1,
+      "time": 1794549263420,
+      "reason": "completed"
+    },
+    {
+      "type": "prompt.completed",
+      "time": 1794549263421,
+      "reason": "completed"
+    }
+  ]
+}

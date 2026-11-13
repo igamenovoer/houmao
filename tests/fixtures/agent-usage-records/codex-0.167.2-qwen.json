@@ -1,0 +1,241 @@
+{
+  "metadata": {
+    "provider": "codex",
+    "client_version": "0.167.2",
+    "upstream_protocol": "responses",
+    "upstream_model": "Qwen/Qwen3.8-27B-FP8",
+    "reference_revision": "0910087",
+    "capture_date": "2026-11-13",
+    "sanitization": "Identity pseudonyms and accounting/lifecycle fields only; no prompt or response bodies.",
+    "findings": [
+      "native response records carry request and provider-turn identities",
+      "exec turn.completed usage is session cumulative on resume",
+      "token_count repeats native response usage",
+      "reasoning is included in output",
+      "private-subagent inclusion is unknown"
+    ]
+  },
+  "provider_session_id": "identity-1",
+  "headless_turns": [
+    [
+      {
+        "type": "thread.started",
+        "thread_id": "identity-1"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "turn.completed",
+        "usage": {
+          "input_tokens": 11613,
+          "cached_input_tokens": 704,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 40,
+          "reasoning_output_tokens": 37
+        }
+      }
+    ],
+    [
+      {
+        "type": "thread.started",
+        "thread_id": "identity-1"
+      },
+      {
+        "type": "turn.started"
+      },
+      {
+        "type": "turn.completed",
+        "usage": {
+          "input_tokens": 23288,
+          "cached_input_tokens": 6528,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 72,
+          "reasoning_output_tokens": 66
+        }
+      }
+    ]
+  ],
+  "native_records": [
+    {
+      "type": "session_meta",
+      "timestamp": "2026-11-13T05:52:16.903Z",
+      "payload": {
+        "id": "identity-1",
+        "session_id": "identity-1",
+        "cli_version": "0.167.2",
+        "source": "exec"
+      }
+    },
+    {
+      "type": "event_msg",
+      "timestamp": "2026-11-13T05:52:16.903Z",
+      "payload": {
+        "type": "task_started",
+        "turn_id": "identity-2"
+      }
+    },
+    {
+      "type": "turn_context",
+      "timestamp": "2026-11-13T05:52:16.918Z",
+      "payload": {
+        "turn_id": "identity-2",
+        "model": "Qwen/Qwen3.8-27B-FP8"
+      }
+    },
+    {
+      "type": "token_usage_record",
+      "timestamp": "2026-11-13T05:52:19.268Z",
+      "payload": {
+        "thread_id": "identity-1",
+        "turn_id": "identity-2",
+        "session_id": "identity-1",
+        "root_turn_id": "identity-2",
+        "response_id": "resp_3",
+        "usage": {
+          "input_tokens": 11613,
+          "cached_input_tokens": 704,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 40,
+          "reasoning_output_tokens": 37,
+          "total_tokens": 11653
+        },
+        "turn_token_usage": {
+          "input_tokens": 11613,
+          "cached_input_tokens": 704,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 40,
+          "reasoning_output_tokens": 37,
+          "total_tokens": 11653
+        },
+        "thread_token_usage": {
+          "input_tokens": 11613,
+          "cached_input_tokens": 704,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 40,
+          "reasoning_output_tokens": 37,
+          "total_tokens": 11653
+        }
+      }
+    },
+    {
+      "type": "event_msg",
+      "timestamp": "2026-11-13T05:52:19.269Z",
+      "payload": {
+        "type": "token_count",
+        "info": {
+          "total_token_usage": {
+            "input_tokens": 11613,
+            "cached_input_tokens": 704,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 40,
+            "reasoning_output_tokens": 37,
+            "total_tokens": 11653
+          },
+          "last_token_usage": {
+            "input_tokens": 11613,
+            "cached_input_tokens": 704,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 40,
+            "reasoning_output_tokens": 37,
+            "total_tokens": 11653
+          }
+        }
+      }
+    },
+    {
+      "type": "event_msg",
+      "timestamp": "2026-11-13T05:52:19.274Z",
+      "payload": {
+        "type": "task_complete",
+        "turn_id": "identity-2",
+        "duration_ms": 2376
+      }
+    },
+    {
+      "type": "event_msg",
+      "timestamp": "2026-11-13T05:54:19.975Z",
+      "payload": {
+        "type": "task_started",
+        "turn_id": "identity-4"
+      }
+    },
+    {
+      "type": "turn_context",
+      "timestamp": "2026-11-13T05:54:19.982Z",
+      "payload": {
+        "turn_id": "identity-4",
+        "model": "Qwen/Qwen3.8-27B-FP8"
+      }
+    },
+    {
+      "type": "token_usage_record",
+      "timestamp": "2026-11-13T05:54:23.467Z",
+      "payload": {
+        "thread_id": "identity-1",
+        "turn_id": "identity-4",
+        "session_id": "identity-1",
+        "root_turn_id": "identity-4",
+        "response_id": "resp_5",
+        "usage": {
+          "input_tokens": 11675,
+          "cached_input_tokens": 5824,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 32,
+          "reasoning_output_tokens": 29,
+          "total_tokens": 11707
+        },
+        "turn_token_usage": {
+          "input_tokens": 11675,
+          "cached_input_tokens": 5824,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 32,
+          "reasoning_output_tokens": 29,
+          "total_tokens": 11707
+        },
+        "thread_token_usage": {
+          "input_tokens": 23288,
+          "cached_input_tokens": 6528,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 72,
+          "reasoning_output_tokens": 66,
+          "total_tokens": 23360
+        }
+      }
+    },
+    {
+      "type": "event_msg",
+      "timestamp": "2026-11-13T05:54:23.469Z",
+      "payload": {
+        "type": "token_count",
+        "info": {
+          "total_token_usage": {
+            "input_tokens": 23288,
+            "cached_input_tokens": 6528,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 72,
+            "reasoning_output_tokens": 66,
+            "total_tokens": 23360
+          },
+          "last_token_usage": {
+            "input_tokens": 11675,
+            "cached_input_tokens": 5824,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 32,
+            "reasoning_output_tokens": 29,
+            "total_tokens": 11707
+          }
+        }
+      }
+    },
+    {
+      "type": "event_msg",
+      "timestamp": "2026-11-13T05:54:23.474Z",
+      "payload": {
+        "type": "task_complete",
+        "turn_id": "identity-4",
+        "duration_ms": 3499
+      }
+    }
+  ]
+}

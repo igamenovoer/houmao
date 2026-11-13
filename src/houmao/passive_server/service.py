@@ -62,6 +62,7 @@ from houmao.agents.realm_controller.registry_storage import (
     remove_live_agent_record,
     resolve_known_managed_agent_records,
 )
+from houmao.agents.realm_controller.usage_models import UsagePage
 from houmao.agents.realm_controller.registry_models import (
     LiveAgentRegistryRecordV2,
     ManagedAgentRegistryRecordV3,
@@ -323,6 +324,42 @@ class PassiveServerService:
             session_root=candidate.session_root,
             gateway=gateway,
         )
+
+    def get_usage(
+        self, agent_ref: str, *, after: str | None = None, limit: int = 100
+    ) -> UsagePage | tuple[int, dict[str, Any]]:
+        """Read managed-headless authority first, otherwise proxy a live gateway."""
+
+        matches = self.m_headless.resolve_usage_matches(agent_ref)
+        if len(matches) > 1:
+            return (409, {"detail": "Ambiguous managed headless agent reference"})
+        if len(matches) == 1:
+            by_id = self.m_discovery.index.get_by_id(agent_ref)
+            discovered = (
+                [by_id] if by_id is not None else self.m_discovery.index.get_by_name(agent_ref)
+            )
+            if any(
+                matches[0] not in self.m_headless.resolve_usage_matches(agent.record.agent_id)
+                for agent in discovered
+            ):
+                return (409, {"detail": "Ambiguous managed agent reference"})
+            return self.m_headless.get_usage(matches[0], after=after, limit=limit)
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        matches = self.m_headless.resolve_usage_matches(resolved.record.agent_id)
+        if len(matches) > 1:
+            return (409, {"detail": "Ambiguous managed headless agent reference"})
+        if len(matches) == 1:
+            return self.m_headless.get_usage(matches[0], after=after, limit=limit)
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "Usage projection requires an attached gateway"})
+        try:
+            return client.get_usage(after=after, limit=limit)
+        except GatewayHttpError as exc:
+            return self._gateway_http_error_tuple(exc)
 
     # -- gateway proxy --------------------------------------------------------
 

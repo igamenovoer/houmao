@@ -274,9 +274,33 @@ sequenceDiagram
     RT-->>CLI: relaunch result
 ```
 
+## Finalized Usage and Turn Artifacts
+
+Managed headless execution registers an accounting turn before launching the provider. When a caller omits an artifact ID, the runtime generates a unique `turn-<uuid12>` and returns it in the completion event's `turn_id`. A failed attempt can reuse the provider's numeric turn index, but its accounting ID and artifact directory remain distinct. Explicit caller-supplied IDs are preserved; conflicting reuse is rejected before another attempt can overwrite existing evidence.
+
+Ordinary runtime, gateway, and passive-server headless artifacts live under `<session-root>/<manifest-stem>.turn-artifacts/<turn-id>/`. Passive-server submissions use their accepted submission ID as the turn ID. Accounting records for all paths enter `<session-root>/usage/records.sqlite3`.
+
+The private accounting evidence includes:
+
+| Artifact | Purpose |
+| --- | --- |
+| `usage-start.json` | Original agent/runtime/generation identity, turn ID, source binding, and verified starting boundaries/baselines. |
+| `usage-final.json` | Original terminal outcome and timing, plus the frozen source cutoff used for accounting. |
+| `usage-record.json` | Assembled immutable record that can be committed again after a recorder outage. |
+| `usage-interrupt.json` | Interruption intent retained for consistent normal and recovered outcomes. |
+
+Completed, failed, and interrupted headless turns produce final lifecycle records even when token metrics are unavailable. An interruption can preserve known request measurements with partial availability. Controller timeout alone leaves accounting pending while the provider process remains active.
+
+Gateway startup and passive-server recovery resume source checkpoints and reconcile missing final records using their original evidence. Relaunch does not relabel older records with the new registry generation. Provider-chat reset establishes a separate provider binding or counter epoch while preserving the runtime-session usage cursor.
+
+Qualified TUI agents use their bound native JSONL logs and structured lifecycle markers. Direct native turns can produce native-observed records. A managed prompt whose provider-turn association is unresolved remains an explicit collection limitation rather than producing a guessed or duplicate charge.
+
+Use gateway `GET /v1/usage` or maintained `GET /houmao/agents/{agent_ref}/usage` to read finalized history. These reads remain available during active work and retain a resumable cursor after an empty page. See [Usage Records](usage-records.md) for provider-specific scopes, collection boundaries, record examples, and recovery limits.
+
 ## See also
 
 - [Launch Plan](launch-plan.md) — how launch plans are composed from brain manifests and roles
 - [Backends](backends.md) — backend implementations that execute launch plans
 - [Role Injection](role-injection.md) — how role prompts are delivered to agents
 - [Degraded and Stale Active Recovery](degraded-stale-recovery.md) — recovery paths for broken active tmux-backed sessions
+- [Usage Records](usage-records.md): finalized accounting, native-log collection, and cursor polling

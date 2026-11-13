@@ -1,0 +1,221 @@
+{
+  "metadata": {
+    "provider": "claude",
+    "client_version": "2.1.323",
+    "upstream_protocol": "anthropic-messages",
+    "upstream_model": "Qwen/Qwen3.8-27B-FP8",
+    "reference_revision": "closed-client",
+    "capture_date": "2026-11-13",
+    "sanitization": "Identity pseudonyms and accounting/lifecycle fields only; no prompt or response bodies.",
+    "findings": [
+      "result.usage is invocation scoped",
+      "result.total_cost_usd and duration_api_ms are session cumulative",
+      "native content-block copies repeat final message usage",
+      "stdout assistant usage can be incomplete",
+      "private-subagent inclusion is unknown"
+    ]
+  },
+  "provider_session_id": "identity-1",
+  "headless_turns": [
+    [
+      {
+        "type": "assistant",
+        "session_id": "identity-1",
+        "timestamp": "2026-11-13T05:52:19.136Z",
+        "message": {
+          "role": "assistant",
+          "model": "Qwen/Qwen3.8-27B-FP8",
+          "id": "msg_2",
+          "usage": {
+            "input_tokens": 4445,
+            "output_tokens": 0
+          }
+        }
+      },
+      {
+        "type": "assistant",
+        "session_id": "identity-1",
+        "timestamp": "2026-11-13T05:52:19.149Z",
+        "message": {
+          "role": "assistant",
+          "model": "Qwen/Qwen3.8-27B-FP8",
+          "id": "msg_2",
+          "usage": {
+            "input_tokens": 4445,
+            "output_tokens": 0
+          }
+        }
+      },
+      {
+        "type": "result",
+        "session_id": "identity-1",
+        "subtype": "success",
+        "is_error": false,
+        "duration_ms": 2223,
+        "duration_api_ms": 2125,
+        "total_cost_usd": 0.023025,
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 4445,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 32
+        }
+      }
+    ],
+    [
+      {
+        "type": "assistant",
+        "session_id": "identity-1",
+        "timestamp": "2026-11-13T05:54:20.877Z",
+        "message": {
+          "role": "assistant",
+          "model": "Qwen/Qwen3.8-27B-FP8",
+          "id": "msg_3",
+          "usage": {
+            "input_tokens": 4502,
+            "output_tokens": 0
+          }
+        }
+      },
+      {
+        "type": "assistant",
+        "session_id": "identity-1",
+        "timestamp": "2026-11-13T05:54:20.887Z",
+        "message": {
+          "role": "assistant",
+          "model": "Qwen/Qwen3.8-27B-FP8",
+          "id": "msg_3",
+          "usage": {
+            "input_tokens": 4502,
+            "output_tokens": 0
+          }
+        }
+      },
+      {
+        "type": "result",
+        "session_id": "identity-1",
+        "subtype": "success",
+        "is_error": false,
+        "duration_ms": 928,
+        "duration_api_ms": 3007,
+        "total_cost_usd": 0.046310000000000004,
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 4502,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 31
+        }
+      }
+    ]
+  ],
+  "native_records": [
+    {
+      "type": "user",
+      "sessionId": "identity-1",
+      "uuid": "identity-4",
+      "timestamp": "2026-11-13T05:52:16.957Z",
+      "isSidechain": false,
+      "message": {
+        "role": "user",
+        "content": ""
+      }
+    },
+    {
+      "type": "assistant",
+      "sessionId": "identity-1",
+      "timestamp": "2026-11-13T05:52:19.136Z",
+      "isSidechain": false,
+      "message": {
+        "role": "assistant",
+        "model": "Qwen/Qwen3.8-27B-FP8",
+        "stop_reason": "end_turn",
+        "id": "msg_2",
+        "usage": {
+          "input_tokens": 4445,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 32
+        }
+      }
+    },
+    {
+      "type": "assistant",
+      "sessionId": "identity-1",
+      "timestamp": "2026-11-13T05:52:19.149Z",
+      "isSidechain": false,
+      "message": {
+        "role": "assistant",
+        "model": "Qwen/Qwen3.8-27B-FP8",
+        "stop_reason": "end_turn",
+        "id": "msg_2",
+        "usage": {
+          "input_tokens": 4445,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 32
+        }
+      }
+    },
+    {
+      "type": "cost-state",
+      "sessionId": "identity-1",
+      "totalCostUSD": 0.023025,
+      "totalAPIDuration": 2125
+    },
+    {
+      "type": "user",
+      "sessionId": "identity-1",
+      "uuid": "identity-5",
+      "timestamp": "2026-11-13T05:54:19.988Z",
+      "isSidechain": false,
+      "message": {
+        "role": "user",
+        "content": ""
+      }
+    },
+    {
+      "type": "assistant",
+      "sessionId": "identity-1",
+      "timestamp": "2026-11-13T05:54:20.877Z",
+      "isSidechain": false,
+      "message": {
+        "role": "assistant",
+        "model": "Qwen/Qwen3.8-27B-FP8",
+        "stop_reason": "end_turn",
+        "id": "msg_3",
+        "usage": {
+          "input_tokens": 4502,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 31
+        }
+      }
+    },
+    {
+      "type": "assistant",
+      "sessionId": "identity-1",
+      "timestamp": "2026-11-13T05:54:20.887Z",
+      "isSidechain": false,
+      "message": {
+        "role": "assistant",
+        "model": "Qwen/Qwen3.8-27B-FP8",
+        "stop_reason": "end_turn",
+        "id": "msg_3",
+        "usage": {
+          "input_tokens": 4502,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 31
+        }
+      }
+    },
+    {
+      "type": "cost-state",
+      "sessionId": "identity-1",
+      "totalCostUSD": 0.046310000000000004,
+      "totalAPIDuration": 3007
+    }
+  ]
+}

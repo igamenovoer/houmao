@@ -13,6 +13,7 @@ For the maintained server boundary that exposes these routes, use [houmao-passiv
 | Discovery and summary state | `GET /houmao/agents`, `GET /houmao/agents/{agent_ref}`, `GET /houmao/agents/{agent_ref}/state`, `GET /houmao/agents/{agent_ref}/history` | TUI and headless | Summary state stays coarse and transport-neutral; history stays bounded and coarse |
 | Detailed inspection | `GET /houmao/agents/{agent_ref}/state/detail` | TUI and headless | Returns one shared envelope with a transport-discriminated detail payload |
 | Transport-neutral request submission | `POST /houmao/agents/{agent_ref}/requests` | TUI and headless | Official prompt and interrupt surface across both transports |
+| Finalized usage | `GET /houmao/agents/{agent_ref}/usage` | Headless and qualified TUI sources | Returns stable accounting records, capability/collection health, and a resumable cursor; active turns are excluded |
 | Gateway proxy, direct prompt control, raw gateway-owned TUI inspection, gateway-mediated requests, headless session control, and notifier control | `GET /houmao/agents/{agent_ref}/gateway`, `POST /houmao/agents/{agent_ref}/gateway/attach`, `POST /houmao/agents/{agent_ref}/gateway/detach`, `POST /houmao/agents/{agent_ref}/gateway/control/prompt`, `GET /houmao/agents/{agent_ref}/gateway/control/headless/state`, `POST /houmao/agents/{agent_ref}/gateway/control/headless/next-prompt-session`, `GET /houmao/agents/{agent_ref}/gateway/tui/state`, `GET /houmao/agents/{agent_ref}/gateway/tui/history`, `POST /houmao/agents/{agent_ref}/gateway/tui/note-prompt`, `POST /houmao/agents/{agent_ref}/gateway/requests`, `GET|PUT|DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier` | TUI and headless | `POST /gateway/control/prompt` is immediate "send now or refuse now" control; `POST /gateway/requests` remains the queued gateway surface; `gateway/control/headless/*` is headless only; passive-server returns not-implemented for remote gateway attach/detach because those remain same-host manager operations |
 | Pair-owned mailbox follow-up | `GET /houmao/agents/{agent_ref}/mail/status`, `GET /houmao/agents/{agent_ref}/mail/resolve-live`, `POST /houmao/agents/{agent_ref}/mail/list`, `POST /houmao/agents/{agent_ref}/mail/peek`, `POST /houmao/agents/{agent_ref}/mail/read`, `POST /houmao/agents/{agent_ref}/mail/send`, `POST /houmao/agents/{agent_ref}/mail/post`, `POST /houmao/agents/{agent_ref}/mail/reply`, `POST /houmao/agents/{agent_ref}/mail/mark`, `POST /houmao/agents/{agent_ref}/mail/move`, `POST /houmao/agents/{agent_ref}/mail/archive` | TUI and headless when mailbox capability is present | These routes require pair-owned mailbox capability plus an eligible live gateway |
 | Stop, native headless lifecycle, and durable turn detail | `POST /houmao/agents/{agent_ref}/stop`, `POST /houmao/agents/headless/launches`, `POST /houmao/agents/{agent_ref}/turns`, `POST /houmao/agents/{agent_ref}/interrupt`, `GET /houmao/agents/{agent_ref}/turns/{turn_id}`, `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events`, `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout`, `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stderr` | Stop applies to TUI and headless; turn detail is headless only | TUI stop reuses the managed session-delete lifecycle; durable headless turn evidence stays on `/turns/*` |
@@ -262,7 +263,43 @@ For managed headless agents, durable post-turn inspection stays on the `/turns/*
 - `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events` returns canonical semantic headless event records with normalized assistant, action, completion, provider, and session semantics
 - `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout` and `/stderr` expose the durable raw provider artifacts directly
 
+Managed headless execution writes artifacts under `<session-root>/<manifest-stem>.turn-artifacts/<turn-id>/`, using the turn ID returned by submission. Turn status, events, and usage recovery read that same manifest-owned directory. The passive server keeps authority and turn-index records under its own runtime root.
+
 `/history` remains bounded and coarse even for headless agents. Durable headless detail lives on `/turns/*`, not on `/history`.
+
+## Finalized Usage Accounting
+
+`GET /houmao/agents/{agent_ref}/usage` exposes finalized usage through one maintained route for both server-managed headless agents and gateway-attached agents. It accepts `after`, an opaque stream cursor, and `limit`, between 1 and 500 with a default of 100.
+
+The passive server selects the authoritative source before querying:
+
+1. A matching persisted server-managed headless authority selects its runtime-session usage ledger. Reading finalized history works without a live controller or attached gateway.
+2. Other resolved agents use the live gateway's `GET /v1/usage`. The passive server forwards pagination and preserves the gateway's record IDs, stream identity, capability, collection health, cursor, and continuation state. It does not ingest that agent's provider files or create a second accounting history.
+
+A server-managed authority wins when both paths exist. A retained ledger remains addressable when the controlling headless process has gone away; live prompt control still requires a resumable controller.
+
+The page shape is the shared [gateway usage contract](gateway/contracts/protocol-and-state.md#get-v1usage). Each immutable record identifies its runtime session, generation, managed or native-observed turn, provider identity, final outcome, and available token/cost/timing measurements. Missing measurements remain explicitly unavailable. Qualified TUI usage uses structured native evidence, while unsupported or session-only sources return explicit capability limitations.
+
+Clients keep both the stream identity and the cursor between polls. A simple polling loop follows this sequence:
+
+```text
+after = saved_cursor_or_none
+page = GET /houmao/agents/{agent_ref}/usage?limit=100[&after=after]
+for each previously unseen record_id in page.records:
+    consume its available measurements with their scope and inclusion semantics
+persist consumed record_ids and page.next_cursor together
+after = page.next_cursor
+if page.has_more:
+    fetch the next page immediately
+else:
+    wait until the next poll, keeping after even when page.records is empty
+```
+
+Commit consumer progress together with processed record identities so retrying a response does not count a turn twice. `has_more = false` identifies the current end, not the end of the stream's lifetime. Older turns that finalize late enter at a new later position. Provider-chat resets preserve the runtime-session stream; a new stream rejects the old cursor rather than silently replaying a different history.
+
+Resolution returns 404 for unknown agents and 409 for ambiguous references. A non-server-managed agent needs an attached reachable gateway; missing or unreachable gateways return 502. Upstream pagination validation returns 422, and incompatible or unreadable usage storage returns 503. Unavailable accounting and degraded collection remain normal capability responses when finalized storage is readable.
+
+See [Usage Records](run-phase/usage-records.md) for metric provenance, deduplication, partial outcomes, source qualification, and accounting limitations.
 
 ## CLI Reference
 

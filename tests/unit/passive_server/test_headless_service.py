@@ -548,11 +548,7 @@ class TestRestartResume:
             turn_artifact_dir_name: str | None = None,
         ) -> list[SessionEvent]:
             assert turn_artifact_dir_name is not None
-            turn_dir = (
-                svc.m_headless.m_store.agent_root(tracked_agent_id="tracked-alpha")
-                / "artifacts"
-                / turn_artifact_dir_name
-            )
+            turn_dir = manifest_path.parent / "manifest.turn-artifacts" / turn_artifact_dir_name
             turn_dir.mkdir(parents=True, exist_ok=True)
             (turn_dir / "stdout.jsonl").write_text(
                 '{"type":"assistant","message":"hello after resume"}\n',
@@ -676,8 +672,10 @@ class TestTurnFinalization:
         ) -> list[SessionEvent]:
             assert turn_artifact_dir_name is not None
             turn_dir = (
-                svc.m_headless.m_store.agent_root(tracked_agent_id="tracked-alpha")
-                / "artifacts"
+                tmp_path
+                / "runtime"
+                / "tracked-alpha"
+                / "manifest.turn-artifacts"
                 / turn_artifact_dir_name
             )
             turn_dir.mkdir(parents=True, exist_ok=True)
@@ -728,6 +726,9 @@ class TestTurnFinalization:
         assert status.completion_source == "process_exit"
         assert status.stdout_path is not None
         assert status.stderr_path is not None
+        assert Path(status.stdout_path).parent == (
+            Path(authority.session_root) / "manifest.turn-artifacts" / accepted.turn_id
+        )
         turn_record = svc.m_headless.m_store.read_turn_record(
             tracked_agent_id=authority.tracked_agent_id,
             turn_id=accepted.turn_id,

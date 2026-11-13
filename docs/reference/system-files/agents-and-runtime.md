@@ -26,6 +26,8 @@ Representative default layout:
     <backend>/
       <session-id>/
         manifest.json
+        usage/
+          records.sqlite3
         mailbox-secrets/
           <credential-ref>.json
         gateway/
@@ -123,6 +125,7 @@ Runtime-managed sessions are centered on one runtime-owned session root:
 | --- | --- | --- | --- | --- | --- |
 | `<runtime-root>/sessions/<backend>/<session-id>/` | start/resume runtime flow | runtime and gateway helpers | Durable directory envelope for one runtime-managed session | Stable path family | Do not delete while the session is live; `houmao-mgr agents single --agent-id <id> cleanup session` and `houmao-mgr admin cleanup runtime sessions` remove only stopped or otherwise malformed envelopes |
 | `<session-root>/manifest.json` | `persist_manifest()` | runtime manifest persistence | Durable session record used for resume and control | Stable operator-facing artifact | Treat as durable state |
+| `<session-root>/usage/records.sqlite3` | shared usage service | bound native collectors, shared headless finalization, and recovery | Independent usage ledger, staged observations, collection boundaries/checkpoints, provider-turn associations, and immutable finalized history | Stable path family, implementation-owned current schema | Preserve while accounting history or resumable cursors are required; independent of gateway queue storage and gateway process lifetime |
 | `<session-root>/mailbox-secrets/` | Stalwart mailbox bootstrap or resume for Stalwart-backed sessions | runtime mailbox helpers | Session-local secret-material directory keyed by `credential_ref` | Stable path family, secret-bearing contents remain opaque | Remove only after the session is stopped and no direct or gateway-backed mailbox work depends on it; `houmao-mgr agents single --agent-id <id> cleanup mailbox` exists for that exact scope |
 | `<session-root>/mailbox-secrets/<credential-ref>.json` | Stalwart mailbox bootstrap or resume for Stalwart-backed sessions | runtime mailbox helpers | Materialized per-session credential file surfaced through `resolve-live.mailbox.stalwart.credential_file` | Stable path, secret-bearing payload | Treat as cleanup-sensitive session-local secret material rather than scratch |
 | `<session-root>/gateway/` | gateway-capability publication | runtime and gateway lifecycle helpers | Session-owned gateway subtree | Stable path family for gateway-capable sessions | Subtree contents have mixed durability |
@@ -152,6 +155,20 @@ Joined-session notes:
 - Joined headless resume posture is also persisted in `manifest.json`: omitted `--resume-id` stores `resume_selection_kind=none`, `--resume-id last` stores `resume_selection_kind=last`, and an exact selector stores `resume_selection_kind=exact` plus the exact value.
 - The placeholder `brain_manifest.json` exists only to satisfy path and artifact invariants. Joined runtime control and relaunch do not treat it as behavioral truth.
 - Shared-registry publication for joined sessions uses a long sentinel lease instead of a short renewable lease because `agents self join` is a one-shot adoption command rather than a resident launcher.
+
+## Usage Accounting Ledger
+
+The runtime-session usage store lives at `<session-root>/usage/records.sqlite3`. Its ownership follows the runtime session, so direct runtime, gateway, and server-managed execution can read the same finalized history. The database remains separate from `<session-root>/gateway/queue.sqlite`; usage initialization does not migrate or modify that queue database.
+
+The usage schema stores metadata and a unique stream incarnation, bound provider source families, source checkpoints, provisional accounting observations, pending-turn terminal evidence, provider-turn associations, and immutable final usage rows. Checkpoints contain private source locators and complete-record positions. Public responses project only allowlisted accounting evidence and opaque source references.
+
+Ingestion commits accepted observations and source progress in one transaction. A collector crash therefore leaves either a committed batch or a batch that can be read again without charging the same request twice. Checkpoint versions reject competing stale writers. Original turn snapshots preserve the applicable registry generation and timing when a later controller recovers unfinished recording.
+
+The first insertion of a finalized turn receives a sequence number. Equivalent replay leaves both its record and sequence unchanged; conflicting accounting is an explicit error. Record IDs are deterministic from runtime-session and accounting-turn identities. Existing records are not recomputed when a gateway or passive server restarts.
+
+Queries use bounded finalization-order pages, with a default of 100 records and a maximum of 500. Every queryable stream returns a `next_cursor`, including an initially empty stream and an empty final page. Consumers save that cursor even when `has_more` is false, then use it as `after` on their next poll. Late-finalizing turns receive later sequence positions and remain visible. A new runtime session or replaced database has a distinct stream incarnation and rejects older stream cursors.
+
+Unsupported schema versions, runtime-identity mismatches, foreign SQLite files, and unreadable storage fail explicitly. No in-place schema migration or successful empty-history substitution occurs. Collection health can become degraded while previously finalized rows remain readable. Native log ingestion and artifact reconciliation run outside ordinary history queries, so reads remain bounded and do not acquire the terminal-mutation slot.
 
 ## Mailbox Binding And Secret Lifecycle
 

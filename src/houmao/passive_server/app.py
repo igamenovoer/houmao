@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
@@ -49,6 +49,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMemoryPageWriteRequestV1,
     GatewayMemorySummaryV1,
 )
+from houmao.agents.realm_controller.usage_models import UsagePage
 from houmao.version import get_version
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.models import (
@@ -147,6 +148,19 @@ def create_app(
     @app.get("/houmao/agents/{agent_ref}/resolve")
     def resolve_agent_address(agent_ref: str) -> PassiveAgentAddressResolveResponse:
         return resolved_service.resolve_agent_address(agent_ref)
+
+    @app.get("/houmao/agents/{agent_ref}/usage", response_model=UsagePage)
+    def agent_usage(
+        agent_ref: str,
+        after: str | None = Query(default=None, min_length=1),
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> UsagePage | Response:
+        """Read authoritative finalized usage or preserve the live gateway page."""
+
+        result = resolved_service.get_usage(agent_ref, after=after, limit=limit)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])
+        return result
 
     # -- gateway proxy routes -------------------------------------------------
 

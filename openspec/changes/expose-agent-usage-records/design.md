@@ -6,7 +6,7 @@ See [proposal.md](proposal.md) for motivation and the delta specs for the extern
 
 - `CanonicalHeadlessEvent.raw_payload` preserves structured provider evidence. The rendering helper `_normalize_usage_mapping` omits accounting fields and cannot define the accounting contract.
 - Native session logs provide structured evidence independently of TUI or headless execution. Houmao's launch plan identifies the provider home; existing hook observations expose session and prompt/turn identities for association.
-- Managed headless paths share `HeadlessInteractiveSession` and `HeadlessCliRunner`. Passive-server artifacts live under its managed-agent root, while ordinary runtime and gateway artifacts live beside the session manifest.
+- Managed headless paths share `HeadlessInteractiveSession` and `HeadlessCliRunner`. Ordinary runtime, gateway, and passive-server submissions all use the manifest-owned `<session-root>/<manifest-stem>.turn-artifacts/<turn-id>/` root. Passive-server submissions preserve their accepted turn IDs in that shared artifact path.
 - `HeadlessSessionState.turn_index` advances only after successful execution. Failed attempts can repeat it and overwrite index-only artifact directories.
 - ccusage at `aacb63f` demonstrates native-log discovery, provider-specific token mappings, transcript deduplication, and fork/subagent replay handling. Its report defaults and heuristics are references to qualify, not Houmao's public contract.
 - Local Codex source at `0910087` fills exec `turn.completed.usage` from thread totals in `codex-rs/exec/src/event_processor_with_jsonl_output.rs::usage_from_last_total`. Its `TokenUsageRecord` separately carries request usage, response ID, turn ID, and turn/thread totals in `codex-rs/protocol/src/protocol.rs`. These source findings require qualification against the running binary.
@@ -252,6 +252,20 @@ Qualify Claude and Codex for headless and native-log collection first. Kimi's qu
 
 Capture sanitized fixtures showing source shape, scope, identity, coverage, cost/timing, and subagent treatment. Record the running binary version and local/upstream reference revision separately. Unknown formats remain unqualified until their mappings have evidence.
 
+Qualification on 2026-11-13 used the supplied change-local launchers against the H20 SGLang `Qwen/Qwen3.8-27B-FP8` service. Each client completed a new prompt and a resumed prompt in an isolated home. Sanitized accounting/lifecycle projections are retained under `tests/fixtures/agent-usage-records/`; raw output and mutable homes remain under `tmp/usage-qualification/`.
+
+| Running Client | Retained Evidence | Observed Accounting Scope |
+| --- | --- | --- |
+| Claude Code 2.1.323 | `claude-2.1.323-qwen.json` | `result.usage` is invocation-scoped. `total_cost_usd` and `duration_api_ms` are session-cumulative on resume, confirmed by native `cost-state`; `duration_ms` is invocation-scoped. Native assistant content-block copies repeat the same final message usage and expose `stop_reason: end_turn`; early stdout snapshots contain incomplete output counts. |
+| Codex CLI 0.167.2 | `codex-0.167.2-qwen.json` | Native `token_usage_record` includes exact response and provider-turn identities, request usage, and turn/thread totals. `token_count` repeats that request's usage; exec `turn.completed.usage` is thread-cumulative on resume. Cached input and reasoning are subsets of input/output. |
+| Kimi Code 2.6.0 | `kimi-2.6.0-qwen.json` | Headless stdout contains no usage. Native `turn.prompt`/`turn.ended` identify turns; each `usage.record` is a request increment and `step.end` repeats those counters. Qwen omits `inputCacheRead`, which remains unavailable rather than zero. Non-turn `usageScope` is not assumed to be cumulative. |
+
+The retained captures establish these CLI/upstream combinations, not private-subagent inclusion. That inclusion remains `unknown` until separate structured evidence proves it. Fixture-backed regressions cover replay, compaction ordering, and conflicting source variants independently of the live service.
+
+Native client version declarations persist in parser checkpoints and public source provenance. An explicitly unknown client version retains allowlisted counters with unknown measurement scope and inclusion rules; it cannot inherit a qualified turn charge. Records without a client version use the recognized format profiles established by these captures. Unrecognized shapes emit no accounting observation.
+
+The [managed qualification procedure](../../../scripts/qualification/agent-usage/README.md) records successful headless and unattended TUI runs for all three clients with public input/output counts checked against native accounting. Claude hook prompt IDs and native user UUIDs use different namespaces. Hooks can establish session identity, while native lifecycle establishes native turns; an unmapped hook turn cannot create a second charge or a guessed managed association.
+
 **Alternative:** select semantics from an event name or assume the reference checkout matches the installed binary. Rejected because provider output and native formats evolve independently.
 
 ### Decision 6: Expose One Final Record With Explicit Metric Semantics
@@ -360,6 +374,30 @@ The passive usage route resolves sources in this order:
 Preserve 404 unknown-agent, 409 ambiguous-reference, and 502 gateway-connectivity behavior. Invalid cursors/limits return 422. Incompatible or unreadable usage storage returns 503. Qualified TUI pages, session-only limitations, and degraded-source responses pass through without changing stream identities or cursor semantics.
 
 **Alternative:** decide support from backend kind or read all attached agents' files from the passive server. Rejected because native evidence exists for TUIs and remote gateways require their own collection boundary.
+
+## Testing and Provider Capture
+
+Use the launch aids supplied in this change's [tests/](tests/) directory as the first option for capturing real client output and native logs. They target the H20-hosted `Qwen/Qwen3.8-27B-FP8` service through the local endpoint at `http://127.0.0.1:14888`. The service or its tunnel must already be running; the wrappers check model-server availability before launching the client.
+
+| Client | Launch Aid | Isolated Home and Override | Upstream Configuration |
+| --- | --- | --- | --- |
+| Claude Code | [tests/claude-qwen38.sh](tests/claude-qwen38.sh) | `CLAUDE_CONFIG_DIR`; default `tmp/expose-agent-usage-records/claude-qwen/` | Anthropic-compatible Messages API; `QWEN_ANTHROPIC_BASE_URL` and `QWEN_ANTHROPIC_MODEL` select endpoint/model. |
+| Codex | [tests/codex-qwen38.sh](tests/codex-qwen38.sh) | `CODEX_QWEN_HOME`, exported as `CODEX_HOME`; default `tmp/expose-agent-usage-records/codex-qwen/` | Responses API; installs [tests/codex-config.toml](tests/codex-config.toml) as the isolated home's `config.toml`. |
+| Kimi Code | [tests/kimi-qwen38.sh](tests/kimi-qwen38.sh) | `KIMI_QWEN_HOME`, exported as `KIMI_CODE_HOME`; default `tmp/expose-agent-usage-records/kimi-qwen/` | OpenAI-compatible endpoint; process-local `KIMI_MODEL_*` configuration, with endpoint/model selected through `KIMI_QWEN_BASE_URL` and `KIMI_QWEN_MODEL`. |
+
+Each wrapper forwards its remaining arguments to the installed client. Select structured headless output or TUI mode using the installed version's supported arguments. Automated TUI qualification uses unattended execution. The Kimi wrapper omits `--auto` when `-p`/`--prompt` already selects noninteractive prompt mode.
+
+For each capture run:
+
+1. Choose fresh home overrides under `tmp/usage-qualification/<run-id>/` and record the client binary version, upstream protocol/model, and effective source roots. Resolve Kimi logs from the launcher's actual `KIMI_CODE_HOME` binding rather than assuming another Kimi home variable.
+2. Capture a small completed turn, a resumed second turn, and the interrupted/missing-metric cases required by the provider profile. Retain stdout, native records, and structured identity/terminal evidence needed to establish scope and request association.
+3. Compare stdout and native observations for the same request or turn. Verify whether counters are request increments, turn summaries, or cumulative snapshots, and check cache/reasoning inclusion using the captured fields.
+4. Produce sanitized fixture projections under `tests/fixtures/` with CLI-version and upstream-configuration metadata. Keep credentials and private content out of fixtures; raw output and mutable client homes remain disposable files under `tmp/`.
+5. Run managed integration through `houmao-mgr` and `houmao-passive-server` using the same qualified provider/home settings. Compare public finalized records with the captured evidence, including duplicate-source handling and second-turn cumulative deltas.
+
+Qualification results describe the tested CLI/version and upstream protocol/model combination. Existing fixture auth bundles remain available for separately labeled provider runs, using the repository defaults unless that run calls for another bundle.
+
+These change-local wrappers support live qualification. Production code and hermetic CI tests remain independent of the OpenSpec change directory. Any launcher needed as a durable workflow after archive belongs in a purpose-specific `scripts/qualification/` location or the appropriate `tests/manual/` home; retained CI evidence belongs under `tests/fixtures/`.
 
 ## Risks / Trade-offs
 

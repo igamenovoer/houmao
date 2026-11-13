@@ -127,6 +127,7 @@ Current v1 routes:
 
 - `GET /health`
 - `GET /v1/status`
+- `GET /v1/usage`
 - `POST /v1/control/prompt`
 - `GET /v1/control/tui/state`
 - `GET /v1/control/tui/history`
@@ -267,6 +268,51 @@ A representative configured hook channel on status:
 ```
 
 `provider` names the active adapter, `"claude"`, `"codex"`, or `"kimi"`. Counter fields omitted from the example keep their zero defaults; the full counter set is documented under [`observation_channels`](../../../developer/houmao-server/state-reference.md#observation_channels). `state` is one of `active`, `unavailable`, `stale`, `disabled_by_policy`, `untrusted_workspace`, `error`, or `stopped`. Only `active` grants hook lifecycle authority. See [Hook Observation Channel](../../../developer/houmao-server/state-tracking.md#hook-observation-channel) for the state machine and thresholds.
+
+### `GET /v1/usage`
+
+This read-only route returns finalized accounting for the attached runtime session. It uses the same page contract for headless turns and TUI turns whose structured native logs establish usage and turn identity. Usage reads do not acquire the terminal-mutation lock, wait for an idle agent, or scan provider logs. Background collection and recovery update the ledger independently.
+
+Query parameters are `after`, an opaque cursor returned by an earlier page, and `limit`, the maximum number of records. The default limit is 100; accepted limits range from 1 to 500. An omitted `after` starts at the beginning of the addressed stream.
+
+| Field | Meaning |
+| --- | --- |
+| `schema_version` | Usage page and record contract version, initially `1`. |
+| `runtime_session_id`, `stream_id` | Runtime owner and ledger incarnation. A cursor belongs to one stream incarnation. |
+| `capability` | Validated source kinds and scopes, turn-recording support, and safe limitation reasons. |
+| `collection` | Current collection health and last recorded update information. A degraded source can coexist with readable finalized history. |
+| `records` | Immutable finalized turn records in insertion order. Active turns are excluded. |
+| `next_cursor` | Resumable position after the returned records. A queryable stream returns a cursor even at its current end or when initially empty. |
+| `has_more` | Whether later records existed in that read. `false` does not mean that future polling should stop. |
+
+For example, a queryable stream at its current end can return the following page. The cursor here is illustrative; clients must reuse the exact opaque token returned by the server.
+
+```json
+{
+  "schema_version": 1,
+  "runtime_session_id": "runtime-a",
+  "stream_id": "stream-a",
+  "capability": {
+    "status": "available",
+    "turn_recording": true,
+    "source_kinds": ["native_session_log"],
+    "observed_scopes": ["request", "turn"],
+    "reasons": []
+  },
+  "collection": {"status": "healthy", "updated_at_utc": null, "diagnostics": []},
+  "records": [],
+  "next_cursor": "opaque-position-returned-by-server",
+  "has_more": false
+}
+```
+
+Persist `next_cursor` after every successful page, including an empty page. The next poll supplies that token as `after`. Late-finalizing turns receive later stream positions and remain visible; provider-chat resets and registry relaunches retain the runtime stream, while a new runtime session or replacement ledger has a distinct stream identity.
+
+Each record preserves stable accounting and provider identities, outcome, metric availability, units, and provenance. Missing measurements remain null rather than zero. Cache and reasoning counters declare their inclusion semantics, so callers must not add every token field blindly. See [Usage Records](../../run-phase/usage-records.md) for the complete accounting contract and provider qualification matrix.
+
+Capability follows validated evidence rather than backend name. A TUI without a qualified source returns an unavailable capability response; session-only evidence does not imply per-turn metrics. Previously finalized records remain readable when current collection becomes degraded or unavailable. A never-supported target may have null stream/cursor fields and an empty record list.
+
+Invalid, wrong-stream, or future-position cursors and invalid page limits return HTTP 422. Unreadable or incompatible accounting storage returns HTTP 503 with a safe diagnostic. An unavailable source is a capability limitation, not an empty successful replacement for unreadable storage.
 
 ### `POST /v1/requests`
 

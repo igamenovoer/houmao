@@ -6,12 +6,13 @@ import json
 import os
 from dataclasses import dataclass
 from typing import Mapping, TypeVar, cast
-from urllib import error, request
+from urllib import error, parse, request
 
 from pydantic import BaseModel, ValidationError
 
 from houmao.ag_ui.models import AgUiEventPublishRequest, AgUiEventPublishResponse
 from houmao.agents.realm_controller.errors import GatewayHttpError
+from houmao.agents.realm_controller.usage_models import UsagePage
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayControlInputRequestV1,
@@ -119,6 +120,22 @@ class GatewayClient:
         """Call `GET /v1/status`."""
 
         return self._request_model("GET", "/v1/status", GatewayStatusV1)
+
+    def get_usage(self, *, after: str | None = None, limit: int = 100) -> UsagePage:
+        """Read a bounded finalized usage page without changing agent execution.
+
+        Parameters
+        ----------
+        after:
+            Opaque cursor returned by an earlier page, including an empty page.
+        limit:
+            Maximum number of records, between one and 500.
+        """
+
+        query = {"limit": str(limit)}
+        if after is not None:
+            query["after"] = after
+        return self._request_model("GET", f"/v1/usage?{parse.urlencode(query)}", UsagePage)
 
     def memory(self) -> GatewayMemorySummaryV1:
         """Call `GET /v1/memory`."""

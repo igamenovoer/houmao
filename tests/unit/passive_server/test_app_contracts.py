@@ -1575,8 +1575,10 @@ def _make_managed_headless_client(tmp_path: object) -> tuple[TestClient, str]:
         del prompt
         assert turn_artifact_dir_name is not None
         turn_dir = (
-            svc.m_headless.m_store.agent_root(tracked_agent_id="tracked-alpha")
-            / "artifacts"
+            Path(str(tmp_path))
+            / "runtime"
+            / "tracked-alpha"
+            / "manifest.turn-artifacts"
             / turn_artifact_dir_name
         )
         turn_dir.mkdir(parents=True, exist_ok=True)

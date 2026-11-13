@@ -34,6 +34,12 @@ from houmao.agents.realm_controller.errors import LaunchPlanError, SessionManife
 from houmao.agents.realm_controller.launch_plan import backend_for_tool
 from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
 from houmao.agents.realm_controller.models import SessionEvent
+from houmao.agents.realm_controller.usage_models import UsagePage
+from houmao.agents.realm_controller.usage_store import UsageStoreError
+from houmao.agents.realm_controller.usage_support import (
+    UsageService,
+    headless_artifact_process_alive,
+)
 from houmao.agents.realm_controller.registry_storage import (
     publish_live_agent_record,
     remove_live_agent_record,
@@ -141,7 +147,8 @@ class HeadlessAgentService:
         adapter = _StoreConfigAdapter(config.managed_agents_root)
         self.m_store = ManagedHeadlessStore(config=cast(Any, adapter))
         self.m_handles: dict[str, _ManagedHeadlessHandle] = {}
-        self.m_lock = threading.Lock()
+        self.m_lock = threading.RLock()
+        self.m_usage_services: dict[str, UsageService] = {}
 
     # -- lifecycle ------------------------------------------------------------
 
@@ -153,6 +160,11 @@ class HeadlessAgentService:
 
     def stop(self) -> None:
         """Best-effort cleanup (handles stay; no forced termination)."""
+
+        with self.m_lock:
+            services = list(self.m_usage_services.values())
+        for service in services:
+            service.stop()
 
     # -- launch ---------------------------------------------------------------
 
@@ -323,6 +335,7 @@ class HeadlessAgentService:
         handle = _ManagedHeadlessHandle(authority=authority, controller=controller)
         with self.m_lock:
             self.m_handles[tracked_agent_id] = handle
+        self._start_usage_service(authority)
 
         log.info(
             "Launched headless agent %s (tool=%s, backend=%s)",
@@ -377,8 +390,9 @@ class HeadlessAgentService:
         turn_id = uuid.uuid4().hex[:12]
         now_utc = datetime.now(UTC).isoformat(timespec="seconds")
 
+        manifest_path = Path(handle.authority.manifest_path)
         turn_artifact_dir = str(
-            self.m_store.agent_root(tracked_agent_id=tracked_agent_id) / "artifacts" / turn_id
+            manifest_path.parent / f"{manifest_path.stem}.turn-artifacts" / turn_id
         )
         Path(turn_artifact_dir).mkdir(parents=True, exist_ok=True)
 
@@ -536,6 +550,21 @@ class HeadlessAgentService:
         if not isinstance(backend_session, HeadlessInteractiveSession):
             return (500, {"detail": "Agent backend does not support interrupt"})
 
+        with self.m_lock:
+            active = self.m_store.read_active_turn(tracked_agent_id=tracked_agent_id)
+            if active is not None:
+                requested_at = active.interrupt_requested_at_utc or datetime.now(UTC).isoformat()
+                self.m_store.write_active_turn(
+                    active.model_copy(update={"interrupt_requested_at_utc": requested_at})
+                )
+                record = self.m_store.read_turn_record(
+                    tracked_agent_id=tracked_agent_id, turn_id=active.turn_id
+                )
+                if record is not None and record.status == "active":
+                    self.m_store.write_turn_record(
+                        record.model_copy(update={"interrupt_requested_at_utc": requested_at})
+                    )
+
         try:
             result = backend_session.interrupt()
             detail = f"Interrupt sent: {result.detail}" if result.detail else "Interrupt sent"
@@ -550,7 +579,7 @@ class HeadlessAgentService:
     def stop_managed(
         self, tracked_agent_id: str
     ) -> PassiveAgentActionResponse | tuple[int, dict[str, Any]]:
-        """Stop and clean up a managed headless agent."""
+        """Stop managed execution while preserving any owned finalized usage."""
 
         handle = self._require_handle(tracked_agent_id)
         if handle is None:
@@ -582,12 +611,18 @@ class HeadlessAgentService:
         except Exception as exc:
             log.warning("Error clearing registry for %s: %s", tracked_agent_id, exc)
 
-        # Delete persisted authority + turns
-        self.m_store.delete_agent(tracked_agent_id=tracked_agent_id)
-
-        # Remove from in-memory map
-        with self.m_lock:
-            self.m_handles.pop(tracked_agent_id, None)
+        usage_path = Path(authority.session_root) / "usage" / "records.sqlite3"
+        if usage_path.is_file():
+            self._reconcile_usage(authority)
+            self._usage_service(authority).stop()
+            with self.m_lock:
+                self.m_handles[tracked_agent_id] = _ManagedHeadlessHandle(
+                    authority=authority, controller=None
+                )
+        else:
+            self.m_store.delete_agent(tracked_agent_id=tracked_agent_id)
+            with self.m_lock:
+                self.m_handles.pop(tracked_agent_id, None)
 
         log.info("Stopped managed headless agent %s", tracked_agent_id)
 
@@ -632,6 +667,77 @@ class HeadlessAgentService:
         if len(matches) != 1:
             return None
         return matches[0]
+
+    def resolve_usage_matches(self, agent_ref: str) -> tuple[str, ...]:
+        """Resolve durable authority aliases without requiring a live controller."""
+
+        candidate = agent_ref.strip()
+        if not candidate:
+            return ()
+        authorities = {
+            authority.tracked_agent_id: authority
+            for authority in self.m_store.list_authority_records()
+        }
+        with self.m_lock:
+            authorities.update(
+                (tracked_id, handle.authority) for tracked_id, handle in self.m_handles.items()
+            )
+        return tuple(
+            sorted(
+                tracked_id
+                for tracked_id, authority in authorities.items()
+                if candidate in {tracked_id, authority.agent_id, authority.agent_name}
+            )
+        )
+
+    def get_usage(
+        self, tracked_agent_id: str, *, after: str | None = None, limit: int = 100
+    ) -> UsagePage | tuple[int, dict[str, Any]]:
+        """Read finalized authority-owned usage without starting or scanning a source."""
+
+        handle = self._require_handle(tracked_agent_id)
+        authority = (
+            handle.authority
+            if handle is not None
+            else self.m_store.read_authority(tracked_agent_id=tracked_agent_id)
+        )
+        if authority is None:
+            return (404, {"detail": f"Managed agent not found: {tracked_agent_id}"})
+        try:
+            return self._usage_service(authority).get_usage(after=after, limit=limit)
+        except UsageStoreError:
+            return (503, {"detail": "Usage history is unavailable"})
+        except ValueError:
+            return (422, {"detail": "Invalid usage cursor or page limit"})
+
+    def _usage_service(self, authority: ManagedHeadlessAuthorityRecord) -> UsageService:
+        """Get a manifest-bound accounting reader, leaving collection lifecycle explicit."""
+
+        manifest_path = Path(authority.manifest_path).expanduser().resolve()
+        key = str(manifest_path)
+        with self.m_lock:
+            cached = self.m_usage_services.get(key)
+        if cached is not None:
+            return cached
+        service = UsageService.from_manifest(manifest_path)
+        with self.m_lock:
+            return self.m_usage_services.setdefault(key, service)
+
+    def _start_usage_service(self, authority: ManagedHeadlessAuthorityRecord) -> None:
+        """Resume accounting recovery outside ordinary history queries."""
+
+        try:
+            self._usage_service(authority).start()
+        except (UsageStoreError, ValueError, OSError):
+            log.warning("Usage startup failed for managed agent %s", authority.tracked_agent_id)
+
+    def _reconcile_usage(self, authority: ManagedHeadlessAuthorityRecord) -> None:
+        """Retry durable finalization without replacing existing usage records."""
+
+        try:
+            self._usage_service(authority).reconcile()
+        except (UsageStoreError, ValueError, OSError):
+            log.warning("Usage recovery failed for managed agent %s", authority.tracked_agent_id)
 
     def get_managed_control_state(
         self,
@@ -692,7 +798,14 @@ class HeadlessAgentService:
         rebuilt: dict[str, _ManagedHeadlessHandle] = {}
         for authority in self.m_store.list_authority_records():
             tracked_agent_id = authority.tracked_agent_id
+            usage_path = Path(authority.session_root) / "usage" / "records.sqlite3"
             if not tmux_session_exists(session_name=authority.tmux_session_name):
+                if usage_path.is_file():
+                    rebuilt[tracked_agent_id] = _ManagedHeadlessHandle(
+                        authority=authority, controller=None
+                    )
+                    self._reconcile_usage(authority)
+                    continue
                 log.info(
                     "Cleaning up stale managed headless agent %s (tmux session gone)",
                     tracked_agent_id,
@@ -703,6 +816,12 @@ class HeadlessAgentService:
             manifest_path = Path(authority.manifest_path).expanduser().resolve()
             agent_def_dir = Path(authority.agent_def_dir).expanduser().resolve()
             if not manifest_path.is_file() or not agent_def_dir.is_dir():
+                if usage_path.is_file():
+                    rebuilt[tracked_agent_id] = _ManagedHeadlessHandle(
+                        authority=authority, controller=None
+                    )
+                    self._reconcile_usage(authority)
+                    continue
                 log.warning(
                     "Cleaning up stale managed headless agent %s (manifest or agent_def_dir missing)",
                     tracked_agent_id,
@@ -716,6 +835,12 @@ class HeadlessAgentService:
                     session_manifest_path=manifest_path,
                 )
             except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
+                if usage_path.is_file():
+                    rebuilt[tracked_agent_id] = _ManagedHeadlessHandle(
+                        authority=authority, controller=None
+                    )
+                    self._reconcile_usage(authority)
+                    continue
                 log.warning(
                     "Cleaning up unrecoverable managed headless agent %s after resume failure: %s",
                     tracked_agent_id,
@@ -750,6 +875,7 @@ class HeadlessAgentService:
                 authority=rebuilt_authority,
                 controller=controller,
             )
+            self._start_usage_service(rebuilt_authority)
 
         with self.m_lock:
             self.m_handles = rebuilt
@@ -780,6 +906,10 @@ class HeadlessAgentService:
                 completion_events=None,
                 error_detail=str(exc),
             )
+        finally:
+            authority = self.m_store.read_authority(tracked_agent_id=tracked_agent_id)
+            if authority is not None:
+                self._reconcile_usage(authority)
 
     def _headless_output_format(self, *, tracked_agent_id: str) -> str:
         """Return the configured headless output format for one managed agent."""
@@ -820,6 +950,24 @@ class HeadlessAgentService:
         completion_events: list[SessionEvent] | None,
         error_detail: str | None,
     ) -> ManagedHeadlessTurnRecord | None:
+        """Serialize terminal status with pre-signal interruption persistence."""
+
+        with self.m_lock:
+            return self._refresh_turn_record_locked(
+                tracked_agent_id=tracked_agent_id,
+                turn_id=turn_id,
+                completion_events=completion_events,
+                error_detail=error_detail,
+            )
+
+    def _refresh_turn_record_locked(
+        self,
+        *,
+        tracked_agent_id: str,
+        turn_id: str,
+        completion_events: list[SessionEvent] | None,
+        error_detail: str | None,
+    ) -> ManagedHeadlessTurnRecord | None:
         """Refresh one completed turn record from durable artifacts and final events."""
 
         record = self.m_store.read_turn_record(
@@ -838,6 +986,8 @@ class HeadlessAgentService:
         stdout_path = turn_dir / "stdout.jsonl"
         stderr_path = turn_dir / "stderr.log"
         status_path = turn_dir / "exitcode"
+        if not status_path.exists() and headless_artifact_process_alive(turn_dir):
+            return record
         interrupt_requested_at_utc = (
             active_turn.interrupt_requested_at_utc if active_turn is not None else None
         ) or record.interrupt_requested_at_utc

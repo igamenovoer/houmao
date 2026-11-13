@@ -12,9 +12,14 @@ import subprocess
 import sys
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
+
+from houmao.agents.realm_controller.usage_support import (
+    persist_terminal_evidence,
+    write_usage_json,
+)
 
 from ..errors import BackendExecutionError
 from ..models import SessionControlResult, SessionEvent
@@ -67,6 +72,11 @@ class HeadlessRunResult:
     canonical_path: Path | None = None
     process_metadata: HeadlessProcessMetadata | None = None
     completion_source: str = "direct_process"
+    turn_id: str | None = None
+    started_at_utc: str | None = None
+    completed_at_utc: str | None = None
+    wall_time_ms: float | None = None
+    interrupted: bool = False
 
 
 class HeadlessCliRunner:
@@ -79,6 +89,8 @@ class HeadlessCliRunner:
         self._active_tmux_wait_signal: str | None = None
         self._active_process_path: Path | None = None
         self._active_process_metadata: HeadlessProcessMetadata | None = None
+        self.m_interrupt_requested: bool = False
+        self.m_active_turn_dir: Path | None = None
 
     def run(
         self,
@@ -103,8 +115,22 @@ class HeadlessCliRunner:
         if output_format not in {"json", "stream-json"}:
             raise BackendExecutionError(f"Unsupported headless output format: {output_format}")
 
+        turn_id = turn_artifact_dir_name or f"turn-{uuid.uuid4().hex[:12]}"
+        if not turn_id or Path(turn_id).name != turn_id or turn_id in {".", ".."}:
+            raise BackendExecutionError("Headless turn ID must be one directory name")
+        self.m_interrupt_requested = False
+        self.m_active_turn_dir = (
+            (turn_artifacts_root / turn_id).resolve() if turn_artifacts_root is not None else None
+        )
+        if self.m_active_turn_dir is not None and any(
+            (self.m_active_turn_dir / name).exists()
+            for name in ("stdout.jsonl", "exitcode", "usage-final.json")
+        ):
+            raise BackendExecutionError("Headless turn artifact ID has already been used")
+        started_at_utc = datetime.now(UTC).isoformat()
+        started_monotonic = time.monotonic()
         if tmux_session_name is None:
-            return self._run_direct_subprocess(
+            result = self._run_direct_subprocess(
                 command=command,
                 env=env,
                 cwd=cwd,
@@ -113,8 +139,8 @@ class HeadlessCliRunner:
                 provider=provider,
             )
 
-        if provider is None:
-            return self._run_in_tmux_legacy(
+        elif provider is None:
+            result = self._run_in_tmux_legacy(
                 command=command,
                 cwd=cwd,
                 turn_index=turn_index,
@@ -124,35 +150,84 @@ class HeadlessCliRunner:
                 turn_artifacts_root=turn_artifacts_root
                 if turn_artifacts_root is not None
                 else cwd / ".houmao" / "headless-turns",
-                turn_artifact_dir_name=turn_artifact_dir_name,
+                turn_artifact_dir_name=turn_id,
                 completion_timeout_seconds=completion_timeout_seconds,
                 completion_poll_interval_seconds=completion_poll_interval_seconds,
             )
 
-        return self._run_in_tmux_bridge(
-            command=command,
-            env=env,
-            cwd=cwd,
-            turn_index=turn_index,
-            output_format=output_format,
-            provider=provider,
-            display_style=display_style,
-            display_detail=display_detail,
-            tmux_session_name=tmux_session_name,
-            tmux_pane_target=tmux_pane_target,
-            turn_artifacts_root=turn_artifacts_root
-            if turn_artifacts_root is not None
-            else cwd / ".houmao" / "headless-turns",
-            turn_artifact_dir_name=turn_artifact_dir_name,
-            completion_timeout_seconds=completion_timeout_seconds,
-            completion_poll_interval_seconds=completion_poll_interval_seconds,
+        else:
+            result = self._run_in_tmux_bridge(
+                command=command,
+                env=env,
+                cwd=cwd,
+                turn_index=turn_index,
+                output_format=output_format,
+                provider=provider,
+                display_style=display_style,
+                display_detail=display_detail,
+                tmux_session_name=tmux_session_name,
+                tmux_pane_target=tmux_pane_target,
+                turn_artifacts_root=turn_artifacts_root
+                if turn_artifacts_root is not None
+                else cwd / ".houmao" / "headless-turns",
+                turn_artifact_dir_name=turn_id,
+                completion_timeout_seconds=completion_timeout_seconds,
+                completion_poll_interval_seconds=completion_poll_interval_seconds,
+            )
+        completed_at_utc = datetime.now(UTC).isoformat()
+        elapsed_ms = (time.monotonic() - started_monotonic) * 1000
+        if self.m_active_turn_dir is not None:
+            persist_terminal_evidence(
+                self.m_active_turn_dir,
+                returncode=result.returncode,
+                completed_at_utc=completed_at_utc,
+                wall_time_ms=elapsed_ms,
+                interrupted=self.m_interrupt_requested,
+            )
+        return replace(
+            result,
+            turn_id=turn_id,
+            started_at_utc=started_at_utc,
+            completed_at_utc=completed_at_utc,
+            wall_time_ms=elapsed_ms,
+            interrupted=self.m_interrupt_requested,
         )
+
+    @property
+    def active_process_running(self) -> bool:
+        """Return whether durable process identity still identifies live execution."""
+
+        if self._active_process is not None:
+            return self._active_process.poll() is None
+        if self.m_active_turn_dir is not None and (self.m_active_turn_dir / "exitcode").exists():
+            return False
+        metadata = self._active_process_metadata
+        if metadata is None or metadata.child_pid is None:
+            return False
+        try:
+            os.kill(metadata.child_pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    def _note_interruption(self) -> None:
+        """Persist interruption intent so recovery uses the original terminal outcome."""
+
+        self.m_interrupt_requested = True
+        if self.m_active_turn_dir is not None:
+            write_usage_json(
+                self.m_active_turn_dir / "usage-interrupt.json",
+                {"requested_at_utc": datetime.now(UTC).isoformat()},
+            )
 
     def interrupt(self) -> SessionControlResult:
         """Interrupt an in-flight process with best-effort termination."""
 
         process = self._active_process
         if process is not None and process.poll() is None:
+            self._note_interruption()
             process.terminate()
             return SessionControlResult(
                 status="ok",
@@ -160,6 +235,8 @@ class HeadlessCliRunner:
                 detail="Sent terminate signal to headless process",
             )
 
+        if self._active_tmux_pane_target is not None or self._active_process_metadata is not None:
+            self._note_interruption()
         if self._signal_active_tmux_process(signal.SIGTERM):
             return SessionControlResult(
                 status="ok",
@@ -176,6 +253,7 @@ class HeadlessCliRunner:
             )
 
         try:
+            self._note_interruption()
             result = run_tmux_shared(["send-keys", "-t", pane_target, "C-c"])
         except TmuxCommandError as exc:
             return SessionControlResult(
@@ -201,6 +279,7 @@ class HeadlessCliRunner:
 
         process = self._active_process
         if process is not None and process.poll() is None:
+            self._note_interruption()
             process.kill()
             return SessionControlResult(
                 status="ok",
@@ -208,6 +287,8 @@ class HeadlessCliRunner:
                 detail="Killed headless process",
             )
 
+        if self._active_tmux_pane_target is not None or self._active_process_metadata is not None:
+            self._note_interruption()
         if self._signal_active_tmux_process(signal.SIGKILL):
             return SessionControlResult(
                 status="ok",
@@ -333,7 +414,7 @@ class HeadlessCliRunner:
         completion_timeout_seconds: float,
         completion_poll_interval_seconds: float,
     ) -> HeadlessRunResult:
-        turn_dir_name = turn_artifact_dir_name or f"turn-{turn_index:04d}"
+        turn_dir_name = turn_artifact_dir_name or f"turn-{uuid.uuid4().hex[:12]}"
         turn_dir = (turn_artifacts_root / turn_dir_name).resolve()
         turn_dir.mkdir(parents=True, exist_ok=True)
         stdout_path = turn_dir / "stdout.jsonl"
@@ -501,7 +582,7 @@ class HeadlessCliRunner:
     ) -> HeadlessRunResult:
         """Run the pre-canonical tmux path for legacy callers and tests."""
 
-        turn_dir_name = turn_artifact_dir_name or f"turn-{turn_index:04d}"
+        turn_dir_name = turn_artifact_dir_name or f"turn-{uuid.uuid4().hex[:12]}"
         turn_dir = (turn_artifacts_root / turn_dir_name).resolve()
         turn_dir.mkdir(parents=True, exist_ok=True)
         stdout_path = turn_dir / "stdout.jsonl"

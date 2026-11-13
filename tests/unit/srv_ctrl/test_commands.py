@@ -1289,7 +1289,8 @@ def test_agents_gateway_prompt_rejects_removed_force_option() -> None:
     )
 
     assert result.exit_code == 2
-    assert "No such option: --force" in result.output
+    assert "No such option" in result.output
+    assert "--force" in result.output
 
 
 def test_agents_gateway_prompt_renders_structured_json_error_and_exits_nonzero(

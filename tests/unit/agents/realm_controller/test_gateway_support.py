@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta, tzinfo
 import json
 import sqlite3
 import shutil
@@ -4703,6 +4704,17 @@ def test_gateway_repeat_reminder_reschedules_without_catchup_burst(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    clock_now = datetime(2026, 1, 1, tzinfo=UTC)
+
+    class _ReminderClock(datetime):
+        @classmethod
+        def now(cls, tz: tzinfo | None = None) -> datetime:
+            """Advance reminder time only when the test wakes the scheduler."""
+
+            return clock_now if tz is None else clock_now.astimezone(tz)
+
+    monkeypatch.setattr(gateway_service_module, "datetime", _ReminderClock)
+
     class _BlockingRepeatFakeCaoRestClient(_FakeCaoRestClient):
         def __init__(self, base_url: str, timeout_seconds: float = 15.0) -> None:
             super().__init__(base_url=base_url, timeout_seconds=timeout_seconds)
@@ -4730,6 +4742,20 @@ def test_gateway_repeat_reminder_reschedules_without_catchup_burst(
         host="127.0.0.1",
         port=43123,
     )
+    first_repeat_finished = threading.Event()
+    second_repeat_finished = threading.Event()
+    finish_reminder_execution = runtime._finish_reminder_execution
+
+    def finish_and_signal(*, reminder_id: str, error_detail: str | None) -> None:
+        """Observe completed scheduling before making the next clock advance."""
+
+        finish_reminder_execution(reminder_id=reminder_id, error_detail=error_detail)
+        if fake_client.repeat_prompt_count == 1:
+            first_repeat_finished.set()
+        elif fake_client.repeat_prompt_count == 2:
+            second_repeat_finished.set()
+
+    monkeypatch.setattr(runtime, "_finish_reminder_execution", finish_and_signal)
 
     runtime.start()
     try:
@@ -4741,27 +4767,45 @@ def test_gateway_repeat_reminder_reschedules_without_catchup_burst(
                         title="repeat reminder",
                         prompt="repeat reminder",
                         ranking=0,
-                        start_after_seconds=0.05,
-                        interval_seconds=0.05,
+                        start_after_seconds=1,
+                        interval_seconds=1,
                     )
                 ]
             )
         )
         reminder_id = reminder.reminders[0].reminder_id
+        first_due_at = clock_now + timedelta(seconds=1)
+        with runtime.m_reminder_condition:
+            clock_now = first_due_at
+            runtime.m_reminder_condition.notify_all()
 
-        _wait_until(lambda: fake_client.first_repeat_started.is_set())
-        time.sleep(0.16)
+        assert fake_client.first_repeat_started.wait(timeout=5.0)
+        # Finish after three anchored repeat boundaries have already passed.
+        clock_now = first_due_at + timedelta(seconds=3.25)
         fake_client.release_first_repeat.set()
+        assert first_repeat_finished.wait(timeout=5.0)
 
-        _wait_until(lambda: fake_client.repeat_prompt_count >= 2)
-        time.sleep(0.02)
+        next_due_at = first_due_at + timedelta(seconds=4)
+        live_reminder = runtime.get_reminder(reminder_id=reminder_id)
+        assert datetime.fromisoformat(live_reminder.next_due_at_utc) == next_due_at
+        assert fake_client.repeat_prompt_count == 1
+        with runtime.m_reminder_condition:
+            assert runtime._effective_due_reminder_locked() is None
+            clock_now = next_due_at
+            runtime.m_reminder_condition.notify_all()
+
+        assert second_repeat_finished.wait(timeout=5.0)
         assert fake_client.repeat_prompt_count == 2
 
         live_reminder = runtime.get_reminder(reminder_id=reminder_id)
         assert live_reminder.mode == "repeat"
-        assert live_reminder.delivery_state in {"scheduled", "overdue"}
+        assert live_reminder.delivery_state == "scheduled"
+        assert datetime.fromisoformat(live_reminder.next_due_at_utc) == next_due_at + timedelta(
+            seconds=1
+        )
         assert live_reminder.selection_state == "effective"
     finally:
+        fake_client.release_first_repeat.set()
         runtime.delete_reminder(reminder_id=reminder_id)
         runtime.shutdown()
 

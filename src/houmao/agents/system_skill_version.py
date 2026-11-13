@@ -55,7 +55,7 @@ def _construct_unique_mapping(
 
     mapping: dict[object, object] = {}
     for key_node, value_node in node.value:
-        key = loader.construct_object(key_node, deep=deep)  # type: ignore[no-untyped-call]
+        key = loader.construct_object(key_node, deep=deep)
         try:
             duplicate = key in mapping
         except TypeError as exc:
@@ -72,7 +72,7 @@ def _construct_unique_mapping(
                 f"found duplicate key {key!r}",
                 key_node.start_mark,
             )
-        mapping[key] = loader.construct_object(  # type: ignore[no-untyped-call]
+        mapping[key] = loader.construct_object(
             value_node,
             deep=deep,
         )

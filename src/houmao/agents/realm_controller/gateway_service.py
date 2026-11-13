@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Literal, NoReturn, Protocol, TypeVar, cast
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
@@ -57,6 +57,9 @@ from houmao.agents.model_selection import ModelConfig
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from houmao.agents.realm_controller.errors import GatewayError, SessionManifestError
 from houmao.agents.realm_controller.errors import LaunchPlanError
+from houmao.agents.realm_controller.usage_models import UsagePage
+from houmao.agents.realm_controller.usage_store import UsageStoreError
+from houmao.agents.realm_controller.usage_support import UsageService
 from houmao.agents.realm_controller.gateway_mailbox import (
     GatewayMailboxAdapter,
     GatewayMailboxError,
@@ -1255,6 +1258,18 @@ class GatewayServiceRuntime:
         self.m_headless_next_prompt_override: GatewayHeadlessNextPromptOverrideV1 | None = None
         self.m_reminders: dict[str, _GatewayReminderRecord] = {}
         self.m_active_reminder_id: str | None = None
+        self.m_usage_service: UsageService | None = None
+        self.m_usage_error: UsageStoreError | None = None
+        usage_manifest = self.m_attach_contract.manifest_path
+        self.m_usage_manifest_path: Path = (
+            Path(usage_manifest).expanduser().resolve()
+            if usage_manifest is not None
+            else self.m_paths.gateway_root.parent / "manifest.json"
+        )
+        try:
+            self.m_usage_service = UsageService.from_manifest(self.m_usage_manifest_path)
+        except UsageStoreError as exc:
+            self.m_usage_error = exc
 
     def _load_diagnostic_logging_config(self) -> GatewayDiagnosticLoggingConfigV1:
         """Load persisted diagnostic logging config, defaulting to disabled."""
@@ -1342,6 +1357,8 @@ class GatewayServiceRuntime:
             daemon=True,
         )
         self.m_notifier_thread.start()
+        if self.m_usage_service is not None:
+            self.m_usage_service.start()
 
     def set_listener(self, *, host: GatewayHost, port: int) -> None:
         """Update the live listener bindings before runtime startup."""
@@ -1355,6 +1372,8 @@ class GatewayServiceRuntime:
         """Stop the queue worker and remove ephemeral run metadata."""
 
         self.m_stop_event.set()
+        if self.m_usage_service is not None:
+            self.m_usage_service.stop()
         with self.m_reminder_condition:
             self.m_reminder_condition.notify_all()
         if self.m_worker_thread is not None:
@@ -1383,6 +1402,36 @@ class GatewayServiceRuntime:
 
         with self.m_lock:
             return self._refresh_status_snapshot(active_execution=self._active_execution_state())
+
+    def get_usage(self, *, after: str | None = None, limit: int = 100) -> UsagePage:
+        """Read finalized accounting independently of the terminal-mutation lock."""
+
+        if self.m_usage_error is not None:
+            raise self.m_usage_error
+        if self.m_usage_service is None:
+            raise UsageStoreError("Usage history is unavailable")
+        return self.m_usage_service.get_usage(after=after, limit=limit)
+
+    def _register_usage_prompt(self, *, turn_id: str | None = None) -> str | None:
+        """Register a managed TUI submission before any prompt dispatch."""
+
+        if self.m_attach_contract.backend in {"claude_headless", "codex_headless", "kimi_headless"}:
+            return None
+        if self.m_usage_service is None:
+            return None
+        try:
+            return self.m_usage_service.register_managed_turn(turn_id=turn_id)
+        except (UsageStoreError, ValueError, OSError) as exc:
+            raise GatewayError("Managed prompt accounting registration failed") from exc
+
+    def _abandon_usage_prompt(self, turn_id: str | None) -> None:
+        """Release a pending association when prompt dispatch fails."""
+
+        if turn_id is not None and self.m_usage_service is not None:
+            try:
+                self.m_usage_service.abandon_managed_turn(turn_id)
+            except (UsageStoreError, ValueError, OSError):
+                self._log("usage pending-dispatch cleanup failed")
 
     def ag_ui_target_transport_family(self) -> AgUiTargetTransportFamily:
         """Return the target transport family used by AG-UI run streaming."""
@@ -2369,16 +2418,20 @@ class GatewayServiceRuntime:
             )
             admission_facts = self._prompt_admission_facts_locked()
 
+        usage_turn_id: str | None = None
         try:
             if use_tui_reset_workflow:
                 self._dispatch_tui_new_prompt_workflow(prompt=prompt)
             else:
+                if dispatch_mode == "tui":
+                    usage_turn_id = self._register_usage_prompt()
                 self.m_adapter.submit_prompt(
                     prompt=prompt,
                     session_selection=headless_session_selection,
                     execution_model=execution_model,
                 )
-        except (GatewayError, CaoApiError, ValidationError) as exc:
+        except (GatewayError, CaoApiError, ValidationError, UsageStoreError) as exc:
+            self._abandon_usage_prompt(usage_turn_id)
             self._raise_prompt_control_http_error(
                 status_code=422,
                 admission_policy=admission_policy,
@@ -2448,7 +2501,12 @@ class GatewayServiceRuntime:
         """Clear the current TUI conversation, wait for readiness, then send the prompt."""
 
         tracking = self._dispatch_tui_context_reset_only()
-        self.m_adapter.submit_prompt(prompt=prompt)
+        usage_turn_id = self._register_usage_prompt()
+        try:
+            self.m_adapter.submit_prompt(prompt=prompt)
+        except Exception:
+            self._abandon_usage_prompt(usage_turn_id)
+            raise
         tracking.note_prompt_submission(message=prompt)
 
     def _dispatch_tui_context_reset_only(
@@ -4367,12 +4425,17 @@ class GatewayServiceRuntime:
     ) -> None:
         """Submit one prompt through the shared gateway execution adapter."""
 
-        self.m_adapter.submit_prompt(
-            prompt=prompt,
-            turn_id=turn_id,
-            session_selection=session_selection,
-            execution_model=execution_model,
-        )
+        usage_turn_id = self._register_usage_prompt(turn_id=turn_id)
+        try:
+            self.m_adapter.submit_prompt(
+                prompt=prompt,
+                turn_id=turn_id,
+                session_selection=session_selection,
+                execution_model=execution_model,
+            )
+        except Exception:
+            self._abandon_usage_prompt(usage_turn_id)
+            raise
         if note_prompt_submission and self.m_tui_tracking is not None:
             self.m_tui_tracking.note_prompt_submission(message=prompt)
 
@@ -5401,6 +5464,22 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         """Serve the structured gateway status snapshot."""
 
         return runtime.status()
+
+    @app.get("/v1/usage", response_model=UsagePage)
+    def _usage(
+        after: str | None = Query(default=None, min_length=1),
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> UsagePage:
+        """Return finalized usage and a cursor that remains valid at the stream end."""
+
+        try:
+            return runtime.get_usage(after=after, limit=limit)
+        except UsageStoreError as exc:
+            raise HTTPException(status_code=503, detail="Usage history is unavailable") from exc
+        except (ValueError, ValidationError) as exc:
+            raise HTTPException(
+                status_code=422, detail="Invalid usage cursor or page limit"
+            ) from exc
 
     def _memory_call(callback: Callable[[], _MemoryResponseT]) -> _MemoryResponseT:
         """Translate memory service failures into HTTP status codes."""

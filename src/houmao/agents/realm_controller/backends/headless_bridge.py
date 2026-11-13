@@ -9,6 +9,8 @@ from pathlib import Path
 import subprocess
 import sys
 import threading
+import time
+from datetime import UTC, datetime
 from typing import Callable, Sequence
 
 from houmao.agents.realm_controller.backends.headless_output import (
@@ -25,6 +27,7 @@ from houmao.agents.realm_controller.backends.headless_output import (
     CanonicalHeadlessEventParser,
     HeadlessProvider,
 )
+from houmao.agents.realm_controller.usage_support import persist_terminal_evidence
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -44,6 +47,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     status_path = (turn_dir / "exitcode").resolve()
     process_path = (turn_dir / "process.json").resolve()
     canonical_path = canonical_headless_event_artifact_path(turn_dir=turn_dir)
+    started_monotonic = time.monotonic()
 
     stdout_path.write_text("", encoding="utf-8")
     stderr_path.write_text("", encoding="utf-8")
@@ -145,6 +149,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stdout.flush()
 
     status_path.write_text(f"{returncode}\n", encoding="utf-8")
+    persist_terminal_evidence(
+        turn_dir,
+        returncode=returncode,
+        completed_at_utc=datetime.now(UTC).isoformat(),
+        wall_time_ms=(time.monotonic() - started_monotonic) * 1000,
+        interrupted=(turn_dir / "usage-interrupt.json").exists(),
+    )
     return returncode
 
 

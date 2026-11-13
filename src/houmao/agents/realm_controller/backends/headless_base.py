@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import os
+import logging
 import shutil
+import time
+import uuid
+from datetime import UTC, datetime
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,6 +15,8 @@ from typing import Any
 from houmao.agents.model_mapping_policy import temporary_project_model_config
 from houmao.agents.model_selection import ModelConfig
 from houmao.cao.no_proxy import inject_loopback_no_proxy_env
+from houmao.agents.realm_controller.usage_support import UsageService, persist_terminal_evidence
+from houmao.agents.realm_controller.usage_store import UsageStoreError
 
 from ..agent_identity import AGENT_DEF_DIR_ENV_VAR, AGENT_MANIFEST_PATH_ENV_VAR
 from ..errors import BackendExecutionError
@@ -30,7 +36,7 @@ from .headless_output import (
     resolve_headless_display_style,
     resolve_headless_provider,
 )
-from .headless_runner import HeadlessCliRunner
+from .headless_runner import HeadlessCliRunner, HeadlessRunResult
 from .tmux_runtime import (
     HEADLESS_AGENT_WINDOW_NAME,
     TmuxCommandError,
@@ -52,6 +58,7 @@ from .tmux_runtime import (
 # policy is resolved before backend execution and no longer invokes these directly.
 ensure_claude_home_bootstrap = _ensure_claude_home_bootstrap_legacy
 ensure_codex_home_bootstrap = _ensure_codex_home_bootstrap_legacy
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -119,6 +126,7 @@ class HeadlessInteractiveSession:
             / f"{self._session_manifest_path.stem}.turn-artifacts"
         ).resolve()
         self._force_cleanup_on_terminate = False
+        self.m_last_run_result: HeadlessRunResult | None = None
 
         _ensure_required_executable(
             executable=self._plan.executable,
@@ -146,6 +154,96 @@ class HeadlessInteractiveSession:
         execution_model: ModelConfig | None = None,
     ) -> list[SessionEvent]:
         """Send one prompt turn to the headless backend."""
+
+        if not prompt.strip():
+            raise BackendExecutionError("Prompt must not be empty")
+        turn_id = turn_artifact_dir_name or f"turn-{uuid.uuid4().hex[:12]}"
+        if Path(turn_id).name != turn_id or turn_id in {".", ".."}:
+            raise BackendExecutionError("Headless turn ID must be one directory name")
+        turn_dir = self._turn_artifacts_root / turn_id
+        selected_id = (
+            session_selection.session_id
+            if session_selection is not None and session_selection.mode == "exact"
+            else self._state.session_id
+        )
+        new_session = (session_selection is not None and session_selection.mode == "new") or (
+            session_selection is None
+            and selected_id is None
+            and not self._initial_resume_selector_args()
+        )
+        service = UsageService.from_launch(self._session_manifest_path, self._plan, selected_id)
+        service.begin_headless_turn(
+            turn_id=turn_id,
+            turn_dir=turn_dir,
+            turn_index=self._state.turn_index + 1,
+            new_session=new_session,
+        )
+        self.m_last_run_result = None
+        started = time.monotonic()
+        try:
+            events = self._execute_prompt(
+                prompt,
+                turn_artifact_dir_name=turn_id,
+                session_selection=session_selection,
+                execution_model=execution_model,
+            )
+        except BaseException:
+            if not getattr(self._runner, "active_process_running", False):
+                result = self.m_last_run_result
+                persist_terminal_evidence(
+                    turn_dir,
+                    returncode=result.returncode if result is not None else 1,
+                    completed_at_utc=datetime.now(UTC).isoformat(),
+                    wall_time_ms=(time.monotonic() - started) * 1000,
+                    interrupted=bool(getattr(self._runner, "m_interrupt_requested", False)),
+                )
+                try:
+                    service.finalize_headless_turn(
+                        turn_dir,
+                        provider_session_id=result.session_id if result else None,
+                        events=result.events if result else None,
+                    )
+                except Exception:
+                    # Durable start/terminal evidence permits recovery after a recorder outage.
+                    _LOGGER.warning(
+                        "Headless usage recording failed; durable evidence awaits recovery"
+                    )
+            raise
+        result = self.m_last_run_result
+        persist_terminal_evidence(
+            turn_dir,
+            returncode=result.returncode if result is not None else 0,
+            completed_at_utc=datetime.now(UTC).isoformat(),
+            wall_time_ms=(time.monotonic() - started) * 1000,
+            interrupted=bool(getattr(self._runner, "m_interrupt_requested", False)),
+        )
+        try:
+            service.finalize_headless_turn(
+                turn_dir,
+                provider_session_id=self._state.session_id,
+                events=result.events if result else events,
+            )
+        except (OSError, ValueError, UsageStoreError):
+            _LOGGER.warning("Headless usage recording failed; durable evidence awaits recovery")
+            events.append(
+                SessionEvent(
+                    kind="diagnostic",
+                    message="Usage finalization is pending recovery",
+                    turn_index=self._state.turn_index,
+                    payload={"turn_id": turn_id, "diagnostic": "usage_finalization_pending"},
+                )
+            )
+        return events
+
+    def _execute_prompt(
+        self,
+        prompt: str,
+        *,
+        turn_artifact_dir_name: str,
+        session_selection: HeadlessTurnSessionSelection | None = None,
+        execution_model: ModelConfig | None = None,
+    ) -> list[SessionEvent]:
+        """Execute a registered turn while preserving existing provider semantics."""
 
         if not prompt.strip():
             raise BackendExecutionError("Prompt must not be empty")
@@ -189,6 +287,7 @@ class HeadlessInteractiveSession:
             run_result = self._runner.run(
                 **run_kwargs,
             )
+            self.m_last_run_result = run_result
 
         if run_result.returncode != 0:
             message = run_result.stderr.strip() or "headless command failed"
@@ -212,6 +311,7 @@ class HeadlessInteractiveSession:
                 message="turn completed",
                 turn_index=turn_index,
                 payload={
+                    "turn_id": turn_artifact_dir_name,
                     "session_id": self._state.session_id,
                     "tmux_session_name": session_name,
                     "stdout_path": str(run_result.stdout_path)
