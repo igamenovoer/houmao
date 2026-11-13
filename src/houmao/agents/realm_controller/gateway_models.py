@@ -25,6 +25,7 @@ from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig, par
 from houmao.agents.mailbox_runtime_models import MailboxTransport
 from houmao.agents.realm_controller.models import BackendKind, CaoParsingMode
 from houmao.hook_observation.health import HookChannelState
+from houmao.gateway.plugins import GatewayPluginConfiguration
 from houmao.mailbox.protocol import (
     HOUMAO_NO_REPLY_POLICY_VALUE,
     HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
@@ -677,6 +678,7 @@ class GatewayDesiredConfigV1(_StrictGatewayModel):
     desired_execution_mode: GatewayCurrentExecutionMode = Field(default="detached_process")
     desired_tui_tracking_timings: GatewayTuiTrackingTimingConfigV1 | None = None
     desired_diagnostic_logging: GatewayDiagnosticLoggingConfigV1 | None = None
+    desired_plugins: GatewayPluginConfiguration | None = None
 
     @field_validator("desired_port")
     @classmethod

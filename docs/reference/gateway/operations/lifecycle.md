@@ -112,6 +112,8 @@ Important boundary:
 
 For runtime-owned tmux-backed managed sessions, scoped gateway `attach` now uses the same-session auxiliary-window execution path by default. Use `--background` when you explicitly want the detached-process path instead.
 
+External plugin selection uses `--plugins-config PATH`; omission reuses the persisted complete selection. Plugin resources start after listener binding and route validation, and stop with the gateway. Changed selection or installed plugin code requires a gateway-only restart. A plugin failure leaves the agent body and unrelated gateway routes available. See [Gateway Plugins](../plugins.md) for lifecycle, loopback policy, and sender retry details.
+
 Gateway-owned TUI tracking timings can be tuned at attach time with the positive-second `--gateway-tui-watch-poll-interval-seconds`, `--gateway-tui-stability-threshold-seconds`, `--gateway-tui-completion-stability-seconds`, `--gateway-tui-unknown-to-stalled-timeout-seconds`, `--gateway-tui-stale-active-recovery-seconds`, and `--gateway-tui-final-stable-active-recovery-seconds` flags. Explicit attach or launch-time overrides win over the gateway root's persisted desired timing config, and persisted desired timing config wins over the built-in defaults. Successful attach persists the resolved timing block next to desired host, port, and execution mode for later attach attempts.
 
 Example:

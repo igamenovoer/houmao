@@ -15,6 +15,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Literal, cast
 
+from houmao.gateway.plugins import GatewayPluginConfiguration
+
 from houmao.agents.agent_workspace import (
     HOUMAO_AGENT_MEMORY_DIR_ENV_VAR,
     HOUMAO_AGENT_MEMO_FILE_ENV_VAR,
@@ -104,6 +106,7 @@ from .backends.tmux_runtime import (
     unset_tmux_session_environment as unset_tmux_session_environment_shared,
 )
 from .errors import (
+    BackendExecutionError,
     GatewayAttachError,
     GatewayDiscoveryError,
     GatewayHttpError,
@@ -422,6 +425,21 @@ class RuntimeSessionController:
                     "Execution overrides are only supported for headless runtime sessions."
                 )
             events = self.backend_session.send_prompt(prompt)
+        if isinstance(self.backend_session, HeadlessInteractiveSession):
+            dispatch_control = getattr(self.backend_session, "m_dispatch_control", None)
+            if dispatch_control is not None and dispatch_control.m_generation_id is not None:
+                try:
+                    current_generation = load_session_manifest(self.manifest_path).payload.get(
+                        "registry_generation_id"
+                    )
+                except (OSError, SessionManifestError):
+                    raise BackendExecutionError(
+                        "Immediate dispatch execution identity is no longer current"
+                    ) from None
+                if current_generation != dispatch_control.m_generation_id:
+                    raise BackendExecutionError(
+                        "Immediate dispatch execution identity is no longer current"
+                    )
         self.persist_manifest(refresh_registry=refresh_registry)
         return events
 
@@ -1029,6 +1047,7 @@ class RuntimeSessionController:
         port_override: int | None = None,
         execution_mode_override: GatewayCurrentExecutionMode | None = None,
         tui_tracking_timing_overrides: GatewayTuiTrackingTimingOverridesV1 | None = None,
+        plugin_config: GatewayPluginConfiguration | None = None,
     ) -> GatewayControlResult:
         """Start a live gateway instance for the addressed session."""
 
@@ -1038,6 +1057,7 @@ class RuntimeSessionController:
             port_override=port_override,
             execution_mode_override=execution_mode_override,
             tui_tracking_timing_overrides=tui_tracking_timing_overrides,
+            plugin_config=plugin_config,
         )
         if result.status == "ok":
             self.refresh_shared_registry_record()
@@ -1270,6 +1290,7 @@ def start_runtime_session(
     gateway_port: int | None = None,
     gateway_execution_mode_override: GatewayCurrentExecutionMode | None = None,
     gateway_tui_tracking_timing_overrides: GatewayTuiTrackingTimingOverridesV1 | None = None,
+    gateway_plugins: GatewayPluginConfiguration | None = None,
     tmux_session_name: str | None = None,
     default_tmux_session_name: str | None = None,
     launch_env_overrides: dict[str, str] | None = None,
@@ -1291,6 +1312,8 @@ def start_runtime_session(
         raise SessionManifestError(
             "Gateway execution-mode overrides require launch-time gateway attach."
         )
+    if gateway_plugins is not None and not gateway_auto_attach:
+        raise SessionManifestError("Gateway plugin selections require launch-time gateway attach.")
     if (
         gateway_tui_tracking_timing_overrides is not None
         and gateway_tui_tracking_timing_overrides.has_values()
@@ -1520,6 +1543,7 @@ def start_runtime_session(
             port_override=gateway_port,
             execution_mode_override=gateway_execution_mode_override,
             tui_tracking_timing_overrides=gateway_tui_tracking_timing_overrides,
+            **({"plugin_config": gateway_plugins} if gateway_plugins is not None else {}),
         )
         if attach_result.status == "error":
             controller.gateway_auto_attach_error = attach_result.detail
@@ -3995,6 +4019,7 @@ def _attach_gateway_for_controller(
     port_override: int | None,
     execution_mode_override: GatewayCurrentExecutionMode | None,
     tui_tracking_timing_overrides: GatewayTuiTrackingTimingOverridesV1 | None,
+    plugin_config: GatewayPluginConfiguration | None = None,
 ) -> GatewayControlResult:
     """Start a live gateway process for one runtime-owned controller.
 
@@ -4010,6 +4035,9 @@ def _attach_gateway_for_controller(
         Optional CLI execution-mode override for the attach action.
     tui_tracking_timing_overrides:
         Optional CLI/API timing override for gateway-owned TUI tracking.
+    plugin_config:
+        Complete plugin selection. Omission preserves the persisted selection;
+        an explicitly empty selection clears it after the gateway is stopped.
 
     Returns
     -------
@@ -4052,6 +4080,65 @@ def _attach_gateway_for_controller(
             paths=paths,
             explicit=tui_tracking_timing_overrides,
         )
+        desired_config = _load_optional_desired_config(paths) or GatewayDesiredConfigV1()
+        selection = plugin_config if plugin_config is not None else desired_config.desired_plugins
+        live_instance = (
+            _live_gateway_for_plugin_attach(controller=controller, paths=paths)
+            if plugin_config is not None or desired_config.desired_plugins is not None
+            else None
+        )
+        if live_instance is not None:
+            effective = selection or GatewayPluginConfiguration()
+            try:
+                snapshot = GatewayClient(
+                    endpoint=GatewayEndpoint(host=live_instance.host, port=live_instance.port)
+                ).get_plugins()
+            except GatewayHttpError:
+                return GatewayControlResult(
+                    status="error",
+                    action="gateway_attach",
+                    detail="Cannot verify live gateway plugin configuration; stop the gateway before changing selections.",
+                    gateway_root=str(paths.gateway_root),
+                )
+            if snapshot.configuration_digest != effective.configuration_digest:
+                return GatewayControlResult(
+                    status="error",
+                    action="gateway_attach",
+                    detail="Live gateway plugin configuration conflicts with this selection; stop the gateway and attach again.",
+                    gateway_root=str(paths.gateway_root),
+                )
+            if (
+                live_instance.host == host
+                and requested_port in {0, live_instance.port}
+                and live_instance.execution_mode == execution_mode
+                and (
+                    desired_config.desired_tui_tracking_timings
+                    or GatewayTuiTrackingTimingConfigV1()
+                )
+                == tui_tracking_timings
+            ):
+                if plugin_config is not None and desired_config.desired_plugins != plugin_config:
+                    write_gateway_desired_config(
+                        paths.desired_config_path,
+                        desired_config.model_copy(update={"desired_plugins": plugin_config}),
+                    )
+                controller.gateway_root = paths.gateway_root
+                controller.gateway_attach_path = paths.attach_path
+                controller.gateway_host = live_instance.host
+                controller.gateway_port = live_instance.port
+                return GatewayControlResult(
+                    status="ok",
+                    action="gateway_attach",
+                    detail="Reused the live gateway with the equivalent plugin configuration.",
+                    gateway_root=str(paths.gateway_root),
+                    gateway_host=live_instance.host,
+                    gateway_port=live_instance.port,
+                )
+        if plugin_config is not None:
+            write_gateway_desired_config(
+                paths.desired_config_path,
+                desired_config.model_copy(update={"desired_plugins": plugin_config}),
+            )
         resolved_port = _start_gateway_process(
             controller=controller,
             paths=paths,
@@ -4499,7 +4586,13 @@ def _find_tmux_pane(
 ) -> TmuxPaneRecord | None:
     """Return one tmux pane record by id when present."""
 
-    for pane in list_tmux_panes_shared(session_name=session_name):
+    try:
+        panes = list_tmux_panes_shared(session_name=session_name)
+    except TmuxCommandError:
+        if has_tmux_session_shared(session_name=session_name).returncode == 1:
+            return None
+        raise
+    for pane in panes:
         if pane.pane_id == pane_id:
             return pane
     return None
@@ -4555,6 +4648,7 @@ def _stop_same_session_gateway_surface(
         if (
             "can't find window" in detail
             or "can't find pane" in detail
+            or "can't find session" in detail
             or "no server running" in detail
         ):
             return False
@@ -4865,6 +4959,7 @@ def _start_gateway_process(
                         desired_execution_mode=execution_mode,
                         desired_tui_tracking_timings=tui_tracking_timings,
                         desired_diagnostic_logging=_load_desired_diagnostic_logging(paths),
+                        desired_plugins=_load_desired_plugins(paths),
                     ),
                 )
                 refresh_internal_gateway_publication(paths)
@@ -4956,6 +5051,7 @@ def _start_gateway_process(
                     desired_execution_mode=execution_mode,
                     desired_tui_tracking_timings=tui_tracking_timings,
                     desired_diagnostic_logging=_load_desired_diagnostic_logging(paths),
+                    desired_plugins=_load_desired_plugins(paths),
                 ),
             )
             refresh_internal_gateway_publication(paths)
@@ -5130,6 +5226,31 @@ def _load_desired_diagnostic_logging(
     if desired_config is None:
         return None
     return desired_config.desired_diagnostic_logging
+
+
+def _load_desired_plugins(paths: GatewayPaths) -> GatewayPluginConfiguration | None:
+    """Read persisted selections without resolving implementations or credentials."""
+
+    desired_config = _load_optional_desired_config(paths)
+    return desired_config.desired_plugins if desired_config is not None else None
+
+
+def _live_gateway_for_plugin_attach(
+    *, controller: RuntimeSessionController, paths: GatewayPaths
+) -> GatewayCurrentInstanceV1 | None:
+    """Find an existing process before considering a plugin selection change."""
+
+    try:
+        current = load_gateway_current_instance(paths.current_instance_path)
+    except SessionManifestError:
+        return None
+    if not is_pid_running(current.pid):
+        return None
+    if not _same_session_gateway_is_alive(
+        session_name=controller._require_tmux_session_name(), current_instance=current
+    ):
+        return None
+    return current
 
 
 def _gateway_process_start_failure_detail(*, log_path: Path, host: GatewayHost, port: int) -> str:

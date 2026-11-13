@@ -884,6 +884,7 @@ def test_attach_and_detach_gateway_refreshes_registry_payload(
         port_override: int | None,
         execution_mode_override: str | None,
         tui_tracking_timing_overrides: object | None = None,
+        plugin_config: object | None = None,
     ) -> GatewayControlResult:
         del (
             controller,
@@ -891,6 +892,7 @@ def test_attach_and_detach_gateway_refreshes_registry_payload(
             port_override,
             execution_mode_override,
             tui_tracking_timing_overrides,
+            plugin_config,
         )
         write_gateway_current_instance(
             paths.current_instance_path,

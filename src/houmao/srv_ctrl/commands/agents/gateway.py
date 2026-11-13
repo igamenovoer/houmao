@@ -12,6 +12,8 @@ from typing import Any, Callable, Literal, TypeVar
 import click
 from pydantic import ValidationError
 
+from houmao.gateway.plugins import GatewayPluginConfiguration, PluginConfigurationError
+
 from houmao.ag_ui.authoring import HoumaoAgUiValidationError, validate_ag_ui_event_sequence
 from houmao.ag_ui.models import AgUiEventPublishRequest
 from houmao.agents.realm_controller.agent_identity import (
@@ -210,6 +212,11 @@ def _gateway_tui_tracking_timing_overrides_or_none(
 
 @gateway_group.command(name="attach")
 @click.option(
+    "--plugins-config",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Versioned YAML/JSON plugin selection; omission preserves existing selections.",
+)
+@click.option(
     "--background",
     is_flag=True,
     help=(
@@ -225,6 +232,7 @@ def _gateway_tui_tracking_timing_overrides_or_none(
 @managed_agent_selector_options
 def attach_gateway_command(
     background: bool,
+    plugins_config: Path | None,
     gateway_tui_watch_poll_interval_seconds: float | None,
     gateway_tui_stability_threshold_seconds: float | None,
     gateway_tui_completion_stability_seconds: float | None,
@@ -239,6 +247,15 @@ def attach_gateway_command(
 ) -> None:
     """Attach or reuse a live gateway for one managed agent, foreground by default."""
 
+    try:
+        plugin_config = (
+            GatewayPluginConfiguration.from_file(plugins_config)
+            if plugins_config is not None
+            else None
+        )
+    except PluginConfigurationError as exc:
+        raise click.ClickException(str(exc)) from None
+
     target = _resolve_gateway_command_target(
         agent_id=agent_id,
         agent_name=agent_name,
@@ -251,6 +268,7 @@ def attach_gateway_command(
         attach_gateway(
             target,
             background=background,
+            **({"plugin_config": plugin_config} if plugin_config is not None else {}),
             tui_tracking_timing_overrides=_gateway_tui_tracking_timing_overrides_or_none(
                 gateway_tui_watch_poll_interval_seconds=(gateway_tui_watch_poll_interval_seconds),
                 gateway_tui_stability_threshold_seconds=gateway_tui_stability_threshold_seconds,

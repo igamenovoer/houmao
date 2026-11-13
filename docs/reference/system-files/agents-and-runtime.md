@@ -26,6 +26,9 @@ Representative default layout:
     <backend>/
       <session-id>/
         manifest.json
+        manifest.turn-artifacts/
+          <turn-id>/
+            .dispatch-permission.json
         usage/
           records.sqlite3
         mailbox-secrets/
@@ -38,6 +41,9 @@ Representative default layout:
           state.json
           queue.sqlite
           events.jsonl
+          plugins/
+            status.json
+            <instance-id>/bindings/<binding-id>/
           logs/
             gateway.log
             diagnostics/
@@ -125,6 +131,7 @@ Runtime-managed sessions are centered on one runtime-owned session root:
 | --- | --- | --- | --- | --- | --- |
 | `<runtime-root>/sessions/<backend>/<session-id>/` | start/resume runtime flow | runtime and gateway helpers | Durable directory envelope for one runtime-managed session | Stable path family | Do not delete while the session is live; `houmao-mgr agents single --agent-id <id> cleanup session` and `houmao-mgr admin cleanup runtime sessions` remove only stopped or otherwise malformed envelopes |
 | `<session-root>/manifest.json` | `persist_manifest()` | runtime manifest persistence | Durable session record used for resume and control | Stable operator-facing artifact | Treat as durable state |
+| `<session-root>/manifest.turn-artifacts/<turn-id>/.dispatch-permission.json` | immediate native headless dispatch | request cancellation/expiry and native execution validation | Private payload-free request fence carrying expiry and execution/origin identity, checked immediately before provider launch | Internal execution artifact, not a message inbox or delivery receipt | A revoked, expired, superseded, or orphaned grant cannot authorize replay |
 | `<session-root>/usage/records.sqlite3` | shared usage service | bound native collectors, shared headless finalization, and recovery | Independent usage ledger, staged observations, collection boundaries/checkpoints, provider-turn associations, and immutable finalized history | Stable path family, implementation-owned current schema | Preserve while accounting history or resumable cursors are required; independent of gateway queue storage and gateway process lifetime |
 | `<session-root>/mailbox-secrets/` | Stalwart mailbox bootstrap or resume for Stalwart-backed sessions | runtime mailbox helpers | Session-local secret-material directory keyed by `credential_ref` | Stable path family, secret-bearing contents remain opaque | Remove only after the session is stopped and no direct or gateway-backed mailbox work depends on it; `houmao-mgr agents single --agent-id <id> cleanup mailbox` exists for that exact scope |
 | `<session-root>/mailbox-secrets/<credential-ref>.json` | Stalwart mailbox bootstrap or resume for Stalwart-backed sessions | runtime mailbox helpers | Materialized per-session credential file surfaced through `resolve-live.mailbox.stalwart.credential_file` | Stable path, secret-bearing payload | Treat as cleanup-sensitive session-local secret material rather than scratch |
@@ -132,7 +139,9 @@ Runtime-managed sessions are centered on one runtime-owned session root:
 | `<session-root>/gateway/attach.json` | gateway-capability publication | runtime refresh | Internal bootstrap artifact used by runtime and gateway internals to seed startup, offline status, and metadata transfer for the same logical session | Internal runtime artifact | Durable |
 | `<session-root>/gateway/gateway_manifest.json` | gateway-capability publication | runtime refresh and attach or detach lifecycle | Derived outward-facing gateway bookkeeping regenerated from manifest-backed authority plus current listener state | Derived operator-facing publication | Durable |
 | `<session-root>/gateway/protocol-version.txt` | gateway-capability publication | runtime refresh if protocol changes | Local version marker for gateway artifacts | Stable path, simple payload | Durable |
-| `<session-root>/gateway/desired-config.json` | gateway-capability publication | attach/detach lifecycle | Desired host/port reuse hints, execution mode, TUI tracking timing, and optional diagnostic logging settings for later gateway starts | Stable operator-facing artifact | Durable |
+| `<session-root>/gateway/desired-config.json` | gateway-capability publication | attach/detach lifecycle | Desired host/port reuse hints, execution mode, TUI tracking timing, optional diagnostic logging settings, and complete `desired_plugins` selection with private credential references for later gateway starts | Stable operator-facing artifact | Durable |
+| `<session-root>/gateway/plugins/status.json` | plugin host | plugin lifecycle and connection reporting | Sanitized last-known plugin status without credentials, event bodies, or service calls during reads | Private diagnostic artifact | Retained across gateway process restart; reflects last-known state |
+| `<session-root>/gateway/plugins/<instance-id>/bindings/<binding-id>/` | plugin host activation | selected plugin through contained state capability | Owner/account-specific non-message state, such as successful source cursors and connection metadata | Private plugin-owned contents under a host-owned scope | Preserve while the account binding is needed; no notification cache or retry spool |
 | `<session-root>/gateway/state.json` | gateway-capability publication | gateway status refresh | Read-optimized last known gateway status, seeded before first live attach | Stable operator-facing artifact | Durable, but reflects current status |
 | `<session-root>/gateway/queue.sqlite` | gateway-capability publication | live gateway process | Durable request queue state plus gateway-owned notifier audit history | Stable path, implementation-owned contents | Treat as durable while the session is active |
 | `<session-root>/gateway/events.jsonl` | gateway-capability publication | live gateway process | Append-only gateway event log | Stable path, implementation-owned contents | Safe to inspect; not the source of truth for queue state |
@@ -142,6 +151,9 @@ Runtime-managed sessions are centered on one runtime-owned session root:
 | `<session-root>/gateway/run/gateway.pid` | live gateway lifecycle | live gateway lifecycle | Pidfile mirror for the live gateway process; same-session mode still writes it, but detach and cleanup rely on the current-instance execution handle rather than pid alone | Current implementation detail | Ephemeral; cleanup is valid only after the session is stopped |
 
 Same-session gateway notes:
+
+- [Gateway plugins](../gateway/plugins.md) keep credentials in explicitly selected private JSON files outside the checkout. Gateway state stores only references and scoped non-message metadata. A gateway/body restart does not resend failed plugin notifications; the sender owns retention and fresh retries.
+- Plugin notifications add no inbox, receipt ledger, queue tables, or queued request kinds. Existing request queue and notifier state retain their scheduling contracts.
 
 - maintained tmux-backed managed sessions seed the stable gateway subtree through the same runtime-owned gateway publication seam used by direct runtime flows
 - that means internal bootstrap files such as `attach.json`, derived publication such as `gateway_manifest.json`, `state.json`, queue/bootstrap files, and manifest-first tmux discovery env can exist before any live gateway is attached

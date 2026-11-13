@@ -11,6 +11,7 @@ from houmao.agents.realm_controller.backends.codex_headless import (
 from houmao.agents.realm_controller.backends.headless_base import (
     HeadlessSessionState,
 )
+from houmao.agents.realm_controller.backends.tmux_runtime import TmuxCommandError
 from houmao.agents.realm_controller.models import (
     LaunchPlan,
     RoleInjectionPlan,
@@ -128,4 +129,50 @@ def test_headless_terminate_force_cleanup_kills_tmux(
     assert result.status == "ok"
     assert "deleted tmux session" in result.detail
     assert captured["session_name"] == "HOUMAO-codex"
+    assert session.state.tmux_session_name is None
+
+
+@pytest.mark.parametrize("runner_error", [False, True])
+def test_headless_force_cleanup_succeeds_for_proven_absent_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, runner_error: bool
+) -> None:
+    """A last-window removal can finish cleanup before the native backend does."""
+
+    session = CodexHeadlessSession(
+        launch_plan=_sample_codex_launch_plan(tmp_path),
+        role_name="gpu-kernel-coder",
+        session_manifest_path=tmp_path / "session.json",
+        state=HeadlessSessionState(
+            working_directory=str(tmp_path), tmux_session_name="HOUMAO-codex"
+        ),
+    )
+
+    class Runner:
+        """Represent a stopped child with possibly stale tmux pane metadata."""
+
+        active_process_running = False
+
+        def terminate(self) -> SessionControlResult:
+            """Report a stale-pane error only after the child is absent."""
+
+            return SessionControlResult(
+                status="error" if runner_error else "ok", action="terminate", detail="stale pane"
+            )
+
+    def absent(**_: object) -> None:
+        """Report tmux's existing-session cleanup error."""
+
+        raise TmuxCommandError("Owned session is already absent")
+
+    session._runner = Runner()  # type: ignore[assignment]
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.headless_base.kill_tmux_session_shared", absent
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.headless_base.has_tmux_session_shared",
+        lambda **_: subprocess.CompletedProcess([], 1, "", ""),
+    )
+    session.configure_stop_force_cleanup(force_cleanup=True)
+    result = session.terminate()
+    assert result.status == "ok"
     assert session.state.tmux_session_name is None

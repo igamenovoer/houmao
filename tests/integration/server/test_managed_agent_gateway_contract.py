@@ -384,10 +384,17 @@ class _FakeParserAdapter:
         del tool, output_text
         return 17
 
-    def parse(self, *, tool: str, output_text: str, baseline_pos: int) -> OfficialParseResult:
+    def parse(
+        self,
+        *,
+        tool: str,
+        output_text: str,
+        baseline_pos: int,
+        detector_version: str | None = None,
+    ) -> OfficialParseResult:
         """Return the configured parse result."""
 
-        del tool, output_text, baseline_pos
+        del tool, output_text, baseline_pos, detector_version
         return self.m_result
 
 
@@ -674,6 +681,24 @@ class _FakeGatewayHeadlessController:
         """Record one manifest persistence request."""
 
         self.persist_manifest_calls.append(refresh_registry)
+
+    def send_prompt(
+        self,
+        prompt: str,
+        *,
+        session_selection: object | None = None,
+        turn_artifact_dir_name: str | None = None,
+        execution_model: object | None = None,
+        refresh_registry: bool = True,
+    ) -> list[object]:
+        """Model the public controller prompt and manifest-persistence boundary."""
+
+        assert session_selection is None and execution_model is None
+        events = self.backend_session.send_prompt(
+            prompt, turn_artifact_dir_name=turn_artifact_dir_name
+        )
+        self.persist_manifest(refresh_registry=refresh_registry)
+        return events
 
     def interrupt(self) -> SessionControlResult:
         """Return a successful interrupt result."""
@@ -1139,6 +1164,7 @@ def test_tui_managed_agent_request_handoff_prefers_live_gateway_and_falls_back_a
             session_name="cao-rest-1",
             terminal_id="abcd1234",
             tool="codex",
+            observed_tool_version="0.162.1",
             tmux_session_name="HOUMAO-gpu",
             tmux_window_name="developer-1",
             manifest_path=str(manifest_path),
@@ -1148,7 +1174,7 @@ def test_tui_managed_agent_request_handoff_prefers_live_gateway_and_falls_back_a
         )
     )
     direct_state = service.refresh_terminal_state("abcd1234")
-    assert direct_state.diagnostics.availability == "available"
+    assert direct_state.diagnostics.availability == "available", direct_state.diagnostics
 
     direct_accepted = service.submit_managed_agent_request(
         "cao-rest-1",

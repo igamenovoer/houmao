@@ -128,6 +128,9 @@ Current v1 routes:
 - `GET /health`
 - `GET /v1/status`
 - `GET /v1/usage`
+- `GET /v1/plugins`
+- `GET /v1/plugins/{instance_id}/_status`
+- Plugin-owned routes below `/v1/plugins/{instance_id}` for explicitly selected, valid implementations.
 - `POST /v1/control/prompt`
 - `GET /v1/control/tui/state`
 - `GET /v1/control/tui/history`
@@ -159,6 +162,14 @@ Current v1 routes:
 - `DELETE /v1/ag-ui/connections/{connection_id}`
 
 The direct AG-UI routes are documented in [Gateway AG-UI Routes](../ag-ui.md). They attach GUI streams and submit AG-UI task runs to the existing gateway queue; they do not give the GUI managed-agent lifecycle ownership.
+
+### Plugin Status and Custom Routes
+
+`GET /v1/plugins` returns sanitized host snapshots for the complete configured set. `GET /v1/plugins/{instance_id}/_status` reads one snapshot without calling a service. A failed instance's custom routes return `503`; core and unrelated plugin routes remain available. See [Gateway Plugins](../plugins.md) for public status fields and route admission.
+
+Plugin notifications use immediate `ready_only` admission. Success requires confirmed handoff to the same observed body; a busy or uncertain body produces `409`, body loss/replacement or unconfirmed dispatch produces `503`, and invalid input produces `422`. A missing or killed gateway produces a connection failure. The sender keeps the failed message and makes a fresh request later. A lost success response can make that retry a duplicate.
+
+This API creates no event inbox, receipt ledger, queued event kind, or queue-schema extension. Gateway/body restart and service reconnection do not resend an earlier notification. Existing request queue, reminder, and notifier behavior remains unchanged.
 
 ### `GET /health`
 
@@ -1031,6 +1042,9 @@ Representative gateway tree:
   gateway_manifest.json
   protocol-version.txt
   desired-config.json
+  plugins/
+    status.json
+    <instance-id>/bindings/<binding-id>/
   state.json
   queue.sqlite
   events.jsonl
@@ -1048,7 +1062,9 @@ Artifact roles:
 - `attach.json`: internal bootstrap state
 - `gateway_manifest.json`: derived outward-facing gateway bookkeeping
 - `protocol-version.txt`: simple version marker for local artifacts
-- `desired-config.json`: desired host, port, execution mode, TUI tracking timings, and optional diagnostic logging settings to reuse on later starts
+- `desired-config.json`: desired host, port, execution mode, TUI tracking timings, optional diagnostic logging settings, and the complete `desired_plugins` selection to reuse on later starts. Credential selection persists a private file reference rather than its contents.
+- `plugins/status.json`: private, sanitized last-known plugin host status for offline diagnosis.
+- `plugins/<instance-id>/bindings/<binding-id>/`: owner/account-scoped plugin state such as successful source cursors and connection metadata; notification payloads and retry spools are excluded.
 - `state.json`: read-optimized current status contract
 - `queue.sqlite`: durable queue records, the singleton gateway-owned mail notifier record, and the `gateway_notifier_audit` table that records one structured notifier decision row per enabled poll cycle
 - `events.jsonl`: append-only event log
@@ -1056,6 +1072,8 @@ Artifact roles:
 - `logs/diagnostics/gateway-diagnostic.log`: opt-in structured JSONL diagnostic log. Rotated siblings use numeric suffixes such as `gateway-diagnostic.log.1`. These files are cleanup-sensitive log artifacts, not durable gateway state.
 - `run/current-instance.json`: current process id, host, port, upstream epoch and instance id, plus same-session execution-handle fields when the gateway is hosted in a tmux auxiliary window
 - `run/gateway.pid`: pidfile mirror; still written for same-session mode, but the tmux execution handle in `current-instance.json` is the authoritative stop or cleanup target
+
+Native headless plugin dispatch may also create `<session-root>/manifest.turn-artifacts/<turn-id>/.dispatch-permission.json`. This private request-scoped fence contains expiry and execution/origin identity, without an event body. A failed, expired, superseded, or orphaned request cannot authorize a later provider launch. It is separate from `queue.sqlite` and is not a delivery receipt or retry store.
 
 Operator note:
 

@@ -929,6 +929,7 @@ class HoumaoManagedAgentGatewayInternalHeadlessPromptRequest(_HoumaoModel):
     turn_id: str | None = None
     chat_session: GatewayChatSessionSelectorV1 | None = None
     execution: GatewayExecutionOverrideV1 | None = None
+    dispatch_guard_file: str | None = None
 
     @field_validator("prompt", "turn_id")
     @classmethod

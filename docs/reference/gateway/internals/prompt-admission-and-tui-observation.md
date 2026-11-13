@@ -118,6 +118,8 @@ The `ready_only | if_no_pending | always` contract belongs to direct prompt cont
 
 The durable `/v1/requests` queue, prompt reminders, and the mail notifier have their own scheduling and admission behavior. Gateway-durable queue depth is also distinct from provider-native pending input. Developers adding a new automatic prompt path must choose and document its tracked-readiness and pending-input policy explicitly rather than assuming that direct-control admission runs automatically.
 
+The [plugin event API](../plugins.md#dispatch-now-or-return-an-error) explicitly chooses immediate `ready_only` admission. It respects readiness, pending input, active hook gates, and conflicting accepted work. A busy or uncertain body returns `409`; unavailability or body death/replacement during the in-flight handoff returns `503`. The sender retains the event and decides when to make a fresh request. Plugin events do not enter the durable request queue or change existing reminder and notifier scheduling.
+
 ## Operational Interpretation
 
 When diagnosing unexpected queued prompts:

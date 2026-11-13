@@ -13,6 +13,9 @@ import time
 from datetime import UTC, datetime
 from typing import Callable, Sequence
 
+from houmao.agents.realm_controller.backends.dispatch_control import (
+    headless_dispatch_permission_allowed,
+)
 from houmao.agents.realm_controller.backends.headless_output import (
     append_canonical_headless_event,
     append_stderr_diagnostic_event,
@@ -53,16 +56,62 @@ def main(argv: Sequence[str] | None = None) -> int:
     stderr_path.write_text("", encoding="utf-8")
     canonical_path.write_text("", encoding="utf-8")
 
-    process = subprocess.Popen(
-        command,
-        cwd=str(args.cwd.resolve()),
-        env={**os.environ, **args.env},
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1,
-    )
+    if args.dispatch_guard_file is not None and not headless_dispatch_permission_allowed(
+        args.dispatch_guard_file
+    ):
+        _record_launch_failure(
+            turn_dir=turn_dir,
+            returncode=125,
+            message="Immediate dispatch permission expired or was revoked.",
+            started_monotonic=started_monotonic,
+        )
+        return 125
+
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=str(args.cwd.resolve()),
+            env={**os.environ, **args.env},
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+    except (OSError, ValueError):
+        _record_launch_failure(
+            turn_dir=turn_dir,
+            returncode=127,
+            message="Headless client could not start.",
+            started_monotonic=started_monotonic,
+        )
+        return 127
+
+    if args.dispatch_guard_file is not None and not headless_dispatch_permission_allowed(
+        args.dispatch_guard_file
+    ):
+        try:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=1.0)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        finally:
+            if process.stdout is not None:
+                process.stdout.close()
+            if process.stderr is not None:
+                process.stderr.close()
+        _record_launch_failure(
+            turn_dir=turn_dir,
+            returncode=125,
+            message="Immediate dispatch permission expired or was revoked.",
+            started_monotonic=started_monotonic,
+        )
+        return 125
 
     process_path.write_text(
         (
@@ -159,6 +208,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     return returncode
 
 
+def _record_launch_failure(
+    *, turn_dir: Path, returncode: int, message: str, started_monotonic: float
+) -> None:
+    """Publish safe terminal evidence even when the bridge cannot start its client."""
+
+    (turn_dir / "stderr.log").write_text(message + "\n", encoding="utf-8")
+    (turn_dir / "exitcode").write_text(f"{returncode}\n", encoding="utf-8")
+    persist_terminal_evidence(
+        turn_dir,
+        returncode=returncode,
+        completed_at_utc=datetime.now(UTC).isoformat(),
+        wall_time_ms=(time.monotonic() - started_monotonic) * 1000,
+        interrupted=False,
+    )
+
+
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     """Parse the headless bridge CLI arguments."""
 
@@ -176,6 +241,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--detail", default="concise")
     parser.add_argument("--launched-at-utc", required=True)
     parser.add_argument("--env-file", required=True, type=Path)
+    parser.add_argument("--dispatch-guard-file", type=Path)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(list(argv) if argv is not None else None)
     try:

@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 import shutil
 import threading
@@ -64,6 +65,10 @@ from houmao.agents.realm_controller.gateway_storage import (
     resolve_internal_gateway_attach_contract,
 )
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
+from houmao.agents.realm_controller.backends.dispatch_control import (
+    HeadlessDispatchControl,
+    headless_dispatch_permission_allowed,
+)
 from houmao.agents.realm_controller.backends.headless_output import (
     HeadlessProvider,
     resolve_headless_provider,
@@ -76,6 +81,7 @@ from houmao.agents.realm_controller.backends.headless_runner import (
 from houmao.cao.models import CaoSuccessResponse, CaoTerminal
 from houmao.cao.no_proxy import scoped_loopback_no_proxy_for_cao_base_url
 from houmao.agents.realm_controller.errors import (
+    BackendExecutionError,
     GatewayHttpError,
     LaunchPlanError,
     SessionManifestError,
@@ -395,6 +401,74 @@ class LocalCompatibilityTransportBridge:
             content_type="application/json",
             json_payload=payload,
         )
+
+
+class _ManagedHeadlessDispatchControl(HeadlessDispatchControl):
+    """Use the caller's selected fence without renewing or reactivating it."""
+
+    def prepare_bridge_permission(self, turn_dir: Path) -> Path:
+        """Pass the selected source through to the bridge without overwriting it."""
+
+        del turn_dir
+        self.require_allowed()
+        if self.m_permission_path is None:
+            raise BackendExecutionError("Immediate dispatch permission is unavailable")
+        return self.m_permission_path
+
+
+def _managed_headless_dispatch_control(
+    *, handle: _ManagedHeadlessAgentHandle, turn_id: str | None, guard_file: str
+) -> HeadlessDispatchControl:
+    """Validate a payload-free grant selected for this exact owner and turn."""
+
+    safe_error = "Managed headless immediate dispatch permission is unavailable."
+    if not turn_id or Path(turn_id).name != turn_id or turn_id in {".", ".."}:
+        raise HTTPException(status_code=422, detail=safe_error)
+    manifest_path = Path(handle.authority.manifest_path).resolve()
+    turn_root = manifest_path.parent / f"{manifest_path.stem}.turn-artifacts"
+    expected = turn_root / turn_id / ".dispatch-permission.json"
+    selected = Path(guard_file)
+    if not selected.is_absolute() or selected != expected or ".." in selected.parts:
+        raise HTTPException(status_code=422, detail=safe_error)
+    if any(path.is_symlink() for path in (turn_root, expected.parent, expected)):
+        raise HTTPException(status_code=422, detail=safe_error)
+    try:
+        if expected.stat().st_size > 4096:
+            raise ValueError("oversized permission")
+        payload: object = json.loads(expected.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("invalid permission")
+        expires_at = payload.get("expires_at")
+        generation = payload.get("registry_generation_id")
+        origin_pid = payload.get("origin_pid")
+        origin_birth_token = payload.get("origin_birth_token")
+        if (
+            isinstance(expires_at, bool)
+            or not isinstance(expires_at, (int, float))
+            or not math.isfinite(expires_at)
+            or not isinstance(generation, str)
+            or not generation
+            or type(origin_pid) is not int
+            or origin_pid <= 0
+            or not isinstance(origin_birth_token, str)
+            or not origin_birth_token
+            or payload.get("manifest_path") != str(manifest_path)
+            or not headless_dispatch_permission_allowed(expected)
+        ):
+            raise ValueError("invalid permission")
+    except (OSError, ValueError, TypeError):
+        raise HTTPException(status_code=503, detail=safe_error) from None
+    control = _ManagedHeadlessDispatchControl.from_callbacks(
+        allowed=lambda: headless_dispatch_permission_allowed(expected),
+        confirmed=lambda: None,
+        deadline=time.monotonic() + max(0.0, float(expires_at) - time.time()),
+        manifest_path=manifest_path,
+        generation_id=generation,
+    )
+    control.m_permission_path = expected
+    control.m_origin_pid = origin_pid
+    control.m_origin_birth_token = origin_birth_token
+    return control
 
 
 class HoumaoServerService:
@@ -1440,6 +1514,7 @@ class HoumaoServerService:
                 if request_model.execution is not None
                 else None
             ),
+            dispatch_guard_file=request_model.dispatch_guard_file,
         )
         detail = (
             f"Managed headless prompt `{request_model.turn_id}` dispatched."
@@ -4289,6 +4364,7 @@ class HoumaoServerService:
         turn_id: str | None,
         chat_session: GatewayChatSessionSelectorV1 | None,
         execution_model: ModelConfig | None,
+        dispatch_guard_file: str | None = None,
     ) -> None:
         """Execute one direct headless prompt on the server-owned controller."""
 
@@ -4308,15 +4384,52 @@ class HoumaoServerService:
             handle=handle,
             chat_session=chat_session,
         )
+        dispatch_control = (
+            _managed_headless_dispatch_control(
+                handle=handle,
+                turn_id=turn_id,
+                guard_file=dispatch_guard_file,
+            )
+            if dispatch_guard_file is not None
+            else None
+        )
+        if dispatch_control is not None:
+            with self.m_lock:
+                if backend_session.m_dispatch_control is not None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Managed headless execution already has an active dispatch.",
+                    )
+                backend_session.configure_request_dispatch(dispatch_control)
         try:
+            if dispatch_control is not None:
+                dispatch_control.require_allowed()
             controller.send_prompt(
                 prompt,
                 session_selection=session_selection,
                 turn_artifact_dir_name=turn_id,
                 execution_model=execution_model,
             )
+            if dispatch_control is not None:
+                dispatch_control.require_allowed()
+                if not dispatch_control.m_handoff_confirmed.is_set():
+                    raise HTTPException(
+                        status_code=503,
+                        detail="Managed headless client handoff was not confirmed.",
+                    )
         except Exception as exc:
+            if dispatch_control is not None:
+                dispatch_control.cancel()
+                raise HTTPException(
+                    status_code=503,
+                    detail="Managed headless immediate dispatch could not be confirmed.",
+                ) from None
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            if dispatch_control is not None:
+                with self.m_lock:
+                    if backend_session.m_dispatch_control is dispatch_control:
+                        backend_session.configure_request_dispatch(None)
 
     def _headless_turn_session_selection_for_request(
         self,

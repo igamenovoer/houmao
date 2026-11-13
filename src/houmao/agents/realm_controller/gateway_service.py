@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 import hashlib
 from importlib import resources
@@ -13,7 +14,7 @@ import socket
 import sqlite3
 import threading
 import time
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, NoReturn, Protocol, TypeVar, cast
@@ -57,6 +58,16 @@ from houmao.agents.model_selection import ModelConfig
 from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
 from houmao.agents.realm_controller.errors import GatewayError, SessionManifestError
 from houmao.agents.realm_controller.errors import LaunchPlanError
+from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
+from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
+from houmao.agents.realm_controller.gateway_plugin_host import GatewayPluginHost
+from houmao.gateway.plugins import (
+    GatewayPluginConfiguration,
+    PluginDispatchError,
+    PluginDispatchResult,
+    PluginEvent,
+    PluginOwner,
+)
 from houmao.agents.realm_controller.usage_models import UsagePage
 from houmao.agents.realm_controller.usage_store import UsageStoreError
 from houmao.agents.realm_controller.usage_support import UsageService
@@ -197,6 +208,7 @@ from houmao.agents.realm_controller.backends.headless_output import (
 )
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     HEADLESS_AGENT_WINDOW_NAME,
+    resolve_primary_tmux_surface,
     tmux_session_exists,
 )
 from houmao.cao.rest_client import CaoApiError, CaoRestClient
@@ -675,6 +687,26 @@ class GatewayExecutionAdapter(Protocol):
         """Interrupt the addressed managed target."""
 
 
+class _PluginExecutionAdapter(Protocol):
+    """Optional execution seam requiring native confirmation and launch fencing."""
+
+    def capture_plugin_execution_identity(self) -> tuple[str, ...]:
+        """Observe the body incarnation without changing it."""
+
+    def submit_plugin_event(
+        self,
+        *,
+        prompt: str,
+        turn_id: str,
+        session_selection: HeadlessTurnSessionSelection | None,
+        control: HeadlessDispatchControl,
+    ) -> None:
+        """Dispatch only while the request grant remains valid."""
+
+    def cancel_plugin_event(self, control: HeadlessDispatchControl) -> None:
+        """Revoke only this request's attempt."""
+
+
 class _RestBackedGatewayAdapter:
     """Execution adapter for runtime-owned REST-backed tmux sessions."""
 
@@ -956,6 +988,50 @@ class _LocalHeadlessGatewayAdapter:
         if result.status != "ok":
             raise GatewayError(result.detail)
 
+    def capture_plugin_execution_identity(self) -> tuple[str, ...]:
+        """Capture native execution evidence for an immediate plugin attempt."""
+
+        self._require_live_tmux_session()
+        backend = self._resume_controller().backend_session
+        if not isinstance(backend, HeadlessInteractiveSession):
+            raise GatewayError("Native dispatch confirmation is unavailable")
+        return backend.plugin_execution_identity()
+
+    def submit_plugin_event(
+        self,
+        *,
+        prompt: str,
+        turn_id: str,
+        session_selection: HeadlessTurnSessionSelection | None,
+        control: HeadlessDispatchControl,
+    ) -> None:
+        """Fence actual native handoff rather than acknowledge a scheduled thread."""
+
+        backend = self._resume_controller().backend_session
+        if not isinstance(backend, HeadlessInteractiveSession):
+            raise GatewayError("Native dispatch confirmation is unavailable")
+        backend.configure_request_dispatch(control)
+        try:
+            control.require_allowed()
+            self.submit_prompt(
+                prompt=prompt,
+                turn_id=turn_id,
+                session_selection=session_selection,
+            )
+            # A synchronous successful result is also valid dispatch evidence.
+            control.confirm_handoff()
+        finally:
+            backend.configure_request_dispatch(None)
+
+    def cancel_plugin_event(self, control: HeadlessDispatchControl) -> None:
+        """Revoke only this attempt, without sending input to a replacement body."""
+
+        control.cancel()
+        if self.m_controller is not None:
+            backend = self.m_controller.backend_session
+            if isinstance(backend, HeadlessInteractiveSession):
+                backend.cancel_request_dispatch(control)
+
     def send_control_input(self, *, sequence: str, escape_special_keys: bool = False) -> str:
         """Deliver raw control input through resumed local runtime control."""
 
@@ -1119,6 +1195,64 @@ class _ServerManagedHeadlessGatewayAdapter:
             HoumaoManagedAgentInterruptRequest(),
         )
 
+    def capture_plugin_execution_identity(self) -> tuple[str, ...]:
+        """Observe managed generation and native surface instead of queued acceptance."""
+
+        manifest_value = self.m_attach_contract.manifest_path
+        if manifest_value is None or self.inspect_target().connectivity != "connected":
+            raise GatewayError("Managed execution identity is unavailable")
+        try:
+            payload = json.loads(Path(manifest_value).read_text(encoding="utf-8"))
+            generation = payload.get("registry_generation_id")
+            surface = resolve_primary_tmux_surface(
+                session_name=self.m_attach_contract.tmux_session_name,
+                window_name=HEADLESS_AGENT_WINDOW_NAME,
+            )
+        except (OSError, ValueError, RuntimeError) as exc:
+            raise GatewayError("Managed execution identity is unavailable") from exc
+        if not isinstance(generation, str) or not generation:
+            raise GatewayError("Managed execution generation is unavailable")
+        return generation, surface.window_id, surface.pane_id
+
+    def submit_plugin_event(
+        self,
+        *,
+        prompt: str,
+        turn_id: str,
+        session_selection: HeadlessTurnSessionSelection | None,
+        control: HeadlessDispatchControl,
+    ) -> None:
+        """Require guarded synchronous execution; never accept an upstream queue receipt."""
+
+        internal_submit = getattr(
+            self._resolve_client(), "submit_managed_agent_gateway_internal_headless_prompt", None
+        )
+        manifest_value = self.m_attach_contract.manifest_path
+        if not callable(internal_submit) or manifest_value is None:
+            raise GatewayError("Managed dispatch confirmation is unavailable")
+        control.require_allowed()
+        manifest = Path(manifest_value)
+        turn_dir = manifest.parent / f"{manifest.stem}.turn-artifacts" / turn_id
+        turn_dir.mkdir(parents=True, exist_ok=True)
+        permission = control.prepare_bridge_permission(turn_dir)
+        response = internal_submit(
+            self.m_managed_agent_ref,
+            HoumaoManagedAgentGatewayInternalHeadlessPromptRequest(
+                prompt=prompt,
+                turn_id=turn_id,
+                chat_session=self._selector_payload(session_selection),
+                dispatch_guard_file=str(permission),
+            ),
+        )
+        if not response.success:
+            raise GatewayError("Managed immediate dispatch failed")
+        control.confirm_handoff()
+
+    def cancel_plugin_event(self, control: HeadlessDispatchControl) -> None:
+        """Revoke delayed managed launches without interrupting a replacement body."""
+
+        control.cancel()
+
     def send_control_input(self, *, sequence: str, escape_special_keys: bool = False) -> str:
         """Reject raw send-keys for server-managed headless routes."""
 
@@ -1260,6 +1394,9 @@ class GatewayServiceRuntime:
         self.m_active_reminder_id: str | None = None
         self.m_usage_service: UsageService | None = None
         self.m_usage_error: UsageStoreError | None = None
+        self.m_plugin_host: GatewayPluginHost | None = None
+        self.m_plugin_lifecycle_deferred: bool = False
+        self.m_plugin_dispatch_pending: bool = False
         usage_manifest = self.m_attach_contract.manifest_path
         self.m_usage_manifest_path: Path = (
             Path(usage_manifest).expanduser().resolve()
@@ -1270,6 +1407,52 @@ class GatewayServiceRuntime:
             self.m_usage_service = UsageService.from_manifest(self.m_usage_manifest_path)
         except UsageStoreError as exc:
             self.m_usage_error = exc
+
+    def prepare_plugin_host(self, app: FastAPI) -> None:
+        """Stage the complete plugin inventory after all core routes are registered."""
+
+        configuration = GatewayPluginConfiguration()
+        if self.m_paths.desired_config_path.is_file():
+            desired = load_gateway_desired_config(self.m_paths.desired_config_path)
+            configuration = desired.desired_plugins or configuration
+        owner_id = self.m_attach_contract.attach_identity
+        owner_name: str | None = None
+        manifest_path = self.m_attach_contract.manifest_path
+        if manifest_path is not None and configuration.plugins:
+            manifest = load_session_manifest(Path(manifest_path))
+            owner = parse_session_manifest_payload(manifest.payload, source=str(manifest.path))
+            owner_id = owner.agent_id or owner_id
+            owner_name = owner.agent_name
+        self.m_plugin_host = GatewayPluginHost.from_config(
+            configuration=configuration,
+            owner=PluginOwner(
+                agent_id=owner_id,
+                runtime_session_id=(
+                    self.m_attach_contract.runtime_session_id
+                    or self.m_attach_contract.attach_identity
+                ),
+                agent_name=owner_name,
+            ),
+            gateway_root=self.m_paths.gateway_root,
+            project_root=Path(self.m_attach_contract.working_directory),
+            listener_host=self.m_host,
+            dispatch=self.dispatch_plugin_event,
+        )
+        self.m_plugin_host.stage(app)
+
+    async def start_plugins(self) -> None:
+        """Activate independent plugin lifespans after listener resolution."""
+
+        if self.m_plugin_host is not None:
+            await self.m_plugin_host.start(
+                host=self.m_host, port=self.m_port if self.m_port > 0 else None
+            )
+
+    async def stop_plugins(self) -> None:
+        """Revoke plugin contexts and bound their cooperative cleanup."""
+
+        if self.m_plugin_host is not None:
+            await self.m_plugin_host.stop()
 
     def _load_diagnostic_logging_config(self) -> GatewayDiagnosticLoggingConfigV1:
         """Load persisted diagnostic logging config, defaulting to disabled."""
@@ -2342,6 +2525,232 @@ class GatewayServiceRuntime:
             normalized = normalized[: -len(_SEND_KEYS_ENTER_TOKEN)]
         return f"{normalized}{_SEND_KEYS_ENTER_TOKEN}"
 
+    def dispatch_plugin_event(
+        self,
+        event: PluginEvent,
+        *,
+        instance_id: str,
+        binding_id: str,
+        timeout_seconds: float,
+        is_active: Callable[[], bool],
+    ) -> PluginDispatchResult:
+        """Confirm one immediate notification handoff, with no retry storage.
+
+        The request owns its launch grant and bounded confirmation wait. A
+        confirmed headless turn may continue after the successful response.
+        """
+
+        source_id = event.source_event_id
+
+        def fail(
+            code: str,
+            status: int = 503,
+            *,
+            outcome: Literal["not_sent", "unknown"] = "not_sent",
+        ) -> NoReturn:
+            """Raise a fixed safe error without event or native exception text."""
+
+            raise PluginDispatchError(
+                error_code=code,
+                status_code=status,
+                retryable=status in {409, 503},
+                dispatch_outcome=outcome,
+                source_event_id=source_id,
+                message="Immediate notification dispatch failed; the sender retains the message.",
+            )
+
+        try:
+            encoded = event.model_dump_json().encode("utf-8")
+            event = PluginEvent.model_validate_json(encoded)
+        except (ValidationError, ValueError, TypeError):
+            fail("invalid_event", 422)
+        limit = (
+            self.m_plugin_host.m_configuration.max_event_bytes
+            if self.m_plugin_host is not None
+            else 65536
+        )
+        if not event.text.strip() or len(encoded) > limit:
+            fail("invalid_event", 422)
+        if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+            fail("invalid_timeout", 422)
+        if not all(
+            callable(getattr(self.m_adapter, name, None))
+            for name in (
+                "capture_plugin_execution_identity",
+                "submit_plugin_event",
+                "cancel_plugin_event",
+            )
+        ):
+            fail("dispatch_confirmation_unavailable")
+        adapter = cast(_PluginExecutionAdapter, self.m_adapter)
+        deadline = time.monotonic() + timeout_seconds
+        confirmed = threading.Event()
+        completed = threading.Event()
+        failed = threading.Event()
+        request_live = threading.Event()
+        request_live.set()
+        selection: HeadlessTurnSessionSelection | None = None
+        consume_override = False
+        with self.m_lock:
+            if self.m_host != "127.0.0.1":
+                fail("listener_policy", 422)
+            if self.m_stop_event.is_set() or not is_active() or self.m_worker_thread is None:
+                fail("gateway_unavailable")
+            try:
+                status = self._refresh_status_snapshot(
+                    active_execution=self._active_execution_state()
+                )
+                mode = self._prompt_dispatch_mode_locked(admission_policy="ready_only")
+                self._validate_prompt_control_locked(
+                    status=status,
+                    admission_policy="ready_only",
+                    dispatch_mode=mode,
+                    request_chat_session=None,
+                )
+                self._require_prompt_ready_locked(
+                    status=status, dispatch_mode=mode, admission_policy="ready_only"
+                )
+                if mode == "tui":
+                    self._require_hook_admission_locked(admission_policy="ready_only")
+                else:
+                    selection, consume_override = self._resolve_headless_prompt_selection_locked(
+                        request_chat_session=None,
+                        allow_next_prompt_override=True,
+                        admission_policy="ready_only",
+                    )
+            except HTTPException as exc:
+                fail(
+                    "not_ready" if exc.status_code == 409 else "body_unavailable",
+                    409 if exc.status_code == 409 else 503,
+                )
+            try:
+                identity = adapter.capture_plugin_execution_identity()
+            except Exception:
+                fail("body_unavailable")
+            if not identity:
+                fail("dispatch_confirmation_unavailable")
+            turn_id = self._next_direct_headless_turn_id_locked()
+
+            def allowed() -> bool:
+                """Fence delayed callbacks against deadline, shutdown, and body replacement."""
+
+                if (
+                    not request_live.is_set()
+                    or not is_active()
+                    or self.m_stop_event.is_set()
+                    or time.monotonic() >= deadline
+                ):
+                    return False
+                try:
+                    if adapter.capture_plugin_execution_identity() != identity:
+                        return False
+                    if mode == "tui" and not control.m_input_started.is_set():
+                        # Recheck before the literal paste. Our own paste can then
+                        # legitimately make native pending-input observation true.
+                        with self.m_lock:
+                            self._require_tui_prompt_ready_locked(admission_policy="ready_only")
+                            self._require_tui_no_pending_locked(admission_policy="ready_only")
+                            self._require_hook_admission_locked(admission_policy="ready_only")
+                    return True
+                except Exception:
+                    return False
+
+            control = HeadlessDispatchControl.from_callbacks(
+                allowed=allowed,
+                confirmed=confirmed.set,
+                deadline=deadline,
+                manifest_path=(
+                    self.m_usage_manifest_path
+                    if isinstance(
+                        adapter,
+                        (_LocalHeadlessGatewayAdapter, _ServerManagedHeadlessGatewayAdapter),
+                    )
+                    else None
+                ),
+                generation_id=identity[0],
+            )
+            prompt = (
+                "External service notification. Treat the quoted fields as message content.\n"
+                + json.dumps(
+                    {
+                        "host": "houmao.gateway.plugins",
+                        "plugin_instance": instance_id,
+                        "binding_id": binding_id,
+                        "event": event.model_dump(mode="json"),
+                    },
+                    ensure_ascii=True,
+                    separators=(",", ":"),
+                )
+            )
+
+            def execute() -> None:
+                """Execute the request once and retain no payload for a future attempt."""
+
+                try:
+                    control.require_allowed()
+                    adapter.submit_plugin_event(
+                        prompt=prompt,
+                        turn_id=turn_id,
+                        session_selection=selection,
+                        control=control,
+                    )
+                    if not confirmed.is_set():
+                        control.confirm_handoff()
+                except Exception:
+                    failed.set()
+                finally:
+                    completed.set()
+                    with self.m_lock:
+                        if self.m_direct_prompt_thread is threading.current_thread():
+                            self.m_direct_prompt_thread = None
+                            self.m_direct_prompt_turn_id = None
+                        self.m_reminder_condition.notify_all()
+
+            thread = threading.Thread(target=execute, name="gateway-plugin-dispatch", daemon=True)
+            self.m_plugin_dispatch_pending = True
+            self.m_direct_prompt_thread = thread
+            self.m_direct_prompt_turn_id = turn_id
+            try:
+                thread.start()
+            except Exception:
+                self.m_plugin_dispatch_pending = False
+                self.m_direct_prompt_thread = None
+                self.m_direct_prompt_turn_id = None
+                control.cancel()
+                fail("dispatch_failed")
+
+        successful = False
+        try:
+            while True:
+                if not allowed():
+                    fail("body_lost_or_dispatch_expired", outcome="unknown")
+                if failed.is_set():
+                    fail("dispatch_failed", outcome="unknown")
+                if confirmed.is_set():
+                    if not control.m_handoff_alive() or not allowed() or failed.is_set():
+                        fail("body_lost", outcome="unknown")
+                    with self.m_lock:
+                        if consume_override:
+                            self.m_headless_next_prompt_override = None
+                        tracking = self.m_tui_tracking
+                    if tracking is not None:
+                        tracking.note_prompt_submission(message=prompt)
+                    successful = True
+                    return PluginDispatchResult(source_event_id=source_id)
+                if completed.wait(timeout=min(0.025, max(0.0, deadline - time.monotonic()))):
+                    if not confirmed.is_set():
+                        fail("dispatch_unconfirmed", outcome="unknown")
+        finally:
+            request_live.clear()
+            if not successful:
+                control.cancel()
+                try:
+                    adapter.cancel_plugin_event(control)
+                except Exception:
+                    pass
+            with self.m_lock:
+                self.m_plugin_dispatch_pending = False
+
     def control_prompt(
         self,
         request_payload: GatewayPromptControlRequestV1,
@@ -2363,6 +2772,13 @@ class GatewayServiceRuntime:
         admission_facts: dict[str, GatewayJsonValue]
 
         with self.m_lock:
+            if self.m_plugin_dispatch_pending:
+                self._raise_prompt_control_http_error(
+                    status_code=409,
+                    admission_policy=admission_policy,
+                    error_code="not_ready",
+                    detail="An immediate plugin dispatch is in flight.",
+                )
             status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
             dispatch_mode = self._prompt_dispatch_mode_locked(admission_policy=admission_policy)
             self._validate_prompt_control_locked(
@@ -4469,6 +4885,11 @@ class GatewayServiceRuntime:
                 record = self._next_effective_accepted_request_locked(connection)
                 if record is None:
                     return None
+                direct = self.m_direct_prompt_thread
+                if record.request_kind == "submit_prompt" and (
+                    self.m_plugin_dispatch_pending or (direct is not None and direct.is_alive())
+                ):
+                    return None
                 connection.execute(
                     """
                     UPDATE gateway_requests
@@ -4969,6 +5390,8 @@ class GatewayServiceRuntime:
     def _active_execution_state(self) -> GatewayExecutionState:
         """Return whether a queue item is currently running."""
 
+        if self.m_plugin_dispatch_pending:
+            return "running"
         direct_prompt_thread = self.m_direct_prompt_thread
         if direct_prompt_thread is not None and direct_prompt_thread.is_alive():
             return "running"
@@ -5378,9 +5801,45 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
     -------
     FastAPI
         Configured FastAPI application.
+
+    Raises
+    ------
+    GatewayError
+        If this runtime already owns another application and plugin host.
     """
 
-    app = FastAPI()
+    if isinstance(runtime, GatewayServiceRuntime) and runtime.m_plugin_host is not None:
+        raise GatewayError("A gateway runtime can bind only one application.")
+
+    @asynccontextmanager
+    async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        """Share activation and cleanup with the post-bind production coordinator."""
+
+        embedded_started = False
+        embedded_lifecycle = (
+            isinstance(runtime, GatewayServiceRuntime) and not runtime.m_plugin_lifecycle_deferred
+        )
+        try:
+            if embedded_lifecycle:
+                host = runtime.m_plugin_host
+                if (
+                    host is not None
+                    and host.m_configuration.plugins
+                    and runtime.m_worker_thread is None
+                ):
+                    embedded_started = True
+                    runtime.start()
+                await runtime.start_plugins()
+            yield
+        finally:
+            if embedded_lifecycle:
+                try:
+                    await runtime.stop_plugins()
+                finally:
+                    if embedded_started:
+                        runtime.shutdown()
+
+    app = FastAPI(lifespan=_lifespan)
 
     @app.middleware("http")
     async def _diagnostic_http_middleware(
@@ -5850,6 +6309,9 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         event_log_path=ag_ui_event_log_path,
     )
 
+    if isinstance(runtime, GatewayServiceRuntime):
+        runtime.prepare_plugin_host(app)
+
     return app
 
 
@@ -5876,13 +6338,18 @@ class _GatewayUvicornServer(uvicorn.Server):
         """
 
         super().__init__(config)
-        self.m_runtime = runtime
+        self.m_runtime: GatewayServiceRuntime = runtime
         self.m_requested_host: GatewayHost = requested_host
-        self.m_runtime_started = False
+        self.m_runtime_started: bool = False
+        self.m_shutdown_started: bool = False
+        if isinstance(runtime, GatewayServiceRuntime):
+            runtime.m_plugin_lifecycle_deferred = True
 
     async def startup(self, sockets: list[socket.socket] | None = None) -> None:
         """Bind the listener, resolve the actual port, then start the runtime."""
 
+        if self.m_runtime_started or self.m_shutdown_started:
+            return
         await super().startup(sockets=sockets)
         if self.should_exit:
             return
@@ -5892,19 +6359,28 @@ class _GatewayUvicornServer(uvicorn.Server):
                 host=self.m_requested_host,
                 port=resolved_port,
             )
-            self.m_runtime.start()
             self.m_runtime_started = True
-        except Exception:
-            if self.started:
-                await super().shutdown(sockets=sockets)
+            self.m_runtime.start()
+            if isinstance(self.m_runtime, GatewayServiceRuntime):
+                await self.m_runtime.start_plugins()
+        except BaseException:
+            await self.shutdown(sockets=sockets)
             raise
 
     async def shutdown(self, sockets: list[socket.socket] | None = None) -> None:
         """Stop runtime-owned workers before shutting down the HTTP listener."""
 
+        if self.m_shutdown_started:
+            return
+        self.m_shutdown_started = True
         try:
             if self.m_runtime_started:
-                self.m_runtime.shutdown()
+                self.m_runtime_started = False
+                try:
+                    if isinstance(self.m_runtime, GatewayServiceRuntime):
+                        await self.m_runtime.stop_plugins()
+                finally:
+                    self.m_runtime.shutdown()
         finally:
             await super().shutdown(sockets=sockets)
 

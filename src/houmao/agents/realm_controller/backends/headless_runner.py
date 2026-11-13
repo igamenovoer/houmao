@@ -16,7 +16,9 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
 from houmao.agents.realm_controller.usage_support import (
+    headless_artifact_process_alive,
     persist_terminal_evidence,
     write_usage_json,
 )
@@ -91,6 +93,18 @@ class HeadlessCliRunner:
         self._active_process_metadata: HeadlessProcessMetadata | None = None
         self.m_interrupt_requested: bool = False
         self.m_active_turn_dir: Path | None = None
+        self.m_dispatch_control: HeadlessDispatchControl | None = None
+
+    def set_dispatch_control(self, control: HeadlessDispatchControl | None) -> None:
+        """Set a request-scoped launch guard without changing ordinary turns."""
+
+        self.m_dispatch_control = control
+
+    def _require_dispatch_allowed(self) -> None:
+        """Check permission immediately before changing or launching execution."""
+
+        if self.m_dispatch_control is not None:
+            self.m_dispatch_control.require_allowed()
 
     def run(
         self,
@@ -114,6 +128,8 @@ class HeadlessCliRunner:
 
         if output_format not in {"json", "stream-json"}:
             raise BackendExecutionError(f"Unsupported headless output format: {output_format}")
+
+        self._require_dispatch_allowed()
 
         turn_id = turn_artifact_dir_name or f"turn-{uuid.uuid4().hex[:12]}"
         if not turn_id or Path(turn_id).name != turn_id or turn_id in {".", ".."}:
@@ -201,6 +217,8 @@ class HeadlessCliRunner:
             return self._active_process.poll() is None
         if self.m_active_turn_dir is not None and (self.m_active_turn_dir / "exitcode").exists():
             return False
+        if self.m_active_turn_dir is not None and self._active_process_path is not None:
+            return headless_artifact_process_alive(self.m_active_turn_dir)
         metadata = self._active_process_metadata
         if metadata is None or metadata.child_pid is None:
             return False
@@ -221,6 +239,27 @@ class HeadlessCliRunner:
                 self.m_active_turn_dir / "usage-interrupt.json",
                 {"requested_at_utc": datetime.now(UTC).isoformat()},
             )
+
+    def cancel_request_dispatch(self, control: HeadlessDispatchControl) -> None:
+        """Stop only this request's captured process, without targeting a replacement pane."""
+
+        control.cancel()
+        if self.m_dispatch_control is not control:
+            return
+        process = self._active_process
+        if process is not None and process.poll() is None:
+            self._note_interruption()
+            process.terminate()
+            return
+        metadata = self._active_process_metadata
+        if metadata is None and self._active_process_path is not None:
+            metadata = self._read_process_metadata_best_effort(
+                process_path=self._active_process_path
+            )
+            self._active_process_metadata = metadata
+        if metadata is not None and metadata.child_pid is not None and self.active_process_running:
+            self._note_interruption()
+            _signal_pid(metadata.child_pid, signal.SIGTERM)
 
     def interrupt(self) -> SessionControlResult:
         """Interrupt an in-flight process with best-effort termination."""
@@ -335,6 +374,7 @@ class HeadlessCliRunner:
         output_format: str,
         provider: HeadlessProvider | None,
     ) -> HeadlessRunResult:
+        self._require_dispatch_allowed()
         process = subprocess.Popen(
             command,
             cwd=str(cwd),
@@ -346,55 +386,70 @@ class HeadlessCliRunner:
             bufsize=1,
         )
         self._active_process = process
+        try:
+            if self.m_dispatch_control is not None and process.poll() is None:
+                self.m_dispatch_control.m_handoff_alive = lambda: process.poll() in {None, 0}
+                self.m_dispatch_control.confirm_handoff()
 
-        raw_stdout_chunks: list[str] = []
+            raw_stdout_chunks: list[str] = []
 
-        assert process.stdout is not None
-        for raw_line in process.stdout:
-            raw_stdout_chunks.append(raw_line)
+            assert process.stdout is not None
+            for raw_line in process.stdout:
+                raw_stdout_chunks.append(raw_line)
 
-        returncode = process.wait()
+            returncode = process.wait()
 
-        stderr_text = ""
-        if process.stderr is not None:
-            stderr_text = process.stderr.read()
+            stderr_text = ""
+            if process.stderr is not None:
+                stderr_text = process.stderr.read()
 
-        stdout_text = "".join(raw_stdout_chunks)
-        if provider is None:
-            events = parse_headless_output_text(
-                output_format=output_format,
-                stdout_text=stdout_text,
-                turn_index=turn_index,
-            )
-        else:
-            canonical_events = canonical_headless_events_from_provider_output(
-                provider=provider,
-                output_format=output_format,
-                stdout_text=stdout_text,
-                turn_index=turn_index,
-            )
-            events = canonical_headless_events_to_session_events(canonical_events)
-
-        session_id = extract_session_id(events)
-        self._active_process = None
-
-        if returncode != 0:
-            message = stderr_text.strip() or f"command exited with code {returncode}"
-            events.append(
-                SessionEvent(
-                    kind="error",
-                    message=message,
+            stdout_text = "".join(raw_stdout_chunks)
+            if provider is None:
+                events = parse_headless_output_text(
+                    output_format=output_format,
+                    stdout_text=stdout_text,
                     turn_index=turn_index,
-                    payload={"returncode": returncode},
                 )
-            )
+            else:
+                canonical_events = canonical_headless_events_from_provider_output(
+                    provider=provider,
+                    output_format=output_format,
+                    stdout_text=stdout_text,
+                    turn_index=turn_index,
+                )
+                events = canonical_headless_events_to_session_events(canonical_events)
 
-        return HeadlessRunResult(
-            events=events,
-            stderr=stderr_text,
-            returncode=returncode,
-            session_id=session_id,
-        )
+            session_id = extract_session_id(events)
+            self._active_process = None
+
+            if returncode != 0:
+                message = stderr_text.strip() or f"command exited with code {returncode}"
+                events.append(
+                    SessionEvent(
+                        kind="error",
+                        message=message,
+                        turn_index=turn_index,
+                        payload={"returncode": returncode},
+                    )
+                )
+
+            return HeadlessRunResult(
+                events=events,
+                stderr=stderr_text,
+                returncode=returncode,
+                session_id=session_id,
+            )
+        except BaseException:
+            if self.m_dispatch_control is not None:
+                self.m_dispatch_control.cancel()
+            _stop_unconfirmed_native_process(process)
+            raise
+        finally:
+            self._active_process = None
+            if process.stdout is not None:
+                process.stdout.close()
+            if process.stderr is not None:
+                process.stderr.close()
 
     def _run_in_tmux_bridge(
         self,
@@ -426,134 +481,166 @@ class HeadlessCliRunner:
         pane_target = tmux_pane_target
         launched_at_utc = datetime.now(UTC).isoformat(timespec="seconds")
         environment_path = turn_dir / f".provider-env-{uuid.uuid4().hex}.json"
-        bridge_args = [
-            sys.executable,
-            "-m",
-            "houmao.agents.realm_controller.backends.headless_bridge",
-            "--provider",
-            provider,
-            "--output-format",
-            output_format,
-            "--turn-index",
-            str(turn_index),
-            "--turn-dir",
-            str(turn_dir),
-            "--cwd",
-            str(cwd),
-            "--style",
-            display_style,
-            "--detail",
-            display_detail,
-            "--launched-at-utc",
-            launched_at_utc,
-            "--env-file",
-            str(environment_path),
-            "--",
-            *command,
-        ]
-        bridge_command_text = shlex.join(bridge_args)
-        script = "\n".join(
-            [
-                "set +e",
-                f"cd {shlex.quote(str(cwd))}",
-                bridge_command_text,
-                f"tmux wait-for -S {shlex.quote(wait_signal)} >/dev/null 2>&1 || true",
-                'idle_shell="${SHELL:-/bin/sh}"',
-                'exec "$idle_shell" -l',
-            ]
-        )
-        pane_command = f"bash -lc {shlex.quote(script)}"
-
-        if pane_target is None:
-            try:
-                surface = prepare_headless_agent_window_shared(session_name=tmux_session_name)
-                pane_target = (
-                    surface.pane_id
-                    if surface is not None
-                    else headless_agent_pane_target_shared(session_name=tmux_session_name)
-                )
-            except TmuxCommandError as exc:
-                raise BackendExecutionError(
-                    f"Failed to prepare tmux headless agent surface in `{tmux_session_name}`: {exc}"
-                ) from exc
-
         try:
-            descriptor = os.open(environment_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-                json.dump(env, handle, sort_keys=True)
-                handle.flush()
-                os.fsync(handle.fileno())
-            launch = run_tmux_shared(
+            permission_path = (
+                self.m_dispatch_control.prepare_bridge_permission(turn_dir)
+                if self.m_dispatch_control is not None
+                else None
+            )
+            bridge_args = [
+                sys.executable,
+                "-m",
+                "houmao.agents.realm_controller.backends.headless_bridge",
+                "--provider",
+                provider,
+                "--output-format",
+                output_format,
+                "--turn-index",
+                str(turn_index),
+                "--turn-dir",
+                str(turn_dir),
+                "--cwd",
+                str(cwd),
+                "--style",
+                display_style,
+                "--detail",
+                display_detail,
+                "--launched-at-utc",
+                launched_at_utc,
+                "--env-file",
+                str(environment_path),
+                *(["--dispatch-guard-file", str(permission_path)] if permission_path else []),
+                "--",
+                *command,
+            ]
+            bridge_command_text = shlex.join(bridge_args)
+            script = "\n".join(
                 [
-                    "respawn-pane",
-                    "-k",
-                    "-t",
-                    pane_target,
-                    pane_command,
+                    "set +e",
+                    f"cd {shlex.quote(str(cwd))}",
+                    bridge_command_text,
+                    f"tmux wait-for -S {shlex.quote(wait_signal)} >/dev/null 2>&1 || true",
+                    'idle_shell="${SHELL:-/bin/sh}"',
+                    'exec "$idle_shell" -l',
                 ]
             )
-        except TmuxCommandError as exc:
-            environment_path.unlink(missing_ok=True)
-            raise BackendExecutionError(f"Failed to launch tmux headless turn: {exc}") from exc
+            pane_command = f"bash -lc {shlex.quote(script)}"
 
-        if launch.returncode != 0:
-            environment_path.unlink(missing_ok=True)
-            detail = tmux_error_detail_shared(launch) or "unknown tmux error"
-            raise BackendExecutionError(
-                f"Failed to launch tmux headless turn in `{tmux_session_name}` on the "
-                f"stable {HEADLESS_AGENT_WINDOW_NAME} surface: {detail}"
-            )
+            if pane_target is None:
+                try:
+                    self._require_dispatch_allowed()
+                    surface = prepare_headless_agent_window_shared(session_name=tmux_session_name)
+                    pane_target = (
+                        surface.pane_id
+                        if surface is not None
+                        else headless_agent_pane_target_shared(session_name=tmux_session_name)
+                    )
+                except TmuxCommandError as exc:
+                    raise BackendExecutionError(
+                        f"Failed to prepare tmux headless agent surface in `{tmux_session_name}`: {exc}"
+                    ) from exc
 
-        self._active_tmux_session_name = tmux_session_name
-        self._active_tmux_pane_target = pane_target
-        self._active_tmux_wait_signal = wait_signal
-        self._active_process_path = process_path
-        self._active_process_metadata = self._wait_for_process_metadata(
-            process_path=process_path,
-            timeout_seconds=1.0,
-        )
+            try:
+                self._require_dispatch_allowed()
+                descriptor = os.open(environment_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                    json.dump(env, handle, sort_keys=True)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                self._require_dispatch_allowed()
+                launch = run_tmux_shared(
+                    [
+                        "respawn-pane",
+                        "-k",
+                        "-t",
+                        pane_target,
+                        pane_command,
+                    ]
+                )
+            except (TmuxCommandError, BackendExecutionError) as exc:
+                environment_path.unlink(missing_ok=True)
+                raise BackendExecutionError(f"Failed to launch tmux headless turn: {exc}") from exc
 
-        try:
-            wait_for_tmux_signal_shared(
-                signal_name=wait_signal,
-                timeout_seconds=completion_timeout_seconds,
-            )
-        except TmuxCommandError:
-            pass
-
-        deadline = time.monotonic() + max(completion_timeout_seconds, 0.0)
-        while True:
-            if status_path.is_file():
-                break
-            if time.monotonic() >= deadline:
+            if launch.returncode != 0:
+                environment_path.unlink(missing_ok=True)
+                detail = tmux_error_detail_shared(launch) or "unknown tmux error"
                 raise BackendExecutionError(
-                    "Timed out waiting for tmux headless turn completion marker."
+                    f"Failed to launch tmux headless turn in `{tmux_session_name}` on the "
+                    f"stable {HEADLESS_AGENT_WINDOW_NAME} surface: {detail}"
                 )
-            time.sleep(max(completion_poll_interval_seconds, 0.01))
 
-        stderr_text = stderr_path.read_text(encoding="utf-8") if stderr_path.exists() else ""
-        returncode = read_headless_turn_return_code(status_path=status_path)
-        canonical_events = load_preferred_canonical_headless_events(
-            turn_dir=turn_dir,
-            provider=provider,
-            output_format=output_format,
-            turn_index=turn_index,
-        )
-        events = canonical_headless_events_to_session_events(canonical_events)
-        session_id = extract_session_id(events)
-        process_metadata = self._read_process_metadata_best_effort(process_path=process_path)
-
-        if returncode != 0:
-            message = stderr_text.strip() or f"command exited with code {returncode}"
-            events.append(
-                SessionEvent(
-                    kind="error",
-                    message=message,
-                    turn_index=turn_index,
-                    payload={"returncode": returncode},
-                )
+            self._active_tmux_session_name = tmux_session_name
+            self._active_tmux_pane_target = pane_target
+            self._active_tmux_wait_signal = wait_signal
+            self._active_process_path = process_path
+            self._active_process_metadata = self._wait_for_process_metadata(
+                process_path=process_path,
+                timeout_seconds=(
+                    max(0.0, self.m_dispatch_control.m_deadline - time.monotonic())
+                    if self.m_dispatch_control is not None
+                    else 1.0
+                ),
             )
-        try:
+            if self.m_dispatch_control is not None:
+                has_native_handoff = (
+                    self._active_process_metadata is not None
+                    and self._active_process_metadata.child_pid is not None
+                    and self.active_process_running
+                ) or (
+                    status_path.is_file()
+                    and read_headless_turn_return_code(status_path=status_path) == 0
+                )
+                if not has_native_handoff:
+                    raise BackendExecutionError("Immediate native handoff was not confirmed")
+                self.m_dispatch_control.m_handoff_alive = lambda: (
+                    self.active_process_running
+                    or (
+                        status_path.is_file()
+                        and read_headless_turn_return_code(status_path=status_path) == 0
+                    )
+                )
+                self.m_dispatch_control.confirm_handoff()
+
+            try:
+                wait_for_tmux_signal_shared(
+                    signal_name=wait_signal,
+                    timeout_seconds=completion_timeout_seconds,
+                )
+            except TmuxCommandError:
+                pass
+
+            deadline = time.monotonic() + max(completion_timeout_seconds, 0.0)
+            while True:
+                if status_path.is_file():
+                    break
+                if time.monotonic() >= deadline:
+                    raise BackendExecutionError(
+                        "Timed out waiting for tmux headless turn completion marker."
+                    )
+                time.sleep(max(completion_poll_interval_seconds, 0.01))
+
+            stderr_text = stderr_path.read_text(encoding="utf-8") if stderr_path.exists() else ""
+            returncode = read_headless_turn_return_code(status_path=status_path)
+            canonical_events = load_preferred_canonical_headless_events(
+                turn_dir=turn_dir,
+                provider=provider,
+                output_format=output_format,
+                turn_index=turn_index,
+            )
+            events = canonical_headless_events_to_session_events(canonical_events)
+            session_id = extract_session_id(events)
+            process_metadata = self._read_process_metadata_best_effort(process_path=process_path)
+
+            if returncode != 0:
+                message = stderr_text.strip() or f"command exited with code {returncode}"
+                events.append(
+                    SessionEvent(
+                        kind="error",
+                        message=message,
+                        turn_index=turn_index,
+                        payload={"returncode": returncode},
+                    )
+                )
             return HeadlessRunResult(
                 events=events,
                 stderr=stderr_text,
@@ -567,6 +654,11 @@ class HeadlessCliRunner:
                 process_metadata=process_metadata,
                 completion_source="process_exit",
             )
+        except BaseException:
+            control = self.m_dispatch_control
+            if control is not None:
+                self.cancel_request_dispatch(control)
+            raise
         finally:
             environment_path.unlink(missing_ok=True)
             self._active_tmux_session_name = None
@@ -781,9 +873,12 @@ class HeadlessCliRunner:
 
         deadline = time.monotonic() + max(timeout_seconds, 0.0)
         while time.monotonic() < deadline:
+            self._require_dispatch_allowed()
             metadata = self._read_process_metadata_best_effort(process_path=process_path)
             if metadata is not None:
                 return metadata
+            if process_path.with_name("exitcode").is_file():
+                return None
             time.sleep(0.05)
         return self._read_process_metadata_best_effort(process_path=process_path)
 
@@ -798,6 +893,22 @@ class HeadlessCliRunner:
             return load_headless_process_metadata(process_path=process_path)
         except (FileNotFoundError, ValueError, json.JSONDecodeError):
             return None
+
+
+def _stop_unconfirmed_native_process(process: subprocess.Popen[str]) -> None:
+    """Reap a child when a failed handoff can no longer leave execution running."""
+
+    if process.poll() is not None:
+        return
+    try:
+        process.terminate()
+        try:
+            process.wait(timeout=1.0)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=1.0)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
 
 
 def extract_session_id(events: list[SessionEvent]) -> str | None:

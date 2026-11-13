@@ -36,6 +36,7 @@ If attach times out waiting for gateway health readiness, the command now report
 | Option | Description |
 |---|---|
 | `--background` | Run the gateway as a detached background process instead of the default same-session auxiliary tmux window. |
+| `--plugins-config PATH` | Read a complete versioned YAML/JSON plugin selection. Omit to reuse the persisted selection; an explicit empty set clears it on the next start. |
 | `--gateway-tui-watch-poll-interval-seconds FLOAT` | Override the gateway-owned TUI watch poll interval for this attach. |
 | `--gateway-tui-stability-threshold-seconds FLOAT` | Override the gateway-owned TUI stability threshold for this attach. |
 | `--gateway-tui-completion-stability-seconds FLOAT` | Override the gateway-owned TUI completion stability guard time for this attach. |
@@ -43,6 +44,8 @@ If attach times out waiting for gateway health readiness, the command now report
 | `--gateway-tui-stale-active-recovery-seconds FLOAT` | Override the stale-active recovery safeguard time for this attach. |
 | `--gateway-tui-final-stable-active-recovery-seconds FLOAT` | Override the final stable-active recovery safeguard time for this attach. |
 | `--pair-port INTEGER` | Houmao pair authority port override for explicit attach. |
+
+Plugin packages must be installed in the gateway's Python environment. An identical effective selection can reuse a live gateway; a changed selection requires gateway detach and reattach. The agent body can continue running during that sidecar restart. See [Gateway Plugins](../gateway/plugins.md) for the package contract, private credential references, and immediate dispatch behavior.
 
 ### `detach`
 

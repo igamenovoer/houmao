@@ -63,6 +63,7 @@ from houmao.server.models import (
     HoumaoTerminalSnapshotHistoryResponse,
     HoumaoTerminalStateResponse,
 )
+from houmao.gateway.plugins import GatewayPluginStatusResponse, PluginStatus
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 GATEWAY_RESPECT_PROXY_ENV_VAR = "HOUMAO_GATEWAY_RESPECT_PROXY_ENV"
@@ -120,6 +121,17 @@ class GatewayClient:
         """Call `GET /v1/status`."""
 
         return self._request_model("GET", "/v1/status", GatewayStatusV1)
+
+    def get_plugins(self) -> GatewayPluginStatusResponse:
+        """Read host-maintained plugin status and active configuration identity."""
+
+        return self._request_model("GET", "/v1/plugins", GatewayPluginStatusResponse)
+
+    def get_plugin_status(self, instance_id: str) -> PluginStatus:
+        """Read one host-maintained plugin status snapshot."""
+
+        encoded = parse.quote(instance_id, safe="")
+        return self._request_model("GET", f"/v1/plugins/{encoded}/_status", PluginStatus)
 
     def get_usage(self, *, after: str | None = None, limit: int = 100) -> UsagePage:
         """Read a bounded finalized usage page without changing agent execution.

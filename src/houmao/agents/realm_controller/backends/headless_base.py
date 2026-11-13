@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import json
 import logging
 import shutil
 import time
@@ -12,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
 from houmao.agents.model_mapping_policy import temporary_project_model_config
 from houmao.agents.model_selection import ModelConfig
 from houmao.cao.no_proxy import inject_loopback_no_proxy_env
@@ -127,6 +129,7 @@ class HeadlessInteractiveSession:
         ).resolve()
         self._force_cleanup_on_terminate = False
         self.m_last_run_result: HeadlessRunResult | None = None
+        self.m_dispatch_control: HeadlessDispatchControl | None = None
 
         _ensure_required_executable(
             executable=self._plan.executable,
@@ -144,6 +147,32 @@ class HeadlessInteractiveSession:
         """Configure whether terminate() should kill the tmux session."""
 
         self._force_cleanup_on_terminate = force_cleanup
+
+    def configure_request_dispatch(self, control: HeadlessDispatchControl | None) -> None:
+        """Fence one immediate gateway request at the actual client launch seam."""
+
+        self.m_dispatch_control = control
+        self._runner.set_dispatch_control(control)
+
+    def plugin_execution_identity(self) -> tuple[str, ...]:
+        """Observe the existing managed generation and stable native surface."""
+
+        try:
+            payload = json.loads(self._session_manifest_path.read_text(encoding="utf-8"))
+            generation = payload.get("registry_generation_id")
+            surface = self._refresh_primary_surface()
+        except (OSError, ValueError, AttributeError, TmuxCommandError) as exc:
+            raise BackendExecutionError("Cannot observe the current execution incarnation") from exc
+        if not isinstance(generation, str) or not generation:
+            raise BackendExecutionError("Managed execution generation is unavailable")
+        return generation, surface.window_id, surface.pane_id
+
+    def cancel_request_dispatch(self, control: HeadlessDispatchControl) -> None:
+        """Revoke one request and signal only its own captured child process."""
+
+        control.cancel()
+        if self.m_dispatch_control is control and self.backend != "local_interactive":
+            self._runner.cancel_request_dispatch(control)
 
     def send_prompt(
         self,
@@ -340,7 +369,15 @@ class HeadlessInteractiveSession:
 
         runner_result = self._runner.terminate()
         if runner_result.status == "error":
-            return runner_result
+            session_name = self._state.tmux_session_name
+            if not self._force_cleanup_on_terminate or not session_name:
+                return runner_result
+            try:
+                already_absent = has_tmux_session_shared(session_name=session_name).returncode == 1
+            except TmuxCommandError:
+                return runner_result
+            if not already_absent or getattr(self._runner, "active_process_running", False):
+                return runner_result
 
         if not self._force_cleanup_on_terminate:
             session_name = self._state.tmux_session_name
@@ -360,11 +397,16 @@ class HeadlessInteractiveSession:
         try:
             kill_tmux_session_shared(session_name=session_name)
         except TmuxCommandError as exc:
-            return SessionControlResult(
-                status="error",
-                action="terminate",
-                detail=f"Failed to cleanup tmux session `{session_name}`: {exc}",
-            )
+            try:
+                already_absent = has_tmux_session_shared(session_name=session_name).returncode == 1
+            except TmuxCommandError:
+                already_absent = False
+            if not already_absent:
+                return SessionControlResult(
+                    status="error",
+                    action="terminate",
+                    detail=f"Failed to cleanup tmux session `{session_name}`: {exc}",
+                )
         self._state.tmux_session_name = None
         return SessionControlResult(
             status="ok",

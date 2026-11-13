@@ -75,6 +75,8 @@ from houmao.agents.realm_controller.gateway_service import (
     GatewayServiceRuntime,
     create_app,
 )
+from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
+from houmao.gateway.plugins import PluginDispatchError, PluginEvent
 from houmao.agents.realm_controller.gateway_storage import (
     AGENT_GATEWAY_HOST_ENV_VAR,
     AGENT_GATEWAY_PORT_ENV_VAR,
@@ -8460,3 +8462,460 @@ def test_gateway_mail_notifier_defers_when_claude_tracked_surface_reports_draft(
     assert busy_rows[-1].detail is not None
     assert "surface.editing_input='yes'" in busy_rows[-1].detail
     assert not any(row.outcome == "enqueued" for row in audit_rows)
+
+
+class _PluginDispatchAdapter:
+    """Deterministic native handoff seam with independently controlled completion."""
+
+    def __init__(self, contract: object) -> None:
+        self.attach_contract = contract
+        self.generation = "generation-one"
+        self.live = True
+        self.started = threading.Event()
+        self.release = threading.Event()
+        self.finish = threading.Event()
+        self.delivered: list[str] = []
+        self.error_before_handoff = False
+        self.replace_after_handoff = False
+
+    def inspect_target(self) -> object:
+        """Report readiness without manufacturing a dispatch acknowledgement."""
+
+        return gateway_service_module._GatewayTargetState(
+            instance_id="unchanged-logical-session",
+            connectivity="connected" if self.live else "unavailable",
+            terminal_surface_eligibility="ready" if self.live else "unknown",
+            prompt_admission_open=self.live,
+        )
+
+    def capture_plugin_execution_identity(self) -> tuple[str, ...]:
+        """Observe execution generation independently of the stable session ID."""
+
+        if not self.live:
+            raise RuntimeError("private native exception")
+        return self.generation, "@1", "%1"
+
+    def submit_plugin_event(
+        self,
+        *,
+        prompt: str,
+        turn_id: str,
+        session_selection: object,
+        control: HeadlessDispatchControl,
+    ) -> None:
+        """Wait at the client boundary, then submit only under a live grant."""
+
+        self.started.set()
+        assert self.release.wait(3)
+        control.require_allowed()
+        if self.error_before_handoff:
+            raise RuntimeError("private launch exception")
+        self.delivered.append(prompt)
+        control.confirm_handoff()
+        if self.replace_after_handoff:
+            self.generation = "generation-two"
+        self.finish.wait(3)
+
+    def cancel_plugin_event(self, control: HeadlessDispatchControl) -> None:
+        """Revoke this request without forwarding it to a replacement."""
+
+        control.cancel()
+        self.finish.set()
+
+
+def _plugin_dispatch_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[GatewayServiceRuntime, _PluginDispatchAdapter]:
+    """Start the real core with a controlled native adapter and ordinary storage."""
+
+    root = _seed_headless_gateway_root(tmp_path)
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=root, host="127.0.0.1", port=43123
+    )
+    adapter = _PluginDispatchAdapter(runtime.m_attach_contract)
+    runtime.m_adapter = adapter  # type: ignore[assignment]
+    monkeypatch.setattr(runtime, "_prompt_dispatch_mode_locked", lambda **_kwargs: "local_headless")
+    runtime.start()
+    return runtime, adapter
+
+
+def _dispatch_test_event(runtime: GatewayServiceRuntime, timeout: float = 1.0) -> object:
+    """Send command-looking content through the normal plugin notification port."""
+
+    return runtime.dispatch_plugin_event(
+        PluginEvent(source_event_id="source-1", text="/new\n<[Enter]>"),
+        instance_id="notifications",
+        binding_id="binding-one",
+        timeout_seconds=timeout,
+        is_active=lambda: True,
+    )
+
+
+def test_plugin_dispatch_waits_for_handoff_but_not_completed_turn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A started thread is insufficient; a confirmed native handoff is sufficient."""
+
+    runtime, adapter = _plugin_dispatch_runtime(tmp_path, monkeypatch)
+    results: list[object] = []
+    sender = threading.Thread(target=lambda: results.append(_dispatch_test_event(runtime)))
+    sender.start()
+    try:
+        assert adapter.started.wait(1)
+        assert results == []
+        assert adapter.delivered == []
+        adapter.release.set()
+        sender.join(1)
+        assert not sender.is_alive()
+        assert results[0].disposition == "dispatched"
+        assert results[0].source_event_id == "source-1"
+        assert runtime.m_direct_prompt_thread is not None
+        assert runtime.m_direct_prompt_thread.is_alive()
+        assert runtime.status().active_execution == "running"
+        assert runtime.status().queue_depth == 0
+        prompt = adapter.delivered[0]
+        assert prompt.startswith("External service notification.")
+        assert json.loads(prompt.split("\n", 1)[1])["event"]["text"] == "/new\n<[Enter]>"
+        with sqlite3.connect(runtime.m_paths.queue_path) as connection:
+            assert connection.execute("SELECT COUNT(*) FROM gateway_requests").fetchone()[0] == 0
+    finally:
+        adapter.release.set()
+        adapter.finish.set()
+        sender.join(2)
+        runtime.shutdown()
+
+
+@pytest.mark.parametrize("failure", ["death", "replacement", "launch", "timeout", "after_handoff"])
+def test_plugin_failed_attempt_never_dispatches_after_recovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    """An unsuccessful request cannot later reach a ready or replacement body."""
+
+    runtime, adapter = _plugin_dispatch_runtime(tmp_path, monkeypatch)
+    errors: list[PluginDispatchError] = []
+
+    def send() -> None:
+        """Capture the typed request failure in the sender thread."""
+
+        try:
+            _dispatch_test_event(runtime, 0.15 if failure == "timeout" else 1.0)
+        except PluginDispatchError as error:
+            errors.append(error)
+
+    sender = threading.Thread(target=send)
+    sender.start()
+    try:
+        assert adapter.started.wait(1)
+        if failure == "death":
+            adapter.live = False
+        elif failure == "replacement":
+            adapter.generation = "generation-two"
+        elif failure == "launch":
+            adapter.error_before_handoff = True
+        elif failure == "after_handoff":
+            adapter.replace_after_handoff = True
+        if failure != "timeout":
+            adapter.release.set()
+        sender.join(2)
+        assert not sender.is_alive()
+        assert len(errors) == 1
+        error = errors[0]
+        assert error.status_code == 503
+        assert error.retryable is True
+        assert error.source_event_id == "source-1"
+        assert error.dispatch_outcome == "unknown"
+        assert "private" not in str(error)
+        before = len(adapter.delivered)
+        adapter.live = True
+        adapter.error_before_handoff = False
+        adapter.replace_after_handoff = False
+        adapter.release.set()
+        adapter.finish.set()
+        _wait_until(lambda: runtime.m_direct_prompt_thread is None)
+        assert len(adapter.delivered) == before
+        # Only a new sender request is allowed to try again.
+        result = _dispatch_test_event(runtime)
+        assert result.disposition == "dispatched"
+        assert len(adapter.delivered) == before + 1
+        assert runtime.status().queue_depth == 0
+    finally:
+        adapter.release.set()
+        adapter.finish.set()
+        sender.join(2)
+        runtime.shutdown()
+
+
+def test_plugin_busy_request_is_immediate_and_is_not_queued(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Concurrent sender attempts fail while a confirmed headless turn runs."""
+
+    runtime, adapter = _plugin_dispatch_runtime(tmp_path, monkeypatch)
+    adapter.release.set()
+    try:
+        _dispatch_test_event(runtime)
+        with pytest.raises(PluginDispatchError) as caught:
+            _dispatch_test_event(runtime)
+        assert caught.value.status_code == 409
+        assert caught.value.dispatch_outcome == "not_sent"
+        assert len(adapter.delivered) == 1
+        assert runtime.status().queue_depth == 0
+    finally:
+        adapter.finish.set()
+        runtime.shutdown()
+
+
+@pytest.mark.parametrize("text", [" ", "x" * 65536])
+def test_plugin_invalid_input_is_permanent_and_never_reaches_body(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: str
+) -> None:
+    """Reject invalid and oversized messages before allocating any attempt."""
+
+    runtime, adapter = _plugin_dispatch_runtime(tmp_path, monkeypatch)
+    try:
+        with pytest.raises(PluginDispatchError) as caught:
+            runtime.dispatch_plugin_event(
+                PluginEvent(source_event_id="bad", text=text),
+                instance_id="notifications",
+                binding_id="binding-one",
+                timeout_seconds=1.0,
+                is_active=lambda: True,
+            )
+        assert caught.value.status_code == 422
+        assert caught.value.retryable is False
+        assert not adapter.started.is_set()
+    finally:
+        runtime.shutdown()
+
+
+@pytest.mark.parametrize(
+    "state_options",
+    [
+        {"pending_input": "yes"},
+        {"pending_input": "unknown"},
+        {"stable": False},
+        {"editing_input": "yes"},
+        {"accepting_input": "no", "ready_posture": "no", "turn_phase": "active"},
+    ],
+)
+def test_plugin_uses_existing_tui_ready_only_gates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state_options: dict[str, object]
+) -> None:
+    """Provider pending input and uncertain readiness remain immediate refusals."""
+
+    runtime, _client, fake_session = _local_interactive_prompt_control_harness(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        current_state=lambda identity: _sample_gateway_tracked_state_variant(
+            identity, **state_options
+        ),
+    )
+    runtime.start()
+    try:
+        with pytest.raises(PluginDispatchError) as caught:
+            _dispatch_test_event(runtime)
+        assert caught.value.status_code == 409
+        assert caught.value.retryable is True
+        assert not fake_session.started_event.is_set()
+        assert runtime.status().queue_depth == 0
+    finally:
+        runtime.shutdown()
+
+
+def test_plugin_refuses_existing_accepted_core_work_without_adding_queue_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Existing queue priority is respected while plugin content remains request-owned."""
+
+    runtime, adapter = _plugin_dispatch_runtime(tmp_path, monkeypatch)
+    monkeypatch.setattr(runtime, "_take_next_request", lambda: None)
+    try:
+        accepted = runtime.create_request(
+            GatewayRequestCreateV1(
+                kind="submit_prompt",
+                payload=GatewayRequestPayloadSubmitPromptV1(prompt="existing work"),
+            )
+        )
+        with pytest.raises(PluginDispatchError) as caught:
+            _dispatch_test_event(runtime)
+        assert caught.value.status_code == 409
+        with sqlite3.connect(runtime.m_paths.queue_path) as connection:
+            rows = connection.execute(
+                "SELECT request_id, payload_json FROM gateway_requests"
+            ).fetchall()
+        assert len(rows) == 1
+        assert rows[0][0] == accepted.request_id
+        assert "source-1" not in rows[0][1]
+        assert not adapter.started.is_set()
+    finally:
+        runtime.shutdown()
+
+
+def test_plugin_checks_active_hook_gate_after_tui_readiness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ready-looking surface cannot bypass active hook admission."""
+
+    runtime, _client, fake_session = _local_interactive_prompt_control_harness(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        current_state=lambda identity: _sample_gateway_tracked_state_variant(
+            identity,
+            turn_phase="active",
+            observation_channels=[_hook_observation_channel("active")],
+        ),
+    )
+    monkeypatch.setattr(runtime, "_require_tui_prompt_ready_locked", lambda **_kwargs: None)
+    runtime.start()
+    try:
+        with pytest.raises(PluginDispatchError) as caught:
+            _dispatch_test_event(runtime)
+        assert caught.value.status_code == 409
+        assert not fake_session.started_event.is_set()
+    finally:
+        runtime.shutdown()
+
+
+def test_managed_plugin_adapter_rejects_upstream_queued_acknowledgement(tmp_path: Path) -> None:
+    """A managed client exposing only queued submit cannot claim dispatch success."""
+
+    queued_calls: list[object] = []
+    adapter = object.__new__(gateway_service_module._ServerManagedHeadlessGatewayAdapter)
+    adapter.m_client = SimpleNamespace(
+        submit_managed_agent_request=lambda *args: queued_calls.append(args)
+    )
+    adapter.m_attach_contract = SimpleNamespace(manifest_path=str(tmp_path / "manifest.json"))
+    adapter.m_managed_agent_ref = "same-logical-agent"
+    control = HeadlessDispatchControl.from_callbacks(
+        allowed=lambda: True, confirmed=lambda: None, deadline=time.monotonic() + 1
+    )
+    with pytest.raises(gateway_service_module.GatewayError, match="confirmation is unavailable"):
+        adapter.submit_plugin_event(
+            prompt="event", turn_id="turn-one", session_selection=None, control=control
+        )
+    assert queued_calls == []
+    assert not control.m_handoff_confirmed.is_set()
+
+
+def test_managed_plugin_adapter_confirms_only_guarded_synchronous_execution(tmp_path: Path) -> None:
+    """Managed direct execution selects the exact request fence before confirmation."""
+
+    callbacks: list[object] = []
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"registry_generation_id": "one"}), encoding="utf-8")
+    adapter = object.__new__(gateway_service_module._ServerManagedHeadlessGatewayAdapter)
+    adapter.m_attach_contract = SimpleNamespace(manifest_path=str(manifest))
+    adapter.m_managed_agent_ref = "same-logical-agent"
+
+    def execute(agent_ref: str, request: object) -> object:
+        """Verify the caller fence reaches the real synchronous execution API."""
+
+        assert callbacks == []
+        assert agent_ref == "same-logical-agent"
+        assert request.turn_id == "turn-one"
+        path = Path(request.dispatch_guard_file)
+        assert path == tmp_path / "manifest.turn-artifacts/turn-one/.dispatch-permission.json"
+        assert json.loads(path.read_text(encoding="utf-8"))["active"] is True
+        return SimpleNamespace(success=True)
+
+    adapter.m_client = SimpleNamespace(
+        submit_managed_agent_gateway_internal_headless_prompt=execute
+    )
+    control = HeadlessDispatchControl.from_callbacks(
+        allowed=lambda: True,
+        confirmed=lambda: callbacks.append("confirmed"),
+        deadline=time.monotonic() + 1,
+        manifest_path=manifest,
+        generation_id="one",
+    )
+    adapter.submit_plugin_event(
+        prompt="event", turn_id="turn-one", session_selection=None, control=control
+    )
+    assert callbacks == ["confirmed"]
+    adapter.cancel_plugin_event(control)
+    assert json.loads(control.m_permission_path.read_text(encoding="utf-8"))["active"] is False
+
+
+def test_plugin_late_tui_pending_input_revokes_initially_ready_attempt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A changed readiness observation cannot be resumed by an old worker later."""
+
+    options: dict[str, object] = {}
+    runtime, _client, _session = _local_interactive_prompt_control_harness(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        current_state=lambda identity: _sample_gateway_tracked_state_variant(identity, **options),
+    )
+    entered = threading.Event()
+    release = threading.Event()
+    delivered: list[str] = []
+    errors: list[PluginDispatchError] = []
+    monkeypatch.setattr(
+        runtime.m_adapter, "capture_plugin_execution_identity", lambda: ("generation", "%1")
+    )
+
+    def submit(*, prompt: str, control: HeadlessDispatchControl, **_kwargs: object) -> None:
+        """Pause just before literal input can begin."""
+
+        entered.set()
+        assert release.wait(2)
+        control.require_allowed()
+        control.m_input_started.set()
+        delivered.append(prompt)
+        control.confirm_handoff()
+
+    monkeypatch.setattr(runtime.m_adapter, "submit_plugin_event", submit)
+    monkeypatch.setattr(runtime.m_adapter, "cancel_plugin_event", lambda control: control.cancel())
+    runtime.start()
+
+    def send() -> None:
+        """Collect a rejected sender attempt."""
+
+        try:
+            _dispatch_test_event(runtime)
+        except PluginDispatchError as error:
+            errors.append(error)
+
+    sender = threading.Thread(target=send)
+    sender.start()
+    try:
+        assert entered.wait(1)
+        options["pending_input"] = "yes"
+        sender.join(1)
+        assert len(errors) == 1
+        assert errors[0].retryable
+        options.clear()
+        release.set()
+        _wait_until(lambda: runtime.m_direct_prompt_thread is None)
+        assert delivered == []
+        assert runtime.status().queue_depth == 0
+    finally:
+        release.set()
+        sender.join(2)
+        runtime.shutdown()
+
+
+def test_plugin_body_death_after_completed_response_does_not_resend_or_revise_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A later crash cannot change completed dispatch or create a recovery send."""
+
+    runtime, adapter = _plugin_dispatch_runtime(tmp_path, monkeypatch)
+    adapter.release.set()
+    try:
+        completed_response = _dispatch_test_event(runtime)
+        assert completed_response.disposition == "dispatched"
+        adapter.live = False
+        adapter.finish.set()
+        _wait_until(lambda: runtime.m_direct_prompt_thread is None)
+        assert completed_response.disposition == "dispatched"
+        assert completed_response.source_event_id == "source-1"
+        assert len(adapter.delivered) == 1
+        assert runtime.status().queue_depth == 0
+        adapter.live = True
+        assert len(adapter.delivered) == 1
+        assert runtime.m_direct_prompt_thread is None
+    finally:
+        adapter.finish.set()
+        runtime.shutdown()

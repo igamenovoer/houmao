@@ -34,6 +34,7 @@ The gateway is a session-owned FastAPI companion process attached to one runtime
 - [Gateway Troubleshooting](operations/troubleshooting.md): Diagnose pair-managed current-session attach failures, stale gateway metadata, and reserved-window safety checks.
 - [Gateway AG-UI Routes](ag-ui.md): Direct per-agent AG-UI run/connect routes, CopilotKit graphics setup, smoke commands, and lifecycle limits.
 - [Usage Records](../run-phase/usage-records.md): Finalized headless and qualified TUI accounting, provider source semantics, source limitations, and resumable cursor polling through `GET /v1/usage`.
+- [Gateway Plugins](plugins.md): Install external Python integrations, select owner-bound accounts, declare namespaced routes, and handle immediate dispatch or sender-owned retries.
 - [Gateway Reminders](operations/reminders.md): Understand `/v1/reminders`, ranking and pause semantics, prompt versus send-keys reminder delivery, and the direct live HTTP boundary.
 - [Gateway Mailbox Facade](operations/mailbox-facade.md): Understand `/v1/mail/*`, adapter selection from the session manifest, loopback-only availability, and notifier behavior through the shared mailbox abstraction.
 - [Gateway Mail-Notifier](operations/mail-notifier.md): Background polling loop that checks for open inbox work or unread inbox mail, depending on notifier mode, and submits notification prompts through the gateway request queue with optional runtime appendix guidance, degraded-context policy, and pre-notification compaction.

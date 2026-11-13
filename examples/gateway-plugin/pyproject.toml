@@ -1,0 +1,16 @@
+[project]
+name = "houmao-example-notifications"
+version = "0.1.0"
+description = "An independently installed owner-bound Houmao gateway plugin"
+requires-python = ">=3.11"
+dependencies = ["houmao>=2.4,<3"]
+
+[project.entry-points."houmao.gateway_plugins"]
+example-notifications = "houmao_example_plugin:definition"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/houmao_example_plugin"]

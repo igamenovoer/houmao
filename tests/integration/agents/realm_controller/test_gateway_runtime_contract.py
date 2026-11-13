@@ -45,6 +45,9 @@ from houmao.mailbox.filesystem import resolve_active_mailbox_local_sqlite_path
 from houmao.mailbox.managed import DeliveryRequest, deliver_message
 from houmao.mailbox.protocol import MailboxMessage, serialize_message_document
 from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
+from houmao.gateway.plugins import GatewayPluginConfiguration, PluginInstanceConfiguration
+from houmao.agents.realm_controller.runtime import start_runtime_session
+from houmao.agents.realm_controller.gateway_storage import load_gateway_desired_config
 
 
 def _write(path: Path, text: str) -> None:
@@ -670,6 +673,52 @@ def test_start_session_rejects_retired_raw_cao_backend_even_with_gateway_auto_at
         )
     finally:
         conflict_socket.close()
+
+
+def test_launch_python_api_threads_complete_plugin_selection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The launch-time Python boundary persists selections before child startup."""
+
+    agent_def_dir = tmp_path / "repo"
+    brain_manifest = _seed_brain_manifest(agent_def_dir, tmp_path)
+    headless = _FakeHeadlessSessionRegistry(session_name="HOUMAO-plugin-launch")
+    _install_gateway_runtime_fakes(
+        monkeypatch=monkeypatch,
+        tmux_env=_FakeTmuxEnv(),
+        registry_root=tmp_path / "registry",
+        headless_registry=headless,
+    )
+    selection = GatewayPluginConfiguration(
+        plugins={"events": PluginInstanceConfiguration(implementation="external-example")}
+    )
+    observed: list[GatewayPluginConfiguration | None] = []
+
+    def launch(**kwargs: Any) -> int:
+        """Read persisted input at the same boundary used by the gateway child."""
+
+        observed.append(
+            load_gateway_desired_config(kwargs["paths"].desired_config_path).desired_plugins
+        )
+        return 43123
+
+    monkeypatch.setattr("houmao.agents.realm_controller.runtime._start_gateway_process", launch)
+    controller = start_runtime_session(
+        agent_def_dir=agent_def_dir,
+        brain_manifest_path=brain_manifest,
+        role_name="r",
+        runtime_root=tmp_path / "runtime",
+        backend="codex_headless",
+        working_directory=tmp_path,
+        agent_identity=headless.m_session_name,
+        gateway_auto_attach=True,
+        gateway_plugins=selection,
+    )
+    assert controller.gateway_auto_attach_error is None
+    assert observed == [selection]
+    paths = gateway_paths_from_manifest_path(controller.manifest_path)
+    assert paths is not None
+    assert load_gateway_desired_config(paths.desired_config_path).desired_plugins == selection
 
 
 def test_runtime_owned_headless_attach_uses_persisted_gateway_defaults(

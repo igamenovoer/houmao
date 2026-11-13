@@ -293,6 +293,7 @@ def ensure_gateway_capability(
             if existing.desired_port is not None
             else desired_defaults.desired_port,
             desired_execution_mode=existing.desired_execution_mode,
+            desired_plugins=existing.desired_plugins,
             desired_tui_tracking_timings=existing.desired_tui_tracking_timings,
             desired_diagnostic_logging=existing.desired_diagnostic_logging
             if existing.desired_diagnostic_logging is not None

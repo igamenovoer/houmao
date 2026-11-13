@@ -144,6 +144,7 @@ from houmao.mailbox.protocol import (
     OperatorOriginReplyPolicy,
 )
 from houmao.shared_tui_tracking.ownership import SingleSessionTrackingRuntime
+from houmao.gateway.plugins import GatewayPluginConfiguration
 from houmao.server.models import (
     HoumaoErrorDetail,
     HoumaoHeadlessTurnAcceptedResponse,
@@ -2282,6 +2283,7 @@ def attach_gateway(
     *,
     background: bool = False,
     tui_tracking_timing_overrides: GatewayTuiTrackingTimingOverridesV1 | None = None,
+    plugin_config: GatewayPluginConfiguration | None = None,
 ) -> GatewayStatusV1:
     """Attach or reuse a live gateway for one managed agent."""
 
@@ -2292,6 +2294,10 @@ def attach_gateway(
         "detached_process" if background else "tmux_auxiliary_window"
     )
     if target.mode == "server":
+        if plugin_config is not None:
+            raise click.ClickException(
+                "Gateway plugin configuration requires local runtime authority on the owning host."
+            )
         assert target.client is not None
         return pair_request(
             target.client.attach_managed_agent_gateway,
@@ -2303,10 +2309,17 @@ def attach_gateway(
         )
 
     controller = _require_live_local_controller(target, operation="attach gateway")
-    result = controller.attach_gateway(
-        execution_mode_override=execution_mode_override,
-        tui_tracking_timing_overrides=tui_tracking_timing_overrides,
-    )
+    if plugin_config is None:
+        result = controller.attach_gateway(
+            execution_mode_override=execution_mode_override,
+            tui_tracking_timing_overrides=tui_tracking_timing_overrides,
+        )
+    else:
+        result = controller.attach_gateway(
+            execution_mode_override=execution_mode_override,
+            tui_tracking_timing_overrides=tui_tracking_timing_overrides,
+            plugin_config=plugin_config,
+        )
     if result.status != "ok":
         raise click.ClickException(result.detail)
     return _gateway_status_for_controller(controller)

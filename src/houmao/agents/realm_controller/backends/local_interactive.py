@@ -126,6 +126,23 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
             self._cleanup_failed_startup()
             raise
 
+    def plugin_execution_identity(self) -> tuple[str, ...]:
+        """Include the observed native TUI process in the managed incarnation."""
+
+        surface_identity = super().plugin_execution_identity()
+        pane = self._refresh_primary_surface()
+        inspection = self._process_inspector.inspect(tool=self._plan.tool, pane_pid=pane.pane_pid)
+        if inspection.process_state != "tui_up" or not inspection.matched_processes:
+            raise BackendExecutionError("Native TUI execution is unavailable")
+        primary = inspection.matched_processes[0]
+        try:
+            # Linux procfs supplies the process birth identity, including PID reuse.
+            stat_text = Path(f"/proc/{primary.pid}/stat").read_text(encoding="utf-8")
+            birth = stat_text.rsplit(")", 1)[1].split()[19]
+        except (OSError, IndexError) as exc:
+            raise BackendExecutionError("Native TUI process identity is unavailable") from exc
+        return (*surface_identity, str(primary.pid), birth)
+
     def send_prompt(
         self,
         prompt: str,
@@ -474,14 +491,22 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
         session_name = self._require_tmux_session_name()
         pane_target = self._primary_tmux_pane_target()
         buffer_name = self._prompt_buffer_name(session_name)
+        control = getattr(self, "m_dispatch_control", None)
         try:
+            if control is not None:
+                control.require_allowed()
             load_tmux_buffer_shared(buffer_name=buffer_name, text=text)
+            if control is not None:
+                control.require_allowed()
+                control.m_input_started.set()
             paste_tmux_buffer_shared(
                 target=pane_target,
                 buffer_name=buffer_name,
                 bracketed_paste=True,
             )
             time.sleep(_POST_PASTE_SUBMIT_DELAY_SECONDS)
+            if control is not None:
+                control.require_allowed()
             send_tmux_control_input_shared(
                 target=pane_target,
                 segments=parse_tmux_control_input_shared(sequence="<[Enter]>"),
@@ -490,6 +515,12 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
             raise BackendExecutionError(
                 f"Failed to submit prompt to local interactive session: {exc}"
             ) from exc
+        finally:
+            if control is not None:
+                try:
+                    run_tmux_shared(["delete-buffer", "-b", buffer_name])
+                except TmuxCommandError:
+                    pass
 
     def _shadow_parser_stack(self) -> ShadowParserStack:
         """Return the shadow parser stack required for mailbox observation."""

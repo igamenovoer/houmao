@@ -1,0 +1,8 @@
+schema_version: 1
+gateway:
+  plugins:
+    team-chat:
+      implementation: example-notifications
+      config:
+        account: team-chat
+        require_credentials: false
