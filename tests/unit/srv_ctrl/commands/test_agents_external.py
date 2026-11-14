@@ -110,6 +110,11 @@ def _local_record(*, agent_name: str) -> ManagedAgentRegistryRecordV3:
                 timespec="seconds"
             ),
         ),
+        mailboxes={
+            "offline": {"revision": "off-empty", "binding": None},
+            "online": {"revision": "on-empty", "binding": None},
+        },
+        canonical_mail_identity=None,
     )
 
 
@@ -186,12 +191,7 @@ class _FakePairClient:
         agent_ref: str,
     ) -> HoumaoManagedAgentMailStatusResponse:
         self.calls.append(("mail_status", (agent_ref,)))
-        return HoumaoManagedAgentMailStatusResponse(
-            transport="filesystem",
-            principal_id="remote-ref",
-            address="remote-ref@agents.localhost",
-            bindings_version="2026-05-29T00:00:00Z",
-        )
+        return HoumaoManagedAgentMailStatusResponse(agent_id="remote-ref")
 
 
 def test_external_target_routes_state_prompt_gateway_and_mail_to_remote_pair(

@@ -1,224 +1,104 @@
 # Mailbox Runtime Contracts
 
-This page explains the runtime-owned contract around mailbox configuration, manifest-backed bindings, projected skills, and scoped `agents ... mail ...` request and result handling.
+This reference describes mailbox configuration for contributors integrating Houmao's runtime, gateway, manager, or a mail backend. The agent's immutable `agent_id` owns its mail bindings. A display name, account login, email address, process ID, and session ID remain separate values.
 
-## Mental Model
+## Two Independent Channels
 
-The runtime is the authority for mailbox attachment to a session.
+Every runtime snapshot contains `launch_plan.mailboxes.offline` and `launch_plan.mailboxes.online`. Each slot holds a revision and an optional binding. Empty slots retain a revision so a writer from before detach cannot recreate an obsolete binding.
 
-- Declarative config or CLI overrides choose the mailbox transport and identity.
-- The runtime resolves that into one `MailboxResolvedConfig`.
-- The session manifest persists that resolved mailbox binding as the durable mailbox authority reused by resume and gateway transport access.
-- Later mailbox work resolves current bindings through `pixi run houmao-mgr agents self mail resolve-live` or `pixi run houmao-mgr agents single --agent-name <name> mail resolve-live` instead of assuming the provider process's inherited mailbox env snapshot is still current.
-- That same command is also the runtime-owned discovery path for the attached shared-mailbox gateway facade: when a valid live gateway is attached it returns a `gateway` object with `base_url`, `host`, `port`, `protocol_version`, and `state_path`; otherwise it returns `gateway: null`.
+An agent can have either binding, both bindings, or neither. Offline mail uses the selected registry host's filesystem authority. Online mail uses an email provider, initially Stalwart. Connecting one channel never forwards mail from the other, and an outage never selects another channel.
 
-## Declarative And Resolved Config
+Canonical mail identity is derived from the configured online address, otherwise the configured offline address, otherwise `null`. Its `{channel,address}` value describes how email-based external systems identify the agent. It does not select the delivery channel. Expired online credentials therefore leave canonical identity unchanged.
 
-The declarative mailbox payload supports these fields:
+## Declarative and Resolved Configuration
 
-- `transport`
-- `principal_id`
-- `address`
-- `filesystem_root`
+Preset and brain configuration use two explicit declarations:
 
-Current rules:
+```yaml
+mailboxes:
+  offline:
+    transport: filesystem
+    address: alice@houmao.localhost
+    filesystem_root: /srv/houmao/mail
+  online:
+    transport: stalwart
+    address: alice@example.test
+    base_url: http://127.0.0.1:10080
+```
 
-- `transport` is required when `mailbox` is present.
-- `filesystem` and `stalwart` are implemented in v1.
-- If `principal_id` is omitted, the runtime derives one from the tool, role, and optional agent identity.
-- If `address` is omitted for an ordinary managed agent, it defaults to `<agentname>@houmao.localhost` while the principal id remains the canonical `HOUMAO-<agentname>` form.
-- If `filesystem_root` is omitted in maintained project-aware flows, it defaults to `<active-overlay>/mailbox`, bootstrapping `<cwd>/.houmao/mailbox` when no overlay exists yet; `HOUMAO_GLOBAL_MAILBOX_DIR` or an explicit `filesystem_root` override still wins when supplied.
-- `stalwart` bindings resolve from either `base_url` or explicit `jmap_url` plus `management_url`.
-- Persisted `stalwart` bindings remain secret-free and store `credential_ref` instead of inline credentials.
+Either declaration may be `null`. Offline agent ownership uses the persisted agent ID. Full addresses remain mailbox routing values; Houmao does not generate an agent ID from an email header. Existing launch-time Stalwart provisioning populates the online slot independently of offline registration.
 
-Representative resolved payload:
+A persisted offline slot looks like this:
 
 ```json
 {
-  "transport": "filesystem",
-  "principal_id": "HOUMAO-research",
-  "address": "research@houmao.localhost",
-  "filesystem_root": "/abs/path/tmp/shared-mail",
-  "bindings_version": "2026-03-13T09:15:30.123456Z"
+  "revision": "revision-2",
+  "binding": {
+    "transport": "filesystem",
+    "channel": "offline",
+    "agent_id": "b498dd79-cbbc-41b2-a593-6263db66fe94",
+    "binding_id": "registration-a",
+    "principal_id": "b498dd79-cbbc-41b2-a593-6263db66fe94",
+    "address": "alice@houmao.localhost",
+    "bindings_version": "revision-2",
+    "filesystem_root": "/srv/houmao/mail",
+    "registry_root": "/srv/houmao/registry",
+    "mailbox_kind": "in_root",
+    "mailbox_path": "/srv/houmao/mail/mailboxes/alice@houmao.localhost"
+  }
 }
 ```
 
-That persisted `launch_plan.mailbox` payload is also the durable mailbox capability contract reused by resume, refresh, and gateway-side integrations. The gateway mail transport uses that durable manifest-backed capability rather than persisting a second mailbox copy under `gateway/`.
+A remote offline binding uses `transport: registry`, a registry URL, and a protected credential reference. It contains no registry-host mailbox path for the client to open. The offline binding ID is the confirmed registration ID. An online binding records its provider and protected credential reference separately from the owning agent ID.
 
-## Manager-Owned `resolve-live` Contract
+The current persisted formats are `launch_plan.v2`, `session_manifest.v5` (`schema_version: 5`), and managed registry record v4. Unsupported pre-change formats require an explicit operator backup and rebootstrap. Loading them never generates missing identity, resets mailbox history, or translates the former single mailbox union.
 
-Scoped mail `resolve-live` is the supported current-mailbox discovery surface.
+## Atomic Binding Authority
 
-Top-level fields:
+`manifest.py` owns one interprocess lock beside each session manifest. Writers validate a complete snapshot, flush a private temporary file, atomically replace the destination, and flush the directory.
 
-- `source`
-- `transport`
-- `principal_id`
-- `address`
-- `bindings_version`
-- `mailbox`
-- `gateway`
-- `gateway_available`
-- `managed_agent`
+Server-owned gateway routing fields and runtime-owned endpoint details also merge under this boundary. Ordinary session persistence preserves the latest mailbox envelopes under this lock. It cannot replace a live attachment with a stale controller copy. Binding mutation uses `mutate_session_mailbox_binding()` with the expected slot revision, agent ID, and session ID. A successful change advances only the selected slot revision and stamps the binding's `bindings_version` to match. A stale mutation raises `MailboxBindingConflict` before publication.
 
-Filesystem-specific fields:
+Prepare backend resources and credentials before entering this mutation boundary. Network requests, remote enrollment, and worker shutdown must remain outside the manifest lock. After a binding commit, refresh the controller from the committed result and publish discovery projections. A projection failure cannot reverse a confirmed registry claim; report the committed outcome and reconcile it on a later status or idempotent join.
 
-- `mailbox.filesystem.root`
-- `mailbox.filesystem.sqlite_path`
-- `mailbox.filesystem.mailbox_path`
-- `mailbox.filesystem.local_sqlite_path`
-- `mailbox.filesystem.inbox_path`
-- `mailbox.filesystem.mailbox_kind`
+## Discovery and Operations
 
-Stalwart-specific fields:
+Use `pixi run houmao-mgr agents self mail resolve-live` inside the owning session. Select another target with `pixi run houmao-mgr agents single --agent-id <id> mail resolve-live`. Both this resolver and `mail status` summarize the two channels and derived canonical mail identity. The resolver returns the exact live `gateway.base_url` when available.
 
-- `mailbox.stalwart.jmap_url`
-- `mailbox.stalwart.management_url`
-- `mailbox.stalwart.login_identity`
-- `mailbox.stalwart.credential_ref`
-- `mailbox.stalwart.credential_file`
+Each channel summary contains its slot revision, optional owner/channel/binding/address scope, and availability. A failed channel remains visible independently of the other channel. Public discovery omits credential files, credential references, account login names, authorization headers, and secret resolution inputs.
 
-Important rules:
+Every lifecycle action selects `--channel offline|online`; the gateway equivalents use `/v1/mail/{channel}/list|peek|read|send|post|reply|mark|move|archive`. Each request also carries the expected binding ID resolved for that operation or supplied in the current agent round. Fresh sends and posts require this check even though they have no existing message reference.
 
-- Treat the persisted manifest mailbox payload as durable authority and the resolver output as the current actionable mailbox contract.
-- Resolve current mailbox bindings through `pixi run houmao-mgr agents self mail resolve-live` before direct attached-session mailbox work. Outside tmux, or when targeting a different agent, use `pixi run houmao-mgr agents single --agent-id <id> mail resolve-live` or `pixi run houmao-mgr agents single --agent-name <name> mail resolve-live`.
-- Mailbox-specific shell export is not part of the supported runtime contract.
-- Treat `mailbox.filesystem.root` as authoritative.
-- `mailbox.filesystem.sqlite_path` remains the shared mailbox-root `index.sqlite` catalog.
-- `mailbox.filesystem.mailbox_path` resolves the current mailbox-view directory for the addressed mailbox.
-- `mailbox.filesystem.local_sqlite_path` is the authoritative mailbox-view SQLite database for the current mailbox.
-- `mailbox.filesystem.inbox_path` follows the active mailbox registration, so it may resolve through a symlinked `mailboxes/<address>` entry into a private directory.
-- If `bindings_version` changes, discard cached assumptions and reload the current bindings.
-- `mailbox.stalwart.credential_file` is session-local secret material derived from the persisted secret-free `credential_ref`.
+Opaque message and thread references carry owner, channel, and binding scope. An old account's reference cannot target a new account with the same provider message ID. Replies stay in their original channel. Mixed-channel recipients fail before side effects. The canonical mail identity never overrides explicit scope.
 
-## Shared Catalog Versus Mailbox-Local State
+`peek` leaves read state unchanged. `read` marks read; successful reply marks answered. Archive closes eligible inbox work. Reading or answering alone does not complete that work. Remote attachments transfer bounded content through the registry API rather than asking the registry host to open a sender-host path.
 
-The filesystem transport splits durable state between a shared catalog and mailbox-local mailbox-view state.
+## Notifiers and Projected Skills
 
-- The shared mailbox-root `index.sqlite` keeps registrations, canonical message catalog data, projections, delivery metadata, attachment metadata, and other structural state shared across the mailbox root.
-- Each resolved mailbox directory owns `mailbox.sqlite`, which keeps mailbox-view state that can differ per mailbox, including read or unread, starred, archived, deleted, and mailbox-local thread summaries.
-- Inside `mailbox.sqlite`, `message_state` rows are keyed by `message_id` and mailbox-local `thread_summaries` rows are keyed by `thread_id`.
-- Because the database is already scoped to one resolved mailbox directory, mailbox-local rows do not need `registration_id` as part of their primary identity.
-- Shared-root unread counters are no longer authoritative for mailbox-view state once mailbox-local SQLite exists.
+Notifier configuration, interval, appendix, audit, and one-shot compaction state belong to owner/channel/binding scope. Configure the selected channel through `/v1/mail-notifier/{channel}` or scoped manager notifier commands with `--channel`.
 
-## Projected Skill Contract
+Unchanged eligible inbox work continues producing periodic reminders. Readiness, pending-input, hook, and terminal admission gates remain shared so simultaneous channel reminders cannot overlap terminal work. Changing canonical mail identity alone does not reset compaction state.
 
-The runtime installs the config-owned four-member `agent` pack into the brain home during brain build. Claude, Codex, and Kimi runtime homes expose sibling `skills/houmao-agent-entrypoint/SKILL.md` and `skills/houmao-shared-routines/SKILL.md` roots plus both top-level loops. The mailbox children live under `skills/houmao-shared-routines/subskills/`. `houmao-process-emails-via-gateway` and `houmao-agent-email-comms` are parent-scoped children, not top-level projected skills.
-
-For Claude, the agent entrypoint lives under the isolated runtime-owned `CLAUDE_CONFIG_DIR` and not under the launched workdir's `.claude/skills/` tree. Runtime prompts invoke `$houmao-agent-entrypoint process-emails-via-gateway ...` or `$houmao-agent-entrypoint agent-email-comms ...` after identity verification.
-
-Shared runtime rules:
-
-- require `houmao-mgr agents self mail resolve-live` for tmux-backed same-session discovery,
-- prefer the live gateway `/v1/mail/*` facade for shared mailbox operations when the resolver returns a live `gateway.base_url`,
-- otherwise use scoped `houmao-mgr agents single ... mail list|peek|read|send|post|reply|mark|move|archive`,
-- treat `message_ref` as the shared message, reply, and lifecycle target contract,
-- treat `authoritative: false` as submission-only rather than mailbox truth,
-- present `rules/` as markdown policy guidance and `rules/scripts/` as compatibility or implementation detail rather than the ordinary workflow contract.
-
-Filesystem-specific rules:
-
-- inspect `rules/README.md` and `rules/protocols/filesystem-mailbox-v1.md` for policy or repair guidance,
-- do not require ordinary attached-session mailbox work to invoke mailbox-owned scripts under `rules/scripts/`,
-- treat `mailbox.filesystem.local_sqlite_path` as the source of truth for mailbox-view read or unread and thread-summary state.
-
-Stalwart-specific rules:
-
-- use the current `mailbox.stalwart.*` fields returned by the resolver for direct transport access when no live gateway mailbox facade is available,
-- do not assume filesystem mailbox rules, SQLite paths, locks, or projection symlinks exist for this transport.
-
-## Managed Scoped Mail Contract
-
-Public subcommands:
-
-- `resolve-live`
-- `status`
-- `list`
-- `peek`
-- `read`
-- `send`
-- `post`
-- `reply`
-- `mark`
-- `move`
-- `archive`
-
-Selector rules:
-
-- explicit `--agent-id` or `--agent-name` wins,
-- inside the owning managed tmux session, omitted selectors resolve the current session through `HOUMAO_MANIFEST_PATH` first and `HOUMAO_AGENT_ID` fallback second,
-- outside tmux without selectors, the command fails explicitly,
-- `--port` is only supported with an explicit selector.
-
-Argument rules:
-
-- `list` accepts `--box`, `--read-state`, `--answered-state`, `--archived/--not-archived`, `--limit`, `--since`, and `--include-body`.
-- `peek` and `read` require `--message-ref` and accept optional `--box`.
-- `send` requires at least one `--to`, a `--subject`, and body content from `--body-file` or `--body-content`.
-- `post` requires a `--subject`, body content from `--body-file` or `--body-content`, and accepts `--reply-policy`.
-- `reply` requires `--message-ref` and body content from `--body-file` or `--body-content`.
-- `send`, `post`, and `reply` accept repeatable `--attach`.
-- `mark` requires at least one `--message-ref` plus at least one of `--read/--unread`, `--answered/--unanswered`, or `--archived/--unarchived`.
-- `move` requires at least one `--message-ref` plus `--destination-box`.
-- `archive` requires at least one `--message-ref`.
-- Recipients must be full mailbox addresses, not short names.
-
-Result-strength rules:
-
-- verified pair-owned or manager-owned execution returns `authoritative: true`, `status: "verified"`, and `execution_path: "gateway_backed"` or `"manager_direct"`,
-- local live-TUI fallback returns `authoritative: false`, `execution_path: "tui_submission"`, and submission-only status such as `submitted`, `rejected`, `busy`, `interrupted`, or `tui_error`,
-- callers must verify non-authoritative outcomes through manager-owned `status` or `list`, gateway `/v1/mail/*` state, filesystem mailbox inspection, or transport-native mailbox state.
-
-```mermaid
-sequenceDiagram
-    participant CLI as scoped agents mail
-    participant RT as Runtime
-    participant MB as Gateway facade<br/>or transport
-    participant Ses as Live session
-    CLI->>RT: resolve target and authority
-    alt Direct or gateway-backed authority available
-        RT->>MB: execute mailbox operation
-        MB-->>RT: verified mailbox result
-        RT-->>CLI: authoritative=true
-    else Local TUI fallback only
-        RT->>Ses: structured mailbox prompt
-        Ses-->>RT: submission result<br/>and optional preview
-        RT-->>CLI: authoritative=false
-    end
-```
-
-## Low-Level Runtime Prompt Contract
-
-The raw runtime module `pixi run python -m houmao.agents.realm_controller mail ...` still exists as the structured prompt-turn surface behind local fallback and lower-level testing. Those low-level runtime commands remain TUI-mediated surfaces and return submission-oriented envelopes rather than claiming mailbox truth on their own.
-
-Representative submission result:
-
-```json
-{
-  "address": "research@houmao.localhost",
-  "authoritative": false,
-  "execution_path": "tui_submission",
-  "operation": "send",
-  "request_id": "mailreq-20260313T091530Z-3c9f1e6ab2",
-  "principal_id": "HOUMAO-research",
-  "schema_version": 1,
-  "status": "submitted",
-  "transport": "filesystem",
-  "verification_required": true
-}
-```
-
-When the runtime does recover a preview payload, it still validates that preview against the active `request_id`, `operation`, and mailbox binding before surfacing it under `preview_result`, but the command does not require that preview to return.
+The installed agent skill pack routes ordinary mail through `$houmao-agent-entrypoint agent-email-comms` and notifier rounds through `$houmao-agent-entrypoint process-emails-via-gateway`. Each round carries its channel, expected binding, and exact gateway URL. When the required native skill siblings are absent, the maintained API instructions remain usable without relying on native skill hot reload. A submission-only TUI fallback remains non-authoritative until verified through supported mailbox state.
 
 ## Source References
 
-- [`src/houmao/agents/mailbox_runtime_models.py`](../../../../src/houmao/agents/mailbox_runtime_models.py)
-- [`src/houmao/agents/mailbox_runtime_support.py`](../../../../src/houmao/agents/mailbox_runtime_support.py)
-- [`src/houmao/agents/system_skills.py`](../../../../src/houmao/agents/system_skills.py)
-- [`src/houmao/agents/realm_controller/cli.py`](../../../../src/houmao/agents/realm_controller/cli.py)
-- [`src/houmao/agents/realm_controller/mail_commands.py`](../../../../src/houmao/agents/realm_controller/mail_commands.py)
-- [`src/houmao/agents/brain_builder.py`](../../../../src/houmao/agents/brain_builder.py)
-- [`src/houmao/agents/assets/system_skills/public/houmao-agent-entrypoint/SKILL.md`](../../../../src/houmao/agents/assets/system_skills/public/houmao-agent-entrypoint/SKILL.md)
-- [`src/houmao/agents/assets/system_skills/public/houmao-shared-routines/subskills/houmao-agent-email-comms/SKILL-MAIN.md`](../../../../src/houmao/agents/assets/system_skills/public/houmao-shared-routines/subskills/houmao-agent-email-comms/SKILL-MAIN.md)
-- [`src/houmao/agents/assets/system_skills/public/houmao-shared-routines/subskills/houmao-agent-email-comms/references/filesystem-resolver-fields.md`](../../../../src/houmao/agents/assets/system_skills/public/houmao-shared-routines/subskills/houmao-agent-email-comms/references/filesystem-resolver-fields.md)
-- [`src/houmao/agents/assets/system_skills/public/houmao-shared-routines/subskills/houmao-agent-email-comms/references/stalwart-resolver-fields.md`](../../../../src/houmao/agents/assets/system_skills/public/houmao-shared-routines/subskills/houmao-agent-email-comms/references/stalwart-resolver-fields.md)
+- [Runtime Binding Models](../../../../src/houmao/agents/mailbox_runtime_models.py)
+- [Binding Resolution](../../../../src/houmao/agents/mailbox_runtime_support.py)
+- [Manifest Mutation Boundary](../../../../src/houmao/agents/realm_controller/manifest.py)
+- [Registry Record and Layout](../../registry/contracts/record-and-layout.md)
+
+
+## Managed Online Connections
+
+Online account controls use `mailbox online status|attach|refresh|reconnect|detach` through an available gateway companion. Attachment validates an existing normal account before committing; management credentials are unnecessary. Explicit administrative provisioning remains a launch-only workflow. Resuming a controller reads its persisted binding without provisioning.
+
+Each connection owns a private immutable credential copy, exact JMAP account/sending identity, binding revision, and shared persistent epoch. Same-account refresh advances revision and epoch while preserving the binding ID and account checkpoints. Reconnect changes only the epoch. Another account requires explicit replacement and a fresh binding ID.
+
+Cross-process shared admission leases pin ordinary online operations through their bounded provider I/O. A separate control mutex publishes retirement intent before waiting for exclusive admission; a finite deadline prevents false activation while old work remains in flight. Manifest CAS occurs only after retirement, with admission-before-manifest lock ordering. Network calls never run under the manifest lock or gateway terminal lock.
+
+Queued online prompts and notifier context actions acquire a shared effect lease through their actual body effect. A replacement cannot commit between a successful origin check and submission. Synchronous headless prompt submission can hold that lease for the current turn; a bounded retirement timeout preserves the old binding rather than reporting false activation.
+
+Observers capture immutable connections and release admission before network polling. Their local metadata/checkpoint commit reacquires short shared admission and checks owner, session, binding, revision, epoch, and account. A late result from a superseded connection is discarded. OS-owned leases release after process death, and the next operation reconciles orphaned retirement intent against the authoritative manifest.
+
+Detach cleans only retired Houmao-owned snapshots after draining admitted requests. Externally selected files and provider mail remain intact. Send/reply receipts retain their original scope and known provider identifiers. Explicit `uncertain` outcomes require caller reconciliation and never trigger automatic replay.

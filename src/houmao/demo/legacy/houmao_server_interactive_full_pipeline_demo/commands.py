@@ -105,7 +105,7 @@ def start_demo(
                     recipe_path=target.recipe_path,
                     recipe_launch_overrides=target.recipe.launch_overrides,
                     operator_prompt_mode=target.recipe.operator_prompt_mode,
-                    mailbox=target.recipe.mailbox,
+                    mailboxes=target.recipe.mailboxes,
                     agent_name=agent_name,
                     persistent_env_records=target.recipe.launch_env_records,
                 )

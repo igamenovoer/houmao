@@ -262,7 +262,7 @@ def run_recorded_capture(
                 preset_path=selected_recipe_path,
                 preset_launch_overrides=recipe.launch.overrides,
                 runtime_root=runtime_root,
-                mailbox=recipe.mailbox,
+                mailboxes=recipe.mailboxes,
                 agent_name=recipe.default_agent_name,
                 launch_overrides=tool_metadata.launch_overrides,
                 operator_prompt_mode=tool_metadata.operator_prompt_mode

@@ -14,8 +14,8 @@ If the request does not map cleanly to this workflow, use the native planning to
 ## Command Shape
 
 ```bash
-<chosen houmao-mgr launcher> agents single --agent-id <agent-id> mailbox status
-<chosen houmao-mgr launcher> agents single --agent-name <agent-name> mailbox status
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> mailbox offline status
+<chosen houmao-mgr launcher> agents single --agent-name <agent-name> mailbox offline status
 ```
 
 ## Guardrails

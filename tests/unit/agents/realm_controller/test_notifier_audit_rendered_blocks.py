@@ -19,6 +19,7 @@ def _seed_queue_db(sqlite_path: Path) -> None:
 
     append_gateway_notifier_audit_record(
         sqlite_path,
+        scope_key='["agent-test","offline","binding-test"]',
         poll_time_utc="2026-04-27T12:00:00Z",
         unread_count=0,
         unread_digest=None,
@@ -55,6 +56,7 @@ def test_append_persists_rendered_block_entries(tmp_path: Path) -> None:
 
     record = append_gateway_notifier_audit_record(
         sqlite_path,
+        scope_key='["agent-test","offline","binding-test"]',
         poll_time_utc="2026-04-27T12:00:00Z",
         unread_count=2,
         unread_digest="digest-1",
@@ -79,6 +81,7 @@ def test_append_default_emits_empty_rendered_block_entries(tmp_path: Path) -> No
 
     record = append_gateway_notifier_audit_record(
         sqlite_path,
+        scope_key='["agent-test","offline","binding-test"]',
         poll_time_utc="2026-04-27T12:00:00Z",
         unread_count=1,
         unread_digest="digest-empty",
@@ -114,6 +117,7 @@ def test_audit_rendered_block_entry_does_not_echo_token_in_detail(
 
     append_gateway_notifier_audit_record(
         sqlite_path,
+        scope_key='["agent-test","offline","binding-test"]',
         poll_time_utc="2026-04-27T12:00:00Z",
         unread_count=1,
         unread_digest=None,

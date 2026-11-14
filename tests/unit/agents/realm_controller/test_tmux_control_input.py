@@ -24,9 +24,17 @@ from houmao.agents.realm_controller.models import (
     RoleInjectionPlan,
     SessionControlResult,
 )
-from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
+from houmao.agents.mailbox_runtime_models import (
+    FilesystemMailboxResolvedConfig,
+    MailboxesResolvedConfig,
+    MailboxSlotConfig,
+)
 from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
-from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
+from houmao.mailbox import (
+    MailboxPrincipal,
+    bootstrap_filesystem_mailbox,
+    load_active_mailbox_registration,
+)
 from houmao.agents.realm_controller.runtime import RuntimeSessionController
 
 
@@ -81,6 +89,12 @@ def _sample_local_interactive_mailbox_plan(tmp_path: Path) -> LaunchPlan:
     mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
         principal_id=principal_id,
+        agent_id=principal_id,
+        binding_id=(
+            load_active_mailbox_registration(mailbox_root, address=address).registration_id
+            if mailbox_root.exists()
+            else "unprepared"
+        ),
         address=address,
         filesystem_root=mailbox_root.resolve(),
         bindings_version="2026-03-29T15:00:00Z",
@@ -102,7 +116,9 @@ def _sample_local_interactive_mailbox_plan(tmp_path: Path) -> LaunchPlan:
             prompt="role prompt",
         ),
         metadata={},
-        mailbox=mailbox,
+        mailboxes=MailboxesResolvedConfig(
+            offline=MailboxSlotConfig(revision=mailbox.bindings_version, binding=mailbox)
+        ),
     )
 
 
@@ -556,6 +572,8 @@ def test_local_interactive_send_mail_prompt_observes_sentinel_result(
 
     events = session.send_mail_prompt(
         MailPromptRequest(
+            channel="offline",
+            expected_binding_id=session._plan.mailboxes.offline.binding.binding_id,
             request_id="mailreq-1",
             operation="send",
             prompt="send a mailbox message",
@@ -566,7 +584,7 @@ def test_local_interactive_send_mail_prompt_observes_sentinel_result(
     assert session.state.turn_index == 1
     assert events[0].kind == "submitted"
     assert events[-1].kind == "done"
-    mailbox = session._plan.mailbox
+    mailbox = session._plan.mailboxes.offline.binding
     assert mailbox is not None
     parsed = parse_mail_result(
         events,
@@ -673,6 +691,8 @@ def test_local_interactive_send_mail_prompt_checks_one_final_capture_after_timeo
 
     events = session.send_mail_prompt(
         MailPromptRequest(
+            channel="offline",
+            expected_binding_id=session._plan.mailboxes.offline.binding.binding_id,
             request_id="mailreq-1",
             operation="send",
             prompt="send a mailbox message",
@@ -680,7 +700,7 @@ def test_local_interactive_send_mail_prompt_checks_one_final_capture_after_timeo
     )
 
     assert events[-1].kind == "done"
-    mailbox = session._plan.mailbox
+    mailbox = session._plan.mailboxes.offline.binding
     assert mailbox is not None
     parsed = parse_mail_result(
         events,
@@ -768,6 +788,8 @@ def test_local_interactive_send_mail_prompt_returns_submitted_without_sentinel(
 
     events = session.send_mail_prompt(
         MailPromptRequest(
+            channel="offline",
+            expected_binding_id=session._plan.mailboxes.offline.binding.binding_id,
             request_id="mailreq-2",
             operation="send",
             prompt="send a mailbox message",

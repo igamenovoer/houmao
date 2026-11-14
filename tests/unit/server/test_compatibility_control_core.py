@@ -263,7 +263,7 @@ def test_prepare_native_launch_projection_uses_resolved_role_package(
                 launch_overrides=None,
                 launch_env_records=[],
                 operator_prompt_mode=None,
-                mailbox=None,
+                mailboxes=None,
                 extra={},
             ),
             role_name="gpu-kernel-coder",

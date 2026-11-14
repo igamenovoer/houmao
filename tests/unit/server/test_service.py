@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 import json
 import os
 from pathlib import Path
@@ -30,13 +29,9 @@ from houmao.agents.realm_controller.backends.headless_output import (
     canonical_headless_event_artifact_path,
 )
 from houmao.agents.realm_controller.registry_models import (
-    LiveAgentRegistryRecordV2,
-    RegistryIdentityV1,
-    RegistryRuntimeV1,
-    RegistryTerminalV1,
+    ManagedAgentRegistryRecordV3,
 )
 from houmao.agents.realm_controller.registry_storage import (
-    DEFAULT_REGISTRY_LEASE_TTL,
     publish_live_agent_record,
     resolve_live_agent_record,
 )
@@ -68,6 +63,8 @@ from houmao.server.models import (
     HoumaoRegisterLaunchRequest,
 )
 from houmao.server.service import HoumaoServerService, ProxyResponse
+from houmao.agents.mailbox_runtime_models import MailboxesResolvedConfig
+from tests.unit.passive_server.test_discovery import _make_record
 from houmao.server.tui import (
     KnownSessionRecord,
     OfficialParseResult,
@@ -279,6 +276,7 @@ class _FakeHeadlessController:
                 "backend": "claude_headless",
                 "tool": "claude",
                 "metadata": {"headless_output_format": "stream-json"},
+                "mailboxes": MailboxesResolvedConfig(),
             },
         )()
         self.agent_identity = agent_identity
@@ -323,27 +321,18 @@ class _FakeHeadlessController:
         self.persist_manifest(refresh_registry=refresh_registry)
         return result
 
-    def build_shared_registry_record(self) -> LiveAgentRegistryRecordV2 | None:
+    def build_shared_registry_record(self) -> ManagedAgentRegistryRecordV3 | None:
         if self.agent_identity is None or self.agent_id is None:
             return None
-        published_at = datetime.now(UTC)
-        return LiveAgentRegistryRecordV2(
+        return _make_record(
             agent_name=self.agent_identity,
             agent_id=self.agent_id,
             generation_id=self.registry_generation_id,
-            published_at=published_at.isoformat(timespec="seconds"),
-            lease_expires_at=(published_at + DEFAULT_REGISTRY_LEASE_TTL).isoformat(
-                timespec="seconds"
-            ),
-            identity=RegistryIdentityV1(backend="claude_headless", tool="claude"),
-            runtime=RegistryRuntimeV1(
-                manifest_path=str(self.manifest_path),
-                session_root=str(self.manifest_path.parent),
-                agent_def_dir=None,
-            ),
-            terminal=RegistryTerminalV1(kind="tmux", session_name=self.tmux_session_name),
-            gateway=None,
-            mailbox=None,
+            backend="claude_headless",
+            tool="claude",
+            manifest_path=str(self.manifest_path),
+            session_root=str(self.manifest_path.parent),
+            session_name=self.tmux_session_name,
         )
 
 
@@ -357,23 +346,16 @@ def _sample_registry_record(
     backend: str = "houmao_server_rest",
     tool: str = "codex",
     generation_id: str = "test-generation",
-) -> LiveAgentRegistryRecordV2:
-    published_at = datetime.now(UTC)
-    return LiveAgentRegistryRecordV2(
+) -> ManagedAgentRegistryRecordV3:
+    return _make_record(
         agent_name=agent_name,
         agent_id=agent_id,
         generation_id=generation_id,
-        published_at=published_at.isoformat(timespec="seconds"),
-        lease_expires_at=(published_at + DEFAULT_REGISTRY_LEASE_TTL).isoformat(timespec="seconds"),
-        identity=RegistryIdentityV1(backend=backend, tool=tool),
-        runtime=RegistryRuntimeV1(
-            manifest_path=str(manifest_path.resolve()),
-            session_root=str(session_root.resolve()),
-            agent_def_dir=None,
-        ),
-        terminal=RegistryTerminalV1(kind="tmux", session_name=session_name),
-        gateway=None,
-        mailbox=None,
+        backend=backend,
+        tool=tool,
+        manifest_path=str(manifest_path.resolve()),
+        session_root=str(session_root.resolve()),
+        session_name=session_name,
     )
 
 
@@ -752,7 +734,10 @@ def test_managed_agent_mail_requires_pair_owned_mail_capability(tmp_path: Path) 
     ) as exc_info:
         service.list_managed_agent_mail(
             "cao-gpu",
-            HoumaoManagedAgentMailListRequest(read_state="unread", limit=5),
+            HoumaoManagedAgentMailListRequest(
+                expected_binding_id="binding-offline", read_state="unread", limit=5
+            ),
+            channel="offline",
         )
 
     assert exc_info.value.status_code == 503
@@ -787,7 +772,10 @@ def test_managed_agent_mail_archive_requires_pair_owned_mail_capability(tmp_path
     ) as exc_info:
         service.archive_managed_agent_mail(
             "cao-gpu",
-            HoumaoManagedAgentMailArchiveRequest(message_refs=["filesystem:msg-123"]),
+            HoumaoManagedAgentMailArchiveRequest(
+                expected_binding_id="binding-offline", message_refs=["filesystem:msg-123"]
+            ),
+            channel="offline",
         )
 
     assert exc_info.value.status_code == 503
@@ -2508,3 +2496,102 @@ def test_headless_turn_events_prefer_canonical_artifact_for_server_managed_agent
 
     assert [event.kind for event in events.entries] == ["assistant"]
     assert events.entries[0].message == "canonical event wins"
+
+
+@pytest.mark.parametrize("json_projection", [False, True])
+def test_tui_mail_summary_uses_safe_registry_projection_without_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    json_projection: bool,
+) -> None:
+    """Published dual identities need no backend credentials or readable runtime manifest."""
+
+    from houmao.agents.realm_controller.registry_models import RegistryMailboxesV1
+    from houmao.server.models import HoumaoTrackedSessionIdentity
+
+    service = HoumaoServerService(
+        config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
+        transport=_FakeTransport({}),
+    )
+    projection = RegistryMailboxesV1.model_validate(
+        {
+            "offline": {
+                "revision": "offline-revision",
+                "binding": {
+                    "agent_id": "agent-a",
+                    "channel": "offline",
+                    "binding_id": "offline-registration",
+                    "address": "alice@houmao.localhost",
+                    "transport": "registry",
+                    "availability": "configured",
+                },
+            },
+            "online": {
+                "revision": "online-revision",
+                "binding": {
+                    "agent_id": "agent-a",
+                    "channel": "online",
+                    "binding_id": "online-account",
+                    "address": "alice@example.test",
+                    "transport": "stalwart",
+                    "availability": "unavailable",
+                },
+            },
+        }
+    )
+    missing = tmp_path / "absent-runtime-host" / "manifest.json"
+    record = _sample_registry_record(
+        agent_name="HOUMAO-alice",
+        agent_id="agent-a",
+        manifest_path=missing,
+        session_root=missing.parent,
+        session_name="HOUMAO-alice",
+    ).model_copy(
+        update={
+            "mailboxes": projection,
+            "canonical_mail_identity": projection.canonical_mail_identity,
+        }
+    )
+    source = (
+        type("SafeRecord", (), {"mailboxes": projection.model_dump(mode="json")})()
+        if json_projection
+        else record
+    )
+    monkeypatch.setattr(service, "_shared_registry_record_for_identity", lambda **kwargs: source)
+    monkeypatch.setattr(
+        service,
+        "_mailbox_summary_from_manifest_path",
+        lambda *_: pytest.fail("public projection must not need manifest access"),
+    )
+    monkeypatch.setattr(
+        "houmao.server.service.mailboxes_resolved_config_from_payload",
+        lambda *_args, **_kwargs: pytest.fail("safe projection is not a private full binding"),
+    )
+    identity = HoumaoTrackedSessionIdentity(
+        tracked_session_id="tracked-a",
+        session_name="alice",
+        tool="codex",
+        tmux_session_name="HOUMAO-alice",
+        agent_name="HOUMAO-alice",
+        agent_id="agent-a",
+        manifest_path=str(missing),
+        session_root=str(missing.parent),
+    )
+    summary = service._mailbox_summary_for_tui_identity(identity)
+    assert summary is not None
+    assert summary.offline.revision == "offline-revision"
+    assert summary.offline.binding.binding_id == "offline-registration"
+    assert summary.online.revision == "online-revision"
+    assert summary.online.binding.availability == "unavailable"
+    assert summary.canonical_mail_identity == {"channel": "online", "address": "alice@example.test"}
+    assert not missing.exists()
+    serialized = summary.model_dump_json()
+    for private in (
+        "credential_ref",
+        "credential_file",
+        "registry_url",
+        "filesystem_root",
+        "jmap_url",
+        "login_identity",
+    ):
+        assert private not in serialized

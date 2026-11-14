@@ -9,12 +9,12 @@
 
 If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from this command procedure, its owning skill constraints, available references, and the user request, then execute the plan.
 
-Use `POST /v1/mail/reply` with the opaque `message_ref` of the message you are replying to.
+Use `POST /v1/mail/{channel}/reply` with the opaque `message_ref` of the message you are replying to.
 
 ```bash
-curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/reply" \
+curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/$MAIL_CHANNEL/reply" \
   -H 'content-type: application/json' \
-  --data '{"schema_version":1,"message_ref":"<opaque message_ref>","body_content":"...","attachments":[]}'
+  --data '{"schema_version":3,"expected_binding_id":"<selected binding_id>","message_ref":"<opaque message_ref>","body_content":"...","attachments":[]}'
 ```
 
 Do not reconstruct transport-local threading identifiers yourself.
@@ -22,5 +22,5 @@ Do not reconstruct transport-local threading identifiers yourself.
 When no live gateway facade is available, run the direct fallback command:
 
 ```bash
-<chosen houmao-mgr launcher> agents self mail reply --message-ref <message_ref> --body-content <body>
+<chosen houmao-mgr launcher> agents self mail reply --channel <channel> --expected-binding-id <binding_id> --message-ref <message_ref> --body-content <body>
 ```

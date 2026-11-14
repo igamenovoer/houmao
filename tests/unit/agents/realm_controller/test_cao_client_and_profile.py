@@ -35,13 +35,21 @@ from houmao.agents.realm_controller.models import (
     LaunchPlan,
     RoleInjectionPlan,
 )
-from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
+from houmao.agents.mailbox_runtime_models import (
+    FilesystemMailboxResolvedConfig,
+    MailboxesResolvedConfig,
+    MailboxSlotConfig,
+)
 from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
 from houmao.agents.realm_controller.backends.shadow_parser_core import (
     ANOMALY_STALLED_ENTERED,
     ANOMALY_STALLED_RECOVERED,
 )
-from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
+from houmao.mailbox import (
+    MailboxPrincipal,
+    bootstrap_filesystem_mailbox,
+    load_active_mailbox_registration,
+)
 from houmao.cao.models import (
     CaoHealthResponse,
     CaoSessionDetail,
@@ -150,6 +158,8 @@ def _sample_mailbox_launch_plan(tmp_path: Path, *, tool: str = "codex") -> Launc
     mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
         principal_id=principal_id,
+        agent_id=principal_id,
+        binding_id=load_active_mailbox_registration(mailbox_root, address=address).registration_id,
         address=address,
         filesystem_root=mailbox_root.resolve(),
         bindings_version="2026-03-12T05:00:00.000001Z",
@@ -159,7 +169,9 @@ def _sample_mailbox_launch_plan(tmp_path: Path, *, tool: str = "codex") -> Launc
         plan,
         env={**plan.env, **bindings},
         env_var_names=sorted({*plan.env_var_names, *bindings.keys()}),
-        mailbox=mailbox,
+        mailboxes=MailboxesResolvedConfig(
+            offline=MailboxSlotConfig(revision=mailbox.bindings_version, binding=mailbox)
+        ),
     )
 
 
@@ -2119,6 +2131,8 @@ def test_cao_codex_shadow_mail_prompt_waits_for_post_submit_sentinel(
 ) -> None:
     launch_plan = _sample_mailbox_launch_plan(tmp_path, tool="codex")
     prompt_request = prepare_mail_prompt(
+        channel="offline",
+        expected_binding_id=launch_plan.mailboxes.offline.binding.binding_id,
         launch_plan=launch_plan,
         operation="send",
         args={
@@ -2244,7 +2258,7 @@ def test_cao_codex_shadow_mail_prompt_waits_for_post_submit_sentinel(
     )
 
     events = session.send_mail_prompt(prompt_request)
-    mailbox = launch_plan.mailbox
+    mailbox = launch_plan.mailboxes.offline.binding
     assert mailbox is not None
     payload = parse_mail_result(
         events,
@@ -2267,6 +2281,8 @@ def test_cao_codex_shadow_mail_prompt_detects_result_while_shadow_stays_working(
 ) -> None:
     launch_plan = _sample_mailbox_launch_plan(tmp_path, tool="codex")
     prompt_request = prepare_mail_prompt(
+        channel="offline",
+        expected_binding_id=launch_plan.mailboxes.offline.binding.binding_id,
         launch_plan=launch_plan,
         operation="send",
         args={
@@ -2392,7 +2408,7 @@ def test_cao_codex_shadow_mail_prompt_detects_result_while_shadow_stays_working(
     )
 
     events = session.send_mail_prompt(prompt_request)
-    mailbox = launch_plan.mailbox
+    mailbox = launch_plan.mailboxes.offline.binding
     assert mailbox is not None
     payload = parse_mail_result(
         events,

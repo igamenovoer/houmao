@@ -143,6 +143,7 @@ class GatewayMailNotifierRecord:
     notify_block_shared_tokens: tuple[str, ...] = ()
     notify_block_per_message_chars: int = 512
     notify_block_total_chars: int = 2048
+    scope_key: str = ""
 
 
 GatewayNotifierAuditOutcome = Literal[
@@ -199,6 +200,7 @@ class GatewayNotifierAuditRecord:
     context_action_outcome: str | None
     degraded_tool_name: str | None
     degraded_error_type: str | None
+    scope_key: str = ""
     rendered_block_entries: tuple[GatewayNotifierAuditRenderedBlockEntry, ...] = ()
 
 
@@ -921,16 +923,19 @@ def delete_gateway_current_instance(paths: GatewayPaths) -> None:
             continue
 
 
-def read_gateway_mail_notifier_record(sqlite_path: Path) -> GatewayMailNotifierRecord:
+def read_gateway_mail_notifier_record(
+    sqlite_path: Path, *, scope_key: str
+) -> GatewayMailNotifierRecord:
     """Load the durable gateway notifier record."""
 
     with sqlite3.connect(sqlite_path) as connection:
-        return _read_gateway_mail_notifier_record(connection)
+        return _read_gateway_mail_notifier_record(connection, scope_key=scope_key)
 
 
 def write_gateway_mail_notifier_record(
     sqlite_path: Path,
     *,
+    scope_key: str,
     enabled: bool | object = _UNSET,
     interval_seconds: int | None | object = _UNSET,
     mode: GatewayMailNotifierMode | object = _UNSET,
@@ -954,8 +959,10 @@ def write_gateway_mail_notifier_record(
     """Persist selected notifier fields and return the resulting durable record."""
 
     with sqlite3.connect(sqlite_path) as connection:
-        record = _read_gateway_mail_notifier_record(connection)
+        connection.execute("BEGIN IMMEDIATE")
+        record = _read_gateway_mail_notifier_record(connection, scope_key=scope_key)
         updated = GatewayMailNotifierRecord(
+            scope_key=scope_key,
             enabled=record.enabled if enabled is _UNSET else bool(enabled),
             interval_seconds=(
                 record.interval_seconds
@@ -1033,7 +1040,7 @@ def write_gateway_mail_notifier_record(
                 else int(cast(int, notify_block_total_chars))
             ),
         )
-        _write_gateway_mail_notifier_record(connection, updated)
+        _write_gateway_mail_notifier_record(connection, updated, scope_key=scope_key)
         connection.commit()
         return updated
 
@@ -1070,6 +1077,7 @@ def build_gateway_mail_notifier_status(
 def append_gateway_notifier_audit_record(
     sqlite_path: Path,
     *,
+    scope_key: str,
     poll_time_utc: str,
     unread_count: int | None,
     unread_digest: str | None,
@@ -1114,9 +1122,10 @@ def append_gateway_notifier_audit_record(
                 context_action_outcome,
                 degraded_tool_name,
                 degraded_error_type,
-                rendered_block_entries_json
+                rendered_block_entries_json,
+                scope_key
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 poll_time_utc,
@@ -1135,6 +1144,7 @@ def append_gateway_notifier_audit_record(
                 degraded_tool_name,
                 degraded_error_type,
                 _serialize_gateway_notifier_rendered_block_entries(rendered_entries_tuple),
+                scope_key,
             ),
         )
         row = connection.execute("SELECT last_insert_rowid()").fetchone()
@@ -1145,6 +1155,7 @@ def append_gateway_notifier_audit_record(
         )
     return GatewayNotifierAuditRecord(
         audit_id=int(row[0]),
+        scope_key=scope_key,
         poll_time_utc=poll_time_utc,
         unread_count=unread_count,
         unread_digest=unread_digest,
@@ -1215,7 +1226,8 @@ def read_gateway_notifier_audit_records(
             context_action_outcome,
             degraded_tool_name,
             degraded_error_type,
-            rendered_block_entries_json
+            rendered_block_entries_json,
+            scope_key
         FROM gateway_notifier_audit
         ORDER BY audit_id DESC
     """
@@ -1499,38 +1511,16 @@ def _ensure_queue_schema(connection: sqlite3.Connection) -> None:
     else:
         connection.executescript(_gateway_queue_schema_sql())
         _validate_current_gateway_queue_schema(connection)
-    connection.execute(
-        """
-        INSERT OR IGNORE INTO gateway_mail_notifier (
-            singleton,
-            enabled,
-            interval_seconds,
-            mode,
-            appendix_text,
-            context_error_policy,
-            pre_notification_context_action,
-            last_poll_at_utc,
-            last_notification_at_utc,
-            last_notified_digest,
-            compacted_eligible_message_refs_json,
-            last_error,
-            updated_at_utc
-        )
-        VALUES (1, 0, NULL, ?, '', ?, ?, NULL, NULL, NULL, '[]', NULL, ?)
-        """,
-        (
-            DEFAULT_GATEWAY_MAIL_NOTIFIER_MODE,
-            DEFAULT_GATEWAY_MAIL_NOTIFIER_CONTEXT_ERROR_POLICY,
-            DEFAULT_GATEWAY_MAIL_NOTIFIER_PRE_NOTIFICATION_CONTEXT_ACTION,
-            now_utc_iso(),
-        ),
-    )
 
 
 def _migrate_gateway_queue_schema(connection: sqlite3.Connection) -> None:
     """Apply additive gateway queue schema migrations for notifier-owned tables."""
 
     notifier_columns = _sqlite_table_columns(connection, "gateway_mail_notifier")
+    if notifier_columns and "scope_key" not in notifier_columns:
+        raise ValueError(
+            "Unsupported unscoped notifier state; back up and rebootstrap this gateway queue"
+        )
     if notifier_columns:
         _add_column_if_missing(
             connection,
@@ -1721,7 +1711,7 @@ def _gateway_queue_schema_sql() -> str:
     );
 
     CREATE TABLE gateway_mail_notifier (
-        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        scope_key TEXT PRIMARY KEY,
         enabled INTEGER NOT NULL DEFAULT 0,
         interval_seconds INTEGER,
         mode TEXT NOT NULL DEFAULT 'any_inbox' CHECK (mode IN ('any_inbox', 'unread_only')),
@@ -1785,7 +1775,8 @@ def _gateway_notifier_audit_schema_sql() -> str:
         context_action_outcome TEXT,
         degraded_tool_name TEXT,
         degraded_error_type TEXT,
-        rendered_block_entries_json TEXT NOT NULL DEFAULT '[]'
+        rendered_block_entries_json TEXT NOT NULL DEFAULT '[]',
+        scope_key TEXT NOT NULL
     );
     """
 
@@ -1821,7 +1812,7 @@ def _validate_current_gateway_queue_schema(connection: sqlite3.Connection) -> No
             "result_json",
         ),
         "gateway_mail_notifier": (
-            "singleton",
+            "scope_key",
             "enabled",
             "interval_seconds",
             "mode",
@@ -1951,6 +1942,7 @@ def _row_to_gateway_notifier_audit_record(
         degraded_tool_name=None if row[14] is None else str(row[14]),
         degraded_error_type=None if row[15] is None else str(row[15]),
         rendered_block_entries=_parse_gateway_notifier_rendered_block_entries(row[16]),
+        scope_key=str(row[17]),
     )
 
 
@@ -1984,8 +1976,10 @@ def _parse_gateway_notifier_rendered_block_entries(
     return tuple(entries)
 
 
-def _read_gateway_mail_notifier_record(connection: sqlite3.Connection) -> GatewayMailNotifierRecord:
-    """Load the singleton gateway notifier row from durable storage."""
+def _read_gateway_mail_notifier_record(
+    connection: sqlite3.Connection, *, scope_key: str
+) -> GatewayMailNotifierRecord:
+    """Load the selected owner/channel/binding notifier row."""
 
     _ensure_queue_schema(connection)
     row = connection.execute(
@@ -2009,11 +2003,13 @@ def _read_gateway_mail_notifier_record(connection: sqlite3.Connection) -> Gatewa
             notify_block_per_message_chars,
             notify_block_total_chars
         FROM gateway_mail_notifier
-        WHERE singleton = 1
-        """
+        WHERE scope_key = ?
+        """,
+        (scope_key,),
     ).fetchone()
     if row is None:
         record = GatewayMailNotifierRecord(
+            scope_key=scope_key,
             enabled=False,
             interval_seconds=None,
             mode=DEFAULT_GATEWAY_MAIL_NOTIFIER_MODE,
@@ -2028,7 +2024,6 @@ def _read_gateway_mail_notifier_record(connection: sqlite3.Connection) -> Gatewa
             compacted_eligible_message_refs=(),
             last_error=None,
         )
-        _write_gateway_mail_notifier_record(connection, record)
         return record
     shared_tokens_value = row[14]
     shared_tokens: tuple[str, ...] = ()
@@ -2037,6 +2032,7 @@ def _read_gateway_mail_notifier_record(connection: sqlite3.Connection) -> Gatewa
         if isinstance(loaded, list):
             shared_tokens = tuple(str(item) for item in loaded if isinstance(item, str))
     return GatewayMailNotifierRecord(
+        scope_key=scope_key,
         enabled=bool(int(row[0])),
         interval_seconds=None if row[1] is None else int(row[1]),
         mode=_require_gateway_mail_notifier_mode(row[2]),
@@ -2099,14 +2095,16 @@ def _require_gateway_mail_notifier_pre_notification_action(
 def _write_gateway_mail_notifier_record(
     connection: sqlite3.Connection,
     record: GatewayMailNotifierRecord,
+    *,
+    scope_key: str,
 ) -> None:
-    """Persist the singleton gateway notifier row."""
+    """Persist the selected owner/channel/binding notifier row."""
 
     _ensure_queue_schema(connection)
     connection.execute(
         """
         INSERT INTO gateway_mail_notifier (
-            singleton,
+            scope_key,
             enabled,
             interval_seconds,
             mode,
@@ -2126,8 +2124,8 @@ def _write_gateway_mail_notifier_record(
             notify_block_total_chars,
             updated_at_utc
         )
-        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(singleton) DO UPDATE SET
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(scope_key) DO UPDATE SET
             enabled = excluded.enabled,
             interval_seconds = excluded.interval_seconds,
             mode = excluded.mode,
@@ -2148,6 +2146,7 @@ def _write_gateway_mail_notifier_record(
             updated_at_utc = excluded.updated_at_utc
         """,
         (
+            scope_key,
             int(record.enabled),
             record.interval_seconds,
             record.mode,

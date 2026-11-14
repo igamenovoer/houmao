@@ -638,8 +638,8 @@ class CaoRestSession:
 
         if prompt_request is None or self._parsing_mode != "shadow_only":
             return None
-        mailbox = self._plan.mailbox
-        if mailbox is None:
+        mailbox = self._plan.mailboxes.binding_for(prompt_request.channel)
+        if mailbox is None or mailbox.binding_id != prompt_request.expected_binding_id:
             return None
 
         def _observe(

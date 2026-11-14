@@ -99,7 +99,7 @@ class _FakeHeadlessSession:
     def configure_stop_force_cleanup(self, *, force_cleanup: bool) -> None:
         del force_cleanup
 
-    def send_prompt(self, prompt: str) -> list[object]:
+    def send_prompt(self, prompt: str, **_kwargs: object) -> list[object]:
         del prompt
         self.m_state = replace(self.m_state, turn_index=self.m_state.turn_index + 1)
         return []
@@ -303,6 +303,6 @@ def test_cli_runtime_registry_contract_surfaces_nonfatal_registry_warnings(
 
     assert stop_exit == 0
     assert (
-        "warning: Shared-registry cleanup failed after successful stop-session teardown"
+        "warning: Shared-registry stop transition failed after successful stop-session teardown"
         in stop_capture.err
     )

@@ -11,48 +11,14 @@ skill_invocation_notation: >
   Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
-# Filesystem Transport Guidance
+# Offline Filesystem Mail
 
-Use this page when the resolved mailbox transport is `filesystem`.
+Use this page for the selected offline binding, whose transport is `filesystem` locally or `registry` remotely. The registry host owns the filesystem store and durable membership. Agent hosts may have disjoint filesystems; registration never implies that a remote store path is locally readable.
 
-For notifier-driven shared mailbox gateway work, use `houmao-shared-routines->houmao-process-emails-via-gateway`.
+Use the ordinary action pages against `/v1/mail/offline/...` at the exact gateway URL. When no gateway is attached, use `houmao-mgr agents self mail <action> --channel offline --expected-binding-id <binding_id>`, or the explicit selected-agent equivalent. Keep the same channel and binding through replies and archive.
 
-For shared gateway mailbox actions in ordinary mailbox work, stay on this skill's action pages and use the exact `gateway.base_url` returned by the resolver or already present in prompt or context.
+Ordinary workflows do not read SQLite, scrape tmux variables, reconstruct paths from references, or edit message projections. For deliberate host-local maintenance with an explicit root, switch to `houmao-shared-routines->houmao-mailbox-mgr`. The [layout reference](../filesystem-layout.md) describes storage, not an alternative remote access protocol.
 
-Use this filesystem page for:
+Reading marks a message read; replying marks its parent read and answered. Archive is the explicit completion step after successful work and any required reply. Periodic reminders continue while eligible inbox work remains.
 
-- validating that the resolved transport is `filesystem`,
-- understanding filesystem mailbox layout and local policy guidance,
-- deciding how to fall back when `gateway: null`,
-- transport-specific read-state verification or inspection.
-
-## Filesystem Workflow
-
-- When the current prompt or mailbox context already provides the exact `gateway.base_url`, use that value directly for shared gateway mailbox work and do not rerun manager discovery first.
-- Otherwise resolve current mailbox bindings through `houmao-mgr agents self mail resolve-live` before mailbox work.
-- Treat the resolver output as the supported discovery contract for this turn. Do not scrape tmux state directly.
-- When the resolver returns a `gateway` object, use this skill's action pages and shared `/v1/mail/*` references for the ordinary mailbox operation you need.
-- When the resolver returns `gateway: null`, run the matching `agents self mail status|list|peek|read|send|post|reply|mark|move|archive` command as the supported fallback surface.
-- Treat `message_ref` and `thread_ref` as opaque shared mailbox references. Do not derive filesystem `message_id`, thread ancestry, or path structure from the visible prefix.
-- After you successfully process one message, archive that same `message_ref` through `POST /v1/mail/archive` when gateway HTTP is in use or the direct `agents self mail archive` fallback command when it is not.
-- If a fallback `houmao-mgr agents self mail ...` result returns `authoritative: false`, treat it as submission-only and verify outcome through `houmao-mgr agents self mail list`, `houmao-mgr agents self mail status`, or transport-owned mailbox state before assuming the mutation completed.
-
-## Filesystem-Specific Guidance
-
-- Read [../filesystem-resolver-fields.md](../filesystem-resolver-fields.md) when validating resolver fields.
-- Read [../filesystem-layout.md](../filesystem-layout.md) when you need exact mailbox directories, projection layout, or canonical message storage structure.
-- Inspect the shared mailbox `rules/` directory under `mailbox.filesystem.root` for mailbox-local policy guidance such as formatting, etiquette, or workflow hints.
-- Treat that `rules/` content as policy guidance, not as the ordinary public execution protocol.
-- `rules/scripts/`, when present, is compatibility or implementation detail. Do not treat shared helper scripts as the first-choice surface for ordinary `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, or `archive` work.
-- Inspect local state from `mailbox.filesystem.local_sqlite_path` when transport-owned inspection is needed; treat that mailbox-local database as the source of truth for read, answered, archived, box, starred, deleted, and thread summary state for the current mailbox.
-- Treat `mailbox.filesystem.sqlite_path` as shared structural catalog state, not as the mailbox-view authority for the current mailbox.
-- Read message content by following inbox or sent symlink projections back to canonical Markdown message files under `messages/<YYYY-MM-DD>/...`.
-
-## Guardrails
-
-- Refuse to use this page when `mailbox.transport` is not `filesystem`.
-- Do not hardcode mailbox roots, SQLite paths, or mailbox addresses into instructions, prompts, or generated files.
-- Do not assume mailbox content lives under the runtime root unless the resolved bindings explicitly point there.
-- Use the supported archive and move interfaces for `archive/`; do not invent draft workflows in v1.
-- Do not rewrite delivered Markdown messages to mark them read, starred, or archived.
-- Do not bypass locking when creating or updating mailbox projections.
+The selected offline sender address remains the offline address even when the agent has an online canonical mail identity. Recipients must belong to the same registry. Reject mixed-channel batches instead of bridging or translating addresses. A submission-only manager result needs authoritative verification before assuming delivery succeeded.

@@ -24,6 +24,6 @@ If the request does not map cleanly to this workflow, use the native planning to
 
 - Do not use this action when the user wants to remove all delivered messages from the mailbox root; use `commands/clear-messages.md` for that all-account reset.
 - Do not use this action to remove mailbox accounts; use mailbox unregister for account deregistration.
-- Do not use mailbox cleanup for this task; cleanup removes inactive or stashed registrations and preserves canonical message history.
+- Do not use mailbox cleanup for this task; cleanup removes inactive registrations and retained registration history and preserves canonical message history.
 - Do not hand-edit mailbox-root files when this maintained command covers the request.
 - Explain that external `path_ref` attachment targets are outside the clear operation.

@@ -608,24 +608,30 @@ class HoumaoManagedAgentLastTurnView(_HoumaoModel):
         return stripped
 
 
-class HoumaoManagedAgentMailboxSummaryView(_HoumaoModel):
-    """Redacted mailbox posture for one managed agent."""
+class HoumaoManagedAgentMailboxBindingSummaryView(_HoumaoModel):
+    """Public owner and binding scope without credential resolution inputs."""
 
+    agent_id: str
+    channel: Literal["offline", "online"]
+    binding_id: str
+    address: str
     transport: MailboxTransport
-    principal_id: str | None = None
-    address: str | None = None
+    availability: Literal["configured", "unavailable", "unknown"] = "unknown"
 
-    @field_validator("principal_id", "address")
-    @classmethod
-    def _optional_not_blank(cls, value: str | None) -> str | None:
-        """Require optional mailbox strings to be non-empty when present."""
 
-        if value is None:
-            return None
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("must not be empty")
-        return stripped
+class HoumaoManagedAgentMailboxSlotSummaryView(_HoumaoModel):
+    """Public slot revision retained when no binding is configured."""
+
+    revision: str
+    binding: HoumaoManagedAgentMailboxBindingSummaryView | None
+
+
+class HoumaoManagedAgentMailboxSummaryView(_HoumaoModel):
+    """Redacted summaries of both independent mailbox channels."""
+
+    offline: HoumaoManagedAgentMailboxSlotSummaryView
+    online: HoumaoManagedAgentMailboxSlotSummaryView
+    canonical_mail_identity: dict[str, str] | None
 
 
 class HoumaoManagedAgentGatewaySummaryView(_HoumaoModel):
@@ -670,7 +676,7 @@ class HoumaoManagedAgentStateResponse(_HoumaoModel):
     turn: HoumaoManagedAgentTurnView
     last_turn: HoumaoManagedAgentLastTurnView
     diagnostics: list[HoumaoErrorDetail] = Field(default_factory=list)
-    mailbox: HoumaoManagedAgentMailboxSummaryView | None = None
+    mailboxes: HoumaoManagedAgentMailboxSummaryView | None = None
     gateway: HoumaoManagedAgentGatewaySummaryView | None = None
     memory_root: str | None = None
     memo_file: str | None = None
@@ -782,7 +788,7 @@ class HoumaoManagedAgentHeadlessDetailView(_HoumaoModel):
     last_turn_returncode: int | None = None
     last_turn_history_summary: str | None = None
     last_turn_error: str | None = None
-    mailbox: HoumaoManagedAgentMailboxSummaryView | None = None
+    mailboxes: HoumaoManagedAgentMailboxSummaryView | None = None
     gateway: HoumaoManagedAgentGatewaySummaryView | None = None
     diagnostics: list[HoumaoErrorDetail] = Field(default_factory=list)
 
@@ -996,37 +1002,31 @@ class HoumaoManagedAgentMailLifecycleResponse(GatewayMailLifecycleResponseV1):
     """Pair-owned managed-agent mail lifecycle response payload."""
 
 
-class HoumaoHeadlessLaunchMailboxOptions(_HoumaoModel):
-    """Optional mailbox overrides for native headless launch."""
+class HoumaoHeadlessLaunchOfflineMailboxOptions(_HoumaoModel):
+    """Filesystem declaration for the selected local registry's offline store."""
 
-    transport: MailboxTransport | None = None
+    transport: Literal["filesystem"] = "filesystem"
     filesystem_root: str | None = None
     principal_id: str | None = None
     address: str | None = None
-    stalwart_base_url: str | None = None
-    stalwart_jmap_url: str | None = None
-    stalwart_management_url: str | None = None
-    stalwart_login_identity: str | None = None
 
-    @field_validator(
-        "filesystem_root",
-        "principal_id",
-        "address",
-        "stalwart_base_url",
-        "stalwart_jmap_url",
-        "stalwart_management_url",
-        "stalwart_login_identity",
-    )
-    @classmethod
-    def _optional_not_blank(cls, value: str | None) -> str | None:
-        """Require optional mailbox override strings to be non-empty when present."""
 
-        if value is None:
-            return None
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("must not be empty")
-        return stripped
+class HoumaoHeadlessLaunchOnlineMailboxOptions(_HoumaoModel):
+    """Launch-time online provider declaration, independent of offline mail."""
+
+    transport: Literal["stalwart"] = "stalwart"
+    principal_id: str | None = None
+    address: str | None = None
+    base_url: str | None = None
+    jmap_url: str | None = None
+    management_url: str | None = None
+
+
+class HoumaoHeadlessLaunchMailboxesOptions(_HoumaoModel):
+    """Explicit launch declarations for both optional mailbox channels."""
+
+    offline: HoumaoHeadlessLaunchOfflineMailboxOptions | None = None
+    online: HoumaoHeadlessLaunchOnlineMailboxOptions | None = None
 
 
 class HoumaoHeadlessLaunchRequest(_HoumaoModel):
@@ -1041,7 +1041,7 @@ class HoumaoHeadlessLaunchRequest(_HoumaoModel):
     agent_id: str | None = None
     headless_display_style: Literal["plain", "json", "fancy"] | None = None
     headless_display_detail: Literal["concise", "detail"] | None = None
-    mailbox: HoumaoHeadlessLaunchMailboxOptions | None = None
+    mailboxes: HoumaoHeadlessLaunchMailboxesOptions | None = None
 
     @field_validator(
         "tool",

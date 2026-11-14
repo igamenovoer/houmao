@@ -353,7 +353,7 @@ def test_get_managed_agent_state_detail_percent_encodes_alias(monkeypatch) -> No
                 "updated_at_utc": None,
             },
             "diagnostics": [],
-            "mailbox": None,
+            "mailboxes": None,
             "gateway": None,
         },
         "detail": {
@@ -378,7 +378,7 @@ def test_get_managed_agent_state_detail_percent_encodes_alias(monkeypatch) -> No
             "last_turn_returncode": None,
             "last_turn_history_summary": None,
             "last_turn_error": None,
-            "mailbox": None,
+            "mailboxes": None,
             "gateway": None,
             "diagnostics": [],
         },
@@ -587,13 +587,15 @@ def test_put_managed_agent_gateway_mail_notifier_posts_json_body(monkeypatch) ->
 
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
-    response = client.put_managed_agent_gateway_mail_notifier("HOUMAO gpu/1", request_model)
+    response = client.put_managed_agent_gateway_mail_notifier(
+        "HOUMAO gpu/1", request_model, channel="offline"
+    )
 
     assert response.enabled is True
     assert response.mode == "unread_only"
     assert recorded == {
         "method": "PUT",
-        "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/mail-notifier",
+        "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/mail-notifier/offline",
         "kwargs": {"json_body": request_model.model_dump(mode="json", exclude_unset=True)},
     }
 
@@ -602,11 +604,18 @@ def test_get_managed_agent_mail_status_percent_encodes_alias(monkeypatch) -> Non
     client = HoumaoServerClient("http://127.0.0.1:9889")
     recorded: dict[str, object] = {}
     response_payload = {
-        "schema_version": 1,
-        "transport": "filesystem",
-        "principal_id": "agent-1234",
-        "address": "agent@agents.localhost",
-        "bindings_version": "v1",
+        "schema_version": 2,
+        "agent_id": "agent-1234",
+        "offline": {
+            "agent_id": "agent-1234",
+            "channel": "offline",
+            "binding_id": "binding-offline",
+            "revision": "v1",
+            "address": "agent@agents.localhost",
+            "transport": "filesystem",
+            "available": True,
+        },
+        "canonical_mail_identity": {"channel": "offline", "address": "agent@agents.localhost"},
     }
 
     def _request_root_model(
@@ -624,7 +633,7 @@ def test_get_managed_agent_mail_status_percent_encodes_alias(monkeypatch) -> Non
 
     response = client.get_managed_agent_mail_status("HOUMAO gpu/1")
 
-    assert response.principal_id == "agent-1234"
+    assert response.agent_id == "agent-1234"
     assert recorded == {
         "method": "GET",
         "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/status",
@@ -634,10 +643,12 @@ def test_get_managed_agent_mail_status_percent_encodes_alias(monkeypatch) -> Non
 
 def test_list_managed_agent_mail_posts_json_body(monkeypatch) -> None:
     client = HoumaoServerClient("http://127.0.0.1:9889")
-    request_model = HoumaoManagedAgentMailListRequest(read_state="unread", limit=5)
+    request_model = HoumaoManagedAgentMailListRequest(
+        expected_binding_id="binding-offline", read_state="unread", limit=5
+    )
     recorded: dict[str, object] = {}
     response_payload = {
-        "schema_version": 1,
+        "schema_version": 3,
         "transport": "filesystem",
         "principal_id": "agent-1234",
         "address": "agent@agents.localhost",
@@ -646,6 +657,9 @@ def test_list_managed_agent_mail_posts_json_body(monkeypatch) -> None:
         "open_count": 0,
         "unread_count": 0,
         "messages": [],
+        "next_cursor": None,
+        "has_more": False,
+        "complete": True,
     }
 
     def _request_root_model(
@@ -661,12 +675,12 @@ def test_list_managed_agent_mail_posts_json_body(monkeypatch) -> None:
 
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
-    response = client.list_managed_agent_mail("HOUMAO gpu/1", request_model)
+    response = client.list_managed_agent_mail("HOUMAO gpu/1", request_model, channel="offline")
 
     assert response.box == "inbox"
     assert recorded == {
         "method": "POST",
-        "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/list",
+        "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/offline/list",
         "kwargs": {"json_body": request_model.model_dump(mode="json")},
     }
 
@@ -675,21 +689,24 @@ def test_send_post_and_reply_managed_agent_mail_post_json_body(monkeypatch) -> N
     client = HoumaoServerClient("http://127.0.0.1:9889")
     recorded: list[dict[str, object]] = []
     send_request = HoumaoManagedAgentMailSendRequest(
+        expected_binding_id="binding-offline",
         to=["peer@agents.localhost"],
         subject="status",
         body_content="hello",
     )
     post_request = HoumaoManagedAgentMailPostRequest(
+        expected_binding_id="binding-offline",
         subject="operator note",
         body_content="operator body",
     )
     assert post_request.reply_policy == HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE
     reply_request = HoumaoManagedAgentMailReplyRequest(
+        expected_binding_id="binding-offline",
         message_ref="msg-123",
         body_content="reply",
     )
     response_payload = {
-        "schema_version": 1,
+        "schema_version": 3,
         "operation": "send",
         "transport": "filesystem",
         "principal_id": "agent-1234",
@@ -726,9 +743,11 @@ def test_send_post_and_reply_managed_agent_mail_post_json_body(monkeypatch) -> N
 
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
-    send_response = client.send_managed_agent_mail("HOUMAO gpu/1", send_request)
-    post_response = client.post_managed_agent_mail("HOUMAO gpu/1", post_request)
-    reply_response = client.reply_managed_agent_mail("HOUMAO gpu/1", reply_request)
+    send_response = client.send_managed_agent_mail("HOUMAO gpu/1", send_request, channel="offline")
+    post_response = client.post_managed_agent_mail("HOUMAO gpu/1", post_request, channel="offline")
+    reply_response = client.reply_managed_agent_mail(
+        "HOUMAO gpu/1", reply_request, channel="offline"
+    )
 
     assert send_response.operation == "send"
     assert post_response.operation == "post"
@@ -736,17 +755,17 @@ def test_send_post_and_reply_managed_agent_mail_post_json_body(monkeypatch) -> N
     assert recorded == [
         {
             "method": "POST",
-            "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/send",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/offline/send",
             "kwargs": {"json_body": send_request.model_dump(mode="json")},
         },
         {
             "method": "POST",
-            "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/post",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/offline/post",
             "kwargs": {"json_body": post_request.model_dump(mode="json")},
         },
         {
             "method": "POST",
-            "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/reply",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/offline/reply",
             "kwargs": {"json_body": reply_request.model_dump(mode="json")},
         },
     ]
@@ -756,11 +775,14 @@ def test_mark_and_archive_managed_agent_mail_post_json_body(monkeypatch) -> None
     client = HoumaoServerClient("http://127.0.0.1:9889")
     recorded: list[dict[str, object]] = []
     mark_request = HoumaoManagedAgentMailMarkRequest(
+        expected_binding_id="binding-offline",
         message_refs=["filesystem:msg-123"],
         read=True,
         answered=True,
     )
-    archive_request = HoumaoManagedAgentMailArchiveRequest(message_refs=["filesystem:msg-123"])
+    archive_request = HoumaoManagedAgentMailArchiveRequest(
+        expected_binding_id="binding-offline", message_refs=["filesystem:msg-123"]
+    )
 
     def _request_root_model(
         method: str,
@@ -772,7 +794,7 @@ def test_mark_and_archive_managed_agent_mail_post_json_body(monkeypatch) -> None
         operation = "archive" if path.endswith("/archive") else "mark"
         return model.model_validate(
             {
-                "schema_version": 1,
+                "schema_version": 3,
                 "operation": operation,
                 "transport": "filesystem",
                 "principal_id": "agent-1234",
@@ -802,20 +824,22 @@ def test_mark_and_archive_managed_agent_mail_post_json_body(monkeypatch) -> None
 
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
-    mark_response = client.mark_managed_agent_mail("HOUMAO gpu/1", mark_request)
-    archive_response = client.archive_managed_agent_mail("HOUMAO gpu/1", archive_request)
+    mark_response = client.mark_managed_agent_mail("HOUMAO gpu/1", mark_request, channel="offline")
+    archive_response = client.archive_managed_agent_mail(
+        "HOUMAO gpu/1", archive_request, channel="offline"
+    )
 
     assert mark_response.operation == "mark"
     assert archive_response.operation == "archive"
     assert recorded == [
         {
             "method": "POST",
-            "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/mark",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/offline/mark",
             "kwargs": {"json_body": mark_request.model_dump(mode="json")},
         },
         {
             "method": "POST",
-            "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/archive",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/mail/offline/archive",
             "kwargs": {"json_body": archive_request.model_dump(mode="json")},
         },
     ]
@@ -916,7 +940,7 @@ def test_passive_server_client_routes_state_detail_and_history_to_compatibility_
             "updated_at_utc": None,
         },
         "diagnostics": [],
-        "mailbox": None,
+        "mailboxes": None,
         "gateway": None,
     }
     detail_payload = {
@@ -945,7 +969,7 @@ def test_passive_server_client_routes_state_detail_and_history_to_compatibility_
             "last_turn_returncode": None,
             "last_turn_history_summary": None,
             "last_turn_error": None,
-            "mailbox": None,
+            "mailboxes": None,
             "gateway": None,
             "diagnostics": [],
         },
@@ -1185,9 +1209,15 @@ def test_passive_server_client_gateway_send_keys_and_mail_notifier_routes(monkey
     monkeypatch.setattr(client, "_request_root_model", _request_root_model)
 
     control = client.send_managed_agent_gateway_control_input("HOUMAO gpu/1", request_model)
-    notifier_status = client.get_managed_agent_gateway_mail_notifier("HOUMAO gpu/1")
-    notifier_enabled = client.put_managed_agent_gateway_mail_notifier("HOUMAO gpu/1", notifier_put)
-    notifier_disabled = client.delete_managed_agent_gateway_mail_notifier("HOUMAO gpu/1")
+    notifier_status = client.get_managed_agent_gateway_mail_notifier(
+        "HOUMAO gpu/1", channel="offline"
+    )
+    notifier_enabled = client.put_managed_agent_gateway_mail_notifier(
+        "HOUMAO gpu/1", notifier_put, channel="offline"
+    )
+    notifier_disabled = client.delete_managed_agent_gateway_mail_notifier(
+        "HOUMAO gpu/1", channel="offline"
+    )
 
     assert control.detail == "queued"
     assert notifier_status.enabled is True
@@ -1203,17 +1233,17 @@ def test_passive_server_client_gateway_send_keys_and_mail_notifier_routes(monkey
         },
         {
             "method": "GET",
-            "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/mail-notifier",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/mail-notifier/offline",
             "kwargs": {},
         },
         {
             "method": "PUT",
-            "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/mail-notifier",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/mail-notifier/offline",
             "kwargs": {"json_body": notifier_put.model_dump(mode="json", exclude_unset=True)},
         },
         {
             "method": "DELETE",
-            "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/mail-notifier",
+            "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/mail-notifier/offline",
             "kwargs": {},
         },
     ]

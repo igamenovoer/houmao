@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 from pathlib import Path
 from typing import Any, Final, Literal, cast
@@ -40,7 +40,7 @@ from houmao.agents.launch_overrides import (
     resolve_launch_behavior,
 )
 from houmao.agents.launch_overrides.models import SupportedLaunchBackend
-from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
+from houmao.agents.mailbox_runtime_models import MailboxesResolvedConfig
 from houmao.hook_observation.codex_hooks_generator import build_collector_emitter_command
 from houmao.hook_observation.install import (
     TOKEN_ENV_VAR,
@@ -90,7 +90,7 @@ class LaunchPlanRequest:
     role_package: RolePackage
     backend: BackendKind
     working_directory: Path
-    mailbox: MailboxResolvedConfig | None = None
+    mailboxes: MailboxesResolvedConfig = field(default_factory=MailboxesResolvedConfig)
     intent: LaunchPolicyApplicationKind = "provider_start"
     session_root: Path | None = None
 
@@ -307,7 +307,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         env_var_names=env_var_names,
         role_injection=role_injection,
         metadata=metadata,
-        mailbox=request.mailbox,
+        mailboxes=request.mailboxes,
         launch_policy_provenance=launch_policy_result.provenance,
     )
 

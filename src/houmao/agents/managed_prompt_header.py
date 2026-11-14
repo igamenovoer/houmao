@@ -7,9 +7,9 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
 from houmao.agents.realm_controller.agent_identity import (
-    derive_agent_id_from_name,
+    AgentIdentityCreation,
+    AgentIdMode,
     derive_default_canonical_agent_name,
-    normalize_managed_agent_id,
     normalize_user_managed_agent_name,
 )
 
@@ -80,6 +80,7 @@ class ResolvedManagedLaunchIdentity:
 
     agent_name: str
     agent_id: str
+    id_provenance: str = "supplied"
 
 
 @dataclass(frozen=True)
@@ -316,6 +317,7 @@ def resolve_managed_launch_identity(
     role_name: str,
     requested_agent_name: str | None,
     requested_agent_id: str | None,
+    requested_agent_id_mode: AgentIdMode | None = None,
 ) -> ResolvedManagedLaunchIdentity:
     """Resolve managed identity for launch-prompt rendering and build metadata."""
 
@@ -323,14 +325,15 @@ def resolve_managed_launch_identity(
         agent_name = normalize_user_managed_agent_name(requested_agent_name)
     else:
         agent_name = derive_default_canonical_agent_name(tool=tool, role_name=role_name)
-    agent_id = (
-        normalize_managed_agent_id(requested_agent_id)
-        if requested_agent_id is not None
-        else derive_agent_id_from_name(agent_name)
-    )
+    identity = AgentIdentityCreation(
+        agent_name=agent_name,
+        agent_id=requested_agent_id,
+        agent_id_mode=requested_agent_id_mode,
+    ).resolve()
     return ResolvedManagedLaunchIdentity(
         agent_name=agent_name,
-        agent_id=agent_id,
+        agent_id=identity.agent_id,
+        id_provenance=identity.provenance,
     )
 
 
@@ -776,6 +779,7 @@ def managed_prompt_header_metadata(
         "stored_policy": decision.stored_policy,
         "agent_name": identity.agent_name,
         "agent_id": identity.agent_id,
+        "id_provenance": identity.id_provenance,
         "sections": _section_decisions_metadata(
             section_decisions=section_decisions,
             header_enabled=decision.enabled,

@@ -28,12 +28,20 @@ from houmao.agents.realm_controller.models import (
     RoleInjectionPlan,
     SessionEvent,
 )
-from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
+from houmao.agents.mailbox_runtime_models import (
+    FilesystemMailboxResolvedConfig,
+    MailboxesResolvedConfig,
+    MailboxSlotConfig,
+)
 from houmao.agents.mailbox_runtime_support import (
     install_runtime_mailbox_system_skills_for_tool,
     mailbox_env_bindings,
 )
-from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
+from houmao.mailbox import (
+    MailboxPrincipal,
+    bootstrap_filesystem_mailbox,
+    load_active_mailbox_registration,
+)
 
 
 def _build_launch_plan(tmp_path: Path, *, bootstrap_mailbox: bool = True) -> LaunchPlan:
@@ -51,6 +59,12 @@ def _build_launch_plan(tmp_path: Path, *, bootstrap_mailbox: bool = True) -> Lau
     mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
         principal_id=principal_id,
+        agent_id=principal_id,
+        binding_id=(
+            load_active_mailbox_registration(mailbox_root, address=address).registration_id
+            if mailbox_root.exists()
+            else "unprepared"
+        ),
         address=address,
         filesystem_root=mailbox_root.resolve(),
         bindings_version="2026-03-12T05:00:00.000001Z",
@@ -63,8 +77,8 @@ def _build_launch_plan(tmp_path: Path, *, bootstrap_mailbox: bool = True) -> Lau
         working_directory=tmp_path,
         home_env_var="CLAUDE_CONFIG_DIR",
         home_path=home_path,
-        env=mailbox_env_bindings(mailbox),
-        env_var_names=sorted(mailbox_env_bindings(mailbox).keys()),
+        env=mailbox_env_bindings(mailbox) if bootstrap_mailbox else {},
+        env_var_names=sorted(mailbox_env_bindings(mailbox).keys()) if bootstrap_mailbox else [],
         role_injection=RoleInjectionPlan(
             method="native_append_system_prompt",
             role_name="r",
@@ -72,7 +86,9 @@ def _build_launch_plan(tmp_path: Path, *, bootstrap_mailbox: bool = True) -> Lau
             bootstrap_message="bootstrap",
         ),
         metadata={},
-        mailbox=mailbox,
+        mailboxes=MailboxesResolvedConfig(
+            offline=MailboxSlotConfig(revision=mailbox.bindings_version, binding=mailbox)
+        ),
     )
 
 
@@ -80,6 +96,8 @@ def test_prepare_mail_prompt_references_runtime_skill_and_contract(tmp_path: Pat
     launch_plan = _build_launch_plan(tmp_path)
 
     prompt_request = prepare_mail_prompt(
+        channel="offline",
+        expected_binding_id=launch_plan.mailboxes.offline.binding.binding_id,
         launch_plan=launch_plan,
         operation="list",
         args={"read_state": "unread", "limit": 5},
@@ -110,7 +128,7 @@ def test_prepare_mail_prompt_references_runtime_skill_and_contract(tmp_path: Pat
 
 def test_parse_mail_result_rejects_multiple_sentinel_payloads(tmp_path: Path) -> None:
     launch_plan = _build_launch_plan(tmp_path)
-    mailbox = launch_plan.mailbox
+    mailbox = launch_plan.mailboxes.offline.binding
     assert mailbox is not None
 
     with pytest.raises(MailboxResultParseError, match="exactly one sentinel-delimited payload"):
@@ -146,6 +164,8 @@ def test_prepare_mail_prompt_falls_back_when_one_required_skill_is_missing(
     (launch_plan.home_path / "skills" / missing_skill / "SKILL.md").unlink()
 
     prompt_request = prepare_mail_prompt(
+        channel="offline",
+        expected_binding_id=launch_plan.mailboxes.offline.binding.binding_id,
         launch_plan=launch_plan,
         operation="list",
         args={"read_state": "unread", "limit": 5},
@@ -159,7 +179,7 @@ def test_prepare_mail_prompt_falls_back_when_one_required_skill_is_missing(
 
 def test_parse_mail_result_accepts_cao_only_done_event_payload(tmp_path: Path) -> None:
     launch_plan = _build_launch_plan(tmp_path)
-    mailbox = launch_plan.mailbox
+    mailbox = launch_plan.mailboxes.offline.binding
     assert mailbox is not None
 
     payload = parse_mail_result(
@@ -190,7 +210,7 @@ def test_parse_mail_result_accepts_cao_only_done_event_payload(tmp_path: Path) -
 
 def test_parse_mail_result_accepts_shadow_only_dialog_projection_payload(tmp_path: Path) -> None:
     launch_plan = _build_launch_plan(tmp_path)
-    mailbox = launch_plan.mailbox
+    mailbox = launch_plan.mailboxes.offline.binding
     assert mailbox is not None
 
     payload = parse_mail_result(
@@ -228,7 +248,7 @@ def test_parse_mail_result_prefers_normalized_shadow_surface_for_sentinel_payloa
     tmp_path: Path,
 ) -> None:
     launch_plan = _build_launch_plan(tmp_path)
-    mailbox = launch_plan.mailbox
+    mailbox = launch_plan.mailboxes.offline.binding
     assert mailbox is not None
 
     payload = parse_mail_result(
@@ -260,7 +280,7 @@ def test_parse_mail_result_prefers_normalized_shadow_surface_for_sentinel_payloa
 
 def test_parse_mail_result_prefers_scoped_mail_result_surfaces(tmp_path: Path) -> None:
     launch_plan = _build_launch_plan(tmp_path)
-    mailbox = launch_plan.mailbox
+    mailbox = launch_plan.mailboxes.offline.binding
     assert mailbox is not None
 
     payload = parse_mail_result(
@@ -299,7 +319,7 @@ def test_run_mail_prompt_returns_submission_only_result_without_exact_parse(
     tmp_path: Path,
 ) -> None:
     launch_plan = _build_launch_plan(tmp_path)
-    mailbox = launch_plan.mailbox
+    mailbox = launch_plan.mailboxes.offline.binding
     assert mailbox is not None
 
     result = run_mail_prompt(
@@ -321,6 +341,8 @@ def test_run_mail_prompt_returns_submission_only_result_without_exact_parse(
             ),
         ],
         prompt_request=MailPromptRequest(
+            channel="offline",
+            expected_binding_id=launch_plan.mailboxes.offline.binding.binding_id,
             request_id="mailreq-1",
             operation="send",
             prompt="send mail",
@@ -337,7 +359,7 @@ def test_run_mail_prompt_returns_submission_only_result_without_exact_parse(
 
 def test_run_mail_prompt_maps_busy_backend_error_to_submission_status(tmp_path: Path) -> None:
     launch_plan = _build_launch_plan(tmp_path)
-    mailbox = launch_plan.mailbox
+    mailbox = launch_plan.mailboxes.offline.binding
     assert mailbox is not None
 
     def _raise_busy(_request: MailPromptRequest) -> list[SessionEvent]:
@@ -349,6 +371,8 @@ def test_run_mail_prompt_maps_busy_backend_error_to_submission_status(tmp_path: 
         send_prompt=None,
         send_mail_prompt=_raise_busy,
         prompt_request=MailPromptRequest(
+            channel="offline",
+            expected_binding_id=launch_plan.mailboxes.offline.binding.binding_id,
             request_id="mailreq-2",
             operation="list",
             prompt="list mail",
@@ -414,6 +438,10 @@ def test_mail_list_cli_prints_structured_result(
         [
             "mail",
             "list",
+            "--channel",
+            "offline",
+            "--expected-binding-id",
+            launch_plan.mailboxes.offline.binding.binding_id,
             "--agent-identity",
             "HOUMAO-research",
             "--read-state",
@@ -489,6 +517,10 @@ def test_mail_send_cli_reads_body_file_and_attachments_into_prompt(
         [
             "mail",
             "send",
+            "--channel",
+            "offline",
+            "--expected-binding-id",
+            launch_plan.mailboxes.offline.binding.binding_id,
             "--agent-identity",
             "HOUMAO-research",
             "--to",
@@ -541,6 +573,10 @@ def test_mail_send_cli_rejects_short_recipient_names(
         [
             "mail",
             "send",
+            "--channel",
+            "offline",
+            "--expected-binding-id",
+            launch_plan.mailboxes.offline.binding.binding_id,
             "--agent-identity",
             "HOUMAO-research",
             "--to",
@@ -589,13 +625,17 @@ def test_mail_command_errors_for_missing_bootstrap_assets(
         [
             "mail",
             "list",
+            "--channel",
+            "offline",
+            "--expected-binding-id",
+            launch_plan.mailboxes.offline.binding.binding_id,
             "--agent-identity",
             "HOUMAO-research",
         ]
     )
 
     assert exit_code == 2
-    assert "bootstrap assets are missing" in capsys.readouterr().err
+    assert "mailbox binding" in capsys.readouterr().err
 
 
 def test_mail_command_errors_for_busy_session(
@@ -630,6 +670,10 @@ def test_mail_command_errors_for_busy_session(
         [
             "mail",
             "list",
+            "--channel",
+            "offline",
+            "--expected-binding-id",
+            launch_plan.mailboxes.offline.binding.binding_id,
             "--agent-identity",
             "HOUMAO-research",
         ]
@@ -674,6 +718,10 @@ def test_mail_command_errors_on_malformed_sentinel_payload(
         [
             "mail",
             "list",
+            "--channel",
+            "offline",
+            "--expected-binding-id",
+            launch_plan.mailboxes.offline.binding.binding_id,
             "--agent-identity",
             "HOUMAO-research",
         ]
@@ -818,7 +866,7 @@ def test_shadow_contract_reached_when_real_block_follows_echo() -> None:
 
 def test_shadow_contract_for_request_requires_active_request_match(tmp_path: Path) -> None:
     """Shadow completion must ignore sentinel blocks that belong to an earlier mail request."""
-    mailbox = _build_launch_plan(tmp_path).mailbox
+    mailbox = _build_launch_plan(tmp_path).mailboxes.offline.binding
     assert mailbox is not None
     text = (
         "HOUMAO_MAIL_RESULT_BEGIN\n"
@@ -846,7 +894,7 @@ def test_shadow_contract_for_request_requires_active_request_match(tmp_path: Pat
 def test_parse_mail_result_succeeds_with_prompt_echo_plus_real_block(tmp_path: Path) -> None:
     """Parser must ignore prompt-echo sentinel mentions and accept the standalone block."""
     launch_plan = _build_launch_plan(tmp_path)
-    mailbox = launch_plan.mailbox
+    mailbox = launch_plan.mailboxes.offline.binding
     assert mailbox is not None
 
     result_json = json.dumps(
@@ -878,7 +926,7 @@ def test_parse_mail_result_succeeds_with_prompt_echo_plus_real_block(tmp_path: P
 def test_parse_mail_result_rejects_prompt_echo_only_surface(tmp_path: Path) -> None:
     """Surface with only prompt-echo sentinel mentions and no standalone block must fail."""
     launch_plan = _build_launch_plan(tmp_path)
-    mailbox = launch_plan.mailbox
+    mailbox = launch_plan.mailboxes.offline.binding
     assert mailbox is not None
 
     with pytest.raises(MailboxResultParseError, match="no standalone sentinel-delimited payload"):
@@ -893,7 +941,7 @@ def test_parse_mail_result_rejects_prompt_echo_only_surface(tmp_path: Path) -> N
 def test_parse_mail_result_still_rejects_malformed_standalone_block(tmp_path: Path) -> None:
     """A real standalone block with invalid JSON must still produce an explicit parse error."""
     launch_plan = _build_launch_plan(tmp_path)
-    mailbox = launch_plan.mailbox
+    mailbox = launch_plan.mailboxes.offline.binding
     assert mailbox is not None
 
     text = "HOUMAO_MAIL_RESULT_BEGIN\nnot valid json\nHOUMAO_MAIL_RESULT_END\n"

@@ -1,174 +1,94 @@
 # Mailbox Common Workflows
 
-This page explains the practical v1 procedures for bootstrapping a mailbox, resolving current bindings, listing and reading mail, sending mail, posting operator-origin notes, replying, archiving processed mail, and deciding when filesystem rules or compatibility helpers need deeper inspection.
+This guide covers mail rounds after the agent and selected mailbox channel are configured. Use the [Quickstart](../quickstart.md) for local setup or [Offline Registry Setup](offline-registry.md) for remote enrollment.
 
-## Mental Model
+## Resolve the Target and Channel
 
-The safest workflow is simple:
-
-1. Let the runtime create or validate the mailbox root.
-2. Treat `rules/` as the mailbox-local operating manual, not as an ordinary execution protocol.
-3. Resolve the current live mailbox binding through `houmao-mgr agents self mail resolve-live` or `houmao-mgr agents single --agent-name <name> mail resolve-live`.
-4. Prefer the live gateway `/v1/mail/*` facade when it is attached.
-5. Otherwise use scoped `houmao-mgr agents self mail ...` or `houmao-mgr agents single --agent-name <name> mail ...`.
-6. Touch `rules/scripts/` only for compatibility, debugging, or repair workflows that intentionally bypass the ordinary managed path.
-
-## Bootstrap And First Inspection
-
-For the preferred local serverless workflow:
-
-1. `pixi run houmao-mgr mailbox init --mailbox-root <path>`
-2. `pixi run houmao-mgr project agents launch ...` or `pixi run houmao-mgr agents self join ...`
-3. `pixi run houmao-mgr agents single --agent-name <name> mailbox register --mailbox-root <path>`
-
-After bootstrap, inspect these first when you are new to a mailbox root or are recovering an environment:
-
-- `<mailbox_root>/rules/README.md`
-- `<mailbox_root>/rules/protocols/filesystem-mailbox-v1.md`
-
-If you intentionally need compatibility helpers for repair or debugging, inspect `<mailbox_root>/rules/scripts/requirements.txt` at that point, not as part of every ordinary mailbox turn.
-
-```mermaid
-sequenceDiagram
-    participant Op as Operator
-    participant CLI as houmao-mgr
-    participant RT as Runtime
-    participant FS as Mailbox<br/>root
-    Op->>CLI: mailbox init
-    CLI->>FS: bootstrap root
-    Op->>CLI: project agents launch or agents self join
-    CLI->>RT: create or adopt session
-    Op->>CLI: scoped agents mailbox register
-    RT->>FS: register address and persist binding
-    Op->>CLI: scoped agents mail resolve-live
-    CLI-->>Op: normalized binding and optional gateway
-```
-
-## Resolve Live Bindings
-
-Use `resolve-live` whenever you need the exact current binding set or the exact live shared-mailbox gateway endpoint.
+Select another agent by its stable ID, or use `agents self` from its owning session:
 
 ```bash
-pixi run houmao-mgr agents single --agent-name research mail resolve-live
+pixi run houmao-mgr agents single --agent-id "$agent_id" mail resolve-live
+pixi run houmao-mgr agents single --agent-id "$agent_id" mail status
 ```
 
-Important details:
+Resolve-live reports both revisioned slots and an optional exact `gateway.base_url`. Choose `offline` or `online` explicitly and retain that channel's `binding_id` for the round. Canonical mail identity is an external identity preference; it never chooses a transport.
 
-- Inside the owning managed tmux session, use `agents self mail resolve-live`.
-- Outside tmux, or when targeting a different agent, use `agents single --agent-id <id> mail resolve-live` or `agents single --agent-name <name> mail resolve-live`.
-- When the returned payload includes `gateway.base_url`, that is the supported discovery path for attached `/v1/mail/*` work instead of ad hoc host or port guessing.
+All lifecycle commands require `--channel`. Supplying `--expected-binding-id` pins the operation to the binding observed for this round. HTTP requests always contain `expected_binding_id` and mail `schema_version: 3`. A scope conflict ends the operation; do not retry against a replacement account automatically.
 
-## Read Mail Safely
-
-Use scoped mail `list` when you want manager-owned or gateway-backed mailbox reads.
+## Inspect Eligible Work
 
 ```bash
-pixi run houmao-mgr agents single --agent-name research mail list \
-  --read-state unread \
-  --limit 10
+pixi run houmao-mgr agents single --agent-id "$agent_id" mail list \
+  --channel offline --expected-binding-id "$binding_id" --box inbox --limit 10
+pixi run houmao-mgr agents single --agent-id "$agent_id" mail peek \
+  --channel offline --expected-binding-id "$binding_id" --message-ref "$message_ref"
+pixi run houmao-mgr agents single --agent-id "$agent_id" mail read \
+  --channel offline --expected-binding-id "$binding_id" --message-ref "$message_ref"
 ```
 
-Operational guidance:
+Obtain `message_ref` from a list result and keep it opaque. `peek` preserves read state; `read` intentionally marks read. Optional list filters include `--read-state`, `--answered-state`, `--archived/--not-archived`, and `--since`.
 
-- Re-resolve current bindings when you switch shells, sessions, or long-running automation contexts.
-- Treat `mailbox.filesystem.local_sqlite_path` as the source of truth for unread versus read state and mailbox-local thread summaries.
-- Treat `mailbox.filesystem.sqlite_path` as the shared structural catalog, not as the mailbox-view read or unread authority.
-- Use scoped mail `peek` when you need the body without changing read state; use scoped mail `read` when you intentionally want to inspect the body and mark it read.
-- Archive a message only after the mailbox action or processing step has completed successfully.
-- If a manager fallback result is `authoritative: false`, verify with scoped mail `list`, filesystem inspection, or transport-native mailbox state.
+For gateway access, use `GET /v1/mail/status` followed by `POST /v1/mail/{channel}/list|peek|read`. A list request body is:
 
-## Send New Mail
+```json
+{
+  "schema_version": 3,
+  "expected_binding_id": "registration-a",
+  "box": "inbox",
+  "limit": 10
+}
+```
 
-Use scoped mail `send` for manager-owned composition.
+List returns finite metadata pages. Retrieve bodies explicitly with `peek` or `read`; follow opaque continuation only while its account, binding, filters, and provider query state remain valid.
+
+## Compose and Reply
+
+Register offline recipients in the same selected registry before delivery. Online recipients use the online provider's address space:
 
 ```bash
-pixi run houmao-mgr agents single --agent-name research mail send \
-  --to orchestrator@houmao.localhost \
-  --subject "Investigate parser drift" \
-  --body-file body.md \
-  --attach notes.txt
+pixi run houmao-mgr agents single --agent-id "$agent_id" mail send \
+  --channel offline --expected-binding-id "$binding_id" \
+  --to orchestrator@houmao.localhost --subject "Review request" \
+  --body-file body.md --attach notes.txt
+pixi run houmao-mgr agents single --agent-id "$agent_id" mail reply \
+  --channel offline --expected-binding-id "$binding_id" --message-ref "$message_ref" \
+  --body-content "Review completed."
 ```
 
-Stepwise expectations:
+Choose exactly one body source, `--body-file` or `--body-content`. Repeat `--to`, `--cc`, or `--attach` as needed. Replies preserve their original binding and ancestry. A successful reply marks the parent read and answered without archiving it.
 
-1. The CLI validates attachment paths and body source.
-2. Houmao resolves current mailbox authority for the target managed agent.
-3. If a live loopback gateway mailbox facade is attached, shared mailbox operations use that gateway route.
-4. Otherwise Houmao uses manager-owned direct execution when it can prove authority.
-5. Only when direct authority is unavailable does the local live TUI fallback submit a mailbox prompt into the session.
-6. Submission-only fallback results require separate verification.
+Local filesystem `mail post --channel offline` creates an operator-origin note. The reserved sender is `HOUMAO-operator@houmao.localhost`, and reply-enabled posts use `reply_policy=operator_mailbox` by default. `--reply-policy none` disables replies to that note. `post` requires authoritative execution; unsupported backends fail explicitly.
 
-## Post Operator-Origin Mail
+Remote offline attachment handling uploads bounded content into registry-owned storage. Recipients download authorized content; neither host needs the other's filesystem path. Trusted local path references remain local-only.
 
-Use scoped mail `post` when the operator wants to deliver an operator-origin note into the managed agent mailbox without sending as the managed mailbox principal.
+## Complete a Round
+
+Archive successfully processed work after any required reply succeeds:
 
 ```bash
-pixi run houmao-mgr agents single --agent-name research mail post \
-  --subject "Resume after sync" \
-  --body-content "Continue from the latest mailbox checkpoint."
+pixi run houmao-mgr agents single --agent-id "$agent_id" mail archive \
+  --channel offline --expected-binding-id "$binding_id" --message-ref "$message_ref"
 ```
 
-Operator-origin guidance:
+Read and answered flags describe progress. They do not move a message out of the eligible inbox or substitute for archive completion. Periodic reminders for unchanged eligible work continue according to the selected notifier mode. `unread_only` additionally limits eligibility to unread mail; `any_inbox` keeps reminding about read inbox work.
 
-- `post` is filesystem-only in v1. A `stalwart` binding rejects it explicitly.
-- The canonical sender is always `HOUMAO-operator@houmao.localhost`.
-- Managed-agent defaults use `<agentname>@houmao.localhost`, while `HOUMAO-*` locals under `houmao.localhost` are reserved for Houmao-owned system mailboxes.
-- `post` requires authoritative mailbox execution and never falls back to TUI prompt submission.
-- `reply_policy=operator_mailbox` is the default and routes replies to that operator-origin thread back to `HOUMAO-operator@houmao.localhost`.
-- `reply_policy=none` is the explicit no-reply opt-out and replies to those operator-origin messages are rejected explicitly.
-- This receive-side behavior is reply-only for reply-enabled operator-origin messages, not a general free-send contract for the reserved system mailbox.
+A verified result has `authoritative: true`. A local TUI fallback remains submission-only and must be checked through manager or backend state. Do not interpret an optional transcript preview as confirmed delivery.
 
-## Reply And Archive
-
-Use scoped mail `reply` when you already know the parent shared `message_ref`.
+## Configure Channel Reminders
 
 ```bash
-pixi run houmao-mgr agents single --agent-name research mail reply \
-  --message-ref filesystem:msg-20260312T050000Z-parent \
-  --body-content "Reply with next steps"
+pixi run houmao-mgr agents single --agent-id "$agent_id" gateway mail-notifier enable \
+  --channel offline --interval-seconds 60 --mode any_inbox
+pixi run houmao-mgr agents single --agent-id "$agent_id" gateway mail-notifier status --channel offline
+pixi run houmao-mgr agents single --agent-id "$agent_id" gateway mail-notifier disable --channel offline
 ```
 
-After you successfully process one nominated message, archive that same `message_ref`:
+The HTTP surface is `/v1/mail-notifier/{channel}`. Channel configuration includes independent interval, mode, appendix, and compaction bookkeeping. Both channels share readiness and terminal admission safeguards. A canonical-address change does not reset the other channel's schedule or one-shot compaction state.
 
-```bash
-pixi run houmao-mgr agents single --agent-name research mail archive \
-  --message-ref filesystem:msg-20260312T050000Z-parent
-```
+Notifier-driven agent prompts provide the exact gateway URL, channel, and expected binding. Use the installed agent entrypoint when its required siblings exist, otherwise follow the supplied API instructions. Complete one bounded round and stop.
 
-Reply and archive guidance:
+## Inspect or Repair Filesystem State
 
-- Treat `message_ref` as opaque even when it contains a transport-prefixed value such as `filesystem:...` or `stalwart:...`.
-- When a live gateway facade is attached, use the shared gateway routines for `list`, `peek`, `read`, `reply`, `mark`, `move`, and `archive`.
-- When the manager-owned fallback path is in use, scoped mail `read` is the supported explicit read acknowledgement command and scoped mail `archive` is the supported processed-work closeout command.
-- Replies to operator-origin parent messages succeed when the parent was posted with `reply_policy=operator_mailbox`, which is the default for new operator-origin posts.
-- If `archive` returns `authoritative: false`, verify through scoped mail `list`, filesystem inspection, or transport-native mailbox state before assuming the message was archived.
+On the registry host, canonical content lives under `messages/`, shared ownership and delivery catalogs in `index.sqlite`, and mailbox-view flags in each registration's `mailbox.sqlite`. Released private views remain registration-scoped history. Runtime presence cleanup does not release addresses.
 
-## Answered Archive Lifecycle
-
-The filesystem mailbox tracks an `answered` state on each message, independent of `read`. When a message is marked answered, it moves to an `answered/` archive lane, keeping the active inbox clean without deleting processed messages.
-
-The `answered` flag is a per-recipient mutable state field stored in `index.sqlite`, alongside `read`, `starred`, `archived`, and `deleted`. The gateway mail-notifier filters use `answered_state` when resolving the eligible inbox set (both `any_inbox` and `unread_only` modes accept any answered state by default).
-
-Marking a message answered is a separate action from marking it read. A message can be read but not yet answered, or answered without being explicitly marked read first. Use the answered state when the processing workflow has a distinct "reply sent" or "action taken" stage that should remove the message from further notification-driven wakeup cycles without archiving it in the broader sense.
-
-## When `rules/` Inspection Is Mandatory
-
-Inspect mailbox-local `rules/` before:
-
-- running direct filesystem repair or recovery work,
-- invoking compatibility Python helpers from `rules/scripts/`,
-- touching `index.sqlite`,
-- touching any `.lock` file,
-- assuming a layout detail that could be mailbox-local policy rather than transport-wide policy.
-
-If managed `rules/scripts/` assets are missing, treat that as a bootstrap or initialization problem, not a prompt to author replacement scripts in place.
-
-## Source References
-
-- [`src/houmao/srv_ctrl/commands/agents/mail.py`](../../../../src/houmao/srv_ctrl/commands/agents/mail.py)
-- [`src/houmao/srv_ctrl/commands/managed_agents.py`](../../../../src/houmao/srv_ctrl/commands/managed_agents.py)
-- [`src/houmao/agents/realm_controller/mail_commands.py`](../../../../src/houmao/agents/realm_controller/mail_commands.py)
-- [`src/houmao/agents/mailbox_runtime_support.py`](../../../../src/houmao/agents/mailbox_runtime_support.py)
-- [`src/houmao/mailbox/assets/rules/README.md`](../../../../src/houmao/mailbox/assets/rules/README.md)
-- [`src/houmao/mailbox/assets/rules/protocols/filesystem-mailbox-v1.md`](../../../../src/houmao/mailbox/assets/rules/protocols/filesystem-mailbox-v1.md)
-- [`src/houmao/mailbox/managed.py`](../../../../src/houmao/mailbox/managed.py)
+Inspect `rules/README.md` and the shipped protocol note before direct repair or administrative script use. Ordinary agents use the supported manager or gateway APIs. Remote members cannot select registry filesystem or symlink targets. See [Registration Lifecycle](registration-lifecycle.md) and [Repair and Recovery](repair-recovery.md).

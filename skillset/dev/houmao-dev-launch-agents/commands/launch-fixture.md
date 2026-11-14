@@ -52,6 +52,8 @@ pixi run python scripts/agents/test-fixtures/fixture.py prompt \
 
 Raw headless launch requires a prompt and stores native JSONL/stderr privately. Its follow-up uses the captured provider session ID. Managed follow-up uses the captured authority and gateway. Do not guess a resume target or launch another agent as a substitute for resumption. A headless manager launch may create the agent without an initial prompt; raw headless may not.
 
+When the selected test needs online mail, continue with [attach-online-mail.md](attach-online-mail.md) for an existing normal account and an active managed gateway. A raw-client launch alone supplies no managed authority for this attachment.
+
 For passive birth, add the selected `--passive-url http://127.0.0.1:PORT` to `launch`. For TUI, omit the prompt initially, verify the live process and surface, then use `prompt` or the caller's input interface as appropriate. The fixture helper sends TUI text and Enter separately. A recorder caller retains ownership of recorded inputs and recording timing.
 
 ## Verification and Handoff

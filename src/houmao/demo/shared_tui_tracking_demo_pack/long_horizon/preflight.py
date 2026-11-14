@@ -162,7 +162,7 @@ def prepare_provider_home(
             preset_path=preset_path,
             preset_launch_overrides=recipe.launch.overrides,
             runtime_root=runtime_root,
-            mailbox=None,
+            mailboxes=None,
             agent_name=None,
             operator_prompt_mode="unattended",
             persistent_env_records=environment,

@@ -27,7 +27,12 @@ from houmao.passive_server.models import (
 )
 from houmao.passive_server.service import PassiveServerService
 from houmao.server.managed_agents import ManagedHeadlessAuthorityRecord, ManagedHeadlessTurnRecord
-from houmao.server.models import HoumaoHeadlessLaunchMailboxOptions
+from houmao.server.models import (
+    HoumaoHeadlessLaunchMailboxesOptions,
+    HoumaoHeadlessLaunchOfflineMailboxOptions,
+    HoumaoHeadlessLaunchOnlineMailboxOptions,
+)
+from houmao.agents.mailbox_runtime_models import MailboxesResolvedConfig
 from tests.unit.passive_server.test_discovery import _make_record
 
 
@@ -61,7 +66,7 @@ def _launch_request(
     role_name: str | None = "gpu-kernel-coder",
     agent_name: str | None = "HOUMAO-alpha",
     agent_id: str | None = "published-alpha",
-    mailbox: HoumaoHeadlessLaunchMailboxOptions | None = None,
+    mailboxes: HoumaoHeadlessLaunchMailboxesOptions | None = None,
 ) -> PassiveHeadlessLaunchRequest:
     """Build one launch request with real temporary paths."""
 
@@ -74,7 +79,7 @@ def _launch_request(
         role_name=role_name,
         agent_name=agent_name,
         agent_id=agent_id,
-        mailbox=mailbox,
+        mailboxes=mailboxes,
     )
 
 
@@ -125,7 +130,9 @@ class _FakeRuntimeController:
         self.agent_identity = agent_identity
         self.agent_id = agent_id
         self.backend_session = backend_session or _FakeHeadlessBackendSession()
-        self.launch_plan = SimpleNamespace(metadata={"headless_output_format": output_format})
+        self.launch_plan = SimpleNamespace(
+            metadata={"headless_output_format": output_format}, mailboxes=MailboxesResolvedConfig()
+        )
         self.registry_launch_authority = registry_launch_authority
         self.m_registry_record = registry_record if registry_record is not None else object()
         self.stop_calls: list[bool] = []
@@ -372,15 +379,18 @@ class TestHeadlessLaunch:
         mailbox_root = tmp_path / "mailbox-root"
         request = _launch_request(
             tmp_path,
-            mailbox=HoumaoHeadlessLaunchMailboxOptions(
-                transport="stalwart",
-                filesystem_root=str(mailbox_root),
-                principal_id="principal-1",
-                address="agent@example.com",
-                stalwart_base_url="https://stalwart.example.test",
-                stalwart_jmap_url="https://stalwart.example.test/jmap",
-                stalwart_management_url="https://stalwart.example.test/manage",
-                stalwart_login_identity="agent@example.com",
+            mailboxes=HoumaoHeadlessLaunchMailboxesOptions(
+                offline=HoumaoHeadlessLaunchOfflineMailboxOptions(
+                    filesystem_root=str(mailbox_root),
+                    address="offline@houmao.localhost",
+                ),
+                online=HoumaoHeadlessLaunchOnlineMailboxOptions(
+                    principal_id="principal-1",
+                    address="agent@example.com",
+                    base_url="https://stalwart.example.test",
+                    jmap_url="https://stalwart.example.test/jmap",
+                    management_url="https://stalwart.example.test/manage",
+                ),
             ),
         )
         runtime_manifest_path = tmp_path / "runtime" / "tracked-alpha" / "manifest.json"
@@ -408,20 +418,15 @@ class TestHeadlessLaunch:
         response = svc.m_headless.launch(request)
 
         assert response.status == "ok"
-        assert recorded_start_kwargs["mailbox_transport"] == "stalwart"
-        assert recorded_start_kwargs["mailbox_root"] == mailbox_root.resolve()
-        assert recorded_start_kwargs["mailbox_principal_id"] == "principal-1"
-        assert recorded_start_kwargs["mailbox_address"] == "agent@example.com"
-        assert recorded_start_kwargs["mailbox_stalwart_base_url"] == "https://stalwart.example.test"
-        assert (
-            recorded_start_kwargs["mailbox_stalwart_jmap_url"]
-            == "https://stalwart.example.test/jmap"
-        )
-        assert (
-            recorded_start_kwargs["mailbox_stalwart_management_url"]
-            == "https://stalwart.example.test/manage"
-        )
-        assert recorded_start_kwargs["mailbox_stalwart_login_identity"] == "agent@example.com"
+        declared = recorded_start_kwargs["mailboxes"]
+        assert declared.offline.filesystem_root == str(mailbox_root)
+        assert declared.offline.address == "offline@houmao.localhost"
+        assert declared.online.transport == "stalwart"
+        assert declared.online.principal_id == "principal-1"
+        assert declared.online.address == "agent@example.com"
+        assert declared.online.base_url == "https://stalwart.example.test"
+        assert declared.online.jmap_url == "https://stalwart.example.test/jmap"
+        assert declared.online.management_url == "https://stalwart.example.test/manage"
 
 
 class TestManagedHeadlessRouting:

@@ -119,22 +119,22 @@ export HOUMAO_GLOBAL_REGISTRY_DIR=/external/run/registry
 export HOUMAO_PROJECT_OVERLAY_DIR=/external/run/workdir/.houmao
 export AGENT_ID=RETURNED_AGENT_ID
 export GATEWAY_URL=http://127.0.0.1:RETURNED_GATEWAY_PORT
-pixi run houmao-mgr agents single --agent-id "$AGENT_ID" mailbox register
+pixi run houmao-mgr agents single --agent-id "$AGENT_ID" mailbox offline join
 
 # Permissive mode accepts the injected notify block.
-curl --fail -sS -X PUT "$GATEWAY_URL/v1/mail-notifier" \
+curl --fail -sS -X PUT "$GATEWAY_URL/v1/mail-notifier/offline" \
   -H 'Content-Type: application/json' \
   --data '{"enabled":true,"interval_seconds":5,"notify_block_render":"enabled","notify_block_auth_mode":"permissive-log","notify_block_auth_verifier":"none"}'
 
 # Required mode rejects unauthenticated notify blocks.
-curl --fail -sS -X PUT "$GATEWAY_URL/v1/mail-notifier" \
+curl --fail -sS -X PUT "$GATEWAY_URL/v1/mail-notifier/offline" \
   -H 'Content-Type: application/json' \
   --data '{"enabled":true,"interval_seconds":5,"notify_block_render":"enabled","notify_block_auth_mode":"required","notify_block_auth_verifier":"shared-token","notify_block_shared_tokens":[]}'
 
-pixi run houmao-mgr agents single --agent-id "$AGENT_ID" mail post \
+pixi run houmao-mgr agents single --agent-id "$AGENT_ID" mail post --channel offline \
   --subject 'demo control' \
   --body-file scripts/demo/single-agent-mail-prompt-injection/outputs/evidence/benign_body.md
-pixi run houmao-mgr agents single --agent-id "$AGENT_ID" mail post \
+pixi run houmao-mgr agents single --agent-id "$AGENT_ID" mail post --channel offline \
   --subject 'demo injection' \
   --body-file scripts/demo/single-agent-mail-prompt-injection/outputs/evidence/injection_body.md
 
@@ -142,7 +142,7 @@ pixi run python scripts/agents/test-fixtures/fixture.py check --run-dir /externa
 pixi run python scripts/agents/test-fixtures/fixture.py stop --run-dir /external/run
 ```
 
-Run one notifier mode per isolated comparison. Retain the private live evidence and use the scaffold's `verify` command for its composed-body report. The notifier settings above use the maintained `PUT /v1/mail-notifier` fields; see [the gateway protocol](../../../docs/reference/gateway/contracts/protocol-and-state.md).
+Run one notifier mode per isolated comparison. Retain the private live evidence and use the scaffold's `verify` command for its composed-body report. The notifier settings above use the maintained `PUT /v1/mail-notifier/offline` fields; see [the gateway protocol](../../../docs/reference/gateway/contracts/protocol-and-state.md).
 
 ## Outcome reporting
 

@@ -3436,7 +3436,7 @@ def _render_preset_yaml(entry: SpecialistCatalogEntry) -> str:
     if entry.launch_payload:
         payload["launch"] = entry.launch_payload
     if entry.mailbox_payload:
-        payload["mailbox"] = entry.mailbox_payload
+        payload["mailboxes"] = entry.mailbox_payload
     if entry.extra_payload:
         payload["extra"] = entry.extra_payload
     try:
@@ -3475,7 +3475,7 @@ def _render_launch_profile_yaml(
     if entry.env_payload:
         defaults["env"] = dict(entry.env_payload)
     if entry.mailbox_payload:
-        defaults["mailbox"] = entry.mailbox_payload
+        defaults["mailboxes"] = entry.mailbox_payload
     if entry.posture_payload:
         defaults["posture"] = entry.posture_payload
     if entry.system_skills_payload:

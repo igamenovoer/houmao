@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from houmao.mailbox.online_models import (
+    OnlineAttachRequest,
+    OnlineControlRequest,
+    OnlineBindingStatus,
+)
+
 import json
 import os
 from dataclasses import dataclass
@@ -13,6 +19,7 @@ from pydantic import BaseModel, ValidationError
 from houmao.ag_ui.models import AgUiEventPublishRequest, AgUiEventPublishResponse
 from houmao.agents.realm_controller.errors import GatewayHttpError
 from houmao.agents.realm_controller.usage_models import UsagePage
+from houmao.mailbox.models import MailChannel
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayControlInputRequestV1,
@@ -263,97 +270,164 @@ class GatewayClient:
             body=payload.model_dump(mode="json"),
         )
 
+    def online_binding_status(self) -> OnlineBindingStatus:
+        """Read the safe configured online binding."""
+
+        return self._request_model("GET", "/v1/mail/online/binding", OnlineBindingStatus)
+
+    def attach_online_binding(self, payload: OnlineAttachRequest) -> OnlineBindingStatus:
+        """Attach a revision-pinned online binding."""
+
+        return self._request_model(
+            "PUT",
+            "/v1/mail/online/binding",
+            OnlineBindingStatus,
+            body=payload.model_dump(mode="json"),
+            timeout_seconds=payload.timeout_seconds * 8 + 5,
+        )
+
+    def refresh_online_binding(self, payload: OnlineControlRequest) -> OnlineBindingStatus:
+        """Refresh a revision-pinned online binding."""
+
+        return self._request_model(
+            "POST",
+            "/v1/mail/online/binding/refresh",
+            OnlineBindingStatus,
+            body=payload.model_dump(mode="json"),
+            timeout_seconds=payload.timeout_seconds * 8 + 5,
+        )
+
+    def reconnect_online_binding(self, payload: OnlineControlRequest) -> OnlineBindingStatus:
+        """Reconnect a revision-pinned online binding."""
+
+        return self._request_model(
+            "POST",
+            "/v1/mail/online/binding/reconnect",
+            OnlineBindingStatus,
+            body=payload.model_dump(mode="json"),
+            timeout_seconds=payload.timeout_seconds * 8 + 5,
+        )
+
+    def detach_online_binding(self, payload: OnlineControlRequest) -> OnlineBindingStatus:
+        """Detach a revision-pinned online binding."""
+
+        return self._request_model(
+            "DELETE",
+            "/v1/mail/online/binding",
+            OnlineBindingStatus,
+            body=payload.model_dump(mode="json"),
+            timeout_seconds=payload.timeout_seconds * 8 + 5,
+        )
+
     def mail_status(self) -> GatewayMailStatusV1:
         """Call `GET /v1/mail/status`."""
 
         return self._request_model("GET", "/v1/mail/status", GatewayMailStatusV1)
 
-    def list_mail(self, payload: GatewayMailListRequestV1) -> GatewayMailListResponseV1:
+    def list_mail(
+        self, payload: GatewayMailListRequestV1, *, channel: MailChannel
+    ) -> GatewayMailListResponseV1:
         """Call `POST /v1/mail/list`."""
 
         return self._request_model(
             "POST",
-            "/v1/mail/list",
+            f"/v1/mail/{channel}/list",
             GatewayMailListResponseV1,
             body=payload.model_dump(mode="json"),
         )
 
-    def peek_mail(self, payload: GatewayMailMessageRequestV1) -> GatewayMailMessageResponseV1:
+    def peek_mail(
+        self, payload: GatewayMailMessageRequestV1, *, channel: MailChannel
+    ) -> GatewayMailMessageResponseV1:
         """Call `POST /v1/mail/peek`."""
 
         return self._request_model(
             "POST",
-            "/v1/mail/peek",
+            f"/v1/mail/{channel}/peek",
             GatewayMailMessageResponseV1,
             body=payload.model_dump(mode="json"),
         )
 
-    def read_mail(self, payload: GatewayMailMessageRequestV1) -> GatewayMailMessageResponseV1:
+    def read_mail(
+        self, payload: GatewayMailMessageRequestV1, *, channel: MailChannel
+    ) -> GatewayMailMessageResponseV1:
         """Call `POST /v1/mail/read`."""
 
         return self._request_model(
             "POST",
-            "/v1/mail/read",
+            f"/v1/mail/{channel}/read",
             GatewayMailMessageResponseV1,
             body=payload.model_dump(mode="json"),
         )
 
-    def send_mail(self, payload: GatewayMailSendRequestV1) -> GatewayMailActionResponseV1:
+    def send_mail(
+        self, payload: GatewayMailSendRequestV1, *, channel: MailChannel
+    ) -> GatewayMailActionResponseV1:
         """Call `POST /v1/mail/send`."""
 
         return self._request_model(
             "POST",
-            "/v1/mail/send",
+            f"/v1/mail/{channel}/send",
             GatewayMailActionResponseV1,
             body=payload.model_dump(mode="json"),
         )
 
-    def post_mail(self, payload: GatewayMailPostRequestV1) -> GatewayMailActionResponseV1:
+    def post_mail(
+        self, payload: GatewayMailPostRequestV1, *, channel: MailChannel
+    ) -> GatewayMailActionResponseV1:
         """Call `POST /v1/mail/post`."""
 
         return self._request_model(
             "POST",
-            "/v1/mail/post",
+            f"/v1/mail/{channel}/post",
             GatewayMailActionResponseV1,
             body=payload.model_dump(mode="json"),
         )
 
-    def reply_mail(self, payload: GatewayMailReplyRequestV1) -> GatewayMailActionResponseV1:
+    def reply_mail(
+        self, payload: GatewayMailReplyRequestV1, *, channel: MailChannel
+    ) -> GatewayMailActionResponseV1:
         """Call `POST /v1/mail/reply`."""
 
         return self._request_model(
             "POST",
-            "/v1/mail/reply",
+            f"/v1/mail/{channel}/reply",
             GatewayMailActionResponseV1,
             body=payload.model_dump(mode="json"),
         )
 
-    def mark_mail(self, payload: GatewayMailMarkRequestV1) -> GatewayMailLifecycleResponseV1:
+    def mark_mail(
+        self, payload: GatewayMailMarkRequestV1, *, channel: MailChannel
+    ) -> GatewayMailLifecycleResponseV1:
         """Call `POST /v1/mail/mark`."""
 
         return self._request_model(
             "POST",
-            "/v1/mail/mark",
+            f"/v1/mail/{channel}/mark",
             GatewayMailLifecycleResponseV1,
             body=payload.model_dump(mode="json"),
         )
 
-    def move_mail(self, payload: GatewayMailMoveRequestV1) -> GatewayMailLifecycleResponseV1:
+    def move_mail(
+        self, payload: GatewayMailMoveRequestV1, *, channel: MailChannel
+    ) -> GatewayMailLifecycleResponseV1:
         """Call `POST /v1/mail/move`."""
 
         return self._request_model(
             "POST",
-            "/v1/mail/move",
+            f"/v1/mail/{channel}/move",
             GatewayMailLifecycleResponseV1,
             body=payload.model_dump(mode="json"),
         )
 
-    def archive_mail(self, payload: GatewayMailArchiveRequestV1) -> GatewayMailLifecycleResponseV1:
+    def archive_mail(
+        self, payload: GatewayMailArchiveRequestV1, *, channel: MailChannel
+    ) -> GatewayMailLifecycleResponseV1:
         """Call `POST /v1/mail/archive`."""
 
         return self._request_model(
             "POST",
-            "/v1/mail/archive",
+            f"/v1/mail/{channel}/archive",
             GatewayMailLifecycleResponseV1,
             body=payload.model_dump(mode="json"),
         )
@@ -501,25 +575,31 @@ class GatewayClient:
             body=payload.model_dump(mode="json"),
         )
 
-    def get_mail_notifier(self) -> GatewayMailNotifierStatusV1:
+    def get_mail_notifier(self, *, channel: MailChannel) -> GatewayMailNotifierStatusV1:
         """Call `GET /v1/mail-notifier`."""
 
-        return self._request_model("GET", "/v1/mail-notifier", GatewayMailNotifierStatusV1)
+        return self._request_model(
+            "GET", f"/v1/mail-notifier/{channel}", GatewayMailNotifierStatusV1
+        )
 
-    def put_mail_notifier(self, payload: GatewayMailNotifierPutV1) -> GatewayMailNotifierStatusV1:
+    def put_mail_notifier(
+        self, payload: GatewayMailNotifierPutV1, *, channel: MailChannel
+    ) -> GatewayMailNotifierStatusV1:
         """Call `PUT /v1/mail-notifier`."""
 
         return self._request_model(
             "PUT",
-            "/v1/mail-notifier",
+            f"/v1/mail-notifier/{channel}",
             GatewayMailNotifierStatusV1,
             body=payload.model_dump(mode="json", exclude_unset=True),
         )
 
-    def delete_mail_notifier(self) -> GatewayMailNotifierStatusV1:
+    def delete_mail_notifier(self, *, channel: MailChannel) -> GatewayMailNotifierStatusV1:
         """Call `DELETE /v1/mail-notifier`."""
 
-        return self._request_model("DELETE", "/v1/mail-notifier", GatewayMailNotifierStatusV1)
+        return self._request_model(
+            "DELETE", f"/v1/mail-notifier/{channel}", GatewayMailNotifierStatusV1
+        )
 
     def _request_model(
         self,
@@ -528,6 +608,7 @@ class GatewayClient:
         model: type[_ModelT],
         *,
         body: GatewayJsonObject | None = None,
+        timeout_seconds: float | None = None,
     ) -> _ModelT:
         """Send one HTTP request and validate the response model.
 
@@ -564,7 +645,13 @@ class GatewayClient:
         decoded = self._decode_response(
             method=method,
             url=url,
-            response=self._open_request(request_obj=request_obj, method=method, url=url),
+            response=(
+                self._open_request(request_obj=request_obj, method=method, url=url)
+                if timeout_seconds is None
+                else self._open_request(
+                    request_obj=request_obj, method=method, url=url, timeout_seconds=timeout_seconds
+                )
+            ),
         )
 
         try:
@@ -604,11 +691,20 @@ class GatewayClient:
             response=self._open_request(request_obj=request_obj, method=method, url=url),
         )
 
-    def _open_request(self, *, request_obj: request.Request, method: str, url: str) -> bytes:
+    def _open_request(
+        self,
+        *,
+        request_obj: request.Request,
+        method: str,
+        url: str,
+        timeout_seconds: float | None = None,
+    ) -> bytes:
         """Open one gateway request without consulting environment proxy settings."""
 
         try:
-            with self.m_opener.open(request_obj, timeout=self.m_timeout_seconds) as response:
+            with self.m_opener.open(
+                request_obj, timeout=timeout_seconds or self.m_timeout_seconds
+            ) as response:
                 return cast(bytes, response.read())
         except error.HTTPError as exc:
             detail = self._decode_error_body(exc.read())

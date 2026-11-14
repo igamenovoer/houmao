@@ -27,7 +27,7 @@ When the output includes a `gateway` object:
 
 When `gateway` is `null`:
 
-- use the `mailbox.transport` value to choose the matching transport page inside this skill,
+- select `mailboxes.offline` or `mailboxes.online` explicitly and pin its `binding.binding_id`,
 - run the matching `agents self mail <verb>` fallback command for that turn instead of guessing a direct shared-gateway endpoint.
 
-When the command yields no usable current live binding for the current session at all, treat that as a signal that the caller is not currently operating as one live Houmao-managed agent. For operator-origin delivery into a managed agent mailbox, switch to `commands/post.md` instead of guessing a gateway route.
+If the selected slot is absent or unavailable, report its mail configuration or connectivity error. Preserve the validated actor frame. Do not become the operator, select the other channel, or scrape credentials as a recovery step. Both absent slots are a valid mail-disabled agent state.

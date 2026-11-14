@@ -16,6 +16,8 @@ from houmao.agents.instance_state import (
 )
 from houmao.agents.realm_controller.registry_models import (
     ManagedAgentRegistryRecordV3,
+    RegistryMailboxesV1,
+    RegistryMailboxSlotV1,
     RegistryIdentityV1,
     RegistryLifecycleV1,
     RegistryLivenessV1,
@@ -206,6 +208,11 @@ def test_verified_self_supports_headless_and_rejects_stale_generation(
         agent_name="agent-a",
         agent_id="agent-a",
         generation_id=generation,
+        mailboxes=RegistryMailboxesV1(
+            offline=RegistryMailboxSlotV1(revision="offline-empty", binding=None),
+            online=RegistryMailboxSlotV1(revision="online-empty", binding=None),
+        ),
+        canonical_mail_identity=None,
         lifecycle=RegistryLifecycleV1(
             state="active",
             relaunchable=True,

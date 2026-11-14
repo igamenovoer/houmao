@@ -46,10 +46,19 @@ from houmao.agents.system_skills import (
 )
 from houmao.agents.mailbox_runtime_models import (
     FilesystemMailboxDeclarativeConfig,
+    MailboxesDeclarativeConfig,
+    MailboxesResolvedConfig,
+    MailboxSlotConfig,
     FilesystemMailboxResolvedConfig,
 )
 from houmao.agents.launch_policy.models import LaunchPolicyResult
-from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
+from houmao.mailbox import (
+    MailboxPrincipal,
+    bootstrap_filesystem_mailbox,
+    load_active_mailbox_registration,
+)
+from houmao.mailbox.registry_config import associate_registry_store
+from houmao.owned_paths import resolve_registry_root
 from houmao.cao.models import (
     CaoHealthResponse,
     CaoSuccessResponse,
@@ -103,7 +112,7 @@ auth_projection:
 
 def _mailbox_launch_plan(tmp_path: Path) -> LaunchPlan:
     mailbox_root = tmp_path / "mailbox"
-    principal_id = "HOUMAO-research"
+    principal_id = derive_agent_id_from_name("HOUMAO-research")
     address = "HOUMAO-research@agents.localhost"
     bootstrap_filesystem_mailbox(
         mailbox_root,
@@ -112,6 +121,8 @@ def _mailbox_launch_plan(tmp_path: Path) -> LaunchPlan:
     mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
         principal_id=principal_id,
+        agent_id=principal_id,
+        binding_id=load_active_mailbox_registration(mailbox_root, address=address).registration_id,
         address=address,
         filesystem_root=mailbox_root.resolve(),
         bindings_version="2026-03-12T05:00:00.000001Z",
@@ -132,7 +143,9 @@ def _mailbox_launch_plan(tmp_path: Path) -> LaunchPlan:
             prompt="Role prompt",
         ),
         metadata={},
-        mailbox=mailbox,
+        mailboxes=MailboxesResolvedConfig(
+            offline=MailboxSlotConfig(revision=mailbox.bindings_version, binding=mailbox)
+        ),
     )
 
 
@@ -148,6 +161,7 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
     agent_def_dir = tmp_path / "repo"
     runtime_root = tmp_path / "runtime"
     _seed_agent_def_dir(agent_def_dir)
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(tmp_path / "registry"))
 
     build_result = build_brain_home(
         BuildRequest(
@@ -157,11 +171,12 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
             skills=["skill-a"],
             config_profile="default",
             credential_profile="personal-a",
-            mailbox=FilesystemMailboxDeclarativeConfig(
-                transport="filesystem",
-                principal_id="HOUMAO-research",
-                address="HOUMAO-research@agents.localhost",
-                filesystem_root="shared-mail",
+            mailboxes=MailboxesDeclarativeConfig(
+                offline=FilesystemMailboxDeclarativeConfig(
+                    transport="filesystem",
+                    address="HOUMAO-research@agents.localhost",
+                    filesystem_root="shared-mail",
+                )
             ),
             home_id="mailbox-brain-001",
         )
@@ -215,6 +230,7 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
         ),
     )
 
+    associate_registry_store(resolve_registry_root(), runtime_root / "shared-mail")
     controller = start_runtime_session(
         agent_def_dir=agent_def_dir,
         brain_manifest_path=build_result.manifest_path,
@@ -224,7 +240,7 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
         working_directory=tmp_path,
     )
 
-    mailbox = controller.launch_plan.mailbox
+    mailbox = controller.launch_plan.mailboxes.offline.binding
     assert mailbox is not None
     assert (mailbox.filesystem_root / "rules/scripts/requirements.txt").is_file()
     assert (mailbox.filesystem_root / "mailboxes/HOUMAO-research@agents.localhost/archive").is_dir()
@@ -236,10 +252,12 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
     ).is_file()
 
     refreshed = controller.refresh_mailbox_bindings(
-        filesystem_root=runtime_root / "refreshed-mail",
+        filesystem_root=runtime_root / "shared-mail",
     )
     persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
-    assert persisted["launch_plan"]["mailbox"]["filesystem_root"] == str(refreshed.filesystem_root)
+    assert persisted["launch_plan"]["mailboxes"]["offline"]["binding"]["filesystem_root"] == str(
+        refreshed.filesystem_root
+    )
     assert (refreshed.filesystem_root / "rules/scripts/deliver_message.py").is_file()
 
     manifest = load_brain_manifest(build_result.manifest_path)
@@ -250,7 +268,9 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
             role_package=role,
             backend="codex_headless",
             working_directory=tmp_path,
-            mailbox=refreshed,
+            mailboxes=MailboxesResolvedConfig(
+                offline=MailboxSlotConfig(revision=refreshed.bindings_version, binding=refreshed)
+            ),
         )
     )
     session_payload = build_session_manifest_payload(
@@ -259,6 +279,8 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
             role_name="r",
             brain_manifest_path=build_result.manifest_path,
             agent_name="HOUMAO-research",
+            agent_id=controller.agent_id,
+            tmux_session_name="HOUMAO-research",
             backend_state={
                 "session_id": "sess-1",
                 "turn_index": 1,
@@ -293,9 +315,14 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
         session_manifest_path=session_path,
     )
 
-    assert resumed.launch_plan.mailbox is not None
-    assert resumed.launch_plan.mailbox.filesystem_root == refreshed.filesystem_root
-    assert captured["launch_plan"].mailbox == resumed.launch_plan.mailbox
+    assert resumed.launch_plan.mailboxes.offline.binding is not None
+    assert (
+        resumed.launch_plan.mailboxes.offline.binding.filesystem_root == refreshed.filesystem_root
+    )
+    assert (
+        captured["launch_plan"].mailboxes.offline.binding
+        == resumed.launch_plan.mailboxes.offline.binding
+    )
 
 
 def test_mailbox_runtime_contract_mail_send_and_reply_via_cli(
@@ -329,7 +356,7 @@ def test_mailbox_runtime_contract_mail_send_and_reply_via_cli(
                                 "request_id": request_id,
                                 "operation": operation,
                                 "transport": "filesystem",
-                                "principal_id": "HOUMAO-research",
+                                "principal_id": launch_plan.mailboxes.offline.binding.principal_id,
                             }
                         )
                         + "\nHOUMAO_MAIL_RESULT_END"
@@ -355,6 +382,10 @@ def test_mailbox_runtime_contract_mail_send_and_reply_via_cli(
         [
             "mail",
             "send",
+            "--channel",
+            "offline",
+            "--expected-binding-id",
+            launch_plan.mailboxes.offline.binding.binding_id,
             "--agent-identity",
             "HOUMAO-research",
             "--to",
@@ -371,6 +402,10 @@ def test_mailbox_runtime_contract_mail_send_and_reply_via_cli(
         [
             "mail",
             "reply",
+            "--channel",
+            "offline",
+            "--expected-binding-id",
+            launch_plan.mailboxes.offline.binding.binding_id,
             "--agent-identity",
             "HOUMAO-research",
             "--message-ref",
@@ -399,6 +434,8 @@ def test_mailbox_runtime_contract_mail_send_waits_for_delayed_shadow_sentinel(
 ) -> None:
     launch_plan = _mailbox_cao_launch_plan(tmp_path)
     prompt_request = prepare_mail_prompt(
+        channel="offline",
+        expected_binding_id=launch_plan.mailboxes.offline.binding.binding_id,
         launch_plan=launch_plan,
         operation="send",
         args={
@@ -458,7 +495,7 @@ def test_mailbox_runtime_contract_mail_send_waits_for_delayed_shadow_sentinel(
                     "request_id": self.submitted_request_id,
                     "operation": "send",
                     "transport": "filesystem",
-                    "principal_id": "HOUMAO-research",
+                    "principal_id": launch_plan.mailboxes.offline.binding.principal_id,
                     "message_ref": "filesystem:msg-20260318T130000Z-integration",
                 }
             )
@@ -526,7 +563,7 @@ def test_mailbox_runtime_contract_mail_send_waits_for_delayed_shadow_sentinel(
         poll_interval_seconds=0.0,
         session_manifest_path=tmp_path / "session-codex-shadow-mail.json",
     )
-    mailbox = launch_plan.mailbox
+    mailbox = launch_plan.mailboxes.offline.binding
     assert mailbox is not None
 
     result = run_mail_prompt(
@@ -550,7 +587,7 @@ def test_resolve_live_cli_surfaces_attached_gateway_base_url_for_mailbox_work(
     capsys,
 ) -> None:
     launch_plan = _mailbox_launch_plan(tmp_path)
-    mailbox = launch_plan.mailbox
+    mailbox = launch_plan.mailboxes.offline.binding
     assert mailbox is not None
     manifest_path = default_manifest_path(tmp_path, "codex_headless", "codex-headless-1")
     payload = build_session_manifest_payload(
@@ -559,7 +596,7 @@ def test_resolve_live_cli_surfaces_attached_gateway_base_url_for_mailbox_work(
             role_name="r",
             brain_manifest_path=tmp_path / "brain.yaml",
             agent_name="research",
-            agent_id=derive_agent_id_from_name("research"),
+            agent_id=mailbox.agent_id,
             tmux_session_name="HOUMAO-research",
             backend_state={
                 "session_id": "sess-1",
@@ -609,7 +646,7 @@ def test_resolve_live_cli_surfaces_attached_gateway_base_url_for_mailbox_work(
     resolved = json.loads(captured.out)
 
     assert exit_code == 0
-    assert resolved["mailbox"]["transport"] == "filesystem"
+    assert resolved["mailboxes"]["offline"]["binding"]["transport"] == "filesystem"
     assert resolved["gateway"]["source"] == "current_instance_record"
     assert resolved["gateway"]["base_url"] == "http://127.0.0.1:43123"
     assert resolved["gateway"]["state_path"] == str(paths.state_path)

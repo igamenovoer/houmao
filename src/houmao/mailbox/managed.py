@@ -6,6 +6,7 @@ import argparse
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -28,6 +29,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from houmao.mailbox.authority_lock import offline_authority_lock
 from houmao.mailbox.filesystem import (
     FilesystemMailboxPaths,
     MailboxRegistration,
@@ -421,7 +423,7 @@ class RegisterMailboxRequest(_ManagedRequestModel):
 
     PAYLOAD_NAME: ClassVar[str] = "register payload"
 
-    mode: Literal["safe", "force", "stash"]
+    mode: Literal["safe"]
     address: str
     owner_principal_id: str
     mailbox_kind: Literal["in_root", "symlink"]
@@ -1238,106 +1240,6 @@ def _confirm_managed_file_replacement(
         )
 
 
-def _confirm_destructive_registration_replacement(
-    *,
-    prompt: str,
-    cancelled_message: str,
-    confirm_destructive_replace: Callable[[str], bool] | None,
-) -> bool:
-    """Confirm one destructive mailbox-registration replacement path when supported."""
-
-    if confirm_destructive_replace is None:
-        return False
-    if not confirm_destructive_replace(prompt):
-        raise ManagedMailboxOperationError(cancelled_message)
-    return True
-
-
-def _resolve_registration_conflict_prompt(
-    *,
-    request: RegisterMailboxRequest,
-    active_registration: MailboxRegistration | None,
-    occupying_registration: MailboxRegistration | None,
-    desired_entry_path: Path,
-) -> tuple[str, str]:
-    """Describe one replaceable tracked-registration conflict."""
-
-    if active_registration is not None:
-        return (
-            f"Replace the active mailbox registration for `{request.address}`?",
-            f"safe registration failed: `{request.address}` already has an active mailbox",
-        )
-    assert occupying_registration is not None
-    return (
-        f"Replace the preserved mailbox artifact for `{request.address}` at `{desired_entry_path}`?",
-        f"safe registration failed: `{request.address}` still has a preserved mailbox artifact",
-    )
-
-
-def _resolve_untracked_artifact_conflict_prompt(
-    *,
-    request: RegisterMailboxRequest,
-    desired_mailbox_path: Path,
-    desired_entry_path: Path,
-) -> tuple[str, str] | None:
-    """Describe one replaceable untracked mailbox-entry conflict when applicable."""
-
-    if not (desired_entry_path.exists() or desired_entry_path.is_symlink()):
-        return None
-    if request.mailbox_kind == "symlink":
-        if desired_entry_path.is_symlink() and desired_entry_path.resolve() == desired_mailbox_path:
-            return None
-        if desired_entry_path.is_symlink():
-            return (
-                "Replace the existing mailbox symlink at "
-                f"`{desired_entry_path}` with one targeting `{desired_mailbox_path}`?",
-                "safe registration failed: mailbox symlink points to a different target: "
-                f"{desired_entry_path}",
-            )
-        return (
-            f"Replace the existing mailbox entry at `{desired_entry_path}` with a symlink?",
-            "safe registration failed: mailbox entry already exists and is not a symlink: "
-            f"{desired_entry_path}",
-        )
-    return (
-        f"Replace the existing mailbox entry artifact at `{desired_entry_path}`?",
-        f"safe registration failed: mailbox entry already exists: {desired_entry_path}",
-    )
-
-
-def _resolve_effective_registration_mode(
-    *,
-    request: RegisterMailboxRequest,
-    prompt: str | None,
-    safe_error_message: str | None,
-    confirm_destructive_replace: Callable[[str], bool] | None,
-) -> Literal["safe", "force", "stash"]:
-    """Resolve the effective registration mode after one optional confirmation."""
-
-    if prompt is None or request.mode == "stash":
-        return request.mode
-    if request.mode == "safe":
-        if _confirm_destructive_registration_replacement(
-            prompt=prompt,
-            cancelled_message=(
-                "Mailbox registration cancelled: operator declined destructive replacement."
-            ),
-            confirm_destructive_replace=confirm_destructive_replace,
-        ):
-            return "force"
-        assert safe_error_message is not None
-        raise ManagedMailboxOperationError(safe_error_message)
-    if request.mode == "force":
-        _confirm_destructive_registration_replacement(
-            prompt=prompt,
-            cancelled_message=(
-                "Mailbox registration cancelled: operator declined destructive replacement."
-            ),
-            confirm_destructive_replace=confirm_destructive_replace,
-        )
-    return request.mode
-
-
 def _prepare_private_mailbox_local_sqlite_for_safe_registration(
     *,
     mailbox_path: Path,
@@ -1522,14 +1424,35 @@ def register_mailbox(
     *,
     lock_timeout_seconds: float = 5.0,
     confirm_replace_managed_file: Callable[[str], bool] | None = None,
-    confirm_destructive_replace: Callable[[str], bool] | None = None,
 ) -> dict[str, object]:
-    """Register or replace one mailbox address under the shared mailbox root."""
+    """Claim an address while excluding admitted reads and explicit releases."""
+
+    with offline_authority_lock(mailbox_root):
+        return _register_mailbox_claim(
+            mailbox_root,
+            request,
+            lock_timeout_seconds=lock_timeout_seconds,
+            confirm_replace_managed_file=confirm_replace_managed_file,
+        )
+
+
+def _register_mailbox_claim(
+    mailbox_root: Path,
+    request: RegisterMailboxRequest,
+    *,
+    lock_timeout_seconds: float = 5.0,
+    confirm_replace_managed_file: Callable[[str], bool] | None = None,
+) -> dict[str, object]:
+    """Claim an address exclusively, recovering an interrupted same-owner preparation.
+
+    The durable preparing row reserves ownership before filesystem mutation. A
+    failed preparation remains reserved and can only be retried by its owner.
+    Confirmation callbacks cannot authorize replacing an existing owner.
+    """
 
     paths = _resolve_paths(mailbox_root)
     _ensure_supported_mailbox_root(paths)
     initialize_sqlite_schema(paths.sqlite_path)
-
     desired_entry_path = paths.mailbox_entry_path(request.address)
     desired_mailbox_path = _desired_mailbox_path(
         paths=paths,
@@ -1537,217 +1460,184 @@ def register_mailbox(
         address=request.address,
         requested_path=request.mailbox_path,
     )
-
+    if request.mailbox_kind == "symlink":
+        _reject_private_mailbox_path_inside_root(
+            mailbox_root=paths.root,
+            mailbox_path=desired_mailbox_path,
+        )
     with _acquired_lock_set(paths, (request.address,), timeout_seconds=lock_timeout_seconds):
         with sqlite3.connect(paths.sqlite_path) as connection:
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("BEGIN IMMEDIATE")
-
-            if request.mailbox_kind == "symlink":
-                _reject_private_mailbox_path_inside_root(
-                    mailbox_root=paths.root,
-                    mailbox_path=desired_mailbox_path,
-                )
-
-            active_registration = _load_active_registration(connection, address=request.address)
-            occupying_registration = active_registration or _load_occupying_registration(
+            registration = _load_occupying_registration(
                 connection,
                 mailbox_entry_path=desired_entry_path,
             )
-            path_registration = _load_active_registration_by_mailbox_path(
-                connection,
-                mailbox_path=desired_mailbox_path,
-            )
-            if (
-                request.mailbox_kind == "symlink"
-                and path_registration is not None
-                and path_registration.address != request.address
-            ):
-                raise ManagedMailboxOperationError(
-                    "safe registration failed: concrete mailbox path "
-                    f"`{desired_mailbox_path}` is already active for `{path_registration.address}`"
-                )
-            if request.mailbox_kind == "symlink" and request.mode == "safe":
-                _prepare_private_mailbox_local_sqlite_for_safe_registration(
-                    mailbox_path=desired_mailbox_path,
-                    confirm_replace_managed_file=(
-                        confirm_destructive_replace or confirm_replace_managed_file
-                    ),
-                )
-
-            if active_registration is not None and _registration_matches_request(
-                active_registration,
-                request=request,
-                desired_mailbox_path=desired_mailbox_path,
-                desired_entry_path=desired_entry_path,
-            ):
-                _ensure_artifact_for_registration(active_registration)
-                _update_registration_metadata(
-                    connection, active_registration.registration_id, request
-                )
-                connection.commit()
-                initialize_mailbox_local_sqlite_schema(active_registration.local_sqlite_path)
-                return {
-                    "ok": True,
-                    "mode": request.mode,
-                    "address": request.address,
-                    "active_registration_id": active_registration.registration_id,
-                    "owner_principal_id": active_registration.owner_principal_id,
-                    "status": "active",
-                    "reused_existing": True,
-                }
-
-            if (
-                active_registration is None
-                and occupying_registration is not None
-                and occupying_registration.status == "inactive"
-                and _registration_matches_request(
-                    occupying_registration,
+            reused = registration is not None and registration.status in ("active", "preparing")
+            if reused:
+                assert registration is not None
+                if not _registration_matches_request(
+                    registration,
                     request=request,
                     desired_mailbox_path=desired_mailbox_path,
                     desired_entry_path=desired_entry_path,
-                )
-            ):
-                _restore_registration_artifact(
-                    registration=occupying_registration,
-                    desired_mailbox_path=desired_mailbox_path,
-                    desired_entry_path=desired_entry_path,
-                )
-                _reactivate_registration(
-                    connection, occupying_registration.registration_id, request
-                )
-                connection.commit()
-                initialize_mailbox_local_sqlite_schema(occupying_registration.local_sqlite_path)
-                return {
-                    "ok": True,
-                    "mode": request.mode,
-                    "address": request.address,
-                    "active_registration_id": occupying_registration.registration_id,
-                    "owner_principal_id": request.owner_principal_id,
-                    "status": "active",
-                    "reused_existing": True,
-                }
-
-            tracked_conflict_prompt: str | None = None
-            tracked_conflict_error: str | None = None
-            if active_registration is not None or (
-                active_registration is None and occupying_registration is not None
-            ):
-                tracked_conflict_prompt, tracked_conflict_error = (
-                    _resolve_registration_conflict_prompt(
-                        request=request,
-                        active_registration=active_registration,
-                        occupying_registration=occupying_registration,
-                        desired_entry_path=desired_entry_path,
+                ):
+                    raise ManagedMailboxOperationError(
+                        f"address conflict: `{request.address}` is reserved by its existing owner"
                     )
-                )
-
-            untracked_conflict: tuple[str, str] | None = None
-            if confirm_destructive_replace is not None or request.mailbox_kind == "symlink":
-                untracked_conflict = _resolve_untracked_artifact_conflict_prompt(
-                    request=request,
-                    desired_mailbox_path=desired_mailbox_path,
-                    desired_entry_path=desired_entry_path,
-                )
-            effective_mode = request.mode
-            if tracked_conflict_prompt is not None:
-                effective_mode = _resolve_effective_registration_mode(
-                    request=request,
-                    prompt=tracked_conflict_prompt,
-                    safe_error_message=tracked_conflict_error,
-                    confirm_destructive_replace=confirm_destructive_replace,
-                )
-            elif untracked_conflict is not None:
-                effective_mode = _resolve_effective_registration_mode(
-                    request=request,
-                    prompt=untracked_conflict[0],
-                    safe_error_message=untracked_conflict[1],
-                    confirm_destructive_replace=confirm_destructive_replace,
-                )
-
-            replacement_registration_id = _generate_registration_id()
-            result: dict[str, object] = {
-                "ok": True,
-                "mode": effective_mode,
-                "address": request.address,
-                "active_registration_id": replacement_registration_id,
-                "owner_principal_id": request.owner_principal_id,
-                "status": "active",
-            }
-
-            if occupying_registration is not None:
-                if effective_mode == "stash":
-                    stashed_entry_path, stashed_mailbox_path = _stash_registration_artifact(
-                        paths=paths,
-                        registration=occupying_registration,
-                    )
-                    _mark_registration_stashed(
-                        connection,
-                        registration=occupying_registration,
-                        stashed_entry_path=stashed_entry_path,
-                        stashed_mailbox_path=stashed_mailbox_path,
-                    )
-                    result["stashed_registration_id"] = occupying_registration.registration_id
-                    result["stashed_mailbox_path"] = str(stashed_entry_path)
-                else:
-                    _purge_registration_state(connection, occupying_registration.registration_id)
-                    _mark_registration_replaced(
-                        connection,
-                        registration=occupying_registration,
-                    )
-                    _remove_registration_artifact(occupying_registration)
-                    result["replaced_registration_id"] = occupying_registration.registration_id
-            elif desired_entry_path.exists() or desired_entry_path.is_symlink():
-                if effective_mode == "safe" and request.mailbox_kind == "symlink":
-                    if desired_entry_path.is_symlink():
-                        if desired_entry_path.resolve() != desired_mailbox_path:
-                            raise ManagedMailboxOperationError(
-                                "safe registration failed: mailbox symlink points to a different "
-                                f"target: {desired_entry_path}"
-                            )
-                    else:
-                        raise ManagedMailboxOperationError(
-                            "safe registration failed: mailbox entry already exists and is not a "
-                            f"symlink: {desired_entry_path}"
+                registration_id = registration.registration_id
+                interrupted_history = paths.root / "history" / registration_id
+                if (
+                    request.mailbox_kind == "in_root"
+                    and not desired_entry_path.exists()
+                    and interrupted_history.is_dir()
+                ):
+                    interrupted_history.rename(desired_entry_path)
+            else:
+                if registration is not None:
+                    _retire_registration_artifact(paths, connection, registration)
+                conflict = connection.execute(
+                    "SELECT owner_principal_id FROM mailbox_registrations "
+                    "WHERE mailbox_path = ? AND owner_principal_id != ? LIMIT 1",
+                    (str(desired_mailbox_path), request.owner_principal_id),
+                ).fetchone()
+                if request.mailbox_kind == "symlink" and conflict is not None:
+                    if (
+                        _load_active_registration_by_mailbox_path(
+                            connection, mailbox_path=desired_mailbox_path
                         )
-                elif effective_mode == "stash":
-                    stashed_path = _stash_untracked_artifact(
-                        paths, desired_entry_path, request.address
+                        is not None
+                    ):
+                        raise ManagedMailboxOperationError(
+                            "mailbox path is already active for another address"
+                        )
+                    raise ManagedMailboxOperationError(
+                        "mailbox path belongs to another owner's retained history"
                     )
-                    result["stashed_mailbox_path"] = str(stashed_path)
-                else:
-                    _remove_untracked_artifact(desired_entry_path)
-
-            _create_requested_artifact(
-                mailbox_kind=request.mailbox_kind,
-                desired_mailbox_path=desired_mailbox_path,
-                desired_entry_path=desired_entry_path,
-            )
-            _insert_registration(
-                connection,
-                registration_id=replacement_registration_id,
-                request=request,
-                mailbox_path=desired_mailbox_path,
-                mailbox_entry_path=desired_entry_path,
-                status="active",
-                deactivated_at_utc=None,
-                replaced_by_registration_id=None,
-            )
-            if occupying_registration is not None:
-                _set_replaced_by_registration_id(
+                active_path = _load_active_registration_by_mailbox_path(
                     connection,
-                    registration_id=occupying_registration.registration_id,
-                    replacement_registration_id=replacement_registration_id,
+                    mailbox_path=desired_mailbox_path,
+                )
+                if active_path is not None:
+                    raise ManagedMailboxOperationError("mailbox path already has an active owner")
+                if desired_entry_path.exists() or desired_entry_path.is_symlink():
+                    if request.mailbox_kind == "symlink":
+                        detail = (
+                            "mailbox symlink points to a different target"
+                            if desired_entry_path.is_symlink()
+                            else "mailbox entry already exists and is not a symlink"
+                        )
+                        raise ManagedMailboxOperationError(detail)
+                    raise ManagedMailboxOperationError(
+                        f"untracked mailbox artifact requires explicit recovery: {desired_entry_path}"
+                    )
+                registration_id = _generate_registration_id()
+                _insert_registration(
+                    connection,
+                    registration_id=registration_id,
+                    request=request,
+                    mailbox_path=desired_mailbox_path,
+                    mailbox_entry_path=desired_entry_path,
+                    status="preparing",
+                    deactivated_at_utc=None,
+                    replaced_by_registration_id=None,
                 )
             connection.commit()
-            if request.mailbox_kind == "symlink":
-                ensure_mailbox_local_state(paths.root, addresses=(request.address,))
-            else:
-                _reset_local_mailbox_database(desired_mailbox_path)
-            return result
+
+        if request.mailbox_kind == "symlink":
+            _prepare_private_mailbox_local_sqlite_for_safe_registration(
+                mailbox_path=desired_mailbox_path,
+                confirm_replace_managed_file=confirm_replace_managed_file,
+            )
+        _create_requested_artifact(
+            mailbox_kind=request.mailbox_kind,
+            desired_mailbox_path=desired_mailbox_path,
+            desired_entry_path=desired_entry_path,
+        )
+        initialize_mailbox_local_sqlite_schema(desired_mailbox_path / "mailbox.sqlite")
+        with sqlite3.connect(paths.sqlite_path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                "UPDATE mailbox_registrations SET status = 'active' "
+                "WHERE registration_id = ? AND owner_principal_id = ? "
+                "AND status IN ('preparing', 'active')",
+                (registration_id, request.owner_principal_id),
+            )
+            _update_registration_metadata(connection, registration_id, request)
+            connection.commit()
+        return {
+            "ok": True,
+            "mode": "safe",
+            "address": request.address,
+            "active_registration_id": registration_id,
+            "owner_principal_id": request.owner_principal_id,
+            "status": "active",
+            "reused_existing": reused,
+        }
+
+
+def _retire_registration_artifact(
+    paths: FilesystemMailboxPaths,
+    connection: sqlite3.Connection,
+    registration: MailboxRegistration,
+) -> None:
+    """Isolate retained private state before an address becomes reusable."""
+
+    if registration.mailbox_kind == "symlink":
+        registration.mailbox_entry_path.unlink(missing_ok=True)
+        history_entry = paths.root / "history" / registration.registration_id
+        connection.execute(
+            "UPDATE mailbox_registrations SET mailbox_entry_path=? WHERE registration_id=?",
+            (str(history_entry), registration.registration_id),
+        )
+        return
+    history_path = paths.root / "history" / registration.registration_id
+    history_path.parent.mkdir(parents=True, exist_ok=True)
+    if registration.mailbox_entry_path != history_path:
+        if registration.mailbox_entry_path.exists() and not history_path.exists():
+            registration.mailbox_entry_path.rename(history_path)
+        connection.execute(
+            "UPDATE mailbox_registrations SET mailbox_path = ?, mailbox_entry_path = ? "
+            "WHERE registration_id = ?",
+            (str(history_path), str(history_path), registration.registration_id),
+        )
+        rows = connection.execute(
+            "SELECT message_id, folder_name, projection_path FROM mailbox_projections "
+            "WHERE registration_id = ?",
+            (registration.registration_id,),
+        ).fetchall()
+        for message_id, folder_name, projection_path in rows:
+            try:
+                relative = Path(str(projection_path)).relative_to(registration.mailbox_path)
+            except ValueError:
+                continue
+            connection.execute(
+                "UPDATE mailbox_projections SET projection_path = ? "
+                "WHERE registration_id = ? AND message_id = ? AND folder_name = ?",
+                (
+                    str(history_path / relative),
+                    registration.registration_id,
+                    message_id,
+                    folder_name,
+                ),
+            )
 
 
 def deregister_mailbox(
+    mailbox_root: Path,
+    request: DeregisterMailboxRequest,
+    *,
+    lock_timeout_seconds: float = 5.0,
+) -> dict[str, object]:
+    """Release an address after admitted private mailbox operations finish."""
+
+    with offline_authority_lock(mailbox_root):
+        return _release_mailbox_claim(
+            mailbox_root, request, lock_timeout_seconds=lock_timeout_seconds
+        )
+
+
+def _release_mailbox_claim(
     mailbox_root: Path,
     request: DeregisterMailboxRequest,
     *,
@@ -1764,8 +1654,26 @@ def deregister_mailbox(
             connection.execute("BEGIN IMMEDIATE")
             registration = _load_active_registration(connection, address=request.address)
             if registration is None:
+                pending = _load_occupying_registration(
+                    connection,
+                    mailbox_entry_path=paths.mailbox_entry_path(request.address),
+                )
+                if pending is not None and pending.status == "preparing":
+                    registration = pending
+            if registration is None:
                 raise ManagedMailboxOperationError(
                     f"no active mailbox registration exists for `{request.address}`"
+                )
+            has_members = (
+                connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_members'"
+                ).fetchone()
+                is not None
+            )
+            if has_members:
+                connection.execute(
+                    "UPDATE offline_members SET status='released' WHERE registration_id=?",
+                    (registration.registration_id,),
                 )
             if registration.address == HOUMAO_OPERATOR_ADDRESS:
                 raise ManagedMailboxOperationError(
@@ -1775,6 +1683,7 @@ def deregister_mailbox(
 
             if request.mode == "deactivate":
                 _mark_registration_inactive(connection, registration.registration_id)
+                _retire_registration_artifact(paths, connection, registration)
                 connection.commit()
                 return {
                     "ok": True,
@@ -2068,10 +1977,28 @@ def repair_mailbox_index(
     *,
     lock_timeout_seconds: float = 5.0,
 ) -> dict[str, object]:
+    """Rebuild derived mail indexes while preserving exclusive membership authority."""
+
+    with offline_authority_lock(mailbox_root):
+        return _repair_mailbox_indexes(
+            mailbox_root, request, lock_timeout_seconds=lock_timeout_seconds
+        )
+
+
+def _repair_mailbox_indexes(
+    mailbox_root: Path,
+    request: RepairRequest,
+    *,
+    lock_timeout_seconds: float = 5.0,
+) -> dict[str, object]:
     """Rebuild mailbox indexes from canonical messages and clean staging artifacts."""
 
     paths = _resolve_paths(mailbox_root)
     _ensure_supported_mailbox_root(paths)
+    if not paths.sqlite_path.exists():
+        raise ManagedMailboxOperationError(
+            "ownership index is missing; restore an operator backup or explicitly rebootstrap the store"
+        )
     discovered_mailboxes = _discover_mailbox_paths(paths.mailboxes_dir)
     affected_addresses = tuple(sorted({artifact.address for artifact in discovered_mailboxes}))
 
@@ -2091,11 +2018,14 @@ def repair_mailbox_index(
         with sqlite3.connect(paths.sqlite_path) as connection:
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("BEGIN IMMEDIATE")
+            connection.execute("DELETE FROM messages")
+            connection.execute("DELETE FROM thread_summaries")
+            connection.execute("DELETE FROM attachments")
+            connection.execute("DELETE FROM mailbox_registrations")
             recovered_registrations = _recover_registrations(
                 connection=connection,
                 discovered_mailboxes=discovered_mailboxes,
                 snapshot=snapshot,
-                recovered_messages=recovered_messages,
             )
             projection_count = 0
             restored_state_count = 0
@@ -4466,21 +4396,6 @@ def _registration_matches_request(
     )
 
 
-def _restore_registration_artifact(
-    *,
-    registration: MailboxRegistration,
-    desired_mailbox_path: Path,
-    desired_entry_path: Path,
-) -> None:
-    """Ensure the filesystem artifact for a reactivated registration exists."""
-
-    _create_requested_artifact(
-        mailbox_kind=registration.mailbox_kind,
-        desired_mailbox_path=desired_mailbox_path,
-        desired_entry_path=desired_entry_path,
-    )
-
-
 def _create_requested_artifact(
     *,
     mailbox_kind: str,
@@ -4535,42 +4450,6 @@ def _remove_untracked_artifact(entry_path: Path) -> None:
         return
     if entry_path.exists():
         shutil.rmtree(entry_path)
-
-
-def _stash_registration_artifact(
-    *,
-    paths: FilesystemMailboxPaths,
-    registration: MailboxRegistration,
-) -> tuple[Path, Path]:
-    """Rename one mailbox artifact into a stashed historical entry."""
-
-    suffix = uuid4().hex
-    stashed_entry_path = paths.stashed_mailbox_entry_path(registration.address, suffix)
-    while stashed_entry_path.exists() or stashed_entry_path.is_symlink():
-        suffix = uuid4().hex
-        stashed_entry_path = paths.stashed_mailbox_entry_path(registration.address, suffix)
-
-    registration.mailbox_entry_path.replace(stashed_entry_path)
-    stashed_mailbox_path = (
-        stashed_entry_path if registration.mailbox_kind == "in_root" else registration.mailbox_path
-    )
-    return stashed_entry_path, stashed_mailbox_path
-
-
-def _stash_untracked_artifact(
-    paths: FilesystemMailboxPaths,
-    entry_path: Path,
-    address: str,
-) -> Path:
-    """Rename one untracked mailbox artifact aside to free the active address slot."""
-
-    suffix = uuid4().hex
-    stashed_entry_path = paths.stashed_mailbox_entry_path(address, suffix)
-    while stashed_entry_path.exists() or stashed_entry_path.is_symlink():
-        suffix = uuid4().hex
-        stashed_entry_path = paths.stashed_mailbox_entry_path(address, suffix)
-    entry_path.replace(stashed_entry_path)
-    return stashed_entry_path
 
 
 def _insert_registration(
@@ -4645,102 +4524,6 @@ def _update_registration_metadata(
             request.role,
             registration_id,
         ),
-    )
-
-
-def _reactivate_registration(
-    connection: sqlite3.Connection,
-    registration_id: str,
-    request: RegisterMailboxRequest,
-) -> None:
-    """Reactivate an inactive registration."""
-
-    connection.execute(
-        """
-        UPDATE mailbox_registrations
-        SET
-            status = 'active',
-            display_name = ?,
-            manifest_path_hint = ?,
-            role = ?,
-            deactivated_at_utc = NULL,
-            replaced_by_registration_id = NULL
-        WHERE registration_id = ?
-        """,
-        (
-            request.display_name,
-            request.manifest_path_hint,
-            request.role,
-            registration_id,
-        ),
-    )
-
-
-def _mark_registration_stashed(
-    connection: sqlite3.Connection,
-    *,
-    registration: MailboxRegistration,
-    stashed_entry_path: Path,
-    stashed_mailbox_path: Path,
-) -> None:
-    """Persist stashed replacement state for one prior registration."""
-
-    connection.execute(
-        """
-        UPDATE mailbox_registrations
-        SET
-            status = 'stashed',
-            mailbox_path = ?,
-            mailbox_entry_path = ?,
-            deactivated_at_utc = COALESCE(deactivated_at_utc, ?)
-        WHERE registration_id = ?
-        """,
-        (
-            str(stashed_mailbox_path),
-            str(stashed_entry_path),
-            _timestamp_utc(),
-            registration.registration_id,
-        ),
-    )
-
-
-def _mark_registration_replaced(
-    connection: sqlite3.Connection,
-    *,
-    registration: MailboxRegistration,
-) -> None:
-    """Persist replacement metadata for a force-removed registration."""
-
-    connection.execute(
-        """
-        UPDATE mailbox_registrations
-        SET
-            status = 'inactive',
-            deactivated_at_utc = COALESCE(deactivated_at_utc, ?)
-        WHERE registration_id = ?
-        """,
-        (
-            _timestamp_utc(),
-            registration.registration_id,
-        ),
-    )
-
-
-def _set_replaced_by_registration_id(
-    connection: sqlite3.Connection,
-    *,
-    registration_id: str,
-    replacement_registration_id: str,
-) -> None:
-    """Record which later registration replaced one historical row."""
-
-    connection.execute(
-        """
-        UPDATE mailbox_registrations
-        SET replaced_by_registration_id = ?
-        WHERE registration_id = ?
-        """,
-        (replacement_registration_id, registration_id),
     )
 
 
@@ -5263,37 +5046,32 @@ def _acquired_lock_set(
     *,
     timeout_seconds: float,
 ) -> Iterator[None]:
-    """Acquire address locks in lexicographic order, then the shared index lock."""
+    """Acquire crash-released address and index locks in deterministic order."""
 
     lock_paths = [paths.address_lock_path(address) for address in sorted(set(addresses))]
     lock_paths.append(paths.locks_dir / "index.lock")
-    acquired_paths: list[Path] = []
+    acquired: list[TextIO] = []
+    deadline = time.monotonic() + timeout_seconds
     try:
         for lock_path in lock_paths:
-            _acquire_lock_file(lock_path, timeout_seconds=timeout_seconds)
-            acquired_paths.append(lock_path)
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            handle = lock_path.open("a+", encoding="utf-8")
+            acquired.append(handle)
+            while True:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError as exc:
+                    if time.monotonic() >= deadline:
+                        raise ManagedMailboxOperationError(
+                            f"timed out acquiring lock: {lock_path}"
+                        ) from exc
+                    time.sleep(0.05)
         yield
     finally:
-        for lock_path in reversed(acquired_paths):
-            lock_path.unlink(missing_ok=True)
-
-
-def _acquire_lock_file(lock_path: Path, *, timeout_seconds: float) -> None:
-    """Acquire one lock file with bounded waiting."""
-
-    deadline = time.monotonic() + timeout_seconds
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    while True:
-        try:
-            with lock_path.open("x", encoding="utf-8") as handle:
-                handle.write(f"pid={os.getpid()} acquired_at_utc={datetime.now(UTC).isoformat()}\n")
-            return
-        except FileExistsError as exc:
-            if time.monotonic() >= deadline:
-                raise ManagedMailboxOperationError(
-                    f"timed out acquiring lock: {lock_path}"
-                ) from exc
-            time.sleep(0.05)
+        for acquired_handle in reversed(acquired):
+            fcntl.flock(acquired_handle.fileno(), fcntl.LOCK_UN)
+            acquired_handle.close()
 
 
 def _unique_principals(principals: Sequence[ManagedPrincipal]) -> tuple[ManagedPrincipal, ...]:
@@ -5424,14 +5202,10 @@ def _snapshot_existing_index(sqlite_path: Path) -> _IndexSnapshot:
                 FROM message_recipients
                 """
             ).fetchall()
-    except sqlite3.DatabaseError:
-        backup_path = _backup_replaced_index(sqlite_path, suffix="unusable")
-        return _IndexSnapshot(
-            registrations={},
-            sender_registration_ids={},
-            recipient_registration_ids={},
-            backup_path=backup_path,
-        )
+    except sqlite3.DatabaseError as exc:
+        raise ManagedMailboxOperationError(
+            "ownership index is unreadable; restore an operator backup or explicitly rebootstrap the store"
+        ) from exc
 
     registrations = {
         registration.registration_id: registration
@@ -5444,7 +5218,6 @@ def _snapshot_existing_index(sqlite_path: Path) -> _IndexSnapshot:
         (str(row[0]), str(row[1]), int(row[2])): None if row[3] is None else str(row[3])
         for row in recipient_rows
     }
-    sqlite_path.unlink(missing_ok=True)
     return _IndexSnapshot(
         registrations=registrations,
         sender_registration_ids=sender_registration_ids,
@@ -5458,16 +5231,11 @@ def _recover_registrations(
     connection: sqlite3.Connection,
     discovered_mailboxes: Sequence[_DiscoveredMailboxArtifact],
     snapshot: _IndexSnapshot,
-    recovered_messages: Sequence[_RecoveredMessageDocument],
 ) -> dict[str, MailboxRegistration]:
     """Recover registration rows from current mailbox artifacts plus snapshot state."""
 
-    address_hints = _address_hints_from_history(snapshot.registrations, recovered_messages)
     recovered: dict[str, MailboxRegistration] = {}
     matched_snapshot_ids: set[str] = set()
-    discovered_active_addresses = {
-        artifact.address for artifact in discovered_mailboxes if artifact.status == "active"
-    }
 
     for artifact in discovered_mailboxes:
         matching_snapshot = _find_matching_snapshot_registration(
@@ -5481,7 +5249,7 @@ def _recover_registrations(
                 registration_id=matching_snapshot.registration_id,
                 address=artifact.address,
                 owner_principal_id=matching_snapshot.owner_principal_id,
-                status=artifact.status,
+                status=matching_snapshot.status,
                 mailbox_kind=artifact.mailbox_kind,
                 mailbox_path=artifact.mailbox_path,
                 mailbox_entry_path=artifact.mailbox_entry_path,
@@ -5495,23 +5263,8 @@ def _recover_registrations(
                 replaced_by_registration_id=matching_snapshot.replaced_by_registration_id,
             )
         else:
-            hint = address_hints.get(artifact.address)
-            registration = MailboxRegistration(
-                registration_id=_generate_registration_id(),
-                address=artifact.address,
-                owner_principal_id=(
-                    hint.principal_id if hint is not None else artifact.address.split("@", 1)[0]
-                ),
-                status=artifact.status,
-                mailbox_kind=artifact.mailbox_kind,
-                mailbox_path=artifact.mailbox_path,
-                mailbox_entry_path=artifact.mailbox_entry_path,
-                display_name=None if hint is None else hint.display_name,
-                manifest_path_hint=None if hint is None else hint.manifest_path_hint,
-                role=None if hint is None else hint.role,
-                created_at_utc=_timestamp_utc(),
-                deactivated_at_utc=None if artifact.status == "active" else _timestamp_utc(),
-                replaced_by_registration_id=None,
+            raise ManagedMailboxOperationError(
+                "untracked mailbox artifact cannot establish ownership; restore an operator backup"
             )
         recovered[registration.registration_id] = registration
 
@@ -5520,10 +5273,6 @@ def _recover_registrations(
             continue
         status = snapshot_registration.status
         deactivated_at_utc = snapshot_registration.deactivated_at_utc
-        if status == "active" and snapshot_registration.address not in discovered_active_addresses:
-            status = "inactive"
-            if deactivated_at_utc is None:
-                deactivated_at_utc = _timestamp_utc()
         recovered[registration_id] = MailboxRegistration(
             registration_id=snapshot_registration.registration_id,
             address=snapshot_registration.address,
@@ -5579,40 +5328,6 @@ def _recover_registrations(
             ),
         )
     return recovered
-
-
-def _address_hints_from_history(
-    registrations: dict[str, MailboxRegistration],
-    recovered_messages: Sequence[_RecoveredMessageDocument],
-) -> dict[str, ManagedPrincipal]:
-    """Collect best-effort owner metadata by address from prior history."""
-
-    hints: dict[str, ManagedPrincipal] = {}
-    for registration in registrations.values():
-        hints.setdefault(
-            registration.address,
-            ManagedPrincipal(
-                principal_id=registration.owner_principal_id,
-                address=registration.address,
-                display_name=registration.display_name,
-                manifest_path_hint=registration.manifest_path_hint,
-                role=registration.role,
-            ),
-        )
-    for recovered_message in recovered_messages:
-        message = recovered_message.message
-        for principal in (message.sender, *message.to, *message.cc):
-            hints.setdefault(
-                principal.address,
-                ManagedPrincipal(
-                    principal_id=principal.principal_id,
-                    address=principal.address,
-                    display_name=principal.display_name,
-                    manifest_path_hint=principal.manifest_path_hint,
-                    role=principal.role,
-                ),
-            )
-    return hints
 
 
 def _find_matching_snapshot_registration(

@@ -10,9 +10,14 @@ from pathlib import Path
 import os
 import re
 import sys
+from uuid import uuid4
 from typing import Any, Callable, Literal, Mapping, cast
 
-from houmao.mailbox import MailboxBootstrapError, bootstrap_filesystem_mailbox
+from houmao.mailbox import (
+    MailboxBootstrapError,
+    bootstrap_filesystem_mailbox,
+    load_active_mailbox_registration,
+)
 from houmao.mailbox.filesystem import (
     resolve_active_mailbox_dir,
     resolve_active_mailbox_inbox_dir,
@@ -23,12 +28,12 @@ from houmao.mailbox.managed import RegisterMailboxRequest, register_mailbox
 from houmao.mailbox.protocol import HOUMAO_MAILBOX_DOMAIN, is_houmao_reserved_mailbox_local_part
 from houmao.mailbox.stalwart import (
     STALWART_BASE_URL_ENV_VAR,
-    StalwartError,
     build_stalwart_credential_ref,
     ensure_stalwart_mailbox,
-    materialize_stalwart_session_credential,
+    session_stalwart_credential_path,
 )
-from houmao.owned_paths import resolve_mailbox_root
+from houmao.owned_paths import resolve_mailbox_root, resolve_registry_root
+from houmao.mailbox.registry_config import verify_selected_registry_store
 from houmao.agents.realm_controller.errors import GatewayHttpError, SessionManifestError
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
 from houmao.agents.realm_controller.gateway_models import (
@@ -59,6 +64,10 @@ from .mailbox_runtime_models import (
     FilesystemMailboxResolvedConfig,
     MailboxDeclarativeConfig,
     MailboxResolvedConfig,
+    MailboxSlotConfig,
+    MailboxesDeclarativeConfig,
+    MailboxesResolvedConfig,
+    RemoteRegistryMailboxResolvedConfig,
     StalwartMailboxDeclarativeConfig,
     StalwartMailboxResolvedConfig,
 )
@@ -160,6 +169,123 @@ class LiveMailboxBindingResolution:
             "mailbox": mailbox_payload,
             "gateway": self.gateway.payload() if self.gateway is not None else None,
         }
+
+
+@dataclass(frozen=True)
+class LiveMailboxesBindingResolution:
+    """Manifest-backed summary that preserves each channel independently."""
+
+    mailboxes: MailboxesResolvedConfig
+    source: MailboxBindingSource = "manifest_binding"
+    gateway: LiveGatewayBindingResolution | None = None
+
+    def payload(self) -> dict[str, Any]:
+        """Report configured scope and local availability without credential references."""
+
+        channels: dict[str, Any] = {}
+        for channel in ("offline", "online"):
+            slot = self.mailboxes.slot_for(channel)
+            binding = slot.binding
+            summary: dict[str, Any] = {"revision": slot.revision, "binding": None}
+            if binding is not None:
+                summary["binding"] = {
+                    "agent_id": binding.agent_id,
+                    "channel": channel,
+                    "binding_id": binding.binding_id,
+                    "address": binding.address,
+                    "transport": binding.transport,
+                }
+                try:
+                    _structured_live_mailbox_payload(binding)
+                except (ValueError, OSError, MailboxBootstrapError):
+                    summary["availability"] = "unavailable"
+                else:
+                    summary["availability"] = "configured"
+            else:
+                summary["availability"] = "absent"
+            channels[channel] = summary
+        return {
+            "source": self.source,
+            "mailboxes": channels,
+            "canonical_mail_identity": self.mailboxes.canonical_mail_identity,
+            "gateway": self.gateway.payload() if self.gateway is not None else None,
+        }
+
+
+def parse_declarative_mailboxes_config(
+    payload: object, *, source: str
+) -> MailboxesDeclarativeConfig:
+    """Parse two explicit launch slots, rejecting the former transport union."""
+
+    if payload is None:
+        return MailboxesDeclarativeConfig()
+    if not isinstance(payload, dict) or set(payload).difference({"offline", "online"}):
+        raise ValueError(f"{source}: expected offline/online mailboxes mapping")
+    offline = parse_declarative_mailbox_config(payload.get("offline"), source=f"{source}.offline")
+    online = parse_declarative_mailbox_config(payload.get("online"), source=f"{source}.online")
+    if offline is not None and not isinstance(offline, FilesystemMailboxDeclarativeConfig):
+        raise ValueError(f"{source}.offline requires a filesystem mailbox")
+    if online is not None and not isinstance(online, StalwartMailboxDeclarativeConfig):
+        raise ValueError(f"{source}.online requires an online provider")
+    return MailboxesDeclarativeConfig(offline=offline, online=online)
+
+
+def serialize_declarative_mailboxes_config(config: MailboxesDeclarativeConfig) -> dict[str, Any]:
+    """Serialize independent launch slots without selecting a preferred channel."""
+
+    return {
+        "offline": serialize_declarative_mailbox_config(config.offline) if config.offline else None,
+        "online": serialize_declarative_mailbox_config(config.online) if config.online else None,
+    }
+
+
+def mailboxes_resolved_config_from_payload(
+    payload: object, *, manifest_path: Path | None = None
+) -> MailboxesResolvedConfig:
+    """Decode both required slot envelopes, including empty revision authority."""
+
+    if hasattr(payload, "model_dump"):
+        payload = payload.model_dump(mode="json")
+    if not isinstance(payload, dict) or set(payload) != {"offline", "online"}:
+        raise ValueError("persisted mailboxes require offline and online slot envelopes")
+    slots: dict[str, MailboxSlotConfig] = {}
+    for channel in ("offline", "online"):
+        raw_slot = payload[channel]
+        if not isinstance(raw_slot, dict) or set(raw_slot) != {"revision", "binding"}:
+            raise ValueError(f"persisted {channel} slot requires revision and binding")
+        revision = _require_optional_non_blank_str(raw_slot["revision"], field="slot.revision")
+        if revision is None:
+            raise ValueError("persisted mailbox slot revision is required")
+        binding = resolved_mailbox_config_from_payload(
+            raw_slot["binding"], manifest_path=manifest_path
+        )
+        if binding is not None and binding.bindings_version != revision:
+            raise ValueError("mailbox binding revision differs from its slot authority")
+        slots[channel] = MailboxSlotConfig(revision=revision, binding=binding)
+    return MailboxesResolvedConfig(offline=slots["offline"], online=slots["online"])
+
+
+def safe_registry_mailboxes_projection(mailboxes: MailboxesResolvedConfig) -> dict[str, Any]:
+    """Project channel identity without credential references or private backend paths."""
+
+    result: dict[str, Any] = {}
+    for channel in ("offline", "online"):
+        slot = mailboxes.slot_for(channel)
+        binding = slot.binding
+        result[channel] = {
+            "revision": slot.revision,
+            "binding": None
+            if binding is None
+            else {
+                "agent_id": binding.agent_id,
+                "channel": channel,
+                "binding_id": binding.binding_id,
+                "address": binding.address,
+                "transport": binding.transport,
+                "availability": "unknown",
+            },
+        }
+    return result
 
 
 def parse_declarative_mailbox_config(
@@ -292,6 +418,17 @@ def resolved_mailbox_config_from_payload(
     assert principal_id is not None
     assert address is not None
     assert bindings_version is not None
+    expected_channel = "online" if transport == "stalwart" else "offline"
+    if payload.get("channel") != expected_channel:
+        raise ValueError("persisted mailbox channel differs from its backend transport")
+    if transport == "stalwart" and payload.get("provider") != "stalwart":
+        raise ValueError("persisted online mailbox requires its explicit provider")
+    agent_id = _require_optional_non_blank_str(payload.get("agent_id"), field="mailbox.agent_id")
+    binding_id = _require_optional_non_blank_str(
+        payload.get("binding_id"), field="mailbox.binding_id"
+    )
+    if agent_id is None or binding_id is None:
+        raise ValueError("persisted mailbox requires agent_id and binding_id")
 
     if transport == MAILBOX_TRANSPORT_FILESYSTEM:
         filesystem_root = _require_optional_non_blank_str(
@@ -314,6 +451,11 @@ def resolved_mailbox_config_from_payload(
             address=address,
             filesystem_root=Path(filesystem_root).resolve(),
             bindings_version=bindings_version,
+            agent_id=agent_id,
+            binding_id=binding_id,
+            registry_root=(
+                Path(payload["registry_root"]) if payload.get("registry_root") else None
+            ),
             mailbox_kind=cast(Literal["in_root", "symlink"], mailbox_kind or "in_root"),
             mailbox_path=None if mailbox_path is None else Path(mailbox_path).resolve(),
         )
@@ -335,7 +477,7 @@ def resolved_mailbox_config_from_payload(
             payload.get("credential_ref"),
             field="launch_plan.mailbox.credential_ref",
         )
-        if None in {jmap_url, management_url, login_identity, credential_ref}:
+        if None in {jmap_url, login_identity, credential_ref}:
             raise ValueError("persisted stalwart mailbox payload is missing required fields")
         credential_file = _resolved_stalwart_credential_file(
             manifest_path=manifest_path,
@@ -346,11 +488,39 @@ def resolved_mailbox_config_from_payload(
             principal_id=principal_id,
             address=address,
             jmap_url=cast(str, jmap_url),
-            management_url=cast(str, management_url),
+            management_url=management_url,
             login_identity=cast(str, login_identity),
             credential_ref=cast(str, credential_ref),
             bindings_version=bindings_version,
+            agent_id=agent_id,
+            binding_id=binding_id,
             credential_file=credential_file,
+            account_id=payload.get("account_id"),
+            identity_id=payload.get("identity_id"),
+            credential_source_ref=payload.get("credential_source_ref"),
+        )
+
+    if transport == "registry":
+        registry_url = _require_optional_non_blank_str(
+            payload.get("registry_url"), field="mailbox.registry_url"
+        )
+        credential_ref = _require_optional_non_blank_str(
+            payload.get("credential_ref"), field="mailbox.credential_ref"
+        )
+        if registry_url is None or credential_ref is None:
+            raise ValueError("remote offline binding requires registry_url and credential_ref")
+        return RemoteRegistryMailboxResolvedConfig(
+            transport="registry",
+            agent_id=agent_id,
+            binding_id=binding_id,
+            principal_id=principal_id,
+            address=address,
+            bindings_version=bindings_version,
+            registry_url=registry_url,
+            credential_ref=credential_ref,
+            credential_file=Path(credential_ref).expanduser().resolve()
+            if Path(credential_ref).is_absolute()
+            else None,
         )
 
     raise ValueError(f"unsupported persisted mailbox transport {transport!r}")
@@ -363,6 +533,7 @@ def resolve_effective_mailbox_config(
     tool: str,
     role_name: str,
     agent_identity: str | None = None,
+    agent_id: str,
     transport_override: str | None = None,
     filesystem_root_override: Path | None = None,
     filesystem_account_dir_override: Path | None = None,
@@ -385,11 +556,9 @@ def resolve_effective_mailbox_config(
         declared_config.principal_id if declared_config is not None else None
     )
     if principal_id is None:
-        principal_id = default_mailbox_principal_id(
-            tool=tool,
-            role_name=role_name,
-            agent_identity=agent_identity,
-        )
+        principal_id = agent_id
+    if principal_id != agent_id:
+        raise ValueError("mailbox principal_id must equal the persisted owning agent_id")
 
     address = address_override or (declared_config.address if declared_config is not None else None)
     if address is None:
@@ -423,6 +592,9 @@ def resolve_effective_mailbox_config(
             address=address,
             filesystem_root=filesystem_root.resolve(),
             bindings_version=mailbox_bindings_version_now(),
+            agent_id=agent_id,
+            binding_id=uuid4().hex,
+            registry_root=resolve_registry_root(),
             mailbox_kind="symlink" if mailbox_account_dir is not None else "in_root",
             mailbox_path=(
                 mailbox_account_dir
@@ -450,6 +622,8 @@ def resolve_effective_mailbox_config(
             login_identity=login_identity,
             credential_ref=build_stalwart_credential_ref(address=address, jmap_url=jmap_url),
             bindings_version=mailbox_bindings_version_now(),
+            agent_id=agent_id,
+            binding_id=uuid4().hex,
             credential_file=None,
         )
 
@@ -457,6 +631,46 @@ def resolve_effective_mailbox_config(
         f"unsupported mailbox transport {transport!r}; expected one of "
         f"{MAILBOX_TRANSPORT_FILESYSTEM!r} or {MAILBOX_TRANSPORT_STALWART!r}"
     )
+
+
+def resolve_effective_mailboxes_config(
+    *,
+    declared_config: MailboxesDeclarativeConfig,
+    agent_id: str,
+    runtime_root: Path,
+    tool: str,
+    role_name: str,
+    agent_identity: str | None = None,
+    manifest_path_hint: Path | None = None,
+    offline_overrides: dict[str, Any] | None = None,
+    online_overrides: dict[str, Any] | None = None,
+) -> MailboxesResolvedConfig:
+    """Resolve and prepare both launch slots before publishing runtime authority.
+
+    Each override mapping contains backend resolver keyword arguments. Channel
+    types are checked after resolution; neither slot selects or replaces the other.
+    """
+
+    resolved: dict[str, MailboxSlotConfig] = {}
+    for channel, declaration, overrides in (
+        ("offline", declared_config.offline, offline_overrides),
+        ("online", declared_config.online, online_overrides),
+    ):
+        binding = resolve_effective_mailbox_config(
+            declared_config=declaration,
+            agent_id=agent_id,
+            runtime_root=runtime_root,
+            tool=tool,
+            role_name=role_name,
+            agent_identity=agent_identity,
+            **(overrides or {}),
+        )
+        if binding is not None:
+            binding = bootstrap_resolved_mailbox(
+                binding, manifest_path_hint=manifest_path_hint, role_name=role_name
+            )
+        resolved[channel] = MailboxSlotConfig(binding=binding)
+    return MailboxesResolvedConfig(offline=resolved["offline"], online=resolved["online"])
 
 
 def refresh_filesystem_mailbox_config(
@@ -478,6 +692,9 @@ def refresh_filesystem_mailbox_config(
         address=config.address,
         filesystem_root=next_root,
         bindings_version=mailbox_bindings_version_now(),
+        agent_id=config.agent_id,
+        binding_id=config.binding_id,
+        registry_root=config.registry_root,
         mailbox_kind=config.mailbox_kind,
         mailbox_path=next_mailbox_path,
     )
@@ -578,6 +795,14 @@ def mailbox_env_bindings(config: MailboxResolvedConfig) -> dict[str, str]:
             "HOUMAO_MAILBOX_FS_LOCAL_SQLITE_PATH": str(local_sqlite_path),
         }
 
+    if isinstance(config, RemoteRegistryMailboxResolvedConfig):
+        return {
+            "HOUMAO_MAILBOX_TRANSPORT": config.transport,
+            "HOUMAO_MAILBOX_PRINCIPAL_ID": config.principal_id,
+            "HOUMAO_MAILBOX_ADDRESS": config.address,
+            "HOUMAO_MAILBOX_BINDINGS_VERSION": config.bindings_version,
+            "HOUMAO_MAILBOX_REGISTRY_URL": config.registry_url,
+        }
     credential_file = config.credential_file
     if credential_file is None:
         raise ValueError(
@@ -589,7 +814,11 @@ def mailbox_env_bindings(config: MailboxResolvedConfig) -> dict[str, str]:
         "HOUMAO_MAILBOX_ADDRESS": config.address,
         "HOUMAO_MAILBOX_BINDINGS_VERSION": config.bindings_version,
         "HOUMAO_MAILBOX_EMAIL_JMAP_URL": config.jmap_url,
-        "HOUMAO_MAILBOX_EMAIL_MANAGEMENT_URL": config.management_url,
+        **(
+            {"HOUMAO_MAILBOX_EMAIL_MANAGEMENT_URL": config.management_url}
+            if config.management_url is not None
+            else {}
+        ),
         "HOUMAO_MAILBOX_EMAIL_LOGIN_IDENTITY": config.login_identity,
         "HOUMAO_MAILBOX_EMAIL_CREDENTIAL_REF": config.credential_ref,
         "HOUMAO_MAILBOX_EMAIL_CREDENTIAL_FILE": str(credential_file.resolve()),
@@ -601,6 +830,8 @@ def mailbox_env_var_names(config: MailboxResolvedConfig) -> tuple[str, ...]:
 
     if isinstance(config, FilesystemMailboxResolvedConfig):
         return (*_MAILBOX_COMMON_ENV_VARS, *_MAILBOX_FILESYSTEM_ENV_VARS)
+    if isinstance(config, RemoteRegistryMailboxResolvedConfig):
+        return (*_MAILBOX_COMMON_ENV_VARS, "HOUMAO_MAILBOX_REGISTRY_URL")
     return (*_MAILBOX_COMMON_ENV_VARS, *_MAILBOX_EMAIL_ENV_VARS)
 
 
@@ -626,10 +857,9 @@ def resolve_live_mailbox_binding_from_manifest_path(
     tmux_env_reader: Callable[[str], str | None] | None = None,
     gateway_client_factory: Callable[[GatewayEndpoint], Any] | None = None,
     gateway_source: ResolveLiveGatewaySource | None = None,
-) -> LiveMailboxBindingResolution:
-    """Resolve one live mailbox binding starting from a runtime-owned manifest path."""
-    handle, durable_mailbox, tmux_session_name = _load_live_mailbox_manifest_context(manifest_path)
-    mailbox_resolution = resolve_live_mailbox_binding(durable_mailbox=durable_mailbox)
+) -> LiveMailboxesBindingResolution:
+    """Resolve both mailbox slots starting from a runtime-owned manifest path."""
+    handle, mailboxes, tmux_session_name = _load_live_mailbox_manifest_context(manifest_path)
     resolved_gateway = resolve_live_gateway_binding_from_manifest_path(
         manifest_path=handle.path,
         tmux_session_name=tmux_session_name,
@@ -638,9 +868,8 @@ def resolve_live_mailbox_binding_from_manifest_path(
         tmux_env_reader=tmux_env_reader,
         gateway_client_factory=gateway_client_factory,
     )
-    return LiveMailboxBindingResolution(
-        mailbox=mailbox_resolution.mailbox,
-        source=mailbox_resolution.source,
+    return LiveMailboxesBindingResolution(
+        mailboxes=mailboxes,
         gateway=resolved_gateway,
     )
 
@@ -654,8 +883,8 @@ def resolve_live_mailbox_binding_from_agent_identity(
     process_env_reader: Callable[[str], str | None] | None = None,
     tmux_env_reader: Callable[[str], str | None] | None = None,
     gateway_client_factory: Callable[[GatewayEndpoint], Any] | None = None,
-) -> LiveMailboxBindingResolution:
-    """Resolve one live mailbox binding through shared-registry manifest discovery."""
+) -> LiveMailboxesBindingResolution:
+    """Resolve both mailbox slots through shared-registry manifest discovery."""
 
     manifest_path = _resolve_manifest_path_from_agent_identity(
         agent_identity=agent_identity,
@@ -677,6 +906,15 @@ def _structured_live_mailbox_payload(mailbox: MailboxResolvedConfig) -> dict[str
 
     if isinstance(mailbox, FilesystemMailboxResolvedConfig):
         mailbox_root = mailbox.filesystem_root.resolve()
+        try:
+            registration = load_active_mailbox_registration(mailbox_root, address=mailbox.address)
+        except MailboxBootstrapError as exc:
+            raise ValueError(str(exc)) from exc
+        if (
+            registration.owner_principal_id != mailbox.agent_id
+            or registration.registration_id != mailbox.binding_id
+        ):
+            raise ValueError("offline registration owner or binding identity differs from manifest")
         try:
             mailbox_dir = resolve_active_mailbox_dir(
                 mailbox_root, address=mailbox.address
@@ -709,6 +947,17 @@ def _structured_live_mailbox_payload(mailbox: MailboxResolvedConfig) -> dict[str
                 "sqlite_path": str((mailbox_root / "index.sqlite").resolve()),
                 "local_sqlite_path": str(local_sqlite_path),
             },
+        }
+
+    if isinstance(mailbox, RemoteRegistryMailboxResolvedConfig):
+        return {
+            "transport": "registry",
+            "agent_id": mailbox.agent_id,
+            "binding_id": mailbox.binding_id,
+            "principal_id": mailbox.principal_id,
+            "address": mailbox.address,
+            "bindings_version": mailbox.bindings_version,
+            "registry_url": mailbox.registry_url,
         }
 
     credential_file = mailbox.credential_file
@@ -821,6 +1070,7 @@ def bootstrap_resolved_mailbox(
 
     if isinstance(config, FilesystemMailboxResolvedConfig):
         resolved_root = config.filesystem_root.resolve()
+        verify_selected_registry_store(resolved_root, registry_root=config.registry_root)
         mailbox_path = config.mailbox_path
         assert mailbox_path is not None
         if config.mailbox_kind == "symlink":
@@ -833,7 +1083,7 @@ def bootstrap_resolved_mailbox(
                     "filesystem private mailbox directory must live outside the shared mailbox root"
                 )
         bootstrap_filesystem_mailbox(resolved_root)
-        register_mailbox(
+        registration = register_mailbox(
             resolved_root,
             RegisterMailboxRequest(
                 mode="safe",
@@ -847,14 +1097,18 @@ def bootstrap_resolved_mailbox(
                 role=role_name,
             ),
         )
-        return config
+        return replace(config, binding_id=str(registration["active_registration_id"]))
 
+    if isinstance(config, RemoteRegistryMailboxResolvedConfig):
+        return config
     if manifest_path_hint is None:
         raise ValueError(
             "stalwart mailbox bootstrap requires a runtime-owned session manifest path"
         )
     session_root = manifest_path_hint.resolve().parent
     runtime_root = _runtime_root_from_session_root(session_root)
+    if config.management_url is None:
+        return config
     binding = ensure_stalwart_mailbox(
         runtime_root=runtime_root,
         session_root=session_root,
@@ -1080,24 +1334,13 @@ def _resolve_stalwart_endpoints(
 
 
 def _resolved_stalwart_credential_file(
-    *,
-    manifest_path: Path | None,
-    credential_ref: str,
+    *, manifest_path: Path | None, credential_ref: str
 ) -> Path | None:
+    """Resolve a private locator without reading or materializing credential state."""
+
     if manifest_path is None:
         return None
-    session_root = manifest_path.resolve().parent
-    runtime_root = _runtime_root_from_session_root(session_root)
-    try:
-        return materialize_stalwart_session_credential(
-            runtime_root=runtime_root,
-            session_root=session_root,
-            credential_ref=credential_ref,
-        )
-    except StalwartError as exc:
-        raise ValueError(
-            f"failed to materialize session credential for `{credential_ref}`: {exc}"
-        ) from exc
+    return session_stalwart_credential_path(manifest_path.resolve().parent, credential_ref)
 
 
 def _runtime_root_from_session_root(session_root: Path) -> Path:
@@ -1141,7 +1384,7 @@ def _tmux_mailbox_env_reader(session_name: str) -> Callable[[str], str | None]:
 
 def _load_live_mailbox_manifest_context(
     manifest_path: Path,
-) -> tuple[Any, MailboxResolvedConfig, str | None]:
+) -> tuple[Any, MailboxesResolvedConfig, str | None]:
     """Load manifest-backed mailbox config and tmux session authority."""
 
     from houmao.agents.realm_controller.manifest import (
@@ -1152,83 +1395,15 @@ def _load_live_mailbox_manifest_context(
 
     handle = load_session_manifest(manifest_path.resolve())
     payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
-    durable_mailbox = resolved_mailbox_config_from_payload(
-        payload.launch_plan.mailbox,
+    mailboxes = mailboxes_resolved_config_from_payload(
+        payload.launch_plan.mailboxes,
         manifest_path=handle.path,
     )
-    if durable_mailbox is None:
-        raise ValueError(
-            "runtime-owned session manifest launch plan has no mailbox binding; live mailbox "
-            "resolution is unavailable"
-        )
     authority = resolve_manifest_session_authority(
         manifest_path=handle.path,
         payload=payload,
     )
-    return handle, durable_mailbox, authority.tmux_session_name
-
-
-def _resolve_live_mailbox_binding_with_fallbacks(
-    *,
-    durable_mailbox: MailboxResolvedConfig,
-    tmux_session_name: str | None,
-    source: ResolveLiveSource,
-    process_env_reader: Callable[[str], str | None] | None,
-    tmux_env_reader: Callable[[str], str | None] | None,
-) -> LiveMailboxBindingResolution:
-    """Resolve live mailbox bindings with the runtime-owned same-session order."""
-
-    if source == "process_env":
-        return resolve_live_mailbox_binding(
-            durable_mailbox=durable_mailbox,
-            source="process_env",
-            env_reader=process_env_reader or _optional_env,
-        )
-    if source == "tmux_session_env":
-        return resolve_live_mailbox_binding(
-            durable_mailbox=durable_mailbox,
-            tmux_session_name=tmux_session_name,
-            source="tmux_session_env",
-            env_reader=(
-                tmux_env_reader
-                or (
-                    _tmux_mailbox_env_reader(tmux_session_name.strip())
-                    if tmux_session_name is not None and tmux_session_name.strip()
-                    else None
-                )
-            ),
-        )
-
-    process_error: ValueError | None = None
-    try:
-        return resolve_live_mailbox_binding(
-            durable_mailbox=durable_mailbox,
-            source="process_env",
-            env_reader=process_env_reader or _optional_env,
-        )
-    except ValueError as exc:
-        process_error = exc
-
-    try:
-        return resolve_live_mailbox_binding(
-            durable_mailbox=durable_mailbox,
-            tmux_session_name=tmux_session_name,
-            source="tmux_session_env",
-            env_reader=(
-                tmux_env_reader
-                or (
-                    _tmux_mailbox_env_reader(tmux_session_name.strip())
-                    if tmux_session_name is not None and tmux_session_name.strip()
-                    else None
-                )
-            ),
-        )
-    except ValueError as exc:
-        raise ValueError(
-            "current live mailbox projection could not be resolved automatically: "
-            f"process_env failed with {process_error}; "
-            f"tmux_session_env failed with {exc}"
-        ) from exc
+    return handle, mailboxes, authority.tmux_session_name
 
 
 def _load_optional_gateway_current_instance(path: Path) -> GatewayCurrentInstanceV1 | None:
@@ -1407,126 +1582,6 @@ def _normalize_optional_value(value: str | None) -> str | None:
         return None
     stripped = value.strip()
     return stripped or None
-
-
-def _read_live_mailbox_env_bindings(
-    *,
-    durable_mailbox: MailboxResolvedConfig,
-    env_reader: Callable[[str], str | None],
-) -> dict[str, str]:
-    env_bindings: dict[str, str] = {}
-    missing_names: list[str] = []
-    for variable_name in mailbox_env_var_names(durable_mailbox):
-        try:
-            value = env_reader(variable_name)
-        except Exception as exc:  # noqa: BLE001
-            raise ValueError(
-                f"failed to query the live mailbox projection for `{variable_name}`: {exc}"
-            ) from exc
-        if value is None:
-            missing_names.append(variable_name)
-            continue
-        env_bindings[variable_name] = value
-    if missing_names:
-        missing = ", ".join(missing_names)
-        raise ValueError(f"current live mailbox projection is missing required env vars: {missing}")
-    return env_bindings
-
-
-def _mailbox_config_from_live_env_bindings(
-    *,
-    durable_mailbox: MailboxResolvedConfig,
-    env_bindings: dict[str, str],
-) -> MailboxResolvedConfig:
-    transport = env_bindings["HOUMAO_MAILBOX_TRANSPORT"]
-    if transport != durable_mailbox.transport:
-        raise ValueError(
-            "current live mailbox projection transport "
-            f"{transport!r} does not match durable mailbox transport {durable_mailbox.transport!r}"
-        )
-
-    principal_id = env_bindings["HOUMAO_MAILBOX_PRINCIPAL_ID"]
-    address = env_bindings["HOUMAO_MAILBOX_ADDRESS"]
-    bindings_version = env_bindings["HOUMAO_MAILBOX_BINDINGS_VERSION"]
-    if principal_id != durable_mailbox.principal_id:
-        raise ValueError(
-            "current live mailbox principal_id "
-            f"{principal_id!r} does not match durable mailbox principal_id "
-            f"{durable_mailbox.principal_id!r}"
-        )
-    if address != durable_mailbox.address:
-        raise ValueError(
-            "current live mailbox address "
-            f"{address!r} does not match durable mailbox address {durable_mailbox.address!r}"
-        )
-    if bindings_version != durable_mailbox.bindings_version:
-        raise ValueError(
-            "current live mailbox bindings_version "
-            f"{bindings_version!r} does not match durable mailbox bindings_version "
-            f"{durable_mailbox.bindings_version!r}"
-        )
-
-    if isinstance(durable_mailbox, FilesystemMailboxResolvedConfig):
-        filesystem_root = Path(env_bindings["HOUMAO_MAILBOX_FS_ROOT"]).resolve()
-        mailbox_dir = Path(env_bindings["HOUMAO_MAILBOX_FS_MAILBOX_DIR"]).resolve()
-        expected_in_root_path = resolve_filesystem_mailbox_paths(
-            filesystem_root
-        ).mailbox_entry_path(address)
-        mailbox = FilesystemMailboxResolvedConfig(
-            transport="filesystem",
-            principal_id=principal_id,
-            address=address,
-            filesystem_root=filesystem_root,
-            bindings_version=bindings_version,
-            mailbox_kind="in_root" if mailbox_dir == expected_in_root_path else "symlink",
-            mailbox_path=mailbox_dir,
-        )
-        expected_bindings = mailbox_env_bindings(mailbox)
-        _validate_live_env_bindings_match_expected(
-            expected_bindings=expected_bindings,
-            actual_bindings=env_bindings,
-        )
-        return mailbox
-
-    credential_file = Path(env_bindings["HOUMAO_MAILBOX_EMAIL_CREDENTIAL_FILE"]).resolve()
-    if not credential_file.is_file():
-        raise ValueError(
-            "current live mailbox projection points at a missing Stalwart credential file: "
-            f"{credential_file}"
-        )
-    stalwart_mailbox = StalwartMailboxResolvedConfig(
-        transport="stalwart",
-        principal_id=principal_id,
-        address=address,
-        jmap_url=env_bindings["HOUMAO_MAILBOX_EMAIL_JMAP_URL"],
-        management_url=env_bindings["HOUMAO_MAILBOX_EMAIL_MANAGEMENT_URL"],
-        login_identity=env_bindings["HOUMAO_MAILBOX_EMAIL_LOGIN_IDENTITY"],
-        credential_ref=env_bindings["HOUMAO_MAILBOX_EMAIL_CREDENTIAL_REF"],
-        bindings_version=bindings_version,
-        credential_file=credential_file,
-    )
-    expected_bindings = mailbox_env_bindings(stalwart_mailbox)
-    _validate_live_env_bindings_match_expected(
-        expected_bindings=expected_bindings,
-        actual_bindings=env_bindings,
-    )
-    return stalwart_mailbox
-
-
-def _validate_live_env_bindings_match_expected(
-    *,
-    expected_bindings: dict[str, str],
-    actual_bindings: dict[str, str],
-) -> None:
-    mismatches: list[str] = []
-    for key, expected_value in expected_bindings.items():
-        actual_value = actual_bindings.get(key)
-        if actual_value != expected_value:
-            mismatches.append(f"{key} expected {expected_value!r} but got {actual_value!r}")
-    if mismatches:
-        raise ValueError(
-            "current live mailbox projection is internally inconsistent: " + "; ".join(mismatches)
-        )
 
 
 def _resolve_live_manifest_path(value: str | None) -> Path:

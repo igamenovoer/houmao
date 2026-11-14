@@ -12,6 +12,7 @@ This is change **01 of 02**. Implement and synchronize its specs before [mail-02
 - **BREAKING:** Replace the single mailbox union with independent optional `offline` and `online` bindings. Derive the canonical mail identity from online mail first, then offline mail, independently of connection health.
 - Establish one registry host as the membership and filesystem mail authority for an offline cluster. Remote agents use a scoped Houmao API. Registry selection supplies the context; introduce no `cluster_id` or substitute cluster identifier.
 - Atomically reject offline address claims by a different agent. Preserve idempotent rejoin, durable membership while bodies are stopped, explicit release, and history isolation on address reassignment. Remove force/stash takeover from join flows.
+- **BREAKING:** Use mailbox format 4 and reject unsupported earlier roots and canonical envelopes with explicit backup/rebootstrap guidance. Preserve ownership, registration IDs, member authorization, and attachment authority during repair; do not reconstruct owners from mailbox paths.
 - **BREAKING:** Require explicit mail channels in gateway, passive-server, manager, and skill operations. Scope message references to owner and binding. Offline and online delivery remain separate, without forwarding, fallback, or address translation.
 - Add revision-checked atomic binding persistence, per-channel notifier configuration, and secret-free discovery projections. Preserve periodic reminders, archive completion, readiness gates, and one-shot compaction behavior.
 - Adapt existing launch-time Stalwart configuration to the online slot. Live externally provisioned attachment, metadata-only bounded JMAP access, and incremental sync belong to change 02.
@@ -27,15 +28,15 @@ This is change **01 of 02**. Implement and synchronize its specs before [mail-02
 
 - `agent-identity`: Immutable global agent IDs, UUID defaults, optional name-hash generation, and creation-only selection.
 - `agent-discovery-registry`: Separate durable mail membership from runtime presence and publish dual-mail identity summaries.
-- `agent-mailbox-protocol`: Stable agent owners and explicit, isolated mail channels.
-- `agent-mailbox-registration-lifecycle`: Reject address takeover and separate release from new ownership.
+- `agent-mailbox-protocol`: Stable agent owners, explicit isolated mail channels, and current-format envelope validation.
+- `agent-mailbox-registration-lifecycle`: Reject address takeover, separate release from fresh registration, and serialize delivery with explicit ownership release.
 - `managed-agent-mailbox-registration`: Scoped local/remote offline registration without body restart.
 - `agent-gateway`: Channel-specific mail routes and dual-binding status.
 - `agent-gateway-mail-notifier`: Independent channel controls and periodic reminder admission.
 - `agent-mailbox-system-skills`: Discover both bindings and operate on an explicit channel.
 - `passive-server-gateway-proxy`: Preserve channel and binding scope across mailbox proxies.
 - `houmao-srv-ctrl-native-cli`: Identity-generation options and scoped channel-aware mail/registration commands.
-- `houmao-mgr-mailbox-cli`: Administrative registration obeys exclusive ownership instead of overwrite confirmation.
+- `houmao-mgr-mailbox-cli`: Administrative registration obeys exclusive ownership, initialization verifies registry/store association, and repair preserves membership authority.
 - `houmao-mgr-project-mailbox-cli`: Project wrappers preserve the same conflict rejection and selected registry/store authority.
 
 ## Impact

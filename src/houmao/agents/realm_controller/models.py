@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from houmao.agents.launch_policy.models import LaunchPolicyProvenance
-from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
+from houmao.agents.mailbox_runtime_models import MailboxesResolvedConfig
 
 BackendKind = Literal[
     "local_interactive",
@@ -153,8 +153,8 @@ class LaunchPlan:
         Role prompt application strategy.
     metadata:
         Additional backend-specific options and resolved runtime fields.
-    mailbox:
-        Optional resolved mailbox binding for the session.
+    mailboxes:
+        Independent optional offline and online mailbox slot authorities.
     """
 
     backend: BackendKind
@@ -168,7 +168,7 @@ class LaunchPlan:
     env_var_names: list[str]
     role_injection: RoleInjectionPlan
     metadata: dict[str, Any] = field(default_factory=dict)
-    mailbox: MailboxResolvedConfig | None = None
+    mailboxes: MailboxesResolvedConfig = field(default_factory=MailboxesResolvedConfig)
     launch_policy_provenance: LaunchPolicyProvenance | None = None
     transient_env_var_names: frozenset[str] = field(default_factory=frozenset)
 
@@ -188,7 +188,7 @@ class LaunchPlan:
         role_name: str,
         role_prompt: str,
         metadata: dict[str, Any] | None = None,
-        mailbox: MailboxResolvedConfig | None = None,
+        mailboxes: MailboxesResolvedConfig | None = None,
     ) -> LaunchPlan:
         """Build a join-derived launch plan without brain-manifest reconstruction."""
 
@@ -211,7 +211,7 @@ class LaunchPlan:
                 prompt=role_prompt,
             ),
             metadata=joined_metadata,
-            mailbox=mailbox,
+            mailboxes=mailboxes if mailboxes is not None else MailboxesResolvedConfig(),
         )
 
     def redacted_payload(self) -> dict[str, Any]:
@@ -241,7 +241,7 @@ class LaunchPlan:
                 "role_name": self.role_injection.role_name,
             },
             "metadata": _redact_metadata(self.metadata),
-            "mailbox": self.mailbox.redacted_payload() if self.mailbox is not None else None,
+            "mailboxes": self.mailboxes.redacted_payload(),
             "launch_policy_provenance": (
                 self.launch_policy_provenance.to_payload()
                 if self.launch_policy_provenance is not None

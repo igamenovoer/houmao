@@ -144,18 +144,18 @@ Current v1 routes:
 - `PUT /v1/reminders/{reminder_id}`
 - `DELETE /v1/reminders/{reminder_id}`
 - `GET /v1/mail/status`
-- `POST /v1/mail/list`
-- `POST /v1/mail/peek`
-- `POST /v1/mail/read`
-- `POST /v1/mail/send`
-- `POST /v1/mail/post`
-- `POST /v1/mail/reply`
-- `POST /v1/mail/mark`
-- `POST /v1/mail/move`
-- `POST /v1/mail/archive`
-- `GET /v1/mail-notifier`
-- `PUT /v1/mail-notifier`
-- `DELETE /v1/mail-notifier`
+- `POST /v1/mail/{channel}/list`
+- `POST /v1/mail/{channel}/peek`
+- `POST /v1/mail/{channel}/read`
+- `POST /v1/mail/{channel}/send`
+- `POST /v1/mail/{channel}/post`
+- `POST /v1/mail/{channel}/reply`
+- `POST /v1/mail/{channel}/mark`
+- `POST /v1/mail/{channel}/move`
+- `POST /v1/mail/{channel}/archive`
+- `GET /v1/mail-notifier/{channel}`
+- `PUT /v1/mail-notifier/{channel}`
+- `DELETE /v1/mail-notifier/{channel}`
 - `GET /v1/ag-ui/capabilities`
 - `POST /v1/ag-ui/connect`
 - `POST /v1/ag-ui/runs`
@@ -360,7 +360,7 @@ Current public request kinds:
 
 The reminder timer path does not add a new public request kind. Reminders are registered and inspected only through `/v1/reminders`, and due reminders execute as gateway-owned in-memory behavior instead of becoming another public `POST /v1/requests` kind.
 
-The notifier reminder path also does not add a new public request kind. The gateway may enqueue an internal `mail_notifier_prompt` record in `queue.sqlite`, but callers still control notifier behavior only through the dedicated `/v1/mail-notifier` routes.
+The notifier reminder path also does not add a new public request kind. The gateway may enqueue an internal `mail_notifier_prompt` record in `queue.sqlite`, but callers still control notifier behavior only through the dedicated `/v1/mail-notifier/{channel}` routes.
 
 `POST /v1/requests` stays the semantic queued prompt surface. For headless targets, both this route and `POST /v1/control/prompt` also accept an optional request-scoped `execution.model` object with normalized `name` plus optional `reasoning.level` as a tool/model-specific preset index. Higher unused numbers saturate to the highest maintained Houmao preset for the resolved ladder, and `0` means explicit off only when that ladder supports it. For immediate "send now or refuse now" prompt control, use `POST /v1/control/prompt`. For raw terminal mutation that must preserve exact `<[key-name]>` send-keys behavior without creating managed prompt history, use `POST /v1/control/send-keys` instead.
 
@@ -695,35 +695,82 @@ That override is live gateway state only. It is not persisted across restart, it
 
 ### `GET /v1/mail/status`
 
-This route reports whether the attached session exposes the shared gateway mailbox facade and which transport-backed binding it is using.
+This route summarizes both independent optional mail channels from one runtime snapshot. Configured online mail supplies canonical identity first, even while provider health is degraded. Offline membership and internal agent identity remain unchanged. Either channel can be null; both absent channels are valid.
 
 Representative response:
 
 ```json
 {
-  "schema_version": 1,
-  "transport": "filesystem",
-  "principal_id": "HOUMAO-gpu",
-  "address": "HOUMAO-gpu@agents.localhost",
-  "bindings_version": "2026-03-19T08:00:00.000001Z"
+  "schema_version": 3,
+  "agent_id": "146590e8-d3ac-4cfe-9735-81a6a733fa5a",
+  "offline": {
+    "agent_id": "146590e8-d3ac-4cfe-9735-81a6a733fa5a",
+    "channel": "offline",
+    "binding_id": "registration-demo",
+    "revision": "offline-revision-1",
+    "address": "gpu@houmao.localhost",
+    "transport": "filesystem",
+    "available": true,
+    "error": null,
+    "supported_operations": [
+      "list",
+      "peek",
+      "read",
+      "send",
+      "post",
+      "reply",
+      "mark",
+      "move",
+      "archive"
+    ],
+    "limitations": []
+  },
+  "online": {
+    "agent_id": "146590e8-d3ac-4cfe-9735-81a6a733fa5a",
+    "channel": "online",
+    "binding_id": "online-account-demo",
+    "revision": "online-revision-1",
+    "address": "gpu@example.test",
+    "transport": "stalwart",
+    "available": false,
+    "error": "Online provider authentication failed.",
+    "supported_operations": [
+      "list",
+      "peek",
+      "read",
+      "send",
+      "reply",
+      "mark",
+      "move",
+      "archive"
+    ],
+    "limitations": [
+      "operator-origin post is unsupported"
+    ]
+  },
+  "canonical_mail_identity": {
+    "channel": "online",
+    "address": "gpu@example.test"
+  }
 }
 ```
 
-### `POST /v1/mail/list`
+### `POST /v1/mail/{channel}/list`
 
-This is the shared mailbox listing path for both filesystem-backed and `stalwart`-backed sessions. It returns message metadata and may include full message body content when explicitly requested.
+Select `offline` or `online` explicitly in `{channel}`. This shared listing path works through local filesystem, remote registry, or online provider access. It returns finite metadata pages with no bodies. The default limit is 50 and the maximum is 200; null/unbounded limits and the removed `include_body` field fail validation. Use `peek` or `read` for selected content.
 
 Representative request:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 3,
+  "expected_binding_id": "registration-demo",
   "box": "inbox",
   "read_state": "unread",
   "answered_state": "any",
   "archived": false,
   "limit": 10,
-  "include_body": false
+  "cursor": null
 }
 ```
 
@@ -731,28 +778,33 @@ Representative response:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 3,
   "transport": "filesystem",
-  "principal_id": "HOUMAO-gpu",
-  "address": "HOUMAO-gpu@agents.localhost",
+  "principal_id": "146590e8-d3ac-4cfe-9735-81a6a733fa5a",
+  "address": "gpu@houmao.localhost",
   "box": "inbox",
   "message_count": 1,
   "open_count": 1,
   "unread_count": 1,
+  "counts_scope": "page",
+  "next_cursor": null,
+  "has_more": false,
+  "complete": true,
+  "total_count": null,
   "messages": [
     {
-      "message_ref": "filesystem:msg-20260319T080000Z-a1b2c3d4e5f64798aabbccddeeff0011",
-      "thread_ref": "filesystem:msg-20260319T080000Z-a1b2c3d4e5f64798aabbccddeeff0011",
+      "message_ref": "houmao-mail:WzEsIjE0NjU5MGU4LWQzYWMtNGNmZS05NzM1LTgxYTZhNzMzZmE1YSIsIm9mZmxpbmUiLCJyZWdpc3RyYXRpb24tZGVtbyIsIm1lc3NhZ2UiLCJmaWxlc3lzdGVtOm1zZy0yMDI2MDMxOVQwODAwMDBaLWExYjJjM2Q0ZTVmNjQ3OThhYWJiY2NkZGVlZmYwMDExIl0",
+      "thread_ref": "houmao-mail:WzEsIjE0NjU5MGU4LWQzYWMtNGNmZS05NzM1LTgxYTZhNzMzZmE1YSIsIm9mZmxpbmUiLCJyZWdpc3RyYXRpb24tZGVtbyIsInRocmVhZCIsImZpbGVzeXN0ZW06bXNnLTIwMjYwMzE5VDA4MDAwMFotYTFiMmMzZDRlNWY2NDc5OGFhYmJjY2RkZWVmZjAwMTEiXQ",
       "created_at_utc": "2026-03-19T08:00:00Z",
       "subject": "Gateway unread reminder",
       "unread": true,
       "body_preview": "Hello from the shared mailbox surface",
       "sender": {
-        "address": "HOUMAO-sender@agents.localhost"
+        "address": "sender@houmao.localhost"
       },
       "to": [
         {
-          "address": "HOUMAO-gpu@agents.localhost"
+          "address": "gpu@houmao.localhost"
         }
       ],
       "cc": [],
@@ -763,13 +815,19 @@ Representative response:
 }
 ```
 
+List counts describe only the returned page. `total_count` is optional and never inferred from sample size. Continue with the returned `next_cursor` and the same filters, binding, and channel. Cursors encode owner/binding/account, exact filter/sort policy, query state, and position. A stale cursor returns HTTP 409 with `stale_mail_cursor`; start a fresh list. A wrong query/account returns `invalid_mail_cursor`, and a foreign owner/channel/binding returns a scope conflict before provider effects. `since` is exclusive (messages strictly newer than the RFC3339 timestamp).
+
+Explicit content responses expose `content_complete`, `content_limit_bytes`, and `content_limit_reason`. The default text limit is 65,536 bytes; callers must treat incomplete content as partial. Sending and lifecycle mutation responses remain metadata-only and can carry a scoped confirmed receipt. Failed or uncertain online mutations return their original agent/binding/revision and reconciliation IDs; callers never automatically resend them.
+
+All lifecycle requests use schema version 3 and require the expected binding ID obtained from the selected channel's status or round context. This requirement includes fresh send/post. For the examples below, select `offline` and binding `registration-demo`; other bindings must use their own returned references. The long `houmao-mail:` values are opaque examples, not transport IDs to construct manually.
+
 Shared mailbox reference rules:
 
 - `message_ref` is the stable target for shared gateway mailbox message, reply, and lifecycle routes.
 - `thread_ref` is optional and opaque for callers.
 - Callers must not derive behavior from transport-specific prefixes embedded in those refs.
 
-### `POST /v1/mail/peek`
+### `POST /v1/mail/{channel}/peek`
 
 This route returns one selected shared mailbox message without changing read state.
 
@@ -777,12 +835,13 @@ Representative request:
 
 ```json
 {
-  "schema_version": 1,
-  "message_ref": "filesystem:msg-20260319T080000Z-a1b2c3d4e5f64798aabbccddeeff0011"
+  "schema_version": 3,
+  "expected_binding_id": "registration-demo",
+  "message_ref": "houmao-mail:WzEsIjE0NjU5MGU4LWQzYWMtNGNmZS05NzM1LTgxYTZhNzMzZmE1YSIsIm9mZmxpbmUiLCJyZWdpc3RyYXRpb24tZGVtbyIsIm1lc3NhZ2UiLCJmaWxlc3lzdGVtOm1zZy0yMDI2MDMxOVQwODAwMDBaLWExYjJjM2Q0ZTVmNjQ3OThhYWJiY2NkZGVlZmYwMDExIl0"
 }
 ```
 
-### `POST /v1/mail/read`
+### `POST /v1/mail/{channel}/read`
 
 This route returns one selected shared mailbox message and marks it read for the current mailbox principal.
 
@@ -790,12 +849,13 @@ Representative request:
 
 ```json
 {
-  "schema_version": 1,
-  "message_ref": "filesystem:msg-20260319T080000Z-a1b2c3d4e5f64798aabbccddeeff0011"
+  "schema_version": 3,
+  "expected_binding_id": "registration-demo",
+  "message_ref": "houmao-mail:WzEsIjE0NjU5MGU4LWQzYWMtNGNmZS05NzM1LTgxYTZhNzMzZmE1YSIsIm9mZmxpbmUiLCJyZWdpc3RyYXRpb24tZGVtbyIsIm1lc3NhZ2UiLCJmaWxlc3lzdGVtOm1zZy0yMDI2MDMxOVQwODAwMDBaLWExYjJjM2Q0ZTVmNjQ3OThhYWJiY2NkZGVlZmYwMDExIl0"
 }
 ```
 
-### `POST /v1/mail/send`
+### `POST /v1/mail/{channel}/send`
 
 This route sends a new shared mailbox message without consuming the terminal-mutation slot used by `POST /v1/requests`.
 
@@ -803,18 +863,26 @@ Representative request:
 
 ```json
 {
-  "schema_version": 1,
-  "to": ["HOUMAO-orchestrator@agents.localhost"],
+  "schema_version": 3,
+  "expected_binding_id": "registration-demo",
+  "to": [
+    "orchestrator@houmao.localhost"
+  ],
   "cc": [],
   "subject": "Investigate parser drift",
   "body_content": "Hello from the gateway facade",
   "attachments": [],
-  "notify_block": {"text": "re-run on official path before reporting", "placement": "append"},
-  "notify_auth": {"scheme": "none"}
+  "notify_block": {
+    "text": "re-run on official path before reporting",
+    "placement": "append"
+  },
+  "notify_auth": {
+    "scheme": "none"
+  }
 }
 ```
 
-### `POST /v1/mail/post`
+### `POST /v1/mail/{channel}/post`
 
 This route posts an operator-origin note into the attached session's mailbox. In v1, operator-origin `post` is supported for filesystem mailbox bindings and rejected for Stalwart-backed bindings.
 
@@ -822,16 +890,20 @@ Representative request:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 3,
+  "expected_binding_id": "registration-demo",
   "subject": "Resume after sync",
   "body_content": "Continue from the latest mailbox checkpoint.",
   "reply_policy": "operator_mailbox",
   "attachments": [],
-  "notify_block": {"text": "continue current task", "placement": "prepend"}
+  "notify_block": {
+    "text": "continue current task",
+    "placement": "prepend"
+  }
 }
 ```
 
-### `POST /v1/mail/reply`
+### `POST /v1/mail/{channel}/reply`
 
 This route replies to an existing shared mailbox message using the opaque `message_ref` returned by `list`, `peek`, or `read`.
 
@@ -839,8 +911,9 @@ Representative request:
 
 ```json
 {
-  "schema_version": 1,
-  "message_ref": "filesystem:msg-20260319T080000Z-a1b2c3d4e5f64798aabbccddeeff0011",
+  "schema_version": 3,
+  "expected_binding_id": "registration-demo",
+  "message_ref": "houmao-mail:WzEsIjE0NjU5MGU4LWQzYWMtNGNmZS05NzM1LTgxYTZhNzMzZmE1YSIsIm9mZmxpbmUiLCJyZWdpc3RyYXRpb24tZGVtbyIsIm1lc3NhZ2UiLCJmaWxlc3lzdGVtOm1zZy0yMDI2MDMxOVQwODAwMDBaLWExYjJjM2Q0ZTVmNjQ3OThhYWJiY2NkZGVlZmYwMDExIl0",
   "body_content": "Reply with next steps",
   "attachments": []
 }
@@ -848,7 +921,7 @@ Representative request:
 
 #### Optional notification-prompt fields
 
-`/v1/mail/send`, `/v1/mail/post`, and `/v1/mail/reply` accept two optional canonical-envelope fields:
+`/v1/mail/{channel}/send`, `/v1/mail/{channel}/post`, and `/v1/mail/{channel}/reply` accept two optional canonical-envelope fields:
 
 - `notify_block` — typed sub-model `{"text": str, "placement": "append" | "prepend"}` carrying short sender-marked notification text (≤ 512 characters) plus placement metadata. `placement` defaults to `"append"`. When `notify_block` is omitted, the gateway scans `body_content` for the first ` ```houmao-notify ` fenced code block and extracts it into `notify_block.text` at composition time with `placement="append"`. An explicit `notify_block` value bypasses body-fence extraction.
 - The protocol-side **auto-mirror invariant** synthesizes a `houmao-notify` fenced block in `body_markdown` at the requested placement when the body does not already contain one, so the receiver always finds the same text in the message body even though the channel reaches the wake-up prompt earlier.
@@ -856,7 +929,7 @@ Representative request:
 
 Both fields are optional and default to absent. Stalwart-bound sends reject these fields with HTTP `422` until JMAP-side projection ships in a follow-on change. See [`docs/reference/mailbox/contracts/canonical-model.md`](../../mailbox/contracts/canonical-model.md#notification-prompt-block) for the canonical envelope semantics.
 
-### `POST /v1/mail/mark`
+### `POST /v1/mail/{channel}/mark`
 
 This route applies explicit mailbox lifecycle flags to selected messages.
 
@@ -864,39 +937,48 @@ Representative request:
 
 ```json
 {
-  "schema_version": 1,
-  "message_refs": ["filesystem:msg-20260319T080000Z-a1b2c3d4e5f64798aabbccddeeff0011"],
+  "schema_version": 3,
+  "expected_binding_id": "registration-demo",
+  "message_refs": [
+    "houmao-mail:WzEsIjE0NjU5MGU4LWQzYWMtNGNmZS05NzM1LTgxYTZhNzMzZmE1YSIsIm9mZmxpbmUiLCJyZWdpc3RyYXRpb24tZGVtbyIsIm1lc3NhZ2UiLCJmaWxlc3lzdGVtOm1zZy0yMDI2MDMxOVQwODAwMDBaLWExYjJjM2Q0ZTVmNjQ3OThhYWJiY2NkZGVlZmYwMDExIl0"
+  ],
   "read": true,
   "answered": true
 }
 ```
 
-### `POST /v1/mail/move`
+### `POST /v1/mail/{channel}/move`
 
 This route moves selected messages to another mailbox box.
 
 ```json
 {
-  "schema_version": 1,
-  "message_refs": ["filesystem:msg-20260319T080000Z-a1b2c3d4e5f64798aabbccddeeff0011"],
+  "schema_version": 3,
+  "expected_binding_id": "registration-demo",
+  "message_refs": [
+    "houmao-mail:WzEsIjE0NjU5MGU4LWQzYWMtNGNmZS05NzM1LTgxYTZhNzMzZmE1YSIsIm9mZmxpbmUiLCJyZWdpc3RyYXRpb24tZGVtbyIsIm1lc3NhZ2UiLCJmaWxlc3lzdGVtOm1zZy0yMDI2MDMxOVQwODAwMDBaLWExYjJjM2Q0ZTVmNjQ3OThhYWJiY2NkZGVlZmYwMDExIl0"
+  ],
   "destination_box": "archive"
 }
 ```
 
-### `POST /v1/mail/archive`
+### `POST /v1/mail/{channel}/archive`
 
 This route is the standard shortcut for archiving selected processed messages.
 
 ```json
 {
-  "schema_version": 1,
-  "message_refs": ["filesystem:msg-20260319T080000Z-a1b2c3d4e5f64798aabbccddeeff0011"]
+  "schema_version": 3,
+  "expected_binding_id": "registration-demo",
+  "message_refs": [
+    "houmao-mail:WzEsIjE0NjU5MGU4LWQzYWMtNGNmZS05NzM1LTgxYTZhNzMzZmE1YSIsIm9mZmxpbmUiLCJyZWdpc3RyYXRpb24tZGVtbyIsIm1lc3NhZ2UiLCJmaWxlc3lzdGVtOm1zZy0yMDI2MDMxOVQwODAwMDBaLWExYjJjM2Q0ZTVmNjQ3OThhYWJiY2NkZGVlZmYwMDExIl0"
+  ]
 }
 ```
 
 Shared lifecycle rules:
 
-- `message_ref` and `message_refs` are the full targeting contract; callers must not derive transport-local ids from them.
+- Channel, expected binding ID, and opaque owner-scoped message references jointly determine the target. A mismatched owner/channel/binding returns a conflict before backend effects; callers must not re-resolve and resend to a replacement.
 - `read` marks one selected message read by returning the full message envelope, while `mark`, `move`, and `archive` return lifecycle responses containing the affected message envelopes.
 - Like the other shared mailbox routes, lifecycle routes do not consume the terminal-mutation slot behind `POST /v1/requests`.
 
@@ -904,12 +986,14 @@ Shared mailbox route availability rules:
 
 - `/v1/mail/*` is available only when the live gateway listener is bound to `127.0.0.1`.
 - A gateway listener bound to `0.0.0.0` rejects shared mailbox routes with HTTP `503`.
-- Sessions without a usable manifest-backed mailbox binding reject shared mailbox routes with HTTP `422`.
+- Summary status reports absent channels without failing. A lifecycle operation selecting an absent or unusable manifest-backed channel fails explicitly.
+- A binding conflict or wrong-scope reference returns HTTP `409`; unknown channels and malformed bodies fail validation.
+- Offline and online delivery have no forwarding, translation, or fallback between channels.
 - Transport adapter failures return HTTP `502`.
 
-### `GET|PUT|DELETE /v1/mail-notifier`
+### `GET|PUT|DELETE /v1/mail-notifier/{channel}`
 
-These routes manage the gateway-owned mail-notifier loop for mailbox-enabled sessions.
+These routes select `offline` or `online` explicitly. Configuration, schedule, appendix, audit, and compaction history are keyed by owner/channel/binding. Enabling or disabling one channel preserves the other. Canonical identity changes do not reset either notifier. Notifier control schema version remains 1; mail lifecycle schema version is 2.
 
 Representative enable request:
 
@@ -947,27 +1031,27 @@ Representative status response:
 Support contract rules:
 
 - The gateway resolves the runtime-owned session manifest through internal bootstrap metadata, typically `attach.json.manifest_path`.
-- It inspects `payload.launch_plan.mailbox` in that manifest as the durable mailbox capability record.
+- It inspects `payload.launch_plan.mailboxes.<channel>` in that manifest as the durable mailbox capability record.
 - It validates current mailbox actionability from that manifest-backed binding and transport-local prerequisites before treating notifier behavior as supported.
-- The notifier wake-up prompt itself stays on the runtime-owned discovery contract for the agent turn: it points the agent at `resolve-live`, which derives current mailbox fields from the durable binding and returns optional `gateway.base_url` data when a valid live gateway is attached.
+- Each notifier round supplies the exact gateway URL, selected channel, and expected binding ID. A missing value or binding mismatch ends that round; the agent does not discover a replacement or infer routing from canonical identity.
 - Enabling the notifier fails explicitly when the internal bootstrap state cannot resolve a readable manifest, when the manifest launch plan has no mailbox binding, or when the current manifest-backed binding is not actionable for notifier work.
 - Eligible inbox truth comes from the shared gateway mailbox facade rather than mailbox-local SQLite, while notifier cadence, readiness-gated reminder delivery, last-error bookkeeping, and durable per-poll notifier audit history remain gateway-owned state in `queue.sqlite`.
 - The notifier mode selects the inbox filter: `any_inbox` wakes for any unarchived inbox mail, including read or answered mail, while `unread_only` wakes only for unread unarchived inbox mail.
-- `appendix_text` is optional runtime guidance appended to rendered notifier prompts. `PUT /v1/mail-notifier` preserves the stored appendix when the field is omitted, replaces it when a non-empty string is supplied, and clears it when `appendix_text` is `""`.
+- `appendix_text` is optional runtime guidance appended to rendered notifier prompts. `PUT /v1/mail-notifier/{channel}` preserves the stored appendix when the field is omitted, replaces it when a non-empty string is supplied, and clears it when `appendix_text` is `""`.
 - `context_error_policy` defaults to `continue_current`. `clear_context` is opt-in and only runs clean-context recovery when the current degraded diagnostic is recognized for the owning CLI tool.
-- `pre_notification_context_action` defaults to `none`. `compact` runs before every notification prompt only on supported tool/backend combinations; v1 supports Codex TUI via `/compact` and reports other combinations as unsupported.
-- `DELETE /v1/mail-notifier` disables polling without clearing stored `appendix_text`.
+- `pre_notification_context_action` defaults to `none`. On supported Codex TUI, `compact` runs once per continuous eligibility stretch when newly eligible work appears. Repeating an unchanged reminder does not repeat compaction. Other tool/backend combinations report unsupported behavior.
+- `DELETE /v1/mail-notifier/{channel}` disables polling without clearing stored `appendix_text`.
 - Notifier audit rows now persist shared `message_ref` and `thread_ref` values instead of transport-local mailbox ids.
 - Wake-up prompts summarize the current eligible inbox snapshot and let the agent choose which message or messages to inspect and handle.
 - Each reminder includes the eligible `message_ref`, optional `thread_ref`, sender context, subject, and creation timestamp for every selected message in that snapshot.
 - If eligible inbox mail remains unchanged after an earlier reminder, later prompt-ready polls may enqueue another reminder because reminder eligibility depends on current mailbox truth plus live prompt readiness rather than on reminder history.
 - Recoverable degraded chat context does not by itself cause a busy skip and does not force a clean-context notifier prompt. If the target is otherwise prompt-ready and queue admission passes, the notifier uses normal current-context prompt work unless `context_error_policy=clear_context` matches a recognized tool-owned compaction diagnostic.
-- The canonical envelope's `notify_block` and `notify_auth` fields are accepted on `/v1/mail/send|post|reply`, persisted with the stored message, and rendered into the gateway notifier wake-up prompt at the requested `placement` subject to the configured trust posture (see [Mail-notifier trust posture](#mail-notifier-trust-posture)).
+- The canonical envelope's `notify_block` and `notify_auth` fields are accepted on `/v1/mail/{channel}/send|post|reply`, persisted with the stored message, and rendered into the gateway notifier wake-up prompt at the requested `placement` subject to the configured trust posture (see [Mail-notifier trust posture](#mail-notifier-trust-posture)).
 
 Detailed inspection note:
 
-- `GET /v1/mail-notifier` stays a compact snapshot surface and includes effective `appendix_text`, `context_error_policy`, `pre_notification_context_action`, plus the notify-block configuration (`notify_block_render`, `notify_block_auth_mode`, `notify_block_auth_verifier`, `notify_block_shared_tokens`, `notify_block_per_message_chars`, `notify_block_total_chars`).
-- Detailed per-poll decision history lives in the `gateway_notifier_audit` table inside `queue.sqlite`. The per-poll row includes `rendered_block_entries_json`, a JSON array of per-rendered-block audit entries (`message_ref`, `rendered`, `auth_scheme`, `auth_outcome`, `auth_detail`, `block_chars`, `block_truncated`).
+- `GET /v1/mail-notifier/{channel}` stays a compact snapshot surface and includes effective `appendix_text`, `context_error_policy`, `pre_notification_context_action`, plus the notify-block configuration (`notify_block_render`, `notify_block_auth_mode`, `notify_block_auth_verifier`, `notify_block_shared_tokens`, `notify_block_per_message_chars`, `notify_block_total_chars`).
+- Detailed per-poll decision history lives in the `gateway_notifier_audit` table inside `queue.sqlite`. The per-poll row includes owner/channel/binding `scope_key` and `rendered_block_entries_json`, a JSON array of per-rendered-block audit entries (`message_ref`, `rendered`, `auth_scheme`, `auth_outcome`, `auth_detail`, `block_chars`, `block_truncated`).
 
 #### Mail-notifier trust posture
 
@@ -982,7 +1066,7 @@ The notifier configuration carries six fields that govern notify-block rendering
 | `notify_block_per_message_chars` | `int` | `512` | Per-rendered-block size cap. Oversized text is truncated to this length minus one plus a trailing `…`. |
 | `notify_block_total_chars` | `int` | `2048` | Aggregate cap across all rendered blocks per notifier prompt. When the cap fires, additional blocks are suppressed and a `+ N more sender notice(s) — open inbox to read` summary line is emitted instead. |
 
-`PUT /v1/mail-notifier` accepts these fields with the same omit-preserves-current behavior as `appendix_text`. `GET /v1/mail-notifier` surfaces the effective values in the status response.
+`PUT /v1/mail-notifier/{channel}` accepts these fields with the same omit-preserves-current behavior as `appendix_text`. `GET /v1/mail-notifier/{channel}` surfaces the effective values in the status response.
 
 ## Current-Instance Execution Handle
 

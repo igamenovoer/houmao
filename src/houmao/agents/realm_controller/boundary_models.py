@@ -82,6 +82,10 @@ class LaunchPlanMailboxFilesystemV1(_StrictBoundaryModel):
     """Persisted filesystem mailbox binding for `launch_plan.v1`."""
 
     transport: Literal["filesystem"]
+    channel: Literal["offline"]
+    agent_id: str
+    binding_id: str
+    registry_root: str | None = None
     principal_id: str
     address: str
     bindings_version: str
@@ -115,11 +119,18 @@ class LaunchPlanMailboxStalwartV1(_StrictBoundaryModel):
     """Persisted Stalwart mailbox binding for `launch_plan.v1`."""
 
     transport: Literal["stalwart"]
+    channel: Literal["online"]
+    provider: Literal["stalwart"]
+    agent_id: str
+    binding_id: str
     principal_id: str
     address: str
     bindings_version: str
     jmap_url: str
-    management_url: str
+    management_url: str | None = None
+    account_id: str | None = None
+    identity_id: str | None = None
+    credential_source_ref: str | None = None
     login_identity: str
     credential_ref: str
 
@@ -133,16 +144,75 @@ class LaunchPlanMailboxStalwartV1(_StrictBoundaryModel):
         "credential_ref",
     )
     @classmethod
-    def _not_blank(cls, value: str) -> str:
+    def _not_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         if not value.strip():
             raise ValueError("must not be empty")
         return value
 
 
+class LaunchPlanMailboxRegistryV1(_StrictBoundaryModel):
+    """Protected remote offline binding; no registry-local paths are accepted."""
+
+    transport: Literal["registry"]
+    channel: Literal["offline"]
+    agent_id: str
+    binding_id: str
+    principal_id: str
+    address: str
+    bindings_version: str
+    registry_url: str
+    credential_ref: str
+
+
 LaunchPlanMailboxV1: TypeAlias = Annotated[
-    LaunchPlanMailboxFilesystemV1 | LaunchPlanMailboxStalwartV1,
+    LaunchPlanMailboxFilesystemV1 | LaunchPlanMailboxStalwartV1 | LaunchPlanMailboxRegistryV1,
     Field(discriminator="transport"),
 ]
+
+
+class MailboxSlotPayloadV1(_StrictBoundaryModel):
+    """Persisted slot authority, including empty-slot tombstone revisions."""
+
+    revision: str = Field(min_length=1)
+    binding: LaunchPlanMailboxV1 | None
+
+    @model_validator(mode="after")
+    def _validate_revision(self) -> "MailboxSlotPayloadV1":
+        """Require matching binding and envelope revisions."""
+
+        if not self.revision.strip():
+            raise ValueError("revision must not be blank")
+        if self.binding is not None and self.binding.bindings_version != self.revision:
+            raise ValueError("binding revision differs from its slot authority")
+        return self
+
+
+class MailboxesPayloadV1(_StrictBoundaryModel):
+    """Both mailbox channels, each with independent revision authority."""
+
+    offline: MailboxSlotPayloadV1
+    online: MailboxSlotPayloadV1
+
+    @model_validator(mode="after")
+    def _validate_scope(self) -> "MailboxesPayloadV1":
+        """Reject swapped channels, blank scope, or mixed agent owners."""
+
+        owners: set[str] = set()
+        for channel, slot in (("offline", self.offline), ("online", self.online)):
+            if slot.binding is None:
+                continue
+            if slot.binding.channel != channel:
+                raise ValueError("mailbox binding does not match its selected channel")
+            if not slot.binding.agent_id.strip() or not slot.binding.binding_id.strip():
+                raise ValueError("mailbox binding requires agent_id and binding_id")
+            if slot.binding.principal_id != slot.binding.agent_id:
+                raise ValueError("mailbox principal_id must equal owning agent_id")
+            owners.add(slot.binding.agent_id)
+        if len(owners) > 1:
+            raise ValueError("mailbox bindings must have the same agent owner")
+        return self
 
 
 class LaunchPolicyProvenanceV1(_StrictBoundaryModel):
@@ -180,7 +250,7 @@ class LaunchPlanPayloadV1(_StrictBoundaryModel):
     env_var_names: list[str]
     role_injection: LaunchPlanRoleInjectionV1
     metadata: JsonObject
-    mailbox: LaunchPlanMailboxV1 | None = None
+    mailboxes: MailboxesPayloadV1
     launch_policy_provenance: LaunchPolicyProvenanceV1 | None = None
 
     @field_validator("tool", "executable", "working_directory")
@@ -555,7 +625,7 @@ class SessionManifestGatewayAuthorityV1(_StrictBoundaryModel):
 class SessionManifestPayloadV4(_StrictBoundaryModel):
     """Persisted ``session_manifest.v4`` payload."""
 
-    schema_version: int
+    schema_version: Literal[5]
     backend: BackendKind
     tool: str
     role_name: str
@@ -563,7 +633,7 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
     working_directory: str
     brain_manifest_path: str
     agent_name: str | None = None
-    agent_id: str | None = None
+    agent_id: str
     tmux_session_name: str | None = None
     registry_generation_id: str | None = None
     registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime"
@@ -604,8 +674,11 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
 
     @model_validator(mode="after")
     def _validate_backend_sections_and_authority(self) -> "SessionManifestPayloadV4":
-        if self.schema_version != 4:
-            raise ValueError("schema_version must be 4")
+        if self.schema_version != 5:
+            raise ValueError("schema_version must be 5; back up and rebootstrap unsupported state")
+        for slot in (self.launch_plan.mailboxes.offline, self.launch_plan.mailboxes.online):
+            if slot.binding is not None and slot.binding.agent_id != self.agent_id:
+                raise ValueError("mailbox binding agent_id differs from manifest owner")
         if self.launch_plan.backend != self.backend:
             raise ValueError("launch_plan.backend must match manifest backend")
         if self.launch_plan.tool != self.tool:
@@ -637,10 +710,8 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
             raise ValueError(
                 "agent_name, agent_id, and tmux_session_name are required for tmux-backed backends"
             )
-        if not expects_tmux_identity and any(identity_fields):
-            raise ValueError(
-                "agent_name, agent_id, and tmux_session_name must be omitted for non-tmux backends"
-            )
+        if not expects_tmux_identity and self.tmux_session_name is not None:
+            raise ValueError("tmux_session_name must be omitted for non-tmux backends")
 
         if expects_tmux_identity:
             if self.tmux is None:

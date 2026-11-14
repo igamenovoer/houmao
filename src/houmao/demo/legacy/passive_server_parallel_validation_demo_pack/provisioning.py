@@ -587,7 +587,7 @@ def provision_shared_interactive(
                 recipe_path=target.recipe_path,
                 recipe_launch_overrides=target.recipe.launch_overrides,
                 operator_prompt_mode=target.recipe.operator_prompt_mode,
-                mailbox=target.recipe.mailbox,
+                mailboxes=target.recipe.mailboxes,
                 agent_name=agent_name,
                 persistent_env_records=target.recipe.launch_env_records,
             )
@@ -846,7 +846,7 @@ def capture_headless_phase(
         role_name=base_request.role_name,
         agent_name=headless_agent_name,
         agent_id=headless_agent_id,
-        mailbox=base_request.mailbox,
+        mailboxes=base_request.mailboxes,
     )
     launch_response = passive_client.launch_passive_headless_agent(request_model)
 
@@ -1312,7 +1312,7 @@ def _normalized_state(state: HoumaoManagedAgentStateResponse) -> dict[str, Any]:
         "turn_phase": state.turn.phase,
         "last_turn_result": state.last_turn.result,
         "has_gateway": state.gateway is not None,
-        "has_mailbox": state.mailbox is not None,
+        "has_mailbox": state.mailboxes is not None,
         "diagnostic_count": len(state.diagnostics),
     }
 

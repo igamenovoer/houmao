@@ -42,13 +42,11 @@ from houmao.agents.realm_controller.models import (
     SessionControlResult,
 )
 from houmao.agents.realm_controller.registry_models import (
-    LiveAgentRegistryRecordV2,
     ManagedAgentRegistryRecordV3,
     RegistryIdentityV1,
     RegistryLifecycleV1,
     RegistryLivenessV1,
     RegistryRuntimeV1,
-    RegistryTerminalV1,
     RegistryTerminalV2,
 )
 from houmao.agents.realm_controller.registry_storage import (
@@ -776,21 +774,19 @@ def test_local_registry_list_and_selector_do_not_probe_tmux(
     registry_root = tmp_path / "registry"
     monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
     published_at = datetime.now(UTC) - timedelta(days=31)
-    record = LiveAgentRegistryRecordV2(
-        agent_name="gpu",
-        agent_id="agent-1234",
-        generation_id="generation-1",
-        published_at=published_at.isoformat(timespec="seconds"),
-        lease_expires_at=(published_at + TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL).isoformat(
-            timespec="seconds"
-        ),
-        identity=RegistryIdentityV1(backend="codex_headless", tool="codex"),
-        runtime=RegistryRuntimeV1(
-            manifest_path=str((tmp_path / "manifest.json").resolve()),
-            session_root=str((tmp_path / "session-root").resolve()),
-            agent_def_dir=str((tmp_path / "agent-def").resolve()),
-        ),
-        terminal=RegistryTerminalV1(session_name="gpu-session"),
+    record = _degraded_or_stale_record(
+        tmp_path=tmp_path, manifest_present=True, session_name="gpu-session"
+    ).model_copy(
+        update={
+            "agent_id": "agent-1234",
+            "generation_id": "generation-1",
+            "liveness": RegistryLivenessV1(
+                published_at=published_at.isoformat(timespec="seconds"),
+                lease_expires_at=(published_at + TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL).isoformat(
+                    timespec="seconds"
+                ),
+            ),
+        }
     )
     publish_live_agent_record(record, now=published_at)
 
@@ -936,7 +932,6 @@ def test_late_mailbox_commands_reject_server_backed_targets() -> None:
             mailbox_root=None,
             principal_id=None,
             address=None,
-            mode="safe",
         )
     with pytest.raises(click.ClickException, match="server-backed"):
         unregister_mailbox_binding(target, mode="deactivate")
@@ -960,7 +955,6 @@ def test_register_mailbox_binding_converts_runtime_errors_to_click() -> None:
             mailbox_root=None,
             principal_id=None,
             address=None,
-            mode="safe",
         )
 
 
@@ -1034,7 +1028,11 @@ def _degraded_or_stale_record(
             ),
         ),
         gateway=None,
-        mailbox=None,
+        mailboxes={
+            "offline": {"revision": "off-empty", "binding": None},
+            "online": {"revision": "on-empty", "binding": None},
+        },
+        canonical_mail_identity=None,
     )
 
 
@@ -1662,11 +1660,10 @@ def test_register_mailbox_binding_converts_mailbox_operation_errors_to_click() -
             mailbox_root=None,
             principal_id=None,
             address=None,
-            mode="safe",
         )
 
 
-def test_register_mailbox_binding_forwards_confirmation_callback() -> None:
+def test_register_mailbox_binding_uses_exclusive_claim_without_overwrite_options() -> None:
     observed: dict[str, object] = {}
 
     def _register_filesystem_mailbox(**kwargs: object) -> SimpleNamespace:
@@ -1674,13 +1671,12 @@ def test_register_mailbox_binding_forwards_confirmation_callback() -> None:
         return SimpleNamespace(
             mailbox=SimpleNamespace(
                 transport="filesystem",
-                principal_id="HOUMAO-alpha",
-                address="HOUMAO-alpha@agents.localhost",
-                filesystem_root=Path("/tmp/mailbox-root"),
-                bindings_version="2026-03-30T00:00:00Z",
+                binding_id="binding-test",
+                address="alpha@agents.localhost",
+                bindings_version="revision-test",
             ),
             activation_state="active",
-            shared_lifecycle_result={"ok": True, "mode": "force"},
+            shared_lifecycle_result={"ok": True},
         )
 
     target = ManagedAgentTarget(
@@ -1690,28 +1686,15 @@ def test_register_mailbox_binding_forwards_confirmation_callback() -> None:
         controller=SimpleNamespace(
             agent_identity="alpha",
             agent_id="agent-123",
+            operation_warnings=(),
             register_filesystem_mailbox=_register_filesystem_mailbox,
         ),
     )
-    confirm_calls: list[str] = []
-
-    def _confirm(prompt: str) -> bool:
-        confirm_calls.append(prompt)
-        return True
-
-    payload = register_mailbox_binding(
-        target,
-        mailbox_root=None,
-        principal_id=None,
-        address=None,
-        mode="safe",
-        confirm_destructive_replace=_confirm,
-    )
-
-    assert observed["confirm_destructive_replace"] is _confirm
+    payload = register_mailbox_binding(target, mailbox_root=None, principal_id=None, address=None)
+    assert "mode" not in observed
+    assert "confirm_destructive_replace" not in observed
     assert payload["activation_state"] == "active"
-    assert payload["shared_registration"] == {"ok": True, "mode": "force"}
-    assert confirm_calls == []
+    assert payload["shared_registration"] == {"ok": True}
 
 
 def test_mail_status_uses_live_mailbox_ready_path_for_joined_session() -> None:
@@ -1727,33 +1710,28 @@ def test_mail_status_uses_live_mailbox_ready_path_for_joined_session() -> None:
     )
 
     original = managed_agents_module._local_manager_mail_status
-    managed_agents_module._local_manager_mail_status = lambda _controller: GatewayMailStatusV1(
-        transport="filesystem",
-        principal_id="HOUMAO-alpha",
-        address="HOUMAO-alpha@agents.localhost",
-        bindings_version="2026-03-27T00:00:00Z",
-    )
+    summary = GatewayMailStatusV1(agent_id="agent-123")
+    managed_agents_module._local_manager_mail_status = lambda _controller: summary
     try:
         payload = mail_status(target)
     finally:
         managed_agents_module._local_manager_mail_status = original
 
     assert payload == {
-        "schema_version": 1,
+        **summary.model_dump(mode="json"),
         "operation": "status",
         "authoritative": True,
         "status": "verified",
         "execution_path": "manager_direct",
-        "transport": "filesystem",
-        "principal_id": "HOUMAO-alpha",
-        "address": "HOUMAO-alpha@agents.localhost",
-        "bindings_version": "2026-03-27T00:00:00Z",
     }
 
 
 def test_mail_send_local_tui_without_gateway_returns_submission_only_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        managed_agents_module, "_resolve_mail_expected_binding", lambda *args: "binding-test"
+    )
     target = ManagedAgentTarget(
         mode="local",
         agent_ref="local",
@@ -1787,6 +1765,7 @@ def test_mail_send_local_tui_without_gateway_returns_submission_only_result(
         subject="hello",
         body_content="world",
         attachments=[],
+        channel="offline",
     )
 
     assert payload == expected
@@ -1795,6 +1774,9 @@ def test_mail_send_local_tui_without_gateway_returns_submission_only_result(
 def test_mail_send_local_headless_uses_verified_manager_direct_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        managed_agents_module, "_resolve_mail_expected_binding", lambda *args: "binding-test"
+    )
     target = ManagedAgentTarget(
         mode="local",
         agent_ref="local",
@@ -1828,6 +1810,7 @@ def test_mail_send_local_headless_uses_verified_manager_direct_result(
         subject="hello",
         body_content="world",
         attachments=[],
+        channel="offline",
     )
 
     assert payload["authoritative"] is True
@@ -1839,6 +1822,9 @@ def test_mail_send_local_headless_uses_verified_manager_direct_result(
 def test_mail_archive_local_headless_uses_verified_manager_direct_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        managed_agents_module, "_resolve_mail_expected_binding", lambda *args: "binding-test"
+    )
     target = ManagedAgentTarget(
         mode="local",
         agent_ref="local",
@@ -1873,7 +1859,11 @@ def test_mail_archive_local_headless_uses_verified_manager_direct_result(
         lambda controller, **kwargs: response,
     )
 
-    payload = mail_archive(target, message_refs=["filesystem:msg-1"])
+    payload = mail_archive(
+        target,
+        message_refs=["filesystem:msg-1"],
+        channel="offline",
+    )
 
     assert payload["authoritative"] is True
     assert payload["status"] == "verified"
@@ -1885,6 +1875,9 @@ def test_mail_archive_local_headless_uses_verified_manager_direct_result(
 def test_mail_archive_local_tui_uses_manager_direct_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        managed_agents_module, "_resolve_mail_expected_binding", lambda *args: "binding-test"
+    )
     target = ManagedAgentTarget(
         mode="local",
         agent_ref="local",
@@ -1905,7 +1898,11 @@ def test_mail_archive_local_tui_uses_manager_direct_result(
         lambda controller, **kwargs: response,
     )
 
-    payload = mail_archive(target, message_refs=["filesystem:msg-1"])
+    payload = mail_archive(
+        target,
+        message_refs=["filesystem:msg-1"],
+        channel="offline",
+    )
 
     assert payload["authoritative"] is True
     assert payload["status"] == "verified"
@@ -2006,6 +2003,8 @@ def test_enrich_local_mail_prompt_args_resolves_filesystem_mailbox_principals(
         address="sender@agents.localhost",
         filesystem_root=tmp_path / "mailbox",
         bindings_version="2026-03-29T15:00:00Z",
+        agent_id="sender-principal",
+        binding_id="binding-test",
     )
 
     def _fake_load_active_mailbox_registration(
@@ -2079,6 +2078,8 @@ def test_enrich_local_mail_prompt_args_fails_when_recipient_is_unregistered(
         address="sender@agents.localhost",
         filesystem_root=tmp_path / "mailbox",
         bindings_version="2026-03-29T15:00:00Z",
+        agent_id="sender-principal",
+        binding_id="binding-test",
     )
     monkeypatch.setattr(
         managed_agents_module,
@@ -2128,7 +2129,7 @@ def _managed_state(identity: HoumaoManagedAgentIdentity) -> HoumaoManagedAgentSt
         turn=HoumaoManagedAgentTurnView(phase="ready", active_turn_id=None),
         last_turn=HoumaoManagedAgentLastTurnView(result="none", turn_id=None, turn_index=None),
         diagnostics=[],
-        mailbox=None,
+        mailboxes=None,
         gateway=None,
     )
 
@@ -2145,7 +2146,7 @@ def _managed_detail(state: HoumaoManagedAgentStateResponse) -> HoumaoManagedAgen
             interruptible=False,
             turn=state.turn,
             last_turn=state.last_turn,
-            mailbox=None,
+            mailboxes=None,
             gateway=None,
             diagnostics=[],
         ),
@@ -2444,7 +2445,10 @@ class _FakePassivePairClient:
         return _gateway_tui_state_response()
 
     def get_managed_agent_gateway_mail_notifier(
-        self, agent_ref: str
+        self,
+        agent_ref: str,
+        *,
+        channel: str,
     ) -> GatewayMailNotifierStatusV1:
         self.gateway_notifier_get_calls.append(agent_ref)
         return GatewayMailNotifierStatusV1(
@@ -2461,6 +2465,8 @@ class _FakePassivePairClient:
         self,
         agent_ref: str,
         request_model: object,
+        *,
+        channel: str,
     ) -> GatewayMailNotifierStatusV1:
         self.gateway_notifier_put_calls.append(
             (
@@ -2485,6 +2491,8 @@ class _FakePassivePairClient:
     def delete_managed_agent_gateway_mail_notifier(
         self,
         agent_ref: str,
+        *,
+        channel: str,
     ) -> GatewayMailNotifierStatusV1:
         self.gateway_notifier_delete_calls.append(agent_ref)
         return GatewayMailNotifierStatusV1(
@@ -2671,14 +2679,21 @@ def test_gateway_mail_notifier_commands_use_passive_pair_client() -> None:
         client=client,
     )
 
-    status = gateway_mail_notifier_status(target)
+    status = gateway_mail_notifier_status(
+        target,
+        channel="offline",
+    )
     enabled = gateway_mail_notifier_enable(
         target,
         interval_seconds=60,
         mode="unread_only",
         appendix_text="Handle release-blocking mail first.",
+        channel="offline",
     )
-    disabled = gateway_mail_notifier_disable(target)
+    disabled = gateway_mail_notifier_disable(
+        target,
+        channel="offline",
+    )
 
     assert status.enabled is False
     assert enabled.interval_seconds == 60
@@ -2696,7 +2711,7 @@ def test_gateway_mail_notifier_commands_allow_joined_session_without_relaunch_po
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client = SimpleNamespace(
-        get_mail_notifier=lambda: GatewayMailNotifierStatusV1(
+        get_mail_notifier=lambda **kwargs: GatewayMailNotifierStatusV1(
             enabled=False,
             interval_seconds=None,
             supported=True,
@@ -2705,7 +2720,7 @@ def test_gateway_mail_notifier_commands_allow_joined_session_without_relaunch_po
             last_notification_at_utc=None,
             last_error=None,
         ),
-        put_mail_notifier=lambda request_model: GatewayMailNotifierStatusV1(
+        put_mail_notifier=lambda request_model, **kwargs: GatewayMailNotifierStatusV1(
             enabled=True,
             interval_seconds=request_model.interval_seconds,
             mode=request_model.mode,
@@ -2715,7 +2730,7 @@ def test_gateway_mail_notifier_commands_allow_joined_session_without_relaunch_po
             last_notification_at_utc=None,
             last_error=None,
         ),
-        delete_mail_notifier=lambda: GatewayMailNotifierStatusV1(
+        delete_mail_notifier=lambda **kwargs: GatewayMailNotifierStatusV1(
             enabled=False,
             interval_seconds=None,
             supported=True,
@@ -2742,9 +2757,20 @@ def test_gateway_mail_notifier_commands_allow_joined_session_without_relaunch_po
         lambda resolved_controller: client,
     )
 
-    status = gateway_mail_notifier_status(target)
-    enabled = gateway_mail_notifier_enable(target, interval_seconds=60, mode="unread_only")
-    disabled = gateway_mail_notifier_disable(target)
+    status = gateway_mail_notifier_status(
+        target,
+        channel="offline",
+    )
+    enabled = gateway_mail_notifier_enable(
+        target,
+        interval_seconds=60,
+        mode="unread_only",
+        channel="offline",
+    )
+    disabled = gateway_mail_notifier_disable(
+        target,
+        channel="offline",
+    )
 
     assert status.supported is True
     assert enabled.enabled is True
@@ -3065,6 +3091,11 @@ def test_joined_tui_state_and_detail_after_resume_keep_adopted_window_name(
         def __init__(self, **kwargs: object) -> None:
             self.backend = "local_interactive"
             self._state = kwargs["state"]
+
+        def update_launch_plan(self, launch_plan: object) -> None:
+            """Retain plan refresh without publishing real tmux environment state."""
+
+            self._launch_plan = launch_plan
 
     monkeypatch.setattr(runtime_module, "LocalInteractiveSession", _FakeLocalInteractiveSession)
     monkeypatch.setattr(

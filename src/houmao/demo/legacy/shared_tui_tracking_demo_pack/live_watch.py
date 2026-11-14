@@ -135,7 +135,7 @@ def start_live_watch(
                 recipe_path=selected_recipe_path,
                 recipe_launch_overrides=getattr(recipe, "launch_overrides", None),
                 runtime_root=paths.runtime_root,
-                mailbox=recipe.mailbox,
+                mailboxes=recipe.mailboxes,
                 agent_name=recipe.default_agent_name,
                 launch_overrides=tool_metadata.launch_overrides,
                 operator_prompt_mode=tool_metadata.operator_prompt_mode

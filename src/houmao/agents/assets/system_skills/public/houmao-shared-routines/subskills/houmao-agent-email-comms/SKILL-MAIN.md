@@ -29,7 +29,7 @@ Use this Houmao skill when you need mailbox work around Houmao-managed agents.
 
 Classify the caller up front:
 
-- If the caller is acting as operator rather than as one live Houmao-managed agent, use the operator-origin `post` path. Strong signals include: no agent gateway is attached, `houmao-mgr agents self mail resolve-live` returns no usable live binding for the current session, or current context already shows the caller is not part of the Houmao managed-agent system.
+- Preserve the actor frame established by the parent. An admin uses operator-origin `post` against an explicit target. Missing gateway or mail configuration does not turn a verified agent into an operator.
 - If the caller is one live Houmao-managed agent, use the ordinary shared-mailbox workflow in this skill: prefer the live gateway `/v1/mail/*` facade when available, and fall back to `houmao-mgr agents self mail ...` when the resolver returns `gateway: null`.
 
 For managed-agent gateway-notified open-mail rounds only, use `houmao-shared-routines->houmao-process-emails-via-gateway` first and return here when that round needs exact mailbox operations or transport-local guidance.
@@ -68,22 +68,23 @@ Related skills and boundaries:
 Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
 
 1. Decide the caller posture up front.
-2. If the caller is acting as operator rather than as one live Houmao-managed agent, use the operator-origin `post` action instead of the ordinary managed-agent gateway workflow. Strong signals include: no agent gateway is attached, `houmao-mgr agents self mail resolve-live` returns no usable live binding for the current session, or current context already shows the caller is not part of the Houmao managed-agent system.
+2. Preserve the validated actor frame. Admin posting requires an explicit target; a verified agent remains an agent even when its gateway or mailbox is unavailable.
 3. For Houmao-managed agent mailbox work, if the current prompt or recent mailbox context already provides the exact current gateway base URL, use that value directly for shared `/v1/mail/*` operations.
 4. Otherwise run `agents self mail resolve-live` for the current managed session, or `agents single ... mail resolve-live` when the user explicitly selected another managed agent.
-5. Treat the resolver output as the supported mailbox-discovery contract for this turn.
+5. Read `mailboxes.offline` and `mailboxes.online` separately. Select the channel explicitly from the request or established round context. Pin that slot's `binding.binding_id` for this turn; an absent slot is an error. `canonical_mail_identity` identifies the preferred external address and never selects delivery.
 6. When the resolver returns a `gateway` object, use the action page that matches the mailbox task you need and use that exact `gateway.base_url` for shared `/v1/mail/*` work.
-7. When the resolver returns `gateway: null`, use the transport page that matches `mailbox.transport` and run the matching `agents self mail <verb>` fallback command for current-session CLI fallback.
-8. Treat `message_ref` and `thread_ref` as opaque shared-mailbox references.
-9. Archive processed messages only after the corresponding mailbox action and any required reply succeed.
-10. Include only fields the user explicitly supplied or that were recovered from explicit recent context in fallback commands.
+7. When the resolver returns `gateway: null`, use the selected binding's transport page and run `agents self mail <verb> --channel <channel> --expected-binding-id <binding_id>`. This preserves the selected backend; it is not fallback to another channel.
+8. Send schema version 3 and `expected_binding_id` on every lifecycle request, including fresh send/post. Keep `message_ref` and `thread_ref` opaque and scoped to their owner, channel, and binding. Stop on a binding conflict; never retry against a replacement.
+9. Begin triage with one metadata page of 50 messages (maximum 200). Preserve filters and the opaque cursor when continuing within an explicit page/message budget. `has_more` describes unseen work; returned counts describe this page. Stop the page chain on a stale cursor or binding conflict. Fetch selected content with peek/read and check its completeness before acting.
+10. Archive processed messages only after the corresponding mailbox action and any required reply succeed.
+11. Include only fields the user explicitly supplied or that were recovered from explicit recent context in fallback commands.
 
 
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
 ## Missing Input Questions
 
 - Recover required mailbox values from the current prompt, notifier context, resolver output, or recent mailbox context before asking.
-- If caller posture, gateway base URL, mailbox binding, action, message ref, thread ref, recipient, subject, or body is still missing for the selected mailbox action, ask before proceeding.
+- If caller posture, selected channel, expected binding ID, gateway base URL, action, message ref, thread ref, recipient, subject, or body is still missing for the selected mailbox action, ask before proceeding.
 - When asking for Houmao mailbox-system inputs, use readable Markdown:
   - separate `Required` values from `Optional` modifiers
   - `Required`: values that block the selected mailbox action or route
@@ -106,8 +107,8 @@ If the request does not map cleanly to this workflow, use the native planning to
 
 ## Transport Pages
 
-- Read [references/transports/filesystem.md](references/transports/filesystem.md) when `mailbox.transport` is `filesystem` and you need layout, policy, or no-gateway fallback guidance.
-- Read [references/transports/stalwart.md](references/transports/stalwart.md) when `mailbox.transport` is `stalwart` and you need direct-access or no-gateway fallback guidance.
+- Read [references/transports/filesystem.md](references/transports/filesystem.md) when the offline binding transport is `filesystem` or `registry` and you need layout, policy, or no-gateway fallback guidance.
+- Read [references/transports/stalwart.md](references/transports/stalwart.md) when the online binding transport is `stalwart` and you need direct-access or no-gateway fallback guidance.
 
 ## References
 
@@ -123,10 +124,13 @@ If the request does not map cleanly to this workflow, use the native planning to
 
 ## Guardrails
 
+- DO NOT bridge channels, translate addresses, choose a channel from canonical identity, or resend to a replacement binding.
 - DO NOT guess the gateway host or port; use the exact base URL already present in prompt or context when available, otherwise use `gateway.base_url` from `houmao-mgr agents self mail resolve-live`.
 - DO NOT scrape tmux state directly when the manager-owned resolver is available.
-- DO NOT route operator-origin mailbox delivery through ordinary `/v1/mail/send`; use the dedicated `post` surface.
+- DO NOT route operator-origin mailbox delivery through ordinary `/v1/mail/{channel}/send`; use the dedicated `post` surface.
 - DO NOT derive mailbox internals from visible `message_ref` or `thread_ref` prefixes.
+- DO NOT request bodies through list, use removed `include_body`/`--include-body` inputs, automatically drain cursors, or present page counts as exact mailbox totals.
+- DO NOT treat truncated or unsupported-limit content as complete; inspect peek/read completeness and report any missing content.
 - DO NOT archive a message before the corresponding mailbox action and any required reply succeed.
 - DO NOT treat this ordinary communication skill as the whole notifier-round workflow when `houmao-shared-routines->houmao-process-emails-via-gateway` is available.
 - DO NOT present direct transport-local access as the first-choice path when a live shared gateway mailbox facade is available.

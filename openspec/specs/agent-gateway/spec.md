@@ -36,7 +36,7 @@ Diagnostic entries SHALL NOT include mailbox message body content, raw prompt te
 
 #### Scenario: Malformed mailbox send request is captured
 - **WHEN** diagnostic logging is enabled
-- **AND WHEN** a caller submits a malformed `POST /v1/mail/send` request that fails request-body validation before route handling
+- **AND WHEN** a caller submits a malformed `POST /v1/mail/offline/send` request that fails request-body validation before route handling
 - **THEN** the gateway records a diagnostic entry for the failed HTTP request
 - **AND THEN** the entry includes the route, status code, and normalized validation error locations
 - **AND THEN** the entry does not include a mailbox body or raw request body dump
@@ -444,9 +444,9 @@ The base gateway HTTP API SHALL expose `GET /health`, `GET /v1/status`, and `POS
 
 The reminder HTTP API SHALL additionally expose `POST /v1/reminders`, `GET /v1/reminders`, `GET /v1/reminders/{reminder_id}`, `PUT /v1/reminders/{reminder_id}`, and `DELETE /v1/reminders/{reminder_id}`.
 
-For mailbox-enabled sessions whose live gateway listener is bound to loopback, that HTTP API SHALL additionally expose `GET /v1/mail/status`, `POST /v1/mail/list`, `POST /v1/mail/peek`, `POST /v1/mail/read`, `POST /v1/mail/send`, `POST /v1/mail/post`, `POST /v1/mail/reply`, `POST /v1/mail/mark`, `POST /v1/mail/move`, and `POST /v1/mail/archive`.
+For loopback listeners, that HTTP API SHALL expose the dual-binding summary `GET /v1/mail/status` and channel-selected lifecycle routes `POST /v1/mail/{channel}/{operation}` for `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`. The channel SHALL be explicitly `offline` or `online`, and lifecycle requests SHALL identify the expected binding ID.
 
-When the gateway mail notifier capability is implemented, that HTTP API SHALL additionally expose `PUT /v1/mail-notifier`, `GET /v1/mail-notifier`, and `DELETE /v1/mail-notifier`.
+When the gateway mail notifier capability is implemented, that HTTP API SHALL additionally expose `PUT /v1/mail-notifier/{channel}`, `GET /v1/mail-notifier/{channel}`, and `DELETE /v1/mail-notifier/{channel}`.
 
 `GET /health` SHALL return a structured response suitable for runtime launch-readiness checks and SHALL include gateway protocol-version information.
 
@@ -476,7 +476,7 @@ Request-validation failures on `POST /v1/requests` SHALL return HTTP `422`. Expl
 
 Notifier validation failures SHALL return HTTP `422`. Attempts to enable notifier behavior for sessions that cannot support it SHALL fail explicitly rather than pretending that notifier polling is active.
 
-Shared mailbox route validation failures SHALL return HTTP `422`. Calls to mailbox routes for sessions without mailbox bindings SHALL fail explicitly rather than pretending mailbox support exists. When the live gateway listener is bound to `0.0.0.0`, the `/v1/mail/*` routes SHALL fail explicitly as unavailable until an authentication model exists for broader listeners.
+Shared mailbox route validation failures SHALL return HTTP `422`. Summary status SHALL remain a normal empty-binding response when neither slot is configured. Lifecycle calls selecting an absent binding SHALL fail explicitly rather than pretending mailbox support exists. Unqualified lifecycle routes SHALL NOT infer a channel. When the live gateway listener is bound to `0.0.0.0`, the `/v1/mail/*` routes SHALL fail explicitly as unavailable until an authentication model exists for broader listeners.
 
 Read-oriented HTTP endpoints and mailbox read routes SHALL NOT consume the terminal-mutation slot solely to report current gateway health, core status, reminder state, notifier status, or shared mailbox state.
 
@@ -809,6 +809,7 @@ When gateway-owned notifier behavior is enabled, the gateway SHALL record one st
 Each record SHALL capture enough detail to explain what the notifier saw and why it enqueued or skipped work, including at minimum:
 
 - poll time,
+- owner, selected channel, and binding identity,
 - unread-count observation,
 - unread-set identity or equivalent deduplication summary,
 - request-admission state,
@@ -819,7 +820,7 @@ Each record SHALL capture enough detail to explain what the notifier saw and why
 
 The gateway MAY continue to keep `gateway.log` rate-limited and human-oriented, but that human log SHALL NOT be the only durable source of per-poll notifier decision history.
 
-Detailed per-poll decision history SHALL remain available through that durable audit table even if `GET /v1/mail-notifier` remains a compact status snapshot without last-decision summary fields.
+Detailed per-poll decision history SHALL remain available through that durable audit table even if `GET /v1/mail-notifier/{channel}` remains a compact status snapshot without last-decision summary fields.
 
 #### Scenario: Busy poll records an explicit skip decision
 - **WHEN** a notifier poll cycle finds unread mail while gateway admission is not open, active execution is running, or queue depth is non-zero
@@ -834,7 +835,7 @@ Detailed per-poll decision history SHALL remain available through that durable a
 #### Scenario: Durable audit history remains the detailed inspection surface
 - **WHEN** an operator or demo helper needs the latest detailed notifier decision data
 - **THEN** it can inspect the durable SQLite notifier audit history under the gateway root
-- **AND THEN** the gateway does not need to expose additional last-decision summary fields on `GET /v1/mail-notifier` in order to satisfy this requirement
+- **AND THEN** the gateway does not need to expose additional last-decision summary fields on `GET /v1/mail-notifier/{channel}` in order to satisfy this requirement
 
 ### Requirement: Gateway execution adapters support REST-backed, local-headless, and server-managed targets
 The gateway SHALL execute accepted terminal-mutating request kinds through an explicit execution-adapter boundary selected from durable attach metadata and manifest-backed runtime authority.
@@ -1428,7 +1429,7 @@ The gateway reset-context wait and poll constants SHALL remain unaffected by thi
 - **AND THEN** they do not change the gateway reset-context wait or reset-context polling constants
 
 ### Requirement: Gateway operator-origin post defaults to operator mailbox replies
-`POST /v1/mail/post` SHALL default omitted `reply_policy` fields to `operator_mailbox`.
+`POST /v1/mail/offline/post` SHALL default omitted `reply_policy` fields to `operator_mailbox`.
 
 The gateway mailbox post request model SHALL continue to accept explicit `reply_policy` values of `none` and `operator_mailbox`.
 
@@ -1439,72 +1440,62 @@ When `reply_policy` is explicitly set to `none`, the created operator-origin mes
 Pair-managed mail-post proxy request models that inherit the live gateway mailbox post model SHALL preserve this same omitted-field default.
 
 #### Scenario: Direct gateway post omitted policy creates a reply-enabled message
-- **WHEN** a caller posts to `/v1/mail/post` with subject and body but without `reply_policy`
+- **WHEN** a caller posts to `/v1/mail/offline/post` with subject and body but without `reply_policy`
 - **THEN** the gateway creates an operator-origin message with reply policy `operator_mailbox`
-- **AND THEN** a later `/v1/mail/reply` against that message is accepted and routed to `HOUMAO-operator@houmao.localhost`
+- **AND THEN** a later `/v1/mail/offline/reply` against that message is accepted and routed to `HOUMAO-operator@houmao.localhost`
 
 #### Scenario: Direct gateway explicit no-reply policy is honored
-- **WHEN** a caller posts to `/v1/mail/post` with `reply_policy` set to `none`
+- **WHEN** a caller posts to `/v1/mail/offline/post` with `reply_policy` set to `none`
 - **THEN** the gateway creates an operator-origin message with no-reply policy metadata
-- **AND THEN** a later `/v1/mail/reply` against that message fails explicitly
+- **AND THEN** a later `/v1/mail/offline/reply` against that message fails explicitly
 
 #### Scenario: Pair-managed proxy preserves gateway post default
 - **WHEN** a pair-managed caller posts operator-origin mail without `reply_policy`
 - **THEN** the pair-managed proxy forwards a request that resolves to the gateway's `operator_mailbox` default
-- **AND THEN** the resulting message has the same reply-enabled behavior as direct `/v1/mail/post`
+- **AND THEN** the resulting message has the same reply-enabled behavior as direct `/v1/mail/offline/post`
 
 ### Requirement: Shared gateway mailbox facade exposes lifecycle routes
-For mailbox-enabled sessions whose live gateway listener is bound to loopback, the shared gateway mailbox facade SHALL expose lifecycle routes for:
+For loopback-bound gateways, the shared mailbox facade SHALL expose `GET /v1/mail/status` as a summary of both optional bindings and the derived canonical mail identity. Mailbox-disabled agents SHALL receive a normal empty-binding summary.
 
-- `GET /v1/mail/status`,
-- `POST /v1/mail/list`,
-- `POST /v1/mail/peek`,
-- `POST /v1/mail/read`,
-- `POST /v1/mail/send`,
-- `POST /v1/mail/post`,
-- `POST /v1/mail/reply`,
-- `POST /v1/mail/mark`,
-- `POST /v1/mail/move`,
-- `POST /v1/mail/archive`.
+The gateway SHALL expose channel-selected lifecycle routes under `/v1/mail/{channel}/` for `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`, where `channel` is `offline` or `online`. The former unqualified lifecycle routes SHALL NOT infer a channel from the canonical mail identity.
 
-`POST /v1/mail/list` SHALL accept a mailbox box selector and return metadata suitable for triage without marking listed messages read.
+List SHALL return triage metadata without marking read. Peek SHALL return selected content without changing read state. Read SHALL return content and mark read. Mark SHALL support recipient-local read/answered state. Move SHALL update supported boxes. Archive SHALL close inbox work through the selected backend.
 
-`POST /v1/mail/peek` SHALL return one selected message without changing read state.
-
-`POST /v1/mail/read` SHALL return one selected message and mark it read for the current mailbox principal.
-
-`POST /v1/mail/mark` SHALL allow explicit manual marking of supported recipient-local state fields, including `read` and `answered`.
-
-`POST /v1/mail/move` SHALL move selected messages among supported mailbox boxes.
-
-`POST /v1/mail/archive` SHALL remain as a shortcut for moving selected messages to the archive box and marking them archived.
-
-The gateway SHALL continue to use the manifest-backed mailbox adapter boundary for all shared mailbox lifecycle routes and SHALL NOT require callers to read or write transport-local SQLite state, filesystem `rules/`, or Stalwart-native objects directly.
+All lifecycle requests SHALL identify their expected binding ID, obtained from status or current round context, and use runtime-owned authority and scoped references. A replaced binding SHALL fail explicitly even for send/post requests without a message reference. Unsupported operations, absent bindings, and backend failures SHALL be explicit. Callers SHALL NOT need filesystem indexes, mailbox scripts, or provider-native objects. Mail operations SHALL retain the existing loopback listener policy.
 
 #### Scenario: Peek does not mutate read state through the gateway
-- **WHEN** a caller invokes `POST /v1/mail/peek` with a valid opaque `message_ref`
-- **THEN** the gateway returns the message body and metadata through the shared mailbox facade
-- **AND THEN** the recipient-local read state for that message does not change
+- **WHEN** a caller peeks through the selected channel using a matching scoped reference
+- **THEN** it receives that message's content without changing recipient read state
 
 #### Scenario: Read mutates read state through the gateway
-- **WHEN** a caller invokes `POST /v1/mail/read` with a valid opaque `message_ref`
-- **THEN** the gateway returns the message body and metadata through the shared mailbox facade
-- **AND THEN** the recipient-local read state for that message is `true`
+- **WHEN** a caller reads through the selected channel using a matching scoped reference
+- **THEN** it receives that message's content and read state becomes true for that mailbox owner
 
 #### Scenario: Archive shortcut remains available
-- **WHEN** a caller invokes `POST /v1/mail/archive` with selected opaque message refs
-- **THEN** the gateway moves those messages into the archive box through the shared mailbox adapter
-- **AND THEN** the response reports those messages as archived and no longer open inbox work
+- **WHEN** a caller archives selected references through their matching channel
+- **THEN** the selected backend reports them archived and no longer open inbox work
+
+#### Scenario: Channel omission does not use canonical precedence
+- **WHEN** a caller uses an unqualified lifecycle operation without selecting a channel
+- **THEN** the request fails explicitly instead of selecting the preferred online address
+
+#### Scenario: Empty status remains readable
+- **WHEN** an agent has no offline or online binding
+- **THEN** summary status reports both slots absent and no canonical mail identity
+- **AND THEN** ordinary core status and control remain available
+
+#### Scenario: A new send pins its intended mailbox
+- **WHEN** an account is replaced after a caller observes its binding ID but before a send begins
+- **THEN** the send fails with a binding conflict
+- **AND THEN** it is not submitted from the replacement account
 
 ### Requirement: Gateway reply marks the parent message answered
-When `POST /v1/mail/reply` succeeds, the gateway SHALL ask the shared mailbox adapter to mark the replied message `answered=true` and `read=true` for the current mailbox principal.
-
-That automatic reply state update SHALL NOT archive the replied message.
+When a channel-selected gateway reply succeeds, the adapter SHALL mark the parent message `answered=true` and `read=true` for the owning mailbox. Reply SHALL preserve originating channel and binding scope and SHALL NOT archive the parent message.
 
 #### Scenario: Gateway reply acknowledges without closing the mail
-- **WHEN** a caller sends a reply through `POST /v1/mail/reply`
-- **THEN** the gateway response reflects that the parent message is answered for the current principal
-- **AND THEN** the parent message remains open inbox work until an archive or move operation closes it
+- **WHEN** a caller replies through the matching channel and binding
+- **THEN** the parent becomes read and answered for that owner
+- **AND THEN** it remains open inbox work until archive or a closing move succeeds
 
 ### Requirement: Gateway exposes managed memory memo and page endpoints
 The live gateway SHALL expose HTTP endpoints for managed memory inspection and memo/page operations.

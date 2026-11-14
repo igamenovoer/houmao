@@ -16,7 +16,11 @@ from houmao.agents.launch_policy.models import (
     NativeSystemPromptMethod,
     SupportedVersionSpec,
 )
-from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
+from houmao.agents.mailbox_runtime_models import (
+    FilesystemMailboxResolvedConfig,
+    MailboxesResolvedConfig,
+    MailboxSlotConfig,
+)
 from houmao.agents.realm_controller.launch_plan import (
     LaunchPlanRequest,
     backend_for_tool,
@@ -411,7 +415,9 @@ def test_build_launch_plan_preserves_mailbox_without_env_projection(tmp_path: Pa
     role = load_role_package(tmp_path / "repo", "test-role")
     mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
-        principal_id="HOUMAO-research",
+        principal_id="agent-research",
+        agent_id="agent-research",
+        binding_id="registration-a",
         address="HOUMAO-research@agents.localhost",
         filesystem_root=(tmp_path / "shared-mail").resolve(),
         bindings_version="2026-03-12T05:00:00.000001Z",
@@ -422,14 +428,19 @@ def test_build_launch_plan_preserves_mailbox_without_env_projection(tmp_path: Pa
             role_package=role,
             backend="codex_headless",
             working_directory=tmp_path,
-            mailbox=mailbox,
+            mailboxes=MailboxesResolvedConfig(
+                offline=MailboxSlotConfig(revision=mailbox.bindings_version, binding=mailbox)
+            ),
         )
     )
 
-    assert plan.mailbox == mailbox
+    assert plan.mailboxes.offline.binding == mailbox
     assert plan.env == {"OPENAI_API_KEY": "sk-secret"}
     assert all(not name.startswith("HOUMAO_MAILBOX_") for name in plan.env_var_names)
-    assert plan.redacted_payload()["mailbox"]["principal_id"] == "HOUMAO-research"
+    assert (
+        plan.redacted_payload()["mailboxes"]["offline"]["binding"]["principal_id"]
+        == "agent-research"
+    )
 
 
 def test_build_launch_plan_resolves_launch_policy_provenance(

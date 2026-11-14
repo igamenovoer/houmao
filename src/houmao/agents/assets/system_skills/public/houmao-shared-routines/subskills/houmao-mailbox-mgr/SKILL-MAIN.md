@@ -25,7 +25,7 @@ This parent-scoped routine loads only through `houmao-shared-routines`. Require 
 
 Keep administration separate from ordinary participation, which routes through `agent-email-comms` under the same public entrypoint.
 
-Use this Houmao skill when the task is mailbox administration rather than ordinary mailbox participation. This is the packaged Houmao-owned entrypoint for creating, validating, repairing, cleaning, exporting, or inspecting filesystem mailbox roots and for late filesystem mailbox binding on existing local managed agents.
+Use this Houmao skill when the task is mailbox administration rather than ordinary mailbox participation. This is the packaged Houmao-owned entrypoint for creating, validating, repairing, cleaning, exporting, or inspecting filesystem mailbox roots and for late offline mailbox binding on existing local managed agents.
 
 The trigger word `houmao` is intentional. Enter this parent-scoped routine only through `houmao-shared-routines->houmao-mailbox-mgr`; never invoke its logical id as a standalone skill.
 
@@ -33,14 +33,14 @@ The trigger word `houmao` is intentional. Enter this parent-scoped routine only 
 
 When the user asks `$houmao-shared-routines mailbox-mgr help`, `help for houmao-mailbox-mgr`, `usage for houmao-mailbox-mgr`, `available functionality for houmao-mailbox-mgr`, or what this skill can do, answer from this section before choosing a mailbox-admin lane, action page, command, reference, or missing-input question. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me register a mailbox account", route to the matching workflow instead of stopping at generic help.
 
-Purpose: administer Houmao mailbox roots, registrations, structural projections, and late filesystem mailbox bindings.
+Purpose: administer Houmao mailbox roots, registrations, structural projections, and late offline mailbox bindings.
 
 Available functionality:
 
 - Initialize, inspect, repair, clean, clear, and export filesystem or project mailbox roots.
 - Register, inspect, unregister, and clean mailbox accounts.
 - List, inspect, or clear structural message projections.
-- Inspect, add, update, or remove late filesystem mailbox binding for an existing local managed agent.
+- Inspect, add, update, or remove late offline mailbox binding for an existing local managed agent.
 
 Common starting prompts:
 
@@ -63,14 +63,14 @@ This packaged skill covers exactly these maintained mailbox-administration surfa
 - `help` (read-only meta operation)
 - `houmao-mgr mailbox ...`
 - `houmao-mgr project mailbox ...`
-- `houmao-mgr agents single --agent-id <id> mailbox ...` or `--agent-name <name>`
+- `houmao-mgr agents single --agent-id <id> mailbox offline ...` or `--agent-name <name>`, plus verified `agents self mailbox offline ...`
 
 This packaged skill does not cover:
 
 - `houmao-mgr agents self mail ...` and `houmao-mgr agents single ... mail ...`
 - shared `/v1/mail/*` workflow
 - `houmao-mgr agents self gateway mail-notifier ...` and `houmao-mgr agents single ... gateway mail-notifier ...`
-- direct gateway `/v1/mail-notifier` or `/v1/reminders`
+- direct gateway `/v1/mail-notifier/{channel}` or `/v1/reminders`
 - ad hoc filesystem editing inside mailbox roots
 
 ## Workflow
@@ -81,18 +81,18 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 2. Select the maintained lane:
    - arbitrary filesystem mailbox root -> `houmao-mgr mailbox ...`
    - project overlay mailbox root -> `houmao-mgr project mailbox ...`
-   - existing local managed-agent late binding -> `houmao-mgr agents single --agent-id <id> mailbox ...` or `--agent-name <name>`
+   - existing local managed-agent offline join to a configured local or authorized remote registry -> `houmao-mgr agents single --agent-id <id> mailbox offline ...` or `--agent-name <name>`, plus verified `agents self mailbox offline ...`
 3. Keep mailbox ownership boundaries explicit:
    - use `mailbox init|status|repair|cleanup|clear-messages|export` to manage the shared mailbox root itself
    - use `mailbox clear-messages` or `project mailbox clear-messages` when the operator wants to remove delivered emails while keeping mailbox accounts registered
    - use `mailbox messages clear --address` or `project mailbox messages clear --address` when the operator wants to remove delivered emails visible to one selected mailbox account while preserving other accounts
    - use `mailbox export` or `project mailbox export` when the operator wants to archive filesystem mailbox state; default export materializes symlinks so the archive can move to filesystems that do not support symlink artifacts
    - use `mailbox register|unregister` or `project mailbox register|unregister` for manual mailbox-account administration under that root
-   - use `agents single ... mailbox ...` when the task is adding or changing mailbox support for an already-running local managed agent
+   - use `agents single ... mailbox offline ...` when the task is adding or changing mailbox support for an already-running local managed agent
    - when the user is preparing a new specialist-backed easy instance whose ordinary mailbox address will be derived from the managed-agent name under the same root, explain that mailbox registration may be owned by the later `project agents launch` step rather than by manual preregistration here
 4. Recover omitted inputs from the current prompt first and recent chat context second, but only when the user stated them explicitly.
 5. Keep mailbox identity guidance explicit when the user needs help choosing values:
-   - ordinary principal ids use the canonical `HOUMAO-<agentname>` form
+   - managed-agent owner principal IDs equal the persisted immutable `agent_id`; names do not derive owner IDs
    - ordinary managed-agent mailbox addresses use `<agentname>@houmao.localhost`
    - mailbox local parts beginning with `HOUMAO-` under `houmao.localhost` are reserved for Houmao-owned system principals rather than ordinary managed-agent mailbox addresses
    - when the user has not specified a mailbox domain, recommend `houmao.localhost`
@@ -107,7 +107,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - `project mailbox <verb>` for active project mailbox-root commands
    - `mailbox accounts <verb>` and `project mailbox accounts <verb>` for account inspection
    - `mailbox messages <verb>` and `project mailbox messages <verb>` for structural message inspection or clearing
-   - `agents single ... mailbox status|register|unregister` for late binding on an existing local managed agent
+   - `agents single ... mailbox offline status|join|leave` for late binding on an existing local managed agent
 9. Include only fields the user explicitly supplied or that were recovered from explicit recent context.
 10. If required input is missing or explicit inputs conflict, stop and recover the missing or conflicting input before running the target command.
 11. Load exactly one action page for the task you need to complete.
@@ -122,7 +122,7 @@ If the request does not map cleanly to this workflow, use the native planning to
 - Read [commands/register.md](commands/register.md) to register one filesystem mailbox account under one arbitrary mailbox root or one project mailbox root.
 - Read [commands/unregister.md](commands/unregister.md) to deactivate or purge one filesystem mailbox account under one arbitrary mailbox root or one project mailbox root.
 - Read [commands/repair.md](commands/repair.md) to rebuild filesystem mailbox root index state for one arbitrary mailbox root or one project mailbox root.
-- Read [commands/cleanup.md](commands/cleanup.md) to clean inactive or stashed registrations under one arbitrary mailbox root or one project mailbox root.
+- Read [commands/cleanup.md](commands/cleanup.md) to clean inactive registrations and retained registration history under one arbitrary mailbox root or one project mailbox root.
 - Read [commands/clear-messages.md](commands/clear-messages.md) to clear delivered mailbox messages while preserving registrations under one arbitrary mailbox root or one project mailbox root.
 - Read [commands/export.md](commands/export.md) to archive all accounts or selected filesystem mailbox accounts under one arbitrary mailbox root or one project mailbox root.
 - Read [commands/accounts-list.md](commands/accounts-list.md) to inspect mailbox registrations under one arbitrary mailbox root or one project mailbox root.
@@ -131,8 +131,8 @@ If the request does not map cleanly to this workflow, use the native planning to
 - Read [commands/messages-get.md](commands/messages-get.md) to inspect one structurally projected message for one mailbox address under one arbitrary mailbox root or one project mailbox root.
 - Read [commands/messages-clear.md](commands/messages-clear.md) to clear delivered mailbox messages visible to one selected mailbox address while preserving registrations and other accounts.
 - Read [commands/agent-binding-status.md](commands/agent-binding-status.md) to inspect late filesystem mailbox posture for one existing local managed agent.
-- Read [commands/agent-binding-register.md](commands/agent-binding-register.md) to add or update one late filesystem mailbox binding for one existing local managed agent.
-- Read [commands/agent-binding-unregister.md](commands/agent-binding-unregister.md) to remove one late filesystem mailbox binding from one existing local managed agent.
+- Read [commands/agent-binding-register.md](commands/agent-binding-register.md) to add or update one late offline mailbox binding for one existing local managed agent.
+- Read [commands/agent-binding-unregister.md](commands/agent-binding-unregister.md) to remove one late offline mailbox binding from one existing local managed agent.
 
 ## References
 

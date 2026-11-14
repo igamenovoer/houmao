@@ -1691,8 +1691,9 @@ def test_native_agent_recipes_set_preserves_advanced_blocks(
                 "  prompt_mode: unattended",
                 "  env_records:",
                 '    FEATURE_FLAG_X: "1"',
-                "mailbox:",
-                "  transport: none",
+                "mailboxes:",
+                "  offline: null",
+                "  online: null",
                 "extra:",
                 "  gateway:",
                 "    host: 127.0.0.1",
@@ -1729,7 +1730,7 @@ def test_native_agent_recipes_set_preserves_advanced_blocks(
         "prompt_mode": "unattended",
         "env_records": {"FEATURE_FLAG_X": "1"},
     }
-    assert payload["mailbox"] == {"transport": "none"}
+    assert payload["mailboxes"] == {"offline": None, "online": None}
     assert payload["extra"] == {"gateway": {"host": "127.0.0.1", "port": 43123}}
 
 
@@ -4795,7 +4796,7 @@ def test_project_profile_set_patches_defaults_and_preserves_prompt_overlay(
     set_payload = json.loads(set_result.output)
     assert set_payload["defaults"]["workdir"] == "/repos/alice-next"
     assert set_payload["defaults"]["auth"] == "reviewer-creds"
-    assert set_payload["defaults"]["mailbox"]["transport"] == "filesystem"
+    assert set_payload["defaults"]["mailboxes"]["offline"]["transport"] == "filesystem"
     assert set_payload["defaults"]["prompt_overlay"] == {
         "mode": "append",
         "present": True,
@@ -6125,8 +6126,8 @@ def test_project_agents_launch_uses_profile_defaults_and_overrides(
             "present": False,
         },
     }
-    assert captured["declared_mailbox"].transport == "filesystem"
-    assert captured["declared_mailbox"].filesystem_root == "/shared-mail-root"
+    assert captured["declared_mailboxes"].offline.transport == "filesystem"
+    assert captured["declared_mailboxes"].offline.filesystem_root == "/shared-mail-root"
 
 
 @pytest.mark.parametrize("prompt_mode", ["unattended", "as_is"])
@@ -8581,14 +8582,21 @@ def test_project_agents_list_and_get_use_runtime_state(
                     }
                 }
             },
-            "mailbox": {
-                "transport": "filesystem",
-                "principal_id": "HOUMAO-repo-research-1",
-                "address": "HOUMAO-repo-research-1@agents.localhost",
-                "filesystem_root": str((tmp_path / "mail-root").resolve()),
-                "mailbox_kind": "symlink",
-                "mailbox_path": str((tmp_path / "private-mailboxes" / "repo-research-1").resolve()),
-                "bindings_version": "2026-03-29T12:00:00Z",
+            "mailboxes": {
+                "offline": {
+                    "revision": "offline-revision",
+                    "binding": {
+                        "transport": "filesystem",
+                        "channel": "offline",
+                        "agent_id": "agent-123",
+                        "principal_id": "agent-123",
+                        "binding_id": "offline-registration",
+                        "address": "research@houmao.localhost",
+                        "filesystem_root": str((tmp_path / "mail-root").resolve()),
+                        "bindings_version": "offline-revision",
+                    },
+                },
+                "online": {"revision": "online-empty", "binding": None},
             },
         },
         "runtime": {
@@ -8636,14 +8644,20 @@ def test_project_agents_list_and_get_use_runtime_state(
     assert list_payload["instances"][0]["pages_dir"] == str(
         (tmp_path / "memory" / "agents" / "repo-research-1" / "pages").resolve()
     )
-    assert list_payload["instances"][0]["mailbox"] == {
-        "transport": "filesystem",
-        "principal_id": "HOUMAO-repo-research-1",
-        "address": "HOUMAO-repo-research-1@agents.localhost",
-        "mailbox_root": str((tmp_path / "mail-root").resolve()),
-        "mailbox_kind": "symlink",
-        "mailbox_dir": str((tmp_path / "private-mailboxes" / "repo-research-1").resolve()),
-        "bindings_version": "2026-03-29T12:00:00Z",
+    assert list_payload["instances"][0]["mailboxes"] == {
+        "offline": {
+            "revision": "offline-revision",
+            "binding": {
+                "agent_id": "agent-123",
+                "channel": "offline",
+                "binding_id": "offline-registration",
+                "address": "research@houmao.localhost",
+                "transport": "filesystem",
+                "availability": "unknown",
+            },
+        },
+        "online": {"revision": "online-empty", "binding": None},
+        "canonical_mail_identity": {"channel": "offline", "address": "research@houmao.localhost"},
     }
 
     get_result = runner.invoke(cli, ["project", "agents", "get", "--name", "repo-research-1"])
@@ -8662,12 +8676,18 @@ def test_project_agents_list_and_get_use_runtime_state(
     assert get_payload["pages_dir"] == str(
         (tmp_path / "memory" / "agents" / "repo-research-1" / "pages").resolve()
     )
-    assert get_payload["mailbox"] == {
-        "transport": "filesystem",
-        "principal_id": "HOUMAO-repo-research-1",
-        "address": "HOUMAO-repo-research-1@agents.localhost",
-        "mailbox_root": str((tmp_path / "mail-root").resolve()),
-        "mailbox_kind": "symlink",
-        "mailbox_dir": str((tmp_path / "private-mailboxes" / "repo-research-1").resolve()),
-        "bindings_version": "2026-03-29T12:00:00Z",
+    assert get_payload["mailboxes"] == {
+        "offline": {
+            "revision": "offline-revision",
+            "binding": {
+                "agent_id": "agent-123",
+                "channel": "offline",
+                "binding_id": "offline-registration",
+                "address": "research@houmao.localhost",
+                "transport": "filesystem",
+                "availability": "unknown",
+            },
+        },
+        "online": {"revision": "online-empty", "binding": None},
+        "canonical_mail_identity": {"channel": "offline", "address": "research@houmao.localhost"},
     }

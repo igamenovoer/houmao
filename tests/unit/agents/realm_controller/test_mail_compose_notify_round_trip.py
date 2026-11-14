@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from houmao.agents.realm_controller.gateway_mailbox import (
+from houmao.mailbox.services import (
     FilesystemGatewayMailboxAdapter,
     _generate_filesystem_message_id,
 )

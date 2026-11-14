@@ -8,19 +8,17 @@ For the broader Houmao filesystem map and operator-preparation guidance, use [Sy
 
 ## Mental Model
 
-The shared registry is a locator layer, not a replacement state store.
+The selected registry has two authorities. Lifecycle records locate runtime-owned sessions. Its configured filesystem mail store owns durable offline membership, address allocation, and mailbox history.
 
 - Runtime-owned tmux-backed sessions publish one secret-free lifecycle record per authoritative `agent_id`, with canonical agent name kept as lookup metadata.
 - Remotely owned communication-only agents can be imported into a separate `external_agents/` collection with local locator metadata and cached remote identity.
 - Active records carry liveness metadata plus optional live gateway details; stopped and retired records preserve last-known tmux identity and runtime pointers for relaunch, cleanup, and diagnostics.
 - Tmux-local discovery is still the first same-host lookup path when its pointers are present and valid.
-- The registry is the fallback when tmux-local discovery is missing or stale.
+- The registry provides same-host lifecycle discovery when tmux-local discovery is missing or stale.
+- The selected offline store persists membership separately from lifecycle presence. A stopped body or expired lease does not release an address. Remote members use the narrow registry API without shared runtime paths.
 - `manifest.json`, session-root artifacts, gateway files, and mailbox state remain authoritative.
 
-Think of it as a per-user phonebook for live sessions:
-
-- it tells the runtime where to look,
-- it does not become the source of truth for the session itself.
+The registry configuration associates one selected mail store with that authority. Membership mutations reject a different store instead of creating another implicit group. Runtime manifests remain the binding authority, and lifecycle JSON records contain only safe dual-channel mail projections.
 
 For live gateway recovery, that means:
 
@@ -39,9 +37,9 @@ For live gateway recovery, that means:
 - `lease freshness`: The active-only liveness rule based on `liveness.lease_expires_at`, not on whether the directory happens to exist.
 - `locator layer`: A metadata layer that points to runtime-owned artifacts without replacing their authority.
 
-## Read By Goal
+## Read by Goal
 
-### Start here
+### Start Here
 
 - [Discovery And Cleanup](operations/discovery-and-cleanup.md): How name-based resolution falls back from tmux-local discovery to the registry, plus how `houmao-mgr admin cleanup registry` classifies stale state.
 
@@ -60,15 +58,16 @@ The current implementation documents what exists today:
 
 - publication is for runtime-managed tmux-backed sessions,
 - external imports are stored separately under `external_agents/` and are not local lifecycle records,
-- records are validated through strict Pydantic models and the shipped v3 standalone JSON Schema,
-- legacy v2 live records still load through a compatibility upgrade path that maps them to active lifecycle records,
+- records are validated through strict Pydantic models and the shipped v4 standalone JSON Schema,
+- unsupported older lifecycle projections fail validation and require explicit backup and rebootstrap,
 - lookup treats malformed or expired records as unusable stale state,
 - the current typed boundary is `ManagedAgentRegistryRecordV3`.
 
 ## Migration Notes
 
-- Legacy `live_agent_registry_record.v2` payloads are upgraded in memory to `lifecycle.state=active`, with the old `published_at` and `lease_expires_at` fields becoming active-only `liveness` metadata and the old tmux `session_name` becoming both `terminal.current_session_name` and `terminal.last_session_name`.
-- Pre-change stopped sessions that never published a lifecycle-aware record remain recoverable only through bounded runtime-root scans used by `agents single ... relaunch` and `agents single ... cleanup`. Once such a session is revived or cleaned, the lifecycle registry becomes authoritative again.
+The dual-mail format intentionally replaces the former single mailbox union. Back up unsupported application state and rebootstrap it with the current runtime. Reads do not generate missing IDs, upgrade old bindings, or reset retained mailbox stores. UUID generation applies to fresh agent creation; persisted explicit agent IDs remain opaque stable identities.
+
+See [Offline Registry Setup](../mailbox/operations/offline-registry.md) for local store association, narrow server startup, private credentials, remote enrollment, and reconnect behavior. No cluster identifier is required.
 
 ## Related References
 

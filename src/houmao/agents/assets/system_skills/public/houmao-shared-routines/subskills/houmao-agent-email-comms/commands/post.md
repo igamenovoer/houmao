@@ -14,15 +14,15 @@ Use this action when the caller is acting as operator and needs to deliver one o
 When the caller is outside the Houmao managed-agent runtime, or current discovery shows there is no usable live gateway for the current session, run the direct fallback command:
 
 ```bash
-<chosen houmao-mgr launcher> agents single --agent-id <agent-id> mail post --subject <subject> --body-content <body>
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> mail post --channel <channel> --expected-binding-id <binding_id> --subject <subject> --body-content <body>
 ```
 
-When the exact target managed-agent `gateway.base_url` is already known for this turn, `POST /v1/mail/post` is also supported:
+When the exact target managed-agent `gateway.base_url` is already known for this turn, `POST /v1/mail/{channel}/post` is also supported:
 
 ```bash
-curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/post" \
+curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/$MAIL_CHANNEL/post" \
   -H 'content-type: application/json' \
-  --data '{"schema_version":1,"subject":"...","body_content":"...","attachments":[]}'
+  --data '{"schema_version":3,"expected_binding_id":"<selected binding_id>","subject":"...","body_content":"...","attachments":[]}'
 ```
 
 Use the exact `gateway.base_url` resolved for the selected managed agent when taking the gateway route.

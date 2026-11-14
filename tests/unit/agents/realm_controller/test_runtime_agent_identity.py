@@ -33,10 +33,12 @@ from houmao.agents.realm_controller.runtime import (
     resolve_agent_identity,
 )
 from houmao.agents.realm_controller.registry_models import (
-    LiveAgentRegistryRecordV2,
+    ManagedAgentRegistryRecordV3,
+    RegistryLifecycleV1,
+    RegistryLivenessV1,
     RegistryIdentityV1,
     RegistryRuntimeV1,
-    RegistryTerminalV1,
+    RegistryTerminalV2,
 )
 from houmao.agents.realm_controller.registry_storage import publish_live_agent_record
 
@@ -222,19 +224,33 @@ def _publish_registry_resolution_record(
 
     now = datetime.now(UTC)
     publish_live_agent_record(
-        LiveAgentRegistryRecordV2(
+        ManagedAgentRegistryRecordV3(
             agent_name=session_name,
             agent_id=derive_agent_id_from_name(session_name),
             generation_id="generation-1",
-            published_at=now.isoformat(timespec="seconds"),
-            lease_expires_at=(now + timedelta(hours=24)).isoformat(timespec="seconds"),
+            liveness=RegistryLivenessV1(
+                published_at=now.isoformat(timespec="seconds"),
+                lease_expires_at=(now + timedelta(hours=24)).isoformat(timespec="seconds"),
+            ),
+            lifecycle=RegistryLifecycleV1(
+                state="active",
+                relaunchable=True,
+                state_updated_at=now.isoformat(timespec="seconds"),
+            ),
+            mailboxes={
+                "offline": {"revision": "off-empty", "binding": None},
+                "online": {"revision": "on-empty", "binding": None},
+            },
+            canonical_mail_identity=None,
             identity=RegistryIdentityV1(backend="cao_rest", tool="codex"),
             runtime=RegistryRuntimeV1(
                 manifest_path=str(manifest_path.resolve()),
                 session_root=str(manifest_path.parent.resolve()),
                 agent_def_dir=str(agent_def_dir.resolve()),
             ),
-            terminal=RegistryTerminalV1(session_name=session_name),
+            terminal=RegistryTerminalV2(
+                current_session_name=session_name, last_session_name=session_name
+            ),
         )
     )
 
@@ -615,19 +631,33 @@ def test_resolve_agent_identity_falls_back_to_shared_registry_when_tmux_missing(
 
     now = datetime.now(UTC)
     publish_live_agent_record(
-        LiveAgentRegistryRecordV2(
+        ManagedAgentRegistryRecordV3(
             agent_name="HOUMAO-gpu",
             agent_id=derive_agent_id_from_name("HOUMAO-gpu"),
             generation_id="generation-1",
-            published_at=now.isoformat(timespec="seconds"),
-            lease_expires_at=(now + timedelta(hours=24)).isoformat(timespec="seconds"),
+            liveness=RegistryLivenessV1(
+                published_at=now.isoformat(timespec="seconds"),
+                lease_expires_at=(now + timedelta(hours=24)).isoformat(timespec="seconds"),
+            ),
+            lifecycle=RegistryLifecycleV1(
+                state="active",
+                relaunchable=True,
+                state_updated_at=now.isoformat(timespec="seconds"),
+            ),
+            mailboxes={
+                "offline": {"revision": "off-empty", "binding": None},
+                "online": {"revision": "on-empty", "binding": None},
+            },
+            canonical_mail_identity=None,
             identity=RegistryIdentityV1(backend="cao_rest", tool="codex"),
             runtime=RegistryRuntimeV1(
                 manifest_path=str(manifest_path.resolve()),
                 session_root=str(manifest_path.parent.resolve()),
                 agent_def_dir=str(agent_def_dir.resolve()),
             ),
-            terminal=RegistryTerminalV1(session_name="HOUMAO-gpu"),
+            terminal=RegistryTerminalV2(
+                current_session_name="HOUMAO-gpu", last_session_name="HOUMAO-gpu"
+            ),
         )
     )
 
@@ -935,6 +965,59 @@ def test_resolve_start_session_identity_uses_timestamp_based_tmux_handle_for_raw
     assert resolved.tmux_session_name == "HOUMAO-gpu-1760000123456"
 
 
+def test_template_start_generates_uuid_but_created_brain_preserves_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from uuid import UUID
+
+    common = {
+        "tool": "codex",
+        "role_name": "researcher",
+        "requested_agent_identity": None,
+        "requested_agent_name": "alice",
+        "requested_agent_id": None,
+        "requested_tmux_session_name": "test-session",
+    }
+    first = _resolve_start_session_identity(manifest={}, **common)
+    second = _resolve_start_session_identity(manifest={}, **common)
+    assert UUID(first.agent_id).version == 4
+    assert first.agent_id != second.agent_id
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.agent_identity.uuid.uuid4",
+        lambda: pytest.fail("must not regenerate a durable agent identity"),
+    )
+    reused = _resolve_start_session_identity(
+        manifest={"identity": {"canonical_agent_name": "alice", "agent_id": first.agent_id}},
+        **common,
+    )
+    assert reused.agent_id == first.agent_id
+
+
+def test_created_brain_missing_identity_is_not_repaired_by_start() -> None:
+    with pytest.raises(SessionManifestError, match="missing required agent_id"):
+        _resolve_start_session_identity(
+            manifest={"identity": {"canonical_agent_name": "alice"}},
+            tool="codex",
+            role_name="researcher",
+            requested_agent_identity=None,
+            requested_agent_id=None,
+            requested_tmux_session_name="test-session",
+        )
+
+
+def test_existing_brain_does_not_generate_replacement_identity() -> None:
+    with pytest.raises(SessionManifestError, match="cannot generate another agent_id"):
+        _resolve_start_session_identity(
+            manifest={"identity": {"canonical_agent_name": "alice", "agent_id": "opaque-old"}},
+            tool="codex",
+            role_name="researcher",
+            requested_agent_identity=None,
+            requested_agent_id=None,
+            requested_agent_id_mode="uuid",
+            requested_tmux_session_name="test-session",
+        )
+
+
 def test_resolve_start_session_identity_rejects_reserved_prefixed_raw_agent_name() -> None:
     with pytest.raises(SessionManifestError, match="raw creation-time name"):
         _resolve_start_session_identity(
@@ -1057,7 +1140,7 @@ def test_tmux_backed_manifest_build_rejects_suffixed_handle_without_explicit_ide
         )
     )
 
-    with pytest.raises(SessionManifestError, match="agent_name, agent_id, and tmux_session_name"):
+    with pytest.raises(SessionManifestError, match="agent_id"):
         build_session_manifest_payload(
             SessionManifestRequest(
                 launch_plan=launch_plan,

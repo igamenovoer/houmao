@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, is_dataclass, dataclass
 from pathlib import Path
 import sqlite3
 import tomllib
@@ -238,7 +238,7 @@ def apply_project_migration(overlay: HoumaoProjectOverlay) -> ProjectMigrationAp
                 skill_names=tuple(preset.skills),
                 setup_path=None,
                 launch_mapping=_legacy_launch_mapping(preset),
-                mailbox_mapping=_normalize_payload_model(preset.mailbox),
+                mailbox_mapping=_normalize_payload_model(preset.mailboxes),
                 extra_mapping=dict(preset.extra),
                 allow_pending_migration=True,
             )
@@ -449,6 +449,8 @@ def _normalize_payload_model(value: object) -> dict[str, Any] | None:
         return payload if isinstance(payload, dict) else None
     if isinstance(value, dict):
         return dict(value)
+    if is_dataclass(value) and not isinstance(value, type):
+        return asdict(value)
     return None
 
 

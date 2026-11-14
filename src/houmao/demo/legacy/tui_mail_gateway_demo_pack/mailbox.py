@@ -80,7 +80,7 @@ def collect_notifier_status(state: DemoState) -> dict[str, Any]:
     """Return the live gateway notifier status payload."""
 
     client = build_gateway_client(state=state)
-    status = client.get_mail_notifier()
+    status = client.get_mail_notifier(channel="offline")
     payload = status.model_dump(mode="json")
     return {"state_source": "http", **payload}
 
@@ -90,7 +90,13 @@ def collect_mailbox_snapshot(state: DemoState) -> dict[str, Any]:
 
     try:
         client = build_gateway_client(state=state)
-        response = client.list_mail(GatewayMailListRequestV1(box="inbox", limit=64))
+        binding = client.mail_status().offline
+        if binding is None:
+            raise ValueError("offline mailbox is not configured")
+        response = client.list_mail(
+            GatewayMailListRequestV1(box="inbox", limit=64, expected_binding_id=binding.binding_id),
+            channel="offline",
+        )
         return {
             "state_source": "gateway",
             "principal_id": response.principal_id,

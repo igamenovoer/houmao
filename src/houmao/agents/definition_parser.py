@@ -17,8 +17,8 @@ from houmao.agents.launch_overrides import (
     parse_tool_launch_metadata,
 )
 from houmao.agents.launch_policy.models import OperatorPromptMode
-from houmao.agents.mailbox_runtime_models import MailboxDeclarativeConfig
-from houmao.agents.mailbox_runtime_support import parse_declarative_mailbox_config
+from houmao.agents.mailbox_runtime_models import MailboxesDeclarativeConfig
+from houmao.agents.mailbox_runtime_support import parse_declarative_mailboxes_config
 from houmao.agents.model_selection import ModelConfig, parse_model_config
 from houmao.agents.realm_controller.gateway_models import BlueprintGatewayDefaults
 from houmao.agents.system_skills import (
@@ -30,7 +30,7 @@ from houmao.agents.system_skills import (
 
 _PRESET_FILE_SUFFIXES: tuple[str, ...] = (".yaml", ".yml")
 _PRESET_TOP_LEVEL_FIELDS: frozenset[str] = frozenset(
-    {"role", "tool", "setup", "skills", "auth", "launch", "mailbox", "extra"}
+    {"role", "tool", "setup", "skills", "auth", "launch", "mailboxes", "extra"}
 )
 
 
@@ -117,7 +117,7 @@ class AgentPreset:
     skills: list[str]
     auth: str | None = None
     launch: PresetLaunchSettings = field(default_factory=PresetLaunchSettings)
-    mailbox: MailboxDeclarativeConfig | None = None
+    mailboxes: MailboxesDeclarativeConfig = field(default_factory=MailboxesDeclarativeConfig)
     extra: dict[str, Any] = field(default_factory=dict)
     gateway_defaults: BlueprintGatewayDefaults | None = None
     default_agent_name_value: str | None = None
@@ -346,7 +346,7 @@ def parse_agent_preset(path: Path) -> AgentPreset:
         joined = ", ".join(unknown_fields)
         raise ValueError(
             f"{resolved_path}: unsupported top-level field(s): {joined}. "
-            "Supported fields: role, tool, setup, skills, auth, launch, mailbox, extra."
+            "Supported fields: role, tool, setup, skills, auth, launch, mailboxes, extra."
         )
 
     preset_name = _preset_name_from_path(resolved_path)
@@ -355,7 +355,7 @@ def parse_agent_preset(path: Path) -> AgentPreset:
     setup = _require_str(payload, "setup", where=str(resolved_path)).strip()
     auth = _optional_non_empty_str(payload.get("auth"), field=f"{resolved_path}:auth")
     launch = _parse_preset_launch(payload.get("launch"), source=str(resolved_path))
-    mailbox = _parse_mailbox(payload.get("mailbox"), source=str(resolved_path))
+    mailboxes = _parse_mailbox(payload.get("mailboxes"), source=str(resolved_path))
     extra = _parse_extra(payload.get("extra"), source=str(resolved_path))
     gateway_defaults = _parse_gateway_defaults(extra=extra, source=str(resolved_path))
 
@@ -368,7 +368,7 @@ def parse_agent_preset(path: Path) -> AgentPreset:
         skills=_require_str_list(payload, "skills", where=str(resolved_path)),
         auth=auth,
         launch=launch,
-        mailbox=mailbox,
+        mailboxes=mailboxes,
         extra=extra,
         gateway_defaults=gateway_defaults,
     )
@@ -589,11 +589,11 @@ def _parse_launch_env_records(raw_value: object, *, source: str) -> dict[str, st
     return env_records
 
 
-def _parse_mailbox(raw_value: object, *, source: str) -> MailboxDeclarativeConfig | None:
+def _parse_mailbox(raw_value: object, *, source: str) -> MailboxesDeclarativeConfig:
     """Parse one optional mailbox block."""
 
     try:
-        return parse_declarative_mailbox_config(raw_value, source=source)
+        return parse_declarative_mailboxes_config(raw_value, source=source)
     except ValueError as exc:
         raise ValueError(str(exc)) from exc
 

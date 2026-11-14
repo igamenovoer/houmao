@@ -34,13 +34,17 @@ def project_mailbox_group() -> None:
 
 
 @project_mailbox_group.command(name="init")
-def init_project_mailbox_command() -> None:
+@click.option("--registry-root", type=click.Path(path_type=Path), default=None)
+def init_project_mailbox_command(registry_root: Path | None) -> None:
     """Bootstrap or validate `mailbox/` under the selected project overlay."""
 
     roots = _ensure_project_mailbox_roots()
     emit(
         _project_mailbox_payload(
-            roots=roots, payload=_call_project_mailbox_action(roots, init_mailbox_root)
+            roots=roots,
+            payload=_call_project_mailbox_action(
+                roots, init_mailbox_root, registry_root=registry_root
+            ),
         )
     )
 
@@ -58,18 +62,15 @@ def status_project_mailbox_command() -> None:
 
 
 @project_mailbox_group.command(name="register")
-@click.option("--address", required=True, help="Full mailbox address.")
-@click.option("--principal-id", required=True, help="Mailbox owner principal id.")
-@click.option(
-    "--mode",
-    type=click.Choice(("safe", "force", "stash")),
-    default="safe",
-    show_default=True,
-    help="Filesystem mailbox registration mode.",
-)
-@overwrite_confirm_option
-def register_project_mailbox_command(address: str, principal_id: str, mode: str, yes: bool) -> None:
-    """Register one mailbox address under `mailbox/` in the selected project overlay."""
+@click.option("--registry-root", type=click.Path(path_type=Path), default=None)
+@click.option("--address", required=True, help="Full offline mailbox address.")
+@click.option("--principal-id", required=True, help="Stable agent_id or human/system principal ID.")
+def register_project_mailbox_command(
+    address: str,
+    principal_id: str,
+    registry_root: Path | None,
+) -> None:
+    """Claim a free address in the selected registry's configured project store."""
 
     roots = _ensure_project_mailbox_roots()
     emit(
@@ -80,21 +81,14 @@ def register_project_mailbox_command(address: str, principal_id: str, mode: str,
                 register_mailbox_at_root,
                 address=address,
                 principal_id=principal_id,
-                mode=mode,
-                confirm_destructive_replace=build_destructive_confirmation_callback(
-                    yes=yes,
-                    non_interactive_message=(
-                        "Mailbox registration would replace existing durable mailbox state. "
-                        "Rerun with `--yes` to confirm overwrite non-interactively or choose "
-                        "a non-destructive registration mode."
-                    ),
-                ),
+                registry_root=registry_root,
             ),
         )
     )
 
 
 @project_mailbox_group.command(name="unregister")
+@click.option("--registry-root", type=click.Path(path_type=Path), default=None)
 @click.option("--address", required=True, help="Full mailbox address.")
 @click.option(
     "--mode",
@@ -103,7 +97,7 @@ def register_project_mailbox_command(address: str, principal_id: str, mode: str,
     show_default=True,
     help="Filesystem mailbox deregistration mode.",
 )
-def unregister_project_mailbox_command(address: str, mode: str) -> None:
+def unregister_project_mailbox_command(address: str, mode: str, registry_root: Path | None) -> None:
     """Deactivate or purge one mailbox address under `mailbox/` in the selected overlay."""
 
     roots = _ensure_project_mailbox_roots()
@@ -115,6 +109,7 @@ def unregister_project_mailbox_command(address: str, mode: str) -> None:
                 unregister_mailbox_at_root,
                 address=address,
                 mode=mode,
+                registry_root=registry_root,
             ),
         )
     )

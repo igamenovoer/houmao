@@ -83,23 +83,19 @@ When `notify_block` or `notify_auth` are present in a canonical envelope, transp
 - **AND THEN** later peek and read flows return the same `notify_auth` value
 
 ### Requirement: Principal-based mailbox addressing
-The system SHALL address mailbox participants by mailbox principal rather than by a transient session handle.
+The system SHALL address participants through durable mailbox principals rather than transient sessions. Each principal SHALL include a stable principal ID and an address appropriate to the selected channel. For Houmao agents, the owner principal ID SHALL be the persisted `agent_id`, not a friendly name, preferred mail address, or provider login.
 
-Each mailbox principal SHALL include:
-- a stable `principal_id`, and
-- an email-like address suitable for the selected transport.
-
-For agent participants, the system SHALL use the canonical `HOUMAO-...` agent identity as the default `principal_id` unless an explicit mailbox binding overrides it.
+Human principals SHALL retain their own stable principal identities. Email participants that have no verified Houmao identity SHALL remain email participants; the system SHALL NOT synthesize an agent ID by hashing an incoming sender address or trusting an unverified sender-supplied ID.
 
 #### Scenario: Agent mailbox uses canonical agent identity
-- **WHEN** an agent participant with canonical identity `HOUMAO-research` is registered for mailbox delivery
-- **THEN** the system addresses that participant using `principal_id=HOUMAO-research`
-- **AND THEN** outbound mailbox messages preserve the participant's configured email-like address separately from any live session manifest path
+- **WHEN** an agent named `HOUMAO-research` registers for mail using its persisted agent ID
+- **THEN** its mailbox owner principal is that agent ID
+- **AND THEN** its name, channel address, and runtime locator remain separate fields
 
 #### Scenario: Human mailbox uses the same principal model
-- **WHEN** a human participant is registered for mailbox delivery
-- **THEN** the system assigns that participant a stable mailbox principal
-- **AND THEN** messages to or from that participant use the same canonical sender and recipient fields as agent participants
+- **WHEN** a human participant is registered for delivery
+- **THEN** the system preserves a stable human mailbox principal
+- **AND THEN** its messages use the shared sender and recipient representation without claiming a Houmao agent identity
 
 ### Requirement: Explicit thread ancestry
 The system SHALL model threading explicitly with `thread_id`, `in_reply_to`, and `references` fields and SHALL NOT rely on subject-line heuristics as the authoritative thread identity.
@@ -348,25 +344,51 @@ The presence of the `scheme`, `shared-token`, `hmac-sha256`, and `jws` enum memb
 - **THEN** the persisted canonical envelope preserves the supplied `notify_auth`
 - **AND THEN** transports and downstream consumers see authentication metadata with no associated notification block
 
-### Requirement: Mailbox protocol version reflects the notify-aware canonical envelope
-The system SHALL set `MAILBOX_PROTOCOL_VERSION` to `3` to reflect the typed `MailboxNotifyBlock` shape, the placement metadata, and the auto-mirror invariant.
+### Requirement: Mail operations select an explicit isolated channel
+Mail operations SHALL select `offline` or `online` and identify the expected binding ID. Offline recipients SHALL resolve only in the selected registry; online recipients SHALL resolve through the online provider. The canonical mail identity SHALL NOT choose transport implicitly. A missing or mismatched channel or binding SHALL fail without fallback, bridging, forwarding, or address translation.
 
-Canonical envelopes that omit both `notify_block` and `notify_auth` SHALL remain valid under protocol version `3` because both fields are optional. Canonical-message validation under protocol version `3` SHALL reject envelopes whose `protocol_version` field does not match the current value.
+#### Scenario: Online-first identity does not redirect offline mail
+- **WHEN** an agent with both bindings sends through `offline`
+- **THEN** its sender address is its offline address and recipients are resolved in its registry
+- **AND THEN** its preferred online address does not redirect that delivery
 
-Stored envelopes that originated under protocol version `1` and lack the new fields SHALL continue to be readable; readers SHALL treat absent `notify_block` and `notify_auth` fields as `None`. Envelopes that advertise `protocol_version=2` SHALL be rejected because the v2 string-shape `notify_block` was unreleased and is no longer accepted.
+#### Scenario: Online recipient has only an offline binding
+- **WHEN** an online send targets a known agent that has only an offline address
+- **THEN** resolution fails explicitly
+- **AND THEN** no offline send is attempted
 
-#### Scenario: Newly composed canonical envelope advertises protocol version 3
+#### Scenario: Cross-channel batch is rejected before side effects
+- **WHEN** one send request mixes offline-scoped and online-scoped recipient references
+- **THEN** validation rejects the whole request before delivery
+
+### Requirement: Replies and lifecycle operations preserve message scope
+Reply, read, mark, move, and archive SHALL validate the message's owner/channel/binding scope. Replies SHALL remain on the originating binding and preserve channel-local ancestry. Changes to canonical mail identity SHALL not retarget existing references or rewrite immutable delivered address snapshots.
+
+#### Scenario: Preferred address changes during an offline conversation
+- **WHEN** an offline participant later attaches online mail and replies to an existing offline message
+- **THEN** the reply stays in offline mail with the offline sender address
+- **AND THEN** the original thread and historical address snapshots remain intact
+
+#### Scenario: Reference belongs to another binding
+- **WHEN** a lifecycle request presents a reference from another agent or replaced account
+- **THEN** it fails before modifying the selected mailbox
+
+### Requirement: Current mailbox format uses version 4
+Houmao-owned canonical envelopes and filesystem roots SHALL use current format `4`. Canonical validation SHALL reject older or mismatched envelope versions without automatic conversion. Optional `notify_block` and `notify_auth` fields SHALL remain optional in current-format envelopes.
+
+#### Scenario: Newly composed canonical envelope advertises protocol version 4
 - **WHEN** the system composes a new canonical mailbox message
-- **THEN** the persisted envelope records `protocol_version=3`
+- **THEN** the persisted envelope records `protocol_version=4`
 - **AND THEN** that value matches `MAILBOX_PROTOCOL_VERSION`
 
-#### Scenario: Existing v1 canonical envelopes without notify fields remain valid
-- **WHEN** a reader loads a canonical envelope authored under protocol version `1` that omits `notify_block` and `notify_auth`
-- **THEN** the reader treats both fields as `None`
-- **AND THEN** the rest of the envelope content is preserved unchanged
+#### Scenario: Current envelope without notify fields remains valid
+- **WHEN** a current-format canonical envelope omits both notify fields
+- **THEN** validation accepts it and treats both fields as absent
+
+#### Scenario: Legacy canonical envelopes are rejected
+- **WHEN** a reader validates an envelope advertising protocol version `1`, `2`, or `3`
+- **THEN** validation fails explicitly instead of converting it to the current format
 
 #### Scenario: Canonical envelopes advertising the wrong protocol version are rejected
-- **WHEN** validation encounters a canonical envelope whose `protocol_version` field does not match `MAILBOX_PROTOCOL_VERSION`
-- **THEN** validation rejects the envelope with an explicit protocol-version error
-- **AND THEN** the system does not silently coerce the version field
-
+- **WHEN** validation encounters an envelope whose `protocol_version` differs from the current value
+- **THEN** it reports an explicit protocol-version error without coercing that value

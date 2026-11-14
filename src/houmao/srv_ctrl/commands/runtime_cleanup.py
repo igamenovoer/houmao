@@ -390,7 +390,9 @@ def cleanup_managed_session_mailbox(
     preserved_actions: list[CleanupAction] = []
     runtime_root = _runtime_root_for_session_path(_cleanup_target_session_action_path(target))
 
-    mailbox = target.payload.launch_plan.mailbox if target.payload is not None else None
+    mailbox = (
+        target.payload.launch_plan.mailboxes.online.binding if target.payload is not None else None
+    )
     if target.payload is not None and (
         mailbox is None or getattr(mailbox, "transport", None) != "stalwart"
     ):
@@ -1755,10 +1757,11 @@ def _preserved_session_credential_refs(
         )
         if removable or envelope.payload is None:
             continue
-        mailbox = envelope.payload.launch_plan.mailbox
-        credential_ref = getattr(mailbox, "credential_ref", None)
-        if isinstance(credential_ref, str) and credential_ref.strip():
-            refs.add(credential_ref)
+        for channel in ("offline", "online"):
+            mailbox = getattr(envelope.payload.launch_plan.mailboxes, channel).binding
+            credential_ref = getattr(mailbox, "credential_ref", None)
+            if isinstance(credential_ref, str) and credential_ref.strip():
+                refs.add(credential_ref)
     return refs
 
 

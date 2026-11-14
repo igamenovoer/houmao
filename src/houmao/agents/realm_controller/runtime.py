@@ -7,6 +7,7 @@ import os
 import shlex
 import signal
 import socket
+import sqlite3
 import subprocess
 import sys
 import time
@@ -54,7 +55,8 @@ from .agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
-    derive_agent_id_from_name,
+    AgentIdentityCreation,
+    AgentIdMode,
     derive_default_canonical_agent_name,
     derive_tmux_session_name,
     is_path_like_agent_identity,
@@ -185,19 +187,20 @@ from .mail_commands import MailPromptRequest
 from houmao.agents.mailbox_runtime_support import (
     bootstrap_resolved_mailbox,
     default_mailbox_address,
-    default_mailbox_principal_id,
     mailbox_bindings_version_now,
-    parse_declarative_mailbox_config,
+    parse_declarative_mailboxes_config,
+    safe_registry_mailboxes_projection,
     refresh_filesystem_mailbox_config,
-    resolve_effective_mailbox_config,
+    resolve_effective_mailboxes_config,
     resolve_live_mailbox_binding,
-    resolved_mailbox_config_from_payload,
+    mailboxes_resolved_config_from_payload,
 )
 from houmao.agents.mailbox_runtime_models import (
     FilesystemMailboxResolvedConfig,
-    MailboxDeclarativeConfig,
+    MailboxesDeclarativeConfig,
+    MailboxesResolvedConfig,
+    RemoteRegistryMailboxResolvedConfig,
     MailboxResolvedConfig,
-    StalwartMailboxResolvedConfig,
 )
 from .manifest import (
     SessionManifestRequest,
@@ -208,6 +211,7 @@ from .manifest import (
     parse_session_manifest_payload,
     runtime_owned_session_root_from_manifest_path,
     write_session_manifest,
+    mutate_session_mailbox_binding,
 )
 from .models import (
     BackendKind,
@@ -227,9 +231,7 @@ from .registry_models import (
     RegistryIdentityV1,
     RegistryLifecycleV1,
     RegistryLivenessV1,
-    RegistryMailboxFilesystemV1,
-    RegistryMailboxStalwartV1,
-    RegistryMailboxV1,
+    RegistryMailboxesV1,
     RegistryRuntimeV1,
     RegistryTerminalV2,
     canonicalize_registry_agent_name,
@@ -243,6 +245,7 @@ from .registry_storage import (
     resolve_live_agent_record_by_agent_id,
     resolve_live_agent_records_by_name,
 )
+from houmao.owned_paths import resolve_registry_root
 from houmao.mailbox import bootstrap_filesystem_mailbox, resolve_filesystem_mailbox_paths
 from houmao.mailbox.managed import (
     DeregisterMailboxRequest,
@@ -319,7 +322,7 @@ class _TmuxLocalDiscoveryUnavailableError(SessionManifestError):
 class FilesystemMailboxBindingMutationResult:
     """Structured result for one late filesystem mailbox mutation."""
 
-    mailbox: FilesystemMailboxResolvedConfig | None
+    mailbox: MailboxResolvedConfig | None
     shared_lifecycle_result: dict[str, object]
     activation_state: MailboxActivationState
 
@@ -468,6 +471,20 @@ class RuntimeSessionController:
         """Send one runtime-owned mailbox prompt and persist updated session state."""
 
         self._reset_operation_warnings()
+        from houmao.mailbox.scope import MailScope
+
+        current = load_session_manifest(self.manifest_path)
+        parsed = parse_session_manifest_payload(current.payload, source=str(current.path))
+        bindings = mailboxes_resolved_config_from_payload(
+            parsed.launch_plan.mailboxes, manifest_path=current.path
+        )
+        binding = bindings.binding_for(prompt_request.channel)
+        if binding is None:
+            raise SessionManifestError("Selected mail channel is absent")
+        MailScope(binding.agent_id, prompt_request.channel, binding.binding_id).require_binding(
+            prompt_request.expected_binding_id
+        )
+        resolve_live_mailbox_binding(durable_mailbox=binding)
         backend_send_mail_prompt = getattr(self.backend_session, "send_mail_prompt", None)
         if callable(backend_send_mail_prompt):
             typed_send_mail_prompt = cast(
@@ -595,7 +612,7 @@ class RuntimeSessionController:
         """Refresh mailbox env bindings for an active session."""
 
         self._reset_operation_warnings()
-        mailbox = self.launch_plan.mailbox
+        mailbox = self.launch_plan.mailboxes.offline.binding
         if mailbox is None:
             raise SessionManifestError("Session does not have mailbox support enabled.")
         if not isinstance(mailbox, FilesystemMailboxResolvedConfig):
@@ -603,6 +620,13 @@ class RuntimeSessionController:
                 f"Mailbox binding refresh is not implemented for transport={mailbox.transport!r}."
             )
 
+        if filesystem_root is not None and filesystem_root.resolve() != mailbox.filesystem_root:
+            raise SessionManifestError(
+                "Offline refresh cannot select another registry store; leave and join explicitly"
+            )
+        from houmao.mailbox.registry_config import verify_selected_registry_store
+
+        verify_selected_registry_store(mailbox.filesystem_root, mailbox.registry_root)
         refreshed = refresh_filesystem_mailbox_config(
             mailbox,
             filesystem_root=filesystem_root,
@@ -622,20 +646,15 @@ class RuntimeSessionController:
             raise SessionManifestError(f"Failed to refresh mailbox bindings: {exc}") from exc
 
         resolve_live_mailbox_binding(durable_mailbox=refreshed)
-        updated_launch_plan = _launch_plan_with_mailbox(self.launch_plan, refreshed)
-        _refresh_mailbox_projection_and_backend_launch_plan(
-            controller=self,
-            previous_launch_plan=self.launch_plan,
-            updated_launch_plan=updated_launch_plan,
-        )
-        self.launch_plan = updated_launch_plan
-        self.persist_manifest()
-        return refreshed
+        self._commit_offline_mailbox_binding(refreshed)
+        committed_binding = self.launch_plan.mailboxes.offline.binding
+        assert committed_binding is not None
+        return committed_binding
 
     def mailbox_activation_state(self) -> MailboxActivationState | None:
         """Return the current local mailbox activation state, when meaningful."""
 
-        mailbox = self.launch_plan.mailbox
+        mailbox = self.launch_plan.mailboxes.offline.binding
         if mailbox is None:
             return None
         try:
@@ -650,21 +669,17 @@ class RuntimeSessionController:
         mailbox_root: Path | None = None,
         principal_id: str | None = None,
         address: str | None = None,
-        mode: Literal["safe", "force", "stash"] = "safe",
-        confirm_destructive_replace: Callable[[str], bool] | None = None,
+        mode: Literal["safe"] = "safe",
     ) -> FilesystemMailboxBindingMutationResult:
         """Attach one filesystem mailbox binding to the current session."""
 
         self._reset_operation_warnings()
 
-        effective_principal_id = _normalize_optional_mailbox_text(
-            principal_id,
-            field_name="principal_id",
-        ) or default_mailbox_principal_id(
-            tool=self.launch_plan.tool,
-            role_name=self.role_name,
-            agent_identity=self.agent_identity,
-        )
+        effective_principal_id = self.agent_id
+        if effective_principal_id is None:
+            raise SessionManifestError("Offline join requires a persisted agent_id")
+        if principal_id is not None and principal_id != effective_principal_id:
+            raise SessionManifestError("Offline owner must equal the persisted agent_id")
         effective_address = _normalize_optional_mailbox_text(
             address,
             field_name="address",
@@ -681,6 +696,18 @@ class RuntimeSessionController:
             explicit_root=mailbox_root,
         )
 
+        from houmao.mailbox.registry_config import verify_selected_registry_store
+
+        verify_selected_registry_store(effective_mailbox_root)
+        previous = self.launch_plan.mailboxes.offline.binding
+        if previous is not None and (
+            not isinstance(previous, FilesystemMailboxResolvedConfig)
+            or previous.address != effective_address
+            or previous.filesystem_root != effective_mailbox_root.resolve()
+        ):
+            raise SessionManifestError(
+                "Offline slot is already configured; leave before selecting another registration"
+            )
         bootstrap_filesystem_mailbox(effective_mailbox_root)
         mailbox_paths = resolve_filesystem_mailbox_paths(effective_mailbox_root)
         shared_result = register_mailbox(
@@ -695,35 +722,91 @@ class RuntimeSessionController:
                 manifest_path_hint=str(self.manifest_path.resolve()),
                 role=self.role_name,
             ),
-            confirm_destructive_replace=confirm_destructive_replace,
         )
 
         updated_mailbox = FilesystemMailboxResolvedConfig(
             transport="filesystem",
+            agent_id=effective_principal_id,
+            binding_id=str(shared_result["active_registration_id"]),
             principal_id=effective_principal_id,
             address=effective_address,
             filesystem_root=effective_mailbox_root.resolve(),
+            registry_root=resolve_registry_root(),
             bindings_version=mailbox_bindings_version_now(),
         )
         try:
             resolve_live_mailbox_binding(durable_mailbox=updated_mailbox)
         except ValueError as exc:
             raise SessionManifestError(str(exc)) from exc
-        updated_launch_plan = _launch_plan_with_mailbox(self.launch_plan, updated_mailbox)
-        _refresh_mailbox_projection_and_backend_launch_plan(
-            controller=self,
-            previous_launch_plan=self.launch_plan,
-            updated_launch_plan=updated_launch_plan,
-        )
-        self.launch_plan = updated_launch_plan
-        self.persist_manifest()
+        try:
+            self._commit_offline_mailbox_binding(updated_mailbox)
+        except Exception as exc:
+            raise SessionManifestError(
+                f"Registry confirmed registration {updated_mailbox.binding_id}; local publication failed. Retry the same join to reconcile."
+            ) from exc
         return FilesystemMailboxBindingMutationResult(
-            mailbox=updated_mailbox,
+            mailbox=self.launch_plan.mailboxes.offline.binding,
             shared_lifecycle_result=shared_result,
             activation_state=_mailbox_mutation_activation_state(
                 controller=self,
                 updated_mailbox=updated_mailbox,
             ),
+        )
+
+    def register_remote_offline_mailbox(
+        self,
+        *,
+        registry_url: str,
+        credential_file: Path,
+        admin_credential_file: Path,
+        address: str,
+    ) -> FilesystemMailboxBindingMutationResult:
+        """Enroll this owner without sharing host paths or restarting the body."""
+
+        from houmao.mailbox.registry import prepare_member_credential
+        from houmao.mailbox.registry_client import OfflineRegistryClient
+        from houmao.mailbox.registry_config import read_private_credential
+
+        if self.agent_id is None:
+            raise SessionManifestError("Offline join requires a persisted agent_id")
+        previous = self.launch_plan.mailboxes.offline.binding
+        if previous is not None and (
+            not isinstance(previous, RemoteRegistryMailboxResolvedConfig)
+            or previous.address != address
+            or previous.registry_url.rstrip("/") != registry_url.rstrip("/")
+        ):
+            raise SessionManifestError(
+                "Offline slot is already configured; leave before selecting another registration"
+            )
+        prepare_member_credential(credential_file)
+        administrator = OfflineRegistryClient.from_url(registry_url, admin_credential_file)
+        member = administrator.enroll(
+            agent_id=self.agent_id,
+            address=address,
+            member_credential=read_private_credential(credential_file),
+            display_name=self.agent_identity,
+        )
+        binding = RemoteRegistryMailboxResolvedConfig(
+            transport="registry",
+            agent_id=self.agent_id,
+            principal_id=self.agent_id,
+            binding_id=member.registration_id,
+            address=member.address,
+            bindings_version=mailbox_bindings_version_now(),
+            registry_url=registry_url,
+            credential_ref=str(credential_file.resolve()),
+            credential_file=credential_file.resolve(),
+        )
+        try:
+            self._commit_offline_mailbox_binding(binding)
+        except Exception as exc:
+            raise SessionManifestError(
+                f"Registry confirmed registration {member.registration_id}; local publication failed. Retry the same join to reconcile."
+            ) from exc
+        return FilesystemMailboxBindingMutationResult(
+            mailbox=self.launch_plan.mailboxes.offline.binding,
+            shared_lifecycle_result=member.model_dump(),
+            activation_state="active",
         )
 
     def unregister_filesystem_mailbox(
@@ -735,26 +818,51 @@ class RuntimeSessionController:
 
         self._reset_operation_warnings()
 
-        mailbox = self.launch_plan.mailbox
+        mailbox = self.launch_plan.mailboxes.offline.binding
         if mailbox is None:
             raise SessionManifestError("Session does not have a filesystem mailbox binding.")
-        if not isinstance(mailbox, FilesystemMailboxResolvedConfig):
-            raise SessionManifestError(
-                f"Late mailbox unregistration is not implemented for transport={mailbox.transport!r}."
-            )
+        if isinstance(mailbox, RemoteRegistryMailboxResolvedConfig):
+            from houmao.mailbox.registry_client import OfflineRegistryClient
 
-        shared_result = deregister_mailbox(
-            mailbox.filesystem_root,
-            DeregisterMailboxRequest(mode=mode, address=mailbox.address),
-        )
-        updated_launch_plan = _launch_plan_without_mailbox(self.launch_plan)
-        _refresh_mailbox_projection_and_backend_launch_plan(
-            controller=self,
-            previous_launch_plan=self.launch_plan,
-            updated_launch_plan=updated_launch_plan,
-        )
-        self.launch_plan = updated_launch_plan
-        self.persist_manifest()
+            if mailbox.credential_file is None:
+                raise SessionManifestError(
+                    "Remote offline release requires a private credential file"
+                )
+            member = OfflineRegistryClient.from_url(
+                mailbox.registry_url, mailbox.credential_file
+            ).release(purge=mode == "purge", expected_registration_id=mailbox.binding_id)
+            shared_result = member.model_dump()
+        elif isinstance(mailbox, FilesystemMailboxResolvedConfig):
+            from houmao.mailbox.registry_config import verify_selected_registry_store
+            from houmao.mailbox.authority_lock import offline_authority_lock
+
+            verify_selected_registry_store(mailbox.filesystem_root, mailbox.registry_root)
+            with offline_authority_lock(mailbox.filesystem_root):
+                with sqlite3.connect(mailbox.filesystem_root / "index.sqlite") as connection:
+                    original = connection.execute(
+                        "SELECT owner_principal_id, address, status FROM mailbox_registrations WHERE registration_id = ?",
+                        (mailbox.binding_id,),
+                    ).fetchone()
+                if original is not None and original[:2] != (self.agent_id, mailbox.address):
+                    raise SessionManifestError("Offline registration belongs to another owner")
+                if original is not None and original[2] == "active":
+                    resolve_live_mailbox_binding(durable_mailbox=mailbox)
+                    shared_result = deregister_mailbox(
+                        mailbox.filesystem_root,
+                        DeregisterMailboxRequest(mode=mode, address=mailbox.address),
+                    )
+                else:
+                    # A confirmed release may have lost its local publication response.
+                    # Retiring this stale slot must never release the next address owner.
+                    shared_result = {
+                        "ok": True,
+                        "address": mailbox.address,
+                        "released_registration_id": mailbox.binding_id,
+                        "action": "already_released",
+                    }
+        else:
+            raise SessionManifestError("Online bindings cannot be released as offline membership")
+        self._commit_offline_mailbox_binding(None)
         return FilesystemMailboxBindingMutationResult(
             mailbox=None,
             shared_lifecycle_result=shared_result,
@@ -763,6 +871,55 @@ class RuntimeSessionController:
                 updated_mailbox=None,
             ),
         )
+
+    def _commit_offline_mailbox_binding(self, binding: MailboxResolvedConfig | None) -> None:
+        """Commit a prepared registration without overwriting the online slot."""
+
+        if self.agent_id is None:
+            raise SessionManifestError("Mail mutation requires persisted agent_id")
+        session_id = _runtime_session_id_from_manifest_path(self.manifest_path)
+        if session_id is None:
+            raise SessionManifestError("Mail mutation requires a runtime-owned session identity")
+        committed = mutate_session_mailbox_binding(
+            self.manifest_path,
+            channel="offline",
+            expected_revision=self.launch_plan.mailboxes.offline.revision,
+            binding=binding,
+            agent_id=self.agent_id,
+            session_id=session_id,
+        )
+        payload = parse_session_manifest_payload(committed.payload, source=str(committed.path))
+        previous = self.launch_plan
+        self.launch_plan = replace(
+            self.launch_plan,
+            mailboxes=mailboxes_resolved_config_from_payload(
+                payload.launch_plan.mailboxes, manifest_path=committed.path
+            ),
+        )
+        revision = self.launch_plan.mailboxes.offline.revision
+        try:
+            _refresh_mailbox_projection_and_backend_launch_plan(
+                controller=self, previous_launch_plan=previous, updated_launch_plan=self.launch_plan
+            )
+        except (OSError, SessionManifestError) as exc:
+            self._record_registry_warning(
+                f"Offline binding committed at revision {revision}; backend projection refresh "
+                "failed; resolve status and reconcile the committed binding",
+                exc,
+            )
+        try:
+            self.refresh_shared_registry_record()
+        except (OSError, SessionManifestError) as exc:
+            reconciliation = (
+                "resolve status or retry join to reconcile"
+                if binding is not None
+                else "resolve status to reconcile the released offline slot"
+            )
+            self._record_registry_warning(
+                f"Offline binding committed at revision {revision}; shared-registry projection "
+                f"refresh failed; {reconciliation}",
+                exc,
+            )
 
     def relaunch(
         self,
@@ -959,12 +1116,16 @@ class RuntimeSessionController:
                 agent_launch_authority=self.agent_launch_authority,
             )
         )
-        payload = _preserve_server_managed_headless_gateway_authority(
-            manifest_path=self.manifest_path,
-            backend=self.launch_plan.backend,
-            payload=payload,
+        committed = write_session_manifest(self.manifest_path, payload)
+        self.launch_plan = replace(
+            self.launch_plan,
+            mailboxes=mailboxes_resolved_config_from_payload(
+                committed.payload["launch_plan"]["mailboxes"], manifest_path=self.manifest_path
+            ),
         )
-        write_session_manifest(self.manifest_path, payload)
+        update_plan = getattr(self.backend_session, "update_launch_plan", None)
+        if callable(update_plan):
+            update_plan(self.launch_plan)
         if refresh_registry:
             try:
                 self.refresh_shared_registry_record()
@@ -1272,7 +1433,9 @@ def start_runtime_session(
     agent_identity: str | None = None,
     agent_name: str | None = None,
     agent_id: str | None = None,
+    agent_id_mode: AgentIdMode | None = None,
     cao_parsing_mode: CaoParsingMode | None = None,
+    mailboxes: MailboxesDeclarativeConfig | None = None,
     mailbox_transport: str | None = None,
     mailbox_root: Path | None = None,
     mailbox_account_dir: Path | None = None,
@@ -1359,6 +1522,7 @@ def start_runtime_session(
     session_id = generate_session_id(prefix=selected_backend)
 
     resolved_runtime_identity: ResolvedRuntimeIdentity | None = None
+    non_tmux_agent_id: str | None = None
     agent_identity_warnings: tuple[str, ...] = ()
     startup_warnings: tuple[str, ...] = ()
     if selected_backend in _TMUX_BACKED_BACKENDS:
@@ -1369,6 +1533,7 @@ def start_runtime_session(
             requested_agent_name=agent_name,
             requested_agent_identity=agent_identity,
             requested_agent_id=agent_id,
+            requested_agent_id_mode=agent_id_mode,
             requested_tmux_session_name=tmux_session_name,
             default_tmux_session_name=default_tmux_session_name,
         )
@@ -1384,11 +1549,26 @@ def start_runtime_session(
                 f"`{existing_record.agent_name}` and is now starting as "
                 f"`{resolved_runtime_identity.agent_name}`",
             )
-    elif agent_identity is not None or agent_name is not None or agent_id is not None:
-        raise SessionManifestError(
-            "start-session --agent-identity/--agent-name/--agent-id are only supported for "
-            f"tmux-backed backends: {sorted(_TMUX_BACKED_BACKENDS)}."
-        )
+    else:
+        if agent_identity is not None:
+            raise SessionManifestError(
+                "start-session --agent-identity requires a tmux-backed backend."
+            )
+        stored_agent_id = _built_manifest_identity(manifest)[1]
+        if stored_agent_id is not None:
+            if agent_id_mode is not None or (
+                agent_id is not None and normalize_managed_agent_id(agent_id) != stored_agent_id
+            ):
+                raise SessionManifestError("An existing-agent brain cannot change its agent_id.")
+            non_tmux_agent_id = stored_agent_id
+        else:
+            non_tmux_agent_id = (
+                AgentIdentityCreation(
+                    agent_name=agent_name, agent_id=agent_id, agent_id_mode=agent_id_mode
+                )
+                .resolve()
+                .agent_id
+            )
 
     _ = jobs_root
     resolved_memory = memory_paths
@@ -1401,45 +1581,52 @@ def start_runtime_session(
             )
         ensure_agent_memory(resolved_memory)
 
-    declared_mailbox = _declared_mailbox_from_manifest(
-        manifest,
-        source=str(brain_manifest_path),
+    declared_mailboxes = mailboxes or _declared_mailbox_from_manifest(
+        manifest, source=str(brain_manifest_path)
+    )
+    manifest_path = default_manifest_path(
+        effective_runtime_root, selected_backend, session_id
+    ).resolve()
+    overrides = {
+        "transport_override": mailbox_transport,
+        "filesystem_root_override": mailbox_root,
+        "filesystem_account_dir_override": mailbox_account_dir,
+        "principal_id_override": mailbox_principal_id,
+        "address_override": mailbox_address,
+        "stalwart_base_url_override": mailbox_stalwart_base_url,
+        "stalwart_jmap_url_override": mailbox_stalwart_jmap_url,
+        "stalwart_management_url_override": mailbox_stalwart_management_url,
+        "stalwart_login_identity_override": mailbox_stalwart_login_identity,
+    }
+    use_online = mailbox_transport == "stalwart" or any(
+        (
+            mailbox_stalwart_base_url,
+            mailbox_stalwart_jmap_url,
+            mailbox_stalwart_management_url,
+            mailbox_stalwart_login_identity,
+        )
     )
     try:
-        resolved_mailbox = resolve_effective_mailbox_config(
-            declared_config=declared_mailbox,
+        resolved_agent_id = (
+            resolved_runtime_identity.agent_id if resolved_runtime_identity else non_tmux_agent_id
+        )
+        if resolved_agent_id is None:
+            raise SessionManifestError("New agent creation did not resolve its required identity")
+        resolved_mailboxes = resolve_effective_mailboxes_config(
+            declared_config=declared_mailboxes,
+            agent_id=resolved_agent_id,
             runtime_root=effective_runtime_root,
             tool=tool,
             role_name=role_package.role_name,
-            agent_identity=(
-                resolved_runtime_identity.canonical_agent_name
-                if resolved_runtime_identity is not None
-                else None
-            ),
-            transport_override=mailbox_transport,
-            filesystem_root_override=mailbox_root,
-            filesystem_account_dir_override=mailbox_account_dir,
-            principal_id_override=mailbox_principal_id,
-            address_override=mailbox_address,
-            stalwart_base_url_override=mailbox_stalwart_base_url,
-            stalwart_jmap_url_override=mailbox_stalwart_jmap_url,
-            stalwart_management_url_override=mailbox_stalwart_management_url,
-            stalwart_login_identity_override=mailbox_stalwart_login_identity,
+            agent_identity=resolved_runtime_identity.canonical_agent_name
+            if resolved_runtime_identity
+            else agent_name,
+            manifest_path_hint=manifest_path,
+            offline_overrides=None if use_online else overrides,
+            online_overrides=overrides if use_online else None,
         )
-    except ValueError as exc:
-        raise SessionManifestError(str(exc)) from exc
-
-    manifest_path = default_manifest_path(effective_runtime_root, selected_backend, session_id)
-    manifest_path = manifest_path.resolve()
-    if resolved_mailbox is not None:
-        try:
-            resolved_mailbox = bootstrap_resolved_mailbox(
-                resolved_mailbox,
-                manifest_path_hint=manifest_path,
-                role_name=role_package.role_name,
-            )
-        except (RuntimeError, ValueError) as exc:
-            raise SessionManifestError(f"Failed to bootstrap mailbox support: {exc}") from exc
+    except (RuntimeError, ValueError) as exc:
+        raise SessionManifestError(f"Failed to prepare mail bindings: {exc}") from exc
 
     launch_plan = build_launch_plan(
         LaunchPlanRequest(
@@ -1447,7 +1634,7 @@ def start_runtime_session(
             role_package=role_package,
             backend=selected_backend,
             working_directory=selected_workdir,
-            mailbox=resolved_mailbox,
+            mailboxes=resolved_mailboxes,
             session_root=manifest_path.parent,
         )
     )
@@ -1519,7 +1706,7 @@ def start_runtime_session(
         ),
         agent_id=resolved_runtime_identity.agent_id
         if resolved_runtime_identity is not None
-        else None,
+        else non_tmux_agent_id,
         tmux_session_name=resolved_tmux_session_name,
         memory_root=resolved_memory.memory_root if resolved_memory is not None else None,
         memo_file=resolved_memory.memo_file if resolved_memory is not None else None,
@@ -1674,6 +1861,8 @@ def _resume_runtime_session_controller(
     )
 
     backend = manifest_payload.backend
+    if backend in _TMUX_BACKED_BACKENDS and manifest_payload.agent_id is None:
+        raise SessionManifestError("Existing agent manifest is missing required agent_id.")
     role_name = manifest_payload.role_name
     brain_manifest_path = Path(manifest_payload.brain_manifest_path).resolve()
     if stopped_revival and not _backend_supports_stopped_session_relaunch(backend):
@@ -1686,7 +1875,7 @@ def _resume_runtime_session_controller(
     if memory is not None:
         ensure_agent_memory(memory)
 
-    resolved_mailbox = _resolved_mailbox_from_manifest_payload(
+    resolved_mailboxes = _resolved_mailbox_from_manifest_payload(
         manifest_payload,
         session_manifest_path=session_manifest_path,
     )
@@ -1695,7 +1884,7 @@ def _resume_runtime_session_controller(
         launch_plan = _build_joined_launch_plan_from_manifest_payload(
             payload=manifest_payload,
             role_package=role_package,
-            mailbox=resolved_mailbox,
+            mailboxes=resolved_mailboxes,
         )
     else:
         brain_manifest = load_brain_manifest(brain_manifest_path)
@@ -1712,7 +1901,7 @@ def _resume_runtime_session_controller(
                 role_package=role_package,
                 backend=backend,
                 working_directory=Path(manifest_payload.working_directory),
-                mailbox=resolved_mailbox,
+                mailboxes=resolved_mailboxes,
                 intent="resume_control",
                 session_root=session_manifest_path.resolve().parent,
             )
@@ -2236,7 +2425,7 @@ def _build_joined_launch_plan_from_manifest_payload(
     *,
     payload: SessionManifestPayloadV4,
     role_package: RolePackage,
-    mailbox: MailboxResolvedConfig | None,
+    mailboxes: MailboxesResolvedConfig,
 ) -> LaunchPlan:
     """Rebuild a join-derived launch plan from the persisted session manifest."""
 
@@ -2275,7 +2464,7 @@ def _build_joined_launch_plan_from_manifest_payload(
             ),
         ),
         metadata=metadata,
-        mailbox=mailbox,
+        mailboxes=mailboxes,
         launch_policy_provenance=None,
     )
 
@@ -2719,10 +2908,12 @@ def _declared_mailbox_from_manifest(
     manifest: dict[str, object],
     *,
     source: str,
-) -> MailboxDeclarativeConfig | None:
+) -> MailboxesDeclarativeConfig:
     try:
-        return parse_declarative_mailbox_config(
-            manifest.get("mailbox"),
+        if "mailbox" in manifest:
+            raise ValueError("Unsupported single mailbox declaration; use mailboxes.offline/online")
+        return parse_declarative_mailboxes_config(
+            manifest.get("mailboxes"),
             source=source,
         )
     except ValueError as exc:
@@ -2768,27 +2959,14 @@ def _resolved_mailbox_from_manifest_payload(
     payload: SessionManifestPayloadV4,
     *,
     session_manifest_path: Path,
-) -> MailboxResolvedConfig | None:
+) -> MailboxesResolvedConfig:
     try:
-        return resolved_mailbox_config_from_payload(
-            payload.launch_plan.mailbox,
+        return mailboxes_resolved_config_from_payload(
+            payload.launch_plan.mailboxes,
             manifest_path=session_manifest_path.resolve(),
         )
     except ValueError as exc:
         raise SessionManifestError(str(exc)) from exc
-
-
-def _launch_plan_with_mailbox(
-    launch_plan: LaunchPlan,
-    mailbox: MailboxResolvedConfig,
-) -> LaunchPlan:
-    return replace(_without_retired_mailbox_metadata(launch_plan), mailbox=mailbox)
-
-
-def _launch_plan_without_mailbox(launch_plan: LaunchPlan) -> LaunchPlan:
-    """Return a launch plan with mailbox bindings removed."""
-
-    return replace(_without_retired_mailbox_metadata(launch_plan), mailbox=None)
 
 
 def _mailbox_mutation_activation_state(
@@ -2963,7 +3141,7 @@ def _build_provider_start_launch_plan_for_relaunch(
             updated_launch_plan = _build_joined_launch_plan_from_manifest_payload(
                 payload=payload,
                 role_package=role_package,
-                mailbox=_resolved_mailbox_from_manifest_payload(
+                mailboxes=_resolved_mailbox_from_manifest_payload(
                     payload,
                     session_manifest_path=controller.manifest_path,
                 ),
@@ -3011,7 +3189,7 @@ def _build_provider_start_launch_plan_for_relaunch(
         if resolved_agent_id is not None:
             resolved_agent_id = normalize_managed_agent_id(resolved_agent_id)
         else:
-            resolved_agent_id = derive_agent_id_from_name(resolved_agent_name)
+            raise SessionManifestError("Existing agent is missing required persisted agent_id.")
         role_package = replace(
             role_package,
             system_prompt=compose_managed_launch_prompt(
@@ -3032,7 +3210,7 @@ def _build_provider_start_launch_plan_for_relaunch(
             role_package=role_package,
             backend=controller.launch_plan.backend,
             working_directory=controller.launch_plan.working_directory,
-            mailbox=controller.launch_plan.mailbox,
+            mailboxes=controller.launch_plan.mailboxes,
             intent="provider_start",
             session_root=controller.manifest_path.parent,
         )
@@ -3128,6 +3306,7 @@ def _resolve_start_session_identity(
     requested_agent_name: str | None = None,
     requested_agent_identity: str | None,
     requested_agent_id: str | None,
+    requested_agent_id_mode: AgentIdMode | None = None,
     requested_tmux_session_name: str | None = None,
     default_tmux_session_name: str | None = None,
 ) -> ResolvedRuntimeIdentity:
@@ -3162,14 +3341,29 @@ def _resolve_start_session_identity(
         canonical_agent_name = _default_canonical_agent_name(tool=tool, role_name=role_name)
         agent_name = canonical_agent_name
 
-    stripped_requested_agent_id = None
-    if requested_agent_id is not None:
-        stripped_requested_agent_id = normalize_managed_agent_id(requested_agent_id)
-
     persisted_agent_id = built_identity[1]
-    agent_id = (
-        stripped_requested_agent_id or persisted_agent_id or derive_agent_id_from_name(agent_name)
-    )
+    if persisted_agent_id is not None:
+        if requested_agent_id_mode is not None:
+            raise SessionManifestError(
+                "An existing-agent brain cannot generate another agent_id. "
+                "Build an identity-free template to create another agent."
+            )
+        if (
+            requested_agent_id is not None
+            and normalize_managed_agent_id(requested_agent_id) != persisted_agent_id
+        ):
+            raise SessionManifestError("An existing-agent brain cannot change its agent_id.")
+        agent_id = persisted_agent_id
+    else:
+        agent_id = (
+            AgentIdentityCreation(
+                agent_name=agent_name,
+                agent_id=requested_agent_id,
+                agent_id_mode=requested_agent_id_mode,
+            )
+            .resolve()
+            .agent_id
+        )
 
     persisted_agent_name = built_identity[0]
     if (
@@ -3237,8 +3431,10 @@ def _built_manifest_identity(manifest: dict[str, object]) -> tuple[str | None, s
     """Read optional persisted identity metadata from a built brain manifest."""
 
     raw_identity = manifest.get("identity")
-    if not isinstance(raw_identity, dict):
+    if raw_identity is None:
         return None, None
+    if not isinstance(raw_identity, dict):
+        raise SessionManifestError("Brain identity must be an object with required agent_id.")
 
     raw_agent_name = raw_identity.get("canonical_agent_name")
     agent_name = None
@@ -3246,9 +3442,9 @@ def _built_manifest_identity(manifest: dict[str, object]) -> tuple[str | None, s
         agent_name = normalize_managed_agent_name(raw_agent_name)
 
     raw_agent_id = raw_identity.get("agent_id")
-    agent_id = None
-    if isinstance(raw_agent_id, str) and raw_agent_id.strip():
-        agent_id = normalize_managed_agent_id(raw_agent_id)
+    if not isinstance(raw_agent_id, str) or not raw_agent_id.strip():
+        raise SessionManifestError("Existing brain identity is missing required agent_id.")
+    agent_id = normalize_managed_agent_id(raw_agent_id)
     return agent_name, agent_id
 
 
@@ -3279,54 +3475,6 @@ def _refresh_backend_launch_plan(
     raise SessionManifestError(
         f"backend={launch_plan.backend!r} does not support mailbox binding refresh."
     )
-
-
-def _preserve_server_managed_headless_gateway_authority(
-    *,
-    manifest_path: Path,
-    backend: str,
-    payload: dict[str, object],
-) -> dict[str, object]:
-    """Preserve server-managed headless pair routing when runtime state omits it."""
-
-    if backend not in {"codex_headless", "claude_headless", "kimi_headless"}:
-        return payload
-
-    raw_gateway_authority = payload.get("gateway_authority")
-    if not isinstance(raw_gateway_authority, dict):
-        return payload
-
-    try:
-        existing_handle = load_session_manifest(manifest_path)
-        existing_payload = parse_session_manifest_payload(
-            existing_handle.payload,
-            source=str(existing_handle.path),
-        )
-    except SessionManifestError:
-        return payload
-
-    existing_gateway_authority = existing_payload.gateway_authority
-    if existing_gateway_authority is None:
-        return payload
-
-    merged_gateway_authority = dict(raw_gateway_authority)
-    for endpoint_name in ("attach", "control"):
-        raw_endpoint = merged_gateway_authority.get(endpoint_name)
-        merged_endpoint = dict(raw_endpoint) if isinstance(raw_endpoint, dict) else {}
-        existing_endpoint = getattr(existing_gateway_authority, endpoint_name).model_dump(
-            mode="json"
-        )
-        for field_name in ("api_base_url", "managed_agent_ref"):
-            if (
-                merged_endpoint.get(field_name) is None
-                and existing_endpoint.get(field_name) is not None
-            ):
-                merged_endpoint[field_name] = existing_endpoint[field_name]
-        merged_gateway_authority[endpoint_name] = merged_endpoint
-
-    updated_payload = dict(payload)
-    updated_payload["gateway_authority"] = merged_gateway_authority
-    return updated_payload
 
 
 def _resolve_manifest_path(value: str, *, base: Path) -> Path:
@@ -3811,7 +3959,8 @@ def _build_shared_registry_record_for_controller(
             ),
         ),
         gateway=_shared_registry_gateway_payload(controller),
-        mailbox=_shared_registry_mailbox_payload(controller),
+        mailboxes=_shared_registry_mailbox_payload(controller),
+        canonical_mail_identity=controller.launch_plan.mailboxes.canonical_mail_identity,
     )
 
 
@@ -3870,7 +4019,8 @@ def _build_stopped_shared_registry_record_for_controller(
         ),
         liveness=None,
         gateway=None,
-        mailbox=_shared_registry_mailbox_payload(controller),
+        mailboxes=_shared_registry_mailbox_payload(controller),
+        canonical_mail_identity=controller.launch_plan.mailboxes.canonical_mail_identity,
     )
 
 
@@ -3892,32 +4042,12 @@ def _shared_registry_runtime_payload(
     )
 
 
-def _shared_registry_mailbox_payload(
-    controller: RuntimeSessionController,
-) -> RegistryMailboxV1 | None:
-    """Build durable mailbox identity metadata for one registry record."""
+def _shared_registry_mailbox_payload(controller: RuntimeSessionController) -> RegistryMailboxesV1:
+    """Publish only the secret-free projection of both channel authorities."""
 
-    mailbox = controller.launch_plan.mailbox
-    if isinstance(mailbox, FilesystemMailboxResolvedConfig):
-        return RegistryMailboxFilesystemV1(
-            transport="filesystem",
-            principal_id=mailbox.principal_id,
-            address=mailbox.address,
-            filesystem_root=str(mailbox.filesystem_root.resolve()),
-            bindings_version=mailbox.bindings_version,
-        )
-    if isinstance(mailbox, StalwartMailboxResolvedConfig):
-        return RegistryMailboxStalwartV1(
-            transport="stalwart",
-            principal_id=mailbox.principal_id,
-            address=mailbox.address,
-            bindings_version=mailbox.bindings_version,
-            jmap_url=mailbox.jmap_url,
-            management_url=mailbox.management_url,
-            login_identity=mailbox.login_identity,
-            credential_ref=mailbox.credential_ref,
-        )
-    return None
+    return RegistryMailboxesV1.model_validate(
+        safe_registry_mailboxes_projection(controller.launch_plan.mailboxes)
+    )
 
 
 def _shared_registry_record_is_relaunchable(

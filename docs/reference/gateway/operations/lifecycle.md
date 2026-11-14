@@ -59,7 +59,7 @@ Explicit target mode:
 ```bash
 houmao-mgr agents single --agent-name writer gateway attach --pair-port 9891
 houmao-mgr agents single --agent-name writer gateway send-keys --pair-port 9891 --sequence "<[Escape]>"
-houmao-mgr agents single --agent-name writer gateway mail-notifier enable --pair-port 9891 --interval-seconds 60
+houmao-mgr agents single --agent-name writer gateway mail-notifier enable --channel offline --pair-port 9891 --interval-seconds 60
 ```
 
 Current-session mode:
@@ -68,7 +68,7 @@ Current-session mode:
 houmao-mgr agents self gateway attach
 houmao-mgr agents self gateway status
 houmao-mgr agents self gateway send-keys --sequence "<[Escape]>"
-houmao-mgr agents self gateway mail-notifier status
+houmao-mgr agents self gateway mail-notifier status --channel offline
 ```
 
 After attach, direct prompt control uses an explicit admission policy:

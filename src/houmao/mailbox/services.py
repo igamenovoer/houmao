@@ -1,4 +1,4 @@
-"""Gateway mailbox adapter protocol and transport implementations."""
+"""Reusable filesystem and online mail backend services."""
 
 from __future__ import annotations
 
@@ -8,21 +8,48 @@ import hashlib
 import mimetypes
 from pathlib import Path
 import sqlite3
-from typing import Mapping, Protocol, Sequence
+from typing import (
+    Callable,
+    Concatenate,
+    Mapping,
+    ParamSpec,
+    Protocol,
+    Sequence,
+    TypeVar,
+    TYPE_CHECKING,
+)
+from functools import wraps
 from uuid import uuid4
 
 from houmao.agents.mailbox_runtime_models import (
     FilesystemMailboxResolvedConfig,
     MailboxResolvedConfig,
+    RemoteRegistryMailboxResolvedConfig,
     StalwartMailboxResolvedConfig,
 )
-from houmao.agents.realm_controller.gateway_models import (
+from houmao.mailbox.models import (
     GatewayMailAttachmentUploadV1,
-    GatewayMailStatusV1,
+    MailChannel,
+    MailboxBackendStatusV1,
     GatewayMailboxAttachmentV1,
     GatewayMailboxMessageV1,
+    MailMutationReceipt,
     GatewayMailboxParticipantV1,
 )
+from houmao.mailbox.scope import MailScope, MailboxScopeError
+from houmao.mailbox.content import CanonicalContent, read_canonical_content
+from houmao.mailbox.pagination import (
+    BackendMailPage,
+    MailboxCursorError,
+    validate_page_size,
+    query_fingerprint,
+    decode_backend_cursor,
+    encode_backend_cursor,
+)
+
+if TYPE_CHECKING:
+    from houmao.mailbox.online_models import OnlineAuthorityContext
+from houmao.mailbox.authority_lock import offline_authority_lock
 from houmao.mailbox.errors import MailboxProtocolError
 from houmao.mailbox.filesystem import resolve_active_mailbox_local_sqlite_path
 from houmao.mailbox.managed import (
@@ -55,35 +82,32 @@ from houmao.mailbox.protocol import (
     serialize_message_document,
     validate_mailbox_address,
 )
-from houmao.mailbox.stalwart import StalwartError, StalwartJmapClient
-
-
-class GatewayMailboxError(RuntimeError):
-    """Raised when a gateway mailbox adapter cannot satisfy a mailbox request."""
-
-
-class GatewayMailboxUnsupportedError(GatewayMailboxError):
-    """Raised when one mailbox operation is unsupported for the active transport."""
+from houmao.mailbox.errors import (
+    GatewayMailboxError as GatewayMailboxError,
+    GatewayMailboxUnsupportedError as GatewayMailboxUnsupportedError,
+)
+from houmao.mailbox.stalwart import StalwartError, StalwartJmapClient, StalwartMutationError
+from houmao.mailbox.errors import GatewayMailboxMutationError
 
 
 class GatewayMailboxAdapter(Protocol):
     """Shared gateway mailbox adapter for one manifest-backed session binding."""
 
-    def status(self) -> GatewayMailStatusV1:
+    def status(self) -> MailboxBackendStatusV1:
         """Return mailbox availability and identity metadata."""
 
-    def list_messages(
+    def list_page(
         self,
         *,
         box: str,
         read_state: str,
         answered_state: str,
         archived: bool | None,
-        limit: int | None,
-        since: str | None,
-        include_body: bool,
-    ) -> list[GatewayMailboxMessageV1]:
-        """Return normalized mailbox messages for one list request."""
+        limit: int = 50,
+        since: str | None = None,
+        cursor: str | None = None,
+    ) -> BackendMailPage:
+        """Return a bounded metadata page with explicit continuation."""
 
     def peek(self, *, message_ref: str, box: str | None) -> GatewayMailboxMessageV1:
         """Return one normalized mailbox message without marking it read."""
@@ -154,7 +178,44 @@ def build_gateway_mailbox_adapter(mailbox: MailboxResolvedConfig) -> GatewayMail
 
     if isinstance(mailbox, FilesystemMailboxResolvedConfig):
         return FilesystemGatewayMailboxAdapter(mailbox)
+    if isinstance(mailbox, RemoteRegistryMailboxResolvedConfig):
+        from houmao.mailbox.registry_backend import RemoteRegistryMailboxAdapter
+
+        return RemoteRegistryMailboxAdapter.from_config(mailbox)
     return StalwartGatewayMailboxAdapter(mailbox)
+
+
+_OperationParams = ParamSpec("_OperationParams")
+_OperationResult = TypeVar("_OperationResult")
+
+
+def _filesystem_operation(
+    function: Callable[
+        Concatenate["FilesystemGatewayMailboxAdapter", _OperationParams], _OperationResult
+    ],
+) -> Callable[Concatenate["FilesystemGatewayMailboxAdapter", _OperationParams], _OperationResult]:
+    """Hold registry ownership stable for an entire filesystem operation."""
+
+    @wraps(function)
+    def guarded(
+        self: FilesystemGatewayMailboxAdapter,
+        /,
+        *args: _OperationParams.args,
+        **kwargs: _OperationParams.kwargs,
+    ) -> _OperationResult:
+        """Reject a released or reassigned registration before reading private state."""
+
+        with offline_authority_lock(self.m_mailbox.filesystem_root):
+            with sqlite3.connect(self.m_mailbox.filesystem_root / "index.sqlite") as connection:
+                row = connection.execute(
+                    "SELECT registration_id, owner_principal_id FROM mailbox_registrations WHERE address = ? AND status = 'active'",
+                    (self.m_mailbox.address,),
+                ).fetchone()
+            if row is None or row != (self.m_mailbox.binding_id, self.m_mailbox.agent_id):
+                raise MailboxScopeError("Offline registration was released or replaced")
+            return function(self, *args, **kwargs)
+
+    return guarded
 
 
 @dataclass
@@ -163,92 +224,135 @@ class FilesystemGatewayMailboxAdapter:
 
     m_mailbox: FilesystemMailboxResolvedConfig
 
-    def status(self) -> GatewayMailStatusV1:
-        return GatewayMailStatusV1(
+    @_filesystem_operation
+    def status(self) -> MailboxBackendStatusV1:
+        return MailboxBackendStatusV1(
             transport="filesystem",
             principal_id=self.m_mailbox.principal_id,
             address=self.m_mailbox.address,
             bindings_version=self.m_mailbox.bindings_version,
         )
 
-    def list_messages(
+    @_filesystem_operation
+    def list_page(
         self,
         *,
         box: str,
         read_state: str,
         answered_state: str,
         archived: bool | None,
-        limit: int | None,
-        since: str | None,
-        include_body: bool,
-    ) -> list[GatewayMailboxMessageV1]:
-        local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
-            self.m_mailbox.filesystem_root,
-            address=self.m_mailbox.address,
-        )
-        normalized_box = _normalize_box_name(box)
-        since_filter = _parse_optional_timestamp(since)
-        try:
-            with sqlite3.connect(local_sqlite_path) as connection:
-                rows = connection.execute(
-                    """
-                    SELECT
-                        message_id,
-                        thread_id,
-                        created_at_utc,
-                        subject,
-                        is_read,
-                        is_answered,
-                        is_archived,
-                        box_name
-                    FROM message_state
-                    WHERE box_name = ?
-                    ORDER BY created_at_utc DESC, message_id DESC
-                    """,
-                    (normalized_box,),
-                ).fetchall()
-        except sqlite3.DatabaseError as exc:
-            raise GatewayMailboxError(
-                f"filesystem mailbox state is unreadable for `{self.m_mailbox.address}`"
-            ) from exc
+        limit: int = 50,
+        since: str | None = None,
+        cursor: str | None = None,
+    ) -> BackendMailPage:
+        """Page authoritative metadata without loading full canonical bodies."""
 
-        messages: list[GatewayMailboxMessageV1] = []
-        for row in rows:
-            created_at_utc = str(row[2])
-            if since_filter is not None and _parse_timestamp(created_at_utc) < since_filter:
-                continue
-            read = bool(row[4])
-            answered = bool(row[5])
-            archived_state = bool(row[6])
-            if read_state == "read" and not read:
-                continue
-            if read_state == "unread" and read:
-                continue
-            if answered_state == "answered" and not answered:
-                continue
-            if answered_state == "unanswered" and answered:
-                continue
-            if archived is not None and archived_state is not archived:
-                continue
+        validate_page_size(limit)
+        box = _normalize_box_name(box)
+        if read_state not in {"any", "read", "unread"} or answered_state not in {
+            "any",
+            "answered",
+            "unanswered",
+        }:
+            raise GatewayMailboxUnsupportedError("unsupported filesystem metadata filter")
+        since_time = _parse_optional_timestamp(since)
+        normalized_since = (
+            since_time.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ") if since_time else None
+        )
+        fingerprint = query_fingerprint(
+            {
+                "box": box,
+                "read_state": read_state,
+                "answered_state": answered_state,
+                "archived": archived,
+                "since": normalized_since,
+                "sort": "created-desc,message-id-desc",
+            }
+        )
+        local_path = resolve_active_mailbox_local_sqlite_path(
+            self.m_mailbox.filesystem_root, address=self.m_mailbox.address
+        )
+        clauses = ["box_name = ?"]
+        parameters: list[object] = [box]
+        if read_state != "any":
+            clauses.append("is_read = ?")
+            parameters.append(int(read_state == "read"))
+        if answered_state != "any":
+            clauses.append("is_answered = ?")
+            parameters.append(int(answered_state == "answered"))
+        if archived is not None:
+            clauses.append("is_archived = ?")
+            parameters.append(int(archived))
+        if normalized_since is not None:
+            clauses.append("created_at_utc > ?")
+            parameters.append(normalized_since)
+        try:
+            with sqlite3.connect(local_path) as connection:
+                connection.execute(
+                    "CREATE TABLE IF NOT EXISTS mail_page_version (singleton INTEGER PRIMARY KEY CHECK(singleton=1), version INTEGER NOT NULL)"
+                )
+                connection.execute("INSERT OR IGNORE INTO mail_page_version VALUES (1, 0)")
+                for operation in ("INSERT", "UPDATE", "DELETE"):
+                    connection.execute(
+                        f"CREATE TRIGGER IF NOT EXISTS mail_page_{operation.lower()} AFTER {operation} ON message_state BEGIN UPDATE mail_page_version SET version=version+1 WHERE singleton=1; END"
+                    )
+                state = str(
+                    connection.execute(
+                        "SELECT version FROM mail_page_version WHERE singleton=1"
+                    ).fetchone()[0]
+                )
+                position = 0
+                if cursor is not None:
+                    prior, position = decode_backend_cursor(
+                        cursor, fingerprint=fingerprint, account=self.m_mailbox.binding_id
+                    )
+                    if prior != state:
+                        raise MailboxCursorError(
+                            "Mailbox changed between pages; start a fresh page", stale=True
+                        )
+                rows = connection.execute(
+                    "SELECT message_id,is_read,is_answered,is_archived,box_name FROM message_state WHERE "
+                    + " AND ".join(clauses)
+                    + " ORDER BY created_at_utc DESC,message_id DESC LIMIT ? OFFSET ?",
+                    (*parameters, limit + 1, position),
+                ).fetchall()
+                connection.commit()
+        except sqlite3.DatabaseError as exc:
+            raise GatewayMailboxError("filesystem mailbox metadata index is unavailable") from exc
+        has_more = len(rows) > limit
+        messages = []
+        for row in rows[:limit]:
             message = self._load_message_by_id(str(row[0]))
             messages.append(
                 self._message_to_model(
                     message=message,
-                    read=read,
-                    answered=answered,
-                    archived=archived_state,
-                    box=str(row[7]),
-                    include_body=include_body,
+                    read=bool(row[1]),
+                    answered=bool(row[2]),
+                    archived=bool(row[3]),
+                    box=str(row[4]),
+                    include_body=False,
                 )
             )
-            if limit is not None and len(messages) >= limit:
-                break
-        return messages
+        continuation = (
+            encode_backend_cursor(
+                fingerprint=fingerprint,
+                state=state,
+                position=position + len(messages),
+                account=self.m_mailbox.binding_id,
+            )
+            if has_more
+            else None
+        )
+        return BackendMailPage(
+            messages=messages, next_cursor=continuation, has_more=has_more, complete=not has_more
+        )
 
+    @_filesystem_operation
     def peek(self, *, message_ref: str, box: str | None) -> GatewayMailboxMessageV1:
         message_id = _require_prefixed_ref(message_ref, prefix="filesystem")
         return self._load_local_message_model(message_id=message_id, box=box, include_body=True)
 
+    @_filesystem_operation
     def read(self, *, message_ref: str, box: str | None) -> GatewayMailboxMessageV1:
         message_id = _require_prefixed_ref(message_ref, prefix="filesystem")
         try:
@@ -264,6 +368,7 @@ class FilesystemGatewayMailboxAdapter:
             raise GatewayMailboxError(str(exc)) from exc
         return self._load_local_message_model(message_id=message_id, box=box, include_body=True)
 
+    @_filesystem_operation
     def send(
         self,
         *,
@@ -308,9 +413,10 @@ class FilesystemGatewayMailboxAdapter:
             answered=bool(state["answered"]),
             archived=bool(state["archived"]),
             box=str(state["box"]),
-            include_body=True,
+            include_body=False,
         )
 
+    @_filesystem_operation
     def post(
         self,
         *,
@@ -362,9 +468,10 @@ class FilesystemGatewayMailboxAdapter:
             answered=bool(state["answered"]),
             archived=bool(state["archived"]),
             box=str(state["box"]),
-            include_body=True,
+            include_body=False,
         )
 
+    @_filesystem_operation
     def reply(
         self,
         *,
@@ -375,6 +482,7 @@ class FilesystemGatewayMailboxAdapter:
         notify_auth: MailboxNotifyAuth | None = None,
     ) -> GatewayMailboxMessageV1:
         parent_message_id = _require_prefixed_ref(message_ref, prefix="filesystem")
+        self._load_local_message_state(message_id=parent_message_id)
         parent_message = self._load_message_by_id(parent_message_id)
         if is_operator_origin_headers(parent_message.headers):
             if operator_origin_reply_policy(parent_message.headers) == HOUMAO_NO_REPLY_POLICY_VALUE:
@@ -427,9 +535,10 @@ class FilesystemGatewayMailboxAdapter:
             answered=bool(state["answered"]),
             archived=bool(state["archived"]),
             box=str(state["box"]),
-            include_body=True,
+            include_body=False,
         )
 
+    @_filesystem_operation
     def mark(
         self,
         *,
@@ -440,9 +549,9 @@ class FilesystemGatewayMailboxAdapter:
     ) -> list[GatewayMailboxMessageV1]:
         if archived is True and read is False:
             raise GatewayMailboxError("archived messages must be read")
+        message_ids = self._owned_message_ids(message_refs)
         messages: list[GatewayMailboxMessageV1] = []
-        for message_ref in message_refs:
-            message_id = _require_prefixed_ref(message_ref, prefix="filesystem")
+        for message_id in message_ids:
             if archived is not None:
                 self._move_local_message(
                     message_id=message_id,
@@ -463,19 +572,20 @@ class FilesystemGatewayMailboxAdapter:
                 except ManagedMailboxOperationError as exc:
                     raise GatewayMailboxError(str(exc)) from exc
             messages.append(
-                self._load_local_message_model(message_id=message_id, box=None, include_body=True)
+                self._load_local_message_model(message_id=message_id, box=None, include_body=False)
             )
         return messages
 
+    @_filesystem_operation
     def move(
         self,
         *,
         message_refs: Sequence[str],
         destination_box: str,
     ) -> list[GatewayMailboxMessageV1]:
+        message_ids = self._owned_message_ids(message_refs)
         messages: list[GatewayMailboxMessageV1] = []
-        for message_ref in message_refs:
-            message_id = _require_prefixed_ref(message_ref, prefix="filesystem")
+        for message_id in message_ids:
             messages.append(
                 self._move_local_message(
                     message_id=message_id,
@@ -485,8 +595,19 @@ class FilesystemGatewayMailboxAdapter:
             )
         return messages
 
+    @_filesystem_operation
     def archive(self, *, message_refs: Sequence[str]) -> list[GatewayMailboxMessageV1]:
         return self.move(message_refs=message_refs, destination_box="archive")
+
+    def _owned_message_ids(self, message_refs: Sequence[str]) -> list[str]:
+        """Check an entire batch's actor-local membership before any mutation."""
+
+        message_ids = [
+            _require_prefixed_ref(reference, prefix="filesystem") for reference in message_refs
+        ]
+        for message_id in message_ids:
+            self._load_local_message_state(message_id=message_id)
+        return message_ids
 
     def _build_delivery_request(
         self,
@@ -662,12 +783,12 @@ class FilesystemGatewayMailboxAdapter:
             statuses = ", ".join(f"`{str(row[0])}`" for row in rows)
             return (
                 f"filesystem mailbox recipient `{address}` is registered with status "
-                f"{statuses}, not `active`. `/v1/mail/send` can deliver only to active "
+                f"{statuses}, not `active`. `/v1/mail/offline/send` can deliver only to active "
                 "mailbox addresses."
             )
         return (
             f"filesystem mailbox recipient `{address}` is not an active registered mailbox "
-            "address. `/v1/mail/send` expects a full mailbox address with an active "
+            "address. `/v1/mail/offline/send` expects a full mailbox address with an active "
             "registration."
         )
 
@@ -706,17 +827,26 @@ class FilesystemGatewayMailboxAdapter:
             return None
         return next(iter(matches))
 
-    def _load_message_by_id(self, message_id: str) -> MailboxMessage:
-        with sqlite3.connect(
-            (self.m_mailbox.filesystem_root / "index.sqlite").resolve()
-        ) as connection:
+    def _canonical_content(self, message_id: str, *, metadata_only: bool) -> CanonicalContent:
+        """Read authorized canonical front matter and bounded content."""
+
+        with sqlite3.connect(self.m_mailbox.filesystem_root / "index.sqlite") as connection:
             row = connection.execute(
-                "SELECT canonical_path FROM messages WHERE message_id = ?",
-                (message_id,),
+                "SELECT canonical_path FROM messages WHERE message_id = ?", (message_id,)
             ).fetchone()
         if row is None:
-            raise GatewayMailboxError(f"filesystem mailbox message `{message_id}` was not found")
-        return self._load_message_document(message_id=message_id, canonical_path=Path(str(row[0])))
+            raise GatewayMailboxError("filesystem mailbox message was not found")
+        try:
+            return read_canonical_content(Path(str(row[0])), metadata_only=metadata_only)
+        except (OSError, MailboxProtocolError) as exc:
+            raise GatewayMailboxUnsupportedError(
+                "Canonical metadata/content is unavailable or exceeds the supported limit"
+            ) from exc
+
+    def _load_message_by_id(self, message_id: str) -> MailboxMessage:
+        """Return metadata without fetching a full message body."""
+
+        return self._canonical_content(message_id, metadata_only=True).message
 
     def _load_local_message_state(self, *, message_id: str) -> dict[str, object]:
         """Return actor-local lifecycle state for one delivered filesystem message."""
@@ -790,14 +920,24 @@ class FilesystemGatewayMailboxAdapter:
             raise GatewayMailboxError(
                 f"filesystem mailbox message `{message_id}` is in `{message_box}`, not `{box}`"
             )
-        message = self._load_message_by_id(message_id)
-        return self._message_to_model(
+        content = self._canonical_content(message_id, metadata_only=not include_body)
+        message = content.message
+        result = self._message_to_model(
             message=message,
             read=bool(row[0]),
             answered=bool(row[1]),
             archived=bool(row[2]),
             box=message_box,
             include_body=include_body,
+        )
+        return result.model_copy(
+            update={
+                "content_complete": content.complete if include_body else None,
+                "content_limit_bytes": content.limit_bytes if include_body else None,
+                "content_limit_reason": "body_exceeds_supported_limit"
+                if include_body and not content.complete
+                else None,
+            }
         )
 
     def _move_local_message(
@@ -927,7 +1067,7 @@ class FilesystemGatewayMailboxAdapter:
                 f"`{message_id}` for `{self.m_mailbox.address}`; run mailbox repair to rebuild "
                 "local state"
             ) from exc
-        return self._load_local_message_model(message_id=message_id, box=None, include_body=True)
+        return self._load_local_message_model(message_id=message_id, box=None, include_body=False)
 
     def _load_message_document(self, *, message_id: str, canonical_path: Path) -> MailboxMessage:
         try:
@@ -984,6 +1124,7 @@ class FilesystemGatewayMailboxAdapter:
             cc=[_participant_from_mailbox_principal(item) for item in message.cc],
             reply_to=[_participant_from_mailbox_principal(item) for item in message.reply_to],
             attachments=[_attachment_from_mailbox_attachment(item) for item in message.attachments],
+            has_attachments=bool(message.attachments),
             notify_block=message.notify_block,
             notify_auth=message.notify_auth,
         )
@@ -994,39 +1135,78 @@ class StalwartGatewayMailboxAdapter:
     """Gateway adapter that exposes the Stalwart-backed mailbox transport."""
 
     m_mailbox: StalwartMailboxResolvedConfig
+    m_client: StalwartJmapClient | None = None
 
-    def status(self) -> GatewayMailStatusV1:
+    def status(self) -> MailboxBackendStatusV1:
         self._client().status()
-        return GatewayMailStatusV1(
+        return MailboxBackendStatusV1(
             transport="stalwart",
             principal_id=self.m_mailbox.principal_id,
             address=self.m_mailbox.address,
             bindings_version=self.m_mailbox.bindings_version,
         )
 
-    def list_messages(
+    def list_page(
         self,
         *,
         box: str,
         read_state: str,
         answered_state: str,
         archived: bool | None,
-        limit: int | None,
-        since: str | None,
-        include_body: bool,
-    ) -> list[GatewayMailboxMessageV1]:
+        limit: int = 50,
+        since: str | None = None,
+        cursor: str | None = None,
+    ) -> BackendMailPage:
+        """Use server-filtered metadata and a provider-state-validated page."""
+
+        from houmao.mailbox.stalwart_models import JmapMetadataQuery
+
+        validate_page_size(limit)
         try:
-            rows = self._client().list_messages(
+            client = self._client()
+            client.validate_binding(sender_address=self.m_mailbox.address)
+            query = JmapMetadataQuery(
                 box=box,
                 read_state=read_state,
                 answered_state=answered_state,
                 archived=archived,
-                limit=limit,
                 since=since,
             )
+            fingerprint = client.query_fingerprint(query)
+            account = self.m_mailbox.account_id or client.primary_account_id()
+            state = None
+            position = 0
+            if cursor is not None:
+                state, position = decode_backend_cursor(
+                    cursor, fingerprint=fingerprint, account=account
+                )
+            page = client.query_metadata_page(
+                query=query, limit=limit, position=position, expected_query_state=state
+            )
         except StalwartError as exc:
-            raise GatewayMailboxError(str(exc)) from exc
-        return [_stalwart_message_to_model(row, include_body=include_body) for row in rows]
+            if getattr(exc, "error_type", "") == "staleCursor":
+                raise MailboxCursorError(
+                    "Provider query changed; start a fresh page", stale=True
+                ) from exc
+            raise _stalwart_backend_error(exc, self.m_mailbox) from exc
+        messages = [stalwart_message_to_model(row, include_body=False) for row in page.messages]
+        continuation = (
+            encode_backend_cursor(
+                fingerprint=fingerprint,
+                state=page.query_state,
+                position=page.next_position,
+                account=account,
+            )
+            if page.has_more and page.next_position is not None
+            else None
+        )
+        return BackendMailPage(
+            messages=messages,
+            next_cursor=continuation,
+            has_more=page.has_more,
+            complete=page.complete,
+            total_count=page.total_count,
+        )
 
     def peek(self, *, message_ref: str, box: str | None) -> GatewayMailboxMessageV1:
         del box
@@ -1035,21 +1215,23 @@ class StalwartGatewayMailboxAdapter:
                 email_id=_require_prefixed_ref(message_ref, prefix="stalwart")
             )
         except StalwartError as exc:
-            raise GatewayMailboxError(str(exc)) from exc
-        return _stalwart_message_to_model(row, include_body=True)
+            raise _stalwart_backend_error(exc, self.m_mailbox) from exc
+        return stalwart_message_to_model(row, include_body=True)
 
     def read(self, *, message_ref: str, box: str | None) -> GatewayMailboxMessageV1:
-        del box
+        """Read selected bounded content before committing its seen flag."""
+
+        message = self.peek(message_ref=message_ref, box=box)
         try:
-            row = self._client().mark(
+            self._client().mark(
                 message_ref=_require_prefixed_ref(message_ref, prefix="stalwart"),
                 read=True,
                 answered=None,
                 archived=None,
             )
         except StalwartError as exc:
-            raise GatewayMailboxError(str(exc)) from exc
-        return _stalwart_message_to_model(row, include_body=True)
+            raise _stalwart_backend_error(exc, self.m_mailbox) from exc
+        return message.model_copy(update={"read": True, "unread": False})
 
     def send(
         self,
@@ -1073,8 +1255,8 @@ class StalwartGatewayMailboxAdapter:
                 attachments=[Path(item.path).resolve() for item in attachments],
             )
         except StalwartError as exc:
-            raise GatewayMailboxError(str(exc)) from exc
-        return _stalwart_message_to_model(row, include_body=True)
+            raise _stalwart_backend_error(exc, self.m_mailbox) from exc
+        return self._mutation_message(row)
 
     def reply(
         self,
@@ -1094,8 +1276,8 @@ class StalwartGatewayMailboxAdapter:
                 attachments=[Path(item.path).resolve() for item in attachments],
             )
         except StalwartError as exc:
-            raise GatewayMailboxError(str(exc)) from exc
-        return _stalwart_message_to_model(row, include_body=True)
+            raise _stalwart_backend_error(exc, self.m_mailbox) from exc
+        return self._mutation_message(row)
 
     def post(
         self,
@@ -1130,8 +1312,8 @@ class StalwartGatewayMailboxAdapter:
                     archived=archived,
                 )
             except StalwartError as exc:
-                raise GatewayMailboxError(str(exc)) from exc
-            messages.append(_stalwart_message_to_model(row, include_body=True))
+                raise _stalwart_backend_error(exc, self.m_mailbox) from exc
+            messages.append(stalwart_message_to_model(row, include_body=False))
         return messages
 
     def move(
@@ -1148,24 +1330,64 @@ class StalwartGatewayMailboxAdapter:
                     destination_box=destination_box,
                 )
             except StalwartError as exc:
-                raise GatewayMailboxError(str(exc)) from exc
-            messages.append(_stalwart_message_to_model(row, include_body=True))
+                raise _stalwart_backend_error(exc, self.m_mailbox) from exc
+            messages.append(stalwart_message_to_model(row, include_body=False))
         return messages
 
     def archive(self, *, message_refs: Sequence[str]) -> list[GatewayMailboxMessageV1]:
         return self.move(message_refs=message_refs, destination_box="archive")
 
     def _client(self) -> StalwartJmapClient:
-        credential_file = self.m_mailbox.credential_file
-        if credential_file is None:
-            raise GatewayMailboxError(
-                "stalwart mailbox binding is missing the session credential file"
+        """Reuse discovery and role state for one immutable connection scope."""
+
+        if self.m_client is None:
+            if self.m_mailbox.credential_file is None:
+                raise GatewayMailboxError("online credential snapshot is unavailable")
+            self.m_client = StalwartJmapClient(
+                jmap_url=self.m_mailbox.jmap_url,
+                login_identity=self.m_mailbox.login_identity,
+                credential_file=self.m_mailbox.credential_file,
+                sender_address=self.m_mailbox.address,
+                account_id=self.m_mailbox.account_id,
+                identity_id=self.m_mailbox.identity_id,
             )
-        return StalwartJmapClient(
-            jmap_url=self.m_mailbox.jmap_url,
-            login_identity=self.m_mailbox.login_identity,
-            credential_file=credential_file,
+        return self.m_client
+
+    def _mutation_message(self, row: dict[str, object]) -> GatewayMailboxMessageV1:
+        """Attach the exact admitted binding to a provider acknowledgement."""
+
+        message = stalwart_message_to_model(row, include_body=False)
+        if message.mutation_receipt is not None:
+            return message.model_copy(
+                update={
+                    "mutation_receipt": message.mutation_receipt.model_copy(
+                        update={
+                            "agent_id": self.m_mailbox.agent_id,
+                            "binding_id": self.m_mailbox.binding_id,
+                            "revision": self.m_mailbox.bindings_version,
+                        }
+                    )
+                }
+            )
+        return message
+
+
+def _stalwart_backend_error(
+    error: StalwartError, binding: StalwartMailboxResolvedConfig
+) -> GatewayMailboxError:
+    """Preserve typed mutation acknowledgement in its admitted account scope."""
+
+    if isinstance(error, StalwartMutationError):
+        return GatewayMailboxMutationError(
+            operation=error.operation,
+            outcome=error.outcome,
+            email_id=error.email_id,
+            submission_id=error.submission_id,
+            agent_id=binding.agent_id,
+            binding_id=binding.binding_id,
+            revision=binding.bindings_version,
         )
+    return GatewayMailboxError(str(error))
 
 
 def _participant_from_mailbox_principal(principal: MailboxPrincipal) -> GatewayMailboxParticipantV1:
@@ -1211,7 +1433,7 @@ def _invalid_recipient_address_detail(*, address: str, hint_address: str | None)
 
     detail = (
         f"filesystem mailbox recipient `{address}` is not a registered mailbox address. "
-        "`/v1/mail/send` expects email-like mailbox addresses such as "
+        "`/v1/mail/offline/send` expects email-like mailbox addresses such as "
         "`daq-mgr@houmao.localhost`, not managed-agent names. Resolve the target "
         "mailbox address first or use the managed-agent mail helper."
     )
@@ -1244,7 +1466,7 @@ def _active_registration_matches_agent_name(
     return local_part == agent_name or owner_principal_id in candidate_principal_ids
 
 
-def _stalwart_message_to_model(
+def stalwart_message_to_model(
     payload: dict[str, object],
     *,
     include_body: bool,
@@ -1257,6 +1479,8 @@ def _stalwart_message_to_model(
     normalized_answered = answered_value if isinstance(answered_value, bool) else None
     archived_value = payload.get("archived")
     normalized_archived = archived_value if isinstance(archived_value, bool) else None
+    content_complete = payload.get("content_complete")
+    content_limit = payload.get("content_limit_bytes")
     return GatewayMailboxMessageV1(
         message_ref=f"stalwart:{_require_string(payload, 'id')}",
         thread_ref=(
@@ -1278,6 +1502,15 @@ def _stalwart_message_to_model(
         cc=_participants_from_address_list(payload.get("cc")),
         reply_to=_participants_from_address_list(payload.get("replyTo")),
         attachments=_attachments_from_stalwart_list(payload.get("attachments")),
+        has_attachments=payload.get("hasAttachment") is True,
+        content_complete=content_complete if isinstance(content_complete, bool) else None,
+        content_limit_bytes=content_limit if isinstance(content_limit, int) else None,
+        content_limit_reason=_optional_string(payload.get("content_limit_reason")),
+        mutation_receipt=(
+            MailMutationReceipt.model_validate(payload["mutation_receipt"])
+            if isinstance(payload.get("mutation_receipt"), dict)
+            else None
+        ),
     )
 
 
@@ -1361,9 +1594,14 @@ def _parse_timestamp(value: str) -> datetime:
     normalized = value.strip()
     if normalized.endswith("Z"):
         normalized = normalized[:-1] + "+00:00"
-    parsed = datetime.fromisoformat(normalized)
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise GatewayMailboxUnsupportedError(
+            "since must be an RFC3339 timestamp with a timezone"
+        ) from exc
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=UTC)
+        raise GatewayMailboxUnsupportedError("since must include an RFC3339 timezone")
     return parsed.astimezone(UTC)
 
 
@@ -1426,3 +1664,260 @@ def _optional_string(value: object) -> str | None:
 def _generate_filesystem_message_id(now: datetime) -> str:
     timestamp = now.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
     return f"msg-{timestamp}-{uuid4().hex}"
+
+
+class ScopedMailboxAdapter:
+    """Validate binding handles before delegating to a single backend."""
+
+    def __init__(self) -> None:
+        """Initialize an unbound service; use ``from_backend``."""
+
+        self.m_backend: GatewayMailboxAdapter
+        self.m_scope: MailScope
+        self.m_identity: MailboxBackendStatusV1 | None = None
+
+    @classmethod
+    def from_backend(
+        cls,
+        backend: GatewayMailboxAdapter,
+        scope: MailScope,
+        *,
+        identity: MailboxBackendStatusV1 | None = None,
+    ) -> ScopedMailboxAdapter:
+        """Wrap one configured backend in its immutable owner scope."""
+
+        instance = cls()
+        instance.m_backend = backend
+        instance.m_scope = scope
+        instance.m_identity = identity
+        return instance
+
+    @property
+    def scope(self) -> MailScope:
+        """Return the immutable targeting scope."""
+
+        return self.m_scope
+
+    def _wrap_message(self, message: GatewayMailboxMessageV1) -> GatewayMailboxMessageV1:
+        """Scope both message and thread handles without changing snapshots."""
+
+        return message.model_copy(
+            update={
+                "message_ref": self.m_scope.encode(message.message_ref),
+                "thread_ref": self.m_scope.encode(message.thread_ref, kind="thread")
+                if message.thread_ref
+                else None,
+            }
+        )
+
+    def status(self) -> MailboxBackendStatusV1:
+        """Run the selected operation with validated scope."""
+
+        return self.m_identity if self.m_identity is not None else self.m_backend.status()
+
+    def list_page(
+        self,
+        *,
+        box: str,
+        read_state: str,
+        answered_state: str,
+        archived: bool | None,
+        limit: int = 50,
+        since: str | None = None,
+        cursor: str | None = None,
+    ) -> BackendMailPage:
+        """Preserve owner/channel/binding scope across every metadata page."""
+
+        raw_cursor = self.m_scope.decode(cursor, kind="cursor") if cursor is not None else None
+        page = self.m_backend.list_page(
+            box=box,
+            read_state=read_state,
+            answered_state=answered_state,
+            archived=archived,
+            limit=limit,
+            since=since,
+            cursor=raw_cursor,
+        )
+        return BackendMailPage(
+            messages=[self._wrap_message(message) for message in page.messages],
+            next_cursor=self.m_scope.encode(page.next_cursor, kind="cursor")
+            if page.next_cursor
+            else None,
+            has_more=page.has_more,
+            complete=page.complete,
+            total_count=page.total_count,
+        )
+
+    def peek(self, *, message_ref: str, box: str | None) -> GatewayMailboxMessageV1:
+        """Run the selected operation with validated scope."""
+
+        return self._wrap_message(
+            self.m_backend.peek(message_ref=self.m_scope.decode(message_ref), box=box)
+        )
+
+    def read(self, *, message_ref: str, box: str | None) -> GatewayMailboxMessageV1:
+        """Run the selected operation with validated scope."""
+
+        return self._wrap_message(
+            self.m_backend.read(message_ref=self.m_scope.decode(message_ref), box=box)
+        )
+
+    def send(
+        self,
+        *,
+        to_addresses: Sequence[str],
+        cc_addresses: Sequence[str],
+        subject: str,
+        body_content: str,
+        attachments: Sequence[GatewayMailAttachmentUploadV1],
+        notify_block: MailboxNotifyBlock | None = None,
+        notify_auth: MailboxNotifyAuth | None = None,
+    ) -> GatewayMailboxMessageV1:
+        """Run the selected operation with validated scope."""
+
+        try:
+            normalized_to = [validate_mailbox_address(address) for address in to_addresses]
+            normalized_cc = [validate_mailbox_address(address) for address in cc_addresses]
+        except MailboxProtocolError as exc:
+            if isinstance(self.m_backend, FilesystemGatewayMailboxAdapter):
+                # Preserve the local address-resolution hint without staging or dispatch.
+                with sqlite3.connect(
+                    self.m_backend.m_mailbox.filesystem_root / "index.sqlite"
+                ) as connection:
+                    for address in (*to_addresses, *cc_addresses):
+                        self.m_backend._managed_principal_for_address(
+                            connection=connection, address=address
+                        )
+            raise GatewayMailboxError(
+                "Recipients must be full mailbox addresses in the selected channel; "
+                "scoped mail handles cannot select another channel."
+            ) from exc
+        return self._wrap_message(
+            self.m_backend.send(
+                to_addresses=normalized_to,
+                cc_addresses=normalized_cc,
+                subject=subject,
+                body_content=body_content,
+                attachments=attachments,
+                notify_block=notify_block,
+                notify_auth=notify_auth,
+            )
+        )
+
+    def reply(
+        self,
+        *,
+        message_ref: str,
+        body_content: str,
+        attachments: Sequence[GatewayMailAttachmentUploadV1],
+        notify_block: MailboxNotifyBlock | None = None,
+        notify_auth: MailboxNotifyAuth | None = None,
+    ) -> GatewayMailboxMessageV1:
+        """Run the selected operation with validated scope."""
+
+        return self._wrap_message(
+            self.m_backend.reply(
+                message_ref=self.m_scope.decode(message_ref),
+                body_content=body_content,
+                attachments=attachments,
+                notify_block=notify_block,
+                notify_auth=notify_auth,
+            )
+        )
+
+    def post(
+        self,
+        *,
+        subject: str,
+        body_content: str,
+        reply_policy: OperatorOriginReplyPolicy,
+        attachments: Sequence[GatewayMailAttachmentUploadV1],
+        notify_block: MailboxNotifyBlock | None = None,
+        notify_auth: MailboxNotifyAuth | None = None,
+    ) -> GatewayMailboxMessageV1:
+        """Run the selected operation with validated scope."""
+
+        return self._wrap_message(
+            self.m_backend.post(
+                subject=subject,
+                body_content=body_content,
+                reply_policy=reply_policy,
+                attachments=attachments,
+                notify_block=notify_block,
+                notify_auth=notify_auth,
+            )
+        )
+
+    def mark(
+        self,
+        *,
+        message_refs: Sequence[str],
+        read: bool | None,
+        answered: bool | None,
+        archived: bool | None,
+    ) -> list[GatewayMailboxMessageV1]:
+        """Run the selected operation with validated scope."""
+
+        return [
+            self._wrap_message(message)
+            for message in self.m_backend.mark(
+                message_refs=[self.m_scope.decode(ref) for ref in message_refs],
+                read=read,
+                answered=answered,
+                archived=archived,
+            )
+        ]
+
+    def move(
+        self,
+        *,
+        message_refs: Sequence[str],
+        destination_box: str,
+    ) -> list[GatewayMailboxMessageV1]:
+        """Run the selected operation with validated scope."""
+
+        return [
+            self._wrap_message(message)
+            for message in self.m_backend.move(
+                message_refs=[self.m_scope.decode(ref) for ref in message_refs],
+                destination_box=destination_box,
+            )
+        ]
+
+    def archive(self, *, message_refs: Sequence[str]) -> list[GatewayMailboxMessageV1]:
+        """Run the selected operation with validated scope."""
+
+        return [
+            self._wrap_message(message)
+            for message in self.m_backend.archive(
+                message_refs=[self.m_scope.decode(ref) for ref in message_refs]
+            )
+        ]
+
+
+def build_scoped_mailbox_adapter(
+    mailbox: MailboxResolvedConfig, *, authority: OnlineAuthorityContext | None = None
+) -> ScopedMailboxAdapter:
+    """Pin operation identity without a second health request after backend effects."""
+
+    channel: MailChannel = "online" if mailbox.transport == "stalwart" else "offline"
+    identity = MailboxBackendStatusV1(
+        transport=mailbox.transport,
+        principal_id=mailbox.principal_id,
+        address=mailbox.address,
+        bindings_version=mailbox.bindings_version,
+    )
+    backend = build_gateway_mailbox_adapter(mailbox)
+    if isinstance(mailbox, StalwartMailboxResolvedConfig) and authority is not None:
+        from houmao.mailbox.online_backend import ManagedOnlineBackend
+
+        backend = ManagedOnlineBackend.from_context(
+            mailbox,
+            authority,
+            backend_factory=lambda config, client: StalwartGatewayMailboxAdapter(config, client),
+        )
+    return ScopedMailboxAdapter.from_backend(
+        backend,
+        MailScope(mailbox.agent_id, channel, mailbox.binding_id),
+        identity=identity,
+    )

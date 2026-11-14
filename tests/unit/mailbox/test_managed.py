@@ -12,6 +12,7 @@ import pytest
 from houmao.mailbox.filesystem import (
     MailboxBootstrapError,
     bootstrap_filesystem_mailbox,
+    FilesystemMailboxPaths,
     initialize_mailbox_local_sqlite_schema,
     load_active_mailbox_registration,
 )
@@ -46,6 +47,20 @@ from houmao.mailbox.protocol import (
 
 _REPO_ROOT = Path(__file__).resolve().parents[2].parent
 _MANAGED_SCRIPT_DIR = _REPO_ROOT / "src" / "houmao" / "mailbox" / "assets" / "rules" / "scripts"
+
+
+def _drop_derived_mail_indexes(paths: FilesystemMailboxPaths) -> None:
+    """Lose rebuildable message indexes while retaining authoritative address ownership."""
+
+    with sqlite3.connect(paths.sqlite_path) as connection:
+        rows = connection.execute("SELECT mailbox_path FROM mailbox_registrations").fetchall()
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("DELETE FROM messages")
+        connection.execute("DELETE FROM thread_summaries")
+        connection.execute("DELETE FROM attachments")
+        connection.commit()
+    for row in rows:
+        (Path(str(row[0])) / "mailbox.sqlite").unlink(missing_ok=True)
 
 
 def _write_canonical_staged_message(
@@ -465,104 +480,50 @@ def test_deliver_message_script_validation_failure_emits_one_json_error_without_
 
 
 def test_register_mailbox_enforces_one_active_registration_per_address(tmp_path: Path) -> None:
-    original = MailboxPrincipal(
-        principal_id="HOUMAO-research",
-        address="HOUMAO-research@agents.localhost",
-    )
-    replacement = RegisterMailboxRequest(
-        mode="force",
-        address=original.address,
-        owner_principal_id="HOUMAO-new-owner",
-        mailbox_kind="in_root",
-        mailbox_path=(tmp_path / "mailbox" / "mailboxes" / original.address).resolve(),
-    )
-    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=original)
+    """A distinct owner cannot replace an active registration, without confirmation takeover."""
 
-    reused = register_mailbox(
+    original = MailboxPrincipal(principal_id="original", address="alice@houmao.localhost")
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=original)
+    first = load_active_mailbox_registration(paths.root, address=original.address)
+    request = RegisterMailboxRequest(
+        mode="safe",
+        address=original.address,
+        owner_principal_id="other",
+        mailbox_kind="in_root",
+        mailbox_path=paths.mailbox_entry_path(original.address),
+    )
+    with pytest.raises(ManagedMailboxOperationError, match="address conflict"):
+        register_mailbox(paths.root, request)
+    current = load_active_mailbox_registration(paths.root, address=original.address)
+    assert current == first
+
+
+def test_explicit_release_preserves_history_before_reassignment(tmp_path: Path) -> None:
+    """A released address receives fresh private state instead of the previous owner's inbox."""
+
+    original = MailboxPrincipal(principal_id="original", address="alice@houmao.localhost")
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=original)
+    first = load_active_mailbox_registration(paths.root, address=original.address)
+    note = first.mailbox_path / "archive" / "keep.md"
+    note.write_text("keep me\n")
+    deregister_mailbox(
+        paths.root, DeregisterMailboxRequest(mode="deactivate", address=original.address)
+    )
+    result = register_mailbox(
         paths.root,
         RegisterMailboxRequest(
             mode="safe",
             address=original.address,
-            owner_principal_id=original.principal_id,
+            owner_principal_id="new",
             mailbox_kind="in_root",
             mailbox_path=paths.mailbox_entry_path(original.address),
         ),
     )
-    assert reused["reused_existing"] is True
-
-    with pytest.raises(ManagedMailboxOperationError, match="already has an active mailbox"):
-        register_mailbox(
-            paths.root,
-            RegisterMailboxRequest(
-                mode="safe",
-                address=original.address,
-                owner_principal_id="HOUMAO-conflict",
-                mailbox_kind="in_root",
-                mailbox_path=paths.mailbox_entry_path(original.address),
-            ),
-        )
-
-    forced = register_mailbox(paths.root, replacement)
-    assert forced["ok"] is True
-    assert forced["replaced_registration_id"]
-
-    active_registration = load_active_mailbox_registration(paths.root, address=original.address)
-    assert active_registration.owner_principal_id == "HOUMAO-new-owner"
-
-    with sqlite3.connect(paths.sqlite_path) as connection:
-        rows = connection.execute(
-            """
-            SELECT owner_principal_id, status
-            FROM mailbox_registrations
-            WHERE address = ?
-            ORDER BY created_at_utc ASC
-            """,
-            (original.address,),
-        ).fetchall()
-
-    assert rows[0] == ("HOUMAO-research", "inactive")
-    assert rows[1] == ("HOUMAO-new-owner", "active")
-
-
-def test_register_mailbox_stash_preserves_previous_mailbox_artifact(tmp_path: Path) -> None:
-    original = MailboxPrincipal(
-        principal_id="HOUMAO-bob",
-        address="HOUMAO-bob@agents.localhost",
-    )
-    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=original)
-    preserved_note = paths.mailbox_entry_path(original.address) / "archive" / "keep.md"
-    preserved_note.write_text("keep me\n", encoding="utf-8")
-
-    result = register_mailbox(
-        paths.root,
-        RegisterMailboxRequest(
-            mode="stash",
-            address=original.address,
-            owner_principal_id="HOUMAO-carol",
-            mailbox_kind="in_root",
-            mailbox_path=paths.mailbox_entry_path(original.address),
-        ),
-    )
-
-    assert result["ok"] is True
-    stashed_path = Path(str(result["stashed_mailbox_path"]))
-    assert stashed_path.is_dir()
-    assert (stashed_path / "archive" / "keep.md").read_text(encoding="utf-8") == "keep me\n"
-    assert paths.mailbox_entry_path(original.address).is_dir()
-
-    with sqlite3.connect(paths.sqlite_path) as connection:
-        rows = connection.execute(
-            """
-            SELECT owner_principal_id, status, mailbox_entry_path
-            FROM mailbox_registrations
-            WHERE address = ?
-            ORDER BY created_at_utc ASC
-            """,
-            (original.address,),
-        ).fetchall()
-
-    assert rows[0] == ("HOUMAO-bob", "stashed", str(stashed_path))
-    assert rows[1] == ("HOUMAO-carol", "active", str(paths.mailbox_entry_path(original.address)))
+    assert result["active_registration_id"] != first.registration_id
+    assert (
+        paths.root / "history" / first.registration_id / "archive" / "keep.md"
+    ).read_text() == "keep me\n"
+    assert not (paths.mailbox_entry_path(original.address) / "archive" / "keep.md").exists()
 
 
 def test_register_mailbox_safe_symlink_reuses_same_target_registration(tmp_path: Path) -> None:
@@ -1883,7 +1844,7 @@ def test_repair_mailbox_index_rebuilds_self_addressed_mail_as_unread(tmp_path: P
     )
     _write_canonical_staged_message(staged_message, request)
     deliver_message(paths.root, request)
-    paths.sqlite_path.unlink()
+    _drop_derived_mail_indexes(paths)
 
     result = repair_mailbox_index(paths.root, RepairRequest.from_payload({}))
 
@@ -2045,7 +2006,7 @@ def test_repair_mailbox_index_rebuilds_address_based_projections_and_state(tmp_p
     recipient_projection.unlink()
     orphaned_staging_file = paths.staging_dir / "orphaned.md"
     orphaned_staging_file.write_text("orphan", encoding="utf-8")
-    paths.sqlite_path.unlink()
+    _drop_derived_mail_indexes(paths)
 
     result = repair_mailbox_index(paths.root, RepairRequest.from_payload({}))
 
@@ -2110,7 +2071,7 @@ def test_repair_mailbox_index_rebuilds_local_state_for_more_than_ten_accounts(
     )
     _write_canonical_staged_message(staged_message, request)
     deliver_message(paths.root, request)
-    paths.sqlite_path.unlink()
+    _drop_derived_mail_indexes(paths)
 
     result = repair_mailbox_index(paths.root, RepairRequest.from_payload({}))
 

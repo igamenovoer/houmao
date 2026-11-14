@@ -139,28 +139,6 @@ If no project overlay is discovered under the selected overlay root, `project ma
 - **THEN** the command applies mailbox registration against `/repo/.houmao/mailbox`
 - **AND THEN** the operator does not need to provide an explicit `--mailbox-root`
 
-### Requirement: `project mailbox register` mirrors the generic mailbox overwrite-confirmation contract
-`houmao-mgr project mailbox register` SHALL apply the same overwrite-confirmation contract as `houmao-mgr mailbox register` after resolving the current project's mailbox root automatically.
-
-The project-scoped register command SHALL accept `--yes`.
-When the requested registration path would replace existing durable mailbox state under the resolved project mailbox root, the command SHALL prompt interactively before destructive replacement unless `--yes` is present.
-When no interactive terminal is available and `--yes` is absent, the command SHALL fail clearly before destructive replacement.
-
-#### Scenario: Project mailbox register prompts before overwrite
-- **WHEN** `/repo/.houmao/` exists
-- **AND WHEN** an operator runs `houmao-mgr project mailbox register --address AGENTSYS-alice@agents.localhost --principal-id AGENTSYS-alice`
-- **AND WHEN** the resolved project mailbox root contains a replaceable conflict for that mailbox address
-- **AND WHEN** an interactive terminal is available
-- **THEN** the command prompts before destructive replacement
-- **AND THEN** any confirmed replacement is applied against `/repo/.houmao/mailbox`
-
-#### Scenario: Project mailbox register accepts yes for non-interactive overwrite
-- **WHEN** `/repo/.houmao/` exists
-- **AND WHEN** an operator runs `houmao-mgr project mailbox register --address AGENTSYS-alice@agents.localhost --principal-id AGENTSYS-alice --yes`
-- **AND WHEN** the resolved project mailbox root contains a replaceable conflict for that mailbox address
-- **THEN** the command applies the overwrite-confirmed registration path without prompting
-- **AND THEN** it applies that change against `/repo/.houmao/mailbox`
-
 ### Requirement: `houmao-mgr project mailbox messages` is structural inspection, not participant-local state reporting
 
 The native `houmao-mgr project mailbox messages list` and `houmao-mgr project mailbox messages get` commands SHALL expose structural inspection over the current project's mailbox root for one explicitly selected mailbox address.
@@ -169,7 +147,7 @@ Those commands MAY return canonical message metadata and address-scoped projecti
 
 Those commands SHALL NOT report participant-local mutable mailbox view-state fields such as `read`, `starred`, `archived`, or `deleted`, even though the command is scoped to one explicit address.
 
-When an operator needs workflow state such as whether a processed message is still actionable unread mail for one agent, the supported surface SHALL be actor-scoped mail commands such as `houmao-mgr agents mail ...` rather than `houmao-mgr project mailbox messages ...`.
+When an operator needs workflow state such as whether a processed message is still actionable unread mail for one agent, the supported surface SHALL be actor-scoped mail commands such as `houmao-mgr agents self mail ...` rather than `houmao-mgr project mailbox messages ...`.
 
 #### Scenario: Project mailbox message list omits participant-local mutable state
 
@@ -188,7 +166,7 @@ When an operator needs workflow state such as whether a processed message is sti
 #### Scenario: Project mailbox verification guidance points operators to actor-scoped mail state
 
 - **WHEN** an operator needs to verify that one managed agent has finished processing mailbox work and no longer has actionable unread mail
-- **THEN** the supported completion boundary is an actor-scoped command such as `houmao-mgr agents mail list --agent-name alice --read-state unread`
+- **THEN** the supported completion boundary is an actor-scoped command such as `houmao-mgr agents single --agent-name alice mail list --channel offline --read-state unread`
 - **AND THEN** `houmao-mgr project mailbox messages list|get` remains a structural inspection surface rather than the source of truth for that completion state
 
 ### Requirement: Project mailbox wording describes the selected overlay mailbox root
@@ -308,3 +286,15 @@ The command SHALL include selected overlay details in the structured result usin
 - **THEN** the help output lists `clear` as an account-scoped project mailbox message operation
 - **AND THEN** the help output keeps `project mailbox clear-messages` as the all-account project mailbox-root reset
 
+### Requirement: Project mailbox registration preserves registry ownership rules
+Project mailbox registration SHALL resolve the selected project root and apply the same owner/address conflict checks as generic administration. Agent claims SHALL use stable IDs. An occupied address SHALL fail without interactive overwrite or `--yes` bypass. A selected root that does not match the configured registry store SHALL fail rather than creating another implicit group.
+
+#### Scenario: Project registration conflicts with an existing owner
+- **WHEN** project-scoped registration targets an address belonging to another agent in the selected registry
+- **THEN** it returns a conflict and preserves the existing mailbox
+- **AND THEN** no confirmation prompt or overwrite flag permits takeover
+
+#### Scenario: Project root belongs to the configured registry
+- **WHEN** the selected overlay mailbox root matches the selected registry's configured store
+- **AND WHEN** the requested address is free or already belongs to the same agent
+- **THEN** registration uses that authority and preserves project-aware root selection

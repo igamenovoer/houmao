@@ -5,6 +5,7 @@ from __future__ import annotations
 from urllib import parse
 import uuid
 
+from houmao.mailbox.models import MailChannel
 from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputRequestV1,
     GatewayControlInputResultV1,
@@ -336,13 +337,15 @@ class PassiveServerClient(HoumaoServerClient):
     def get_managed_agent_gateway_mail_notifier(
         self,
         agent_ref: str,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailNotifierStatusV1:
         """Call passive gateway mail-notifier status for one managed agent."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "GET",
-            f"/houmao/agents/{escaped}/gateway/mail-notifier",
+            f"/houmao/agents/{escaped}/gateway/mail-notifier/{channel}",
             GatewayMailNotifierStatusV1,
         )
 
@@ -350,13 +353,15 @@ class PassiveServerClient(HoumaoServerClient):
         self,
         agent_ref: str,
         request_model: GatewayMailNotifierPutV1,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailNotifierStatusV1:
         """Call passive gateway mail-notifier enable/update for one managed agent."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "PUT",
-            f"/houmao/agents/{escaped}/gateway/mail-notifier",
+            f"/houmao/agents/{escaped}/gateway/mail-notifier/{channel}",
             GatewayMailNotifierStatusV1,
             json_body=request_model.model_dump(mode="json", exclude_unset=True),
         )
@@ -364,13 +369,15 @@ class PassiveServerClient(HoumaoServerClient):
     def delete_managed_agent_gateway_mail_notifier(
         self,
         agent_ref: str,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailNotifierStatusV1:
         """Call passive gateway mail-notifier disable for one managed agent."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "DELETE",
-            f"/houmao/agents/{escaped}/gateway/mail-notifier",
+            f"/houmao/agents/{escaped}/gateway/mail-notifier/{channel}",
             GatewayMailNotifierStatusV1,
         )
 
@@ -466,13 +473,15 @@ class PassiveServerClient(HoumaoServerClient):
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailListRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailListResponse:
         """Call passive mail list for one managed agent."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/mail/list",
+            f"/houmao/agents/{escaped}/mail/{channel}/list",
             HoumaoManagedAgentMailListResponse,
             json_body=request_model.model_dump(mode="json"),
         )
@@ -481,13 +490,15 @@ class PassiveServerClient(HoumaoServerClient):
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailSendRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailActionResponse:
         """Call passive mail send for one managed agent."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/mail/send",
+            f"/houmao/agents/{escaped}/mail/{channel}/send",
             HoumaoManagedAgentMailActionResponse,
             json_body=request_model.model_dump(mode="json"),
         )
@@ -496,13 +507,15 @@ class PassiveServerClient(HoumaoServerClient):
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailPostRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailActionResponse:
         """Call passive mail post for one managed agent."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/mail/post",
+            f"/houmao/agents/{escaped}/mail/{channel}/post",
             HoumaoManagedAgentMailActionResponse,
             json_body=request_model.model_dump(mode="json"),
         )
@@ -511,13 +524,15 @@ class PassiveServerClient(HoumaoServerClient):
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailReplyRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailActionResponse:
         """Call passive mail reply for one managed agent."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/mail/reply",
+            f"/houmao/agents/{escaped}/mail/{channel}/reply",
             HoumaoManagedAgentMailActionResponse,
             json_body=request_model.model_dump(mode="json"),
         )

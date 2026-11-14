@@ -10,6 +10,8 @@ import time
 from typing import Any, Callable, Literal, TypeVar
 
 import click
+
+from houmao.agents.mailbox_runtime_models import MailboxChannel
 from pydantic import ValidationError
 
 from houmao.gateway.plugins import GatewayPluginConfiguration, PluginConfigurationError
@@ -56,6 +58,7 @@ from houmao.agents.realm_controller.session_authority import (
 )
 
 from ..common import (
+    mail_channel_option,
     managed_agent_selector_options,
     pair_port_option,
     resolve_managed_agent_selector,
@@ -683,6 +686,7 @@ def mail_notifier_gateway_group() -> None:
     """Gateway mail-notifier lifecycle and inspection commands."""
 
 
+@mail_channel_option
 @mail_notifier_gateway_group.command(name="status")
 @_current_session_option
 @_target_tmux_session_option
@@ -696,6 +700,7 @@ def status_gateway_mail_notifier_command(
     pair_port: int | None,
     agent_id: str | None,
     agent_name: str | None,
+    channel: MailboxChannel,
 ) -> None:
     """Show gateway mail-notifier status for one managed agent."""
 
@@ -707,9 +712,15 @@ def status_gateway_mail_notifier_command(
         target_tmux_session=target_tmux_session,
         operation_name="mail-notifier status",
     )
-    emit(gateway_mail_notifier_status(target))
+    emit(
+        gateway_mail_notifier_status(
+            target,
+            channel=channel,
+        )
+    )
 
 
+@mail_channel_option
 @mail_notifier_gateway_group.command(name="enable")
 @click.option(
     "--interval-seconds",
@@ -761,6 +772,7 @@ def enable_gateway_mail_notifier_command(
     pair_port: int | None,
     agent_id: str | None,
     agent_name: str | None,
+    channel: MailboxChannel,
 ) -> None:
     """Enable or reconfigure gateway mail-notifier behavior for one managed agent."""
 
@@ -780,10 +792,12 @@ def enable_gateway_mail_notifier_command(
             appendix_text=appendix_text,
             context_error_policy=context_error_policy,
             pre_notification_context_action=pre_notification_context_action,
+            channel=channel,
         )
     )
 
 
+@mail_channel_option
 @mail_notifier_gateway_group.command(name="disable")
 @_current_session_option
 @_target_tmux_session_option
@@ -797,6 +811,7 @@ def disable_gateway_mail_notifier_command(
     pair_port: int | None,
     agent_id: str | None,
     agent_name: str | None,
+    channel: MailboxChannel,
 ) -> None:
     """Disable gateway mail-notifier behavior for one managed agent."""
 
@@ -808,7 +823,12 @@ def disable_gateway_mail_notifier_command(
         target_tmux_session=target_tmux_session,
         operation_name="mail-notifier disable",
     )
-    emit(gateway_mail_notifier_disable(target))
+    emit(
+        gateway_mail_notifier_disable(
+            target,
+            channel=channel,
+        )
+    )
 
 
 @gateway_group.group(name="reminders")

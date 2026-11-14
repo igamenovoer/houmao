@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import json
 import uuid
+import fcntl
+import os
+import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 import hashlib
-from typing import Any
+from typing import Any, Iterator
 
 from pydantic import ValidationError
-
-from houmao.agents.realm_controller.agent_identity import (
-    derive_agent_id_from_name,
-)
 
 from .boundary_models import (
     LaunchPlanPayloadV1,
@@ -25,10 +25,11 @@ from .boundary_models import (
 )
 from .errors import SessionManifestError
 from .models import LaunchPlan, SessionManifestHandle
+from houmao.agents.mailbox_runtime_models import MailboxChannel, MailboxResolvedConfig
 
-LAUNCH_PLAN_SCHEMA = "launch_plan.v1.schema.json"
-SESSION_MANIFEST_SCHEMA = "session_manifest.v4.schema.json"
-SESSION_MANIFEST_SCHEMA_VERSION = 4
+LAUNCH_PLAN_SCHEMA = "launch_plan.v2.schema.json"
+SESSION_MANIFEST_SCHEMA = "session_manifest.v5.schema.json"
+SESSION_MANIFEST_SCHEMA_VERSION = 5
 
 
 @dataclass(frozen=True)
@@ -259,13 +260,121 @@ def write_session_manifest(path: Path, payload: dict[str, Any]) -> SessionManife
         Saved manifest handle.
     """
 
-    validated = _validate_session_manifest_payload(
-        payload,
-        context=f"session_manifest.v4 validation failed for {path}",
-    ).model_dump(mode="json")
+    with _session_manifest_lock(path):
+        proposed = dict(payload)
+        if path.exists():
+            current = load_session_manifest(path).payload
+            _require_same_manifest_owner(current, proposed)
+            launch_plan = dict(proposed["launch_plan"])
+            launch_plan["mailboxes"] = current["launch_plan"]["mailboxes"]
+            proposed["launch_plan"] = launch_plan
+            _preserve_headless_server_authority(current, proposed)
+        return _write_session_manifest_locked(path, proposed)
+
+
+def _preserve_headless_server_authority(current: dict[str, Any], proposed: dict[str, Any]) -> None:
+    """Preserve server-owned endpoint fields while the manifest lock is held."""
+
+    if current.get("backend") not in {"codex_headless", "claude_headless", "kimi_headless"}:
+        return
+    current_authority = current.get("gateway_authority")
+    proposed_authority = proposed.get("gateway_authority")
+    if not isinstance(current_authority, dict) or not isinstance(proposed_authority, dict):
+        return
+    merged_authority = dict(proposed_authority)
+    for name in ("attach", "control"):
+        current_endpoint = current_authority.get(name)
+        proposed_endpoint = proposed_authority.get(name)
+        if not isinstance(current_endpoint, dict) or not isinstance(proposed_endpoint, dict):
+            continue
+        merged_endpoint = dict(proposed_endpoint)
+        for field_name in ("api_base_url", "managed_agent_ref"):
+            merged_endpoint[field_name] = current_endpoint.get(field_name)
+        merged_authority[name] = merged_endpoint
+    proposed["gateway_authority"] = merged_authority
+
+
+class MailboxBindingConflict(SessionManifestError):
+    """A mailbox mutation targets stale slot or session authority."""
+
+
+@contextmanager
+def _session_manifest_lock(path: Path) -> Iterator[None]:
+    """Serialize participating processes without holding a replaceable inode lock."""
+
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(validated, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    lock_path = path.with_name(f".{path.name}.lock")
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def _require_same_manifest_owner(current: dict[str, Any], proposed: dict[str, Any]) -> None:
+    """Prevent an ordinary writer replacing another logical agent's authority."""
+
+    if current.get("agent_id") != proposed.get("agent_id"):
+        raise MailboxBindingConflict("manifest agent_id differs from current authority")
+
+
+def _write_session_manifest_locked(path: Path, payload: dict[str, Any]) -> SessionManifestHandle:
+    """Validate, flush, and atomically replace a snapshot under its held lock."""
+
+    validated = _validate_session_manifest_payload(
+        payload, context=f"session_manifest.v5 validation failed for {path}"
+    ).model_dump(mode="json")
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(json.dumps(validated, indent=2, sort_keys=True) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, path)
+        directory_descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    finally:
+        temporary_path.unlink(missing_ok=True)
     return SessionManifestHandle(path=path, payload=validated)
+
+
+def mutate_session_mailbox_binding(
+    path: Path,
+    *,
+    channel: MailboxChannel,
+    expected_revision: str,
+    binding: MailboxResolvedConfig | None,
+    agent_id: str,
+    session_id: str | None,
+) -> SessionManifestHandle:
+    """Compare and replace one slot, retaining the other and empty-slot revisions.
+
+    Preparation and network work must finish before entering this function. A
+    stale expected revision or session owner fails without modifying the file.
+    """
+
+    from houmao.agents.mailbox_runtime_support import mailboxes_resolved_config_from_payload
+
+    with _session_manifest_lock(path):
+        current = load_session_manifest(path).payload
+        if current.get("agent_id") != agent_id or current["runtime"]["session_id"] != session_id:
+            raise MailboxBindingConflict("mailbox mutation targets a different agent or session")
+        mailboxes = mailboxes_resolved_config_from_payload(
+            current["launch_plan"]["mailboxes"], manifest_path=path
+        )
+        if mailboxes.slot_for(channel).revision != expected_revision:
+            raise MailboxBindingConflict("mailbox slot revision changed; resolve status again")
+        if binding is not None and binding.agent_id != agent_id:
+            raise MailboxBindingConflict("mailbox binding belongs to a different agent")
+        updated = mailboxes.with_binding(channel, binding)
+        current["launch_plan"]["mailboxes"] = updated.redacted_payload()
+        return _write_session_manifest_locked(path, current)
 
 
 def load_session_manifest(path: Path) -> SessionManifestHandle:
@@ -329,10 +438,44 @@ def update_session_manifest(path: Path, updates: dict[str, Any]) -> SessionManif
         Updated manifest handle.
     """
 
-    handle = load_session_manifest(path)
-    payload = dict(handle.payload)
-    payload.update(updates)
-    return write_session_manifest(path, payload)
+    with _session_manifest_lock(path):
+        handle = load_session_manifest(path)
+        payload = dict(handle.payload)
+        payload.update(updates)
+        _require_same_manifest_owner(handle.payload, payload)
+        if "launch_plan" in updates:
+            launch_plan = dict(payload["launch_plan"])
+            launch_plan["mailboxes"] = handle.payload["launch_plan"]["mailboxes"]
+            payload["launch_plan"] = launch_plan
+        return _write_session_manifest_locked(path, payload)
+
+
+def update_session_server_gateway_authority(
+    path: Path,
+    *,
+    agent_id: str,
+    session_id: str | None,
+    api_base_url: str,
+    managed_agent_ref: str,
+) -> SessionManifestHandle:
+    """Merge server-owned routing fields without restoring stale runtime endpoint state."""
+
+    with _session_manifest_lock(path):
+        payload = load_session_manifest(path).payload
+        if payload["agent_id"] != agent_id or payload["runtime"]["session_id"] != session_id:
+            raise MailboxBindingConflict("gateway publication targets a different agent or session")
+        authority = payload.get("gateway_authority")
+        if not isinstance(authority, dict):
+            raise SessionManifestError("gateway publication requires existing runtime authority")
+        for name in ("attach", "control"):
+            endpoint = authority.get(name)
+            if not isinstance(endpoint, dict):
+                raise SessionManifestError(
+                    "gateway publication requires complete endpoint authority"
+                )
+            endpoint["api_base_url"] = api_base_url
+            endpoint["managed_agent_ref"] = managed_agent_ref
+        return _write_session_manifest_locked(path, payload)
 
 
 def _validate_launch_plan_payload(payload: object, *, context: str) -> LaunchPlanPayloadV1:
@@ -387,7 +530,7 @@ def _resolve_manifest_identity(
 
     agent_id = request.agent_id
     if agent_id is None and agent_name is not None:
-        agent_id = derive_agent_id_from_name(agent_name)
+        raise SessionManifestError("Agent manifest is missing required resolved agent_id.")
 
     return agent_name, agent_id, tmux_session_name
 

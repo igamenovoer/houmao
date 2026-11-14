@@ -1,31 +1,9 @@
-# Stalwart Mailbox Resolver Fields
+# Online Mail Resolver Fields
 
-When current prompt or mailbox context does not already provide the exact gateway base URL or current binding set, resolve the current binding set through `houmao-mgr agents self mail resolve-live` before mailbox work.
+Read `mailboxes.online` from `houmao-mgr agents self mail resolve-live`, or the explicitly targeted `agents single` equivalent. The slot contains `revision`, optional `binding`, and safe `availability` information. A configured Stalwart binding contains `agent_id`, `channel=online`, `binding_id`, `address`, and `transport=stalwart`.
 
-For current-session managed use, that manager-owned helper resolves the current agent from the owning tmux session when selectors are omitted, returns the current actionable mailbox payload, and includes a `gateway` object with the exact `base_url`, `host`, `port`, `protocol_version`, and `state_path` for the shared `/v1/mail/*` facade when a valid attached gateway is live.
+The resolver does not expose a password, credential-file path, login secret, or management credential. Gateway and manager execution own provider access. An agent performing ordinary mail work must not open runtime manifests or hunt for provider credentials.
 
-## Common fields
+Use the exact `gateway.base_url` when present, otherwise the maintained manager command with `--channel online --expected-binding-id <binding_id>`. A provider outage keeps the configured canonical online identity and produces an operational error. It never selects offline delivery.
 
-- `transport`
-- `principal_id`
-- `address`
-- `bindings_version`
-
-## Stalwart-specific fields
-
-- `mailbox.stalwart.jmap_url`
-  Meaning: JMAP session endpoint for mailbox operations.
-- `mailbox.stalwart.management_url`
-  Meaning: Stalwart management API base URL for provisioning or account inspection.
-- `mailbox.stalwart.login_identity`
-  Meaning: login identity used for authenticated mailbox access.
-- `mailbox.stalwart.credential_ref`
-  Meaning: secret-free credential reference persisted in the session manifest.
-- `mailbox.stalwart.credential_file`
-  Meaning: session-local credential material used for authenticated mailbox access.
-
-## Usage rules
-
-- When the resolver returns `gateway.base_url`, prefer that shared gateway `/v1/mail/*` facade for ordinary mailbox operations before falling back to direct Stalwart access.
-- When direct Stalwart access is required, use the current `mailbox.stalwart.*` values returned by the resolver rather than trusting stale inherited process env snapshots.
-- Re-resolve the current mailbox bindings before each mailbox action. Do not cache session endpoints or credentials across turns.
+Keep references scoped to this account binding. Refreshing credentials for the same account can retain its binding ID with a new revision; replacing the account requires a different binding ID and invalidates old targeting. Preserve opaque references through read, reply, mark, move, and archive.

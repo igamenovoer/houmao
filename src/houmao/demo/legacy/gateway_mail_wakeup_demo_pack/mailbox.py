@@ -76,7 +76,13 @@ def collect_mailbox_snapshot(state: DemoState) -> dict[str, Any]:
 
     try:
         client = build_gateway_client(state=state)
-        response = client.list_mail(GatewayMailListRequestV1(box="inbox", limit=64))
+        binding = client.mail_status().offline
+        if binding is None:
+            raise ValueError("offline mailbox is not configured")
+        response = client.list_mail(
+            GatewayMailListRequestV1(box="inbox", limit=64, expected_binding_id=binding.binding_id),
+            channel="offline",
+        )
         return {
             "state_source": "gateway",
             "principal_id": response.principal_id,

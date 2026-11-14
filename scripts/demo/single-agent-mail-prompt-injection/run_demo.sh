@@ -203,7 +203,7 @@ cmd_send_benign() {
     "$DEMO_ROOT/inputs/benign_body.md")"
   echo "$body" > "$EVIDENCE_DIR/benign_body.md"
   echo "[send-benign] composed benign body at $EVIDENCE_DIR/benign_body.md"
-  echo "[send-benign] manual: pixi run houmao-mgr agents mail post --agent-name <agent> \\"
+  echo "[send-benign] manual: pixi run houmao-mgr agents single --agent-name <agent> mail post --channel offline \\"
   echo "                --subject 'demo control' --body-file $EVIDENCE_DIR/benign_body.md"
 }
 
@@ -222,7 +222,7 @@ cmd_send_attack() {
     "$DEMO_ROOT/inputs/injection_body.md")"
   echo "$body" > "$EVIDENCE_DIR/injection_body.md"
   echo "[send-attack] composed injection body at $EVIDENCE_DIR/injection_body.md"
-  echo "[send-attack] manual: pixi run houmao-mgr agents mail post --agent-name <agent> \\"
+  echo "[send-attack] manual: pixi run houmao-mgr agents single --agent-name <agent> mail post --channel offline \\"
   echo "                --subject 'demo injection' --body-file $EVIDENCE_DIR/injection_body.md"
   echo "[send-attack] (the body already contains a houmao-notify fence; the"
   echo "               protocol-side extractor will populate notify_block on send.)"

@@ -8,6 +8,8 @@ from typing import cast
 
 import click
 
+from houmao.agents.mailbox_runtime_models import MailboxChannel
+
 from houmao.agents.realm_controller.gateway_models import GatewayMailAttachmentUploadV1
 from houmao.mailbox.protocol import (
     HOUMAO_NO_REPLY_POLICY_VALUE,
@@ -17,7 +19,12 @@ from houmao.mailbox.protocol import (
     OperatorOriginReplyPolicy,
 )
 
-from ..common import managed_agent_selector_options, pair_port_option, resolve_body_text
+from ..common import (
+    mail_binding_options,
+    managed_agent_selector_options,
+    pair_port_option,
+    resolve_body_text,
+)
 from ..output import emit
 from ..managed_agents import (
     mail_archive,
@@ -50,6 +57,7 @@ def status_mail_command(port: int | None, agent_id: str | None, agent_name: str 
     emit(mail_status(target))
 
 
+@mail_binding_options
 @mail_group.command(name="list")
 @click.option("--box", default="inbox", show_default=True, help="Mailbox box/subdirectory to read.")
 @click.option(
@@ -67,9 +75,16 @@ def status_mail_command(port: int | None, agent_id: str | None, agent_name: str 
     help="Answered-state filter.",
 )
 @click.option("--archived/--not-archived", default=None, help="Archived-state filter.")
-@click.option("--limit", default=None, type=int, help="Maximum number of messages to return.")
+@click.option(
+    "--limit",
+    default=50,
+    show_default=True,
+    type=click.IntRange(1, 200),
+    help="Maximum metadata records in this page.",
+)
 @click.option("--since", default=None, help="Optional RFC3339 lower bound.")
-@click.option("--include-body", is_flag=True, help="Include full message body text.")
+@click.option("--cursor", default=None, help="Opaque continuation for this binding and query.")
+@click.option("--include-body", is_flag=True, hidden=True)
 @pair_port_option()
 @managed_agent_selector_options
 def list_mail_command(
@@ -78,14 +93,21 @@ def list_mail_command(
     read_state: str,
     answered_state: str,
     archived: bool | None,
-    limit: int | None,
+    limit: int,
     since: str | None,
     include_body: bool,
+    cursor: str | None,
     agent_id: str | None,
     agent_name: str | None,
+    channel: MailboxChannel,
+    expected_binding_id: str | None,
 ) -> None:
     """List mailbox contents for one managed agent."""
 
+    if include_body:
+        raise click.UsageError(
+            "--include-body was removed; use mail peek/read for selected content"
+        )
     target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
     emit(
         mail_list(
@@ -96,11 +118,14 @@ def list_mail_command(
             archived=archived,
             limit=limit,
             since=since,
-            include_body=include_body,
+            cursor=cursor,
+            channel=channel,
+            expected_binding_id=expected_binding_id,
         )
     )
 
 
+@mail_binding_options
 @mail_group.command(name="peek")
 @click.option("--message-ref", required=True, help="Opaque message reference.")
 @click.option("--box", default=None, help="Require the message to be in this box.")
@@ -112,13 +137,24 @@ def peek_mail_command(
     box: str | None,
     agent_id: str | None,
     agent_name: str | None,
+    channel: MailboxChannel,
+    expected_binding_id: str | None,
 ) -> None:
     """Peek at one mailbox message without marking it read."""
 
     target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit(mail_peek(target, message_ref=message_ref, box=box))
+    emit(
+        mail_peek(
+            target,
+            message_ref=message_ref,
+            box=box,
+            channel=channel,
+            expected_binding_id=expected_binding_id,
+        )
+    )
 
 
+@mail_binding_options
 @mail_group.command(name="read")
 @click.option("--message-ref", required=True, help="Opaque message reference.")
 @click.option("--box", default=None, help="Require the message to be in this box.")
@@ -130,11 +166,21 @@ def read_mail_command(
     box: str | None,
     agent_id: str | None,
     agent_name: str | None,
+    channel: MailboxChannel,
+    expected_binding_id: str | None,
 ) -> None:
     """Read one mailbox message and mark it read."""
 
     target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit(mail_read(target, message_ref=message_ref, box=box))
+    emit(
+        mail_read(
+            target,
+            message_ref=message_ref,
+            box=box,
+            channel=channel,
+            expected_binding_id=expected_binding_id,
+        )
+    )
 
 
 def _build_notify_block(text: str | None, placement: str) -> MailboxNotifyBlock | None:
@@ -148,6 +194,7 @@ def _build_notify_block(text: str | None, placement: str) -> MailboxNotifyBlock 
     )
 
 
+@mail_binding_options
 @mail_group.command(name="send")
 @click.option("--to", "to_recipients", multiple=True, required=True, help="Recipient address.")
 @click.option("--cc", "cc_recipients", multiple=True, help="CC recipient address.")
@@ -190,6 +237,8 @@ def send_mail_command(
     notify_block_placement: str,
     agent_id: str | None,
     agent_name: str | None,
+    channel: MailboxChannel,
+    expected_binding_id: str | None,
 ) -> None:
     """Send one mailbox message for a managed agent."""
 
@@ -203,10 +252,13 @@ def send_mail_command(
             body_content=resolve_body_text(body_content=body_content, body_file=body_file),
             attachments=_resolve_attachment_uploads(attachments),
             notify_block=_build_notify_block(notify_block, notify_block_placement),
+            channel=channel,
+            expected_binding_id=expected_binding_id,
         )
     )
 
 
+@mail_binding_options
 @mail_group.command(name="post")
 @click.option("--subject", required=True, help="Message subject.")
 @click.option("--body-content", default=None, help="Inline body content.")
@@ -256,6 +308,8 @@ def post_mail_command(
     notify_block_placement: str,
     agent_id: str | None,
     agent_name: str | None,
+    channel: MailboxChannel,
+    expected_binding_id: str | None,
 ) -> None:
     """Post one operator-origin mailbox note into a managed agent inbox."""
 
@@ -268,10 +322,13 @@ def post_mail_command(
             reply_policy=cast(OperatorOriginReplyPolicy, reply_policy),
             attachments=_resolve_attachment_uploads(attachments),
             notify_block=_build_notify_block(notify_block, notify_block_placement),
+            channel=channel,
+            expected_binding_id=expected_binding_id,
         )
     )
 
 
+@mail_binding_options
 @mail_group.command(name="reply")
 @click.option(
     "--message-ref",
@@ -291,6 +348,8 @@ def reply_mail_command(
     attachments: tuple[str, ...],
     agent_id: str | None,
     agent_name: str | None,
+    channel: MailboxChannel,
+    expected_binding_id: str | None,
 ) -> None:
     """Reply to one mailbox message for a managed agent."""
 
@@ -301,10 +360,13 @@ def reply_mail_command(
             message_ref=message_ref,
             body_content=resolve_body_text(body_content=body_content, body_file=body_file),
             attachments=_resolve_attachment_uploads(attachments),
+            channel=channel,
+            expected_binding_id=expected_binding_id,
         )
     )
 
 
+@mail_binding_options
 @mail_group.command(name="mark")
 @click.option(
     "--message-ref", "message_refs", multiple=True, required=True, help="Message reference."
@@ -322,6 +384,8 @@ def mark_mail_command(
     archived: bool | None,
     agent_id: str | None,
     agent_name: str | None,
+    channel: MailboxChannel,
+    expected_binding_id: str | None,
 ) -> None:
     """Mark selected mailbox messages for a managed agent."""
 
@@ -338,10 +402,13 @@ def mark_mail_command(
             read=read,
             answered=answered,
             archived=archived,
+            channel=channel,
+            expected_binding_id=expected_binding_id,
         )
     )
 
 
+@mail_binding_options
 @mail_group.command(name="move")
 @click.option(
     "--message-ref", "message_refs", multiple=True, required=True, help="Message reference."
@@ -355,13 +422,24 @@ def move_mail_command(
     destination_box: str,
     agent_id: str | None,
     agent_name: str | None,
+    channel: MailboxChannel,
+    expected_binding_id: str | None,
 ) -> None:
     """Move selected mailbox messages for a managed agent."""
 
     target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit(mail_move(target, message_refs=list(message_refs), destination_box=destination_box))
+    emit(
+        mail_move(
+            target,
+            message_refs=list(message_refs),
+            destination_box=destination_box,
+            channel=channel,
+            expected_binding_id=expected_binding_id,
+        )
+    )
 
 
+@mail_binding_options
 @mail_group.command(name="archive")
 @click.option(
     "--message-ref", "message_refs", multiple=True, required=True, help="Message reference."
@@ -373,11 +451,20 @@ def archive_mail_command(
     message_refs: tuple[str, ...],
     agent_id: str | None,
     agent_name: str | None,
+    channel: MailboxChannel,
+    expected_binding_id: str | None,
 ) -> None:
     """Archive selected mailbox messages for a managed agent."""
 
     target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit(mail_archive(target, message_refs=list(message_refs)))
+    emit(
+        mail_archive(
+            target,
+            message_refs=list(message_refs),
+            channel=channel,
+            expected_binding_id=expected_binding_id,
+        )
+    )
 
 
 @mail_group.command(name="resolve-live")

@@ -31,6 +31,7 @@ from houmao.agents.realm_controller.registry_storage import (
     resolve_live_agent_record,
 )
 from houmao.agents.realm_controller import runtime as runtime_module
+from houmao.mailbox.registry_config import associate_registry_store
 from houmao.agents.realm_controller.runtime import (
     resume_runtime_session,
     resume_stopped_runtime_session,
@@ -812,6 +813,7 @@ def test_refresh_mailbox_bindings_preserves_success_when_registry_refresh_fails(
         lambda **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
     )
 
+    associate_registry_store(registry_root, tmp_path / "mail-old")
     controller = start_runtime_session(
         agent_def_dir=agent_def_dir,
         brain_manifest_path=brain_manifest_path,
@@ -822,7 +824,6 @@ def test_refresh_mailbox_bindings_preserves_success_when_registry_refresh_fails(
         agent_identity="gpu",
         mailbox_transport="filesystem",
         mailbox_root=tmp_path / "mail-old",
-        mailbox_principal_id="HOUMAO-research",
         mailbox_address="HOUMAO-research@agents.localhost",
     )
     monkeypatch.setattr(
@@ -831,12 +832,14 @@ def test_refresh_mailbox_bindings_preserves_success_when_registry_refresh_fails(
         lambda: (_ for _ in ()).throw(SessionManifestError("registry refresh failed")),
     )
 
-    refreshed = controller.refresh_mailbox_bindings(filesystem_root=tmp_path / "mail-new")
+    refreshed = controller.refresh_mailbox_bindings(filesystem_root=tmp_path / "mail-old")
 
-    assert refreshed.filesystem_root == (tmp_path / "mail-new").resolve()
-    assert controller.consume_operation_warnings() == (
-        "Shared-registry refresh failed after manifest persistence: registry refresh failed",
-    )
+    assert refreshed.filesystem_root == (tmp_path / "mail-old").resolve()
+    warnings = controller.consume_operation_warnings()
+    assert len(warnings) == 1
+    assert f"Offline binding committed at revision {refreshed.bindings_version}" in warnings[0]
+    assert "shared-registry projection refresh failed" in warnings[0]
+    assert "reconcile" in warnings[0]
 
 
 def test_attach_and_detach_gateway_refreshes_registry_payload(

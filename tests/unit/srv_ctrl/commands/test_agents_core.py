@@ -10,6 +10,8 @@ from houmao.agents.managed_prompt_header import compose_managed_launch_prompt
 from houmao.agents.mailbox_runtime_models import (
     FilesystemMailboxDeclarativeConfig,
     FilesystemMailboxResolvedConfig,
+    MailboxesResolvedConfig,
+    MailboxSlotConfig,
 )
 from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
 from houmao.agents.realm_controller.gateway_models import GatewayTuiTrackingTimingOverridesV1
@@ -118,7 +120,7 @@ def _install_basic_launch_patches(
                 launch_overrides=None,
                 operator_prompt_mode=None,
                 launch_env_records=None,
-                mailbox=None,
+                mailboxes=None,
                 extra=None,
             ),
             preset_path=source_agent_def_dir / "presets" / "researcher-codex-default.yaml",
@@ -187,7 +189,7 @@ def test_launch_managed_agent_locally_merges_launch_profile_skill_overlays(
                 operator_prompt_mode=None,
                 launch_env_records=None,
                 launch_system_skill_policy=source_system_skill_policy,
-                mailbox=None,
+                mailboxes=None,
                 extra=None,
             ),
             preset_path=source_agent_def_dir / "presets" / "researcher-codex-default.yaml",
@@ -218,6 +220,7 @@ def test_launch_managed_agent_locally_merges_launch_profile_skill_overlays(
         agents="researcher",
         agent_name="repo-research",
         agent_id=None,
+        agent_id_mode="name-hash",
         auth=None,
         session_name=None,
         headless=True,
@@ -302,7 +305,7 @@ def test_launch_managed_agent_locally_passes_complete_kimi_prompt_to_builder(
                 operator_prompt_mode="unattended",
                 launch_env_records=None,
                 launch_system_skill_policy=None,
-                mailbox=None,
+                mailboxes=None,
                 extra=None,
             ),
             preset_path=source_agent_def_dir / "presets" / "researcher-kimi-default.yaml",
@@ -337,6 +340,7 @@ def test_launch_managed_agent_locally_passes_complete_kimi_prompt_to_builder(
         agents="researcher",
         agent_name="repo-research-kimi",
         agent_id=None,
+        agent_id_mode="name-hash",
         auth=None,
         session_name="HOUMAO-repo-research-kimi",
         headless=False,
@@ -414,7 +418,7 @@ def test_launch_managed_agent_locally_forwards_gateway_args_to_runtime(
                 launch_overrides=None,
                 operator_prompt_mode=None,
                 launch_env_records=None,
-                mailbox=None,
+                mailboxes=None,
                 extra=None,
             ),
             preset_path=source_agent_def_dir / "presets" / "researcher-codex-default.yaml",
@@ -457,6 +461,7 @@ def test_launch_managed_agent_locally_forwards_gateway_args_to_runtime(
         agents="researcher",
         agent_name="repo-research-1",
         agent_id=None,
+        agent_id_mode="name-hash",
         auth=None,
         session_name="HOUMAO-repo-research-1",
         headless=True,
@@ -537,7 +542,7 @@ def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
                 launch_overrides=None,
                 operator_prompt_mode="unattended",
                 launch_env_records={"OPENAI_BASE_URL": "https://profile.example/v1"},
-                mailbox=None,
+                mailboxes=None,
                 extra=None,
             ),
             preset_path=source_agent_def_dir / "presets" / "researcher-codex-default.yaml",
@@ -572,6 +577,7 @@ def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
         agents="researcher",
         agent_name="repo-research-1",
         agent_id=None,
+        agent_id_mode="name-hash",
         auth="breakglass",
         session_name="HOUMAO-repo-research-1",
         headless=True,
@@ -581,7 +587,7 @@ def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
         source_agent_def_dir=source_agent_def_dir,
         headless_display_style="plain",
         headless_display_detail="concise",
-        declared_mailbox=FilesystemMailboxDeclarativeConfig(
+        declared_mailboxes=FilesystemMailboxDeclarativeConfig(
             transport="filesystem",
             principal_id="alice",
             address="alice@agents.localhost",
@@ -600,7 +606,7 @@ def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
     build_request = captured["build_request"]
     assert build_request.auth == "breakglass"
     assert build_request.operator_prompt_mode == "as_is"
-    assert build_request.mailbox == FilesystemMailboxDeclarativeConfig(
+    assert build_request.mailboxes == FilesystemMailboxDeclarativeConfig(
         transport="filesystem",
         principal_id="alice",
         address="alice@agents.localhost",
@@ -629,6 +635,7 @@ def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
         "stored_policy": None,
         "agent_name": "repo-research-1",
         "agent_id": "6ee1c825367e868092eda76cb18a96e0",
+        "id_provenance": "name-hash",
         "sections": _expected_default_section_metadata(header_enabled=True),
     }
     assert build_request.houmao_system_prompt_layout["managed_header"] == {
@@ -718,6 +725,7 @@ def test_launch_managed_agent_locally_applies_launch_profile_memo_seed_before_bu
         agents="researcher",
         agent_name="repo-research-1",
         agent_id=None,
+        agent_id_mode="name-hash",
         auth=None,
         session_name="HOUMAO-repo-research-1",
         headless=True,
@@ -814,6 +822,21 @@ def test_launch_managed_agent_locally_seeds_profile_mail_notifier_appendix(
             agent_id=derive_agent_id_from_name("repo-research-1"),
             tmux_session_name="HOUMAO-repo-research-1",
             manifest_path=manifest_path,
+            launch_plan=SimpleNamespace(
+                mailboxes=MailboxesResolvedConfig(
+                    offline=MailboxSlotConfig(
+                        binding=FilesystemMailboxResolvedConfig(
+                            transport="filesystem",
+                            principal_id="agent-seed",
+                            agent_id="agent-seed",
+                            binding_id="binding-seed",
+                            address="seed@houmao.localhost",
+                            filesystem_root=mailbox_root,
+                            bindings_version="seed-revision",
+                        )
+                    ),
+                )
+            ),
         ),
     )
 
@@ -821,6 +844,7 @@ def test_launch_managed_agent_locally_seeds_profile_mail_notifier_appendix(
         agents="researcher",
         agent_name="repo-research-1",
         agent_id=None,
+        agent_id_mode="name-hash",
         auth=None,
         session_name="HOUMAO-repo-research-1",
         headless=True,
@@ -837,7 +861,9 @@ def test_launch_managed_agent_locally_seeds_profile_mail_notifier_appendix(
 
     paths = gateway_paths_from_manifest_path(manifest_path)
     assert paths is not None
-    record = read_gateway_mail_notifier_record(paths.queue_path)
+    record = read_gateway_mail_notifier_record(
+        paths.queue_path, scope_key='["agent-seed","offline","binding-seed"]'
+    )
     assert record.enabled is False
     assert record.appendix_text == "Prefer urgent legal mail before routine updates."
 
@@ -915,6 +941,7 @@ def test_launch_managed_agent_locally_memo_only_seed_preserves_pages(
         agents="researcher",
         agent_name="repo-research-1",
         agent_id=None,
+        agent_id_mode="name-hash",
         auth=None,
         session_name="HOUMAO-repo-research-1",
         headless=True,
@@ -993,7 +1020,7 @@ def test_launch_managed_agent_locally_can_disable_default_managed_header(
                 launch_overrides=None,
                 operator_prompt_mode=None,
                 launch_env_records=None,
-                mailbox=None,
+                mailboxes=None,
                 extra=None,
             ),
             preset_path=source_agent_def_dir / "presets" / "researcher-codex-default.yaml",
@@ -1028,6 +1055,7 @@ def test_launch_managed_agent_locally_can_disable_default_managed_header(
         agents="researcher",
         agent_name=None,
         agent_id=None,
+        agent_id_mode="name-hash",
         auth=None,
         session_name="HOUMAO-codex-researcher",
         headless=True,
@@ -1048,6 +1076,7 @@ def test_launch_managed_agent_locally_can_disable_default_managed_header(
         "stored_policy": None,
         "agent_name": "HOUMAO-codex-researcher",
         "agent_id": derive_agent_id_from_name("HOUMAO-codex-researcher"),
+        "id_provenance": "name-hash",
         "sections": _expected_default_section_metadata(header_enabled=False),
     }
     assert build_request.houmao_system_prompt_layout["managed_header"] == {
@@ -1106,6 +1135,7 @@ def test_launch_managed_agent_locally_fails_before_build_without_force_on_live_o
             agents="researcher",
             agent_name="worker-a",
             agent_id=None,
+            agent_id_mode="name-hash",
             auth=None,
             session_name="worker-a",
             headless=True,
@@ -1175,7 +1205,9 @@ def test_launch_managed_agent_locally_keep_stale_reuses_predecessor_home(
         "houmao.srv_ctrl.commands.agents.core.parse_session_manifest_payload",
         lambda payload, source: SimpleNamespace(
             job_dir=str(job_dir),
-            launch_plan=SimpleNamespace(mailbox=None),
+            launch_plan=SimpleNamespace(
+                mailboxes=SimpleNamespace(offline=SimpleNamespace(binding=None))
+            ),
             brain_manifest_path=str(tmp_path / "brain.yaml"),
         ),
     )
@@ -1225,6 +1257,7 @@ def test_launch_managed_agent_locally_keep_stale_reuses_predecessor_home(
         agents="researcher",
         agent_name="worker-a",
         agent_id=None,
+        agent_id_mode="name-hash",
         auth=None,
         session_name="worker-a",
         headless=True,
@@ -1307,7 +1340,9 @@ def test_launch_managed_agent_locally_reuse_home_rebuilds_stopped_predecessor_ho
         "houmao.srv_ctrl.commands.agents.core.parse_session_manifest_payload",
         lambda payload, source: SimpleNamespace(
             job_dir=str(job_dir),
-            launch_plan=SimpleNamespace(mailbox=None),
+            launch_plan=SimpleNamespace(
+                mailboxes=SimpleNamespace(offline=SimpleNamespace(binding=None))
+            ),
             brain_manifest_path=str(tmp_path / "brain.yaml"),
         ),
     )
@@ -1345,6 +1380,7 @@ def test_launch_managed_agent_locally_reuse_home_rebuilds_stopped_predecessor_ho
         agents="researcher",
         agent_name="worker-a",
         agent_id=None,
+        agent_id_mode="name-hash",
         auth=None,
         session_name=None,
         headless=True,
@@ -1440,7 +1476,9 @@ def test_launch_managed_agent_locally_reuse_home_explicit_session_name_override_
         "houmao.srv_ctrl.commands.agents.core.parse_session_manifest_payload",
         lambda payload, source: SimpleNamespace(
             job_dir=str(job_dir),
-            launch_plan=SimpleNamespace(mailbox=None),
+            launch_plan=SimpleNamespace(
+                mailboxes=SimpleNamespace(offline=SimpleNamespace(binding=None))
+            ),
             brain_manifest_path=str(tmp_path / "brain.yaml"),
         ),
     )
@@ -1478,6 +1516,7 @@ def test_launch_managed_agent_locally_reuse_home_explicit_session_name_override_
         agents="researcher",
         agent_name="worker-a",
         agent_id=None,
+        agent_id_mode="name-hash",
         auth=None,
         session_name="worker-a-debug",
         headless=True,
@@ -1547,6 +1586,7 @@ def test_launch_managed_agent_locally_reuse_home_fails_without_preserved_home(
             agents="researcher",
             agent_name="worker-a",
             agent_id=None,
+            agent_id_mode="name-hash",
             auth=None,
             session_name="worker-a",
             headless=True,
@@ -1618,6 +1658,7 @@ def test_launch_managed_agent_locally_reuse_home_rejects_live_owner_even_with_fo
             agents="researcher",
             agent_name="worker-a",
             agent_id=None,
+            agent_id_mode="name-hash",
             auth=None,
             session_name=None,
             headless=True,
@@ -1677,6 +1718,7 @@ def test_launch_managed_agent_locally_rejects_reuse_home_with_clean_force(
             agents="researcher",
             agent_name="worker-a",
             agent_id=None,
+            agent_id_mode="name-hash",
             auth=None,
             session_name="worker-a",
             headless=True,
@@ -1740,7 +1782,7 @@ def test_launch_managed_agent_locally_reuse_home_projects_current_specialist_inp
                 launch_overrides=None,
                 operator_prompt_mode="unattended",
                 launch_env_records={"PROJECT_CONTEXT": "current"},
-                mailbox=None,
+                mailboxes=None,
                 extra={"theme": "fresh"},
             ),
             preset_path=source_agent_def_dir / "presets" / "researcher-codex-default.yaml",
@@ -1773,7 +1815,9 @@ def test_launch_managed_agent_locally_reuse_home_projects_current_specialist_inp
         "houmao.srv_ctrl.commands.agents.core.parse_session_manifest_payload",
         lambda payload, source: SimpleNamespace(
             job_dir=str(job_dir),
-            launch_plan=SimpleNamespace(mailbox=None),
+            launch_plan=SimpleNamespace(
+                mailboxes=SimpleNamespace(offline=SimpleNamespace(binding=None))
+            ),
             brain_manifest_path=str(tmp_path / "brain.yaml"),
         ),
     )
@@ -1811,6 +1855,7 @@ def test_launch_managed_agent_locally_reuse_home_projects_current_specialist_inp
         agents="researcher",
         agent_name="worker-a",
         agent_id=None,
+        agent_id_mode="name-hash",
         auth=None,
         session_name=None,
         headless=True,
@@ -1893,7 +1938,9 @@ def test_launch_managed_agent_locally_clean_removes_replaceable_predecessor_arti
         "houmao.srv_ctrl.commands.agents.core.parse_session_manifest_payload",
         lambda payload, source: SimpleNamespace(
             job_dir=str(job_dir),
-            launch_plan=SimpleNamespace(mailbox={}),
+            launch_plan=SimpleNamespace(
+                mailboxes=SimpleNamespace(offline=SimpleNamespace(binding={}))
+            ),
             brain_manifest_path=str(tmp_path / "brain.yaml"),
         ),
     )
@@ -1923,6 +1970,8 @@ def test_launch_managed_agent_locally_clean_removes_replaceable_predecessor_arti
         lambda payload, manifest_path=None: FilesystemMailboxResolvedConfig(
             transport="filesystem",
             principal_id="worker-a",
+            agent_id="worker-a",
+            binding_id="worker-binding",
             address="worker-a@agents.localhost",
             filesystem_root=mailbox_root,
             bindings_version="2026-04-08T00:00:00Z",
@@ -1951,6 +2000,7 @@ def test_launch_managed_agent_locally_clean_removes_replaceable_predecessor_arti
         agents="researcher",
         agent_name="worker-a",
         agent_id=None,
+        agent_id_mode="name-hash",
         auth=None,
         session_name="worker-a",
         headless=True,
@@ -2022,6 +2072,7 @@ def test_launch_managed_agent_locally_force_does_not_target_unrelated_tmux_colli
             agents="researcher",
             agent_name="worker-b",
             agent_id=None,
+            agent_id_mode="name-hash",
             auth=None,
             session_name="worker-b",
             headless=True,
@@ -2089,7 +2140,9 @@ def test_launch_managed_agent_locally_reports_post_takeover_build_failure(
         "houmao.srv_ctrl.commands.agents.core.parse_session_manifest_payload",
         lambda payload, source: SimpleNamespace(
             job_dir=str(job_dir),
-            launch_plan=SimpleNamespace(mailbox=None),
+            launch_plan=SimpleNamespace(
+                mailboxes=SimpleNamespace(offline=SimpleNamespace(binding=None))
+            ),
             brain_manifest_path=str(tmp_path / "brain.yaml"),
         ),
     )
@@ -2127,6 +2180,7 @@ def test_launch_managed_agent_locally_reports_post_takeover_build_failure(
             agents="researcher",
             agent_name="worker-a",
             agent_id=None,
+            agent_id_mode="name-hash",
             auth=None,
             session_name="worker-a",
             headless=True,

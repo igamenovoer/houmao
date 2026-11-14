@@ -158,7 +158,7 @@ def test_main_renders_mailbox_click_exception_without_traceback(
         _raise_mailbox_failure,
     )
 
-    exit_code = main(["agents", "single", "--agent-id", "agent-123", "mailbox", "register"])
+    exit_code = main(["agents", "single", "--agent-id", "agent-123", "mailbox", "offline", "join"])
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -166,7 +166,7 @@ def test_main_renders_mailbox_click_exception_without_traceback(
     assert "Traceback" not in captured.err
 
 
-def test_agents_mailbox_register_accepts_yes_and_forwards_confirmation_callback(
+def test_agents_mailbox_join_has_no_overwrite_confirmation_inputs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observed: dict[str, object] = {}
@@ -188,13 +188,16 @@ def test_agents_mailbox_register_accepts_yes_and_forwards_confirmation_callback(
 
     result = CliRunner().invoke(
         cli,
-        ["agents", "single", "--agent-id", "agent-123", "mailbox", "register", "--yes"],
+        ["agents", "single", "--agent-id", "agent-123", "mailbox", "offline", "join"],
     )
 
     assert result.exit_code == 0, result.output
-    callback = observed["confirm_destructive_replace"]
-    assert callable(callback)
-    assert callback("Replace mailbox?") is True
+    assert "confirm_destructive_replace" not in observed
+    assert "mode" not in observed
+    refused = CliRunner().invoke(
+        cli, ["agents", "single", "--agent-id", "agent-123", "mailbox", "offline", "join", "--yes"]
+    )
+    assert refused.exit_code == 2
 
 
 def test_main_renders_gateway_mail_notifier_click_exception_without_traceback(
@@ -223,6 +226,8 @@ def test_main_renders_gateway_mail_notifier_click_exception_without_traceback(
             "gateway",
             "mail-notifier",
             "enable",
+            "--channel",
+            "offline",
             "--interval-seconds",
             "60",
         ]
@@ -623,6 +628,8 @@ def test_agents_gateway_mail_notifier_help_mentions_subcommands() -> None:
             "gateway",
             "mail-notifier",
             "enable",
+            "--channel",
+            "offline",
             "--help",
         ],
     )
@@ -723,14 +730,14 @@ def test_top_level_project_help_mentions_local_overlay_surface() -> None:
 def test_agents_mailbox_help_mentions_late_registration_surface() -> None:
     result = CliRunner().invoke(
         cli,
-        ["agents", "single", "--agent-id", "agent-123", "mailbox", "--help"],
+        ["agents", "single", "--agent-id", "agent-123", "mailbox", "offline", "--help"],
     )
 
     assert result.exit_code == 0
-    assert "late filesystem mailbox registration" in result.output.lower()
+    assert "selected registry" in result.output.lower()
     assert "status" in result.output
-    assert "register" in result.output
-    assert "unregister" in result.output
+    assert "join" in result.output
+    assert "leave" in result.output
 
 
 def test_agents_mail_post_help_reports_operator_mailbox_default() -> None:
@@ -778,6 +785,8 @@ def test_agents_mail_post_forwards_reply_policy_default_and_explicit_none(
             "agent-test",
             "mail",
             "post",
+            "--channel",
+            "offline",
             "--subject",
             "Operator note",
             "--body-content",
@@ -1453,7 +1462,7 @@ def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval_a
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.gateway_mail_notifier_enable",
-        lambda resolved_target, *, interval_seconds, mode, appendix_text=None, context_error_policy="continue_current", pre_notification_context_action="none": (
+        lambda resolved_target, *, channel, interval_seconds, mode, appendix_text=None, context_error_policy="continue_current", pre_notification_context_action="none": (
             captured.update(
                 {
                     "target": resolved_target,
@@ -1483,6 +1492,8 @@ def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval_a
             "gateway",
             "mail-notifier",
             "enable",
+            "--channel",
+            "offline",
             "--interval-seconds",
             "60",
             "--mode",
@@ -1519,6 +1530,8 @@ def test_agents_gateway_mail_notifier_enable_rejects_invalid_mode() -> None:
             "gateway",
             "mail-notifier",
             "enable",
+            "--channel",
+            "offline",
             "--interval-seconds",
             "60",
             "--mode",

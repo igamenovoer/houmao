@@ -16,22 +16,35 @@ from pydantic import (
     ConfigDict,
     Field,
     ValidationError,
-    ValidationInfo,
     field_validator,
     model_validator,
 )
 
 from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig, parse_reasoning_level
-from houmao.agents.mailbox_runtime_models import MailboxTransport
 from houmao.agents.realm_controller.models import BackendKind, CaoParsingMode
 from houmao.hook_observation.health import HookChannelState
 from houmao.gateway.plugins import GatewayPluginConfiguration
-from houmao.mailbox.protocol import (
-    HOUMAO_NO_REPLY_POLICY_VALUE,
-    HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
-    MailboxNotifyAuth,
-    MailboxNotifyBlock,
+from houmao.mailbox.models import (
+    GatewayMailboxParticipantV1 as GatewayMailboxParticipantV1,
+    GatewayMailboxAttachmentV1 as GatewayMailboxAttachmentV1,
+    GatewayMailboxMessageV1 as GatewayMailboxMessageV1,
+    GatewayMailStatusV1 as GatewayMailStatusV1,
+    GatewayMailListRequestV1 as GatewayMailListRequestV1,
+    GatewayMailSyncStatusV1 as GatewayMailSyncStatusV1,
+    GatewayMailListResponseV1 as GatewayMailListResponseV1,
+    GatewayMailMessageRequestV1 as GatewayMailMessageRequestV1,
+    GatewayMailMessageResponseV1 as GatewayMailMessageResponseV1,
+    GatewayMailMarkRequestV1 as GatewayMailMarkRequestV1,
+    GatewayMailMoveRequestV1 as GatewayMailMoveRequestV1,
+    GatewayMailArchiveRequestV1 as GatewayMailArchiveRequestV1,
+    GatewayMailAttachmentUploadV1 as GatewayMailAttachmentUploadV1,
+    GatewayMailSendRequestV1 as GatewayMailSendRequestV1,
+    GatewayMailPostRequestV1 as GatewayMailPostRequestV1,
+    GatewayMailReplyRequestV1 as GatewayMailReplyRequestV1,
+    GatewayMailActionResponseV1 as GatewayMailActionResponseV1,
+    GatewayMailLifecycleResponseV1 as GatewayMailLifecycleResponseV1,
 )
+
 
 GatewayHost = Literal["127.0.0.1", "0.0.0.0"]
 GatewayProtocolVersion = Literal["v1"]
@@ -86,7 +99,7 @@ GATEWAY_PROMPT_CONTROL_SCHEMA_VERSION = 2
 GATEWAY_NEXT_PROMPT_SESSION_SCHEMA_VERSION = 1
 GATEWAY_REMINDER_SCHEMA_VERSION = 1
 GATEWAY_MAIL_NOTIFIER_SCHEMA_VERSION = 1
-GATEWAY_MAIL_SCHEMA_VERSION = 1
+GATEWAY_MAIL_SCHEMA_VERSION = 3
 GATEWAY_MEMORY_SCHEMA_VERSION = 1
 DEFAULT_GATEWAY_MAIL_NOTIFIER_MODE: GatewayMailNotifierMode = "any_inbox"
 DEFAULT_GATEWAY_MAIL_NOTIFIER_CONTEXT_ERROR_POLICY: GatewayMailNotifierContextErrorPolicy = (
@@ -1486,6 +1499,8 @@ class GatewayMailNotifierStatusV1(_StrictGatewayModel):
     last_notification_at_utc: str | None = None
     last_error: str | None = None
 
+    sync: GatewayMailSyncStatusV1 | None = None
+
     @field_validator("interval_seconds")
     @classmethod
     def _optional_positive_interval(cls, value: int | None) -> int | None:
@@ -1521,519 +1536,6 @@ class GatewayMailNotifierStatusV1(_StrictGatewayModel):
             raise ValueError(f"schema_version must be {GATEWAY_MAIL_NOTIFIER_SCHEMA_VERSION}")
         if self.enabled and self.interval_seconds is None:
             raise ValueError("enabled notifier status requires interval_seconds")
-        return self
-
-
-class GatewayMailboxParticipantV1(_StrictGatewayModel):
-    """Normalized mailbox participant identity."""
-
-    address: str
-    display_name: str | None = None
-    principal_id: str | None = None
-
-    @field_validator("address", "display_name", "principal_id")
-    @classmethod
-    def _optional_not_blank(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        if not value.strip():
-            raise ValueError("must not be empty")
-        return value
-
-
-class GatewayMailboxAttachmentV1(_StrictGatewayModel):
-    """Normalized delivered attachment metadata."""
-
-    attachment_id: str
-    kind: str
-    media_type: str
-    locator: str | None = None
-    size_bytes: int | None = None
-    sha256: str | None = None
-    label: str | None = None
-
-    @field_validator("attachment_id", "kind", "media_type", "locator", "sha256", "label")
-    @classmethod
-    def _optional_not_blank(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        if not value.strip():
-            raise ValueError("must not be empty")
-        return value
-
-    @field_validator("size_bytes")
-    @classmethod
-    def _non_negative_size(cls, value: int | None) -> int | None:
-        if value is None:
-            return None
-        if value < 0:
-            raise ValueError("must be >= 0")
-        return value
-
-
-class GatewayMailboxMessageV1(_StrictGatewayModel):
-    """Normalized mailbox message metadata shared across mailbox routes."""
-
-    message_ref: str
-    thread_ref: str | None = None
-    created_at_utc: str
-    subject: str
-    read: bool | None = None
-    answered: bool | None = None
-    archived: bool | None = None
-    box: str | None = None
-    unread: bool | None = None
-    body_preview: str | None = None
-    body_text: str | None = None
-    sender: GatewayMailboxParticipantV1
-    to: list[GatewayMailboxParticipantV1]
-    cc: list[GatewayMailboxParticipantV1] = Field(default_factory=list)
-    reply_to: list[GatewayMailboxParticipantV1] = Field(default_factory=list)
-    attachments: list[GatewayMailboxAttachmentV1] = Field(default_factory=list)
-    notify_block: MailboxNotifyBlock | None = None
-    notify_auth: MailboxNotifyAuth | None = None
-
-    @field_validator("message_ref", "thread_ref", "created_at_utc", "subject", "box")
-    @classmethod
-    def _optional_not_blank(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        if not value.strip():
-            raise ValueError("must not be empty")
-        return value
-
-    @field_validator("body_preview", "body_text")
-    @classmethod
-    def _optional_text(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        if "\x00" in value:
-            raise ValueError("must not contain NUL bytes")
-        return value
-
-
-class GatewayMailStatusV1(_StrictGatewayModel):
-    """`GET /v1/mail/status` response body."""
-
-    schema_version: int = Field(default=GATEWAY_MAIL_SCHEMA_VERSION)
-    transport: MailboxTransport
-    principal_id: str
-    address: str
-    bindings_version: str
-
-    @field_validator("principal_id", "address", "bindings_version")
-    @classmethod
-    def _not_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("must not be empty")
-        return value
-
-    @model_validator(mode="after")
-    def _validate_schema(self) -> "GatewayMailStatusV1":
-        if self.schema_version != GATEWAY_MAIL_SCHEMA_VERSION:
-            raise ValueError(f"schema_version must be {GATEWAY_MAIL_SCHEMA_VERSION}")
-        return self
-
-
-class GatewayMailListRequestV1(_StrictGatewayModel):
-    """`POST /v1/mail/list` request body."""
-
-    schema_version: int = Field(default=GATEWAY_MAIL_SCHEMA_VERSION)
-    box: str = "inbox"
-    read_state: GatewayMailReadFilter = "any"
-    answered_state: GatewayMailAnsweredFilter = "any"
-    archived: bool | None = None
-    limit: int | None = None
-    since: str | None = None
-    include_body: bool = False
-
-    @field_validator("limit")
-    @classmethod
-    def _positive_limit(cls, value: int | None) -> int | None:
-        if value is None:
-            return None
-        if value <= 0:
-            raise ValueError("must be > 0")
-        return value
-
-    @field_validator("box", "since")
-    @classmethod
-    def _optional_not_blank_text(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        if not value.strip():
-            raise ValueError("must not be empty")
-        return value.strip()
-
-    @model_validator(mode="after")
-    def _validate_schema(self) -> "GatewayMailListRequestV1":
-        if self.schema_version != GATEWAY_MAIL_SCHEMA_VERSION:
-            raise ValueError(f"schema_version must be {GATEWAY_MAIL_SCHEMA_VERSION}")
-        return self
-
-
-class GatewayMailListResponseV1(_StrictGatewayModel):
-    """`POST /v1/mail/list` response body."""
-
-    schema_version: int = Field(default=GATEWAY_MAIL_SCHEMA_VERSION)
-    transport: MailboxTransport
-    principal_id: str
-    address: str
-    box: str
-    message_count: int
-    open_count: int
-    unread_count: int
-    messages: list[GatewayMailboxMessageV1]
-
-    @field_validator("principal_id", "address", "box")
-    @classmethod
-    def _not_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("must not be empty")
-        return value.strip()
-
-    @field_validator("message_count", "open_count", "unread_count")
-    @classmethod
-    def _non_negative(cls, value: int) -> int:
-        if value < 0:
-            raise ValueError("must be >= 0")
-        return value
-
-    @model_validator(mode="after")
-    def _validate_response(self) -> "GatewayMailListResponseV1":
-        if self.schema_version != GATEWAY_MAIL_SCHEMA_VERSION:
-            raise ValueError(f"schema_version must be {GATEWAY_MAIL_SCHEMA_VERSION}")
-        if self.unread_count > self.message_count:
-            raise ValueError("unread_count must be <= message_count")
-        if self.open_count > self.message_count:
-            raise ValueError("open_count must be <= message_count")
-        return self
-
-
-class GatewayMailMessageRequestV1(_StrictGatewayModel):
-    """`POST /v1/mail/peek|read` request body."""
-
-    schema_version: int = Field(default=GATEWAY_MAIL_SCHEMA_VERSION)
-    message_ref: str
-    box: str | None = None
-
-    @field_validator("message_ref", "box")
-    @classmethod
-    def _optional_not_blank_text(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        if not value.strip():
-            raise ValueError("must not be empty")
-        return value.strip()
-
-    @model_validator(mode="after")
-    def _validate_schema(self) -> "GatewayMailMessageRequestV1":
-        if self.schema_version != GATEWAY_MAIL_SCHEMA_VERSION:
-            raise ValueError(f"schema_version must be {GATEWAY_MAIL_SCHEMA_VERSION}")
-        return self
-
-
-class GatewayMailMessageResponseV1(_StrictGatewayModel):
-    """`POST /v1/mail/peek|read` response body."""
-
-    schema_version: int = Field(default=GATEWAY_MAIL_SCHEMA_VERSION)
-    operation: Literal["peek", "read"]
-    transport: MailboxTransport
-    principal_id: str
-    address: str
-    message: GatewayMailboxMessageV1
-
-    @field_validator("principal_id", "address")
-    @classmethod
-    def _not_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("must not be empty")
-        return value.strip()
-
-    @model_validator(mode="after")
-    def _validate_schema(self) -> "GatewayMailMessageResponseV1":
-        if self.schema_version != GATEWAY_MAIL_SCHEMA_VERSION:
-            raise ValueError(f"schema_version must be {GATEWAY_MAIL_SCHEMA_VERSION}")
-        return self
-
-
-class GatewayMailMarkRequestV1(_StrictGatewayModel):
-    """`POST /v1/mail/mark` request body."""
-
-    schema_version: int = Field(default=GATEWAY_MAIL_SCHEMA_VERSION)
-    message_refs: list[str]
-    read: bool | None = None
-    answered: bool | None = None
-    archived: bool | None = None
-
-    @field_validator("message_refs")
-    @classmethod
-    def _message_refs_not_blank(cls, value: list[str]) -> list[str]:
-        normalized = [item.strip() for item in value if isinstance(item, str) and item.strip()]
-        if len(normalized) != len(value):
-            raise ValueError("must contain only non-empty strings")
-        if not normalized:
-            raise ValueError("must include at least one message reference")
-        if len(set(normalized)) != len(normalized):
-            raise ValueError("must not contain duplicate message references")
-        return normalized
-
-    @model_validator(mode="after")
-    def _validate_schema(self) -> "GatewayMailMarkRequestV1":
-        if self.schema_version != GATEWAY_MAIL_SCHEMA_VERSION:
-            raise ValueError(f"schema_version must be {GATEWAY_MAIL_SCHEMA_VERSION}")
-        if self.read is self.answered is self.archived is None:
-            raise ValueError("mark request must set at least one state field")
-        return self
-
-
-class GatewayMailMoveRequestV1(_StrictGatewayModel):
-    """`POST /v1/mail/move` request body."""
-
-    schema_version: int = Field(default=GATEWAY_MAIL_SCHEMA_VERSION)
-    message_refs: list[str]
-    destination_box: str
-
-    @field_validator("message_refs")
-    @classmethod
-    def _message_refs_not_blank(cls, value: list[str]) -> list[str]:
-        normalized = [item.strip() for item in value if isinstance(item, str) and item.strip()]
-        if len(normalized) != len(value):
-            raise ValueError("must contain only non-empty strings")
-        if not normalized:
-            raise ValueError("must include at least one message reference")
-        if len(set(normalized)) != len(normalized):
-            raise ValueError("must not contain duplicate message references")
-        return normalized
-
-    @field_validator("destination_box")
-    @classmethod
-    def _destination_box_not_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("must not be empty")
-        return value.strip()
-
-    @model_validator(mode="after")
-    def _validate_schema(self) -> "GatewayMailMoveRequestV1":
-        if self.schema_version != GATEWAY_MAIL_SCHEMA_VERSION:
-            raise ValueError(f"schema_version must be {GATEWAY_MAIL_SCHEMA_VERSION}")
-        return self
-
-
-class GatewayMailArchiveRequestV1(_StrictGatewayModel):
-    """`POST /v1/mail/archive` request body."""
-
-    schema_version: int = Field(default=GATEWAY_MAIL_SCHEMA_VERSION)
-    message_refs: list[str]
-
-    @field_validator("message_refs")
-    @classmethod
-    def _message_refs_not_blank(cls, value: list[str]) -> list[str]:
-        normalized = [item.strip() for item in value if isinstance(item, str) and item.strip()]
-        if len(normalized) != len(value):
-            raise ValueError("must contain only non-empty strings")
-        if not normalized:
-            raise ValueError("must include at least one message reference")
-        if len(set(normalized)) != len(normalized):
-            raise ValueError("must not contain duplicate message references")
-        return normalized
-
-    @model_validator(mode="after")
-    def _validate_schema(self) -> "GatewayMailArchiveRequestV1":
-        if self.schema_version != GATEWAY_MAIL_SCHEMA_VERSION:
-            raise ValueError(f"schema_version must be {GATEWAY_MAIL_SCHEMA_VERSION}")
-        return self
-
-
-class GatewayMailAttachmentUploadV1(_StrictGatewayModel):
-    """Local attachment input accepted by shared mailbox send/reply routes."""
-
-    path: str
-    label: str | None = None
-
-    @field_validator("path", "label")
-    @classmethod
-    def _optional_not_blank(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        if not value.strip():
-            raise ValueError("must not be empty")
-        return value
-
-
-class GatewayMailSendRequestV1(_StrictGatewayModel):
-    """`POST /v1/mail/send` request body."""
-
-    schema_version: int = Field(default=GATEWAY_MAIL_SCHEMA_VERSION)
-    to: list[str]
-    cc: list[str] = Field(default_factory=list)
-    subject: str
-    body_content: str
-    attachments: list[GatewayMailAttachmentUploadV1] = Field(default_factory=list)
-    notify_block: MailboxNotifyBlock | None = None
-    notify_auth: MailboxNotifyAuth | None = None
-
-    @field_validator("to", "cc")
-    @classmethod
-    def _validate_recipients(cls, value: list[str], info: ValidationInfo) -> list[str]:
-        normalized = [item.strip() for item in value if isinstance(item, str) and item.strip()]
-        if info.field_name == "to" and not normalized:
-            raise ValueError("must include at least one recipient")
-        if len(normalized) != len(value):
-            raise ValueError("must contain only non-empty strings")
-        return normalized
-
-    @field_validator("subject")
-    @classmethod
-    def _subject_not_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("must not be empty")
-        return value
-
-    @field_validator("body_content")
-    @classmethod
-    def _body_no_nul(cls, value: str) -> str:
-        if "\x00" in value:
-            raise ValueError("must not contain NUL bytes")
-        return value
-
-    @model_validator(mode="after")
-    def _validate_schema(self) -> "GatewayMailSendRequestV1":
-        if self.schema_version != GATEWAY_MAIL_SCHEMA_VERSION:
-            raise ValueError(f"schema_version must be {GATEWAY_MAIL_SCHEMA_VERSION}")
-        return self
-
-
-class GatewayMailPostRequestV1(_StrictGatewayModel):
-    """`POST /v1/mail/post` request body."""
-
-    schema_version: int = Field(default=GATEWAY_MAIL_SCHEMA_VERSION)
-    subject: str
-    body_content: str
-    reply_policy: GatewayMailPostReplyPolicy = Field(
-        default=HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE
-    )
-    attachments: list[GatewayMailAttachmentUploadV1] = Field(default_factory=list)
-    notify_block: MailboxNotifyBlock | None = None
-    notify_auth: MailboxNotifyAuth | None = None
-
-    @field_validator("subject")
-    @classmethod
-    def _subject_not_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("must not be empty")
-        return value
-
-    @field_validator("body_content")
-    @classmethod
-    def _body_no_nul(cls, value: str) -> str:
-        if "\x00" in value:
-            raise ValueError("must not contain NUL bytes")
-        return value
-
-    @field_validator("reply_policy")
-    @classmethod
-    def _reply_policy_known(cls, value: GatewayMailPostReplyPolicy) -> GatewayMailPostReplyPolicy:
-        if value not in {
-            HOUMAO_NO_REPLY_POLICY_VALUE,
-            HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
-        }:
-            raise ValueError("unsupported reply policy")
-        return value
-
-    @model_validator(mode="after")
-    def _validate_schema(self) -> "GatewayMailPostRequestV1":
-        if self.schema_version != GATEWAY_MAIL_SCHEMA_VERSION:
-            raise ValueError(f"schema_version must be {GATEWAY_MAIL_SCHEMA_VERSION}")
-        return self
-
-
-class GatewayMailReplyRequestV1(_StrictGatewayModel):
-    """`POST /v1/mail/reply` request body."""
-
-    schema_version: int = Field(default=GATEWAY_MAIL_SCHEMA_VERSION)
-    message_ref: str
-    body_content: str
-    attachments: list[GatewayMailAttachmentUploadV1] = Field(default_factory=list)
-    notify_block: MailboxNotifyBlock | None = None
-    notify_auth: MailboxNotifyAuth | None = None
-
-    @field_validator("message_ref")
-    @classmethod
-    def _message_ref_not_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("must not be empty")
-        return value
-
-    @field_validator("body_content")
-    @classmethod
-    def _body_no_nul(cls, value: str) -> str:
-        if "\x00" in value:
-            raise ValueError("must not contain NUL bytes")
-        return value
-
-    @model_validator(mode="after")
-    def _validate_schema(self) -> "GatewayMailReplyRequestV1":
-        if self.schema_version != GATEWAY_MAIL_SCHEMA_VERSION:
-            raise ValueError(f"schema_version must be {GATEWAY_MAIL_SCHEMA_VERSION}")
-        return self
-
-
-class GatewayMailActionResponseV1(_StrictGatewayModel):
-    """`POST /v1/mail/send|post|reply` response body."""
-
-    schema_version: int = Field(default=GATEWAY_MAIL_SCHEMA_VERSION)
-    operation: Literal["send", "post", "reply"]
-    transport: MailboxTransport
-    principal_id: str
-    address: str
-    message: GatewayMailboxMessageV1
-
-    @field_validator("principal_id", "address")
-    @classmethod
-    def _not_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("must not be empty")
-        return value
-
-    @model_validator(mode="after")
-    def _validate_schema(self) -> "GatewayMailActionResponseV1":
-        if self.schema_version != GATEWAY_MAIL_SCHEMA_VERSION:
-            raise ValueError(f"schema_version must be {GATEWAY_MAIL_SCHEMA_VERSION}")
-        return self
-
-
-class GatewayMailLifecycleResponseV1(_StrictGatewayModel):
-    """`POST /v1/mail/mark|move|archive` response body."""
-
-    schema_version: int = Field(default=GATEWAY_MAIL_SCHEMA_VERSION)
-    operation: GatewayMailLifecycleOperation
-    transport: MailboxTransport
-    principal_id: str
-    address: str
-    message_count: int
-    messages: list[GatewayMailboxMessageV1]
-
-    @field_validator("principal_id", "address")
-    @classmethod
-    def _not_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("must not be empty")
-        return value.strip()
-
-    @field_validator("message_count")
-    @classmethod
-    def _non_negative(cls, value: int) -> int:
-        if value < 0:
-            raise ValueError("must be >= 0")
-        return value
-
-    @model_validator(mode="after")
-    def _validate_schema(self) -> "GatewayMailLifecycleResponseV1":
-        if self.schema_version != GATEWAY_MAIL_SCHEMA_VERSION:
-            raise ValueError(f"schema_version must be {GATEWAY_MAIL_SCHEMA_VERSION}")
-        if self.message_count != len(self.messages):
-            raise ValueError("message_count must match messages length")
         return self
 
 

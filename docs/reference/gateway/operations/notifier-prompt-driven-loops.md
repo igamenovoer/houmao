@@ -48,21 +48,21 @@ Generated loop skills should route platform mailbox mechanics through the eligib
 
 ## Gateway Mail API Quick Reference
 
-When a live loopback gateway exposes mailbox support, the notifier prompt includes a `Gateway: <base-url>` line and a compact endpoint summary. The shared mailbox facade is rooted at that gateway base URL.
+A notified round must supply the exact gateway base URL, explicit `offline|online` channel, and expected binding ID. Missing values or a binding mismatch end the round. Canonical mail identity never selects delivery. Every lifecycle request uses schema version 3 with the same expected binding, including fresh send/post. The examples below use offline binding `registration-demo` and an opaque sample reference; substitute values returned for the selected live binding.
 
 | Operation | HTTP route | Purpose |
 | --- | --- | --- |
-| Status | `GET /v1/mail/status` | Confirm transport, principal id, mailbox address, and bindings version. |
-| List | `POST /v1/mail/list` | List message metadata and optionally include body text. |
-| Peek | `POST /v1/mail/peek` | Inspect one message without marking it read. |
-| Read | `POST /v1/mail/read` | Inspect one message and mark it read. |
-| Send | `POST /v1/mail/send` | Send a new message to one or more mailbox addresses. |
-| Post | `POST /v1/mail/post` | Post an operator-origin note into the attached session's mailbox. |
-| Reply | `POST /v1/mail/reply` | Reply to one existing message by opaque `message_ref`. |
-| Mark | `POST /v1/mail/mark` | Mark selected messages read, answered, or archived. |
-| Move | `POST /v1/mail/move` | Move selected messages to another box. |
-| Archive | `POST /v1/mail/archive` | Archive selected processed messages. |
-| Notifier | `GET|PUT|DELETE /v1/mail-notifier` | Inspect, configure, or disable notifier polling. |
+| Status | `GET /v1/mail/status` | Summarize both channels, stable owner/binding scope, canonical identity, and independent availability. |
+| List | `POST /v1/mail/{channel}/list` | List message metadata and optionally include body text. |
+| Peek | `POST /v1/mail/{channel}/peek` | Inspect one message without marking it read. |
+| Read | `POST /v1/mail/{channel}/read` | Inspect one message and mark it read. |
+| Send | `POST /v1/mail/{channel}/send` | Send a new message to one or more mailbox addresses. |
+| Post | `POST /v1/mail/{channel}/post` | Post an operator-origin note into the attached session's mailbox. |
+| Reply | `POST /v1/mail/{channel}/reply` | Reply to one existing message by opaque `message_ref`. |
+| Mark | `POST /v1/mail/{channel}/mark` | Mark selected messages read, answered, or archived. |
+| Move | `POST /v1/mail/{channel}/move` | Move selected messages to another box. |
+| Archive | `POST /v1/mail/{channel}/archive` | Archive selected processed messages. |
+| Notifier | `GET|PUT|DELETE /v1/mail-notifier/{channel}` | Inspect, configure, or disable notifier polling. |
 
 `message_ref` and `thread_ref` are opaque. Loop code and generated skills must not parse filesystem ids, JMAP ids, timestamps, or path fragments out of them. Store them only as stable references for reply, archive, audit, or recovery.
 
@@ -71,28 +71,33 @@ When a live loopback gateway exposes mailbox support, the notifier prompt includ
 List the current inbox through the gateway API:
 
 ```bash
-curl -sS "$GATEWAY_BASE_URL/v1/mail/list" \
+curl -sS "$GATEWAY_BASE_URL/v1/mail/$MAIL_CHANNEL/list" \
   -H 'content-type: application/json' \
   -d '{
-    "schema_version": 1,
+    "schema_version": 3,
+    "expected_binding_id": "registration-demo",
     "box": "inbox",
     "read_state": "any",
     "answered_state": "any",
     "archived": false,
-    "include_body": false
+    "limit": 50,
+    "cursor": null
   }'
 ```
 
-The response includes `message_count`, `open_count`, `unread_count`, and a `messages` array. Each message has fields such as `message_ref`, `thread_ref`, `subject`, `sender`, `to`, `cc`, `reply_to`, `read`, `answered`, `archived`, `box`, `body_preview`, optional `body_text`, and optional `notify_block`.
+The response includes `message_count`, `open_count`, `unread_count`, and a `messages` array. Each message has fields such as `message_ref`, `thread_ref`, `subject`, `sender`, `to`, `cc`, `reply_to`, `read`, `answered`, `archived`, `box`, `body_preview`, optional `notify_block`, and metadata-only attachment indicators.
+
+Counts apply to the returned page, not the whole inbox. Follow `next_cursor` only within the same query/binding and a finite round budget (for example, at most four pages and ten selected content reads). If a cursor becomes stale, restart metadata listing within the remaining budget. A binding mismatch ends the round. Honor `has_more`; finish a bounded round without claiming the remaining inbox is complete.
 
 Read one selected message and mark it read:
 
 ```bash
-curl -sS "$GATEWAY_BASE_URL/v1/mail/read" \
+curl -sS "$GATEWAY_BASE_URL/v1/mail/$MAIL_CHANNEL/read" \
   -H 'content-type: application/json' \
   -d '{
-    "schema_version": 1,
-    "message_ref": "filesystem:msg-..."
+    "schema_version": 3,
+    "expected_binding_id": "registration-demo",
+    "message_ref": "houmao-mail:WzEsIjE0NjU5MGU4LWQzYWMtNGNmZS05NzM1LTgxYTZhNzMzZmE1YSIsIm9mZmxpbmUiLCJyZWdpc3RyYXRpb24tZGVtbyIsIm1lc3NhZ2UiLCJmaWxlc3lzdGVtOm1zZy0yMDI2MDMxOVQwODAwMDBaLWExYjJjM2Q0ZTVmNjQ3OThhYWJiY2NkZGVlZmYwMDExIl0"
   }'
 ```
 
@@ -101,9 +106,9 @@ Use `peek` instead of `read` when a diagnostic pass should not change read state
 The operator-facing CLI equivalents are:
 
 ```bash
-pixi run houmao-mgr agents single --agent-name <agent> mail list --not-archived
-pixi run houmao-mgr agents single --agent-name <agent> mail read --message-ref '<message-ref>'
-pixi run houmao-mgr agents single --agent-name <agent> mail peek --message-ref '<message-ref>'
+pixi run houmao-mgr agents single --agent-name <agent> mail list --channel offline --expected-binding-id <binding-id> --not-archived
+pixi run houmao-mgr agents single --agent-name <agent> mail read --channel offline --expected-binding-id <binding-id> --message-ref '<message-ref>'
+pixi run houmao-mgr agents single --agent-name <agent> mail peek --channel offline --expected-binding-id <binding-id> --message-ref '<message-ref>'
 ```
 
 ### Reply And Archive
@@ -111,11 +116,12 @@ pixi run houmao-mgr agents single --agent-name <agent> mail peek --message-ref '
 Reply to a message by `message_ref`:
 
 ```bash
-curl -sS "$GATEWAY_BASE_URL/v1/mail/reply" \
+curl -sS "$GATEWAY_BASE_URL/v1/mail/$MAIL_CHANNEL/reply" \
   -H 'content-type: application/json' \
   -d '{
-    "schema_version": 1,
-    "message_ref": "filesystem:msg-...",
+    "schema_version": 3,
+    "expected_binding_id": "registration-demo",
+    "message_ref": "houmao-mail:WzEsIjE0NjU5MGU4LWQzYWMtNGNmZS05NzM1LTgxYTZhNzMzZmE1YSIsIm9mZmxpbmUiLCJyZWdpc3RyYXRpb24tZGVtbyIsIm1lc3NhZ2UiLCJmaWxlc3lzdGVtOm1zZy0yMDI2MDMxOVQwODAwMDBaLWExYjJjM2Q0ZTVmNjQ3OThhYWJiY2NkZGVlZmYwMDExIl0",
     "body_content": "Acknowledged. I will run the next bounded pass now.",
     "attachments": []
   }'
@@ -124,22 +130,23 @@ curl -sS "$GATEWAY_BASE_URL/v1/mail/reply" \
 Archive only after required work and required replies succeed:
 
 ```bash
-curl -sS "$GATEWAY_BASE_URL/v1/mail/archive" \
+curl -sS "$GATEWAY_BASE_URL/v1/mail/$MAIL_CHANNEL/archive" \
   -H 'content-type: application/json' \
   -d '{
-    "schema_version": 1,
-    "message_refs": ["filesystem:msg-..."]
+    "schema_version": 3,
+    "expected_binding_id": "registration-demo",
+    "message_refs": ["houmao-mail:WzEsIjE0NjU5MGU4LWQzYWMtNGNmZS05NzM1LTgxYTZhNzMzZmE1YSIsIm9mZmxpbmUiLCJyZWdpc3RyYXRpb24tZGVtbyIsIm1lc3NhZ2UiLCJmaWxlc3lzdGVtOm1zZy0yMDI2MDMxOVQwODAwMDBaLWExYjJjM2Q0ZTVmNjQ3OThhYWJiY2NkZGVlZmYwMDExIl0"]
   }'
 ```
 
 CLI equivalents:
 
 ```bash
-pixi run houmao-mgr agents single --agent-name <agent> mail reply \
+pixi run houmao-mgr agents single --agent-name <agent> mail reply --channel offline --expected-binding-id <binding-id> \
   --message-ref '<message-ref>' \
   --body-content 'Acknowledged. I will run the next bounded pass now.'
 
-pixi run houmao-mgr agents single --agent-name <agent> mail archive \
+pixi run houmao-mgr agents single --agent-name <agent> mail archive --channel offline --expected-binding-id <binding-id> \
   --message-ref '<message-ref>'
 ```
 
@@ -275,7 +282,7 @@ There are two authoring paths.
 The sender writes a Markdown fenced code block with info string `houmao-notify` inside `body_content`. The first non-empty fence is extracted into the canonical `notify_block` field when the message is composed. The fence remains in the body so the receiver can also see the same text after reading the mail.
 
 ```bash
-pixi run houmao-mgr agents single --agent-name sender mail send \
+pixi run houmao-mgr agents single --agent-name sender mail send --channel offline \
   --to receiver@houmao.localhost \
   --subject "Work result ready" \
   --body-content $'Result package is ready.\n\n```houmao-notify\nAfter reading this result, run the review-received event skill and then run reviewer-on-schedule-tick once.\n```'
@@ -297,7 +304,7 @@ The sender can pass the canonical `notify_block` field directly through CLI flag
 CLI:
 
 ```bash
-pixi run houmao-mgr agents single --agent-name receiver mail post \
+pixi run houmao-mgr agents single --agent-name receiver mail post --channel offline \
   --subject "Continue loop" \
   --body-content "Operator note for the current loop." \
   --notify-block "Process current loop mail, run the lead tick once, then stop." \
@@ -308,7 +315,8 @@ Gateway JSON:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 3,
+  "expected_binding_id": "registration-demo",
   "subject": "Continue loop",
   "body_content": "Operator note for the current loop.",
   "reply_policy": "operator_mailbox",
@@ -339,7 +347,7 @@ Generated loop protocols should use notify blocks sparingly. Good uses are wake-
 
 ## Mail Notification Contract
 
-The notifier is configured through `GET|PUT|DELETE /v1/mail-notifier`.
+Notifier control explicitly selects a channel through `GET|PUT|DELETE /v1/mail-notifier/{channel}`. Owner/channel/binding scopes keep configuration, schedules, appendix, audit, and compaction state independent. Unchanged eligible inbox work continues periodic reminders. Read/answered state does not complete inbox work; archive does. Canonical identity changes do not reset either notifier. Notifier control payloads remain schema version 1.
 
 Representative enable request:
 
@@ -366,7 +374,7 @@ The important fields are:
 | `context_error_policy` | Degraded-context behavior; default is `continue_current`. |
 | `pre_notification_context_action` | Optional pre-notification action; default is `none`. |
 
-`GET /v1/mail-notifier` also reports support state, last poll time, last notification time, last error, and notify-block trust posture. Detailed poll history lives in gateway-owned audit state, not in the compact status response.
+`GET /v1/mail-notifier/{channel}` also reports support state, last poll time, last notification time, last error, and notify-block trust posture. Detailed poll history lives in gateway-owned audit state, not in the compact status response.
 
 Notifier prompt construction follows this pipeline:
 

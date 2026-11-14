@@ -1,5 +1,7 @@
 # Gateway Mailbox Facade
 
+Mail operations select `offline` or `online` explicitly. `GET /v1/mail/status` summarizes both channels; `resolve-live` returns revisioned slots under `mailboxes.offline` and `mailboxes.online`. Every lifecycle request uses schema version 3 and includes `expected_binding_id`, including fresh send/post. Keep notifier rounds pinned to their supplied URL, channel, and binding; stop on mismatch rather than re-resolving and resending. Canonical online-first mail identity never selects delivery.
+
 - Who this is for: operators and maintainers who need to understand how a live gateway exposes shared mailbox routes for filesystem-backed and Stalwart-backed sessions.
 - What it explains: why `/v1/mail/*` exists, how adapter selection works, when the routes are available, and how notifier polling uses the same abstraction.
 - Assumes: you already understand basic gateway attach and lifecycle concepts from [Lifecycle And Operator Flows](lifecycle.md).
@@ -24,17 +26,17 @@ The gateway mailbox facade is the shared mailbox control surface for one attache
 
 | Route | Purpose | Exact contract |
 | --- | --- | --- |
-| `GET /v1/mail/status` | report whether the live gateway exposes the shared mailbox facade and which transport binding it is using | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
-| `POST /v1/mail/list` | list normalized mailbox message metadata, optionally including body content | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
-| `POST /v1/mail/peek` | inspect one selected message without marking it read | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
-| `POST /v1/mail/read` | inspect one selected message and mark it read | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
-| `POST /v1/mail/send` | send a new message without consuming the terminal-mutation slot | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
-| `POST /v1/mail/post` | post an operator-origin note into the attached session's mailbox | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
-| `POST /v1/mail/reply` | reply to an existing message via opaque `message_ref` | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
-| `POST /v1/mail/mark` | mark selected mailbox messages read, answered, or archived | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
-| `POST /v1/mail/move` | move selected mailbox messages to another box | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
-| `POST /v1/mail/archive` | archive selected mailbox messages | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
-| `GET|PUT|DELETE /v1/mail-notifier` | inspect or control gateway mail-notifier behavior | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
+| `GET /v1/mail/status` | report whether the live gateway exposes the shared mailbox facade and both configured channels, their binding scope, canonical identity, and independent availability | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
+| `POST /v1/mail/{channel}/list` | page normalized mailbox metadata with explicit continuation and no bodies | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
+| `POST /v1/mail/{channel}/peek` | inspect one selected message without marking it read | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
+| `POST /v1/mail/{channel}/read` | inspect one selected message and mark it read | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
+| `POST /v1/mail/{channel}/send` | send a new message without consuming the terminal-mutation slot | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
+| `POST /v1/mail/{channel}/post` | post an operator-origin note into the attached session's mailbox | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
+| `POST /v1/mail/{channel}/reply` | reply to an existing message via opaque `message_ref` | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
+| `POST /v1/mail/{channel}/mark` | mark selected mailbox messages read, answered, or archived | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
+| `POST /v1/mail/{channel}/move` | move selected mailbox messages to another box | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
+| `POST /v1/mail/{channel}/archive` | archive selected mailbox messages | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
+| `GET|PUT|DELETE /v1/mail-notifier/{channel}` | inspect or control gateway mail-notifier behavior | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
 
 ## Why `/v1/mail/*` Exists
 
@@ -48,14 +50,14 @@ That is why the gateway exposes a separate mailbox facade instead of treating ma
 
 ## How Adapter Selection Works
 
-The gateway does not invent its own mailbox configuration. It resolves the mailbox binding that the runtime already persisted for the session.
+The session manifest owns independent optional offline and online slot envelopes. The registry host owns offline membership and storage. The gateway selects only the channel named by the request and validates its expected binding ID before dispatch; canonical identity never chooses an adapter.
 
 Sequence:
 
 1. The live gateway resolves the runtime-managed session manifest through its internal bootstrap state.
 2. In the current implementation, that bootstrap state usually comes from `attach.json.manifest_path`.
-3. The gateway reads `payload.launch_plan.mailbox` from that manifest.
-4. The gateway builds one transport-specific adapter from that mailbox binding.
+3. The gateway reads `payload.launch_plan.mailboxes.<channel>` from that manifest. Each slot retains its revision even while empty.
+4. The gateway compares `expected_binding_id`, checks owner scope, and builds the local filesystem, remote registry, or online provider adapter for that binding.
 5. Shared mailbox routes call the adapter for status, listing, message inspection, send, operator-origin post, reply, marking, moving, or archive actions.
 
 ```mermaid
@@ -66,9 +68,9 @@ sequenceDiagram
     participant Man as manifest.json
     participant Ad as Mailbox<br/>adapter
     participant MB as Filesystem or<br/>Stalwart transport
-    Cli->>Gw: call /v1/mail/*
+    Cli->>Gw: call /v1/mail/channel/action with expected binding
     Gw->>Att: resolve manifest_path
-    Gw->>Man: read launch_plan.mailbox
+    Gw->>Man: read launch_plan.mailboxes[channel]
     Gw->>Ad: build adapter for<br/>resolved transport
     Ad->>MB: perform status/list/read/<br/>send/reply/archive
     MB-->>Ad: normalized mailbox data
@@ -76,7 +78,7 @@ sequenceDiagram
     Gw-->>Cli: HTTP response
 ```
 
-The adapter may be filesystem-backed or Stalwart-backed, but the gateway-facing contract stays the same. The precise payload shapes remain centralized in [Protocol And State Contracts](../contracts/protocol-and-state.md).
+Both mail slots can coexist. Offline access can be local or remote to the selected registry host; online access uses the configured provider. Reassignment or replacement creates a different binding ID, so old references fail instead of reaching another mailbox. The precise payload shapes remain centralized in [Protocol And State Contracts](../contracts/protocol-and-state.md).
 
 When gateway diagnostic logging is enabled, each mailbox facade route records safe start, success, and failure entries. Those diagnostics include operation names, route/status context, message counts, and repair hints for repairable mailbox-local failures. They do not include mailbox bodies, raw prompt text, attachment contents, auth headers, cookies, bearer tokens, credential material, or environment secrets by default.
 
@@ -89,7 +91,9 @@ The mailbox facade is deliberately narrower than generic gateway availability.
 | session is gateway-capable but no live gateway is attached | no `/v1/mail/*` routes are available |
 | live gateway is attached on `127.0.0.1` and the manifest has a usable mailbox binding | shared mailbox routes are available |
 | live gateway is attached on `0.0.0.0` | shared mailbox routes return `503` |
-| manifest is unreadable or has no mailbox binding | shared mailbox routes fail explicitly |
+| readable manifest with neither channel configured | summary status reports both channels absent |
+| a lifecycle request selects an absent channel, stale binding, or wrong-scope reference | explicit failure with no other-channel fallback |
+| manifest is unreadable | mailbox operations fail explicitly |
 
 Current scope rule: mailbox routes remain loopback-only because the gateway does not yet define an authenticated remote exposure model for these routes.
 
@@ -97,11 +101,11 @@ Current scope rule: mailbox routes remain loopback-only because the gateway does
 
 The mailbox facade does not eliminate direct transport-specific mailbox behavior.
 
-- If no live gateway is attached, the runtime-owned mailbox guidance may still use direct transport-specific access for the selected transport.
+- If no gateway is attached, use the maintained scoped manager mail command with explicit channel and expected binding ID. The manager owns provider access; ordinary discovery supplies no credential file or private store path.
 - If a live loopback gateway is attached, runtime-owned mailbox guidance prefers the shared `/v1/mail/*` facade for operations that both transports support.
 - `message_ref` stays opaque in both paths.
 
-That split is why the mailbox docs and gateway docs stay adjacent but separate. Use [Stalwart Setup And First Session](../../mailbox/operations/stalwart-setup-and-first-session.md) for the operator path and [Mailbox Runtime Contracts](../../mailbox/contracts/runtime-contracts.md) for the env-binding and prompt contract.
+That split is why the mailbox docs and gateway docs stay adjacent but separate. Use [Stalwart Setup And First Session](../../mailbox/operations/stalwart-setup-and-first-session.md) for the operator path and [Mailbox Runtime Contracts](../../mailbox/contracts/runtime-contracts.md) for the slot, resolver, and prompt contract.
 
 ## Notifier Polling Uses The Same Facade
 
@@ -109,7 +113,7 @@ The mail-notifier is gateway-owned, but mailbox truth is transport-owned.
 
 - The notifier checks eligible inbox mail through the same shared mailbox facade used for `list`.
 - Mode `any_inbox` treats any unarchived inbox mail as eligible, including read or answered mail. Mode `unread_only` limits eligibility to unread unarchived inbox mail.
-- The gateway still owns notifier cadence, readiness-gated reminder delivery, last-error bookkeeping, and per-poll audit history in `queue.sqlite`.
+- Each owner/channel/binding has independent notifier configuration, schedules, appendix text, audit, and compaction state. The gateway still owns notifier cadence, readiness-gated reminder delivery, last-error bookkeeping, and per-poll audit history in `queue.sqlite`.
 - This is what allows the notifier to work for both filesystem-backed and Stalwart-backed sessions without hard-wiring itself to filesystem mailbox-local SQLite.
 - Current reminder behavior is intentionally bounded: one reminder may summarize the eligible inbox snapshot, the agent decides which messages to inspect and handle after listing current mailbox state, and the later turn archives successfully processed work through the shared mailbox facade.
 
@@ -125,9 +129,15 @@ Use [Agents And Runtime](../../system-files/agents-and-runtime.md) for the broad
 ## Source References
 
 - [`src/houmao/agents/realm_controller/gateway_service.py`](../../../../src/houmao/agents/realm_controller/gateway_service.py)
-- [`src/houmao/agents/realm_controller/gateway_mailbox.py`](../../../../src/houmao/agents/realm_controller/gateway_mailbox.py)
+- [`src/houmao/mailbox/services.py`](../../../../src/houmao/mailbox/services.py)
 - [`src/houmao/agents/realm_controller/gateway_storage.py`](../../../../src/houmao/agents/realm_controller/gateway_storage.py)
 - [`src/houmao/agents/mailbox_runtime_support.py`](../../../../src/houmao/agents/mailbox_runtime_support.py)
 - [`src/houmao/mailbox/stalwart.py`](../../../../src/houmao/mailbox/stalwart.py)
 - [`tests/unit/agents/realm_controller/test_gateway_support.py`](../../../../tests/unit/agents/realm_controller/test_gateway_support.py)
 - [`tests/integration/agents/realm_controller/test_gateway_runtime_contract.py`](../../../../tests/integration/agents/realm_controller/test_gateway_runtime_contract.py)
+
+## Bounded Metadata Pages
+
+All three adapters return the same finite page contract: a default of 50 messages, maximum 200, page-only counts, `next_cursor`, `has_more`, and `complete`. Offline uses its authoritative metadata index and receives no provider synchronization cache. Online filters on the server before limiting, then fetches metadata in a bounded batch. `include_body` and CLI `--include-body` are rejected with guidance to use `peek` or `read`.
+
+Keep a cursor with its original channel, expected binding, and filters. Local metadata changes or online query-state changes invalidate continuation rather than merging inconsistent pages. Restart the list after a stale-cursor result. Content requests expose completeness and applied byte limits. See the [Stalwart Client Contract](../../mailbox/contracts/stalwart-client.md) for provider details.

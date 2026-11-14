@@ -18,6 +18,8 @@ from houmao.agents.realm_controller.registry_models import (
     RegistryLifecycleV1,
     RegistryLivenessV1,
     RegistryRuntimeV1,
+    RegistryMailboxesV1,
+    RegistryMailboxSlotV1,
     RegistryTerminalV1,
     RegistryTerminalV2,
 )
@@ -55,21 +57,9 @@ def _sample_record(
     generation_id: str = "generation-1",
     now: datetime | None = None,
     lease_ttl: timedelta = DEFAULT_REGISTRY_LEASE_TTL,
-) -> LiveAgentRegistryRecordV2:
-    published_at = now or datetime.now(UTC)
-    return LiveAgentRegistryRecordV2(
-        agent_name=agent_name,
-        agent_id=derive_agent_id_from_name(agent_name),
-        generation_id=generation_id,
-        published_at=published_at.isoformat(timespec="seconds"),
-        lease_expires_at=(published_at + lease_ttl).isoformat(timespec="seconds"),
-        identity=RegistryIdentityV1(backend="claude_headless", tool="claude"),
-        runtime=RegistryRuntimeV1(
-            manifest_path="/tmp/runtime/session/manifest.json",
-            session_root="/tmp/runtime/session",
-            agent_def_dir="/tmp/agents",
-        ),
-        terminal=RegistryTerminalV1(session_name=agent_name),
+) -> ManagedAgentRegistryRecordV3:
+    return _sample_lifecycle_record(
+        agent_name=agent_name, generation_id=generation_id, now=now, lease_ttl=lease_ttl
     )
 
 
@@ -119,7 +109,11 @@ def _sample_lifecycle_record(
             else None
         ),
         gateway=None,
-        mailbox=None,
+        mailboxes=RegistryMailboxesV1(
+            offline=RegistryMailboxSlotV1(revision="offline-empty", binding=None),
+            online=RegistryMailboxSlotV1(revision="online-empty", binding=None),
+        ),
+        canonical_mail_identity=None,
     )
 
 
@@ -152,7 +146,7 @@ def _sample_external_record(
     )
 
 
-class _SchemaInvalidDumpRecord(LiveAgentRegistryRecordV2):
+class _SchemaInvalidDumpRecord(ManagedAgentRegistryRecordV3):
     """Test-only model that emits a schema-invalid payload on dump."""
 
     def model_dump(self, *args: object, **kwargs: object) -> dict[str, object]:
@@ -201,7 +195,7 @@ def test_registry_publish_and_resolve_accepts_friendly_name(
     assert resolved.generation_id == "generation-1"
 
 
-def test_registry_loads_legacy_v2_payload_as_active_lifecycle_record(
+def test_registry_rejects_unsupported_legacy_projection(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -210,18 +204,16 @@ def test_registry_loads_legacy_v2_payload_as_active_lifecycle_record(
     legacy_record = _sample_record(agent_name="gpu")
     record_path = registry_root / "live_agents" / legacy_record.agent_id / "record.json"
     record_path.parent.mkdir(parents=True)
+    legacy_payload = legacy_record.model_dump(mode="json")
+    legacy_payload["schema_version"] = 2
     record_path.write_text(
-        json.dumps(legacy_record.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
+        json.dumps(legacy_payload, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
 
     resolved = resolve_live_agent_record("gpu")
 
-    assert resolved is not None
-    assert resolved.lifecycle.state == "active"
-    assert resolved.terminal.current_session_name == "gpu"
-    assert resolved.terminal.last_session_name == "gpu"
-    assert resolved.liveness is not None
+    assert resolved is None
 
 
 def test_registry_resolves_exact_terminal_session_matches(
@@ -487,24 +479,15 @@ def test_registry_schema_is_packaged_and_covers_optional_gateway_and_mailbox_gro
     schema = load_schema(LIVE_AGENT_REGISTRY_SCHEMA)
 
     gateway = schema["properties"]["gateway"]
-    mailbox = schema["properties"]["mailbox"]
-
+    mailboxes = schema["properties"]["mailboxes"]
     assert gateway["anyOf"][1]["type"] == "null"
-    gateway_object = schema["$defs"]["RegistryGatewayV1"]
-    assert gateway_object["required"] == ["host", "port", "state_path", "protocol_version"]
-    assert gateway_object["properties"]["host"]["enum"] == ["127.0.0.1", "0.0.0.0"]
-    assert gateway_object["properties"]["protocol_version"]["const"] == "v1"
-
-    assert mailbox["anyOf"][1]["type"] == "null"
-    mailbox_object = schema["$defs"]["RegistryMailboxFilesystemV1"]
-    assert mailbox_object["required"] == [
-        "transport",
-        "principal_id",
-        "address",
-        "filesystem_root",
-        "bindings_version",
-    ]
-    assert mailbox_object["properties"]["transport"]["const"] == "filesystem"
+    assert mailboxes["$ref"] == "#/$defs/RegistryMailboxesV1"
+    slots = schema["$defs"]["RegistryMailboxesV1"]
+    assert slots["required"] == ["offline", "online"]
+    binding = schema["$defs"]["RegistryMailboxBindingV1"]
+    assert "agent_id" in binding["required"]
+    assert "binding_id" in binding["required"]
+    assert "credential_ref" not in binding["properties"]
 
 
 def test_cleanup_removes_expired_or_malformed_live_agent_dirs(

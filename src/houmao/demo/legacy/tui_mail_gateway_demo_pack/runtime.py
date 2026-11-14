@@ -372,7 +372,8 @@ def enable_notifier(*, state: DemoState) -> dict[str, Any]:
 
     client = build_gateway_client(state=state)
     status = client.put_mail_notifier(
-        GatewayMailNotifierPutV1(interval_seconds=state.notifier_interval_seconds)
+        GatewayMailNotifierPutV1(interval_seconds=state.notifier_interval_seconds),
+        channel="offline",
     )
     return status.model_dump(mode="json")
 
@@ -381,7 +382,7 @@ def disable_notifier(*, state: DemoState) -> dict[str, Any]:
     """Disable gateway unread-mail polling for the persisted session."""
 
     client = build_gateway_client(state=state)
-    status = client.delete_mail_notifier()
+    status = client.delete_mail_notifier(channel="offline")
     return status.model_dump(mode="json")
 
 

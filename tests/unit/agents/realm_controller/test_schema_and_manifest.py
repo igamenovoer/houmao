@@ -147,7 +147,7 @@ def test_session_manifest_write_and_load_round_trip(tmp_path: Path) -> None:
     loaded = load_session_manifest(path)
 
     assert loaded.path == path
-    assert loaded.payload["schema_version"] == 4
+    assert loaded.payload["schema_version"] == 5
     assert loaded.payload["backend"] == "claude_headless"
     assert loaded.payload["agent_name"] == "HOUMAO-claude"
     assert loaded.payload["agent_id"] == derive_agent_id_from_name("HOUMAO-claude")

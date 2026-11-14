@@ -1,33 +1,25 @@
-# Register A Mailbox Account
-
-Use this action only when the user wants to create or reuse one manually administered filesystem mailbox registration under one mailbox root.
+# Register an Offline Mailbox Account
 
 ## Workflow
 
-1. Determine whether the task targets one arbitrary filesystem mailbox root or the active project mailbox root.
-2. Confirm that manual mailbox-account registration is actually the right lane:
-   - for an already-running local managed agent, use the late-binding action pages instead
-   - for a new specialist-backed easy instance whose ordinary mailbox address will be derived from the managed-agent name under the same shared root, explain that the later launch step may own mailbox registration instead of preregistering that address here
-3. Require the full mailbox address and mailbox owner principal id.
-4. If the user asks how to choose those values, explain the ordinary split explicitly: principal id `HOUMAO-<agentname>`, mailbox address `<agentname>@houmao.localhost`, and reserved `HOUMAO-*` mailbox local parts under `houmao.localhost` for Houmao-owned system principals only.
-5. If the user supplied a registration mode, preserve it exactly; otherwise let the command default to `safe`.
-6. Use the `houmao-mgr` launcher already chosen by the top-level skill.
-7. Run the matching mailbox registration command.
-8. Report the returned registration payload, including replacement posture when relevant.
-
+1. Confirm the explicit registry/store lane and stable owner ID.
+2. Check the requested address and existing ownership before enrollment.
+3. Run the exclusive registration command below; preserve conflicts without takeover.
+4. Report the confirmed registration, scope, and any reconciliation needed.
 
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
-## Command Shape
+
+## Procedure
+
+Use generic or project mailbox registration for deliberate local administrative enrollment. For an existing managed body, use the offline join action instead. Registration requires the full address and owner principal ID; for a Houmao agent, that owner is its persisted `agent_id`.
 
 ```bash
-<chosen houmao-mgr launcher> mailbox register --address <address> --principal-id <principal-id> [--mailbox-root <root>] [--mode safe|force|stash] [--yes]
-<chosen houmao-mgr launcher> project mailbox register --address <address> --principal-id <principal-id> [--mode safe|force|stash] [--yes]
+<chosen houmao-mgr launcher> mailbox register --address <address> --principal-id <agent-id> [--mailbox-root <configured-store>]
+<chosen houmao-mgr launcher> project mailbox register --address <address> --principal-id <agent-id>
 ```
 
-## Guardrails
+The selected store must match the selected registry configuration. Registration claims ownership atomically. Another owner's address conflicts; repeating the same owner/address claim is idempotent. Force, stash, overwrite prompts, and `--yes` cannot bypass ownership. Release an old registration explicitly before assigning a fresh registration to another owner.
 
-- Do not guess the mailbox address or principal id.
-- Do not recommend `HOUMAO-<agentname>@houmao.localhost` as the ordinary mailbox-address pattern.
-- Do not present this action as the default way to prepare per-agent mailbox addresses that a same-root `project agents launch --mail-transport filesystem --mail-root ...` step can own later.
-- Do not skip the overwrite-confirmation contract when the task is destructive and non-interactive.
-- Do not treat registration as a direct agent-binding task; use the late-binding action pages for existing managed agents.
+Ordinary managed-agent addresses use `<agent-name>@houmao.localhost`; `HOUMAO-*` local parts under that domain remain reserved for system principals. Do not preregister a new launch's derived address under a guessed name-derived ID. Resolve its stable owner first or let launch own the registration.
+
+Report the registration ID and confirmed ownership. Do not claim that local enrollment alone makes a remote agent's runtime paths accessible or grants body lifecycle control.

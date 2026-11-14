@@ -15,6 +15,7 @@ from houmao.mailbox.protocol import HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE
 
 def test_send_request_accepts_optional_notify_block_and_auth() -> None:
     payload = GatewayMailSendRequestV1(
+        expected_binding_id="binding-test",
         to=["bob@houmao.localhost"],
         subject="hello",
         body_content="ordinary body",
@@ -31,6 +32,7 @@ def test_send_request_accepts_optional_notify_block_and_auth() -> None:
 
 def test_send_request_omits_notify_fields_by_default() -> None:
     payload = GatewayMailSendRequestV1(
+        expected_binding_id="binding-test",
         to=["bob@houmao.localhost"],
         subject="hello",
         body_content="ordinary body",
@@ -43,6 +45,7 @@ def test_send_request_omits_notify_fields_by_default() -> None:
 def test_send_request_rejects_unsupported_notify_auth_scheme() -> None:
     with pytest.raises(ValidationError, match="verifier not yet supported"):
         GatewayMailSendRequestV1(
+            expected_binding_id="binding-test",
             to=["bob@houmao.localhost"],
             subject="hello",
             body_content="ordinary body",
@@ -52,6 +55,7 @@ def test_send_request_rejects_unsupported_notify_auth_scheme() -> None:
 
 def test_post_request_accepts_optional_notify_block_with_prepend() -> None:
     payload = GatewayMailPostRequestV1(
+        expected_binding_id="binding-test",
         subject="hello",
         body_content="ordinary body",
         reply_policy=HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
@@ -67,6 +71,7 @@ def test_post_request_accepts_optional_notify_block_with_prepend() -> None:
 def test_post_request_rejects_unsupported_notify_auth_scheme() -> None:
     with pytest.raises(ValidationError, match="verifier not yet supported"):
         GatewayMailPostRequestV1(
+            expected_binding_id="binding-test",
             subject="hello",
             body_content="ordinary body",
             reply_policy=HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
@@ -76,6 +81,7 @@ def test_post_request_rejects_unsupported_notify_auth_scheme() -> None:
 
 def test_reply_request_accepts_optional_notify_block() -> None:
     payload = GatewayMailReplyRequestV1(
+        expected_binding_id="binding-test",
         message_ref="filesystem:msg-20260425T120000Z-a1b2c3d4e5f64798aabbccddeeff0011",
         body_content="reply body",
         notify_block={"text": "ack"},

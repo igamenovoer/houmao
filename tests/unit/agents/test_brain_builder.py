@@ -17,7 +17,13 @@ from houmao.agents.brain_builder import (
 )
 from houmao.agents.kimi_system_prompt import prompt_sha256
 from houmao.agents.launch_overrides import LaunchArgsSection, LaunchOverrides
-from houmao.agents.mailbox_runtime_models import FilesystemMailboxDeclarativeConfig
+from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
+from houmao.agents.mailbox_runtime_models import (
+    FilesystemMailboxDeclarativeConfig,
+    MailboxesDeclarativeConfig,
+)
+
+
 from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig
 from houmao.agents.system_skills import (
     SYSTEM_SKILL_AGENT_LOOP_LITE,
@@ -32,6 +38,42 @@ from houmao.agents.system_skills import (
     SystemSkillSelectionPolicy,
     discover_installed_system_skills,
 )
+
+
+def test_brain_identity_creation_and_reuse(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from dataclasses import replace
+    from uuid import UUID
+
+    agent_def_dir = tmp_path / "agent-defs"
+    agent_def_dir.mkdir()
+    _seed_claude_repo(agent_def_dir)
+    request = BuildRequest(
+        agent_def_dir=agent_def_dir,
+        runtime_root=tmp_path / "runtime",
+        tool="claude",
+        skills=["skill-a"],
+        config_profile="default",
+        credential_profile="personal-a",
+        agent_name="alice",
+        home_id="alice",
+    )
+    created = build_brain_home(request)
+    first_id = created.manifest["identity"]["agent_id"]
+    assert UUID(first_id).version == 4
+    duplicate_name = build_brain_home(replace(request, home_id="another-alice"))
+    assert duplicate_name.manifest["identity"]["agent_id"] != first_id
+    hashed = build_brain_home(replace(request, home_id="hash-alice", agent_id_mode="name-hash"))
+    assert hashed.manifest["identity"]["agent_id"] == derive_agent_id_from_name("alice")
+    template = build_brain_home(replace(request, home_id="template", agent_name=None))
+    assert "identity" not in template.manifest
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.agent_identity.uuid.uuid4",
+        lambda: pytest.fail("reuse must not create another ID"),
+    )
+    reused = build_brain_home(replace(request, reuse_home=True))
+    assert reused.manifest["identity"]["agent_id"] == first_id
+    with pytest.raises(BuildError, match="cannot change agent_id"):
+        build_brain_home(replace(request, reuse_home=True, agent_id="other-agent"))
 
 
 def _write(path: Path, content: str) -> None:
@@ -715,11 +757,13 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
             skills=["skill-a"],
             config_profile="default",
             credential_profile="personal-a",
-            mailbox=FilesystemMailboxDeclarativeConfig(
-                transport="filesystem",
-                principal_id="HOUMAO-research",
-                address="HOUMAO-research@agents.localhost",
-                filesystem_root="shared-mail",
+            mailboxes=MailboxesDeclarativeConfig(
+                offline=FilesystemMailboxDeclarativeConfig(
+                    transport="filesystem",
+                    principal_id="HOUMAO-research",
+                    address="HOUMAO-research@agents.localhost",
+                    filesystem_root="shared-mail",
+                )
             ),
             home_id="home-gateway-first-mailbox",
         )
@@ -764,7 +808,7 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     assert "The trigger word `houmao` is intentional." in gateway_skill
     assert "houmao-mgr mailbox ..." in mailbox_mgr_skill
     assert "houmao-mgr project mailbox ..." in mailbox_mgr_skill
-    assert "houmao-mgr agents single --agent-id <id> mailbox ..." in mailbox_mgr_skill
+    assert "houmao-mgr agents single --agent-id <id> mailbox offline ..." in mailbox_mgr_skill
     assert "`--agent-name <name>`" in mailbox_mgr_skill
     assert "HOUMAO_AGENT_MEMO_FILE" in memory_mgr_skill
     assert "houmao-mgr agents self memory" in memory_mgr_skill
@@ -787,11 +831,13 @@ def test_build_brain_home_projects_claude_mailbox_skills_top_level(
             skills=["skill-a"],
             config_profile="default",
             credential_profile="personal-a",
-            mailbox=FilesystemMailboxDeclarativeConfig(
-                transport="filesystem",
-                principal_id="HOUMAO-research",
-                address="HOUMAO-research@agents.localhost",
-                filesystem_root="shared-mail",
+            mailboxes=MailboxesDeclarativeConfig(
+                offline=FilesystemMailboxDeclarativeConfig(
+                    transport="filesystem",
+                    principal_id="HOUMAO-research",
+                    address="HOUMAO-research@agents.localhost",
+                    filesystem_root="shared-mail",
+                )
             ),
             home_id="claude-home-mailbox",
         )
@@ -832,21 +878,22 @@ def test_build_brain_home_projects_claude_mailbox_skills_top_level(
         in (gateway_skill)
     )
     assert "references/root-selection.md" in mailbox_mgr_skill
-    assert "For notifier-driven shared mailbox gateway work" in filesystem_skill
-    assert "use `houmao-shared-routines->houmao-process-emails-via-gateway`" in filesystem_skill
+    assert "/v1/mail/offline/..." in filesystem_skill
+    assert "--channel offline --expected-binding-id <binding_id>" in filesystem_skill
     assert "$GATEWAY_BASE_URL/v1/mail/status" in curl_reference
-    assert "houmao-mgr agents self mail resolve-live | jq -r '.gateway.base_url'" in curl_reference
+    assert "exact `GATEWAY_BASE_URL`" in curl_reference
     assert "pixi run houmao-mgr agents self mail resolve-live" not in curl_reference
-    assert '"schema_version":1,"message_refs":["<opaque message_ref>"]' in curl_reference
+    assert "schema_version:3,expected_binding_id:$binding,message_refs:[$ref]" in curl_reference
 
-    assert "houmao-shared-routines->houmao-process-emails-via-gateway" in filesystem_skill
+    assert "The selected offline sender address remains the offline address" in filesystem_skill
     assert "houmao-agent-email-comms" not in filesystem_skill
-    assert "gateway: null" in filesystem_skill
+    assert "When no gateway is attached" in filesystem_skill
     assert "filesystem" in filesystem_skill
     assert "pixi run houmao-mgr agents self mail resolve-live" not in filesystem_skill
-    assert "houmao-shared-routines->houmao-process-emails-via-gateway" in stalwart_skill
+    assert "/v1/mail/online/..." in stalwart_skill
+    assert "--channel online --expected-binding-id <binding_id>" in stalwart_skill
     assert "houmao-agent-email-comms" not in stalwart_skill
-    assert "gateway: null" in stalwart_skill
+    assert "With no gateway" in stalwart_skill
     assert "stalwart" in stalwart_skill
     assert "pixi run houmao-mgr agents self mail resolve-live" not in stalwart_skill
 
@@ -885,11 +932,13 @@ def test_build_brain_home_persists_declarative_mailbox_config_in_manifest(tmp_pa
             skills=["skill-a"],
             config_profile="default",
             credential_profile="personal-a",
-            mailbox=FilesystemMailboxDeclarativeConfig(
-                transport="filesystem",
-                principal_id="HOUMAO-research",
-                address="HOUMAO-research@agents.localhost",
-                filesystem_root="shared-mail",
+            mailboxes=MailboxesDeclarativeConfig(
+                offline=FilesystemMailboxDeclarativeConfig(
+                    transport="filesystem",
+                    principal_id="HOUMAO-research",
+                    address="HOUMAO-research@agents.localhost",
+                    filesystem_root="shared-mail",
+                )
             ),
             home_id="home-mailbox-001",
         )
@@ -897,7 +946,7 @@ def test_build_brain_home_persists_declarative_mailbox_config_in_manifest(tmp_pa
 
     manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
 
-    assert manifest["mailbox"] == {
+    assert manifest["mailboxes"]["offline"] == {
         "transport": "filesystem",
         "principal_id": "HOUMAO-research",
         "address": "HOUMAO-research@agents.localhost",

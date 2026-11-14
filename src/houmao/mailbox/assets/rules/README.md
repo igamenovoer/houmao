@@ -4,7 +4,7 @@ This mailbox root is managed by `Houmao`.
 
 ## Managed assets
 
-- `protocols/filesystem-mailbox-v1.md` documents the v1 filesystem mailbox contract shipped with this build.
+- `protocols/filesystem-mailbox-v1.md` documents the version 4 filesystem mailbox contract shipped with this build.
 - `scripts/` may contain compatibility or diagnostic helper assets published by the runtime.
 - When those helpers are published, `scripts/requirements.txt` declares their third-party Python dependencies.
 - Those compatibility helpers validate payload files through strict shared `pydantic` schemas before they mutate mailbox files, shared `index.sqlite`, mailbox-local `mailbox.sqlite`, or locks.

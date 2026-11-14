@@ -6,18 +6,18 @@ Use this surface when `houmao-mgr agents self mail resolve-live` returns `gatewa
 
 ```bash
 <chosen houmao-mgr launcher> agents self mail status
-<chosen houmao-mgr launcher> agents self mail list
-<chosen houmao-mgr launcher> agents self mail peek --message-ref <message_ref>
-<chosen houmao-mgr launcher> agents self mail read --message-ref <message_ref>
-<chosen houmao-mgr launcher> agents self mail send --to <recipient> --subject <subject> --body-content <body>
-<chosen houmao-mgr launcher> agents self mail post --subject <subject> --body-content <body>
-<chosen houmao-mgr launcher> agents self mail reply --message-ref <message_ref> --body-content <body>
-<chosen houmao-mgr launcher> agents self mail mark --message-ref <message_ref> --read
-<chosen houmao-mgr launcher> agents self mail move --message-ref <message_ref> --destination-box <box>
-<chosen houmao-mgr launcher> agents self mail archive --message-ref <message_ref>
+<chosen houmao-mgr launcher> agents self mail list --channel <channel> --expected-binding-id <binding_id>
+<chosen houmao-mgr launcher> agents self mail peek --channel <channel> --expected-binding-id <binding_id> --message-ref <message_ref>
+<chosen houmao-mgr launcher> agents self mail read --channel <channel> --expected-binding-id <binding_id> --message-ref <message_ref>
+<chosen houmao-mgr launcher> agents self mail send --channel <channel> --expected-binding-id <binding_id> --to <recipient> --subject <subject> --body-content <body>
+<chosen houmao-mgr launcher> agents self mail post --channel <channel> --expected-binding-id <binding_id> --subject <subject> --body-content <body>
+<chosen houmao-mgr launcher> agents self mail reply --channel <channel> --expected-binding-id <binding_id> --message-ref <message_ref> --body-content <body>
+<chosen houmao-mgr launcher> agents self mail mark --channel <channel> --expected-binding-id <binding_id> --message-ref <message_ref> --read
+<chosen houmao-mgr launcher> agents self mail move --channel <channel> --expected-binding-id <binding_id> --message-ref <message_ref> --destination-box <box>
+<chosen houmao-mgr launcher> agents self mail archive --channel <channel> --expected-binding-id <binding_id> --message-ref <message_ref>
 <chosen houmao-mgr launcher> agents single --agent-id <agent-id> mail status
-<chosen houmao-mgr launcher> agents single --agent-id <agent-id> mail list
-<chosen houmao-mgr launcher> agents single --agent-id <agent-id> mail send --to <recipient> --subject <subject> --body-content <body>
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> mail list --channel <channel> --expected-binding-id <binding_id>
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> mail send --channel <channel> --expected-binding-id <binding_id> --to <recipient> --subject <subject> --body-content <body>
 ```
 
 Use only the structured fields returned by `agents self mail resolve-live` or `agents single ... mail resolve-live` for mailbox identity, transport, and fallback inputs.

@@ -30,10 +30,12 @@ from __future__ import annotations
 
 import hashlib
 import re
+import uuid
 from collections.abc import Collection
 from dataclasses import dataclass
+from typing import Literal
 
-from .errors import SessionManifestError
+from houmao.agents.realm_controller.errors import SessionManifestError
 
 AGENT_NAMESPACE_PREFIX = "HOUMAO-"
 AGENT_RESERVED_TOKEN = "HOUMAO"
@@ -54,6 +56,50 @@ _SANITIZE_COMPONENT_RE = re.compile(r"[^A-Za-z0-9_-]+")
 _COLLAPSE_DASH_RE = re.compile(r"-{2,}")
 _COLLAPSE_UNDERSCORE_RE = re.compile(r"_{2,}")
 _SAFE_MANAGED_AGENT_COMPONENT_RE = re.compile(SAFE_MANAGED_AGENT_COMPONENT_PATTERN)
+
+AgentIdMode = Literal["uuid", "name-hash"]
+
+
+@dataclass(frozen=True)
+class AgentIdentityCreation:
+    """Identity inputs used only when creating a logical agent.
+
+    An omitted mode selects UUID generation, unless an opaque ID is supplied.
+    Explicit generation and a supplied ID are mutually exclusive.
+    """
+
+    agent_name: str | None = None
+    agent_id: str | None = None
+    agent_id_mode: AgentIdMode | None = None
+
+    def resolve(self) -> ResolvedAgentIdentity:
+        """Resolve one immutable ID before materializing agent state."""
+
+        if self.agent_id is not None:
+            if self.agent_id_mode is not None:
+                raise SessionManifestError(
+                    "A supplied agent_id cannot be combined with an explicit agent_id_mode."
+                )
+            return ResolvedAgentIdentity(
+                agent_id=normalize_managed_agent_id(self.agent_id), provenance="supplied"
+            )
+        if self.agent_id_mode is None or self.agent_id_mode == "uuid":
+            return ResolvedAgentIdentity(agent_id=str(uuid.uuid4()), provenance="uuid")
+        if self.agent_id_mode == "name-hash":
+            if self.agent_name is None:
+                raise SessionManifestError("name-hash identity creation requires an agent_name.")
+            return ResolvedAgentIdentity(
+                agent_id=derive_agent_id_from_name(self.agent_name), provenance="name-hash"
+            )
+        raise SessionManifestError(f"Unsupported agent_id_mode: {self.agent_id_mode!r}.")
+
+
+@dataclass(frozen=True)
+class ResolvedAgentIdentity:
+    """Opaque agent ID and its creation-only diagnostic provenance."""
+
+    agent_id: str
+    provenance: Literal["uuid", "name-hash", "supplied"]
 
 
 @dataclass(frozen=True)
@@ -202,7 +248,7 @@ def derive_default_canonical_agent_name(*, tool: str, role_name: str) -> str:
 
 
 def derive_agent_id_from_name(value: str) -> str:
-    """Derive the authoritative default agent id from a managed-agent name."""
+    """Derive an opt-in name-hash ID; callers guarantee name uniqueness."""
 
     normalized_name = normalize_managed_agent_name(value)
     return hashlib.md5(normalized_name.encode("utf-8"), usedforsecurity=False).hexdigest()

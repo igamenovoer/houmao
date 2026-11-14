@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from houmao.agents.realm_controller.agent_identity import AgentIdMode
 
 # ruff: noqa: F403,F405
 from .project_common import *
@@ -1746,6 +1747,13 @@ def easy_instance_group() -> None:
 @click.option("--specialist", default=None, help="Specialist name.")
 @click.option("--profile", default=None, help="Project profile name.")
 @click.option("--name", default=None, help="Managed-agent instance name.")
+@click.option("--agent-id", default=None, help="Explicit stable opaque agent identity.")
+@click.option(
+    "--agent-id-mode",
+    type=click.Choice(("uuid", "name-hash")),
+    default=None,
+    help="Creation ID mode (default: uuid); mutually exclusive with --agent-id.",
+)
 @click.option("--auth", default=None, help="Optional auth override for the compiled preset.")
 @click.option("--model", default=None, help="Optional one-off launch-owned model override.")
 @click.option(
@@ -1872,6 +1880,8 @@ def launch_easy_instance_command(
     specialist: str | None,
     profile: str | None,
     name: str | None,
+    agent_id: str | None,
+    agent_id_mode: AgentIdMode | None,
     auth: str | None,
     model: str | None,
     reasoning_level: int | None,
@@ -2127,7 +2137,8 @@ def launch_easy_instance_command(
     launch_result = launch_managed_agent_locally(
         agents=str(specialist_metadata.resolved_preset_path(overlay)),
         agent_name=resolved_name,
-        agent_id=None,
+        agent_id=agent_id,
+        agent_id_mode=agent_id_mode,
         auth=resolved_auth,
         session_name=_optional_non_empty_value(session_name),
         headless=resolved_headless,
@@ -2150,7 +2161,7 @@ def launch_easy_instance_command(
         mailbox_transport=mail_transport,
         mailbox_root=mail_root.resolve() if mail_root is not None else None,
         mailbox_account_dir=(mail_account_dir.resolve() if mail_account_dir is not None else None),
-        declared_mailbox=declared_mailbox,
+        declared_mailboxes=declared_mailbox,
         operator_prompt_mode=operator_prompt_mode,
         persistent_env_records=persistent_env_records,
         launch_profile_model_config=launch_profile_model_config,

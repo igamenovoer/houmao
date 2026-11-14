@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
+
+import yaml
 import shutil
 from collections.abc import Iterator
 from pathlib import Path
@@ -17,6 +20,7 @@ from houmao.agents.realm_controller.loaders import load_brain_manifest, load_rol
 from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
     build_session_manifest_payload,
+    default_manifest_path,
 )
 from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
 from houmao.agents.realm_controller.runtime import (
@@ -24,10 +28,21 @@ from houmao.agents.realm_controller.runtime import (
     resume_runtime_session,
     start_runtime_session,
 )
-from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
+from houmao.agents.mailbox_runtime_models import (
+    FilesystemMailboxResolvedConfig,
+    MailboxesResolvedConfig,
+    MailboxSlotConfig,
+)
 from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
 from houmao.mailbox.filesystem import MailboxBootstrapError
-from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
+from houmao.mailbox import (
+    MailboxPrincipal,
+    bootstrap_filesystem_mailbox,
+    load_active_mailbox_registration,
+)
+from houmao.mailbox.registry_config import associate_registry_store
+from houmao.owned_paths import resolve_registry_root
+from houmao.project.overlay import resolve_project_aware_mailbox_root
 from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
 from houmao.project.overlay import bootstrap_project_overlay
 
@@ -124,10 +139,73 @@ def _seed_brain_manifest(
         ]
     )
     if mailbox_block is not None:
-        lines.extend(["mailbox:", *mailbox_block.splitlines()])
+        declaration = yaml.safe_load(mailbox_block)
+        declaration.pop("principal_id", None)
+        lines.extend(
+            yaml.safe_dump(
+                {"mailboxes": {"offline": declaration, "online": None}}, sort_keys=False
+            ).splitlines()
+        )
 
     manifest_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return manifest_path
+
+
+def _offline_binding(**kwargs: Any) -> FilesystemMailboxResolvedConfig:
+    """Construct explicit fixture ownership under deterministic caller-selected identity."""
+
+    owner = derive_agent_id_from_name(kwargs.pop("principal_id"))
+    return FilesystemMailboxResolvedConfig(
+        agent_id=owner, principal_id=owner, binding_id="unprepared", **kwargs
+    )
+
+
+def _offline_mailboxes(binding: FilesystemMailboxResolvedConfig | None) -> MailboxesResolvedConfig:
+    """Use confirmed registration scope when constructing an existing-agent fixture."""
+
+    if binding is None:
+        return MailboxesResolvedConfig()
+    associate_registry_store(resolve_registry_root(), binding.filesystem_root)
+    bootstrap_filesystem_mailbox(
+        binding.filesystem_root,
+        principal=MailboxPrincipal(principal_id=binding.agent_id, address=binding.address),
+    )
+    registration = load_active_mailbox_registration(
+        binding.filesystem_root, address=binding.address
+    )
+    binding = replace(
+        binding, binding_id=registration.registration_id, registry_root=resolve_registry_root()
+    )
+    return MailboxesResolvedConfig(
+        offline=MailboxSlotConfig(revision=binding.bindings_version, binding=binding)
+    )
+
+
+def _start_configured_session(**kwargs: Any) -> RuntimeSessionController:
+    """Initialize the isolated selected registry before exercising the real launch path."""
+
+    brain = load_brain_manifest(kwargs["brain_manifest_path"])
+    declaration = brain.get("mailboxes", {}).get("offline")
+    root = kwargs.get("mailbox_root")
+    if root is None and declaration is not None:
+        root = Path(declaration["filesystem_root"])
+        if not root.is_absolute():
+            root = kwargs["runtime_root"] / root
+    if root is not None:
+        associate_registry_store(resolve_registry_root(), root)
+    return start_runtime_session(**kwargs)
+
+
+def _join_configured_mailbox(controller: RuntimeSessionController, **kwargs: Any) -> Any:
+    """Explicitly configure one local authority before exercising late attachment."""
+
+    root = kwargs.get("mailbox_root")
+    if root is None:
+        root = resolve_project_aware_mailbox_root(cwd=controller.launch_plan.working_directory)
+    associate_registry_store(resolve_registry_root(), root)
+    if "principal_id" in kwargs:
+        kwargs["principal_id"] = controller.agent_id
+    return controller.register_filesystem_mailbox(**kwargs)
 
 
 def test_start_runtime_session_bootstraps_and_persists_mailbox_binding(
@@ -154,7 +232,7 @@ def test_start_runtime_session_bootstraps_and_persists_mailbox_binding(
         lambda **kwargs: object(),
     )
 
-    controller = start_runtime_session(
+    controller = _start_configured_session(
         agent_def_dir=agent_def_dir,
         brain_manifest_path=brain_manifest_path,
         role_name="r",
@@ -163,7 +241,7 @@ def test_start_runtime_session_bootstraps_and_persists_mailbox_binding(
         working_directory=tmp_path,
     )
 
-    mailbox = controller.launch_plan.mailbox
+    mailbox = controller.launch_plan.mailboxes.offline.binding
     assert mailbox is not None
     assert mailbox.filesystem_root == (runtime_root / "shared-mail").resolve()
     assert (mailbox.filesystem_root / "protocol-version.txt").is_file()
@@ -178,8 +256,13 @@ def test_start_runtime_session_bootstraps_and_persists_mailbox_binding(
     ).is_file()
 
     persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
-    assert persisted["launch_plan"]["mailbox"]["principal_id"] == "HOUMAO-research"
-    assert persisted["launch_plan"]["mailbox"]["filesystem_root"] == str(mailbox.filesystem_root)
+    assert (
+        persisted["launch_plan"]["mailboxes"]["offline"]["binding"]["principal_id"]
+        == controller.agent_id
+    )
+    assert persisted["launch_plan"]["mailboxes"]["offline"]["binding"]["filesystem_root"] == str(
+        mailbox.filesystem_root
+    )
 
 
 def test_start_runtime_session_mailbox_root_override_wins(monkeypatch, tmp_path: Path) -> None:
@@ -204,7 +287,7 @@ def test_start_runtime_session_mailbox_root_override_wins(monkeypatch, tmp_path:
         lambda **kwargs: object(),
     )
 
-    controller = start_runtime_session(
+    controller = _start_configured_session(
         agent_def_dir=agent_def_dir,
         brain_manifest_path=brain_manifest_path,
         role_name="r",
@@ -214,8 +297,10 @@ def test_start_runtime_session_mailbox_root_override_wins(monkeypatch, tmp_path:
         mailbox_root=override_root,
     )
 
-    assert controller.launch_plan.mailbox is not None
-    assert controller.launch_plan.mailbox.filesystem_root == override_root.resolve()
+    assert controller.launch_plan.mailboxes.offline.binding is not None
+    assert (
+        controller.launch_plan.mailboxes.offline.binding.filesystem_root == override_root.resolve()
+    )
     assert (override_root / "protocol-version.txt").is_file()
     assert not (runtime_root / "shared-mail" / "protocol-version.txt").exists()
 
@@ -251,7 +336,7 @@ def test_start_and_resume_runtime_session_preserve_symlink_mailbox_binding(
         lambda *, session_name, env_vars: None,
     )
 
-    controller = start_runtime_session(
+    controller = _start_configured_session(
         agent_def_dir=agent_def_dir,
         brain_manifest_path=brain_manifest_path,
         role_name="r",
@@ -261,7 +346,7 @@ def test_start_and_resume_runtime_session_preserve_symlink_mailbox_binding(
         mailbox_account_dir=private_mailbox_dir,
     )
 
-    mailbox = controller.launch_plan.mailbox
+    mailbox = controller.launch_plan.mailboxes.offline.binding
     assert isinstance(mailbox, FilesystemMailboxResolvedConfig)
     assert mailbox.filesystem_root == (runtime_root / "shared-mail").resolve()
     assert mailbox.mailbox_kind == "symlink"
@@ -273,8 +358,10 @@ def test_start_and_resume_runtime_session_preserve_symlink_mailbox_binding(
     assert "HOUMAO_MAILBOX_FS_MAILBOX_DIR" not in controller.launch_plan.env
 
     persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
-    assert persisted["launch_plan"]["mailbox"]["mailbox_kind"] == "symlink"
-    assert persisted["launch_plan"]["mailbox"]["mailbox_path"] == str(private_mailbox_dir)
+    assert persisted["launch_plan"]["mailboxes"]["offline"]["binding"]["mailbox_kind"] == "symlink"
+    assert persisted["launch_plan"]["mailboxes"]["offline"]["binding"]["mailbox_path"] == str(
+        private_mailbox_dir
+    )
 
     captured: dict[str, Any] = {}
 
@@ -291,13 +378,17 @@ def test_start_and_resume_runtime_session_preserve_symlink_mailbox_binding(
         session_manifest_path=controller.manifest_path,
     )
 
-    assert isinstance(resumed.launch_plan.mailbox, FilesystemMailboxResolvedConfig)
-    assert resumed.launch_plan.mailbox.mailbox_kind == "symlink"
-    assert resumed.launch_plan.mailbox.mailbox_path == private_mailbox_dir
+    assert isinstance(
+        resumed.launch_plan.mailboxes.offline.binding, FilesystemMailboxResolvedConfig
+    )
+    assert resumed.launch_plan.mailboxes.offline.binding.mailbox_kind == "symlink"
+    assert resumed.launch_plan.mailboxes.offline.binding.mailbox_path == private_mailbox_dir
     assert "HOUMAO_MAILBOX_FS_MAILBOX_DIR" not in resumed.launch_plan.env
-    assert isinstance(captured["launch_plan"].mailbox, FilesystemMailboxResolvedConfig)
-    assert captured["launch_plan"].mailbox.mailbox_kind == "symlink"
-    assert captured["launch_plan"].mailbox.mailbox_path == private_mailbox_dir
+    assert isinstance(
+        captured["launch_plan"].mailboxes.offline.binding, FilesystemMailboxResolvedConfig
+    )
+    assert captured["launch_plan"].mailboxes.offline.binding.mailbox_kind == "symlink"
+    assert captured["launch_plan"].mailboxes.offline.binding.mailbox_path == private_mailbox_dir
 
 
 def test_start_runtime_session_rejects_private_mailbox_inside_shared_root(
@@ -328,7 +419,7 @@ def test_start_runtime_session_rejects_private_mailbox_inside_shared_root(
         SessionManifestError,
         match="outside the shared mailbox root",
     ):
-        start_runtime_session(
+        _start_configured_session(
             agent_def_dir=agent_def_dir,
             brain_manifest_path=brain_manifest_path,
             role_name="r",
@@ -377,7 +468,7 @@ def test_start_runtime_session_bootstraps_second_mailbox_agent_on_initialized_ro
         lambda **kwargs: object(),
     )
 
-    sender = start_runtime_session(
+    sender = _start_configured_session(
         agent_def_dir=agent_def_dir,
         brain_manifest_path=sender_manifest,
         role_name="r",
@@ -385,7 +476,7 @@ def test_start_runtime_session_bootstraps_second_mailbox_agent_on_initialized_ro
         backend="codex_headless",
         working_directory=tmp_path,
     )
-    receiver = start_runtime_session(
+    receiver = _start_configured_session(
         agent_def_dir=agent_def_dir,
         brain_manifest_path=receiver_manifest,
         role_name="r",
@@ -394,10 +485,10 @@ def test_start_runtime_session_bootstraps_second_mailbox_agent_on_initialized_ro
         working_directory=tmp_path,
     )
 
-    assert sender.launch_plan.mailbox is not None
-    assert receiver.launch_plan.mailbox is not None
-    assert sender.launch_plan.mailbox.filesystem_root == shared_root.resolve()
-    assert receiver.launch_plan.mailbox.filesystem_root == shared_root.resolve()
+    assert sender.launch_plan.mailboxes.offline.binding is not None
+    assert receiver.launch_plan.mailboxes.offline.binding is not None
+    assert sender.launch_plan.mailboxes.offline.binding.filesystem_root == shared_root.resolve()
+    assert receiver.launch_plan.mailboxes.offline.binding.filesystem_root == shared_root.resolve()
     assert (shared_root / "mailboxes" / "HOUMAO-mailbox-sender@agents.localhost" / "inbox").is_dir()
     assert (
         shared_root / "mailboxes" / "HOUMAO-mailbox-receiver@agents.localhost" / "inbox"
@@ -421,12 +512,14 @@ def test_resume_runtime_session_restores_persisted_mailbox_binding(
             role_package=role,
             backend="claude_headless",
             working_directory=tmp_path,
-            mailbox=FilesystemMailboxResolvedConfig(
-                transport="filesystem",
-                principal_id="HOUMAO-research",
-                address="HOUMAO-research@agents.localhost",
-                filesystem_root=persisted_root.resolve(),
-                bindings_version="2026-03-12T05:00:00.000001Z",
+            mailboxes=_offline_mailboxes(
+                _offline_binding(
+                    transport="filesystem",
+                    principal_id="HOUMAO-research",
+                    address="HOUMAO-research@agents.localhost",
+                    filesystem_root=persisted_root.resolve(),
+                    bindings_version="2026-03-12T05:00:00.000001Z",
+                )
             ),
         )
     )
@@ -466,9 +559,14 @@ def test_resume_runtime_session_restores_persisted_mailbox_binding(
         session_manifest_path=session_path,
     )
 
-    assert controller.launch_plan.mailbox is not None
-    assert controller.launch_plan.mailbox.filesystem_root == persisted_root.resolve()
-    assert captured["launch_plan"].mailbox.filesystem_root == persisted_root.resolve()
+    assert controller.launch_plan.mailboxes.offline.binding is not None
+    assert (
+        controller.launch_plan.mailboxes.offline.binding.filesystem_root == persisted_root.resolve()
+    )
+    assert (
+        captured["launch_plan"].mailboxes.offline.binding.filesystem_root
+        == persisted_root.resolve()
+    )
 
 
 def test_mailbox_env_bindings_remain_strict_for_unregistered_address_on_initialized_root(
@@ -496,7 +594,7 @@ def test_mailbox_env_bindings_remain_strict_for_unregistered_address_on_initiali
         lambda **kwargs: object(),
     )
 
-    start_runtime_session(
+    _start_configured_session(
         agent_def_dir=agent_def_dir,
         brain_manifest_path=sender_manifest,
         role_name="r",
@@ -510,7 +608,7 @@ def test_mailbox_env_bindings_remain_strict_for_unregistered_address_on_initiali
         match="no active mailbox registration exists",
     ):
         mailbox_env_bindings(
-            FilesystemMailboxResolvedConfig(
+            _offline_binding(
                 transport="filesystem",
                 principal_id="HOUMAO-mailbox-receiver",
                 address="HOUMAO-mailbox-receiver@agents.localhost",
@@ -520,10 +618,10 @@ def test_mailbox_env_bindings_remain_strict_for_unregistered_address_on_initiali
         )
 
 
-def test_refresh_mailbox_bindings_updates_launch_plan_backend_and_manifest(tmp_path: Path) -> None:
+def test_refresh_mailbox_bindings_updates_revision_in_configured_store(tmp_path: Path) -> None:
     old_root = tmp_path / "mail-old"
-    new_root = tmp_path / "mail-new"
-    old_mailbox = FilesystemMailboxResolvedConfig(
+    new_root = old_root
+    old_mailbox = _offline_binding(
         transport="filesystem",
         principal_id="HOUMAO-research",
         address="HOUMAO-research@agents.localhost",
@@ -546,9 +644,9 @@ def test_refresh_mailbox_bindings_updates_launch_plan_backend_and_manifest(tmp_p
             prompt="Role prompt",
         ),
         metadata={},
-        mailbox=old_mailbox,
+        mailboxes=_offline_mailboxes(old_mailbox),
     )
-    manifest_path = tmp_path / "session.json"
+    manifest_path = default_manifest_path(tmp_path, "codex_headless", "fixture-session")
 
     captured: dict[str, LaunchPlan] = {}
 
@@ -571,15 +669,17 @@ def test_refresh_mailbox_bindings_updates_launch_plan_backend_and_manifest(tmp_p
     refreshed = controller.refresh_mailbox_bindings(filesystem_root=new_root)
 
     assert refreshed.filesystem_root == new_root.resolve()
-    assert controller.launch_plan.mailbox == refreshed
+    assert controller.launch_plan.mailboxes.offline.binding == refreshed
     assert controller.launch_plan.env == {"OPENAI_API_KEY": "sk-secret"}
     assert "HOUMAO_MAILBOX_FS_ROOT" not in controller.launch_plan.env
-    assert captured["launch_plan"].mailbox == refreshed
+    assert captured["launch_plan"].mailboxes.offline.binding == refreshed
     assert refreshed.bindings_version != old_mailbox.bindings_version
     assert (new_root / "protocol-version.txt").is_file()
 
     persisted = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert persisted["launch_plan"]["mailbox"]["filesystem_root"] == str(new_root.resolve())
+    assert persisted["launch_plan"]["mailboxes"]["offline"]["binding"]["filesystem_root"] == str(
+        new_root.resolve()
+    )
 
 
 def _controller_for_mailbox_mutation(
@@ -607,9 +707,9 @@ def _controller_for_mailbox_mutation(
             prompt="Role prompt",
         ),
         metadata=dict(metadata or {}),
-        mailbox=mailbox,
+        mailboxes=_offline_mailboxes(mailbox),
     )
-    manifest_path = tmp_path / "session.json"
+    manifest_path = default_manifest_path(tmp_path, "codex_headless", "fixture-session")
     captured: dict[str, LaunchPlan] = {}
 
     class _FakeBackend:
@@ -641,7 +741,8 @@ def test_register_filesystem_mailbox_updates_headless_launch_plan_and_manifest(
     )
     mailbox_root = tmp_path / "shared-mail"
 
-    result = controller.register_filesystem_mailbox(
+    result = _join_configured_mailbox(
+        controller,
         mailbox_root=mailbox_root,
         principal_id="HOUMAO-research",
         address="HOUMAO-research@agents.localhost",
@@ -649,13 +750,17 @@ def test_register_filesystem_mailbox_updates_headless_launch_plan_and_manifest(
 
     assert result.activation_state == "active"
     assert result.mailbox is not None
-    assert controller.launch_plan.mailbox == result.mailbox
-    assert controller.launch_plan.mailbox.filesystem_root == mailbox_root.resolve()
+    assert controller.launch_plan.mailboxes.offline.binding == result.mailbox
+    assert (
+        controller.launch_plan.mailboxes.offline.binding.filesystem_root == mailbox_root.resolve()
+    )
     assert controller.mailbox_activation_state() == "active"
-    assert captured["launch_plan"].mailbox == result.mailbox
+    assert captured["launch_plan"].mailboxes.offline.binding == result.mailbox
     assert "HOUMAO_MAILBOX_FS_ROOT" not in controller.launch_plan.env
     persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
-    assert persisted["launch_plan"]["mailbox"]["filesystem_root"] == str(mailbox_root.resolve())
+    assert persisted["launch_plan"]["mailboxes"]["offline"]["binding"]["filesystem_root"] == str(
+        mailbox_root.resolve()
+    )
 
 
 def test_register_filesystem_mailbox_marks_local_interactive_session_active(
@@ -668,14 +773,15 @@ def test_register_filesystem_mailbox_marks_local_interactive_session_active(
         mailbox=None,
     )
 
-    result = controller.register_filesystem_mailbox(
+    result = _join_configured_mailbox(
+        controller,
         mailbox_root=tmp_path / "shared-mail",
         principal_id="HOUMAO-research",
         address="HOUMAO-research@agents.localhost",
     )
 
     assert result.activation_state == "active"
-    assert controller.launch_plan.mailbox is not None
+    assert controller.launch_plan.mailboxes.offline.binding is not None
     assert controller.mailbox_activation_state() == "active"
     assert "mailbox_live_enabled" not in controller.launch_plan.metadata
     assert "mailbox_live_bindings_version" not in controller.launch_plan.metadata
@@ -693,7 +799,8 @@ def test_register_filesystem_mailbox_defaults_to_project_overlay_root(
         mailbox=None,
     )
 
-    result = controller.register_filesystem_mailbox(
+    result = _join_configured_mailbox(
+        controller,
         principal_id="HOUMAO-research",
         address="HOUMAO-research@agents.localhost",
     )
@@ -711,12 +818,13 @@ def test_register_filesystem_mailbox_derives_ordinary_houmao_address_when_omitte
         mailbox=None,
     )
 
-    result = controller.register_filesystem_mailbox(
+    result = _join_configured_mailbox(
+        controller,
         mailbox_root=tmp_path / "shared-mail",
     )
 
     assert result.mailbox is not None
-    assert result.mailbox.principal_id == "HOUMAO-research"
+    assert result.mailbox.principal_id == controller.agent_id
     assert result.mailbox.address == "research@houmao.localhost"
 
 
@@ -724,7 +832,7 @@ def test_unregister_filesystem_mailbox_clears_local_interactive_mailbox_binding(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    existing_mailbox = FilesystemMailboxResolvedConfig(
+    existing_mailbox = _offline_binding(
         transport="filesystem",
         principal_id="HOUMAO-research",
         address="HOUMAO-research@agents.localhost",
@@ -747,7 +855,7 @@ def test_unregister_filesystem_mailbox_clears_local_interactive_mailbox_binding(
     result = controller.unregister_filesystem_mailbox()
 
     assert result.activation_state == "active"
-    assert controller.launch_plan.mailbox is None
+    assert controller.launch_plan.mailboxes.offline.binding is None
     assert controller.mailbox_activation_state() is None
     assert "mailbox_live_enabled" not in controller.launch_plan.metadata
     assert "mailbox_live_bindings_version" not in controller.launch_plan.metadata
@@ -757,7 +865,7 @@ def test_relaunch_keeps_local_interactive_mailbox_active_without_live_metadata(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    existing_mailbox = FilesystemMailboxResolvedConfig(
+    existing_mailbox = _offline_binding(
         transport="filesystem",
         principal_id="HOUMAO-research",
         address="HOUMAO-research@agents.localhost",
@@ -826,7 +934,7 @@ def test_relaunch_drops_one_off_env_overrides_and_keeps_persistent_env_records(
         lambda **kwargs: object(),
     )
 
-    controller = start_runtime_session(
+    controller = _start_configured_session(
         agent_def_dir=agent_def_dir,
         brain_manifest_path=brain_manifest_path,
         role_name="r",
@@ -889,7 +997,7 @@ def test_relaunch_of_older_manifest_recomputes_default_managed_header(
         lambda **kwargs: object(),
     )
 
-    controller = start_runtime_session(
+    controller = _start_configured_session(
         agent_def_dir=agent_def_dir,
         brain_manifest_path=brain_manifest_path,
         role_name="r",
@@ -952,7 +1060,8 @@ def test_late_mailbox_registration_supports_joined_sessions_without_relaunch_pos
         posture_kind="unavailable",
     )
 
-    result = controller.register_filesystem_mailbox(
+    result = _join_configured_mailbox(
+        controller,
         mailbox_root=tmp_path / "shared-mail",
         principal_id="HOUMAO-research",
         address="HOUMAO-research@agents.localhost",
@@ -960,7 +1069,7 @@ def test_late_mailbox_registration_supports_joined_sessions_without_relaunch_pos
 
     assert result.activation_state == "active"
     assert controller.mailbox_activation_state() == "active"
-    assert controller.launch_plan.mailbox is not None
+    assert controller.launch_plan.mailboxes.offline.binding is not None
     assert controller.agent_launch_authority is not None
     assert controller.agent_launch_authority.posture_kind == "unavailable"
 
@@ -969,7 +1078,7 @@ def test_late_mailbox_unregistration_supports_joined_sessions_without_relaunch_p
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    existing_mailbox = FilesystemMailboxResolvedConfig(
+    existing_mailbox = _offline_binding(
         transport="filesystem",
         principal_id="HOUMAO-research",
         address="HOUMAO-research@agents.localhost",
@@ -1000,7 +1109,201 @@ def test_late_mailbox_unregistration_supports_joined_sessions_without_relaunch_p
     result = controller.unregister_filesystem_mailbox()
 
     assert result.activation_state == "active"
-    assert controller.launch_plan.mailbox is None
+    assert controller.launch_plan.mailboxes.offline.binding is None
     assert controller.mailbox_activation_state() is None
     assert controller.agent_launch_authority is not None
     assert controller.agent_launch_authority.posture_kind == "unavailable"
+
+
+def test_refresh_cannot_move_offline_registration_to_another_store(tmp_path: Path) -> None:
+    """Refresh preserves selected registry authority rather than creating another store."""
+
+    root = tmp_path / "shared-mail"
+    binding = _offline_binding(
+        transport="filesystem",
+        principal_id="HOUMAO-research",
+        address="research@houmao.localhost",
+        filesystem_root=root,
+        bindings_version="initial",
+    )
+    controller, _ = _controller_for_mailbox_mutation(
+        tmp_path=tmp_path, backend="codex_headless", mailbox=binding
+    )
+    before = controller.launch_plan.mailboxes
+    with pytest.raises(SessionManifestError, match="configured|registry|store"):
+        controller.refresh_mailbox_bindings(filesystem_root=tmp_path / "other-store")
+    assert controller.launch_plan.mailboxes == before
+    assert not (tmp_path / "other-store").exists()
+
+
+def test_controller_persistence_refreshes_cached_backend_binding(tmp_path: Path) -> None:
+    """An older controller preserves externally committed slots in disk and backend cache."""
+
+    from houmao.agents.realm_controller.manifest import (
+        load_session_manifest,
+        mutate_session_mailbox_binding,
+    )
+
+    controller, captured = _controller_for_mailbox_mutation(
+        tmp_path=tmp_path, backend="codex_headless", mailbox=None
+    )
+    old_revision = controller.launch_plan.mailboxes.offline.revision
+    binding = _offline_mailboxes(
+        _offline_binding(
+            transport="filesystem",
+            principal_id="HOUMAO-research",
+            address="research@houmao.localhost",
+            filesystem_root=tmp_path / "shared-mail",
+            bindings_version="prepared",
+        )
+    ).offline.binding
+    current = load_session_manifest(controller.manifest_path).payload
+    external = mutate_session_mailbox_binding(
+        controller.manifest_path,
+        channel="offline",
+        expected_revision=old_revision,
+        binding=binding,
+        agent_id=controller.agent_id,
+        session_id=current["runtime"]["session_id"],
+    )
+    assert controller.launch_plan.mailboxes.offline.binding is None
+    from houmao.agents.mailbox_runtime_models import StalwartMailboxResolvedConfig
+
+    online = StalwartMailboxResolvedConfig(
+        transport="stalwart",
+        principal_id=controller.agent_id,
+        agent_id=controller.agent_id,
+        binding_id="online-account-a",
+        address="research@example.test",
+        bindings_version="prepared",
+        jmap_url="http://127.0.0.1:10080/.well-known/jmap",
+        management_url="http://127.0.0.1:10080/api",
+        login_identity="online-login",
+        credential_ref="missing-private-account",
+    )
+    external = mutate_session_mailbox_binding(
+        controller.manifest_path,
+        channel="online",
+        expected_revision=external.payload["launch_plan"]["mailboxes"]["online"]["revision"],
+        binding=online,
+        agent_id=controller.agent_id,
+        session_id=current["runtime"]["session_id"],
+    )
+    controller.persist_manifest(refresh_registry=False)
+    expected = external.payload["launch_plan"]["mailboxes"]
+    assert controller.launch_plan.mailboxes.redacted_payload() == expected
+    assert captured["launch_plan"].mailboxes.redacted_payload() == expected
+    assert (
+        load_session_manifest(controller.manifest_path).payload["launch_plan"]["mailboxes"]
+        == expected
+    )
+
+
+def test_projection_failure_reports_committed_revision_and_reconciles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Discovery failure leaves the confirmed registration available for idempotent retry."""
+
+    controller, _ = _controller_for_mailbox_mutation(
+        tmp_path=tmp_path, backend="codex_headless", mailbox=None
+    )
+    controller.registry_generation_id = "fixture-generation"
+    controller.persist_manifest(refresh_registry=False)
+    original_refresh = controller.refresh_shared_registry_record
+
+    def unavailable_projection() -> None:
+        """Model a failed registry projection after the binding file committed."""
+
+        raise SessionManifestError("projection unavailable")
+
+    monkeypatch.setattr(controller, "refresh_shared_registry_record", unavailable_projection)
+    result = _join_configured_mailbox(
+        controller, mailbox_root=tmp_path / "shared-mail", address="research@houmao.localhost"
+    )
+    assert result.mailbox is not None
+    confirmed_revision = controller.launch_plan.mailboxes.offline.revision
+    assert result.mailbox.bindings_version == confirmed_revision
+    warnings = controller.consume_operation_warnings()
+    assert len(warnings) == 1
+    assert f"committed at revision {confirmed_revision}" in warnings[0]
+    assert "projection refresh failed" in warnings[0]
+    assert "reconcile" in warnings[0]
+    registration = load_active_mailbox_registration(
+        tmp_path / "shared-mail", address=result.mailbox.address
+    )
+    assert registration.registration_id == result.mailbox.binding_id
+    monkeypatch.setattr(controller, "refresh_shared_registry_record", original_refresh)
+    retry = _join_configured_mailbox(
+        controller, mailbox_root=tmp_path / "shared-mail", address="research@houmao.localhost"
+    )
+    assert retry.mailbox is not None
+    assert retry.mailbox.binding_id == result.mailbox.binding_id
+    assert retry.mailbox.agent_id == controller.agent_id
+    assert retry.shared_lifecycle_result["reused_existing"] is True
+    assert controller.consume_operation_warnings() == ()
+    from houmao.agents.realm_controller.registry_storage import (
+        load_managed_agent_record_by_agent_id,
+    )
+
+    projected = load_managed_agent_record_by_agent_id(controller.agent_id)
+    assert projected is not None
+    assert projected.mailboxes.offline.binding is not None
+    assert projected.mailboxes.offline.binding.binding_id == retry.mailbox.binding_id
+    assert projected.mailboxes.offline.revision == retry.mailbox.bindings_version
+    assert projected.agent_id == controller.agent_id
+    monkeypatch.setattr(controller, "refresh_shared_registry_record", unavailable_projection)
+    released = controller.unregister_filesystem_mailbox()
+    assert released.mailbox is None
+    release_warning = controller.consume_operation_warnings()
+    assert len(release_warning) == 1
+    assert controller.launch_plan.mailboxes.offline.revision in release_warning[0]
+    assert "released offline slot" in release_warning[0]
+    assert "retry join" not in release_warning[0]
+
+
+def test_retry_leave_after_reassignment_preserves_the_next_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A lost local leave publication cannot release another owner's later registration."""
+
+    from houmao.agents.realm_controller import runtime as runtime_module
+    from houmao.mailbox.managed import RegisterMailboxRequest, register_mailbox
+
+    controller, _ = _controller_for_mailbox_mutation(
+        tmp_path=tmp_path, backend="codex_headless", mailbox=None
+    )
+    joined = _join_configured_mailbox(
+        controller, mailbox_root=tmp_path / "shared-mail", address="research@houmao.localhost"
+    )
+    assert joined.mailbox is not None
+    original_commit = runtime_module.mutate_session_mailbox_binding
+
+    def lose_local_publication(*args: Any, **kwargs: Any) -> Any:
+        """Model a failed local write after the registry confirmed explicit release."""
+
+        raise OSError("injected local publication failure")
+
+    monkeypatch.setattr(runtime_module, "mutate_session_mailbox_binding", lose_local_publication)
+    with pytest.raises((OSError, SessionManifestError)):
+        controller.unregister_filesystem_mailbox()
+    monkeypatch.setattr(runtime_module, "mutate_session_mailbox_binding", original_commit)
+    replacement = register_mailbox(
+        tmp_path / "shared-mail",
+        RegisterMailboxRequest(
+            mode="safe",
+            owner_principal_id="next-agent",
+            address=joined.mailbox.address,
+            mailbox_kind="in_root",
+            mailbox_path=tmp_path / "shared-mail/mailboxes" / joined.mailbox.address,
+        ),
+    )
+    assert replacement["active_registration_id"] != joined.mailbox.binding_id
+    result = controller.unregister_filesystem_mailbox()
+    assert result.mailbox is None
+    assert result.shared_lifecycle_result["action"] == "already_released"
+    current = load_active_mailbox_registration(
+        tmp_path / "shared-mail", address=joined.mailbox.address
+    )
+    assert current.owner_principal_id == "next-agent"
+    assert current.registration_id == replacement["active_registration_id"]
+    assert controller.launch_plan.mailboxes.offline.binding is None

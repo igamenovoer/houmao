@@ -27,6 +27,9 @@ from houmao.agents.managed_prompt_header import (
 )
 from houmao.agents.mailbox_runtime_support import (
     parse_declarative_mailbox_config,
+    mailboxes_resolved_config_from_payload,
+    safe_registry_mailboxes_projection,
+    parse_declarative_mailboxes_config,
     serialize_declarative_mailbox_config,
 )
 from houmao.agents.model_selection import (
@@ -389,7 +392,7 @@ def _preset_summary(
         "skills": list(parsed_preset.skills),
         "auth": parsed_preset.auth,
         "launch": launch_payload if isinstance(launch_payload, dict) else {},
-        "mailbox": raw_payload.get("mailbox"),
+        "mailboxes": raw_payload.get("mailboxes"),
         "extra": raw_payload.get("extra", {}),
     }
 
@@ -1071,7 +1074,8 @@ def _build_profile_mailbox_mapping_or_click(
         raise click.ClickException(str(exc)) from exc
     if parsed is None:
         return None
-    return serialize_declarative_mailbox_config(parsed)
+    channel = "offline" if parsed.transport == "filesystem" else "online"
+    return {"offline": None, "online": None, channel: serialize_declarative_mailbox_config(parsed)}
 
 
 def _stored_mailbox_or_click(
@@ -1084,7 +1088,7 @@ def _stored_mailbox_or_click(
     if payload is None:
         return None
     try:
-        return parse_declarative_mailbox_config(payload, source=source)
+        return parse_declarative_mailboxes_config(payload, source=source)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -2116,7 +2120,7 @@ def _instance_payload(
         "pages_dir": runtime_payload.get("pages_dir")
         if isinstance(runtime_payload, dict)
         else None,
-        "mailbox": mailbox_payload,
+        "mailboxes": mailbox_payload,
     }
 
 
@@ -2157,51 +2161,20 @@ def _instance_launch_profile_provenance(
 
 
 def _instance_mailbox_payload(manifest_payload: dict[str, object]) -> dict[str, object] | None:
-    """Return one runtime-derived mailbox summary for an instance payload."""
+    """Project both runtime mail slots without credential or private path inputs."""
 
     launch_plan_payload = manifest_payload.get("launch_plan")
     if not isinstance(launch_plan_payload, dict):
         return None
-    mailbox_payload = launch_plan_payload.get("mailbox")
-    if not isinstance(mailbox_payload, dict):
+    if "mailbox" in launch_plan_payload:
+        raise ValueError("Unsupported single mailbox snapshot; rebootstrap the runtime state")
+    raw_mailboxes = launch_plan_payload.get("mailboxes")
+    if raw_mailboxes is None:
         return None
-
-    transport = mailbox_payload.get("transport")
-    if not isinstance(transport, str) or not transport.strip():
-        return None
-
-    if transport == "filesystem":
-        address = mailbox_payload.get("address")
-        filesystem_root = mailbox_payload.get("filesystem_root")
-        if not isinstance(address, str) or not address.strip():
-            return None
-        if not isinstance(filesystem_root, str) or not filesystem_root.strip():
-            return None
-        mailbox_root = Path(filesystem_root).resolve()
-        mailbox_kind = mailbox_payload.get("mailbox_kind")
-        if not isinstance(mailbox_kind, str) or not mailbox_kind.strip():
-            mailbox_kind = "in_root"
-        mailbox_path_value = mailbox_payload.get("mailbox_path")
-        mailbox_dir = (
-            Path(mailbox_path_value).resolve()
-            if isinstance(mailbox_path_value, str) and mailbox_path_value.strip()
-            else mailbox_root / "mailboxes" / address
-        )
-        return {
-            "transport": transport,
-            "principal_id": mailbox_payload.get("principal_id"),
-            "address": address,
-            "mailbox_root": str(mailbox_root),
-            "mailbox_kind": mailbox_kind,
-            "mailbox_dir": str(mailbox_dir),
-            "bindings_version": mailbox_payload.get("bindings_version"),
-        }
-
+    config = mailboxes_resolved_config_from_payload(raw_mailboxes)
     return {
-        "transport": transport,
-        "principal_id": mailbox_payload.get("principal_id"),
-        "address": mailbox_payload.get("address"),
-        "bindings_version": mailbox_payload.get("bindings_version"),
+        **safe_registry_mailboxes_projection(config),
+        "canonical_mail_identity": config.canonical_mail_identity,
     }
 
 

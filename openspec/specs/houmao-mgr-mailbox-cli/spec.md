@@ -85,7 +85,7 @@ The effective mailbox root SHALL resolve from:
 3. the active project overlay mailbox root,
 4. bootstrap `<cwd>/.houmao/mailbox` when no overlay exists and no stronger override applies.
 
-A successful bootstrap SHALL create or validate the v1 filesystem mailbox layout, including protocol version, shared SQLite catalog, rules assets, mailbox directories root, locks root, and staging root.
+A successful bootstrap SHALL create or validate the current-format filesystem mailbox layout, including protocol version, shared SQLite catalog, rules assets, mailbox directories root, locks root, and staging root. Initialization SHALL explicitly associate an unconfigured selected registry with that store or verify an existing matching association; it SHALL NOT silently replace the association.
 
 #### Scenario: Init without overrides uses the active overlay mailbox root
 - **WHEN** an active project overlay resolves as `/repo/.houmao`
@@ -93,6 +93,11 @@ A successful bootstrap SHALL create or validate the v1 filesystem mailbox layout
 - **AND WHEN** `HOUMAO_GLOBAL_MAILBOX_DIR` is unset
 - **THEN** the command bootstraps or validates `/repo/.houmao/mailbox`
 - **AND THEN** it does not bootstrap a shared mailbox root under `<platformdirs user config>/`
+
+#### Scenario: Init cannot silently replace an existing registry store association
+- **WHEN** the selected registry is already associated with another filesystem mail store
+- **AND WHEN** initialization selects a different store
+- **THEN** it fails with actionable configuration guidance without rewriting the association
 
 ### Requirement: `houmao-mgr mailbox status` reports filesystem mailbox root health and summary state
 `houmao-mgr mailbox status` SHALL inspect one filesystem mailbox root and return a structured summary of its health and stored state.
@@ -111,71 +116,25 @@ At minimum, the summary SHALL report:
 - **THEN** the command returns a structured summary for that root
 - **AND THEN** the summary reports readable mailbox state rather than requiring the operator to inspect files manually
 
-### Requirement: `houmao-mgr mailbox register` and `unregister` expose operator mailbox lifecycle control
-`houmao-mgr mailbox register` and `houmao-mgr mailbox unregister` SHALL expose operator-facing mailbox lifecycle control for filesystem mailbox addresses.
-
-`register` SHALL accept a full mailbox address and owner principal id, SHALL use explicit registration modes, and SHALL accept `--yes` for non-interactive overwrite confirmation.
-`unregister` SHALL accept a full mailbox address and SHALL use explicit deregistration modes, defaulting to `deactivate`.
-
-When a requested registration path would replace existing durable mailbox state or an existing mailbox entry artifact, the CLI SHALL require explicit operator confirmation before applying the destructive replacement.
-This confirmation requirement SHALL apply whether destructive replacement was requested explicitly through `--mode force` or reached from the default safe registration flow after conflict detection.
-When `--yes` is present, the CLI SHALL apply the overwrite-confirmed registration path without prompting.
-When `--yes` is absent and an interactive terminal is available, the CLI SHALL prompt the operator before applying the destructive replacement.
-When `--yes` is absent and no interactive terminal is available, the CLI SHALL fail clearly before destructive replacement and direct the operator to rerun with `--yes` or choose a non-destructive registration mode.
-If the operator declines the overwrite prompt, the command SHALL abort without replacing the existing durable mailbox state.
-The CLI SHALL preserve the established `safe`, `force`, and `stash` registration-mode vocabulary; this change SHALL NOT reinterpret `stash` as an automatic fallback for overwrite conflicts.
-
-#### Scenario: Operator registers an in-root mailbox address safely
-- **WHEN** an operator runs `houmao-mgr mailbox register --mailbox-root /tmp/shared-mail --address AGENTSYS-alice@agents.localhost --principal-id AGENTSYS-alice`
-- **AND WHEN** no destructive replacement is required
-- **THEN** the command creates or reuses the active in-root mailbox registration for that address using safe registration semantics
-- **AND THEN** the result reports the resulting active registration identity
-
-#### Scenario: Operator confirms overwrite after a safe registration conflict
-- **WHEN** an operator runs `houmao-mgr mailbox register --mailbox-root /tmp/shared-mail --address AGENTSYS-alice@agents.localhost --principal-id AGENTSYS-alice`
-- **AND WHEN** the default safe registration flow detects a replaceable conflict for that mailbox address
-- **AND WHEN** an interactive terminal is available
-- **AND WHEN** the operator confirms overwrite
-- **THEN** the command applies destructive replacement semantics for that request
-- **AND THEN** the result reports the resulting active registration identity
-
-#### Scenario: Operator declines overwrite after a safe registration conflict
-- **WHEN** an operator runs `houmao-mgr mailbox register --mailbox-root /tmp/shared-mail --address AGENTSYS-alice@agents.localhost --principal-id AGENTSYS-alice`
-- **AND WHEN** the default safe registration flow detects a replaceable conflict for that mailbox address
-- **AND WHEN** an interactive terminal is available
-- **AND WHEN** the operator declines overwrite
-- **THEN** the command aborts
-- **AND THEN** the existing mailbox state remains unchanged
-
-#### Scenario: Non-interactive conflict without yes fails before replacement
-- **WHEN** an operator runs `houmao-mgr mailbox register --mailbox-root /tmp/shared-mail --address AGENTSYS-alice@agents.localhost --principal-id AGENTSYS-alice`
-- **AND WHEN** the requested registration path would replace existing durable mailbox state
-- **AND WHEN** no interactive terminal is available
-- **AND WHEN** `--yes` is not present
-- **THEN** the command fails clearly before destructive replacement
-- **AND THEN** the existing mailbox state remains unchanged
-
-#### Scenario: Yes skips overwrite prompt
-- **WHEN** an operator runs `houmao-mgr mailbox register --mailbox-root /tmp/shared-mail --address AGENTSYS-alice@agents.localhost --principal-id AGENTSYS-alice --yes`
-- **AND WHEN** the requested registration path would replace existing durable mailbox state
-- **THEN** the command applies the overwrite-confirmed registration path without prompting
-- **AND THEN** the result reports the resulting active registration identity
-
-#### Scenario: Operator unregisters a mailbox address without deleting canonical history
-- **WHEN** an operator runs `houmao-mgr mailbox unregister --mailbox-root /tmp/shared-mail --address AGENTSYS-alice@agents.localhost`
-- **THEN** the command deactivates the active mailbox registration for that address by default
-- **AND THEN** future delivery to that address requires a later active registration
-- **AND THEN** canonical mailbox history remains preserved
-
 ### Requirement: `houmao-mgr mailbox repair` rebuilds filesystem mailbox index state locally
 `houmao-mgr mailbox repair` SHALL rebuild one filesystem mailbox root's shared index state locally without requiring `houmao-server`.
 
-The repair flow SHALL use the filesystem mailbox repair contract and SHALL report recovered registration or message state in a structured result.
+Repair SHALL rebuild derived message and projection state in place while preserving durable registration IDs, owner claims, member authorization, and attachment authority. Missing or unreadable ownership authority SHALL produce an explicit recovery error rather than inferred ownership. The result SHALL report recovered derived state.
 
 #### Scenario: Operator repairs a mailbox root locally
 - **WHEN** an operator runs `houmao-mgr mailbox repair --mailbox-root /tmp/shared-mail`
 - **THEN** the command rebuilds filesystem mailbox index state for `/tmp/shared-mail`
 - **AND THEN** the result reports repair outcomes without requiring manual SQLite intervention
+
+#### Scenario: Repair preserves membership authority
+- **WHEN** a supported mailbox root contains durable members, registrations, and attachments
+- **AND WHEN** an operator repairs its derived index state
+- **THEN** existing ownership identities and authorization remain unchanged
+
+#### Scenario: Lost ownership index is not reconstructed from address paths
+- **WHEN** the authoritative ownership index is missing or unreadable
+- **THEN** repair fails with explicit recovery guidance
+- **AND THEN** it does not allocate new owners from directory names or message headers
 
 ### Requirement: `houmao-mgr mailbox cleanup` removes inactive or stashed registrations without deleting canonical messages
 `houmao-mgr mailbox cleanup` SHALL clean up no-longer-relevant filesystem mailbox registrations under one resolved mailbox root without requiring `houmao-server`.
@@ -503,3 +462,26 @@ The existing `houmao-mgr mailbox clear-messages` command SHALL remain the all-ac
 - **THEN** the command exits non-zero with explicit CLI error text
 - **AND THEN** the command does not delete files or mutate mailbox SQLite state
 
+### Requirement: Administrative offline registration enforces registry ownership
+Administrative register/unregister SHALL use the selected registry's ownership index and configured filesystem store. Agent ownership SHALL use persisted `agent_id`; human and reserved system principals SHALL retain their own identity rules. Register SHALL reject another owner's address without overwrite prompts, force/stash modes, or `--yes` bypass. Unregister SHALL explicitly release ownership non-destructively by default.
+
+#### Scenario: Free address is registered safely
+- **WHEN** an authorized operator registers an unowned address in the selected registry's configured store
+- **THEN** the command creates or reuses the matching registration and reports its identity
+
+#### Scenario: Administrative register cannot overwrite another agent
+- **WHEN** an operator registers an address already owned by another agent
+- **THEN** the command returns a conflict without changing that owner's mailbox
+- **AND THEN** selecting removed overwrite flags or takeover modes does not bypass the conflict
+
+#### Scenario: Administrative release retains canonical history
+- **WHEN** an authorized operator unregisters an address with the default leave policy
+- **THEN** its routing registration is deactivated and retained history remains scoped to its previous owner
+
+### Requirement: Mailbox maintenance root selection does not change registry authority
+Existing project-aware filesystem root selection SHALL remain available for maintenance. Membership mutations SHALL verify that the selected root belongs to the selected registry configuration. A mismatch SHALL fail with actionable configuration guidance rather than silently creating another mail group inside the same registry or rewriting its store selection.
+
+#### Scenario: Project default differs from configured registry store
+- **WHEN** registration resolves a project mailbox root different from the selected registry's configured store
+- **THEN** it fails before allocating an address
+- **AND THEN** it does not silently move the registry or register into an unrelated root

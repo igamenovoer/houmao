@@ -1,152 +1,65 @@
 # Mailbox Registration Lifecycle
 
-This page explains how the v1 filesystem mailbox decides which mailbox artifact is active for a full mailbox address and what the lifecycle modes do when that artifact changes.
+The selected registry owns offline address allocation and its filesystem mail store. Each registration binds a full address to an owner, registration ID, concrete mailbox path, and lifecycle status. Agent ownership uses persisted `agent_id`; human and reserved system principals retain their own identity rules.
 
-## Mental Model
+## Exclusive Join
 
-Registrations are address-routed, not principal-routed.
+`safe` is the only registration mode. The same owner, address, and path reuse an existing registration. A conflicting owner or path fails before filesystem preparation. Administrative confirmation cannot bypass this conflict; force/stash modes and register `--yes` are rejected.
 
-- The key is the full mailbox address such as `research@houmao.localhost`.
-- At most one registration for that address may be `active`.
-- Older registrations may remain as `inactive` or `stashed`.
-- The registration record and the mailbox artifact can point either to an in-root mailbox directory or to a private mailbox directory reached through a symlink entry.
-
-This design lets the transport keep canonical messages shared while still allowing address-specific mailbox locations to move.
-
-## Join Modes
-
-### `safe`
-
-Use `safe` when you want the default behavior.
-
-- Reuse the current active registration when it already matches the request.
-- Reactivate a matching inactive registration when the mailbox artifact still matches.
-- Fail if a different active registration already exists for the address.
-- Fail if a preserved mailbox artifact still occupies the address path.
-
-### `force`
-
-Use `force` when you want the active registration replaced.
-
-- The prior active or occupying registration becomes inactive or removed from active use.
-- Registration-scoped mutable state for the replaced registration is purged.
-- The address receives a fresh active registration id.
-
-### `stash`
-
-Use `stash` when you want to preserve the prior mailbox artifact before replacement.
-
-- The prior mailbox artifact is renamed to `mailboxes/<address>--<uuid4hex>`.
-- The prior registration becomes `stashed`.
-- A new active registration is created for the original address entry.
+A transaction first reserves the address as `preparing`. Only successful mailbox preparation makes it `active`. The same owner can retry after interruption without allocating another registration. Competing processes cannot each acquire the same address. OS-owned address/index locks release after process exit.
 
 ```mermaid
 sequenceDiagram
-    participant Req as Register<br/>request
-    participant Scr as register_mailbox.py
-    participant DB as index.sqlite
-    participant Mbx as mailboxes/<address>
-    Req->>Scr: mode=safe|force|stash
-    Scr->>DB: load active or occupying<br/>registration
-    alt safe and matching
-        Scr-->>Req: reuse existing active<br/>registration
-    else force replace
-        Scr->>DB: mark old inactive and<br/>purge registration state
-        Scr->>Mbx: replace active artifact
-        Scr->>DB: insert new active registration
-        Scr-->>Req: replaced_registration_id
-    else stash replace
-        Scr->>Mbx: rename old artifact to<br/><address>--<uuid4hex>
-        Scr->>DB: mark old registration stashed
-        Scr->>DB: insert new active registration
-        Scr-->>Req: stashed_registration_id
+    participant Caller
+    participant Registry
+    participant Index as Registration Index
+    participant Store as Filesystem Mail Store
+    Caller->>Registry: owner, address, path
+    Registry->>Index: Check existing reservation
+    alt Matching owner and path
+        Registry->>Store: Reconcile preparation
+    else Address owned by another agent
+        Registry-->>Caller: Address conflict
+    else Free address
+        Registry->>Index: Commit preparing reservation
+        Registry->>Store: Prepare private mailbox
     end
+    Registry->>Index: Publish active registration
+    Registry-->>Caller: Stable registration ID
 ```
 
-## Leave Modes
+The registry root's `offline-mail.json` selects one store. Generic and project registration validate this association. Project-aware maintenance root selection remains available, but cannot silently create another mail group in the selected registry. Initialize explicitly with `houmao-mgr mailbox init --registry-root ... --mailbox-root ...`.
 
-### `deactivate`
+## Explicit Release
 
-Use `deactivate` when you want delivery to stop without deleting the registration record.
+Stopping a body, losing its gateway, expiring runtime presence, or attaching online mail does not release offline membership. Registered stopped recipients continue receiving mail. Release requires an authorized owner/admin operation.
 
-- The active registration becomes `inactive`.
-- Historical canonical messages remain untouched.
-- The registration record stays in SQLite for later inspection or possible reuse.
+`deactivate` is the default leave policy. It retires routing and retains private history. In-root mailbox directories move under `history/<registration-id>/`; a later claimant receives a fresh directory and registration. Symlink release removes only the registry routing entry and preserves the external target. Another owner cannot register that retained private target as its own mailbox.
 
-### `purge`
+`purge` explicitly removes the selected registration's projections and mutable state. It preserves canonical messages and external symlink targets. Canonical recipient address snapshots remain meaningful after registration removal. Released registrations and their old references never give a new address owner access to old private history.
 
-Use `purge` when you want to remove registration-scoped mutable state and shared-root registration artifacts.
-
-- The registration row is deleted.
-- Registration-scoped projection rows and mailbox state rows are removed.
-- Shared-root registration artifacts are removed.
-- Canonical messages under `messages/` are preserved.
-- Historical recipient delivery records in canonical history remain meaningful even after the registration is gone.
-
-```mermaid
-sequenceDiagram
-    participant Req as Deregister<br/>request
-    participant Scr as deregister_mailbox.py
-    participant DB as index.sqlite
-    participant Mbx as mailbox artifact
-    Req->>Scr: mode=deactivate|purge
-    Scr->>DB: load active registration
-    alt deactivate
-        Scr->>DB: mark registration inactive
-        Scr-->>Req: resulting_status=inactive
-    else purge
-        Scr->>DB: remove registration-scoped<br/>state and registration row
-        Scr->>Mbx: remove shared-root entry
-        Scr-->>Req: resulting_status=purged
-    end
-```
-
-## Practical Examples
-
-- Re-running bootstrap for the same session address usually resolves through `safe` and reuses the existing active registration.
-- Replacing an in-root mailbox with a different owner uses `force` or `stash`.
-- Moving an address to a private mailbox directory uses `mailbox_kind=symlink` with `safe`, `force`, or `stash` depending on whether a conflicting registration already exists.
-- Purging a private mailbox registration removes the shared-root registration entry but does not delete canonical message history.
-
-## Cleanup Of Inactive And Stashed Registrations
-
-`houmao-mgr mailbox cleanup` is the local janitor for filesystem mailbox registrations that are no longer active.
-
-- It evaluates only `inactive` and `stashed` registrations.
-- It preserves every `active` registration.
-- It preserves canonical history under `messages/`.
-- `--dry-run` reports cleanup candidates without deleting them.
-- `--inactive-older-than-seconds` and `--stashed-older-than-seconds` let operators keep recently deactivated or stashed registrations around for inspection before cleanup.
-
-Examples:
+## Maintained Commands
 
 ```bash
-houmao-mgr mailbox cleanup --mailbox-root /abs/path/shared-mail --dry-run
-houmao-mgr mailbox cleanup --mailbox-root /abs/path/shared-mail --inactive-older-than-seconds 3600
+pixi run houmao-mgr mailbox init --registry-root /abs/path/registry --mailbox-root /abs/path/shared-mail
+pixi run houmao-mgr mailbox register --registry-root /abs/path/registry \
+  --mailbox-root /abs/path/shared-mail --address alice@houmao.localhost --principal-id "$agent_id"
+pixi run houmao-mgr mailbox unregister --registry-root /abs/path/registry \
+  --mailbox-root /abs/path/shared-mail --address alice@houmao.localhost
+pixi run houmao-mgr mailbox cleanup --mailbox-root /abs/path/shared-mail --dry-run
 ```
 
-Scope boundary:
+Use scoped `agents single ... mailbox offline status|join|leave` or `agents self mailbox offline ...` for existing locally controlled bodies. Those commands preserve online bindings and require no body restart. See [Offline Registry Setup and Remote Access](offline-registry.md) and the [scoped CLI reference](../../cli/agents-mailbox.md).
 
-- `houmao-mgr mailbox cleanup` does not delete canonical messages.
-- It does not remove runtime-owned Stalwart credential files under `<runtime-root>/mailbox-credentials/`; use `houmao-mgr admin cleanup runtime mailbox-credentials` for those.
-- It does not remove one session's local Stalwart secret copy under `<session-root>/mailbox-secrets/`; use `houmao-mgr agents single --agent-id <id> cleanup mailbox` for that scope.
+## Maintenance Boundaries
 
-## Clearing Delivered Messages While Keeping Accounts
+`mailbox cleanup` removes only inactive historical registrations under explicit age/retention selection. Active memberships remain intact. Runtime live-record cleanup operates separately and cannot release addresses. Canonical messages survive registration cleanup.
 
-Use `clear-messages` when you need to reset delivered filesystem mail without unregistering mailbox accounts:
-
-```bash
-houmao-mgr mailbox clear-messages --mailbox-root /abs/path/shared-mail --dry-run
-houmao-mgr mailbox clear-messages --mailbox-root /abs/path/shared-mail --yes
-houmao-mgr project mailbox clear-messages --dry-run
-houmao-mgr project mailbox clear-messages --yes
-```
-
-This command removes canonical delivered messages, recorded projection artifacts, shared message index rows, mailbox-local message/thread state, and mailbox-owned managed-copy attachments. It preserves mailbox registrations, account directories, private symlink mailbox targets, root protocol/rules/locks/staging layout, and external `path_ref` attachment targets. It is separate from `cleanup`: `cleanup` is registration cleanup, while `clear-messages` is delivered-message reset.
+`mailbox clear-messages` and its project wrapper clear delivered messages while preserving registered accounts. Their existing destructive confirmation applies to message deletion, not ownership takeover. Runtime-owned Stalwart credential cleanup remains a separate operation.
 
 ## Source References
 
-- [`src/houmao/mailbox/filesystem.py`](../../../../src/houmao/mailbox/filesystem.py)
-- [`src/houmao/mailbox/managed.py`](../../../../src/houmao/mailbox/managed.py)
-- [`src/houmao/mailbox/assets/rules/protocols/filesystem-mailbox-v1.md`](../../../../src/houmao/mailbox/assets/rules/protocols/filesystem-mailbox-v1.md)
-- [`tests/unit/mailbox/test_managed.py`](../../../../tests/unit/mailbox/test_managed.py)
+- [Registration and delivery services](../../../../src/houmao/mailbox/managed.py)
+- [Registry membership and private authorization](../../../../src/houmao/mailbox/registry.py)
+- [Filesystem registration index](../../../../src/houmao/mailbox/filesystem.py)
+- [Ownership and lifecycle tests](../../../../tests/unit/mailbox/test_managed.py)

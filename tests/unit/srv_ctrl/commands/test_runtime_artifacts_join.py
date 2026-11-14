@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 
@@ -22,10 +24,13 @@ from houmao.agents.realm_controller.models import (
 from houmao.agents.realm_controller.registry_storage import (
     JOINED_REGISTRY_SENTINEL_LEASE_TTL,
     TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL,
+    load_managed_agent_record_by_agent_id,
+    record_path_for_agent_id,
 )
 from houmao.agents.realm_controller.runtime import resume_runtime_session
 from houmao.agents.realm_controller import runtime as runtime_module
 from houmao.agents.system_skills import discover_installed_system_skills
+from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
 from houmao.srv_ctrl.commands import runtime_artifacts as runtime_artifacts_module
 
 
@@ -116,8 +121,9 @@ def test_materialize_joined_tui_unavailable_publishes_sentinel_record(
     )
     record = published["record"]
     assert record is not None
-    published_at = datetime.fromisoformat(record.published_at)
-    lease_expires_at = datetime.fromisoformat(record.lease_expires_at)
+    assert record.liveness is not None
+    published_at = datetime.fromisoformat(record.liveness.published_at)
+    lease_expires_at = datetime.fromisoformat(record.liveness.lease_expires_at)
     assert lease_expires_at - published_at == TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL
     assert TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL > JOINED_REGISTRY_SENTINEL_LEASE_TTL
     assert published_env["HOUMAO_MANIFEST_PATH"] == str(result.manifest_path)
@@ -128,6 +134,65 @@ def test_materialize_joined_tui_unavailable_publishes_sentinel_record(
     assert payload.runtime.memory_root == str(result.memory_root)
     assert payload.runtime.memo_file == str(result.memo_file)
     assert payload.runtime.pages_dir == str(result.pages_dir)
+
+
+@pytest.mark.parametrize("headless", [False, True])
+def test_join_publishes_current_registry_record_without_publisher_stub(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    headless: bool,
+) -> None:
+    """Exercise joined creation through the real strict registry writer and reader."""
+
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
+    monkeypatch.setattr(runtime_artifacts_module, "ensure_gateway_capability", lambda _: None)
+    monkeypatch.setattr(
+        runtime_artifacts_module,
+        "set_tmux_session_environment",
+        lambda *, session_name, env_vars: None,
+    )
+    monkeypatch.setattr(
+        runtime_artifacts_module,
+        "read_tmux_session_environment_value",
+        lambda *, session_name, variable_name: (
+            str(tmp_path / "codex-home") if variable_name == "CODEX_HOME" else None
+        ),
+    )
+
+    result = runtime_artifacts_module.materialize_joined_launch(
+        runtime_root=tmp_path / "runtime",
+        agent_name="coder",
+        agent_id=None,
+        provider="codex",
+        headless=headless,
+        tmux_session_name="joined-real-publication",
+        tmux_window_name="manual",
+        working_directory=tmp_path,
+        launch_args=("exec", "--json") if headless else (),
+        launch_env=(),
+        install_houmao_skills=False,
+    )
+
+    assert str(UUID(result.agent_id)) == result.agent_id
+    manifest = load_session_manifest(result.manifest_path).payload
+    record = load_managed_agent_record_by_agent_id(result.agent_id)
+    assert record is not None
+    assert record.schema_version == 4
+    assert record.agent_id == manifest["agent_id"] == result.agent_id
+    assert record.generation_id == manifest["registry_generation_id"]
+    assert record.lifecycle.state == "active"
+    assert record.lifecycle.relaunchable is True
+    assert record.identity.backend == ("codex_headless" if headless else "local_interactive")
+    assert record.terminal.current_session_name == "joined-real-publication"
+    assert record.terminal.last_session_name == "joined-real-publication"
+    assert record.liveness is not None
+    assert record.canonical_mail_identity is None
+    assert record.mailboxes.offline.binding is None
+    assert record.mailboxes.online.binding is None
+    assert record.mailboxes.model_dump(mode="json") == manifest["launch_plan"]["mailboxes"]
+    persisted = json.loads(record_path_for_agent_id(result.agent_id).read_text(encoding="utf-8"))
+    assert persisted == record.model_dump(mode="json")
+    assert "mailbox" not in persisted
 
 
 @pytest.mark.parametrize(

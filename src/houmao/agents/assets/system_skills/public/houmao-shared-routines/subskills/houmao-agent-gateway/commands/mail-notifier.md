@@ -5,26 +5,28 @@ Use this action when the live gateway should poll the attached agent's mailbox a
 ## Workflow
 
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
-2. Recover the target selector and notifier action from the current prompt first and recent chat context second when they were stated explicitly.
-3. If the task still lacks a required target or interval, ask the user in Markdown before proceeding.
+2. Recover the explicit `offline|online` channel, target selector, and notifier action from the current prompt first and recent chat context second when they were stated explicitly.
+3. If the task still lacks a required channel, target, or interval, ask the user in Markdown before proceeding.
 4. Run `agents single ... gateway status` or `agents self gateway status` first when current context does not already confirm that a live gateway is attached.
-5. Run `agents single ... gateway mail-notifier status|enable|disable` for selected-agent CLI notifier work, or `agents self gateway mail-notifier status|enable|disable` for current-session CLI notifier work.
+5. Run `agents single ... gateway mail-notifier status|enable|disable --channel <channel>` for selected-agent CLI notifier work, or `agents self gateway mail-notifier status|enable|disable --channel <channel>` for current-session CLI notifier work.
 6. Use `enable` with `interval_seconds` to start or reconfigure polling. The default `any_inbox` mode notifies for any unarchived inbox mail, including read or answered mail; use `mode=unread_only` only when the caller explicitly wants lower-noise unread-only wakeups. Add `appendix_text` only when the caller wants runtime-specific guidance appended to notifier prompts; omit it to preserve the current appendix, and pass an empty string to clear it. Keep context recovery or pre-notification compaction omitted unless the caller explicitly asks for it.
 7. Use `disable` to stop notifier polling.
-8. When the caller is already operating through the pair-managed HTTP API, use `/houmao/agents/{agent_ref}/gateway/mail-notifier` instead of direct gateway `/v1/mail-notifier`.
+8. When the caller is already operating through the pair-managed HTTP API, use `/houmao/agents/{agent_ref}/gateway/mail-notifier/{channel}` instead of direct gateway `/v1/mail-notifier/{channel}`.
 9. Report whether the notifier is enabled now, the current interval, mode, appendix text, and any support or last-error fields that matter.
 
 
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+The two channels keep independent configuration, schedules, appendix text, audit, and binding-scoped compaction bookkeeping. Online canonical identity does not select a channel. Periodic reminders continue for unchanged eligible inbox work; read or answered state alone is not completion. Disabling one channel preserves the other.
+
 ## Command Shapes
 
 Run direct scoped notifier commands:
 
 ```bash
-<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway mail-notifier status
-<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway mail-notifier enable --interval-seconds <seconds>
-<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway mail-notifier disable
-<chosen houmao-mgr launcher> agents self gateway mail-notifier status
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway mail-notifier status --channel <channel>
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway mail-notifier enable --channel <channel> --interval-seconds <seconds>
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway mail-notifier disable --channel <channel>
+<chosen houmao-mgr launcher> agents self gateway mail-notifier status --channel <channel>
 ```
 
 Mode values:
@@ -49,20 +51,21 @@ Context policy behavior:
 
 Pair-managed notifier routes:
 
-- `GET /houmao/agents/{agent_ref}/gateway/mail-notifier`
-- `PUT /houmao/agents/{agent_ref}/gateway/mail-notifier`
-- `DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier`
+- `GET /houmao/agents/{agent_ref}/gateway/mail-notifier/{channel}`
+- `PUT /houmao/agents/{agent_ref}/gateway/mail-notifier/{channel}`
+- `DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier/{channel}`
 
 Direct live gateway routes:
 
-- `GET {gateway.base_url}/v1/mail-notifier`
-- `PUT {gateway.base_url}/v1/mail-notifier`
-- `DELETE {gateway.base_url}/v1/mail-notifier`
+- `GET {gateway.base_url}/v1/mail-notifier/{channel}`
+- `PUT {gateway.base_url}/v1/mail-notifier/{channel}`
+- `DELETE {gateway.base_url}/v1/mail-notifier/{channel}`
 
 ## Guardrails
 
 - Do not treat the notifier as durable work recovery; it is live gateway background behavior.
-- Do not enable the notifier without a valid attached mailbox configuration.
+- Require a configured binding for the selected channel; never substitute the other channel.
+- A notifier round carries the exact URL, channel, and expected binding ID. Missing context or a mismatch ends the round.
 - Do not imply degraded context automatically clears context; the default preserves current context.
 - Do not use Codex-specific degraded error labels for other CLI tools. Only `unknown` is shared across tools.
 - Do not describe `unread_only` as a completion signal. Processed mail should be archived so `any_inbox` mode stops notifying for it.

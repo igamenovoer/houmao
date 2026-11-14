@@ -47,3 +47,29 @@ Reply, read, mark, move, and archive SHALL validate the message's owner/channel/
 #### Scenario: Reference belongs to another binding
 - **WHEN** a lifecycle request presents a reference from another agent or replaced account
 - **THEN** it fails before modifying the selected mailbox
+
+### Requirement: Current mailbox format uses version 4
+Houmao-owned canonical envelopes and filesystem roots SHALL use current format `4`. Canonical validation SHALL reject older or mismatched envelope versions without automatic conversion. Optional `notify_block` and `notify_auth` fields SHALL remain optional in current-format envelopes.
+
+#### Scenario: Newly composed canonical envelope advertises protocol version 4
+- **WHEN** the system composes a new canonical mailbox message
+- **THEN** the persisted envelope records `protocol_version=4`
+- **AND THEN** that value matches `MAILBOX_PROTOCOL_VERSION`
+
+#### Scenario: Current envelope without notify fields remains valid
+- **WHEN** a current-format canonical envelope omits both notify fields
+- **THEN** validation accepts it and treats both fields as absent
+
+#### Scenario: Legacy canonical envelopes are rejected
+- **WHEN** a reader validates an envelope advertising protocol version `1`, `2`, or `3`
+- **THEN** validation fails explicitly instead of converting it to the current format
+
+#### Scenario: Canonical envelopes advertising the wrong protocol version are rejected
+- **WHEN** validation encounters an envelope whose `protocol_version` differs from the current value
+- **THEN** it reports an explicit protocol-version error without coercing that value
+
+## REMOVED Requirements
+
+### Requirement: Mailbox protocol version reflects the notify-aware canonical envelope
+**Reason**: The ownership-aware format advances to version 4 and intentionally rejects older envelopes instead of preserving v1 readability.
+**Migration**: Back up unsupported stores and explicitly rebootstrap the current format; do not coerce legacy envelope versions.

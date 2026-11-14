@@ -234,6 +234,27 @@ def managed_agent_selector_options(function: _FC) -> _FC:
     return function
 
 
+def mail_channel_option(function: _FC) -> _FC:
+    """Require an explicit offline or online channel without precedence routing."""
+
+    return click.option(
+        "--channel",
+        type=click.Choice(("offline", "online")),
+        required=True,
+        help="Explicit mail channel; canonical mail identity does not choose delivery.",
+    )(function)
+
+
+def mail_binding_options(function: _FC) -> _FC:
+    """Select a channel and optionally pin the binding from the current mail round."""
+
+    return click.option(
+        "--expected-binding-id",
+        default=None,
+        help="Expected binding from status; stale targeting fails without retry.",
+    )(mail_channel_option(function))
+
+
 def set_managed_agent_scope_context(
     *,
     ctx: click.Context,

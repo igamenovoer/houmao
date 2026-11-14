@@ -84,7 +84,9 @@ def _summary_from_record(record: ManagedAgentRegistryRecordV3) -> DiscoveredAgen
         and record.gateway.host is not None
         and record.gateway.port is not None
     )
-    has_mailbox = record.mailbox is not None
+    has_mailbox = any(
+        slot.binding is not None for slot in (record.mailboxes.offline, record.mailboxes.online)
+    )
 
     return DiscoveredAgentSummary(
         agent_id=record.agent_id,

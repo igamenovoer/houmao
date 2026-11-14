@@ -1,91 +1,45 @@
-# Mailbox Repair And Recovery
+# Mailbox Repair and Recovery
 
-This page explains what the mailbox repair flow rebuilds, what it preserves, and what its recovery boundary is.
+Repair rebuilds derived message indexes around retained canonical messages and readable registration authority. It preserves private membership verifiers and upload ownership in the existing index. A normal rebuild replaces derived rows transactionally, so a failed rebuild cannot silently replace address ownership.
 
-## Mental Model
+## Recovery Boundary
 
-Repair is a rebuild around canonical truth, not a general undo system.
+Repair can restore canonical message indexes, inbox/sent projections, mailbox-local lifecycle state, thread summaries, and attachment metadata. It can quarantine or remove orphaned staging files. Existing ownership rows determine which registration receives each projection; message addresses and filenames do not establish a new agent identity.
 
-- Canonical messages under `messages/` are the durable content authority.
-- Registrations can be rediscovered from `mailboxes/` and prior index hints.
-- Projections, mailbox state, and thread summaries can be rebuilt.
-- Orphaned staging artifacts can be quarantined or removed.
+The ownership index must remain readable. A missing, corrupt, or unsupported ownership format requires an explicit operator backup restore or store rebootstrap. Repair cannot reconstruct credential verifiers, prove ownership from a mailbox directory, or invent content that no longer exists in canonical message files. Back up the complete compatible state before rebootstrap; do not discard the only copy of canonical or private history.
 
-What repair cannot do is invent content that no longer exists in canonical message files.
-
-## Exact Recovery Boundary
-
-Repair can recover or rebuild:
-
-- SQLite schema when the index is missing or unreadable
-- active, inactive, and stashed registration metadata inferred from mailbox artifacts and snapshots
-- projection symlinks in `inbox/` and `sent`
-- mailbox-state rows for sender and recipient registrations
-- thread summaries
-- attachment metadata stored in canonical message front matter
-
-Repair does not recover:
-
-- deleted canonical message files
-- mailbox content that only existed in staging and was never delivered
-- unsupported stale roots from the earlier principal-keyed layout
-
-If the root is stale or structurally unsupported, the correct action is to delete and re-bootstrap it rather than trying to repair in place.
+An interrupted new registration stays `preparing` until its owner retries preparation. A registry restart does not release it. Repeating the same owner/address/path request reconciles the reservation. OS-owned locks release after a worker exits.
 
 ## Repair Procedure
 
-The managed `repair_index.py` wrapper defaults to `cleanup_staging=true` and `quarantine_staging=true`.
-
-Representative invocation:
+Use the maintained command against the intended maintenance root:
 
 ```bash
-pixi run python src/houmao/mailbox/assets/rules/scripts/repair_index.py \
-  --mailbox-root /abs/path/mailbox
+pixi run houmao-mgr mailbox repair --mailbox-root /abs/path/shared-mail
 ```
 
-Representative result:
-
-```json
-{
-  "ok": true,
-  "message_count": 1,
-  "projection_count": 2,
-  "registration_count": 2,
-  "restored_state_count": 0,
-  "defaulted_state_count": 2,
-  "staging_action": "quarantine",
-  "staging_artifact_count": 1,
-  "staging_artifact_paths": ["/abs/path/mailbox/staging/orphaned.md.quarantine-..."],
-  "backed_up_index_path": null
-}
-```
+The managed `repair_index.py` diagnostic helper retains its `--mailbox-root` and optional `--payload-file` interface. It defaults to staging cleanup with quarantine. Its result reports recovered message/projection/registration counts and restored versus defaulted lifecycle state.
 
 ```mermaid
 sequenceDiagram
-    participant Req as repair_index.py
-    participant FS as messages/<br/>mailboxes/<br/>staging/
-    participant Snap as Existing<br/>index snapshot
-    participant DB as New index.sqlite
-    Req->>FS: discover mailbox artifacts<br/>and canonical messages
-    Req->>Snap: snapshot existing index<br/>if usable
-    Req->>DB: initialize schema
-    Req->>FS: quarantine or remove<br/>staging leftovers
-    Req->>DB: recover registrations,<br/>messages, projections, state
-    Req->>DB: recompute thread summaries
-    Req-->>Req: JSON counts and backup path
+    participant Operator
+    participant Service as Repair Service
+    participant Index as Existing Ownership Index
+    participant Files as Canonical Messages
+    Operator->>Service: Repair selected store
+    Service->>Index: Verify readable ownership and snapshot routing
+    Service->>Files: Parse canonical content
+    Service->>Index: Begin transaction, rebuild derived rows
+    Service->>Files: Restore registration-scoped projections
+    Service->>Index: Commit without replacing private member authority
+    Service-->>Operator: Counts and staging actions
 ```
 
-## Staging Cleanup Guidance
-
-- `cleanup_staging=true` means the repair flow will process leftover staging artifacts.
-- `quarantine_staging=true` keeps those artifacts for inspection rather than deleting them immediately.
-- Staging cleanup is about incomplete work products, not delivered mailbox history.
-
-For most operational use, the default quarantine mode is the safer first pass because it preserves evidence while still cleaning the active staging area.
+Staging cleanup handles incomplete composition artifacts. Quarantine preserves these for inspection. It does not act on delivered history or substitute for explicit membership release.
 
 ## Source References
 
-- [`src/houmao/mailbox/managed.py`](../../../../src/houmao/mailbox/managed.py)
-- [`src/houmao/mailbox/filesystem.py`](../../../../src/houmao/mailbox/filesystem.py)
-- [`src/houmao/mailbox/assets/rules/scripts/repair_index.py`](../../../../src/houmao/mailbox/assets/rules/scripts/repair_index.py)
-- [`tests/unit/mailbox/test_managed.py`](../../../../tests/unit/mailbox/test_managed.py)
+- [Managed repair implementation](../../../../src/houmao/mailbox/managed.py)
+- [Registry authorization persistence](../../../../src/houmao/mailbox/registry.py)
+- [Derived-index repair tests](../../../../tests/unit/mailbox/test_managed.py)
+- [Membership preservation tests](../../../../tests/unit/mailbox/test_offline_registry.py)

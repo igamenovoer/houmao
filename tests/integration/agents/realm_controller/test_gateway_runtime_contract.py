@@ -44,6 +44,8 @@ from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 from houmao.mailbox.filesystem import resolve_active_mailbox_local_sqlite_path
 from houmao.mailbox.managed import DeliveryRequest, deliver_message
 from houmao.mailbox.protocol import MailboxMessage, serialize_message_document
+from houmao.mailbox.registry_config import associate_registry_store
+from houmao.mailbox.scope import MailScope
 from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
 from houmao.gateway.plugins import GatewayPluginConfiguration, PluginInstanceConfiguration
 from houmao.agents.realm_controller.runtime import start_runtime_session
@@ -631,6 +633,7 @@ def _start_headless_gateway_cli_session(
         headless_registry.m_session_name,
     ]
     if mailbox_root is not None:
+        associate_registry_store(tmp_path / "registry", mailbox_root)
         argv.extend(
             [
                 "--mailbox-transport",
@@ -643,7 +646,7 @@ def _start_headless_gateway_cli_session(
         )
 
     start_exit, start_payload, start_err = _run_cli_json(capsys, argv)
-    assert start_exit == 0
+    assert start_exit == 0, start_err
     assert start_err == ""
     manifest_path = Path(str(start_payload["session_manifest"]))
     return agent_def_dir, manifest_path, headless_registry, tmux_env, start_payload
@@ -778,7 +781,7 @@ def test_runtime_owned_headless_attach_uses_persisted_gateway_defaults(
             headless_registry.m_session_name,
         ],
     )
-    assert start_exit == 0
+    assert start_exit == 0, start_err
     assert start_err == ""
 
     manifest_path = Path(str(start_payload["session_manifest"]))
@@ -859,7 +862,7 @@ def test_runtime_owned_headless_between_turn_attach_rebuilds_internal_attach_con
             headless_registry.m_session_name,
         ],
     )
-    assert start_exit == 0
+    assert start_exit == 0, start_err
     assert start_err == ""
 
     manifest_path = Path(str(start_payload["session_manifest"]))
@@ -965,7 +968,7 @@ def test_runtime_owned_local_interactive_gateway_link_uses_persisted_defaults(
             local_registry.m_session_name,
         ],
     )
-    assert start_exit == 0
+    assert start_exit == 0, start_err
     assert start_err == ""
 
     manifest_path = Path(str(start_payload["session_manifest"]))
@@ -1057,16 +1060,18 @@ def test_gateway_http_mail_notifier_routes_follow_manifest_mailbox_contract(
             )
         )
 
-        initial_status = client.get_mail_notifier()
+        initial_status = client.get_mail_notifier(channel="offline")
         assert initial_status.supported is True
         assert initial_status.enabled is False
 
-        enabled_status = client.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=60))
+        enabled_status = client.put_mail_notifier(
+            GatewayMailNotifierPutV1(interval_seconds=60), channel="offline"
+        )
         assert enabled_status.supported is True
         assert enabled_status.enabled is True
         assert enabled_status.interval_seconds == 60
 
-        disabled_status = client.delete_mail_notifier()
+        disabled_status = client.delete_mail_notifier(channel="offline")
         assert disabled_status.supported is True
         assert disabled_status.enabled is False
 
@@ -1132,8 +1137,8 @@ def test_gateway_runtime_mail_notifier_repeats_when_prompt_ready_returns(
     message_id = _deliver_unread_mailbox_message(
         mailbox_root,
         message_id="msg-20260316T090000Z-33333333333333333333333333333333",
-        recipient_principal_id=str(start_payload["mailbox"]["principal_id"]),
-        recipient_address=str(start_payload["mailbox"]["address"]),
+        recipient_principal_id=str(start_payload["mailboxes"]["offline"]["binding"]["agent_id"]),
+        recipient_address=str(start_payload["mailboxes"]["offline"]["binding"]["address"]),
     )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
@@ -1143,7 +1148,7 @@ def test_gateway_runtime_mail_notifier_repeats_when_prompt_ready_returns(
     )
     runtime.start()
     try:
-        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1), channel="offline")
 
         _wait_until(lambda: len(headless_registry.m_prompts) >= 1, timeout_seconds=5.0)
         first_prompt = headless_registry.m_prompts[0]
@@ -1167,7 +1172,11 @@ def test_gateway_runtime_mail_notifier_repeats_when_prompt_ready_returns(
     enqueued_rows = [row for row in audit_rows if row.outcome == "enqueued"]
     assert len(enqueued_rows) >= 2
     assert not any(row.outcome == "dedup_skip" for row in audit_rows)
-    assert enqueued_rows[-1].unread_summary[0].message_ref == f"filesystem:{message_id}"
+    assert enqueued_rows[-1].unread_summary[0].message_ref == MailScope(
+        start_payload["agent_id"],
+        "offline",
+        start_payload["mailboxes"]["offline"]["binding"]["binding_id"],
+    ).encode(f"filesystem:{message_id}")
 
 
 def test_gateway_http_reminder_routes_are_ephemeral_and_do_not_expand_request_kinds(
@@ -1255,7 +1264,7 @@ def test_gateway_http_mail_read_route_marks_message_read_through_live_gateway(
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
 ) -> None:
-    """Live gateway `/v1/mail/read` should mark one filesystem message read."""
+    """Live gateway `/v1/mail/offline/read` should mark one filesystem message read."""
 
     mailbox_root = tmp_path / "mailbox"
     agent_def_dir, manifest_path, _headless_registry, _tmux_env, start_payload = (
@@ -1286,8 +1295,10 @@ def test_gateway_http_mail_read_route_marks_message_read_through_live_gateway(
         message_id = _deliver_unread_mailbox_message(
             mailbox_root,
             message_id="msg-20260316T090000Z-44444444444444444444444444444444",
-            recipient_principal_id=str(start_payload["mailbox"]["principal_id"]),
-            recipient_address=str(start_payload["mailbox"]["address"]),
+            recipient_principal_id=str(
+                start_payload["mailboxes"]["offline"]["binding"]["agent_id"]
+            ),
+            recipient_address=str(start_payload["mailboxes"]["offline"]["binding"]["address"]),
         )
         client = GatewayClient(
             endpoint=GatewayEndpoint(
@@ -1298,18 +1309,28 @@ def test_gateway_http_mail_read_route_marks_message_read_through_live_gateway(
 
         state_response = client.read_mail(
             GatewayMailMessageRequestV1(
-                message_ref=f"filesystem:{message_id}",
-            )
+                expected_binding_id=start_payload["mailboxes"]["offline"]["binding"]["binding_id"],
+                message_ref=MailScope(
+                    start_payload["agent_id"],
+                    "offline",
+                    start_payload["mailboxes"]["offline"]["binding"]["binding_id"],
+                ).encode(f"filesystem:{message_id}"),
+            ),
+            channel="offline",
         )
 
         assert state_response.transport == "filesystem"
         assert state_response.operation == "read"
-        assert state_response.message.message_ref == f"filesystem:{message_id}"
+        assert state_response.message.message_ref == MailScope(
+            start_payload["agent_id"],
+            "offline",
+            start_payload["mailboxes"]["offline"]["binding"]["binding_id"],
+        ).encode(f"filesystem:{message_id}")
         assert state_response.message.read is True
 
         local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
             mailbox_root,
-            address=str(start_payload["mailbox"]["address"]),
+            address=str(start_payload["mailboxes"]["offline"]["binding"]["address"]),
         )
         with sqlite3.connect(local_sqlite_path) as connection:
             row = connection.execute(
@@ -1375,8 +1396,8 @@ def test_gateway_http_mail_notifier_persists_queryable_audit_rows(
     message_id = _deliver_unread_mailbox_message(
         mailbox_root,
         message_id="msg-20260316T090000Z-33333333333333333333333333333333",
-        recipient_principal_id=str(start_payload["mailbox"]["principal_id"]),
-        recipient_address=str(start_payload["mailbox"]["address"]),
+        recipient_principal_id=str(start_payload["mailboxes"]["offline"]["binding"]["agent_id"]),
+        recipient_address=str(start_payload["mailboxes"]["offline"]["binding"]["address"]),
     )
     monkeypatch.setattr(
         GatewayServiceRuntime,
@@ -1391,7 +1412,9 @@ def test_gateway_http_mail_notifier_persists_queryable_audit_rows(
     )
     runtime.start()
     try:
-        enabled_status = runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+        enabled_status = runtime.put_mail_notifier(
+            GatewayMailNotifierPutV1(interval_seconds=1), channel="offline"
+        )
         assert enabled_status.enabled is True
 
         _wait_until(lambda: bool(headless_registry.m_prompts), timeout_seconds=5.0)
@@ -1407,7 +1430,11 @@ def test_gateway_http_mail_notifier_persists_queryable_audit_rows(
         enqueued_rows = [row for row in audit_rows if row.outcome == "enqueued"]
         assert enqueued_rows
         assert enqueued_rows[-1].unread_count == 1
-        assert enqueued_rows[-1].unread_summary[0].message_ref == f"filesystem:{message_id}"
+        assert enqueued_rows[-1].unread_summary[0].message_ref == MailScope(
+            start_payload["agent_id"],
+            "offline",
+            start_payload["mailboxes"]["offline"]["binding"]["binding_id"],
+        ).encode(f"filesystem:{message_id}")
         assert enqueued_rows[-1].enqueued_request_id is not None
         assert headless_registry.m_prompts
         latest_prompt = headless_registry.m_prompts[-1]

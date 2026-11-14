@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from houmao.mailbox.online_models import (
+    OnlineAttachRequest,
+    OnlineControlRequest,
+    OnlineBindingStatus,
+)
+from houmao.mailbox.online_models import OnlineAuthorityContext
+from houmao.mailbox.errors import GatewayMailboxMutationError
+
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import json
@@ -15,8 +23,12 @@ import click
 from pydantic import ValidationError
 
 from houmao.ag_ui.models import AgUiEventPublishRequest, AgUiEventPublishResponse
-from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
-from houmao.agents.mailbox_runtime_support import resolve_live_mailbox_binding_from_manifest_path
+from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig, MailboxChannel
+from houmao.agents.mailbox_runtime_support import (
+    resolve_live_mailbox_binding_from_manifest_path,
+    mailboxes_resolved_config_from_payload,
+    safe_registry_mailboxes_projection,
+)
 from houmao.agents.model_selection import ModelConfig, normalize_model_config
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.backends.headless_output import (
@@ -42,9 +54,10 @@ from houmao.agents.realm_controller.errors import (
     MailboxCommandError,
     SessionManifestError,
 )
-from houmao.agents.realm_controller.gateway_mailbox import (
+from houmao.mailbox.services import (
     GatewayMailboxError,
     GatewayMailboxAdapter,
+    build_scoped_mailbox_adapter,
     build_gateway_mailbox_adapter,
 )
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
@@ -138,6 +151,8 @@ from houmao.cao.rest_client import CaoApiError
 from houmao.cao.no_proxy import normalize_cao_base_url
 from houmao.mailbox import MailboxBootstrapError, load_active_mailbox_registration
 from houmao.mailbox.managed import ManagedMailboxOperationError
+from houmao.mailbox.models import MailboxChannelStatusV1
+from houmao.mailbox.scope import MailScope, MailboxScopeError
 from houmao.mailbox.protocol import (
     MailboxNotifyAuth,
     MailboxNotifyBlock,
@@ -2737,14 +2752,22 @@ def gateway_delete_reminder(
         raise click.ClickException(exc.detail) from exc
 
 
-def gateway_mail_notifier_status(target: ManagedAgentTarget) -> GatewayMailNotifierStatusV1:
+def gateway_mail_notifier_status(
+    target: ManagedAgentTarget,
+    *,
+    channel: MailboxChannel,
+) -> GatewayMailNotifierStatusV1:
     """Return gateway mail-notifier status for one managed agent."""
 
     _raise_external_unsupported(target, operation="agents single ... gateway mail-notifier status")
 
     if _target_uses_pair_api(target):
         assert target.client is not None
-        return pair_request(target.client.get_managed_agent_gateway_mail_notifier, target.agent_ref)
+        return pair_request(
+            target.client.get_managed_agent_gateway_mail_notifier,
+            target.agent_ref,
+            channel=channel,
+        )
 
     controller = _require_live_local_controller(
         target,
@@ -2752,7 +2775,9 @@ def gateway_mail_notifier_status(target: ManagedAgentTarget) -> GatewayMailNotif
     )
     client = _require_live_gateway_client_for_controller(controller)
     try:
-        return client.get_mail_notifier()
+        return client.get_mail_notifier(
+            channel=channel,
+        )
     except GatewayHttpError as exc:
         raise click.ClickException(exc.detail) from exc
 
@@ -2760,6 +2785,7 @@ def gateway_mail_notifier_status(target: ManagedAgentTarget) -> GatewayMailNotif
 def gateway_mail_notifier_enable(
     target: ManagedAgentTarget,
     *,
+    channel: MailboxChannel,
     interval_seconds: int,
     mode: GatewayMailNotifierMode = "any_inbox",
     appendix_text: str | None = None,
@@ -2792,6 +2818,7 @@ def gateway_mail_notifier_enable(
             target.client.put_managed_agent_gateway_mail_notifier,
             target.agent_ref,
             request_model,
+            channel=channel,
         )
 
     controller = _require_live_local_controller(
@@ -2800,12 +2827,19 @@ def gateway_mail_notifier_enable(
     )
     client = _require_live_gateway_client_for_controller(controller)
     try:
-        return client.put_mail_notifier(request_model)
+        return client.put_mail_notifier(
+            request_model,
+            channel=channel,
+        )
     except GatewayHttpError as exc:
         raise click.ClickException(exc.detail) from exc
 
 
-def gateway_mail_notifier_disable(target: ManagedAgentTarget) -> GatewayMailNotifierStatusV1:
+def gateway_mail_notifier_disable(
+    target: ManagedAgentTarget,
+    *,
+    channel: MailboxChannel,
+) -> GatewayMailNotifierStatusV1:
     """Disable gateway mail-notifier state for one managed agent."""
 
     _raise_external_unsupported(target, operation="agents single ... gateway mail-notifier disable")
@@ -2815,6 +2849,7 @@ def gateway_mail_notifier_disable(target: ManagedAgentTarget) -> GatewayMailNoti
         return pair_request(
             target.client.delete_managed_agent_gateway_mail_notifier,
             target.agent_ref,
+            channel=channel,
         )
 
     controller = _require_live_local_controller(
@@ -2823,193 +2858,236 @@ def gateway_mail_notifier_disable(target: ManagedAgentTarget) -> GatewayMailNoti
     )
     client = _require_live_gateway_client_for_controller(controller)
     try:
-        return client.delete_mail_notifier()
+        return client.delete_mail_notifier(
+            channel=channel,
+        )
     except GatewayHttpError as exc:
         raise click.ClickException(exc.detail) from exc
 
 
 def mailbox_status(target: ManagedAgentTarget) -> dict[str, object]:
-    """Return late filesystem-mailbox posture for one local managed agent."""
+    """Report offline membership for a locally controlled running body."""
 
     controller = _require_local_filesystem_mailbox_target(target, operation="status")
-    mailbox = controller.launch_plan.mailbox
-    if mailbox is not None and not isinstance(mailbox, FilesystemMailboxResolvedConfig):
-        raise click.ClickException(
-            "`houmao-mgr agents single ... mailbox ...` and `houmao-mgr agents self mailbox ...` "
-            "only support filesystem mailbox bindings in v1."
-        )
-
-    activation_state = controller.mailbox_activation_state()
-    payload: dict[str, object] = {
-        "schema_version": 1,
+    binding = controller.launch_plan.mailboxes.offline.binding
+    return {
+        "schema_version": 2,
         "tracked_agent_id": target.identity.tracked_agent_id,
         "agent_name": controller.agent_identity,
         "agent_id": controller.agent_id,
-        "backend": controller.launch_plan.backend,
-        "joined_session": bool(
-            controller.agent_launch_authority is not None
-            and controller.agent_launch_authority.session_origin == "joined_tmux"
-        ),
-        "posture_kind": (
-            controller.agent_launch_authority.posture_kind
-            if controller.agent_launch_authority is not None
-            else None
-        ),
-        "registered": mailbox is not None,
-        "activation_state": activation_state,
-        "runtime_mailbox_enabled": mailbox is not None and activation_state == "active",
+        "channel": "offline",
+        "registered": binding is not None,
+        "revision": controller.launch_plan.mailboxes.offline.revision,
+        "binding": None
+        if binding is None
+        else {
+            "agent_id": binding.agent_id,
+            "binding_id": binding.binding_id,
+            "transport": binding.transport,
+            "address": binding.address,
+        },
+        "activation_state": controller.mailbox_activation_state(),
     }
-    if mailbox is not None:
-        payload.update(
-            {
-                "transport": mailbox.transport,
-                "principal_id": mailbox.principal_id,
-                "address": mailbox.address,
-                "mailbox_root": str(mailbox.filesystem_root),
-                "bindings_version": mailbox.bindings_version,
-            }
-        )
-    return payload
 
 
 def register_mailbox_binding(
     target: ManagedAgentTarget,
     *,
-    mailbox_root: Path | None,
-    principal_id: str | None,
-    address: str | None,
-    mode: str,
-    confirm_destructive_replace: Callable[[str], bool] | None = None,
+    mailbox_root: Path | None = None,
+    principal_id: str | None = None,
+    address: str | None = None,
+    registry_url: str | None = None,
+    credential_file: Path | None = None,
+    admin_credential_file: Path | None = None,
 ) -> dict[str, object]:
-    """Register one late filesystem mailbox binding for a local managed agent."""
+    """Join the selected local or remote offline registry without body relaunch."""
 
-    controller = _require_local_filesystem_mailbox_target(target, operation="register")
+    controller = _require_local_filesystem_mailbox_target(target, operation="join")
     try:
-        result = controller.register_filesystem_mailbox(
-            mailbox_root=mailbox_root,
-            principal_id=principal_id,
-            address=address,
-            mode=cast(Any, mode),
-            confirm_destructive_replace=confirm_destructive_replace,
-        )
-    except (MailboxBootstrapError, ManagedMailboxOperationError, SessionManifestError) as exc:
+        if registry_url is not None:
+            if mailbox_root is not None or principal_id is not None:
+                raise click.ClickException(
+                    "Remote join cannot select registry-host paths or sender IDs."
+                )
+            if credential_file is None or admin_credential_file is None or address is None:
+                raise click.ClickException(
+                    "Remote join requires --address, --credential-file, and --admin-credential-file."
+                )
+            result = controller.register_remote_offline_mailbox(
+                registry_url=registry_url,
+                credential_file=credential_file,
+                admin_credential_file=admin_credential_file,
+                address=address,
+            )
+        else:
+            if credential_file is not None or admin_credential_file is not None:
+                raise click.ClickException("Remote credential options require --registry-url.")
+            result = controller.register_filesystem_mailbox(
+                mailbox_root=mailbox_root,
+                principal_id=principal_id,
+                address=address,
+            )
+    except (
+        MailboxBootstrapError,
+        ManagedMailboxOperationError,
+        SessionManifestError,
+        ValueError,
+        RuntimeError,
+    ) as exc:
         raise click.ClickException(str(exc)) from exc
-    mailbox = result.mailbox
-    assert mailbox is not None
+    binding = result.mailbox
+    assert binding is not None
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "tracked_agent_id": target.identity.tracked_agent_id,
         "agent_name": controller.agent_identity,
         "agent_id": controller.agent_id,
-        "transport": mailbox.transport,
-        "principal_id": mailbox.principal_id,
-        "address": mailbox.address,
-        "mailbox_root": str(mailbox.filesystem_root),
-        "bindings_version": mailbox.bindings_version,
+        "channel": "offline",
+        "binding_id": binding.binding_id,
+        "transport": binding.transport,
+        "address": binding.address,
+        "revision": binding.bindings_version,
         "activation_state": result.activation_state,
         "shared_registration": result.shared_lifecycle_result,
+        "warnings": list(controller.operation_warnings),
     }
 
 
-def unregister_mailbox_binding(
-    target: ManagedAgentTarget,
-    *,
-    mode: str,
-) -> dict[str, object]:
-    """Unregister one late filesystem mailbox binding for a local managed agent."""
+def unregister_mailbox_binding(target: ManagedAgentTarget, *, mode: str) -> dict[str, object]:
+    """Release offline membership explicitly, preserving the online binding."""
 
-    controller = _require_local_filesystem_mailbox_target(target, operation="unregister")
-    previous_mailbox = controller.launch_plan.mailbox
-    if previous_mailbox is None:
-        raise click.ClickException("Target session is not mailbox-enabled.")
-    if not isinstance(previous_mailbox, FilesystemMailboxResolvedConfig):
-        raise click.ClickException(
-            "`houmao-mgr agents single ... mailbox ...` and `houmao-mgr agents self mailbox ...` "
-            "only support filesystem mailbox bindings in v1."
-        )
-
+    controller = _require_local_filesystem_mailbox_target(target, operation="leave")
+    previous = controller.launch_plan.mailboxes.offline.binding
+    if previous is None:
+        raise click.ClickException("Target has no configured offline mailbox.")
     try:
         result = controller.unregister_filesystem_mailbox(mode=cast(Any, mode))
-    except SessionManifestError as exc:
+    except (SessionManifestError, ValueError, RuntimeError) as exc:
         raise click.ClickException(str(exc)) from exc
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "tracked_agent_id": target.identity.tracked_agent_id,
         "agent_name": controller.agent_identity,
         "agent_id": controller.agent_id,
-        "transport": previous_mailbox.transport,
-        "principal_id": previous_mailbox.principal_id,
-        "address": previous_mailbox.address,
-        "mailbox_root": str(previous_mailbox.filesystem_root),
+        "channel": "offline",
+        "binding_id": previous.binding_id,
+        "transport": previous.transport,
+        "address": previous.address,
         "activation_state": result.activation_state,
         "shared_unregistration": result.shared_lifecycle_result,
+        "warnings": list(controller.operation_warnings),
     }
 
 
 def _local_manager_mail_status(controller: RuntimeSessionController) -> GatewayMailStatusV1:
-    """Return authoritative local mailbox status through manager-owned execution."""
+    """Report both configured channels and independent backend availability."""
 
-    adapter = _local_mailbox_adapter_for_controller(controller)
-    try:
-        return adapter.status()
-    except GatewayMailboxError as exc:
-        raise click.ClickException(str(exc)) from exc
+    handle = load_session_manifest(controller.manifest_path)
+    payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+    mailboxes = mailboxes_resolved_config_from_payload(
+        payload.launch_plan.mailboxes.model_dump(mode="json"), manifest_path=handle.path
+    )
+    summaries: dict[str, MailboxChannelStatusV1 | None] = {}
+    for channel in ("offline", "online"):
+        slot = mailboxes.slot_for(channel)
+        binding = slot.binding
+        if binding is None:
+            summaries[channel] = None
+            continue
+        error = None
+        try:
+            build_gateway_mailbox_adapter(binding).status()
+        except (GatewayMailboxError, ValueError, OSError):
+            error = "Mailbox backend is unavailable."
+        summaries[channel] = MailboxChannelStatusV1(
+            agent_id=binding.agent_id,
+            channel=channel,
+            binding_id=binding.binding_id,
+            revision=slot.revision,
+            address=binding.address,
+            transport=binding.transport,
+            available=error is None,
+            error=error,
+            supported_operations=[
+                "list",
+                "peek",
+                "read",
+                "send",
+                "reply",
+                "mark",
+                "move",
+                "archive",
+            ],
+        )
+    return GatewayMailStatusV1(
+        agent_id=payload.agent_id,
+        offline=summaries["offline"],
+        online=summaries["online"],
+        canonical_mail_identity=mailboxes.canonical_mail_identity,
+    )
 
 
 def _local_manager_mail_list(
     controller: RuntimeSessionController,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str | None = None,
     box: str,
     read_state: str,
     answered_state: str,
     archived: bool | None,
-    limit: int | None,
+    limit: int,
     since: str | None,
-    include_body: bool,
+    cursor: str | None,
 ) -> GatewayMailListResponseV1:
     """List mailbox contents through manager-owned local execution."""
 
-    adapter = _local_mailbox_adapter_for_controller(controller)
+    adapter = _local_mailbox_adapter_for_controller(
+        controller,
+        channel=channel,
+        expected_binding_id=expected_binding_id,
+    )
     try:
-        messages = adapter.list_messages(
+        page = adapter.list_page(
             box=box,
             read_state=read_state,
             answered_state=answered_state,
             archived=archived,
             limit=limit,
             since=since,
-            include_body=include_body,
+            cursor=cursor,
         )
         status = adapter.status()
-    except GatewayMailboxError as exc:
+    except GatewayMailboxMutationError as exc:
+        raise click.ClickException(json.dumps(exc.safe_payload(), sort_keys=True)) from exc
+    except (GatewayMailboxError, MailboxScopeError) as exc:
         raise click.ClickException(str(exc)) from exc
-    unread_count = sum(1 for message in messages if message.unread is True)
-    open_count = sum(1 for message in messages if message.archived is not True)
-    return GatewayMailListResponseV1(
-        transport=status.transport,
-        principal_id=status.principal_id,
-        address=status.address,
-        box=box,
-        message_count=len(messages),
-        open_count=open_count,
-        unread_count=unread_count,
-        messages=messages,
-    )
+    from houmao.mailbox.pagination import build_mail_page_response
+
+    return build_mail_page_response(identity=status, box=box, page=page)
 
 
 def _local_manager_mail_peek(
     controller: RuntimeSessionController,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str | None = None,
     message_ref: str,
     box: str | None,
 ) -> GatewayMailMessageResponseV1:
     """Peek at one mailbox message through manager-owned local execution."""
 
-    adapter = _local_mailbox_adapter_for_controller(controller)
+    adapter = _local_mailbox_adapter_for_controller(
+        controller,
+        channel=channel,
+        expected_binding_id=expected_binding_id,
+    )
     try:
         message = adapter.peek(message_ref=message_ref, box=box)
         status = adapter.status()
-    except GatewayMailboxError as exc:
+    except GatewayMailboxMutationError as exc:
+        raise click.ClickException(json.dumps(exc.safe_payload(), sort_keys=True)) from exc
+    except (GatewayMailboxError, MailboxScopeError) as exc:
         raise click.ClickException(str(exc)) from exc
     return GatewayMailMessageResponseV1(
         operation="peek",
@@ -3023,16 +3101,24 @@ def _local_manager_mail_peek(
 def _local_manager_mail_read(
     controller: RuntimeSessionController,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str | None = None,
     message_ref: str,
     box: str | None,
 ) -> GatewayMailMessageResponseV1:
     """Read one mailbox message through manager-owned local execution."""
 
-    adapter = _local_mailbox_adapter_for_controller(controller)
+    adapter = _local_mailbox_adapter_for_controller(
+        controller,
+        channel=channel,
+        expected_binding_id=expected_binding_id,
+    )
     try:
         message = adapter.read(message_ref=message_ref, box=box)
         status = adapter.status()
-    except GatewayMailboxError as exc:
+    except GatewayMailboxMutationError as exc:
+        raise click.ClickException(json.dumps(exc.safe_payload(), sort_keys=True)) from exc
+    except (GatewayMailboxError, MailboxScopeError) as exc:
         raise click.ClickException(str(exc)) from exc
     return GatewayMailMessageResponseV1(
         operation="read",
@@ -3046,6 +3132,8 @@ def _local_manager_mail_read(
 def _local_manager_mail_send(
     controller: RuntimeSessionController,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str | None = None,
     to_recipients: Sequence[str],
     cc_recipients: Sequence[str],
     subject: str,
@@ -3056,7 +3144,11 @@ def _local_manager_mail_send(
 ) -> GatewayMailActionResponseV1:
     """Send mail through manager-owned local execution."""
 
-    adapter = _local_mailbox_adapter_for_controller(controller)
+    adapter = _local_mailbox_adapter_for_controller(
+        controller,
+        channel=channel,
+        expected_binding_id=expected_binding_id,
+    )
     try:
         message = adapter.send(
             to_addresses=to_recipients,
@@ -3068,7 +3160,9 @@ def _local_manager_mail_send(
             notify_auth=notify_auth,
         )
         status = adapter.status()
-    except GatewayMailboxError as exc:
+    except GatewayMailboxMutationError as exc:
+        raise click.ClickException(json.dumps(exc.safe_payload(), sort_keys=True)) from exc
+    except (GatewayMailboxError, MailboxScopeError) as exc:
         raise click.ClickException(str(exc)) from exc
     return GatewayMailActionResponseV1(
         operation="send",
@@ -3082,6 +3176,8 @@ def _local_manager_mail_send(
 def _local_manager_mail_reply(
     controller: RuntimeSessionController,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str | None = None,
     message_ref: str,
     body_content: str,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
@@ -3090,7 +3186,11 @@ def _local_manager_mail_reply(
 ) -> GatewayMailActionResponseV1:
     """Reply through manager-owned local execution."""
 
-    adapter = _local_mailbox_adapter_for_controller(controller)
+    adapter = _local_mailbox_adapter_for_controller(
+        controller,
+        channel=channel,
+        expected_binding_id=expected_binding_id,
+    )
     try:
         message = adapter.reply(
             message_ref=message_ref,
@@ -3100,7 +3200,9 @@ def _local_manager_mail_reply(
             notify_auth=notify_auth,
         )
         status = adapter.status()
-    except GatewayMailboxError as exc:
+    except GatewayMailboxMutationError as exc:
+        raise click.ClickException(json.dumps(exc.safe_payload(), sort_keys=True)) from exc
+    except (GatewayMailboxError, MailboxScopeError) as exc:
         raise click.ClickException(str(exc)) from exc
     return GatewayMailActionResponseV1(
         operation="reply",
@@ -3114,6 +3216,8 @@ def _local_manager_mail_reply(
 def _local_manager_mail_post(
     controller: RuntimeSessionController,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str | None = None,
     subject: str,
     body_content: str,
     reply_policy: OperatorOriginReplyPolicy,
@@ -3123,7 +3227,11 @@ def _local_manager_mail_post(
 ) -> GatewayMailActionResponseV1:
     """Post operator-origin mail through manager-owned local execution."""
 
-    adapter = _local_mailbox_adapter_for_controller(controller)
+    adapter = _local_mailbox_adapter_for_controller(
+        controller,
+        channel=channel,
+        expected_binding_id=expected_binding_id,
+    )
     try:
         message = adapter.post(
             subject=subject,
@@ -3134,7 +3242,9 @@ def _local_manager_mail_post(
             notify_auth=notify_auth,
         )
         status = adapter.status()
-    except GatewayMailboxError as exc:
+    except GatewayMailboxMutationError as exc:
+        raise click.ClickException(json.dumps(exc.safe_payload(), sort_keys=True)) from exc
+    except (GatewayMailboxError, MailboxScopeError) as exc:
         raise click.ClickException(str(exc)) from exc
     return GatewayMailActionResponseV1(
         operation="post",
@@ -3148,6 +3258,8 @@ def _local_manager_mail_post(
 def _local_manager_mail_mark(
     controller: RuntimeSessionController,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str | None = None,
     message_refs: Sequence[str],
     read: bool | None,
     answered: bool | None,
@@ -3155,7 +3267,11 @@ def _local_manager_mail_mark(
 ) -> GatewayMailLifecycleResponseV1:
     """Mark mailbox state through manager-owned local execution."""
 
-    adapter = _local_mailbox_adapter_for_controller(controller)
+    adapter = _local_mailbox_adapter_for_controller(
+        controller,
+        channel=channel,
+        expected_binding_id=expected_binding_id,
+    )
     try:
         messages = adapter.mark(
             message_refs=message_refs,
@@ -3164,7 +3280,9 @@ def _local_manager_mail_mark(
             archived=archived,
         )
         status = adapter.status()
-    except GatewayMailboxError as exc:
+    except GatewayMailboxMutationError as exc:
+        raise click.ClickException(json.dumps(exc.safe_payload(), sort_keys=True)) from exc
+    except (GatewayMailboxError, MailboxScopeError) as exc:
         raise click.ClickException(str(exc)) from exc
     return GatewayMailLifecycleResponseV1(
         operation="mark",
@@ -3179,16 +3297,24 @@ def _local_manager_mail_mark(
 def _local_manager_mail_move(
     controller: RuntimeSessionController,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str | None = None,
     message_refs: Sequence[str],
     destination_box: str,
 ) -> GatewayMailLifecycleResponseV1:
     """Move mailbox messages through manager-owned local execution."""
 
-    adapter = _local_mailbox_adapter_for_controller(controller)
+    adapter = _local_mailbox_adapter_for_controller(
+        controller,
+        channel=channel,
+        expected_binding_id=expected_binding_id,
+    )
     try:
         messages = adapter.move(message_refs=message_refs, destination_box=destination_box)
         status = adapter.status()
-    except GatewayMailboxError as exc:
+    except GatewayMailboxMutationError as exc:
+        raise click.ClickException(json.dumps(exc.safe_payload(), sort_keys=True)) from exc
+    except (GatewayMailboxError, MailboxScopeError) as exc:
         raise click.ClickException(str(exc)) from exc
     return GatewayMailLifecycleResponseV1(
         operation="move",
@@ -3203,15 +3329,23 @@ def _local_manager_mail_move(
 def _local_manager_mail_archive(
     controller: RuntimeSessionController,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str | None = None,
     message_refs: Sequence[str],
 ) -> GatewayMailLifecycleResponseV1:
     """Archive mailbox messages through manager-owned local execution."""
 
-    adapter = _local_mailbox_adapter_for_controller(controller)
+    adapter = _local_mailbox_adapter_for_controller(
+        controller,
+        channel=channel,
+        expected_binding_id=expected_binding_id,
+    )
     try:
         messages = adapter.archive(message_refs=message_refs)
         status = adapter.status()
-    except GatewayMailboxError as exc:
+    except GatewayMailboxMutationError as exc:
+        raise click.ClickException(json.dumps(exc.safe_payload(), sort_keys=True)) from exc
+    except (GatewayMailboxError, MailboxScopeError) as exc:
         raise click.ClickException(str(exc)) from exc
     return GatewayMailLifecycleResponseV1(
         operation="archive",
@@ -3223,29 +3357,106 @@ def _local_manager_mail_archive(
     )
 
 
+def online_mailbox_status(target: ManagedAgentTarget) -> OnlineBindingStatus:
+    """Read online configuration through the running gateway companion."""
+
+    if _target_uses_pair_api(target):
+        assert target.client is not None
+        return pair_request(target.client.get_managed_agent_online_binding, target.agent_ref)
+    assert target.controller is not None
+    client = _require_live_gateway_client_for_controller(target.controller)
+    try:
+        return client.online_binding_status()
+    except GatewayHttpError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def control_online_mailbox(
+    target: ManagedAgentTarget,
+    operation: str,
+    request: OnlineAttachRequest | OnlineControlRequest,
+) -> OnlineBindingStatus:
+    """Forward one explicit revision-pinned operator action without retries."""
+
+    if _target_uses_pair_api(target):
+        assert target.client is not None
+        method = getattr(target.client, f"{operation}_managed_agent_online_binding")
+        result = pair_request(method, target.agent_ref, request)
+        return OnlineBindingStatus.model_validate(result.model_dump(mode="json"))
+    assert target.controller is not None
+    client = _require_live_gateway_client_for_controller(target.controller)
+    try:
+        result = getattr(client, f"{operation}_online_binding")(request)
+        return OnlineBindingStatus.model_validate(result.model_dump(mode="json"))
+    except GatewayHttpError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
 def _local_mailbox_adapter_for_controller(
     controller: RuntimeSessionController,
+    *,
+    channel: MailboxChannel,
+    expected_binding_id: str | None = None,
 ) -> GatewayMailboxAdapter:
-    """Return one live local mailbox adapter or fail with CLI-friendly detail."""
+    """Resolve one current channel and reject stale targeting before backend I/O."""
 
     try:
-        mailbox = ensure_mailbox_command_ready(
-            controller.launch_plan,
-            tmux_session_name=controller.tmux_session_name,
+        handle = load_session_manifest(controller.manifest_path)
+        payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+        mailboxes = mailboxes_resolved_config_from_payload(
+            payload.launch_plan.mailboxes.model_dump(mode="json"),
+            manifest_path=handle.path,
         )
-    except MailboxCommandError as exc:
-        if controller.launch_plan.mailbox is None:
-            raise click.ClickException("Target session is not mailbox-enabled.") from exc
+        binding = mailboxes.binding_for(channel)
+        if binding is None:
+            raise click.ClickException(f"Target has no configured {channel} mailbox.")
+        if binding.agent_id != controller.agent_id:
+            raise click.ClickException("Mailbox owner differs from the selected agent.")
+        scope = MailScope(binding.agent_id, channel, binding.binding_id)
+        if expected_binding_id is not None:
+            scope.require_binding(expected_binding_id)
+        return build_scoped_mailbox_adapter(
+            binding,
+            authority=OnlineAuthorityContext(
+                handle.path, payload.agent_id, payload.runtime.session_id
+            ),
+        )
+    except (GatewayMailboxError, ValueError, SessionManifestError) as exc:
         raise click.ClickException(str(exc)) from exc
-    try:
-        return build_gateway_mailbox_adapter(mailbox)
-    except GatewayMailboxError as exc:
-        raise click.ClickException(str(exc)) from exc
+
+
+def _resolve_mail_expected_binding(
+    target: ManagedAgentTarget,
+    channel: MailboxChannel,
+    expected_binding_id: str | None,
+) -> str:
+    """Pin one operation to a selected binding without retrying a replacement."""
+
+    if _target_uses_pair_api(target):
+        assert target.client is not None
+        summary = pair_request(target.client.get_managed_agent_mail_status, target.agent_ref)
+        binding = getattr(summary, channel)
+        if binding is None:
+            raise click.ClickException(f"Target has no configured {channel} mailbox.")
+        current_id = binding.binding_id
+    else:
+        controller = _require_live_local_controller(target, operation=f"resolve {channel} mail")
+        handle = load_session_manifest(controller.manifest_path)
+        payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+        slot = getattr(payload.launch_plan.mailboxes, channel)
+        if slot.binding is None:
+            raise click.ClickException(f"Target has no configured {channel} mailbox.")
+        current_id = slot.binding.binding_id
+    if expected_binding_id is not None and expected_binding_id != current_id:
+        raise click.ClickException("Mailbox binding changed; resolve the selected channel again.")
+    return str(current_id)
 
 
 def _gateway_mail_send(
     client: GatewayClient,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str,
     to_recipients: Sequence[str],
     cc_recipients: Sequence[str],
     subject: str,
@@ -3266,7 +3477,9 @@ def _gateway_mail_send(
                 attachments=list(attachments),
                 notify_block=notify_block,
                 notify_auth=notify_auth,
-            )
+                expected_binding_id=expected_binding_id,
+            ),
+            channel=channel,
         )
     except GatewayHttpError as exc:
         raise click.ClickException(exc.detail) from exc
@@ -3275,6 +3488,8 @@ def _gateway_mail_send(
 def _gateway_mail_reply(
     client: GatewayClient,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str,
     message_ref: str,
     body_content: str,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
@@ -3291,7 +3506,9 @@ def _gateway_mail_reply(
                 attachments=list(attachments),
                 notify_block=notify_block,
                 notify_auth=notify_auth,
-            )
+                expected_binding_id=expected_binding_id,
+            ),
+            channel=channel,
         )
     except GatewayHttpError as exc:
         raise click.ClickException(exc.detail) from exc
@@ -3300,6 +3517,8 @@ def _gateway_mail_reply(
 def _gateway_mail_post(
     client: GatewayClient,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str,
     subject: str,
     body_content: str,
     reply_policy: OperatorOriginReplyPolicy,
@@ -3318,7 +3537,9 @@ def _gateway_mail_post(
                 attachments=list(attachments),
                 notify_block=notify_block,
                 notify_auth=notify_auth,
-            )
+                expected_binding_id=expected_binding_id,
+            ),
+            channel=channel,
         )
     except GatewayHttpError as exc:
         raise click.ClickException(exc.detail) from exc
@@ -3327,6 +3548,8 @@ def _gateway_mail_post(
 def _gateway_mail_mark(
     client: GatewayClient,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str,
     message_refs: Sequence[str],
     read: bool | None,
     answered: bool | None,
@@ -3341,7 +3564,9 @@ def _gateway_mail_mark(
                 read=read,
                 answered=answered,
                 archived=archived,
-            )
+                expected_binding_id=expected_binding_id,
+            ),
+            channel=channel,
         )
     except GatewayHttpError as exc:
         raise click.ClickException(exc.detail) from exc
@@ -3350,6 +3575,8 @@ def _gateway_mail_mark(
 def _gateway_mail_move(
     client: GatewayClient,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str,
     message_refs: Sequence[str],
     destination_box: str,
 ) -> GatewayMailLifecycleResponseV1:
@@ -3360,7 +3587,9 @@ def _gateway_mail_move(
             GatewayMailMoveRequestV1(
                 message_refs=list(message_refs),
                 destination_box=destination_box,
-            )
+                expected_binding_id=expected_binding_id,
+            ),
+            channel=channel,
         )
     except GatewayHttpError as exc:
         raise click.ClickException(exc.detail) from exc
@@ -3369,12 +3598,20 @@ def _gateway_mail_move(
 def _gateway_mail_archive(
     client: GatewayClient,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str,
     message_refs: Sequence[str],
 ) -> GatewayMailLifecycleResponseV1:
     """Archive mailbox messages through one live loopback gateway client."""
 
     try:
-        return client.archive_mail(GatewayMailArchiveRequestV1(message_refs=list(message_refs)))
+        return client.archive_mail(
+            GatewayMailArchiveRequestV1(
+                message_refs=list(message_refs),
+                expected_binding_id=expected_binding_id,
+            ),
+            channel=channel,
+        )
     except GatewayHttpError as exc:
         raise click.ClickException(exc.detail) from exc
 
@@ -3401,15 +3638,19 @@ def mail_status(target: ManagedAgentTarget) -> object:
 def mail_list(
     target: ManagedAgentTarget,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str | None = None,
     box: str,
     read_state: str,
     answered_state: str,
     archived: bool | None,
-    limit: int | None,
+    limit: int,
     since: str | None,
-    include_body: bool,
+    cursor: str | None,
 ) -> object:
     """List mailbox contents for one managed agent."""
+
+    expected_binding_id = _resolve_mail_expected_binding(target, channel, expected_binding_id)
 
     if _target_uses_pair_api(target):
         assert target.client is not None
@@ -3428,8 +3669,10 @@ def mail_list(
                     archived=archived,
                     limit=limit,
                     since=since,
-                    include_body=include_body,
+                    cursor=cursor,
+                    expected_binding_id=expected_binding_id,
                 ),
+                channel=channel,
             ),
         )
 
@@ -3445,7 +3688,9 @@ def mail_list(
             archived=archived,
             limit=limit,
             since=since,
-            include_body=include_body,
+            cursor=cursor,
+            channel=channel,
+            expected_binding_id=expected_binding_id,
         ),
     )
 
@@ -3453,10 +3698,14 @@ def mail_list(
 def mail_peek(
     target: ManagedAgentTarget,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str | None = None,
     message_ref: str,
     box: str | None,
 ) -> object:
     """Peek at one mailbox message for one managed agent."""
+
+    expected_binding_id = _resolve_mail_expected_binding(target, channel, expected_binding_id)
 
     if _target_uses_pair_api(target):
         assert target.client is not None
@@ -3468,7 +3717,12 @@ def mail_peek(
             payload=pair_request(
                 target.client.peek_managed_agent_mail,
                 target.agent_ref,
-                HoumaoManagedAgentMailMessageRequest(message_ref=message_ref, box=box),
+                HoumaoManagedAgentMailMessageRequest(
+                    message_ref=message_ref,
+                    box=box,
+                    expected_binding_id=expected_binding_id,
+                ),
+                channel=channel,
             ),
         )
 
@@ -3480,6 +3734,8 @@ def mail_peek(
             controller,
             message_ref=message_ref,
             box=box,
+            channel=channel,
+            expected_binding_id=expected_binding_id,
         ),
     )
 
@@ -3487,10 +3743,14 @@ def mail_peek(
 def mail_read(
     target: ManagedAgentTarget,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str | None = None,
     message_ref: str,
     box: str | None,
 ) -> object:
     """Read one mailbox message for one managed agent."""
+
+    expected_binding_id = _resolve_mail_expected_binding(target, channel, expected_binding_id)
 
     if _target_uses_pair_api(target):
         assert target.client is not None
@@ -3502,7 +3762,12 @@ def mail_read(
             payload=pair_request(
                 target.client.read_managed_agent_mail,
                 target.agent_ref,
-                HoumaoManagedAgentMailMessageRequest(message_ref=message_ref, box=box),
+                HoumaoManagedAgentMailMessageRequest(
+                    message_ref=message_ref,
+                    box=box,
+                    expected_binding_id=expected_binding_id,
+                ),
+                channel=channel,
             ),
         )
 
@@ -3514,6 +3779,8 @@ def mail_read(
             controller,
             message_ref=message_ref,
             box=box,
+            channel=channel,
+            expected_binding_id=expected_binding_id,
         ),
     )
 
@@ -3521,6 +3788,8 @@ def mail_read(
 def mail_send(
     target: ManagedAgentTarget,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str | None = None,
     to_recipients: list[str],
     cc_recipients: list[str],
     subject: str,
@@ -3530,6 +3799,8 @@ def mail_send(
     notify_auth: MailboxNotifyAuth | None = None,
 ) -> object:
     """Send a mailbox message for one managed agent."""
+
+    expected_binding_id = _resolve_mail_expected_binding(target, channel, expected_binding_id)
 
     if _target_uses_pair_api(target):
         assert target.client is not None
@@ -3549,7 +3820,9 @@ def mail_send(
                     attachments=list(attachments),
                     notify_block=notify_block,
                     notify_auth=notify_auth,
+                    expected_binding_id=expected_binding_id,
                 ),
+                channel=channel,
             ),
         )
 
@@ -3567,10 +3840,16 @@ def mail_send(
                 attachments=attachments,
                 notify_block=notify_block,
                 notify_auth=notify_auth,
+                channel=channel,
+                expected_binding_id=expected_binding_id,
             ),
         )
 
-    direct_mail_error = _local_manager_mail_authority_error(controller)
+    direct_mail_error = _local_manager_mail_authority_error(
+        controller,
+        channel=channel,
+        expected_binding_id=expected_binding_id,
+    )
     if direct_mail_error is None:
         return build_verified_mail_command_result(
             operation="send",
@@ -3584,6 +3863,8 @@ def mail_send(
                 attachments=attachments,
                 notify_block=notify_block,
                 notify_auth=notify_auth,
+                channel=channel,
+                expected_binding_id=expected_binding_id,
             ),
         )
 
@@ -3601,6 +3882,8 @@ def mail_send(
                 attachments=attachments,
                 notify_block=notify_block,
                 notify_auth=notify_auth,
+                channel=channel,
+                expected_binding_id=expected_binding_id,
             ),
         )
     # Preserve the submission-only fallback when verified direct or gateway-backed
@@ -3619,12 +3902,16 @@ def mail_send(
             "body_content": body_content,
             "attachments": [attachment.model_dump(mode="json") for attachment in attachments],
         },
+        channel=channel,
+        expected_binding_id=expected_binding_id,
     )
 
 
 def mail_post(
     target: ManagedAgentTarget,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str | None = None,
     subject: str,
     body_content: str,
     reply_policy: OperatorOriginReplyPolicy,
@@ -3633,6 +3920,8 @@ def mail_post(
     notify_auth: MailboxNotifyAuth | None = None,
 ) -> object:
     """Post one operator-origin mailbox note into one managed agent inbox."""
+
+    expected_binding_id = _resolve_mail_expected_binding(target, channel, expected_binding_id)
 
     if _target_uses_pair_api(target):
         assert target.client is not None
@@ -3651,7 +3940,9 @@ def mail_post(
                     attachments=list(attachments),
                     notify_block=notify_block,
                     notify_auth=notify_auth,
+                    expected_binding_id=expected_binding_id,
                 ),
+                channel=channel,
             ),
         )
 
@@ -3671,10 +3962,16 @@ def mail_post(
                 attachments=attachments,
                 notify_block=notify_block,
                 notify_auth=notify_auth,
+                channel=channel,
+                expected_binding_id=expected_binding_id,
             ),
         )
 
-    direct_mail_error = _local_manager_mail_authority_error(controller)
+    direct_mail_error = _local_manager_mail_authority_error(
+        controller,
+        channel=channel,
+        expected_binding_id=expected_binding_id,
+    )
     if direct_mail_error is None:
         return build_verified_mail_command_result(
             operation="post",
@@ -3687,6 +3984,8 @@ def mail_post(
                 attachments=attachments,
                 notify_block=notify_block,
                 notify_auth=notify_auth,
+                channel=channel,
+                expected_binding_id=expected_binding_id,
             ),
         )
 
@@ -3703,6 +4002,8 @@ def mail_post(
                 attachments=attachments,
                 notify_block=notify_block,
                 notify_auth=notify_auth,
+                channel=channel,
+                expected_binding_id=expected_binding_id,
             ),
         )
     raise click.ClickException(
@@ -3714,6 +4015,8 @@ def mail_post(
 def mail_reply(
     target: ManagedAgentTarget,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str | None = None,
     message_ref: str,
     body_content: str,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
@@ -3721,6 +4024,8 @@ def mail_reply(
     notify_auth: MailboxNotifyAuth | None = None,
 ) -> object:
     """Reply to a mailbox message for one managed agent."""
+
+    expected_binding_id = _resolve_mail_expected_binding(target, channel, expected_binding_id)
 
     if _target_uses_pair_api(target):
         assert target.client is not None
@@ -3738,7 +4043,9 @@ def mail_reply(
                     attachments=list(attachments),
                     notify_block=notify_block,
                     notify_auth=notify_auth,
+                    expected_binding_id=expected_binding_id,
                 ),
+                channel=channel,
             ),
         )
 
@@ -3754,10 +4061,16 @@ def mail_reply(
                 attachments=attachments,
                 notify_block=notify_block,
                 notify_auth=notify_auth,
+                channel=channel,
+                expected_binding_id=expected_binding_id,
             ),
         )
 
-    direct_mail_error = _local_manager_mail_authority_error(controller)
+    direct_mail_error = _local_manager_mail_authority_error(
+        controller,
+        channel=channel,
+        expected_binding_id=expected_binding_id,
+    )
     if direct_mail_error is None:
         return build_verified_mail_command_result(
             operation="reply",
@@ -3769,6 +4082,8 @@ def mail_reply(
                 attachments=attachments,
                 notify_block=notify_block,
                 notify_auth=notify_auth,
+                channel=channel,
+                expected_binding_id=expected_binding_id,
             ),
         )
 
@@ -3784,6 +4099,8 @@ def mail_reply(
                 attachments=attachments,
                 notify_block=notify_block,
                 notify_auth=notify_auth,
+                channel=channel,
+                expected_binding_id=expected_binding_id,
             ),
         )
     return _run_local_mail_prompt(
@@ -3794,18 +4111,24 @@ def mail_reply(
             "body_content": body_content,
             "attachments": [attachment.model_dump(mode="json") for attachment in attachments],
         },
+        channel=channel,
+        expected_binding_id=expected_binding_id,
     )
 
 
 def mail_mark(
     target: ManagedAgentTarget,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str | None = None,
     message_refs: list[str],
     read: bool | None,
     answered: bool | None,
     archived: bool | None,
 ) -> object:
     """Mark selected mailbox messages for a managed agent."""
+
+    expected_binding_id = _resolve_mail_expected_binding(target, channel, expected_binding_id)
 
     if _target_uses_pair_api(target):
         assert target.client is not None
@@ -3822,7 +4145,9 @@ def mail_mark(
                     read=read,
                     answered=answered,
                     archived=archived,
+                    expected_binding_id=expected_binding_id,
                 ),
+                channel=channel,
             ),
         )
 
@@ -3837,10 +4162,16 @@ def mail_mark(
                 read=read,
                 answered=answered,
                 archived=archived,
+                channel=channel,
+                expected_binding_id=expected_binding_id,
             ),
         )
 
-    direct_mail_error = _local_manager_mail_authority_error(controller)
+    direct_mail_error = _local_manager_mail_authority_error(
+        controller,
+        channel=channel,
+        expected_binding_id=expected_binding_id,
+    )
     if direct_mail_error is None:
         return build_verified_mail_command_result(
             operation="mark",
@@ -3851,6 +4182,8 @@ def mail_mark(
                 read=read,
                 answered=answered,
                 archived=archived,
+                channel=channel,
+                expected_binding_id=expected_binding_id,
             ),
         )
 
@@ -3865,6 +4198,8 @@ def mail_mark(
                 read=read,
                 answered=answered,
                 archived=archived,
+                channel=channel,
+                expected_binding_id=expected_binding_id,
             ),
         )
     return _run_local_mail_prompt(
@@ -3876,16 +4211,22 @@ def mail_mark(
             "answered": answered,
             "archived": archived,
         },
+        channel=channel,
+        expected_binding_id=expected_binding_id,
     )
 
 
 def mail_move(
     target: ManagedAgentTarget,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str | None = None,
     message_refs: list[str],
     destination_box: str,
 ) -> object:
     """Move selected mailbox messages for a managed agent."""
+
+    expected_binding_id = _resolve_mail_expected_binding(target, channel, expected_binding_id)
 
     if _target_uses_pair_api(target):
         assert target.client is not None
@@ -3900,7 +4241,9 @@ def mail_move(
                 HoumaoManagedAgentMailMoveRequest(
                     message_refs=message_refs,
                     destination_box=destination_box,
+                    expected_binding_id=expected_binding_id,
                 ),
+                channel=channel,
             ),
         )
 
@@ -3912,6 +4255,8 @@ def mail_move(
             controller,
             message_refs=message_refs,
             destination_box=destination_box,
+            channel=channel,
+            expected_binding_id=expected_binding_id,
         ),
     )
 
@@ -3919,9 +4264,13 @@ def mail_move(
 def mail_archive(
     target: ManagedAgentTarget,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str | None = None,
     message_refs: list[str],
 ) -> object:
     """Archive selected mailbox messages for a managed agent."""
+
+    expected_binding_id = _resolve_mail_expected_binding(target, channel, expected_binding_id)
 
     if _target_uses_pair_api(target):
         assert target.client is not None
@@ -3933,7 +4282,11 @@ def mail_archive(
             payload=pair_request(
                 target.client.archive_managed_agent_mail,
                 target.agent_ref,
-                HoumaoManagedAgentMailArchiveRequest(message_refs=message_refs),
+                HoumaoManagedAgentMailArchiveRequest(
+                    message_refs=message_refs,
+                    expected_binding_id=expected_binding_id,
+                ),
+                channel=channel,
             ),
         )
 
@@ -3941,7 +4294,12 @@ def mail_archive(
     return build_verified_mail_command_result(
         operation="archive",
         execution_path="manager_direct",
-        payload=_local_manager_mail_archive(controller, message_refs=message_refs),
+        payload=_local_manager_mail_archive(
+            controller,
+            message_refs=message_refs,
+            channel=channel,
+            expected_binding_id=expected_binding_id,
+        ),
     )
 
 
@@ -3961,8 +4319,6 @@ def mail_resolve_live(target: ManagedAgentTarget) -> dict[str, Any]:
         target,
         operation="resolve live managed-agent mail bindings",
     )
-    if controller.launch_plan.mailbox is None:
-        raise click.ClickException("Target session is not mailbox-enabled.")
     try:
         resolution = resolve_live_mailbox_binding_from_manifest_path(
             manifest_path=controller.manifest_path,
@@ -3974,11 +4330,18 @@ def mail_resolve_live(target: ManagedAgentTarget) -> dict[str, Any]:
 
 def _local_manager_mail_authority_error(
     controller: RuntimeSessionController,
+    *,
+    channel: MailboxChannel,
+    expected_binding_id: str | None = None,
 ) -> click.ClickException | None:
     """Return one direct-mail authority error, or `None` when direct execution is ready."""
 
     try:
-        _local_mailbox_adapter_for_controller(controller)
+        _local_mailbox_adapter_for_controller(
+            controller,
+            channel=channel,
+            expected_binding_id=expected_binding_id,
+        )
     except AttributeError:
         return click.ClickException(
             "Manager-owned local mail authority is unavailable for this runtime controller."
@@ -4558,16 +4921,14 @@ def _require_live_gateway_client_for_controller(
 
 def _local_mailbox_summary(
     controller: RuntimeSessionController,
-) -> HoumaoManagedAgentMailboxSummaryView | None:
-    """Return one optional mailbox summary for the local controller."""
+) -> HoumaoManagedAgentMailboxSummaryView:
+    """Project both configured slots without exposing protected references."""
 
-    mailbox = controller.launch_plan.mailbox
-    if mailbox is None:
-        return None
-    return HoumaoManagedAgentMailboxSummaryView(
-        transport=mailbox.transport,
-        principal_id=mailbox.principal_id,
-        address=mailbox.address,
+    return HoumaoManagedAgentMailboxSummaryView.model_validate(
+        {
+            **safe_registry_mailboxes_projection(controller.launch_plan.mailboxes),
+            "canonical_mail_identity": controller.launch_plan.mailboxes.canonical_mail_identity,
+        }
     )
 
 
@@ -4683,7 +5044,7 @@ def _local_tui_state_response_from_state(
             updated_at_utc=tracked_state.last_turn.updated_at_utc,
         ),
         diagnostics=diagnostics,
-        mailbox=_local_mailbox_summary(controller),
+        mailboxes=_local_mailbox_summary(controller),
         gateway=_local_gateway_summary(controller),
         **_controller_memory_state_fields(controller=controller),
     )
@@ -4803,7 +5164,7 @@ def _local_headless_state_response(
         turn=turn_view,
         last_turn=last_turn,
         diagnostics=[],
-        mailbox=mailbox_summary,
+        mailboxes=mailbox_summary,
         gateway=gateway_summary,
         **_controller_memory_state_fields(controller=controller),
     )
@@ -4848,7 +5209,7 @@ def _local_headless_detail_response(
         last_turn_returncode=latest_turn.returncode if latest_turn is not None else None,
         last_turn_history_summary=latest_turn.history_summary if latest_turn is not None else None,
         last_turn_error=latest_turn.error if latest_turn is not None else None,
-        mailbox=summary_state.mailbox,
+        mailboxes=summary_state.mailboxes,
         gateway=summary_state.gateway,
         diagnostics=[],
     )
@@ -5078,6 +5439,8 @@ def _last_turn_result_from_snapshot(
 
 def _run_local_mail_prompt(
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str,
     controller: RuntimeSessionController,
     operation: str,
     args: dict[str, Any],
@@ -5087,6 +5450,8 @@ def _run_local_mail_prompt(
     try:
         mailbox = ensure_mailbox_command_ready(
             controller.launch_plan,
+            channel=channel,
+            expected_binding_id=expected_binding_id,
             tmux_session_name=controller.tmux_session_name,
         )
     except MailboxCommandError as exc:
@@ -5095,10 +5460,12 @@ def _run_local_mail_prompt(
     prompt_args = _enrich_local_mail_prompt_args(
         mailbox=mailbox,
         operation=operation,
-        args=args,
+        args={**args, "channel": channel, "expected_binding_id": expected_binding_id},
     )
     prompt_request = prepare_mail_prompt(
         launch_plan=controller.launch_plan,
+        channel=channel,
+        expected_binding_id=expected_binding_id,
         operation=cast(Any, operation),
         args=prompt_args,
         prefer_live_gateway=prefer_live_gateway,
@@ -5112,9 +5479,11 @@ def _run_local_mail_prompt(
             else None
         ),
         prompt_request=MailPromptRequest(
+            channel=channel,
             request_id=prompt_request.request_id,
             operation=prompt_request.operation,
             prompt=prompt_request.prompt,
+            expected_binding_id=expected_binding_id,
         ),
         mailbox=mailbox,
     )

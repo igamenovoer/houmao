@@ -14,7 +14,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Literal, cast
 
-from houmao.agents.mailbox_runtime_models import MailboxResolvedConfig
+from houmao.agents.mailbox_runtime_models import (
+    MailboxChannel,
+    MailboxResolvedConfig,
+    RemoteRegistryMailboxResolvedConfig,
+)
 from houmao.agents.mailbox_runtime_support import (
     mailbox_gateway_route_name,
     mailbox_gateway_skill_name,
@@ -62,6 +66,8 @@ class MailPromptRequest:
     request_id: str
     operation: MailOperation
     prompt: str
+    channel: MailboxChannel
+    expected_binding_id: str
 
 
 @dataclass(frozen=True)
@@ -177,6 +183,8 @@ def prepare_mail_prompt(
     launch_plan: LaunchPlan,
     operation: MailOperation,
     args: dict[str, Any],
+    channel: MailboxChannel,
+    expected_binding_id: str,
     prefer_live_gateway: bool = False,
     tmux_session_name: str | None = None,
 ) -> MailPromptRequest:
@@ -184,6 +192,8 @@ def prepare_mail_prompt(
 
     mailbox = ensure_mailbox_command_ready(
         launch_plan,
+        channel=channel,
+        expected_binding_id=expected_binding_id,
         tmux_session_name=tmux_session_name,
     )
     request_id = generate_mail_request_id()
@@ -191,6 +201,9 @@ def prepare_mail_prompt(
         "version": MAIL_REQUEST_VERSION,
         "request_id": request_id,
         "operation": operation,
+        "channel": channel,
+        "expected_binding_id": expected_binding_id,
+        "agent_id": mailbox.agent_id,
         "transport": mailbox.transport,
         "principal_id": mailbox.principal_id,
         "args": args,
@@ -206,6 +219,10 @@ def prepare_mail_prompt(
         operation=operation,
         args=args,
         prefer_live_gateway=prefer_live_gateway,
+    )
+    prompt_lines.insert(
+        0,
+        f"Use channel={channel!r} and expected_binding_id={expected_binding_id!r} for every operation. Stop on a binding conflict; never resolve and resend to a replacement mailbox.",
     )
     prompt_lines.extend(
         [
@@ -239,19 +256,27 @@ def prepare_mail_prompt(
         request_id=request_id,
         operation=operation,
         prompt=prompt,
+        channel=channel,
+        expected_binding_id=expected_binding_id,
     )
 
 
 def ensure_mailbox_command_ready(
     launch_plan: LaunchPlan,
     *,
+    channel: MailboxChannel,
+    expected_binding_id: str,
     tmux_session_name: str | None = None,
 ) -> MailboxResolvedConfig:
     """Validate that a session can safely run runtime-owned mailbox commands."""
 
-    mailbox = launch_plan.mailbox
+    mailbox = launch_plan.mailboxes.binding_for(channel)
     if mailbox is None:
-        raise MailboxCommandError("Target session is not mailbox-enabled.")
+        raise MailboxCommandError(f"Target session has no {channel} mailbox binding.")
+    if mailbox.binding_id != expected_binding_id:
+        raise MailboxCommandError(
+            "Mailbox binding changed; this request cannot target its replacement."
+        )
     del tmux_session_name
     try:
         mailbox = resolve_live_mailbox_binding(durable_mailbox=mailbox).mailbox
@@ -276,6 +301,8 @@ def ensure_mailbox_command_ready(
             )
         return mailbox
 
+    if isinstance(mailbox, RemoteRegistryMailboxResolvedConfig):
+        return mailbox
     credential_file = mailbox.credential_file
     if credential_file is None or not credential_file.is_file():
         raise MailboxCommandError(

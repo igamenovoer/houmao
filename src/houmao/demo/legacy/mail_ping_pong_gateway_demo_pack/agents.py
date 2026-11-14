@@ -23,7 +23,11 @@ from houmao.owned_paths import (
     HOUMAO_LOCAL_JOBS_DIR_ENV_VAR,
 )
 from houmao.server.client import HoumaoServerClient
-from houmao.server.models import HoumaoHeadlessLaunchMailboxOptions, HoumaoHeadlessLaunchRequest
+from houmao.server.models import (
+    HoumaoHeadlessLaunchMailboxesOptions,
+    HoumaoHeadlessLaunchOfflineMailboxOptions,
+    HoumaoHeadlessLaunchRequest,
+)
 
 from .models import (
     FIXED_DEMO_PROJECT_AUTHOR_EMAIL,
@@ -87,7 +91,7 @@ def build_participant_brain(
             recipe_path=participant.brain_recipe_path,
             recipe_launch_overrides=recipe.launch_overrides,
             operator_prompt_mode=recipe.operator_prompt_mode,
-            mailbox=recipe.mailbox,
+            mailboxes=recipe.mailboxes,
             agent_name=recipe.default_agent_name,
             home_id=home_id,
             reuse_home=False,
@@ -153,11 +157,12 @@ def launch_participant(
         agent_def_dir=str(agent_def_dir.resolve()),
         brain_manifest_path=str(build_result.manifest_path.resolve()),
         role_name=participant.role_name,
-        mailbox=HoumaoHeadlessLaunchMailboxOptions(
-            transport="filesystem",
-            filesystem_root=str(layout.mailbox_root.resolve()),
-            principal_id=participant.mailbox_principal_id,
-            address=participant.mailbox_address,
+        mailboxes=HoumaoHeadlessLaunchMailboxesOptions(
+            offline=HoumaoHeadlessLaunchOfflineMailboxOptions(
+                transport="filesystem",
+                filesystem_root=str(layout.mailbox_root.resolve()),
+                address=participant.mailbox_address,
+            )
         ),
     )
     response = client.launch_headless_agent(request_model)
@@ -193,6 +198,7 @@ def attach_gateway_and_enable_notifier(
     client.put_managed_agent_gateway_mail_notifier(
         participant.tracked_agent_id,
         GatewayMailNotifierPutV1(interval_seconds=notifier_interval_seconds),
+        channel="offline",
     )
     return participant.model_copy(update={"gateway_host": status.gateway_host})
 
@@ -200,7 +206,9 @@ def attach_gateway_and_enable_notifier(
 def disable_notifier(*, client: HoumaoServerClient, participant: ParticipantState) -> None:
     """Disable gateway notifier polling for one participant."""
 
-    client.delete_managed_agent_gateway_mail_notifier(participant.tracked_agent_id)
+    client.delete_managed_agent_gateway_mail_notifier(
+        participant.tracked_agent_id, channel="offline"
+    )
 
 
 def enable_notifier(
@@ -214,6 +222,7 @@ def enable_notifier(
     client.put_managed_agent_gateway_mail_notifier(
         participant.tracked_agent_id,
         GatewayMailNotifierPutV1(interval_seconds=notifier_interval_seconds),
+        channel="offline",
     )
 
 

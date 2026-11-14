@@ -14,6 +14,7 @@ from pathlib import Path
 from urllib import parse
 
 from houmao.agents.agent_workspace import resolve_agent_memory
+from houmao.agents.mailbox_runtime_models import MailboxesResolvedConfig
 from houmao.agents.brain_builder import BuildRequest, build_brain_home
 from houmao.agents.managed_prompt_header import (
     compose_managed_launch_prompt_payload,
@@ -603,7 +604,7 @@ class CompatibilityControlCore:
                     ),
                     operator_prompt_mode=resolved_target.preset.operator_prompt_mode,
                     persistent_env_records=resolved_target.preset.launch_env_records,
-                    mailbox=resolved_target.preset.mailbox,
+                    mailboxes=resolved_target.preset.mailboxes,
                     extra=resolved_target.preset.extra,
                     agent_name=managed_launch_identity.agent_name,
                     agent_id=managed_launch_identity.agent_id,
@@ -636,7 +637,7 @@ class CompatibilityControlCore:
                     ),
                     backend="houmao_server_rest",
                     working_directory=working_directory,
-                    mailbox=None,
+                    mailboxes=MailboxesResolvedConfig(),
                 )
             )
         except (FileNotFoundError, ValueError, RuntimeError) as exc:

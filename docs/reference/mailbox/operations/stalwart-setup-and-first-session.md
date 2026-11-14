@@ -1,191 +1,128 @@
-# Stalwart Setup And First Session
+# Stalwart Setup and First Session
 
-- Who this is for: operators and developers who want the shortest safe path to a mailbox-enabled session backed by Stalwart.
-- What it explains: Houmao-side prerequisites, session startup, first `mail` commands, and when the live gateway mailbox facade becomes the preferred shared path.
-- Assumes: you already have a buildable Houmao brain or session definition and a reachable Stalwart deployment.
+This guide is for an operator with a running Houmao agent and an existing normal Stalwart account. Attach the account through its gateway companion. Account attachment does not require management credentials, provision an account, rotate its password, or restart the body.
 
-## Mental Model
+## Identity and Storage Authority
 
-With the `stalwart` transport, Houmao stops acting like the mailbox storage engine.
+Stalwart occupies the agent's `online` slot. Its filesystem `offline` slot can remain configured at the same time. Both belong to the persisted globally unique agent ID; the account login and sending address remain separate values.
 
-- Houmao resolves one mailbox binding for the session, provisions or validates the Stalwart account, persists a secret-free manifest payload, and materializes one session-local credential file when needed.
-- Stalwart is the authority for delivery, unread state, reply ancestry, and mailbox storage.
-- A live gateway can add one shared `/v1/mail/*` facade in front of that same mailbox binding, but gateway attachment is still optional for the first successful session.
+Canonical mail identity uses the configured online address, including during an outage. After online detach, it uses the offline address when present. Explicit `--channel offline` or `--channel online` selects delivery. Houmao does not bridge the channels or switch channels after failure.
 
-## Responsibility Boundaries
+Stalwart owns online messages, delivery, flags, and reply ancestry. Houmao owns the runtime binding, immutable private credential copies, connection epochs, gateway routing, and notifier admission. Filesystem mailbox rules, symlink views, and mailbox-local SQLite state apply to offline mail only.
 
-| Component | Owns | Does not own |
-| --- | --- | --- |
-| Houmao runtime | mailbox config resolution, manifest persistence, Stalwart provisioning orchestration, projected mailbox skill selection, session-local credential materialization | unread truth, mailbox threading truth, transport-local storage semantics inside Stalwart |
-| Agent gateway | `/v1/mail/*` and `/v1/mail-notifier` exposure, adapter selection from manifest-backed authority plus internal bootstrap state, notifier cadence and audit history | Stalwart account provisioning, Stalwart mailbox storage, filesystem mailbox repair rules |
-| Stalwart | mailbox delivery, unread state, reply ancestry, account mailbox contents, JMAP-backed mailbox operations | Houmao session manifests, gateway queue state, Houmao role or prompt contracts |
+## Prepare an Existing Account
 
-## Filesystem Versus Stalwart
+Have the account administrator provide its normal login, authorized sending address, and JMAP session-discovery URL. An explicitly selected account ID is required when discovery has multiple eligible accounts. Login and address may differ. The sender must match an authorized identity in the selected account.
 
-| Topic | `filesystem` | `stalwart` |
-| --- | --- | --- |
-| Mailbox authority | Houmao-owned mailbox root plus SQLite state | Stalwart mailbox server |
-| Transport-local assets | `rules/`, `locks/`, projections, `index.sqlite`, mailbox-local `mailbox.sqlite` | JMAP endpoint, management API, runtime-owned credential references, session-local credential file |
-| First-read docs path | [Mailbox Quickstart](../quickstart.md) plus [Common Workflows](common-workflows.md) | this page |
-| Shared gateway path | available when a live loopback gateway is attached | available when a live loopback gateway is attached |
-| Reply target contract | opaque `message_ref` | opaque `message_ref` |
-
-## Persisted Versus Secret Material
-
-| Artifact | Location | Secret-free | Purpose |
-| --- | --- | --- | --- |
-| mailbox binding in `manifest.json` | `<session-root>/manifest.json` | yes | durable runtime record used by resume, direct mailbox flows, and gateway adapter construction |
-| runtime-owned Stalwart credential store | `<runtime-root>/mailbox-credentials/stalwart/<credential-ref>.json` | no | durable runtime-owned secret material keyed by `credential_ref` |
-| session-local Stalwart credential file | `<session-root>/mailbox-secrets/<credential-ref>.json` | no | per-session materialized secret file surfaced through `resolve-live.mailbox.stalwart.credential_file` |
-
-The manifest stores `credential_ref`, not the password itself. For the broader filesystem map and cleanup guidance, use [Agents And Runtime](../../system-files/agents-and-runtime.md).
-
-## Prerequisites And Assumptions
-
-Houmao needs the following inputs before a Stalwart-backed session can start successfully:
-
-- either `mailbox.base_url` or both `mailbox.jmap_url` and `mailbox.management_url`,
-- a reachable Management API that can create or update the mailbox domain and account,
-- one of `HOUMAO_STALWART_MANAGEMENT_BEARER_TOKEN` or the pair `HOUMAO_STALWART_MANAGEMENT_API_KEY` and `HOUMAO_STALWART_MANAGEMENT_API_SECRET`,
-- a mailbox address and login identity, where the login identity defaults to the mailbox address unless you override it.
-
-You can supply the endpoint inputs declaratively or override them at session start with:
-
-- `--mailbox-stalwart-base-url`
-- `--mailbox-stalwart-jmap-url`
-- `--mailbox-stalwart-management-url`
-- `--mailbox-stalwart-login-identity`
-
-If you supply only `base_url`, Houmao derives JMAP as `<base_url>/jmap` and the management API as `<base_url>/api`.
-
-## Start A Stalwart-Backed Session
-
-> **Note:** `--mailbox-transport stalwart` is not currently exposed via public project-backed launch. The raw `python -m houmao.agents.realm_controller start-session` module CLI shown below remains the supported access path for the stalwart mailbox workflow. Only the `filesystem` transport is available through `houmao-mgr` today.
-
-Use `start-session` with `--mailbox-transport stalwart` and either a base URL or explicit endpoint URLs.
-
-```bash
-pixi run python -m houmao.agents.realm_controller start-session \
-  --agent-def-dir tests/fixtures/plain-agent-def \
-  --brain-manifest <runtime-root>/manifests/<home-id>.yaml \
-  --role gpu-kernel-coder \
-  --backend claude_headless \
-  --mailbox-transport stalwart \
-  --mailbox-principal-id HOUMAO-research \
-  --mailbox-address research@houmao.localhost \
-  --mailbox-stalwart-base-url http://127.0.0.1:8080
-```
-
-At startup, Houmao resolves the mailbox binding, ensures the Stalwart domain and mailbox account exist, writes or reuses the durable runtime-owned credential record, materializes a session-local credential file, and persists a secret-free mailbox binding in the session manifest.
-
-```mermaid
-sequenceDiagram
-    participant Op as Operator
-    participant CLI as start-session
-    participant RT as Runtime
-    participant SW as Stalwart
-    participant RR as Runtime<br/>root
-    participant SR as Session<br/>root
-    participant Man as Manifest
-    Op->>CLI: start-session with<br/>stalwart mailbox flags
-    CLI->>RT: resolve transport and<br/>identity binding
-    RT->>SW: ensure domain and<br/>mailbox account
-    RT->>RR: write or reuse durable<br/>credential record
-    RT->>SR: materialize session-local<br/>credential file
-    RT->>Man: persist secret-free<br/>mailbox binding
-```
-
-Representative manifest fragment:
+Put the password in an owner-private JSON file **outside the checkout**, on the host running the agent's gateway:
 
 ```json
-{
-  "mailbox": {
-    "transport": "stalwart",
-    "principal_id": "HOUMAO-research",
-    "address": "research@houmao.localhost",
-    "jmap_url": "http://127.0.0.1:8080/jmap",
-    "management_url": "http://127.0.0.1:8080/api",
-    "login_identity": "research@houmao.localhost",
-    "credential_ref": "stalwart-research-at-houmao-localhost-a1b2c3d4e5f60718",
-    "bindings_version": "2026-03-19T08:00:00.000001Z"
-  }
-}
+{"password": "<normal-account-password>"}
 ```
 
-## Verify The First Session Directly
+Set file permissions to `0600`. Pass its absolute path as `--credential-source`; never pass the password itself as a command argument, tracked profile, `--env-set` value, example, or script. API requests carry this protected path reference, never password contents. A passive-server proxy resolves the reference on the gateway host.
 
-Start with direct `mail` commands. This is the shortest path to a correct first success, and it proves the runtime-owned mailbox binding before you add the gateway layer.
+Prefer an explicit discovery URL. The development service uses `http://127.0.0.1:10080/.well-known/jmap`. `--base-url http://127.0.0.1:10080` derives that standard discovery path. The advertised JMAP method endpoint can differ; Houmao follows validated discovery rather than treating the discovery endpoint as the method endpoint. See [Project Services](../../../../SERVICES.md) for the running development service.
 
-List mail:
+## Attach the Gateway and Account
+
+Set `agent_id` to the running agent's stable ID. The gateway companion is required for online control commands:
 
 ```bash
-pixi run python -m houmao.agents.realm_controller mail list \
-  --agent-identity HOUMAO-research \
-  --read-state unread \
-  --limit 10
+pixi run houmao-mgr agents single --agent-id "$agent_id" gateway attach
+pixi run houmao-mgr agents single --agent-id "$agent_id" mailbox online status
+pixi run houmao-mgr agents single --agent-id "$agent_id" mailbox online attach \
+  --address research@example.test --login-identity research-login \
+  --credential-source /private/houmao/research-account.json \
+  --jmap-url http://127.0.0.1:10080/.well-known/jmap
 ```
 
-Send a message:
+The operator commands work for `agents self` as well. Each mutation pins an online slot revision. Pass `--expected-revision "$revision"` to pin a previously inspected snapshot. If omitted, the command reads status once and pins that revision; concurrent changes still conflict. A failed candidate leaves the current binding and its private credential copy unchanged. Selecting a different account requires explicit `attach --replace`, which allocates a fresh binding ID.
+
+Successful attachment validates credentials, account access, sending identity, and required mail capabilities before publication. Houmao copies the selected source into a private immutable session file. It then closes old admission, drains admitted operations within the finite deadline, and atomically updates only the online slot. Body PID, conversation, stable agent identity, and offline mail remain intact.
+
+A result with `committed: true` and warnings means the authoritative binding changed, even if a derived connection or discovery projection requires reconciliation. Inspect status before repeating a control. A retirement timeout reports failure without activating the candidate.
+
+## Refresh, Reconnect, and Detach
+
+After replacing the selected source file with a new password for the same account:
 
 ```bash
-pixi run python -m houmao.agents.realm_controller mail send \
-  --agent-identity HOUMAO-research \
-  --to orchestrator@houmao.localhost \
-  --subject "Investigate parser drift" \
-  --body-content "Please review the current parser mismatch."
+pixi run houmao-mgr agents single --agent-id "$agent_id" mailbox online refresh
+pixi run houmao-mgr agents single --agent-id "$agent_id" mailbox online reconnect
+pixi run houmao-mgr agents single --agent-id "$agent_id" mailbox online detach
 ```
 
-Reply to a known message:
+Refresh reopens the explicit source, copies it into a new immutable private file, and validates the same account and address. Use `refresh --credential-source /private/houmao/rotated-account.json` to choose a new source. The binding ID and account-scoped sync checkpoints remain stable; the slot revision and connection epoch change. A credential that selects a different account fails refresh and requires explicit replacement.
+
+Reconnect validates the current immutable copy and changes the connection epoch without changing the binding ID or slot revision after the one-time adoption of a launch-created binding. It does not reopen a rotated external source; use refresh for that. A gateway restart recovers the current shared epoch and sync checkpoints.
+
+Detach removes only online configuration, cancels unstarted old reminders, and fences old observations. It leaves provider mail, externally owned source files, and offline mail intact. Retired Houmao-owned credential copies are cleaned after admitted operations drain. Already-started sends and replies retain their old binding and explicit `confirmed`, `rejected`, or `uncertain` acknowledgement. An uncertain result requires reconciliation; Houmao does not resend automatically.
+
+Cross-process admission also covers ordinary direct manager online operations. Attaching a companion is an operator control prerequisite, not a requirement that all ordinary mail calls pass through HTTP. Slow provider requests do not hold the gateway's terminal lock. An admitted notifier body effect also holds online admission through prompt submission. A synchronous headless submission can remain active for its current turn; a control whose retirement deadline expires reports busy/uncertain and keeps the old binding. Retry the control after that turn finishes. Old poll results can finish after detach or replacement but cannot publish a checkpoint or wake the new binding.
+
+## Inspect and Use Mail
 
 ```bash
-pixi run python -m houmao.agents.realm_controller mail reply \
-  --agent-identity HOUMAO-research \
-  --message-ref stalwart:6830e11343d5efb7 \
-  --body-content "Reply with next steps"
+pixi run houmao-mgr agents single --agent-id "$agent_id" mail status
+pixi run houmao-mgr agents single --agent-id "$agent_id" mail resolve-live
+pixi run houmao-mgr agents single --agent-id "$agent_id" mail list \
+  --channel online --expected-binding-id "$binding_id" --limit 10
+pixi run houmao-mgr agents single --agent-id "$agent_id" mail read \
+  --channel online --expected-binding-id "$binding_id" --message-ref "$message_ref"
+pixi run houmao-mgr agents single --agent-id "$agent_id" mail send \
+  --channel online --expected-binding-id "$binding_id" \
+  --to reviewer@example.test --subject "Review request" --body-content "Please review the result."
+pixi run houmao-mgr agents single --agent-id "$agent_id" mail archive \
+  --channel online --expected-binding-id "$binding_id" --message-ref "$message_ref"
 ```
 
-Important rules during first verification:
+Copy the online `binding_id` from status and retain message references as opaque values. Lists return finite metadata pages, never bodies. Fetch content explicitly with `peek` or `read`; inspect content completeness and limit fields. All mail lifecycle HTTP requests use schema version `3` and `expected_binding_id`, including fresh sends. Online operator `post` remains unsupported.
 
-- Treat `message_ref` as opaque even when it contains a transport-prefixed value such as `stalwart:...`.
-- Do not look for filesystem mailbox `rules/`, `locks/`, projections, or SQLite paths for this transport.
-- If direct Stalwart mailbox access is needed, the runtime-owned env bindings provide the JMAP endpoint, login identity, `credential_ref`, and the session-local credential file.
+The operator HTTP routes are `GET|PUT|DELETE /v1/mail/online/binding` and `POST /v1/mail/online/binding/refresh|reconnect`. Mutation requests carry `expected_revision`; attach additionally carries address, login identity, endpoint, and the protected `credential_source_ref`. Responses omit credential paths, references, login names, passwords, and authorization inputs. Gateway mail routes remain loopback-only. Authorized passive-server routes proxy the same controls under `/houmao/agents/{agent_ref}/mail/online/binding`.
 
-## When The Gateway Becomes The Preferred Shared Path
+## Enable Periodic Reminders Separately
 
-Once a live gateway is attached on `127.0.0.1`, the runtime-owned mailbox guidance prefers the shared gateway mailbox facade for mailbox operations that both transports support cleanly:
+Configured mail does not automatically enable notifier service. Enable it on the live gateway:
 
-- `GET /v1/mail/status`
-- `POST /v1/mail/list`
-- `POST /v1/mail/peek`
-- `POST /v1/mail/read`
-- `POST /v1/mail/send`
-- `POST /v1/mail/reply`
-- `POST /v1/mail/mark`
-- `POST /v1/mail/move`
-- `POST /v1/mail/archive`
+```bash
+pixi run houmao-mgr agents single --agent-id "$agent_id" gateway mail-notifier enable \
+  --channel online --interval-seconds 60 --mode any_inbox
+```
 
-That preference matters because the gateway becomes the transport abstraction boundary. The session can keep one operator-facing `mail` UX while the gateway resolves either a filesystem-backed adapter or a Stalwart-backed adapter from the same manifest-backed mailbox binding. It also means one bounded later turn can reply to a shared `message_ref` and then archive that same processed message without recovering raw Stalwart ids.
+Read and answered flags do not substitute for archive completion. Eligible unchanged inbox work continues producing periodic reminders. Bounded metadata observation and account-scoped checkpoints support those reminders without reading every retained message body.
 
-Use [Gateway Mailbox Facade](../../gateway/operations/mailbox-facade.md) for the attach-time and route-availability story. Use [Protocol And State Contracts](../../gateway/contracts/protocol-and-state.md) for the exact HTTP request and response shapes.
+## Administrative Launch-Time Provisioning
 
-## Common Confusions
+An operator explicitly authorized to create Stalwart accounts can still use a provisioning profile. This workflow additionally requires the management API URL and private management authorization. Load that authorization from an explicitly selected external local environment file. Never store it in a tracked profile, preset, or `--env-set` record.
 
-- `message_ref` is the shared reply target contract. It is not a promise that callers should parse transport-local ids out of the string.
-- The manifest persists `credential_ref`, not the mailbox password.
-- A Stalwart-backed session can be mailbox-enabled even when no live gateway is attached.
-- Filesystem `rules/` and mailbox-local SQLite state are transport-local to the filesystem transport and do not apply to Stalwart-backed sessions.
+```bash
+pixi run houmao-mgr project profile create \
+  --name research-online --specialist worker --agent-name research --headless \
+  --mail-transport stalwart --mail-address research@example.test \
+  --mail-jmap-url http://127.0.0.1:10080/.well-known/jmap \
+  --mail-management-url http://127.0.0.1:10080/api
+pixi run houmao-mgr project agents launch --profile research-online --name research --headless
+```
 
-## Exact References
+A declaration can independently populate both slots:
 
-- For env vars and manifest fields, use [Runtime Contracts](../contracts/runtime-contracts.md).
-- For shared mailbox route payloads, use [Protocol And State Contracts](../../gateway/contracts/protocol-and-state.md).
-- For runtime-owned filesystem placement, use [Agents And Runtime](../../system-files/agents-and-runtime.md).
+```yaml
+mailboxes:
+  offline: null
+  online:
+    transport: stalwart
+    address: research@example.test
+    jmap_url: http://127.0.0.1:10080/.well-known/jmap
+    management_url: http://127.0.0.1:10080/api
+```
 
-## Source References
+Only this explicit launch-time administrative path ensures the account. Resume reads the persisted binding and does not provision an account or rotate its password. Existing launch-created bindings are pinned to a validated account and sending identity on their first managed connection, preserving their binding ID.
 
-- [`src/houmao/agents/mailbox_runtime_support.py`](../../../../src/houmao/agents/mailbox_runtime_support.py)
-- [`src/houmao/agents/realm_controller/mail_commands.py`](../../../../src/houmao/agents/realm_controller/mail_commands.py)
-- [`src/houmao/agents/realm_controller/runtime.py`](../../../../src/houmao/agents/realm_controller/runtime.py)
-- [`src/houmao/agents/realm_controller/cli.py`](../../../../src/houmao/agents/realm_controller/cli.py)
-- [`src/houmao/mailbox/stalwart.py`](../../../../src/houmao/mailbox/stalwart.py)
-- [`src/houmao/agents/realm_controller/gateway_mailbox.py`](../../../../src/houmao/agents/realm_controller/gateway_mailbox.py)
+## References
+
+- [Agents Mailbox CLI](../../cli/agents-mailbox.md)
+- [Runtime Contracts](../contracts/runtime-contracts.md)
+- [Gateway Mailbox Facade](../../gateway/operations/mailbox-facade.md)
+- [Stalwart Backend](../../../../src/houmao/mailbox/stalwart.py)
+- [Online Binding Controls](../../../../src/houmao/mailbox/online_binding.py)

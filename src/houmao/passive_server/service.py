@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from houmao.mailbox.online_models import (
+    OnlineAttachRequest,
+    OnlineControlRequest,
+    OnlineBindingStatus,
+)
+
 import json
 import logging
 import os
@@ -17,6 +23,7 @@ from houmao.agents.realm_controller.gateway_client import (
     GatewayClient,
     GatewayEndpoint,
 )
+from houmao.mailbox.models import MailChannel
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayControlInputRequestV1,
@@ -669,6 +676,8 @@ class PassiveServerService:
     def gateway_mail_notifier_status(
         self,
         agent_ref: str,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailNotifierStatusV1 | tuple[int, dict[str, Any]]:
         """Proxy `GET /v1/mail-notifier` to the agent's gateway."""
 
@@ -679,14 +688,16 @@ class PassiveServerService:
         if client is None:
             return (502, {"detail": "No gateway attached to agent"})
         try:
-            return client.get_mail_notifier()
+            return client.get_mail_notifier(channel=channel)
         except GatewayHttpError as exc:
-            return (502, {"detail": exc.detail})
+            return self._gateway_http_error_tuple(exc)
 
     def gateway_mail_notifier_enable(
         self,
         agent_ref: str,
         payload: GatewayMailNotifierPutV1,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailNotifierStatusV1 | tuple[int, dict[str, Any]]:
         """Proxy `PUT /v1/mail-notifier` to the agent's gateway."""
 
@@ -697,13 +708,15 @@ class PassiveServerService:
         if client is None:
             return (502, {"detail": "No gateway attached to agent"})
         try:
-            return client.put_mail_notifier(payload)
+            return client.put_mail_notifier(payload, channel=channel)
         except GatewayHttpError as exc:
-            return (502, {"detail": exc.detail})
+            return self._gateway_http_error_tuple(exc)
 
     def gateway_mail_notifier_disable(
         self,
         agent_ref: str,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailNotifierStatusV1 | tuple[int, dict[str, Any]]:
         """Proxy `DELETE /v1/mail-notifier` to the agent's gateway."""
 
@@ -714,9 +727,9 @@ class PassiveServerService:
         if client is None:
             return (502, {"detail": "No gateway attached to agent"})
         try:
-            return client.delete_mail_notifier()
+            return client.delete_mail_notifier(channel=channel)
         except GatewayHttpError as exc:
-            return (502, {"detail": exc.detail})
+            return self._gateway_http_error_tuple(exc)
 
     def gateway_reminders(
         self,
@@ -808,6 +821,86 @@ class PassiveServerService:
         except GatewayHttpError as exc:
             return self._gateway_http_error_tuple(exc)
 
+    def online_binding_status(
+        self, agent_ref: str
+    ) -> OnlineBindingStatus | tuple[int, dict[str, Any]]:
+        """Proxy authorized online binding status."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.online_binding_status()
+        except GatewayHttpError as exc:
+            return self._gateway_http_error_tuple(exc)
+
+    def online_binding_attach(
+        self, agent_ref: str, request: OnlineAttachRequest
+    ) -> OnlineBindingStatus | tuple[int, dict[str, Any]]:
+        """Proxy authorized online binding attach."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.attach_online_binding(request)
+        except GatewayHttpError as exc:
+            return self._gateway_http_error_tuple(exc)
+
+    def online_binding_refresh(
+        self, agent_ref: str, request: OnlineControlRequest
+    ) -> OnlineBindingStatus | tuple[int, dict[str, Any]]:
+        """Proxy authorized online binding refresh."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.refresh_online_binding(request)
+        except GatewayHttpError as exc:
+            return self._gateway_http_error_tuple(exc)
+
+    def online_binding_reconnect(
+        self, agent_ref: str, request: OnlineControlRequest
+    ) -> OnlineBindingStatus | tuple[int, dict[str, Any]]:
+        """Proxy authorized online binding reconnect."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.reconnect_online_binding(request)
+        except GatewayHttpError as exc:
+            return self._gateway_http_error_tuple(exc)
+
+    def online_binding_detach(
+        self, agent_ref: str, request: OnlineControlRequest
+    ) -> OnlineBindingStatus | tuple[int, dict[str, Any]]:
+        """Proxy authorized online binding detach."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "No gateway attached to agent"})
+        try:
+            return client.detach_online_binding(request)
+        except GatewayHttpError as exc:
+            return self._gateway_http_error_tuple(exc)
+
     def gateway_mail_status(
         self, agent_ref: str
     ) -> GatewayMailStatusV1 | tuple[int, dict[str, Any]]:
@@ -822,10 +915,14 @@ class PassiveServerService:
         try:
             return client.mail_status()
         except GatewayHttpError as exc:
-            return (502, {"detail": exc.detail})
+            return self._gateway_http_error_tuple(exc)
 
     def gateway_mail_list(
-        self, agent_ref: str, payload: GatewayMailListRequestV1
+        self,
+        agent_ref: str,
+        payload: GatewayMailListRequestV1,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailListResponseV1 | tuple[int, dict[str, Any]]:
         """Proxy ``POST /v1/mail/list`` to the agent's gateway."""
 
@@ -836,12 +933,16 @@ class PassiveServerService:
         if client is None:
             return (502, {"detail": "No gateway attached to agent"})
         try:
-            return client.list_mail(payload)
+            return client.list_mail(payload, channel=channel)
         except GatewayHttpError as exc:
             return self._gateway_http_error_tuple(exc)
 
     def gateway_mail_peek(
-        self, agent_ref: str, payload: GatewayMailMessageRequestV1
+        self,
+        agent_ref: str,
+        payload: GatewayMailMessageRequestV1,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailMessageResponseV1 | tuple[int, dict[str, Any]]:
         """Proxy ``POST /v1/mail/peek`` to the agent's gateway."""
 
@@ -852,12 +953,16 @@ class PassiveServerService:
         if client is None:
             return (502, {"detail": "No gateway attached to agent"})
         try:
-            return client.peek_mail(payload)
+            return client.peek_mail(payload, channel=channel)
         except GatewayHttpError as exc:
             return self._gateway_http_error_tuple(exc)
 
     def gateway_mail_read(
-        self, agent_ref: str, payload: GatewayMailMessageRequestV1
+        self,
+        agent_ref: str,
+        payload: GatewayMailMessageRequestV1,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailMessageResponseV1 | tuple[int, dict[str, Any]]:
         """Proxy ``POST /v1/mail/read`` to the agent's gateway."""
 
@@ -868,12 +973,16 @@ class PassiveServerService:
         if client is None:
             return (502, {"detail": "No gateway attached to agent"})
         try:
-            return client.read_mail(payload)
+            return client.read_mail(payload, channel=channel)
         except GatewayHttpError as exc:
             return self._gateway_http_error_tuple(exc)
 
     def gateway_mail_send(
-        self, agent_ref: str, payload: GatewayMailSendRequestV1
+        self,
+        agent_ref: str,
+        payload: GatewayMailSendRequestV1,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailActionResponseV1 | tuple[int, dict[str, Any]]:
         """Proxy ``POST /v1/mail/send`` to the agent's gateway."""
 
@@ -884,12 +993,16 @@ class PassiveServerService:
         if client is None:
             return (502, {"detail": "No gateway attached to agent"})
         try:
-            return client.send_mail(payload)
+            return client.send_mail(payload, channel=channel)
         except GatewayHttpError as exc:
             return self._gateway_http_error_tuple(exc)
 
     def gateway_mail_post(
-        self, agent_ref: str, payload: GatewayMailPostRequestV1
+        self,
+        agent_ref: str,
+        payload: GatewayMailPostRequestV1,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailActionResponseV1 | tuple[int, dict[str, Any]]:
         """Proxy ``POST /v1/mail/post`` to the agent's gateway."""
 
@@ -900,12 +1013,16 @@ class PassiveServerService:
         if client is None:
             return (502, {"detail": "No gateway attached to agent"})
         try:
-            return client.post_mail(payload)
+            return client.post_mail(payload, channel=channel)
         except GatewayHttpError as exc:
             return self._gateway_http_error_tuple(exc)
 
     def gateway_mail_reply(
-        self, agent_ref: str, payload: GatewayMailReplyRequestV1
+        self,
+        agent_ref: str,
+        payload: GatewayMailReplyRequestV1,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailActionResponseV1 | tuple[int, dict[str, Any]]:
         """Proxy ``POST /v1/mail/reply`` to the agent's gateway."""
 
@@ -916,12 +1033,16 @@ class PassiveServerService:
         if client is None:
             return (502, {"detail": "No gateway attached to agent"})
         try:
-            return client.reply_mail(payload)
+            return client.reply_mail(payload, channel=channel)
         except GatewayHttpError as exc:
             return self._gateway_http_error_tuple(exc)
 
     def gateway_mail_mark(
-        self, agent_ref: str, payload: GatewayMailMarkRequestV1
+        self,
+        agent_ref: str,
+        payload: GatewayMailMarkRequestV1,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailLifecycleResponseV1 | tuple[int, dict[str, Any]]:
         """Proxy ``POST /v1/mail/mark`` to the agent's gateway."""
 
@@ -932,12 +1053,16 @@ class PassiveServerService:
         if client is None:
             return (502, {"detail": "No gateway attached to agent"})
         try:
-            return client.mark_mail(payload)
+            return client.mark_mail(payload, channel=channel)
         except GatewayHttpError as exc:
             return self._gateway_http_error_tuple(exc)
 
     def gateway_mail_move(
-        self, agent_ref: str, payload: GatewayMailMoveRequestV1
+        self,
+        agent_ref: str,
+        payload: GatewayMailMoveRequestV1,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailLifecycleResponseV1 | tuple[int, dict[str, Any]]:
         """Proxy ``POST /v1/mail/move`` to the agent's gateway."""
 
@@ -948,12 +1073,16 @@ class PassiveServerService:
         if client is None:
             return (502, {"detail": "No gateway attached to agent"})
         try:
-            return client.move_mail(payload)
+            return client.move_mail(payload, channel=channel)
         except GatewayHttpError as exc:
             return self._gateway_http_error_tuple(exc)
 
     def gateway_mail_archive(
-        self, agent_ref: str, payload: GatewayMailArchiveRequestV1
+        self,
+        agent_ref: str,
+        payload: GatewayMailArchiveRequestV1,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailLifecycleResponseV1 | tuple[int, dict[str, Any]]:
         """Proxy ``POST /v1/mail/archive`` to the agent's gateway."""
 
@@ -964,7 +1093,7 @@ class PassiveServerService:
         if client is None:
             return (502, {"detail": "No gateway attached to agent"})
         try:
-            return client.archive_mail(payload)
+            return client.archive_mail(payload, channel=channel)
         except GatewayHttpError as exc:
             return self._gateway_http_error_tuple(exc)
 

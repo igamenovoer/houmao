@@ -114,17 +114,17 @@ The CLI SHALL keep the existing authority-aware result contract for verified exe
 The maintained `agents single` and `agents self` scoped trees SHALL provide these operations. Mail lifecycle operations and notifier controls SHALL require `--channel offline|online`; only summary `mail status` and `resolve-live` SHALL return both channels without selecting one. Missing channel input SHALL fail rather than using canonical mail precedence.
 
 #### Scenario: Operator archives selected mail from the CLI
-- **WHEN** an operator runs `houmao-mgr agents single ... mail archive` with one or more message refs
+- **WHEN** an operator runs `houmao-mgr agents single ... mail archive --channel offline` with one or more message refs
 - **THEN** the command resolves the target mailbox binding through the supported managed-agent selector contract
 - **AND THEN** it archives the selected messages through the live gateway or manager-owned fallback surface
 
 #### Scenario: CLI peek does not mark a message read
-- **WHEN** an operator runs `houmao-mgr agents single ... mail peek --message-ref <ref>`
+- **WHEN** an operator runs `houmao-mgr agents single ... mail peek --channel offline --message-ref <ref>`
 - **THEN** the command returns the selected message content
 - **AND THEN** the selected message is not marked read merely because of that peek operation
 
 #### Scenario: CLI read marks a message read
-- **WHEN** an operator runs `houmao-mgr agents single ... mail read --message-ref <ref>`
+- **WHEN** an operator runs `houmao-mgr agents single ... mail read --channel offline --message-ref <ref>`
 - **THEN** the command returns the selected message content
 - **AND THEN** the selected message is marked read for the target mailbox principal
 
@@ -155,10 +155,10 @@ The maintained `agents single` and `agents self` scoped trees SHALL provide thes
 #### Scenario: CLI enable accepts unread-only mode
 - **WHEN** an operator runs `houmao-mgr agents single --agent-id abc123 gateway mail-notifier enable --channel offline --interval-seconds 60 --mode unread_only`
 - **THEN** the CLI sends a notifier enable request with mode `unread_only`
-- **AND THEN** it does not require the operator to address the raw `/v1/mail-notifier` route directly
+- **AND THEN** it does not require the operator to address the raw `/v1/mail-notifier/{channel}` route directly
 
 #### Scenario: CLI rejects invalid notifier mode
-- **WHEN** an operator runs `houmao-mgr agents single ... gateway mail-notifier enable --interval-seconds 60 --mode read`
+- **WHEN** an operator runs `houmao-mgr agents single ... gateway mail-notifier enable --channel offline --interval-seconds 60 --mode read`
 - **THEN** the CLI rejects the invocation as invalid input
 - **AND THEN** it does not send a notifier enable request with an unknown mode value
 
@@ -193,6 +193,144 @@ The maintained `agents single` and `agents self` scopes SHALL expose `mailbox of
 - **WHEN** an operator runs `houmao-mgr agents single --agent-id abc123 mailbox offline join` against a configured registry
 - **THEN** the command uses the supported runtime and registry services
 - **AND THEN** it does not require a raw module entrypoint or body restart
+
+### Requirement: `houmao-mgr` renders expected mailbox-related operator failures without Python tracebacks
+When a native `houmao-mgr` mailbox-management or gateway mail-notifier command hits an expected operator-facing failure, the CLI SHALL render that failure as explicit command-line error output rather than leaking a Python traceback from the top-level wrapper.
+
+This SHALL apply at minimum to:
+
+- `houmao-mgr agents single ... mailbox offline join`
+- `houmao-mgr agents single ... mailbox offline leave`
+- `houmao-mgr agents single ... mailbox offline status`
+- `houmao-mgr agents self mail ...`
+- `houmao-mgr agents single ... gateway mail-notifier status`
+- `houmao-mgr agents single ... gateway mail-notifier enable`
+- `houmao-mgr agents single ... gateway mail-notifier disable`
+
+The wrapper SHALL preserve the command's non-zero exit behavior for those failures.
+This requirement covers expected operator-facing failures such as explicit Click-style usage errors, manifest/runtime readiness errors, and gateway readiness errors that the command path already classifies as normal command failures.
+The CLI SHALL NOT claim success or hide the failure reason; it SHALL surface the explicit operator-facing error text without the Python stack trace.
+
+#### Scenario: Joined mailbox registration failure renders as a clean CLI error
+- **WHEN** an operator runs `houmao-mgr agents single --agent-name alice mailbox offline join --mailbox-root /tmp/shared-mail`
+- **AND WHEN** the command fails with an expected operator-facing mailbox-registration error
+- **THEN** `houmao-mgr` exits non-zero
+- **AND THEN** stderr reports the failure as clean CLI error text without a Python traceback
+
+#### Scenario: Gateway mail-notifier enable failure renders as a clean CLI error
+- **WHEN** an operator runs `houmao-mgr agents single --agent-name alice gateway mail-notifier enable --channel offline --interval-seconds 60`
+- **AND WHEN** the command fails with an expected operator-facing gateway notifier readiness error
+- **THEN** `houmao-mgr` exits non-zero
+- **AND THEN** stderr reports the failure as clean CLI error text without a Python traceback
+
+### Requirement: Server-backed gateway raw control and notifier commands accept passive server pair authorities
+`houmao-mgr` server-backed `agents gateway send-keys` and `agents single ... gateway mail-notifier ...` command paths SHALL accept `houmao-passive-server` as a supported pair authority whenever those commands operate through an explicit pair authority instead of a resumed local controller.
+
+For these commands, `houmao-mgr` SHALL resolve the pair client through the supported pair-authority factory and SHALL use the passive server's managed-agent gateway proxy routes rather than requiring direct listener discovery from the caller.
+
+#### Scenario: Gateway raw control input works through a passive server
+- **WHEN** an operator runs `houmao-mgr agents gateway send-keys --agent-id abc123 --port 9891 --sequence "<[Escape]>"`
+- **AND WHEN** the addressed pair authority identifies `houmao-passive-server`
+- **THEN** `houmao-mgr` sends that raw control-input request through the passive server's managed-agent gateway proxy route
+- **AND THEN** the command does not fail only because the selected pair authority is passive
+
+#### Scenario: Gateway mail notifier control works through a passive server
+- **WHEN** an operator runs `houmao-mgr agents single --agent-id abc123 gateway mail-notifier status --channel offline --port 9891`
+- **AND WHEN** the addressed pair authority identifies `houmao-passive-server`
+- **THEN** `houmao-mgr` reads notifier status through the passive server's managed-agent gateway proxy route
+- **AND THEN** the command does not require the operator to contact the gateway listener endpoint directly
+
+### Requirement: `houmao-mgr mailbox messages` reports structural mailbox message inspection
+
+The native `houmao-mgr mailbox messages list` and `houmao-mgr mailbox messages get` commands SHALL act as structural inspection over one filesystem mailbox root and one selected mailbox address.
+
+Those commands MAY return canonical message metadata and address-scoped projection metadata for the selected address, including message identity, thread identity, projection folder, projection path, canonical path, sender metadata, recipient metadata, body content, headers, and attachments.
+
+Those commands SHALL NOT report participant-local mutable mailbox view-state fields such as `read`, `starred`, `archived`, or `deleted`.
+
+When an operator needs participant-local read or unread follow-up state, the supported surface SHALL be actor-scoped mail commands such as `houmao-mgr agents self mail ...` or a future explicitly address-scoped state surface rather than mailbox-root administration commands.
+
+#### Scenario: Root mailbox message list omits participant-local view-state flags
+
+- **WHEN** an operator runs `houmao-mgr mailbox messages list --mailbox-root /tmp/shared-mail --address alice@agents.localhost`
+- **THEN** the command returns structural message summaries for the selected address projection
+- **AND THEN** each message summary may include fields such as `message_id`, `thread_id`, `subject`, `sender_address`, `folder`, `projection_path`, and `canonical_path`
+- **AND THEN** the payload does not include `read`, `starred`, `archived`, or `deleted`
+
+#### Scenario: Root mailbox message get omits participant-local view-state flags
+
+- **WHEN** an operator runs `houmao-mgr mailbox messages get --mailbox-root /tmp/shared-mail --address alice@agents.localhost --message-id msg-123`
+- **THEN** the command returns canonical message details together with the selected address projection metadata
+- **AND THEN** the payload may include sender, recipients, headers, body content, attachments, `folder`, and `projection_path`
+- **AND THEN** the payload does not claim a single authoritative participant-local read, starred, archived, or deleted state
+
+### Requirement: `houmao-mgr agents mail post` defaults to operator mailbox replies
+`houmao-mgr agents single ... mail post` SHALL default omitted `--reply-policy` input to `operator_mailbox`.
+
+The command SHALL continue to accept explicit `--reply-policy none` and explicit `--reply-policy operator_mailbox`.
+
+When `--reply-policy none` is supplied, the created operator-origin message SHALL remain no-reply and later replies against that message SHALL fail explicitly.
+
+When `--reply-policy` is omitted or supplied as `operator_mailbox`, the created operator-origin message SHALL allow replies back to the reserved operator mailbox `HOUMAO-operator@houmao.localhost`.
+
+The command help SHALL report the reply-policy default as `operator_mailbox`.
+
+#### Scenario: Omitted CLI reply policy creates a reply-enabled operator-origin post
+- **WHEN** an operator runs `houmao-mgr agents single --agent-name alice mail post --channel offline --subject "..." --body-content "..."` without `--reply-policy`
+- **THEN** `houmao-mgr` dispatches the post with reply policy `operator_mailbox`
+- **AND THEN** the resulting operator-origin message accepts replies to `HOUMAO-operator@houmao.localhost`
+
+#### Scenario: Explicit CLI no-reply policy remains supported
+- **WHEN** an operator runs `houmao-mgr agents single --agent-name alice mail post --channel offline --subject "..." --body-content "..." --reply-policy none`
+- **THEN** `houmao-mgr` dispatches the post with reply policy `none`
+- **AND THEN** a later reply against that operator-origin message is rejected explicitly
+
+#### Scenario: CLI help reflects the new default
+- **WHEN** an operator reads help for `houmao-mgr agents single ... mail post`
+- **THEN** the `--reply-policy` option reports `operator_mailbox` as the default
+- **AND THEN** it still lists `none` as the no-reply opt-out value
+
+### Requirement: `houmao-mgr agents mail send` and `post` accept `--notify-block` and respect the houmao-notify body fence
+`houmao-mgr agents single ... mail send` and `houmao-mgr agents single ... mail post` SHALL accept an optional `--notify-block <text>` flag whose value populates the canonical envelope's `notify_block.text` field through the supported composition path.
+
+The two commands SHALL also accept an optional `--notify-block-placement [append|prepend]` flag whose value populates `notify_block.placement`. The flag SHALL default to `append`. When `--notify-block` is omitted, `--notify-block-placement` SHALL be ignored and SHALL NOT influence body-fence extraction.
+
+When `--notify-block` is provided, the CLI SHALL submit the canonical envelope's typed `notify_block` shape with the supplied `text` and `placement` through the supported composition contract. The CLI SHALL NOT also re-extract `notify_block` from a `houmao-notify` body fence on top of the explicit value. Composition SHALL apply the canonical auto-mirror invariant (synthesize a `houmao-notify` fenced block in `body_markdown` at the requested `placement` when one is not already present).
+
+When `--notify-block` is omitted and `--body-content` (or the equivalent body-source flag) contains a Markdown fenced code block with info-string `houmao-notify`, the CLI SHALL submit the body source unchanged through the canonical composition contract so the protocol-side extractor populates `notify_block.text` from the first matching fence per the canonical rules and defaults `notify_block.placement` to `"append"`.
+
+The CLI SHALL surface the canonical 512-character truncation outcome and the canonical "verifier not yet supported" rejection as explicit command-line errors, not as Python tracebacks.
+
+The CLI SHALL NOT introduce a separate `--notify-auth-*` family of flags in this change. Callers requiring `notify_auth` metadata SHALL set it through programmatic composition surfaces; the CLI SHALL accept an absent `notify_auth` (treated as no authentication metadata) for normal `send` and `post` invocations.
+
+#### Scenario: Operator supplies an explicit notify-block on send with default placement
+- **WHEN** an operator runs `houmao-mgr agents single --agent-name alice mail send --channel offline --to bob@houmao.localhost --subject "..." --body-content "..." --notify-block "re-run on official path"`
+- **AND WHEN** the resolved managed-agent authority supports verified mail execution for that send
+- **THEN** the canonical mail message stores `notify_block.text="re-run on official path"` and `notify_block.placement="append"`
+- **AND THEN** the persisted `body_markdown` contains a `houmao-notify` fenced block matching that text appended after the supplied body content
+
+#### Scenario: Operator supplies notify-block with prepend placement on post
+- **WHEN** an operator runs `houmao-mgr agents single --agent-name alice mail post --channel offline --subject "..." --body-content "Operator note." --notify-block "OPERATOR DIRECTIVE" --notify-block-placement prepend`
+- **AND WHEN** the resolved managed-agent authority supports verified operator-origin mail execution for that post
+- **THEN** the canonical mail message stores `notify_block.text="OPERATOR DIRECTIVE"` and `notify_block.placement="prepend"`
+- **AND THEN** the persisted `body_markdown` begins with a `houmao-notify` fenced block matching that text, followed by the supplied body content
+
+#### Scenario: Operator authors notify content via body fence on post
+- **WHEN** an operator runs `houmao-mgr agents single --agent-name alice mail post --channel offline --subject "..." --body-content $'hello\n\n` ` ` `houmao-notify\ncontinue current task\n` ` ` `'`
+- **AND WHEN** the operator does not pass `--notify-block`
+- **AND WHEN** the resolved managed-agent authority supports verified operator-origin mail execution for that post
+- **THEN** the canonical mail message stores `notify_block.text="continue current task"` and `notify_block.placement="append"`
+- **AND THEN** the persisted `body_markdown` still contains the original fenced block
+
+#### Scenario: Oversize notify-block surfaces a clean CLI error rather than a traceback
+- **WHEN** an operator runs `houmao-mgr agents single ... mail send` with `--notify-block` content longer than 512 characters
+- **THEN** the canonical composition truncates per the protocol rule and the CLI reports the truncation outcome through explicit command-line output
+- **AND THEN** the CLI does not leak a Python traceback from the top-level wrapper
+
+#### Scenario: Unsupported notify-auth scheme surfaces a clean CLI error
+- **WHEN** a programmatic composition path attached to a scoped `agents single` or `agents self` mail invocation supplies a `notify_auth.scheme` other than `none`
+- **THEN** the CLI surfaces the canonical "verifier not yet supported" rejection as an explicit command-line error
+- **AND THEN** the CLI does not leak a Python traceback from the top-level wrapper
 
 ## ADDED Requirements
 

@@ -1,6 +1,6 @@
 # Filesystem Mailbox Layout
 
-This page explains the durable on-disk structure of the v1 filesystem mailbox transport.
+This page explains the durable on-disk structure of the version 4 filesystem mailbox transport.
 
 ## Mental Model
 
@@ -15,8 +15,8 @@ The mailbox root mixes shared artifacts with per-address projections.
 
 ```text
 <mailbox_root>/
-  protocol-version.txt              # On-disk protocol marker; must match v1
-  index.sqlite                      # Shared catalog, registrations, projections, and structural summaries
+  protocol-version.txt              # On-disk protocol marker; must match version 4
+  index.sqlite                      # Private ownership/member verifiers, uploads, delivery catalog, and projections
   rules/
     README.md                       # Mailbox-local operating notes
     protocols/
@@ -49,32 +49,35 @@ The mailbox root mixes shared artifacts with per-address projections.
       drafts/
       mailbox.sqlite                # Mailbox-view state keyed by message_id and thread_id
     <other-address> -> /abs/path/private-mailboxes/<other-address>
+  history/<registration-id>/        # Retained private state of released in-root registrations
+  .authority.lock                   # OS-owned membership/read/reassignment exclusion
   staging/                          # Pre-delivery temporary work area
 ```
 
 ## Exact Layout Rules
 
-### Canonical content and projections
+### Canonical Content and Projections
 
 - Canonical messages live under `messages/<YYYY-MM-DD>/<message-id>.md`.
 - Recipient inbox and sender sent entries are symlink projections back to the canonical file.
-- `archive/` and `drafts/` exist as placeholder directories in v1; they do not define a full archive or draft workflow yet.
+- `archive/` stores projections moved by the explicit archive workflow; `drafts/` remains available for composition.
 
-### Rules tree
+### Rules Tree
 
 - `rules/` is the mailbox-local policy and helper area.
 - `rules/README.md` explains the mailbox-local expectations.
-- `rules/protocols/filesystem-mailbox-v1.md` documents the shipped v1 contract.
+- `rules/protocols/filesystem-mailbox-v1.md` retains its historical filename and documents the current version 4 contract.
 - `rules/scripts/`, when published, contains compatibility or implementation-detail helpers for repair, debugging, or deep direct filesystem workflows. It is not the ordinary attached-session workflow surface.
 
-### Shared state
+### Shared State
 
 - `index.sqlite` stores registrations, delivery history, attachment metadata, projections, and shared structural metadata for the mailbox root.
+- The private index also contains durable `offline_members` and `offline_uploads` when registry service access is configured. These contain authorization verifiers and attachment ownership, not public discovery payloads.
 - The current transport intentionally uses SQLite `DELETE` journal mode rather than WAL sidecar files.
 - `locks/index.lock` and `locks/addresses/<address>.lock` serialize sensitive writes.
 - Shared-root unread counters and other mailbox-view state are not authoritative once mailbox-local SQLite is available.
 
-### Mailbox-local state
+### Mailbox-Local State
 
 - Each resolved mailbox directory owns one stable `mailbox.sqlite`.
 - That mailbox-local database stores mailbox-view state that can vary by mailbox, including read or unread, starred, archived, deleted, and mailbox-local thread summaries.
@@ -82,11 +85,11 @@ The mailbox root mixes shared artifacts with per-address projections.
 - `thread_summaries` rows are keyed by `thread_id`.
 - Because the database already scopes to one mailbox directory, mailbox-local tables do not need `registration_id` in their row identity.
 
-### Registration entries
+### Registration Entries
 
 - `mailboxes/<address>` is keyed by the full mailbox address, not by principal id.
 - An active registration may be `in_root` or `symlink`.
-- Stashed preserved artifacts appear as `mailboxes/<address>--<uuid4hex>`.
+- Released in-root private views move to `history/<registration-id>/`; a new address owner receives a fresh view.
 
 ## Relationship Between The Tree And The Message Model
 

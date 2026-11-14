@@ -51,9 +51,9 @@ from houmao.agents.kimi_system_prompt import (
 )
 from houmao.owned_paths import resolve_runtime_root
 from houmao.agents.mailbox_runtime_support import (
-    serialize_declarative_mailbox_config,
+    serialize_declarative_mailboxes_config,
 )
-from houmao.agents.mailbox_runtime_models import MailboxDeclarativeConfig
+from houmao.agents.mailbox_runtime_models import MailboxesDeclarativeConfig
 from houmao.agents.model_mapping_policy import project_reasoning_level
 from houmao.agents.model_selection import (
     ModelConfig,
@@ -69,7 +69,9 @@ from houmao.agents.system_skills import (
     system_skill_selection_policy_to_payload,
 )
 from houmao.agents.realm_controller.agent_identity import (
-    derive_agent_id_from_name,
+    AgentIdentityCreation,
+    AgentIdMode,
+    ResolvedAgentIdentity,
     normalize_managed_agent_id,
     normalize_managed_agent_name,
 )
@@ -110,9 +112,10 @@ class BuildRequest:
     preset_launch_overrides: LaunchOverrides | None = None
     preset_model_config: ModelConfig | None = None
     runtime_root: Path | None = None
-    mailbox: MailboxDeclarativeConfig | None = None
+    mailboxes: MailboxesDeclarativeConfig | None = None
     agent_name: str | None = None
     agent_id: str | None = None
+    agent_id_mode: AgentIdMode | None = None
     home_id: str | None = None
     reuse_home: bool = False
     existing_home_mode: ManagedLaunchForceMode | None = None
@@ -569,6 +572,8 @@ def _build_launch_helper(
 
 
 def build_brain_home(request: BuildRequest) -> BuildResult:
+    """Build a reusable home, resolving any requested agent identity once."""
+
     agent_def_dir = request.agent_def_dir.resolve()
     runtime_root = resolve_runtime_root(explicit_root=request.runtime_root)
     resolved_setup = request.effective_setup()
@@ -657,6 +662,11 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     manifests_dir = runtime_root / "manifests"
     home_path = homes_dir / home_id
     existing_home_mode = request.effective_existing_home_mode()
+    managed_agent_name, managed_identity = _resolve_brain_creation_identity(
+        request=request,
+        existing_manifest_path=manifests_dir / f"{home_id}.yaml",
+        preserve_existing=home_path.exists() and request.reuse_home,
+    )
 
     if home_path.exists():
         if existing_home_mode == "reject":
@@ -998,25 +1008,13 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         )
     if request.extra:
         manifest["inputs"]["extra"] = dict(request.extra)
-    if request.mailbox is not None:
-        manifest["mailbox"] = serialize_declarative_mailbox_config(request.mailbox)
-    if request.agent_name is not None or request.agent_id is not None:
-        managed_agent_name = (
-            normalize_managed_agent_name(request.agent_name)
-            if request.agent_name is not None
-            else None
-        )
-        managed_agent_id = (
-            normalize_managed_agent_id(request.agent_id) if request.agent_id is not None else None
-        )
+    if request.mailboxes is not None:
+        manifest["mailboxes"] = serialize_declarative_mailboxes_config(request.mailboxes)
+    if managed_identity is not None:
         manifest["identity"] = {
             "canonical_agent_name": managed_agent_name,
-            "agent_id": managed_agent_id
-            or (
-                derive_agent_id_from_name(managed_agent_name)
-                if managed_agent_name is not None
-                else None
-            ),
+            "agent_id": managed_identity.agent_id,
+            "id_provenance": managed_identity.provenance,
         }
 
     _write_mapping_file(manifest_path, manifest)
@@ -1029,6 +1027,43 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         launch_preview=launch_preview,
         manifest=manifest,
     )
+
+
+def _resolve_brain_creation_identity(
+    *,
+    request: BuildRequest,
+    existing_manifest_path: Path,
+    preserve_existing: bool,
+) -> tuple[str | None, ResolvedAgentIdentity | None]:
+    """Keep templates identity-free and preserve explicit existing-agent reuse."""
+
+    name = (
+        normalize_managed_agent_name(request.agent_name) if request.agent_name is not None else None
+    )
+    if preserve_existing and existing_manifest_path.is_file():
+        payload = _load_mapping_file(existing_manifest_path)
+        identity = payload.get("identity")
+        if isinstance(identity, dict):
+            stored_id = identity.get("agent_id")
+            if not isinstance(stored_id, str) or not stored_id.strip():
+                raise BuildError("Existing agent identity is missing required agent_id.")
+            stored_id = normalize_managed_agent_id(stored_id)
+            if request.agent_id_mode is not None:
+                raise BuildError("Existing-agent home reuse does not accept agent_id_mode.")
+            if (
+                request.agent_id is not None
+                and normalize_managed_agent_id(request.agent_id) != stored_id
+            ):
+                raise BuildError("Existing-agent home reuse cannot change agent_id.")
+            stored_name = identity.get("canonical_agent_name")
+            if name is None and isinstance(stored_name, str):
+                name = normalize_managed_agent_name(stored_name)
+            return name, ResolvedAgentIdentity(agent_id=stored_id, provenance="supplied")
+    if name is None and request.agent_id is None and request.agent_id_mode is None:
+        return None, None
+    return name, AgentIdentityCreation(
+        agent_name=name, agent_id=request.agent_id, agent_id_mode=request.agent_id_mode
+    ).resolve()
 
 
 def _ensure_kimi_extra_skill_dirs(
@@ -1325,6 +1360,14 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help="Path to launch-overrides YAML/JSON, or an inline JSON object",
     )
     parser.add_argument("--home-id", help="Optional fixed home id")
+    parser.add_argument("--agent-name", help="Friendly name for an identity-bearing brain")
+    parser.add_argument("--agent-id", help="Explicit opaque ID for an identity-bearing brain")
+    parser.add_argument(
+        "--agent-id-mode",
+        choices=["uuid", "name-hash"],
+        default=None,
+        help="Creation mode (default: uuid for named agents); omit identity inputs for a template",
+    )
     parser.add_argument(
         "--operator-prompt-mode",
         choices=["as_is", "unattended"],
@@ -1437,8 +1480,10 @@ def main(argv: list[str] | None = None) -> int:
         preset_launch_overrides=recipe.launch_overrides if recipe else None,
         preset_model_config=recipe.launch_model_config if recipe else None,
         source_system_skill_policy=recipe.launch_system_skill_policy if recipe else None,
-        mailbox=recipe.mailbox if recipe else None,
-        agent_name=recipe.default_agent_name if recipe else None,
+        mailboxes=recipe.mailboxes if recipe else None,
+        agent_name=namespace.agent_name,
+        agent_id=namespace.agent_id,
+        agent_id_mode=namespace.agent_id_mode,
         home_id=namespace.home_id,
         reuse_home=namespace.reuse_home,
         launch_overrides=direct_launch_overrides,

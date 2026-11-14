@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from houmao.agents.mailbox_runtime_models import MailboxesResolvedConfig
+
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -130,7 +132,9 @@ def test_start_session_forwards_mailbox_overrides(
         captured_kwargs.update(kwargs)
         return SimpleNamespace(
             manifest_path=manifest_path,
-            launch_plan=SimpleNamespace(backend="codex_headless", tool="codex", mailbox=None),
+            launch_plan=SimpleNamespace(
+                backend="codex_headless", tool="codex", mailboxes=MailboxesResolvedConfig()
+            ),
             agent_identity=None,
             agent_identity_warnings=(),
             startup_warnings=(),
@@ -292,7 +296,7 @@ def test_mail_command_forwards_cao_parsing_mode_override(
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.cli.ensure_mailbox_command_ready",
-        lambda launch_plan, tmux_session_name=None: object(),
+        lambda launch_plan, **kwargs: object(),
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.cli.prepare_mail_prompt",
@@ -307,6 +311,10 @@ def test_mail_command_forwards_cao_parsing_mode_override(
         [
             "mail",
             "list",
+            "--channel",
+            "offline",
+            "--expected-binding-id",
+            "binding-a",
             "--agent-identity",
             "HOUMAO-gpu",
             "--cao-parsing-mode",
@@ -332,7 +340,9 @@ def test_start_session_prefers_cli_agent_def_dir_over_env(
         captured_kwargs.update(kwargs)
         return SimpleNamespace(
             manifest_path=manifest_path,
-            launch_plan=SimpleNamespace(backend="codex_headless", tool="codex"),
+            launch_plan=SimpleNamespace(
+                backend="codex_headless", tool="codex", mailboxes=MailboxesResolvedConfig()
+            ),
             agent_identity=None,
             agent_identity_warnings=(),
             startup_warnings=(),
@@ -375,7 +385,9 @@ def test_start_session_uses_env_agent_def_dir_when_cli_flag_missing(
         captured_kwargs.update(kwargs)
         return SimpleNamespace(
             manifest_path=manifest_path,
-            launch_plan=SimpleNamespace(backend="codex_headless", tool="codex"),
+            launch_plan=SimpleNamespace(
+                backend="codex_headless", tool="codex", mailboxes=MailboxesResolvedConfig()
+            ),
             agent_identity=None,
             agent_identity_warnings=(),
             startup_warnings=(),
@@ -416,7 +428,9 @@ def test_start_session_requires_project_when_cli_and_env_missing(
         captured_kwargs.update(kwargs)
         return SimpleNamespace(
             manifest_path=manifest_path,
-            launch_plan=SimpleNamespace(backend="codex_headless", tool="codex"),
+            launch_plan=SimpleNamespace(
+                backend="codex_headless", tool="codex", mailboxes=MailboxesResolvedConfig()
+            ),
             agent_identity=None,
             agent_identity_warnings=(),
             startup_warnings=(),
@@ -462,7 +476,9 @@ def test_start_session_uses_discovered_project_overlay_when_present(
         captured_kwargs.update(kwargs)
         return SimpleNamespace(
             manifest_path=manifest_path,
-            launch_plan=SimpleNamespace(backend="codex_headless", tool="codex"),
+            launch_plan=SimpleNamespace(
+                backend="codex_headless", tool="codex", mailboxes=MailboxesResolvedConfig()
+            ),
             agent_identity=None,
             agent_identity_warnings=(),
             startup_warnings=(),
@@ -511,7 +527,9 @@ def test_start_session_uses_overlay_env_before_discovered_project(
         captured_kwargs.update(kwargs)
         return SimpleNamespace(
             manifest_path=manifest_path,
-            launch_plan=SimpleNamespace(backend="codex_headless", tool="codex"),
+            launch_plan=SimpleNamespace(
+                backend="codex_headless", tool="codex", mailboxes=MailboxesResolvedConfig()
+            ),
             agent_identity=None,
             agent_identity_warnings=(),
             startup_warnings=(),
@@ -881,3 +899,80 @@ def test_send_keys_returns_error_exit_code_on_control_input_failure(
     )
 
     assert exit_code == 2
+
+
+def test_start_session_projects_safe_dual_mail_identity(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    """Start diagnostics expose both identities without protected backend-resolution material."""
+
+    import json
+    from houmao.agents.mailbox_runtime_models import (
+        FilesystemMailboxResolvedConfig,
+        MailboxSlotConfig,
+        StalwartMailboxResolvedConfig,
+    )
+
+    _isolate_agent_def_resolution(monkeypatch, tmp_path)
+    offline = FilesystemMailboxResolvedConfig(
+        transport="filesystem",
+        agent_id="owner",
+        principal_id="owner",
+        binding_id="offline-id",
+        bindings_version="offline-revision",
+        address="alice@houmao.localhost",
+        filesystem_root=tmp_path / "private-store",
+    )
+    online = StalwartMailboxResolvedConfig(
+        transport="stalwart",
+        agent_id="owner",
+        principal_id="owner",
+        binding_id="online-id",
+        bindings_version="online-revision",
+        address="alice@example.test",
+        jmap_url="https://provider.example.test/jmap",
+        management_url="https://provider.example.test/private-admin",
+        login_identity="private-login",
+        credential_ref="private-credential-ref",
+        credential_file=tmp_path / "private-token",
+    )
+    mailboxes = MailboxesResolvedConfig(
+        offline=MailboxSlotConfig(revision="offline-revision", binding=offline),
+        online=MailboxSlotConfig(revision="online-revision", binding=online),
+    )
+    controller = SimpleNamespace(
+        manifest_path=tmp_path / "manifest.json",
+        agent_id="owner",
+        agent_identity=None,
+        agent_identity_warnings=(),
+        startup_warnings=(),
+        parsing_mode=None,
+        launch_plan=SimpleNamespace(backend="codex_headless", tool="codex", mailboxes=mailboxes),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.cli.start_runtime_session", lambda **kwargs: controller
+    )
+    assert (
+        cli.main(
+            ["start-session", "--brain-manifest", str(tmp_path / "brain.yaml"), "--role", "worker"]
+        )
+        == 0
+    )
+    output = capsys.readouterr().out
+    payload = json.loads(output)
+    assert "mailbox" not in payload
+    assert payload["mailboxes"]["offline"]["binding"]["binding_id"] == "offline-id"
+    assert payload["mailboxes"]["online"]["binding"]["binding_id"] == "online-id"
+    assert payload["canonical_mail_identity"] == {
+        "channel": "online",
+        "address": "alice@example.test",
+    }
+    for private in (
+        "credential_ref",
+        "credential_file",
+        "login_identity",
+        "management_url",
+        "private-token",
+        "private-store",
+    ):
+        assert private not in output

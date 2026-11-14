@@ -59,7 +59,7 @@ There is no separate periodic tick driver. On-tick skills are invoked from a not
 Use these maintained Houmao skills together:
 
 - `houmao-shared-routines->houmao-agent-gateway` for gateway attach, discovery, and mail-notifier enable/status/disable.
-- `houmao-shared-routines->houmao-process-emails-via-gateway` for the round-oriented open-mail workflow after a notifier prompt supplies the gateway base URL.
+- `houmao-shared-routines->houmao-process-emails-via-gateway` for the round-oriented open-mail workflow after a notifier prompt supplies the exact gateway URL, channel, and expected binding ID.
 - `houmao-shared-routines->houmao-agent-email-comms` for lower-level mailbox status, list, peek, read, send, reply, mark, move, and archive operations.
 - `houmao-shared-routines->houmao-agent-messaging` only when the loop also needs explicit prompt or interrupt routing outside ordinary mail.
 
@@ -90,10 +90,10 @@ sequenceDiagram
 
 ## Workflow
 
-1. Confirm the target participant has a mailbox binding and live attached gateway.
+1. Confirm the target participant has an explicitly selected offline or online binding and a live attached gateway. Retain its binding ID; canonical identity never selects delivery.
 2. Use `houmao-shared-routines->houmao-agent-gateway` to inspect or enable the gateway mail-notifier.
 3. If the loop needs follow-up tick behavior, configure notifier appendix guidance that says which tick to run after mail processing.
-4. Send loop mail through `houmao-shared-routines->houmao-agent-email-comms`, generated loop mail tooling, or the gateway `/v1/mail/send|post|reply` surface.
+4. Send loop mail through `houmao-shared-routines->houmao-agent-email-comms`, generated loop mail tooling, or the gateway `/v1/mail/{channel}/send|post|reply` surface.
 5. Include a short `notify_block` only when the sender needs prominent wake-up guidance in the notifier prompt.
 6. When the notifier prompt arrives, use `houmao-shared-routines->houmao-process-emails-via-gateway` for the current open-mail round when available.
 7. For each relevant loop mail item, invoke the matching generated on-event behavior or apply the loop-specific event procedure.
@@ -106,40 +106,40 @@ sequenceDiagram
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
 ## Gateway Mail API Contract
 
-When a notifier prompt supplies `Gateway: <base-url>`, the live mailbox facade is available under that base URL.
+Every notified round requires `Gateway: <base-url>`, `channel`, and `expected_binding_id`. Missing context or a binding mismatch ends the round; do not rediscover a replacement. Every lifecycle JSON body carries schema version 2 and the same expected binding ID, including fresh send/post.
 
 Common routes:
 
 - `GET /v1/mail/status`: confirm transport, principal id, mailbox address, and binding version.
-- `POST /v1/mail/list`: list message metadata; set `include_body=true` only when full bodies are needed.
-- `POST /v1/mail/peek`: inspect one message without marking it read.
-- `POST /v1/mail/read`: inspect one message and mark it read.
-- `POST /v1/mail/reply`: reply to one message by opaque `message_ref`.
-- `POST /v1/mail/send`: send a new participant mail item.
-- `POST /v1/mail/post`: post an operator-origin mailbox note.
-- `POST /v1/mail/mark|move|archive`: mutate read, answered, archived, or box state.
-- `GET|PUT|DELETE /v1/mail-notifier`: inspect, configure, or disable notifier polling.
+- `POST /v1/mail/{channel}/list`: list message metadata; use a finite limit and fetch selected bodies explicitly with peek/read.
+- `POST /v1/mail/{channel}/peek`: inspect one message without marking it read.
+- `POST /v1/mail/{channel}/read`: inspect one message and mark it read.
+- `POST /v1/mail/{channel}/reply`: reply to one message by opaque `message_ref`.
+- `POST /v1/mail/{channel}/send`: send a new participant mail item.
+- `POST /v1/mail/{channel}/post`: post an operator-origin mailbox note.
+- `POST /v1/mail/{channel}/mark|move|archive`: mutate read, answered, archived, or box state.
+- `GET|PUT|DELETE /v1/mail-notifier/{channel}`: inspect, configure, or disable notifier polling.
 
 `message_ref` and `thread_ref` are opaque. Do not parse filesystem ids, JMAP ids, timestamps, paths, or routing facts out of them. Store them only as references for reply, archive, audit, and recovery.
 
 Minimal check/read/reply/archive shape:
 
 ```bash
-curl -sS "$GATEWAY_BASE_URL/v1/mail/list" \
+curl -sS "$GATEWAY_BASE_URL/v1/mail/$MAIL_CHANNEL/list" \
   -H 'content-type: application/json' \
-  -d '{"schema_version":1,"box":"inbox","archived":false,"include_body":false}'
+  -d '{"schema_version":2,"expected_binding_id":"<selected binding_id>","box":"inbox","archived":false,"limit":50,"include_body":false}'
 
-curl -sS "$GATEWAY_BASE_URL/v1/mail/read" \
+curl -sS "$GATEWAY_BASE_URL/v1/mail/$MAIL_CHANNEL/read" \
   -H 'content-type: application/json' \
-  -d '{"schema_version":1,"message_ref":"<message-ref>"}'
+  -d '{"schema_version":2,"expected_binding_id":"<selected binding_id>","message_ref":"<message-ref>"}'
 
-curl -sS "$GATEWAY_BASE_URL/v1/mail/reply" \
+curl -sS "$GATEWAY_BASE_URL/v1/mail/$MAIL_CHANNEL/reply" \
   -H 'content-type: application/json' \
-  -d '{"schema_version":1,"message_ref":"<message-ref>","body_content":"Done.","attachments":[]}'
+  -d '{"schema_version":2,"expected_binding_id":"<selected binding_id>","message_ref":"<message-ref>","body_content":"Done.","attachments":[]}'
 
-curl -sS "$GATEWAY_BASE_URL/v1/mail/archive" \
+curl -sS "$GATEWAY_BASE_URL/v1/mail/$MAIL_CHANNEL/archive" \
   -H 'content-type: application/json' \
-  -d '{"schema_version":1,"message_refs":["<message-ref>"]}'
+  -d '{"schema_version":2,"expected_binding_id":"<selected binding_id>","message_refs":["<message-ref>"]}'
 ```
 
 Prefer the maintained mail skills over raw `curl` during normal agent work. Use raw HTTP only when debugging, documenting, or implementing a generated harness surface that has an explicit gateway base URL.
@@ -151,7 +151,7 @@ The gateway mail-notifier renders one prompt from the packaged notifier template
 - optional sender-authored notify blocks in a prepend slot,
 - tool-specific mailbox skill guidance,
 - notifier mode guidance,
-- `Gateway: <base-url>`,
+- the exact `Gateway: <base-url>`, selected channel, and expected binding ID,
 - a compact `/v1/mail/*` API summary,
 - optional `appendix_text`,
 - optional sender-authored notify blocks in an append slot.
@@ -179,7 +179,7 @@ There are two authoring paths.
 Body fence path:
 
 ```bash
-pixi run houmao-mgr agents single --agent-name sender mail send \
+pixi run houmao-mgr agents single --agent-name sender mail send --channel offline \
   --to receiver@houmao.localhost \
   --subject "Loop handoff" \
   --body-content $'Loop handoff details are in this message.\n\n```houmao-notify\nAfter reading this handoff, run receiver-on-handoff-received, then run receiver-on-schedule-tick once.\n```'
@@ -188,7 +188,7 @@ pixi run houmao-mgr agents single --agent-name sender mail send \
 Explicit field path:
 
 ```bash
-pixi run houmao-mgr agents single --agent-name receiver mail post \
+pixi run houmao-mgr agents single --agent-name receiver mail post --channel offline \
   --subject "Continue loop" \
   --body-content "Operator note for the current loop." \
   --notify-block "Process loop mail, run the lead tick once, then stop." \

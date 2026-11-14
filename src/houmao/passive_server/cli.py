@@ -74,6 +74,27 @@ def serve_command(
     uvicorn.run(app, host=config.public_host, port=config.public_port, log_level="info")
 
 
+@cli.command(name="offline-registry")
+@click.option(
+    "--config", "config_file", required=True, type=click.Path(path_type=Path, exists=True)
+)
+@click.option("--host", default="127.0.0.1", show_default=True)
+@click.option("--port", default=9892, type=click.IntRange(1, 65535), show_default=True)
+def offline_registry_command(config_file: Path, host: str, port: int) -> None:
+    """Serve only authenticated offline membership, mail, and attachment APIs."""
+
+    from houmao.mailbox.registry_app import create_offline_registry_app
+    from houmao.mailbox.registry_config import OfflineRegistryConfig, validate_registry_listener
+
+    try:
+        config = OfflineRegistryConfig.from_file(config_file)
+        validate_registry_listener(host, config.public_url)
+        app = create_offline_registry_app(config=config)
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    uvicorn.run(app, host=host, port=port, log_level="info", access_log=False)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the click CLI and return an exit code."""
 

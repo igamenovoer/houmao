@@ -2,8 +2,24 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from houmao.mailbox.models import GatewayMailSyncStatusV1
+
+if TYPE_CHECKING:
+    from houmao.mailbox.notifier_admission import ReminderOrigin
+    from houmao.mailbox.observation import OnlineObservation
+
+from houmao.mailbox.online_models import (
+    OnlineAttachRequest,
+    OnlineControlRequest,
+    OnlineBindingStatus,
+)
+from houmao.mailbox.online_binding import OnlineBindingService
+from houmao.mailbox.online_models import OnlineAuthorityContext, OnlineBindingError
+
 import argparse
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager, nullcontext
 from datetime import UTC, datetime, timedelta
 import hashlib
 from importlib import resources
@@ -14,7 +30,7 @@ import socket
 import sqlite3
 import threading
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, NoReturn, Protocol, TypeVar, cast
@@ -71,8 +87,13 @@ from houmao.gateway.plugins import (
 from houmao.agents.realm_controller.usage_models import UsagePage
 from houmao.agents.realm_controller.usage_store import UsageStoreError
 from houmao.agents.realm_controller.usage_support import UsageService
-from houmao.agents.realm_controller.gateway_mailbox import (
-    GatewayMailboxAdapter,
+from houmao.mailbox.models import MailChannel, MailboxChannelStatusV1
+from houmao.mailbox.scope import MailScope, MailboxScopeError
+from houmao.mailbox.errors import GatewayMailboxMutationError
+from houmao.mailbox.stalwart import StalwartError
+from houmao.mailbox.services import (
+    ScopedMailboxAdapter,
+    build_scoped_mailbox_adapter,
     GatewayMailboxError,
     GatewayMailboxUnsupportedError,
     build_gateway_mailbox_adapter,
@@ -1367,6 +1388,10 @@ class GatewayServiceRuntime:
             log_path=self.m_paths.diagnostic_log_path,
         )
         self.m_attach_contract = resolve_internal_gateway_attach_contract(self.m_paths)
+        manifest_value = self.m_attach_contract.manifest_path
+        self.m_manifest_path: Path | None = (
+            Path(manifest_value).resolve() if manifest_value else None
+        )
         self.m_adapter: GatewayExecutionAdapter = _build_gateway_execution_adapter(
             attach_contract=self.m_attach_contract
         )
@@ -1380,8 +1405,7 @@ class GatewayServiceRuntime:
         self.m_current_epoch = 1
         self.m_current_instance_id: str | None = None
         self.m_rate_limited_logs: dict[str, tuple[float, int]] = {}
-        self.m_mailbox_adapter: GatewayMailboxAdapter | None = None
-        self.m_mailbox_bindings_version: str | None = None
+        self.m_mailbox_adapters: dict[MailChannel, tuple[str, ScopedMailboxAdapter]] = {}
         self.m_execution_mode = self._execution_mode_from_env()
         self.m_tmux_window_id = _optional_env_string(_GATEWAY_TMUX_WINDOW_ID_ENV_VAR)
         self.m_tmux_window_index = _optional_env_string(_GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR)
@@ -3619,225 +3643,420 @@ class GatewayServiceRuntime:
             facts = f"{facts}, conflict_reasons={list(channel.conflict_reasons)!r}"
         return f"{detail} Hook observation: {facts}."
 
+    def _online_binding_service(self) -> OnlineBindingService:
+        """Resolve current local owner/session authority without provider I/O."""
+
+        self._require_loopback_mail_surface()
+        payload = self._load_manifest_payload_for_mailbox_support()
+        assert self.m_manifest_path is not None
+        return OnlineBindingService.from_context(
+            OnlineAuthorityContext(
+                self.m_manifest_path, payload.agent_id, payload.runtime.session_id
+            )
+        )
+
+    def online_binding_status(self) -> OnlineBindingStatus:
+        """Read safe online configuration without probing the provider."""
+
+        return self._online_binding_service().status()
+
+    def control_online_binding(
+        self, operation: str, request: OnlineAttachRequest | OnlineControlRequest
+    ) -> OnlineBindingStatus:
+        """Validate and retire online connections outside the terminal lock."""
+
+        service = self._online_binding_service()
+        try:
+            if operation == "attach" and isinstance(request, OnlineAttachRequest):
+                return service.attach(request)
+            if not isinstance(request, OnlineControlRequest):
+                raise ValueError("Online control requires a revision-pinned request")
+            if operation == "refresh":
+                return service.refresh(request)
+            if operation == "reconnect":
+                return service.reconnect(request)
+            if operation == "detach":
+                return service.detach(request)
+            raise ValueError("Unknown online binding operation")
+        except OnlineBindingError as exc:
+            status_code = (
+                409
+                if exc.code
+                in {
+                    "mail_binding_conflict",
+                    "replacement_required",
+                    "account_mismatch",
+                    "online_retirement_busy",
+                }
+                else 502
+                if exc.code == "candidate_validation_failed"
+                else 400
+            )
+            raise HTTPException(
+                status_code=status_code,
+                detail={
+                    "error_code": exc.code,
+                    "detail": str(exc),
+                    "uncertain": exc.uncertain,
+                },
+            ) from exc
+
     def get_mail_status(self) -> GatewayMailStatusV1:
-        """Return shared mailbox availability for the attached session."""
+        """Return both configured bindings from one authoritative snapshot."""
 
-        with self.m_lock:
-            self._require_loopback_mail_surface()
+        self._require_loopback_mail_surface()
+        payload = self._load_manifest_payload_for_mailbox_support()
+        from houmao.agents.mailbox_runtime_support import mailboxes_resolved_config_from_payload
+
+        mailboxes = mailboxes_resolved_config_from_payload(
+            payload.launch_plan.mailboxes, manifest_path=self.m_manifest_path or Path("<unknown>")
+        )
+        summaries: dict[str, MailboxChannelStatusV1 | None] = {}
+        for channel in ("offline", "online"):
+            binding = mailboxes.binding_for(channel)
+            if binding is None:
+                summaries[channel] = None
+                continue
+            error = None
             try:
-                return self._mailbox_adapter_locked().status()
-            except GatewayError as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
+                resolve_live_mailbox_binding(durable_mailbox=binding)
+                build_gateway_mailbox_adapter(binding).status()
+            except (ValueError, OSError, GatewayMailboxError, StalwartError):
+                error = f"{channel.capitalize()} mailbox is unavailable"
+            summaries[channel] = MailboxChannelStatusV1(
+                agent_id=binding.agent_id,
+                channel=channel,
+                binding_id=binding.binding_id,
+                revision=getattr(mailboxes, channel).revision,
+                address=binding.address,
+                transport=binding.transport,
+                available=error is None,
+                error=error,
+                supported_operations=[
+                    "list",
+                    "peek",
+                    "read",
+                    "send",
+                    "reply",
+                    "mark",
+                    "move",
+                    "archive",
+                ]
+                + (["post"] if binding.transport == "filesystem" else []),
+                limitations=["operator post is unavailable for this backend"]
+                if binding.transport != "filesystem"
+                else [],
+            )
+        return GatewayMailStatusV1(
+            agent_id=payload.agent_id,
+            offline=summaries["offline"],
+            online=summaries["online"],
+            canonical_mail_identity=mailboxes.canonical_mail_identity,
+        )
 
-    def list_mail(self, request_payload: GatewayMailListRequestV1) -> GatewayMailListResponseV1:
+    def list_mail(
+        self, request_payload: GatewayMailListRequestV1, *, channel: MailChannel
+    ) -> GatewayMailListResponseV1:
         """Run one shared mailbox list request."""
 
-        with self.m_lock:
-            self._require_loopback_mail_surface()
-            try:
-                adapter = self._mailbox_adapter_locked()
-            except GatewayError as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
-            try:
-                messages = adapter.list_messages(
-                    box=request_payload.box,
-                    read_state=request_payload.read_state,
-                    answered_state=request_payload.answered_state,
-                    archived=request_payload.archived,
-                    limit=request_payload.limit,
-                    since=request_payload.since,
-                    include_body=request_payload.include_body,
-                )
-            except GatewayMailboxError as exc:
-                raise HTTPException(status_code=502, detail=str(exc)) from exc
-            status = adapter.status()
-            unread_count = sum(1 for message in messages if message.unread is True)
-            open_count = sum(1 for message in messages if message.archived is not True)
-            return GatewayMailListResponseV1(
-                transport=status.transport,
-                principal_id=status.principal_id,
-                address=status.address,
-                box=request_payload.box,
-                message_count=len(messages),
-                open_count=open_count,
-                unread_count=unread_count,
-                messages=messages,
+        self._require_loopback_mail_surface()
+        try:
+            adapter = self._mailbox_adapter_locked(
+                channel=channel, expected_binding_id=request_payload.expected_binding_id
             )
+        except GatewayError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        try:
+            page = adapter.list_page(
+                box=request_payload.box,
+                read_state=request_payload.read_state,
+                answered_state=request_payload.answered_state,
+                archived=request_payload.archived,
+                limit=request_payload.limit,
+                since=request_payload.since,
+                cursor=request_payload.cursor,
+            )
+        except MailboxScopeError as exc:
+            from houmao.mailbox.pagination import MailboxCursorError
+
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error_code": exc.error_code
+                    if isinstance(exc, MailboxCursorError)
+                    else "mail_scope_conflict",
+                    "detail": str(exc),
+                },
+            ) from exc
+        except GatewayMailboxUnsupportedError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except GatewayMailboxMutationError as exc:
+            raise HTTPException(status_code=502, detail=exc.safe_payload()) from exc
+        except OnlineBindingError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"error_code": exc.code, "detail": str(exc), "uncertain": exc.uncertain},
+            ) from exc
+        except GatewayMailboxError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        from houmao.mailbox.pagination import build_mail_page_response
+
+        return build_mail_page_response(
+            identity=adapter.status(), box=request_payload.box, page=page
+        )
 
     def peek_mail(
-        self, request_payload: GatewayMailMessageRequestV1
+        self,
+        request_payload: GatewayMailMessageRequestV1,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailMessageResponseV1:
         """Run one shared mailbox peek request."""
 
-        return self._mail_message_request(operation="peek", request_payload=request_payload)
+        return self._mail_message_request(
+            operation="peek", request_payload=request_payload, channel=channel
+        )
 
     def read_mail(
-        self, request_payload: GatewayMailMessageRequestV1
+        self,
+        request_payload: GatewayMailMessageRequestV1,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailMessageResponseV1:
         """Run one shared mailbox read request."""
 
-        return self._mail_message_request(operation="read", request_payload=request_payload)
+        return self._mail_message_request(
+            operation="read", request_payload=request_payload, channel=channel
+        )
 
     def _mail_message_request(
         self,
         *,
         operation: Literal["peek", "read"],
         request_payload: GatewayMailMessageRequestV1,
+        channel: MailChannel,
     ) -> GatewayMailMessageResponseV1:
         """Run one shared mailbox message retrieval request."""
 
-        with self.m_lock:
-            self._require_loopback_mail_surface()
-            try:
-                adapter = self._mailbox_adapter_locked()
-            except GatewayError as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
-            try:
-                if operation == "peek":
-                    message = adapter.peek(
-                        message_ref=request_payload.message_ref,
-                        box=request_payload.box,
-                    )
-                else:
-                    message = adapter.read(
-                        message_ref=request_payload.message_ref,
-                        box=request_payload.box,
-                    )
-            except GatewayMailboxError as exc:
-                raise HTTPException(status_code=502, detail=str(exc)) from exc
-            status = adapter.status()
-            return GatewayMailMessageResponseV1(
-                operation=operation,
-                transport=status.transport,
-                principal_id=status.principal_id,
-                address=status.address,
-                message=message,
+        self._require_loopback_mail_surface()
+        try:
+            adapter = self._mailbox_adapter_locked(
+                channel=channel, expected_binding_id=request_payload.expected_binding_id
             )
+        except GatewayError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        try:
+            if operation == "peek":
+                message = adapter.peek(
+                    message_ref=request_payload.message_ref,
+                    box=request_payload.box,
+                )
+            else:
+                message = adapter.read(
+                    message_ref=request_payload.message_ref,
+                    box=request_payload.box,
+                )
+        except MailboxScopeError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"error_code": "mail_scope_conflict", "detail": str(exc)},
+            ) from exc
+        except GatewayMailboxMutationError as exc:
+            raise HTTPException(status_code=502, detail=exc.safe_payload()) from exc
+        except OnlineBindingError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"error_code": exc.code, "detail": str(exc), "uncertain": exc.uncertain},
+            ) from exc
+        except GatewayMailboxError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        status = adapter.status()
+        return GatewayMailMessageResponseV1(
+            operation=operation,
+            transport=status.transport,
+            principal_id=status.principal_id,
+            address=status.address,
+            message=message,
+        )
 
-    def send_mail(self, request_payload: GatewayMailSendRequestV1) -> GatewayMailActionResponseV1:
+    def send_mail(
+        self, request_payload: GatewayMailSendRequestV1, *, channel: MailChannel
+    ) -> GatewayMailActionResponseV1:
         """Run one shared mailbox send request."""
 
-        with self.m_lock:
-            self._require_loopback_mail_surface()
-            try:
-                adapter = self._mailbox_adapter_locked()
-            except GatewayError as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
-            try:
-                message = adapter.send(
-                    to_addresses=request_payload.to,
-                    cc_addresses=request_payload.cc,
-                    subject=request_payload.subject,
-                    body_content=request_payload.body_content,
-                    attachments=request_payload.attachments,
-                    notify_block=request_payload.notify_block,
-                    notify_auth=request_payload.notify_auth,
-                )
-            except GatewayMailboxUnsupportedError as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
-            except GatewayMailboxError as exc:
-                raise HTTPException(status_code=502, detail=str(exc)) from exc
-            status = adapter.status()
-            return GatewayMailActionResponseV1(
-                operation="send",
-                transport=status.transport,
-                principal_id=status.principal_id,
-                address=status.address,
-                message=message,
+        self._require_loopback_mail_surface()
+        try:
+            adapter = self._mailbox_adapter_locked(
+                channel=channel, expected_binding_id=request_payload.expected_binding_id
             )
+        except GatewayError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        try:
+            message = adapter.send(
+                to_addresses=request_payload.to,
+                cc_addresses=request_payload.cc,
+                subject=request_payload.subject,
+                body_content=request_payload.body_content,
+                attachments=request_payload.attachments,
+                notify_block=request_payload.notify_block,
+                notify_auth=request_payload.notify_auth,
+            )
+        except GatewayMailboxUnsupportedError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except MailboxScopeError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"error_code": "mail_scope_conflict", "detail": str(exc)},
+            ) from exc
+        except GatewayMailboxMutationError as exc:
+            raise HTTPException(status_code=502, detail=exc.safe_payload()) from exc
+        except OnlineBindingError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"error_code": exc.code, "detail": str(exc), "uncertain": exc.uncertain},
+            ) from exc
+        except GatewayMailboxError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        status = adapter.status()
+        return GatewayMailActionResponseV1(
+            operation="send",
+            transport=status.transport,
+            principal_id=status.principal_id,
+            address=status.address,
+            message=message,
+        )
 
-    def post_mail(self, request_payload: GatewayMailPostRequestV1) -> GatewayMailActionResponseV1:
+    def post_mail(
+        self, request_payload: GatewayMailPostRequestV1, *, channel: MailChannel
+    ) -> GatewayMailActionResponseV1:
         """Run one shared mailbox operator-origin post request."""
 
-        with self.m_lock:
-            self._require_loopback_mail_surface()
-            try:
-                adapter = self._mailbox_adapter_locked()
-            except GatewayError as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
-            try:
-                message = adapter.post(
-                    subject=request_payload.subject,
-                    body_content=request_payload.body_content,
-                    reply_policy=request_payload.reply_policy,
-                    attachments=request_payload.attachments,
-                    notify_block=request_payload.notify_block,
-                    notify_auth=request_payload.notify_auth,
-                )
-            except GatewayMailboxUnsupportedError as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
-            except GatewayMailboxError as exc:
-                raise HTTPException(status_code=502, detail=str(exc)) from exc
-            status = adapter.status()
-            return GatewayMailActionResponseV1(
-                operation="post",
-                transport=status.transport,
-                principal_id=status.principal_id,
-                address=status.address,
-                message=message,
+        self._require_loopback_mail_surface()
+        try:
+            adapter = self._mailbox_adapter_locked(
+                channel=channel, expected_binding_id=request_payload.expected_binding_id
             )
+        except GatewayError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        try:
+            message = adapter.post(
+                subject=request_payload.subject,
+                body_content=request_payload.body_content,
+                reply_policy=request_payload.reply_policy,
+                attachments=request_payload.attachments,
+                notify_block=request_payload.notify_block,
+                notify_auth=request_payload.notify_auth,
+            )
+        except GatewayMailboxUnsupportedError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except MailboxScopeError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"error_code": "mail_scope_conflict", "detail": str(exc)},
+            ) from exc
+        except GatewayMailboxMutationError as exc:
+            raise HTTPException(status_code=502, detail=exc.safe_payload()) from exc
+        except OnlineBindingError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"error_code": exc.code, "detail": str(exc), "uncertain": exc.uncertain},
+            ) from exc
+        except GatewayMailboxError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        status = adapter.status()
+        return GatewayMailActionResponseV1(
+            operation="post",
+            transport=status.transport,
+            principal_id=status.principal_id,
+            address=status.address,
+            message=message,
+        )
 
-    def reply_mail(self, request_payload: GatewayMailReplyRequestV1) -> GatewayMailActionResponseV1:
+    def reply_mail(
+        self, request_payload: GatewayMailReplyRequestV1, *, channel: MailChannel
+    ) -> GatewayMailActionResponseV1:
         """Run one shared mailbox reply request."""
 
-        with self.m_lock:
-            self._require_loopback_mail_surface()
-            try:
-                adapter = self._mailbox_adapter_locked()
-            except GatewayError as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
-            try:
-                message = adapter.reply(
-                    message_ref=request_payload.message_ref,
-                    body_content=request_payload.body_content,
-                    attachments=request_payload.attachments,
-                    notify_block=request_payload.notify_block,
-                    notify_auth=request_payload.notify_auth,
-                )
-            except GatewayMailboxUnsupportedError as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
-            except GatewayMailboxError as exc:
-                raise HTTPException(status_code=502, detail=str(exc)) from exc
-            status = adapter.status()
-            return GatewayMailActionResponseV1(
-                operation="reply",
-                transport=status.transport,
-                principal_id=status.principal_id,
-                address=status.address,
-                message=message,
+        self._require_loopback_mail_surface()
+        try:
+            adapter = self._mailbox_adapter_locked(
+                channel=channel, expected_binding_id=request_payload.expected_binding_id
             )
+        except GatewayError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        try:
+            message = adapter.reply(
+                message_ref=request_payload.message_ref,
+                body_content=request_payload.body_content,
+                attachments=request_payload.attachments,
+                notify_block=request_payload.notify_block,
+                notify_auth=request_payload.notify_auth,
+            )
+        except GatewayMailboxUnsupportedError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except MailboxScopeError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"error_code": "mail_scope_conflict", "detail": str(exc)},
+            ) from exc
+        except GatewayMailboxMutationError as exc:
+            raise HTTPException(status_code=502, detail=exc.safe_payload()) from exc
+        except OnlineBindingError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"error_code": exc.code, "detail": str(exc), "uncertain": exc.uncertain},
+            ) from exc
+        except GatewayMailboxError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        status = adapter.status()
+        return GatewayMailActionResponseV1(
+            operation="reply",
+            transport=status.transport,
+            principal_id=status.principal_id,
+            address=status.address,
+            message=message,
+        )
 
     def mark_mail(
         self,
         request_payload: GatewayMailMarkRequestV1,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailLifecycleResponseV1:
         """Run one shared mailbox mark request."""
 
         return self._mail_lifecycle_request(
             operation="mark",
             request_payload=request_payload,
+            channel=channel,
         )
 
     def move_mail(
         self,
         request_payload: GatewayMailMoveRequestV1,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailLifecycleResponseV1:
         """Run one shared mailbox move request."""
 
         return self._mail_lifecycle_request(
             operation="move",
             request_payload=request_payload,
+            channel=channel,
         )
 
     def archive_mail(
         self,
         request_payload: GatewayMailArchiveRequestV1,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailLifecycleResponseV1:
         """Run one shared mailbox archive request."""
 
         return self._mail_lifecycle_request(
             operation="archive",
             request_payload=request_payload,
+            channel=channel,
         )
 
     def _mail_lifecycle_request(
@@ -3847,57 +4066,73 @@ class GatewayServiceRuntime:
         request_payload: GatewayMailMarkRequestV1
         | GatewayMailMoveRequestV1
         | GatewayMailArchiveRequestV1,
+        channel: MailChannel,
     ) -> GatewayMailLifecycleResponseV1:
         """Run one shared mailbox lifecycle mutation request."""
 
-        with self.m_lock:
-            self._require_loopback_mail_surface()
-            try:
-                adapter = self._mailbox_adapter_locked()
-            except GatewayError as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
-            try:
-                if isinstance(request_payload, GatewayMailMarkRequestV1):
-                    messages = adapter.mark(
-                        message_refs=request_payload.message_refs,
-                        read=request_payload.read,
-                        answered=request_payload.answered,
-                        archived=request_payload.archived,
-                    )
-                elif isinstance(request_payload, GatewayMailMoveRequestV1):
-                    messages = adapter.move(
-                        message_refs=request_payload.message_refs,
-                        destination_box=request_payload.destination_box,
-                    )
-                else:
-                    messages = adapter.archive(message_refs=request_payload.message_refs)
-            except GatewayMailboxError as exc:
-                raise HTTPException(status_code=502, detail=str(exc)) from exc
-            status = adapter.status()
-            return GatewayMailLifecycleResponseV1(
-                operation=operation,
-                transport=status.transport,
-                principal_id=status.principal_id,
-                address=status.address,
-                message_count=len(messages),
-                messages=messages,
+        self._require_loopback_mail_surface()
+        try:
+            adapter = self._mailbox_adapter_locked(
+                channel=channel, expected_binding_id=request_payload.expected_binding_id
             )
+        except GatewayError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        try:
+            if isinstance(request_payload, GatewayMailMarkRequestV1):
+                messages = adapter.mark(
+                    message_refs=request_payload.message_refs,
+                    read=request_payload.read,
+                    answered=request_payload.answered,
+                    archived=request_payload.archived,
+                )
+            elif isinstance(request_payload, GatewayMailMoveRequestV1):
+                messages = adapter.move(
+                    message_refs=request_payload.message_refs,
+                    destination_box=request_payload.destination_box,
+                )
+            else:
+                messages = adapter.archive(message_refs=request_payload.message_refs)
+        except MailboxScopeError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"error_code": "mail_scope_conflict", "detail": str(exc)},
+            ) from exc
+        except GatewayMailboxMutationError as exc:
+            raise HTTPException(status_code=502, detail=exc.safe_payload()) from exc
+        except OnlineBindingError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"error_code": exc.code, "detail": str(exc), "uncertain": exc.uncertain},
+            ) from exc
+        except GatewayMailboxError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        status = adapter.status()
+        return GatewayMailLifecycleResponseV1(
+            operation=operation,
+            transport=status.transport,
+            principal_id=status.principal_id,
+            address=status.address,
+            message_count=len(messages),
+            messages=messages,
+        )
 
-    def get_mail_notifier(self) -> GatewayMailNotifierStatusV1:
+    def get_mail_notifier(self, *, channel: MailChannel) -> GatewayMailNotifierStatusV1:
         """Return the current notifier configuration and runtime status."""
 
         with self.m_lock:
-            return self._mail_notifier_status_locked()
+            return self._mail_notifier_status_locked(channel=channel)
 
     def put_mail_notifier(
         self,
         request_payload: GatewayMailNotifierPutV1,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailNotifierStatusV1:
         """Enable or reconfigure the gateway mail notifier."""
 
         with self.m_lock:
             try:
-                self._require_live_notifier_mailbox_config_locked()
+                self._require_live_notifier_mailbox_config_locked(channel=channel)
             except GatewayError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
             context_action_support_error = (
@@ -3935,6 +4170,7 @@ class GatewayServiceRuntime:
                 base_kwargs["appendix_text"] = request_payload.appendix_text
             record = write_gateway_mail_notifier_record(
                 self.m_paths.queue_path,
+                scope_key=self._mail_notifier_scope_key(channel),
                 **base_kwargs,
                 **notify_block_kwargs,
             )
@@ -3948,18 +4184,19 @@ class GatewayServiceRuntime:
                 support_error=None,
             )
 
-    def delete_mail_notifier(self) -> GatewayMailNotifierStatusV1:
+    def delete_mail_notifier(self, *, channel: MailChannel) -> GatewayMailNotifierStatusV1:
         """Disable the gateway mail notifier explicitly."""
 
         with self.m_lock:
             record = write_gateway_mail_notifier_record(
                 self.m_paths.queue_path,
+                scope_key=self._mail_notifier_scope_key(channel),
                 enabled=False,
                 interval_seconds=None,
                 last_notified_digest=None,
                 last_error=None,
             )
-            supported, support_error = self._notifier_support_status()
+            supported, support_error = self._notifier_support_status(channel=channel)
             self._log("mail notifier disabled")
             return build_gateway_mail_notifier_status(
                 record=record,
@@ -3967,26 +4204,54 @@ class GatewayServiceRuntime:
                 support_error=support_error,
             )
 
-    def _mail_notifier_status_locked(self) -> GatewayMailNotifierStatusV1:
+    def _mail_notifier_status_locked(self, *, channel: MailChannel) -> GatewayMailNotifierStatusV1:
         """Return the notifier status while the runtime lock is held."""
 
-        record = read_gateway_mail_notifier_record(self.m_paths.queue_path)
-        supported, support_error = self._notifier_support_status(record=record)
-        return build_gateway_mail_notifier_status(
+        record = read_gateway_mail_notifier_record(
+            self.m_paths.queue_path, scope_key=self._mail_notifier_scope_key(channel)
+        )
+        supported, support_error = self._notifier_support_status(record=record, channel=channel)
+        result = build_gateway_mail_notifier_status(
             record=record,
             supported=supported,
             support_error=support_error,
         )
 
+        if channel == "online":
+            from houmao.mailbox.observation import read_online_sync_status
+
+            payload = self._load_manifest_payload_for_mailbox_support()
+            binding = payload.launch_plan.mailboxes.online.binding
+            if (
+                binding is not None
+                and binding.transport == "stalwart"
+                and binding.account_id is not None
+            ):
+                result = result.model_copy(
+                    update={
+                        "sync": GatewayMailSyncStatusV1.model_validate(
+                            read_online_sync_status(
+                                self.m_paths.queue_path,
+                                agent_id=payload.agent_id,
+                                binding_id=binding.binding_id,
+                                account_id=binding.account_id,
+                                mode=record.mode,
+                            )
+                        )
+                    }
+                )
+        return result
+
     def _notifier_support_status(
         self,
         *,
         record: GatewayMailNotifierRecord | None = None,
+        channel: MailChannel,
     ) -> tuple[bool, str | None]:
         """Return whether notifier behavior is currently supported."""
 
         try:
-            self._require_live_notifier_mailbox_config_locked()
+            self._require_live_notifier_mailbox_config_locked(channel=channel)
         except GatewayError as exc:
             return False, str(exc)
         if record is not None:
@@ -4023,10 +4288,12 @@ class GatewayServiceRuntime:
             )
         return None
 
-    def _require_live_notifier_mailbox_config_locked(self) -> MailboxResolvedConfig:
+    def _require_live_notifier_mailbox_config_locked(
+        self, *, channel: MailChannel
+    ) -> MailboxResolvedConfig:
         """Return durable mailbox config only when live notifier actionability is present."""
 
-        mailbox = self._load_mailbox_config()
+        mailbox = self._load_mailbox_config(channel=channel)
         try:
             resolve_live_mailbox_binding(durable_mailbox=mailbox)
         except ValueError as exc:
@@ -4035,13 +4302,13 @@ class GatewayServiceRuntime:
             ) from exc
         return mailbox
 
-    def _load_mailbox_config(self) -> MailboxResolvedConfig:
+    def _load_mailbox_config(self, *, channel: MailChannel) -> MailboxResolvedConfig:
         """Load the manifest-backed mailbox config required by mailbox routes."""
 
         payload = self._load_manifest_payload_for_mailbox_support()
         try:
             mailbox = resolved_mailbox_config_from_payload(
-                payload.launch_plan.mailbox,
+                getattr(payload.launch_plan.mailboxes, channel).binding,
                 manifest_path=self.m_manifest_path or Path("<unknown>"),
             )
         except ValueError as exc:
@@ -4100,27 +4367,31 @@ class GatewayServiceRuntime:
 
         lines: list[str] = []
         processing_route = mailbox_processing_route_name()
+        channel = "online" if mailbox.transport == "stalwart" else "offline"
+        round_arguments = (
+            f"{gateway_base_url} channel={channel} expected_binding_id={mailbox.binding_id}"
+        )
         if tool == "claude":
             lines.extend(
                 [
-                    f"/{mailbox_processing_skill_name()} {processing_route} {gateway_base_url}",
+                    f"/{mailbox_processing_skill_name()} {processing_route} {round_arguments}",
                 ]
             )
         elif tool == "codex":
             lines.extend(
                 [
-                    f"${mailbox_processing_skill_name()} {processing_route} {gateway_base_url}",
+                    f"${mailbox_processing_skill_name()} {processing_route} {round_arguments}",
                 ]
             )
         elif tool == "kimi":
             lines.append(
                 f"Use `{mailbox_processing_skill_name()} {processing_route}` with the gateway "
-                "above for this round."
+                f"above for this round, channel={channel}, expected_binding_id={mailbox.binding_id}."
             )
         else:
             lines.append(
                 f"Use `{mailbox_processing_skill_name()} {processing_route}` with the gateway "
-                "above for this round."
+                f"above for this round, channel={channel}, expected_binding_id={mailbox.binding_id}."
             )
         lines.append(
             "Static sibling routing is installed: let the public agent entrypoint delegate "
@@ -4133,21 +4404,39 @@ class GatewayServiceRuntime:
         )
         return "\n".join(lines)
 
-    def _mailbox_adapter_locked(self) -> GatewayMailboxAdapter:
-        """Return the cached mailbox adapter while the runtime lock is held."""
+    def _mailbox_adapter_locked(
+        self,
+        *,
+        channel: MailChannel,
+        expected_binding_id: str | None = None,
+    ) -> ScopedMailboxAdapter:
+        """Resolve and pin one channel before backend dispatch."""
 
-        mailbox = self._load_mailbox_config()
-        if (
-            self.m_mailbox_adapter is not None
-            and self.m_mailbox_bindings_version == mailbox.bindings_version
-        ):
-            return self.m_mailbox_adapter
+        mailbox = self._load_mailbox_config(channel=channel)
+        scope = MailScope(mailbox.agent_id, channel, mailbox.binding_id)
+        if expected_binding_id is not None:
+            try:
+                scope.require_binding(expected_binding_id)
+            except MailboxScopeError as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"error_code": "mail_binding_conflict", "detail": str(exc)},
+                ) from exc
+        cached = self.m_mailbox_adapters.get(channel)
+        if cached is not None and cached[0] == mailbox.bindings_version:
+            return cached[1]
         try:
-            adapter = build_gateway_mailbox_adapter(mailbox)
+            payload = self._load_manifest_payload_for_mailbox_support()
+            assert self.m_manifest_path is not None
+            adapter = build_scoped_mailbox_adapter(
+                mailbox,
+                authority=OnlineAuthorityContext(
+                    self.m_manifest_path, payload.agent_id, payload.runtime.session_id
+                ),
+            )
         except GatewayMailboxError as exc:
             raise GatewayError(str(exc)) from exc
-        self.m_mailbox_adapter = adapter
-        self.m_mailbox_bindings_version = mailbox.bindings_version
+        self.m_mailbox_adapters[channel] = (mailbox.bindings_version, adapter)
         return adapter
 
     def _require_loopback_mail_surface(self) -> None:
@@ -4159,99 +4448,86 @@ class GatewayServiceRuntime:
                 detail="Gateway mailbox routes are unavailable when the listener is bound to 0.0.0.0.",
             )
 
+    def _mail_notifier_scope_key(self, channel: MailChannel) -> str:
+        """Key configuration and history by owner, channel, and binding."""
+
+        payload = self._load_manifest_payload_for_mailbox_support()
+        slot = getattr(payload.launch_plan.mailboxes, channel)
+        binding = slot.binding
+        return json.dumps(
+            [payload.agent_id, channel, binding.binding_id if binding else None],
+            separators=(",", ":"),
+        )
+
     def _notifier_loop(self) -> None:
-        """Poll mailbox-local open inbox work when the notifier is enabled."""
+        """Poll each enabled channel on its independent interval."""
 
-        next_poll_monotonic: float | None = None
-        scheduled_interval_seconds: int | None = None
+        schedules: dict[MailChannel, tuple[str, int, float]] = {}
         while not self.m_stop_event.is_set():
-            record = read_gateway_mail_notifier_record(self.m_paths.queue_path)
-            if not record.enabled or record.interval_seconds is None:
-                next_poll_monotonic = None
-                scheduled_interval_seconds = None
-                self.m_stop_event.wait(_NOTIFIER_IDLE_CHECK_INTERVAL_SECONDS)
-                continue
+            for channel in ("offline", "online"):
+                try:
+                    scope_key = self._mail_notifier_scope_key(channel)
+                    record = read_gateway_mail_notifier_record(
+                        self.m_paths.queue_path, scope_key=scope_key
+                    )
+                except (GatewayError, ValueError, OSError, sqlite3.Error):
+                    continue
+                if not record.enabled or record.interval_seconds is None:
+                    schedules.pop(channel, None)
+                    continue
+                scheduled = schedules.get(channel)
+                now = time.monotonic()
+                if scheduled is None or scheduled[:2] != (scope_key, record.interval_seconds):
+                    schedules[channel] = (
+                        scope_key,
+                        record.interval_seconds,
+                        now + record.interval_seconds,
+                    )
+                    continue
+                if now >= scheduled[2]:
+                    try:
+                        self._run_notifier_cycle(channel=channel)
+                    except (GatewayError, GatewayMailboxError, OSError, ValueError, sqlite3.Error):
+                        # A transient local cache/admission failure must not stop both
+                        # channel schedules or turn a failed admission into a replay.
+                        self._log(
+                            f"mail notifier cycle failed channel={channel}; retrying at next interval"
+                        )
+                    schedules[channel] = (
+                        scope_key,
+                        record.interval_seconds,
+                        time.monotonic() + record.interval_seconds,
+                    )
+            self.m_stop_event.wait(_NOTIFIER_IDLE_CHECK_INTERVAL_SECONDS)
 
-            now_monotonic = time.monotonic()
-            if next_poll_monotonic is None or scheduled_interval_seconds != record.interval_seconds:
-                next_poll_monotonic = now_monotonic + record.interval_seconds
-                scheduled_interval_seconds = record.interval_seconds
-
-            remaining = next_poll_monotonic - now_monotonic
-            if remaining > 0:
-                self.m_stop_event.wait(min(remaining, _NOTIFIER_IDLE_CHECK_INTERVAL_SECONDS))
-                continue
-
-            self._run_notifier_cycle()
-            record = read_gateway_mail_notifier_record(self.m_paths.queue_path)
-            if not record.enabled or record.interval_seconds is None:
-                next_poll_monotonic = None
-                scheduled_interval_seconds = None
-            else:
-                scheduled_interval_seconds = record.interval_seconds
-                next_poll_monotonic = time.monotonic() + record.interval_seconds
-
-    def _run_notifier_cycle(self) -> None:
+    def _run_notifier_cycle(self, *, channel: MailChannel) -> None:
         """Execute one notifier polling cycle."""
 
         with self.m_lock:
-            record = read_gateway_mail_notifier_record(self.m_paths.queue_path)
+            record = read_gateway_mail_notifier_record(
+                self.m_paths.queue_path, scope_key=self._mail_notifier_scope_key(channel)
+            )
             if not record.enabled or record.interval_seconds is None:
                 return
 
+            interval_seconds = record.interval_seconds
             poll_time_utc = now_utc_iso()
             status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
             try:
-                self._require_live_notifier_mailbox_config_locked()
-                adapter = self._mailbox_adapter_locked()
+                self._require_live_notifier_mailbox_config_locked(channel=channel)
+                adapter = self._mailbox_adapter_locked(channel=channel)
+                source_payload = self._load_manifest_payload_for_mailbox_support()
+                source_slot = getattr(source_payload.launch_plan.mailboxes, channel)
+                source_binding = source_slot.binding
+                if source_binding is None:
+                    return
+                source_revision = source_slot.revision
             except GatewayError as exc:
                 write_gateway_mail_notifier_record(
                     self.m_paths.queue_path,
-                    enabled=False,
-                    interval_seconds=None,
-                    last_error=str(exc),
-                )
-                self._append_notifier_audit_record(
-                    poll_time_utc=poll_time_utc,
-                    status=status,
-                    unread_messages=[],
-                    unread_count=None,
-                    unread_digest=None,
-                    outcome="poll_error",
-                    detail=str(exc),
-                    record=record,
-                )
-                self._log(f"mail notifier disabled: {exc}")
-                return
-
-            try:
-                read_state = "unread" if record.mode == "unread_only" else "any"
-                unread_messages = _sort_unread_messages(
-                    [
-                        _UnreadMailboxMessage(
-                            message_ref=message.message_ref,
-                            thread_ref=message.thread_ref,
-                            created_at_utc=message.created_at_utc,
-                            sender_address=message.sender.address,
-                            sender_display_name=message.sender.display_name,
-                            subject=message.subject,
-                            notify_block=message.notify_block,
-                            notify_auth=message.notify_auth,
-                        )
-                        for message in adapter.list_messages(
-                            box="inbox",
-                            read_state=read_state,
-                            answered_state="any",
-                            archived=False,
-                            limit=None,
-                            since=None,
-                            include_body=False,
-                        )
-                    ]
-                )
-            except GatewayMailboxError as exc:
-                write_gateway_mail_notifier_record(
-                    self.m_paths.queue_path,
+                    scope_key=record.scope_key,
+                    enabled=record.enabled if channel == "online" else False,
+                    interval_seconds=record.interval_seconds if channel == "online" else None,
                     last_poll_at_utc=poll_time_utc,
                     last_error=str(exc),
                 )
@@ -4265,15 +4541,141 @@ class GatewayServiceRuntime:
                     detail=str(exc),
                     record=record,
                 )
-                self._log(f"mail notifier poll error: {exc}")
+                self._log(f"mail notifier support unavailable channel={channel}: {exc}")
                 return
 
+        observation = None
+        try:
+            read_state = "unread" if record.mode == "unread_only" else "any"
+            confirmed_ineligible: set[str] = set()
+            if channel == "online":
+                from houmao.mailbox.observation import observe_online
+                from houmao.mailbox.online_models import OnlineAuthorityContext
+
+                assert self.m_manifest_path is not None
+                observation = observe_online(
+                    context=OnlineAuthorityContext(
+                        self.m_manifest_path,
+                        source_payload.agent_id,
+                        source_payload.runtime.session_id,
+                    ),
+                    sqlite_path=self.m_paths.queue_path,
+                    binding_id=source_binding.binding_id,
+                    mode=record.mode,
+                    compacted=record.compacted_eligible_message_refs,
+                )
+                if observation.sync_view.superseded:
+                    return
+                if (
+                    observation.sync_view.phase in {"degraded", "unsupported"}
+                    and observation.sync_view.error_code
+                ):
+                    raise GatewayMailboxError(
+                        "Online observation degraded: " + observation.sync_view.error_code
+                    )
+                page_messages = observation.messages
+                page_complete = observation.complete
+                source_revision = observation.fence.revision
+                confirmed_ineligible.update(observation.confirmed_ineligible)
+            else:
+                page = adapter.list_page(
+                    box="inbox",
+                    read_state=read_state,
+                    answered_state="any",
+                    archived=False,
+                    limit=50,
+                    since=None,
+                )
+                page_messages, page_complete = page.messages, page.complete
+                if page_complete:
+                    current_refs = {message.message_ref for message in page_messages}
+                    confirmed_ineligible.update(
+                        set(record.compacted_eligible_message_refs) - current_refs
+                    )
+            observation_detail = (
+                f"sync_phase={observation.sync_view.phase} methods={observation.sync_view.method_calls} sample_complete={page_complete} has_more={observation.sync_view.has_more}"
+                if observation
+                else f"metadata_page_complete={page_complete}"
+            )
+            unread_messages = _sort_unread_messages(
+                [
+                    _UnreadMailboxMessage(
+                        message_ref=message.message_ref,
+                        thread_ref=message.thread_ref,
+                        created_at_utc=message.created_at_utc,
+                        sender_address=message.sender.address,
+                        sender_display_name=message.sender.display_name,
+                        subject=message.subject,
+                        notify_block=message.notify_block,
+                        notify_auth=message.notify_auth,
+                    )
+                    for message in page_messages
+                ]
+            )
+        except GatewayMailboxError as exc:
+            write_gateway_mail_notifier_record(
+                self.m_paths.queue_path,
+                scope_key=record.scope_key,
+                last_poll_at_utc=poll_time_utc,
+                last_error=str(exc),
+            )
+            self._append_notifier_audit_record(
+                poll_time_utc=poll_time_utc,
+                status=status,
+                unread_messages=[],
+                unread_count=None,
+                unread_digest=None,
+                outcome="poll_error",
+                detail=str(exc),
+                record=record,
+            )
+            self._log(f"mail notifier poll error: {exc}")
+            return
+
+        with self.m_lock:
+            # Discard a poll whose binding or configuration changed during network I/O.
+            current_key = self._mail_notifier_scope_key(channel)
+            current_record = read_gateway_mail_notifier_record(
+                self.m_paths.queue_path, scope_key=current_key
+            )
+            if current_key != record.scope_key or not current_record.enabled:
+                return
+            if (
+                current_record.mode,
+                current_record.interval_seconds,
+                current_record.appendix_text,
+            ) != (record.mode, record.interval_seconds, record.appendix_text):
+                return
+            current_slot = getattr(
+                self._load_manifest_payload_for_mailbox_support().launch_plan.mailboxes, channel
+            )
+            if current_slot.revision != source_revision:
+                return
+            if observation is not None and not observation.authority.commit_observation(
+                observation.fence, lambda: None
+            ):
+                return
+            record = current_record
+            assert record.interval_seconds is not None
+            retained_compacted = tuple(
+                ref
+                for ref in record.compacted_eligible_message_refs
+                if ref not in confirmed_ineligible
+            )
+            if retained_compacted != record.compacted_eligible_message_refs:
+                record = write_gateway_mail_notifier_record(
+                    self.m_paths.queue_path,
+                    scope_key=record.scope_key,
+                    compacted_eligible_message_refs=retained_compacted,
+                )
+            status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
             if not unread_messages:
                 write_gateway_mail_notifier_record(
                     self.m_paths.queue_path,
+                    scope_key=record.scope_key,
                     last_poll_at_utc=poll_time_utc,
                     last_notified_digest=None,
-                    compacted_eligible_message_refs=(),
+                    compacted_eligible_message_refs=record.compacted_eligible_message_refs,
                     last_error=None,
                 )
                 self._append_notifier_audit_record(
@@ -4283,31 +4685,23 @@ class GatewayServiceRuntime:
                     unread_count=0,
                     unread_digest=None,
                     outcome="empty",
+                    detail=observation_detail,
                     record=record,
                 )
-                self._log(f"mail notifier poll: no open inbox mail mode={record.mode}")
+                self._log(
+                    f"mail notifier poll: no observed open inbox mail mode={record.mode} {observation_detail}"
+                )
                 return
 
             unread_digest = self._mail_notifier_digest(unread_messages)
             current_eligible_message_refs = self._mail_notifier_eligible_message_refs(
                 unread_messages
             )
-            current_eligible_message_ref_set = set(current_eligible_message_refs)
-            pruned_compacted_eligible_message_refs = tuple(
-                message_ref
-                for message_ref in record.compacted_eligible_message_refs
-                if message_ref in current_eligible_message_ref_set
-            )
-            if pruned_compacted_eligible_message_refs != record.compacted_eligible_message_refs:
-                record = write_gateway_mail_notifier_record(
-                    self.m_paths.queue_path,
-                    compacted_eligible_message_refs=pruned_compacted_eligible_message_refs,
-                )
-
             block_detail = self._notifier_block_detail_locked(status=status)
             if block_detail is not None:
                 write_gateway_mail_notifier_record(
                     self.m_paths.queue_path,
+                    scope_key=record.scope_key,
                     last_poll_at_utc=poll_time_utc,
                     last_error=None,
                 )
@@ -4318,7 +4712,7 @@ class GatewayServiceRuntime:
                     unread_count=len(unread_messages),
                     unread_digest=unread_digest,
                     outcome="busy_skip",
-                    detail=block_detail,
+                    detail=f"{block_detail}; {observation_detail}",
                     record=record,
                 )
                 self._log(block_detail)
@@ -4332,15 +4726,28 @@ class GatewayServiceRuntime:
             )
             if record.pre_notification_context_action == "compact" and newly_eligible_message_refs:
                 try:
-                    self._dispatch_tui_compaction_only(lock_held=True)
-                    record = write_gateway_mail_notifier_record(
-                        self.m_paths.queue_path,
-                        compacted_eligible_message_refs=current_eligible_message_refs,
+                    effect = (
+                        observation.authority.effect_lease(observation.fence)
+                        if observation is not None
+                        else nullcontext()
                     )
-                    context_action_outcomes.append("pre_notification_compact_completed")
-                except GatewayError as exc:
+                    with effect:
+                        self._dispatch_tui_compaction_only(lock_held=True)
+                        record = write_gateway_mail_notifier_record(
+                            self.m_paths.queue_path,
+                            scope_key=record.scope_key,
+                            compacted_eligible_message_refs=tuple(
+                                sorted(
+                                    set(record.compacted_eligible_message_refs)
+                                    | set(current_eligible_message_refs)
+                                )
+                            ),
+                        )
+                        context_action_outcomes.append("pre_notification_compact_completed")
+                except (GatewayError, OnlineBindingError) as exc:
                     write_gateway_mail_notifier_record(
                         self.m_paths.queue_path,
+                        scope_key=record.scope_key,
                         last_poll_at_utc=poll_time_utc,
                         last_error=str(exc),
                     )
@@ -4370,11 +4777,18 @@ class GatewayServiceRuntime:
                 and self._is_clearable_degraded_context_diagnostic(diagnostic)
             ):
                 try:
-                    self._dispatch_tui_context_reset_only(lock_held=True)
-                    context_action_outcomes.append("clear_context_completed")
-                except GatewayError as exc:
+                    effect = (
+                        observation.authority.effect_lease(observation.fence)
+                        if observation is not None
+                        else nullcontext()
+                    )
+                    with effect:
+                        self._dispatch_tui_context_reset_only(lock_held=True)
+                        context_action_outcomes.append("clear_context_completed")
+                except (GatewayError, OnlineBindingError) as exc:
                     write_gateway_mail_notifier_record(
                         self.m_paths.queue_path,
+                        scope_key=record.scope_key,
                         last_poll_at_utc=poll_time_utc,
                         last_error=str(exc),
                     )
@@ -4401,10 +4815,39 @@ class GatewayServiceRuntime:
                 appendix_text=record.appendix_text,
                 unread_messages=unread_messages,
                 record=record,
+                channel=channel,
             )
-            request_id = self._enqueue_internal_prompt(prompt=prompt)
+            from houmao.mailbox.notifier_admission import ReminderOrigin
+
+            request_id = self._enqueue_internal_prompt(
+                prompt=prompt,
+                scope_key=record.scope_key,
+                cycle_key=f"{interval_seconds}:{int(datetime.fromisoformat(poll_time_utc.replace('Z', '+00:00')).timestamp()) // interval_seconds}",
+                origin=ReminderOrigin(
+                    source_payload.agent_id,
+                    channel,
+                    source_binding.binding_id,
+                    source_revision,
+                    observation.fence.epoch_id if observation else None,
+                    observation.fence.account_id if observation else None,
+                ),
+                observation=observation,
+            )
+            if request_id is None:
+                self._append_notifier_audit_record(
+                    poll_time_utc=poll_time_utc,
+                    status=status,
+                    unread_messages=unread_messages,
+                    unread_count=len(unread_messages),
+                    unread_digest=unread_digest,
+                    outcome="dedup_skip",
+                    detail="Reminder cycle already admitted or pending; synchronization remains independent",
+                    record=record,
+                )
+                return
             write_gateway_mail_notifier_record(
                 self.m_paths.queue_path,
+                scope_key=record.scope_key,
                 last_poll_at_utc=poll_time_utc,
                 last_notification_at_utc=poll_time_utc,
                 last_notified_digest=None,
@@ -4417,6 +4860,7 @@ class GatewayServiceRuntime:
                 unread_count=len(unread_messages),
                 unread_digest=unread_digest,
                 outcome="enqueued",
+                detail=observation_detail,
                 enqueued_request_id=request_id,
                 record=record,
                 context_action_outcome=(
@@ -4452,6 +4896,7 @@ class GatewayServiceRuntime:
         appendix_text: str,
         unread_messages: list[_UnreadMailboxMessage],
         record: GatewayMailNotifierRecord,
+        channel: MailChannel,
     ) -> tuple[str, list[_RenderedNotifyBlockEntry]]:
         """Build the reminder prompt and capture per-block audit entries.
 
@@ -4463,7 +4908,7 @@ class GatewayServiceRuntime:
             that carried a non-null ``notify_block`` (rendered or suppressed).
         """
 
-        mailbox = self._load_mailbox_config()
+        mailbox = self._load_mailbox_config(channel=channel)
         base_url = f"http://{self.m_host}:{self.m_port}"
         rendered = _load_mail_notifier_template()
         mode_guidance = _render_mail_notifier_mode_guidance(mode)
@@ -4485,44 +4930,54 @@ class GatewayServiceRuntime:
         }
         for placeholder, replacement in replacements.items():
             rendered = rendered.replace(placeholder, replacement)
-        return rendered.rstrip(), block_entries
+        scope_context = f"Mail channel: {channel}. Expected binding ID: {mailbox.binding_id}. Gateway: {base_url}.\nEvery lifecycle JSON request must include expected_binding_id={mailbox.binding_id!r}.\n"
+        rendered = rendered.replace("/v1/mail/", f"/v1/mail/{channel}/").replace(
+            f"/v1/mail/{channel}/status", "/v1/mail/status"
+        )
+        return scope_context + rendered.rstrip(), block_entries
 
     def _enqueue_internal_prompt(
         self,
         *,
         prompt: str,
+        scope_key: str,
+        cycle_key: str,
+        origin: ReminderOrigin,
+        observation: OnlineObservation | None = None,
         chat_session: GatewayChatSessionSelectorV1 | None = None,
-    ) -> str:
-        """Insert one internal notifier prompt into durable queue storage."""
+    ) -> str | None:
+        """Atomically admit one cycle and its immutable-origin internal prompt."""
+
+        from houmao.mailbox.notifier_admission import admit_mail_reminder
 
         request_id = generate_gateway_request_id()
         accepted_at_utc = now_utc_iso()
         payload: GatewayJsonObject = {"prompt": prompt}
         if chat_session is not None:
             payload["chat_session"] = chat_session.model_dump(mode="json")
-        with sqlite3.connect(self.m_paths.queue_path) as connection:
-            connection.execute(
-                """
-                INSERT INTO gateway_requests (
-                    request_id,
-                    request_kind,
-                    payload_json,
-                    state,
-                    accepted_at_utc,
-                    managed_agent_instance_epoch
-                )
-                VALUES (?, ?, ?, 'accepted', ?, ?)
-                """,
-                (
-                    request_id,
-                    "mail_notifier_prompt",
-                    json.dumps(payload, sort_keys=True),
-                    accepted_at_utc,
-                    self.m_current_epoch,
-                ),
-            )
-            connection.commit()
+        admitted = False
 
+        def commit() -> None:
+            """Insert only while the captured binding fence is current."""
+            nonlocal admitted
+            admitted = admit_mail_reminder(
+                self.m_paths.queue_path,
+                scope_key=scope_key,
+                cycle_key=cycle_key,
+                origin=origin,
+                request_id=request_id,
+                payload_json=json.dumps(payload, sort_keys=True),
+                accepted_at_utc=accepted_at_utc,
+                managed_agent_instance_epoch=self.m_current_epoch,
+            )
+
+        if observation is not None:
+            if not observation.authority.commit_observation(observation.fence, commit):
+                return None
+        else:
+            commit()
+        if not admitted:
+            return None
         append_gateway_event(
             self.m_paths,
             {
@@ -4574,6 +5029,7 @@ class GatewayServiceRuntime:
         )
         append_gateway_notifier_audit_record(
             self.m_paths.queue_path,
+            scope_key=record.scope_key if record is not None else "unknown",
             poll_time_utc=poll_time_utc,
             unread_count=unread_count,
             unread_digest=unread_digest,
@@ -4855,6 +5311,92 @@ class GatewayServiceRuntime:
         if note_prompt_submission and self.m_tui_tracking is not None:
             self.m_tui_tracking.note_prompt_submission(message=prompt)
 
+    @contextmanager
+    def _mail_reminder_effect_lease(self, request_id: str) -> Iterator[None]:
+        """Keep the queued online origin admitted through the body submission effect."""
+
+        from houmao.mailbox.notifier_admission import reminder_origin
+        from houmao.mailbox.online_authority import OnlineConnectionAuthority
+        from houmao.mailbox.online_models import OnlineFence
+
+        try:
+            origin = reminder_origin(self.m_paths.queue_path, request_id)
+        except (OSError, sqlite3.Error) as exc:
+            raise GatewayError(
+                "Mail reminder origin storage is unavailable; dispatch was refused"
+            ) from exc
+        if origin is None:
+            raise GatewayError("Mail reminder origin is unavailable")
+        if origin.channel != "online":
+            if not self._mail_reminder_origin_is_current(request_id):
+                raise GatewayError("Origin mailbox revision retired before dispatch")
+            yield
+            return
+        if origin.epoch_id is None or origin.account_id is None:
+            raise GatewayError("Online reminder origin is incomplete")
+        payload = self._load_manifest_payload_for_mailbox_support()
+        assert self.m_manifest_path is not None
+        authority = OnlineConnectionAuthority.from_context(
+            OnlineAuthorityContext(
+                self.m_manifest_path, payload.agent_id, payload.runtime.session_id
+            )
+        )
+        fence = OnlineFence(
+            origin.agent_id,
+            payload.runtime.session_id,
+            origin.binding_id,
+            origin.revision,
+            origin.epoch_id,
+            origin.account_id,
+        )
+        try:
+            with authority.effect_lease(fence):
+                yield
+        except OnlineBindingError as exc:
+            raise GatewayError("Origin mailbox revision retired before dispatch") from exc
+
+    def _mail_reminder_origin_is_current(self, request_id: str) -> bool:
+        """Recheck queued wakeups against their original mailbox revision and epoch."""
+
+        from houmao.mailbox.notifier_admission import reminder_origin
+        from houmao.mailbox.online_authority import OnlineConnectionAuthority
+        from houmao.mailbox.online_models import OnlineAuthorityContext
+
+        try:
+            origin = reminder_origin(self.m_paths.queue_path, request_id)
+        except (OSError, sqlite3.Error):
+            return False
+        if origin is None or origin.channel not in {"offline", "online"}:
+            return False
+        try:
+            payload = self._load_manifest_payload_for_mailbox_support()
+            slot = getattr(payload.launch_plan.mailboxes, origin.channel)
+            binding = slot.binding
+            if (
+                payload.agent_id != origin.agent_id
+                or binding is None
+                or binding.binding_id != origin.binding_id
+                or slot.revision != origin.revision
+            ):
+                return False
+            if origin.channel == "online":
+                assert self.m_manifest_path is not None
+                state = OnlineConnectionAuthority.from_context(
+                    OnlineAuthorityContext(
+                        self.m_manifest_path,
+                        payload.agent_id,
+                        payload.runtime.session_id,
+                    )
+                ).state()
+                return (
+                    not state.get("closing")
+                    and state.get("epoch_id") == origin.epoch_id
+                    and state.get("revision") == origin.revision
+                )
+            return True
+        except (GatewayError, ValueError, OSError, sqlite3.Error):
+            return False
+
     def _worker_loop(self) -> None:
         """Process accepted requests serially until shutdown."""
 
@@ -4922,7 +5464,25 @@ class GatewayServiceRuntime:
             ORDER BY accepted_at_utc ASC
             """
         ).fetchall()
-        records = tuple(self._accepted_gateway_request_from_row(row) for row in rows)
+        current_records: list[_AcceptedGatewayRequestRecord] = []
+        for row in rows:
+            record = self._accepted_gateway_request_from_row(row)
+            if (
+                record.request_kind == "mail_notifier_prompt"
+                and not self._mail_reminder_origin_is_current(record.request_id)
+            ):
+                connection.execute(
+                    "UPDATE gateway_requests SET state='failed',finished_at_utc=?,error_detail=? WHERE request_id=? AND state='accepted'",
+                    (
+                        now_utc_iso(),
+                        "Origin mailbox revision retired before dispatch",
+                        record.request_id,
+                    ),
+                )
+            else:
+                current_records.append(record)
+        connection.commit()
+        records = tuple(current_records)
         if not records:
             return None
 
@@ -5149,6 +5709,11 @@ class GatewayServiceRuntime:
 
         try:
             if request_kind in {"submit_prompt", "mail_notifier_prompt"}:
+                if (
+                    request_kind == "mail_notifier_prompt"
+                    and not self._mail_reminder_origin_is_current(request_id)
+                ):
+                    raise GatewayError("Origin mailbox revision retired before dispatch")
                 payload = GatewayRequestPayloadSubmitPromptV1.model_validate_json(payload_json)
                 session_selection: HeadlessTurnSessionSelection | None = None
                 execution_model = (
@@ -5176,14 +5741,20 @@ class GatewayServiceRuntime:
                             )
                         except HTTPException as exc:
                             raise GatewayError(str(exc.detail)) from exc
-                self._submit_prompt_via_adapter(
-                    prompt=payload.prompt,
-                    turn_id=payload.turn_id,
-                    session_selection=session_selection,
-                    execution_model=execution_model,
-                    note_prompt_submission=request_kind
-                    in {"submit_prompt", "mail_notifier_prompt"},
+                effect = (
+                    self._mail_reminder_effect_lease(request_id)
+                    if request_kind == "mail_notifier_prompt"
+                    else nullcontext()
                 )
+                with effect:
+                    self._submit_prompt_via_adapter(
+                        prompt=payload.prompt,
+                        turn_id=payload.turn_id,
+                        session_selection=session_selection,
+                        execution_model=execution_model,
+                        note_prompt_submission=request_kind
+                        in {"submit_prompt", "mail_notifier_prompt"},
+                    )
             elif request_kind == "interrupt":
                 GatewayRequestPayloadInterruptV1.model_validate_json(payload_json)
                 self.m_adapter.interrupt()
@@ -5718,7 +6289,7 @@ def _mailbox_request_diagnostic_fields(operation: str, payload: object | None) -
     _copy_optional_attr(fields, payload, "answered_state")
     _copy_optional_attr(fields, payload, "archived")
     _copy_optional_attr(fields, payload, "limit")
-    _copy_optional_attr(fields, payload, "include_body")
+    _copy_optional_attr(fields, payload, "cursor")
     _copy_optional_attr(fields, payload, "destination_box")
     _copy_optional_attr(fields, payload, "read")
     _copy_optional_attr(fields, payload, "answered")
@@ -6179,94 +6750,141 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         )
         return response
 
+    @app.get("/v1/mail/online/binding", response_model=OnlineBindingStatus)
+    def _online_binding_status() -> OnlineBindingStatus:
+        """Return a safe configured online identity snapshot."""
+
+        return runtime.online_binding_status()
+
+    @app.put("/v1/mail/online/binding", response_model=OnlineBindingStatus)
+    def _attach_online_binding(request: OnlineAttachRequest) -> OnlineBindingStatus:
+        """Attach a validated existing account without provisioning."""
+
+        return runtime.control_online_binding("attach", request)
+
+    @app.post("/v1/mail/online/binding/refresh", response_model=OnlineBindingStatus)
+    def _refresh_online_binding(request: OnlineControlRequest) -> OnlineBindingStatus:
+        """Refresh private credentials in the same account scope."""
+
+        return runtime.control_online_binding("refresh", request)
+
+    @app.post("/v1/mail/online/binding/reconnect", response_model=OnlineBindingStatus)
+    def _reconnect_online_binding(request: OnlineControlRequest) -> OnlineBindingStatus:
+        """Recreate the current immutable connection epoch."""
+
+        return runtime.control_online_binding("reconnect", request)
+
+    @app.delete("/v1/mail/online/binding", response_model=OnlineBindingStatus)
+    def _detach_online_binding(request: OnlineControlRequest) -> OnlineBindingStatus:
+        """Detach online configuration after bounded request retirement."""
+
+        return runtime.control_online_binding("detach", request)
+
     @app.get("/v1/mail/status", response_model=GatewayMailStatusV1)
     def _mail_status() -> GatewayMailStatusV1:
         """Serve shared mailbox availability for the attached session."""
 
         return runtime.get_mail_status()
 
-    @app.post("/v1/mail/list", response_model=GatewayMailListResponseV1)
-    def _mail_list(request_payload: GatewayMailListRequestV1) -> GatewayMailListResponseV1:
+    @app.post("/v1/mail/{channel}/list", response_model=GatewayMailListResponseV1)
+    def _mail_list(
+        channel: MailChannel, request_payload: GatewayMailListRequestV1
+    ) -> GatewayMailListResponseV1:
         """Run one shared mailbox list request."""
 
         return _mailbox_call(
             operation="list",
             request_payload=request_payload,
-            callback=lambda: runtime.list_mail(request_payload),
+            callback=lambda: runtime.list_mail(request_payload, channel=channel),
         )
 
-    @app.post("/v1/mail/peek", response_model=GatewayMailMessageResponseV1)
-    def _mail_peek(request_payload: GatewayMailMessageRequestV1) -> GatewayMailMessageResponseV1:
+    @app.post("/v1/mail/{channel}/peek", response_model=GatewayMailMessageResponseV1)
+    def _mail_peek(
+        channel: MailChannel, request_payload: GatewayMailMessageRequestV1
+    ) -> GatewayMailMessageResponseV1:
         """Run one shared mailbox peek request."""
 
         return _mailbox_call(
             operation="peek",
             request_payload=request_payload,
-            callback=lambda: runtime.peek_mail(request_payload),
+            callback=lambda: runtime.peek_mail(request_payload, channel=channel),
         )
 
-    @app.post("/v1/mail/read", response_model=GatewayMailMessageResponseV1)
-    def _mail_read(request_payload: GatewayMailMessageRequestV1) -> GatewayMailMessageResponseV1:
+    @app.post("/v1/mail/{channel}/read", response_model=GatewayMailMessageResponseV1)
+    def _mail_read(
+        channel: MailChannel, request_payload: GatewayMailMessageRequestV1
+    ) -> GatewayMailMessageResponseV1:
         """Run one shared mailbox read request."""
 
         return _mailbox_call(
             operation="read",
             request_payload=request_payload,
-            callback=lambda: runtime.read_mail(request_payload),
+            callback=lambda: runtime.read_mail(request_payload, channel=channel),
         )
 
-    @app.post("/v1/mail/send", response_model=GatewayMailActionResponseV1)
-    def _mail_send(request_payload: GatewayMailSendRequestV1) -> GatewayMailActionResponseV1:
+    @app.post("/v1/mail/{channel}/send", response_model=GatewayMailActionResponseV1)
+    def _mail_send(
+        channel: MailChannel, request_payload: GatewayMailSendRequestV1
+    ) -> GatewayMailActionResponseV1:
         """Run one shared mailbox send request."""
 
         return _mailbox_call(
             operation="send",
             request_payload=request_payload,
-            callback=lambda: runtime.send_mail(request_payload),
+            callback=lambda: runtime.send_mail(request_payload, channel=channel),
         )
 
-    @app.post("/v1/mail/post", response_model=GatewayMailActionResponseV1)
-    def _mail_post(request_payload: GatewayMailPostRequestV1) -> GatewayMailActionResponseV1:
+    @app.post("/v1/mail/{channel}/post", response_model=GatewayMailActionResponseV1)
+    def _mail_post(
+        channel: MailChannel, request_payload: GatewayMailPostRequestV1
+    ) -> GatewayMailActionResponseV1:
         """Run one shared mailbox operator-origin post request."""
 
         return _mailbox_call(
             operation="post",
             request_payload=request_payload,
-            callback=lambda: runtime.post_mail(request_payload),
+            callback=lambda: runtime.post_mail(request_payload, channel=channel),
         )
 
-    @app.post("/v1/mail/reply", response_model=GatewayMailActionResponseV1)
-    def _mail_reply(request_payload: GatewayMailReplyRequestV1) -> GatewayMailActionResponseV1:
+    @app.post("/v1/mail/{channel}/reply", response_model=GatewayMailActionResponseV1)
+    def _mail_reply(
+        channel: MailChannel, request_payload: GatewayMailReplyRequestV1
+    ) -> GatewayMailActionResponseV1:
         """Run one shared mailbox reply request."""
 
         return _mailbox_call(
             operation="reply",
             request_payload=request_payload,
-            callback=lambda: runtime.reply_mail(request_payload),
+            callback=lambda: runtime.reply_mail(request_payload, channel=channel),
         )
 
-    @app.post("/v1/mail/mark", response_model=GatewayMailLifecycleResponseV1)
-    def _mail_mark(request_payload: GatewayMailMarkRequestV1) -> GatewayMailLifecycleResponseV1:
+    @app.post("/v1/mail/{channel}/mark", response_model=GatewayMailLifecycleResponseV1)
+    def _mail_mark(
+        channel: MailChannel, request_payload: GatewayMailMarkRequestV1
+    ) -> GatewayMailLifecycleResponseV1:
         """Run one shared mailbox mark request."""
 
         return _mailbox_call(
             operation="mark",
             request_payload=request_payload,
-            callback=lambda: runtime.mark_mail(request_payload),
+            callback=lambda: runtime.mark_mail(request_payload, channel=channel),
         )
 
-    @app.post("/v1/mail/move", response_model=GatewayMailLifecycleResponseV1)
-    def _mail_move(request_payload: GatewayMailMoveRequestV1) -> GatewayMailLifecycleResponseV1:
+    @app.post("/v1/mail/{channel}/move", response_model=GatewayMailLifecycleResponseV1)
+    def _mail_move(
+        channel: MailChannel, request_payload: GatewayMailMoveRequestV1
+    ) -> GatewayMailLifecycleResponseV1:
         """Run one shared mailbox move request."""
 
         return _mailbox_call(
             operation="move",
             request_payload=request_payload,
-            callback=lambda: runtime.move_mail(request_payload),
+            callback=lambda: runtime.move_mail(request_payload, channel=channel),
         )
 
-    @app.post("/v1/mail/archive", response_model=GatewayMailLifecycleResponseV1)
+    @app.post("/v1/mail/{channel}/archive", response_model=GatewayMailLifecycleResponseV1)
     def _mail_archive(
+        channel: MailChannel,
         request_payload: GatewayMailArchiveRequestV1,
     ) -> GatewayMailLifecycleResponseV1:
         """Run one shared mailbox archive request."""
@@ -6274,28 +6892,29 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         return _mailbox_call(
             operation="archive",
             request_payload=request_payload,
-            callback=lambda: runtime.archive_mail(request_payload),
+            callback=lambda: runtime.archive_mail(request_payload, channel=channel),
         )
 
-    @app.get("/v1/mail-notifier", response_model=GatewayMailNotifierStatusV1)
-    def _get_mail_notifier() -> GatewayMailNotifierStatusV1:
+    @app.get("/v1/mail-notifier/{channel}", response_model=GatewayMailNotifierStatusV1)
+    def _get_mail_notifier(channel: MailChannel) -> GatewayMailNotifierStatusV1:
         """Serve notifier configuration and runtime status."""
 
-        return runtime.get_mail_notifier()
+        return runtime.get_mail_notifier(channel=channel)
 
-    @app.put("/v1/mail-notifier", response_model=GatewayMailNotifierStatusV1)
+    @app.put("/v1/mail-notifier/{channel}", response_model=GatewayMailNotifierStatusV1)
     def _put_mail_notifier(
+        channel: MailChannel,
         request_payload: GatewayMailNotifierPutV1,
     ) -> GatewayMailNotifierStatusV1:
         """Enable or reconfigure the gateway mail notifier."""
 
-        return runtime.put_mail_notifier(request_payload)
+        return runtime.put_mail_notifier(request_payload, channel=channel)
 
-    @app.delete("/v1/mail-notifier", response_model=GatewayMailNotifierStatusV1)
-    def _delete_mail_notifier() -> GatewayMailNotifierStatusV1:
+    @app.delete("/v1/mail-notifier/{channel}", response_model=GatewayMailNotifierStatusV1)
+    def _delete_mail_notifier(channel: MailChannel) -> GatewayMailNotifierStatusV1:
         """Disable the gateway mail notifier."""
 
-        return runtime.delete_mail_notifier()
+        return runtime.delete_mail_notifier(channel=channel)
 
     from houmao.ag_ui.routes import register_ag_ui_routes
 

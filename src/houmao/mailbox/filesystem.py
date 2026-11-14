@@ -28,7 +28,7 @@ _REGISTRATION_SCHEMA_STATEMENTS = (
         registration_id TEXT PRIMARY KEY,
         address TEXT NOT NULL,
         owner_principal_id TEXT NOT NULL,
-        status TEXT NOT NULL CHECK (status IN ('active', 'inactive', 'stashed')),
+        status TEXT NOT NULL CHECK (status IN ('preparing', 'active', 'inactive', 'stashed')),
         mailbox_kind TEXT NOT NULL CHECK (mailbox_kind IN ('in_root', 'symlink')),
         mailbox_path TEXT NOT NULL,
         mailbox_entry_path TEXT NOT NULL,
@@ -46,7 +46,7 @@ _REGISTRATION_SCHEMA_STATEMENTS = (
     """
     CREATE UNIQUE INDEX IF NOT EXISTS idx_mailbox_registrations_active_address
     ON mailbox_registrations(address)
-    WHERE status = 'active'
+    WHERE status IN ('active', 'preparing')
     """,
     """
     CREATE INDEX IF NOT EXISTS idx_mailbox_registrations_owner_principal
@@ -338,6 +338,7 @@ def initialize_sqlite_schema(sqlite_path: Path) -> None:
         for statement in _REGISTRATION_SCHEMA_STATEMENTS:
             connection.execute(statement)
         connection.commit()
+    sqlite_path.chmod(0o600)
 
 
 def initialize_mailbox_local_sqlite_schema(sqlite_path: Path) -> None:

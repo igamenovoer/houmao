@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from houmao.agents.mailbox_runtime_models import MailboxesResolvedConfig
+
 import json
 import os
 from pathlib import Path
@@ -495,10 +497,17 @@ def _stub_mail_status() -> GatewayMailStatusV1:
     """Create a minimal valid GatewayMailStatusV1 for mocking."""
 
     return GatewayMailStatusV1(
-        transport="filesystem",
-        principal_id="p1",
-        address="agent@local",
-        bindings_version="v1",
+        agent_id="abc123",
+        offline={
+            "agent_id": "abc123",
+            "channel": "offline",
+            "binding_id": "binding-offline",
+            "revision": "v1",
+            "address": "agent@local",
+            "transport": "filesystem",
+            "available": True,
+        },
+        canonical_mail_identity={"channel": "offline", "address": "agent@local"},
     )
 
 
@@ -514,6 +523,9 @@ def _stub_mail_list_response() -> GatewayMailListResponseV1:
         open_count=0,
         unread_count=0,
         messages=[],
+        next_cursor=None,
+        has_more=False,
+        complete=True,
     )
 
 
@@ -1069,7 +1081,7 @@ class TestGatewayMailNotifierEndpoint:
                 return_value=_stub_mail_notifier_status(enabled=False, interval_seconds=None),
             ),
         ):
-            resp = client.get("/houmao/agents/abc123/gateway/mail-notifier")
+            resp = client.get("/houmao/agents/abc123/gateway/mail-notifier/offline")
         assert resp.status_code == 200
         assert resp.json()["mode"] == "any_inbox"
 
@@ -1089,7 +1101,7 @@ class TestGatewayMailNotifierEndpoint:
             ) as put_mail_notifier,
         ):
             resp = client.put(
-                "/houmao/agents/abc123/gateway/mail-notifier",
+                "/houmao/agents/abc123/gateway/mail-notifier/offline",
                 json={
                     "schema_version": 1,
                     "interval_seconds": 60,
@@ -1111,7 +1123,7 @@ class TestGatewayMailNotifierEndpoint:
         client = _make_agent_client(tmp_path, [agent])
         with client:
             resp = client.put(
-                "/houmao/agents/abc123/gateway/mail-notifier",
+                "/houmao/agents/abc123/gateway/mail-notifier/offline",
                 json={"schema_version": 1, "interval_seconds": 60, "mode": "bad_mode"},
             )
         assert resp.status_code == 422
@@ -1127,19 +1139,19 @@ class TestGatewayMailNotifierEndpoint:
                 return_value=_stub_mail_notifier_status(enabled=False, interval_seconds=None),
             ),
         ):
-            resp = client.delete("/houmao/agents/abc123/gateway/mail-notifier")
+            resp = client.delete("/houmao/agents/abc123/gateway/mail-notifier/offline")
         assert resp.status_code == 200
 
     def test_not_found_returns_404(self, tmp_path: object) -> None:
         client = _make_agent_client(tmp_path, [])
         with client:
-            resp = client.get("/houmao/agents/unknown/gateway/mail-notifier")
+            resp = client.get("/houmao/agents/unknown/gateway/mail-notifier/offline")
         assert resp.status_code == 404
 
     def test_no_gateway_returns_502(self, tmp_path: object) -> None:
         client = _make_agent_client(tmp_path, [_agent()])
         with client:
-            resp = client.get("/houmao/agents/abc123/gateway/mail-notifier")
+            resp = client.get("/houmao/agents/abc123/gateway/mail-notifier/offline")
         assert resp.status_code == 502
 
 
@@ -1313,8 +1325,8 @@ class TestGatewayMailListEndpoint:
             patch.object(GatewayClient, "list_mail", return_value=_stub_mail_list_response()),
         ):
             resp = client.post(
-                "/houmao/agents/abc123/mail/list",
-                json={"schema_version": 1},
+                "/houmao/agents/abc123/mail/offline/list",
+                json={"schema_version": 3, "expected_binding_id": "binding-offline"},
             )
         assert resp.status_code == 200
 
@@ -1322,8 +1334,8 @@ class TestGatewayMailListEndpoint:
         client = _make_agent_client(tmp_path, [])
         with client:
             resp = client.post(
-                "/houmao/agents/unknown/mail/list",
-                json={"schema_version": 1},
+                "/houmao/agents/unknown/mail/offline/list",
+                json={"schema_version": 3, "expected_binding_id": "binding-offline"},
             )
         assert resp.status_code == 404
 
@@ -1331,8 +1343,8 @@ class TestGatewayMailListEndpoint:
         client = _make_agent_client(tmp_path, [_agent()])
         with client:
             resp = client.post(
-                "/houmao/agents/abc123/mail/list",
-                json={"schema_version": 1},
+                "/houmao/agents/abc123/mail/offline/list",
+                json={"schema_version": 3, "expected_binding_id": "binding-offline"},
             )
         assert resp.status_code == 502
 
@@ -1355,9 +1367,10 @@ class TestGatewayMailSendEndpoint:
             ),
         ):
             resp = client.post(
-                "/houmao/agents/abc123/mail/send",
+                "/houmao/agents/abc123/mail/offline/send",
                 json={
-                    "schema_version": 1,
+                    "schema_version": 3,
+                    "expected_binding_id": "binding-offline",
                     "to": ["user@example.com"],
                     "subject": "Test",
                     "body_content": "Hello",
@@ -1369,9 +1382,10 @@ class TestGatewayMailSendEndpoint:
         client = _make_agent_client(tmp_path, [])
         with client:
             resp = client.post(
-                "/houmao/agents/unknown/mail/send",
+                "/houmao/agents/unknown/mail/offline/send",
                 json={
-                    "schema_version": 1,
+                    "schema_version": 3,
+                    "expected_binding_id": "binding-offline",
                     "to": ["user@example.com"],
                     "subject": "Test",
                     "body_content": "Hello",
@@ -1383,9 +1397,10 @@ class TestGatewayMailSendEndpoint:
         client = _make_agent_client(tmp_path, [_agent()])
         with client:
             resp = client.post(
-                "/houmao/agents/abc123/mail/send",
+                "/houmao/agents/abc123/mail/offline/send",
                 json={
-                    "schema_version": 1,
+                    "schema_version": 3,
+                    "expected_binding_id": "binding-offline",
                     "to": ["user@example.com"],
                     "subject": "Test",
                     "body_content": "Hello",
@@ -1412,9 +1427,10 @@ class TestGatewayMailPostEndpoint:
             ),
         ):
             resp = client.post(
-                "/houmao/agents/abc123/mail/post",
+                "/houmao/agents/abc123/mail/offline/post",
                 json={
-                    "schema_version": 1,
+                    "schema_version": 3,
+                    "expected_binding_id": "binding-offline",
                     "subject": "Operator note",
                     "body_content": "Hello",
                 },
@@ -1438,9 +1454,10 @@ class TestGatewayMailPostEndpoint:
             ),
         ):
             resp = client.post(
-                "/houmao/agents/abc123/mail/post",
+                "/houmao/agents/abc123/mail/offline/post",
                 json={
-                    "schema_version": 1,
+                    "schema_version": 3,
+                    "expected_binding_id": "binding-offline",
                     "subject": "Operator note",
                     "body_content": "Hello",
                 },
@@ -1451,9 +1468,10 @@ class TestGatewayMailPostEndpoint:
         client = _make_agent_client(tmp_path, [_agent()])
         with client:
             resp = client.post(
-                "/houmao/agents/abc123/mail/post",
+                "/houmao/agents/abc123/mail/offline/post",
                 json={
-                    "schema_version": 1,
+                    "schema_version": 3,
+                    "expected_binding_id": "binding-offline",
                     "subject": "Operator note",
                     "body_content": "Hello",
                 },
@@ -1479,9 +1497,10 @@ class TestGatewayMailReplyEndpoint:
             ),
         ):
             resp = client.post(
-                "/houmao/agents/abc123/mail/reply",
+                "/houmao/agents/abc123/mail/offline/reply",
                 json={
-                    "schema_version": 1,
+                    "schema_version": 3,
+                    "expected_binding_id": "binding-offline",
                     "message_ref": "msg-1",
                     "body_content": "Reply text",
                 },
@@ -1492,9 +1511,10 @@ class TestGatewayMailReplyEndpoint:
         client = _make_agent_client(tmp_path, [])
         with client:
             resp = client.post(
-                "/houmao/agents/unknown/mail/reply",
+                "/houmao/agents/unknown/mail/offline/reply",
                 json={
-                    "schema_version": 1,
+                    "schema_version": 3,
+                    "expected_binding_id": "binding-offline",
                     "message_ref": "msg-1",
                     "body_content": "Reply text",
                 },
@@ -1505,9 +1525,10 @@ class TestGatewayMailReplyEndpoint:
         client = _make_agent_client(tmp_path, [_agent()])
         with client:
             resp = client.post(
-                "/houmao/agents/abc123/mail/reply",
+                "/houmao/agents/abc123/mail/offline/reply",
                 json={
-                    "schema_version": 1,
+                    "schema_version": 3,
+                    "expected_binding_id": "binding-offline",
                     "message_ref": "msg-1",
                     "body_content": "Reply text",
                 },
@@ -1601,7 +1622,7 @@ def _make_managed_headless_client(tmp_path: object) -> tuple[TestClient, str]:
         manifest_path=Path(str(tmp_path)) / "runtime" / "tracked-alpha" / "manifest.json",
         backend_session=_FakeHeadlessBackendSession(send_prompt_callback=_send_prompt),
     )
-    controller.launch_plan.mailbox = None
+    controller.launch_plan.mailboxes = MailboxesResolvedConfig()
     _seed_managed_handle(
         svc,
         tracked_agent_id="tracked-alpha",
@@ -2262,3 +2283,120 @@ class TestHeadlessTurnEndpoints:
         with client:
             resp = client.post("/houmao/agents/nonexistent/turns", json={"prompt": "hello"})
         assert resp.status_code == 404
+
+
+def test_mail_proxy_preserves_structured_scope_conflict_without_channel_retry(
+    tmp_path: Path,
+) -> None:
+    """A wrong-channel handle stays a 409 with the original structured gateway detail."""
+
+    agent = _agent_with_gateway()
+    client = _make_agent_client(tmp_path, [agent])
+    detail = {"error_code": "mail_scope_conflict", "detail": "reference belongs to online binding"}
+    with (
+        client,
+        patch.object(
+            GatewayClient,
+            "peek_mail",
+            side_effect=GatewayHttpError(
+                method="POST",
+                url="http://127.0.0.1:9901/v1/mail/offline/peek",
+                status_code=409,
+                detail=json.dumps(detail),
+            ),
+        ) as forwarded,
+    ):
+        response = client.post(
+            "/houmao/agents/abc123/mail/offline/peek",
+            json={
+                "expected_binding_id": "offline-binding",
+                "message_ref": "houmao-mail:foreign-reference",
+            },
+        )
+    assert response.status_code == 409
+    assert response.json() == {"detail": detail}
+    assert forwarded.call_count == 1
+    assert forwarded.call_args.kwargs["channel"] == "offline"
+    assert forwarded.call_args.args[0].expected_binding_id == "offline-binding"
+
+
+@pytest.mark.parametrize(
+    ("operation", "method", "fields"),
+    [
+        ("peek", "peek_mail", {"message_ref": "houmao-mail:online"}),
+        ("read", "read_mail", {"message_ref": "houmao-mail:online"}),
+        ("mark", "mark_mail", {"message_refs": ["houmao-mail:online"], "read": True}),
+        (
+            "move",
+            "move_mail",
+            {"message_refs": ["houmao-mail:online"], "destination_box": "archive"},
+        ),
+        ("archive", "archive_mail", {"message_refs": ["houmao-mail:online"]}),
+    ],
+)
+def test_complete_channel_mail_proxy_preserves_online_targeting(
+    tmp_path: Path,
+    operation: str,
+    method: str,
+    fields: dict[str, object],
+) -> None:
+    """The remaining lifecycle routes forward explicit online scope without substituting offline."""
+
+    from houmao.mailbox.models import GatewayMailLifecycleResponseV1, GatewayMailMessageResponseV1
+
+    message = _stub_mail_action_response().message
+    common = {"transport": "stalwart", "principal_id": "p1", "address": "agent@example.test"}
+    if operation in ("peek", "read"):
+        result = GatewayMailMessageResponseV1.model_validate(
+            {**common, "operation": operation, "message": message}
+        )
+    else:
+        result = GatewayMailLifecycleResponseV1.model_validate(
+            {**common, "operation": operation, "messages": [message], "message_count": 1}
+        )
+    client = _make_agent_client(tmp_path, [_agent_with_gateway()])
+    with client, patch.object(GatewayClient, method, return_value=result) as forwarded:
+        response = client.post(
+            f"/houmao/agents/abc123/mail/online/{operation}",
+            json={
+                "expected_binding_id": "online-binding",
+                **fields,
+            },
+        )
+    assert response.status_code == 200, response.text
+    assert forwarded.call_count == 1
+    assert forwarded.call_args.kwargs["channel"] == "online"
+    assert forwarded.call_args.args[0].expected_binding_id == "online-binding"
+    assert response.json()["transport"] == "stalwart"
+
+
+def test_mail_proxy_preserves_structured_stale_cursor_conflict(tmp_path: Path) -> None:
+    """Return the gateway's stale-page status and payload without recasting it as an outage."""
+    detail = {"code": "stale_mail_cursor", "message": "Query state changed; start a fresh page"}
+    client = _make_agent_client(tmp_path, [_agent_with_gateway()])
+    with (
+        client,
+        patch.object(
+            GatewayClient,
+            "list_mail",
+            side_effect=GatewayHttpError(
+                method="POST",
+                url="http://127.0.0.1:9901/v1/mail/online/list",
+                status_code=409,
+                detail=json.dumps(detail),
+            ),
+        ) as forwarded,
+    ):
+        response = client.post(
+            "/houmao/agents/abc123/mail/online/list",
+            json={
+                "schema_version": 3,
+                "expected_binding_id": "binding-online",
+                "limit": 7,
+                "cursor": "opaque-cursor",
+            },
+        )
+    assert response.status_code == 409
+    assert response.json() == {"detail": detail}
+    assert forwarded.call_args.args[0].cursor == "opaque-cursor"
+    assert forwarded.call_args.kwargs["channel"] == "online"

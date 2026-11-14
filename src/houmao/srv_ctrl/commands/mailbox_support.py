@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 import json
 from pathlib import Path
 import sqlite3
@@ -20,6 +19,8 @@ from houmao.mailbox.filesystem import (
     resolve_filesystem_mailbox_paths,
     unsupported_mailbox_root_reason,
 )
+from houmao.mailbox.registry_config import associate_registry_store, verify_selected_registry_store
+from houmao.owned_paths import resolve_registry_root
 from houmao.mailbox.managed import (
     DeregisterMailboxRequest,
     MailboxAccountMessageClearResult,
@@ -86,9 +87,10 @@ def format_mailbox_root_failure(
     return detail
 
 
-def init_mailbox_root(mailbox_root: Path) -> dict[str, object]:
+def init_mailbox_root(mailbox_root: Path, registry_root: Path | None = None) -> dict[str, object]:
     """Bootstrap or validate one filesystem mailbox root."""
 
+    associate_registry_store(resolve_registry_root(explicit_root=registry_root), mailbox_root)
     paths = bootstrap_filesystem_mailbox(mailbox_root.resolve())
     return {
         "schema_version": 1,
@@ -107,7 +109,7 @@ def mailbox_root_status_payload(mailbox_root: Path) -> dict[str, object]:
     """Return a structured filesystem mailbox root status payload."""
 
     paths = resolve_filesystem_mailbox_paths(mailbox_root.resolve())
-    counts = {"active": 0, "inactive": 0, "stashed": 0}
+    counts = {"preparing": 0, "active": 0, "inactive": 0, "stashed": 0}
     supported = True
     structural_state_readable = False
     protocol_version: int | None = None
@@ -160,25 +162,24 @@ def register_mailbox_at_root(
     mailbox_root: Path,
     address: str,
     principal_id: str,
-    mode: str,
-    confirm_destructive_replace: Callable[[str], bool] | None = None,
+    mode: str = "safe",
+    registry_root: Path | None = None,
 ) -> dict[str, object]:
     """Register one filesystem mailbox address under the selected root."""
 
-    resolved_root = mailbox_root.resolve()
+    resolved_root = verify_selected_registry_store(mailbox_root, registry_root)
     try:
         bootstrap_filesystem_mailbox(resolved_root)
         paths = resolve_filesystem_mailbox_paths(resolved_root)
         result = register_mailbox(
             resolved_root,
             RegisterMailboxRequest(
-                mode=cast(Literal["safe", "force", "stash"], mode),
+                mode=cast(Literal["safe"], mode),
                 address=address,
                 owner_principal_id=principal_id,
                 mailbox_kind="in_root",
                 mailbox_path=paths.mailbox_entry_path(address),
             ),
-            confirm_destructive_replace=confirm_destructive_replace,
         )
     except (MailboxBootstrapError, ManagedMailboxOperationError) as exc:
         raise click.ClickException(str(exc)) from exc
@@ -194,10 +195,11 @@ def unregister_mailbox_at_root(
     mailbox_root: Path,
     address: str,
     mode: str,
+    registry_root: Path | None = None,
 ) -> dict[str, object]:
     """Deactivate or purge one filesystem mailbox address."""
 
-    resolved_root = mailbox_root.resolve()
+    resolved_root = verify_selected_registry_store(mailbox_root, registry_root)
     result = deregister_mailbox(
         resolved_root,
         DeregisterMailboxRequest(

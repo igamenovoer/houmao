@@ -11,25 +11,16 @@ The registry resolves in two stages:
 
 That distinction is why some failures collapse into “stale” while others still fail fast.
 
-## Canonical Names And Agent IDs
+## Canonical Names and Agent IDs
 
 Registry-facing input accepts either:
 
 - canonical `HOUMAO-gpu`, or
 - unprefixed `gpu`.
 
-The runtime canonicalizes both to `HOUMAO-gpu` before:
+Canonical names provide friendly lookup metadata. The immutable `agent_id` is the authoritative directory key and direct lookup surface. Distinct agents can share a name, so convenience lookup can report ambiguity. Prefixed and unprefixed selectors normalize to the same name lookup, which does not by itself establish logical ownership.
 
-- reading a record,
-- publishing a record,
-- comparing logical ownership.
-
-Important consequences:
-
-- prefixed and unprefixed input refer to the same logical identity,
-- canonical names remain the human-stable lookup surface,
-- `agent_id` is the authoritative runtime-wide directory key and direct lookup surface,
-- convenience lookup by canonical name may need to scan live records and can report ambiguity when multiple live `agent_id`s share one canonical name.
+New agents generate UUIDs by default. Explicit `--agent-id-mode name-hash` retains deterministic name-derived IDs for callers that guarantee unique names. Supplied opaque IDs remain valid. Identical ID values denote the same logical agent worldwide; Houmao does not detect accidental collisions. Registry publication, resume, and refresh preserve the selected ID instead of deriving it from names or mail addresses. See [Agent Identity](../../run-phase/agent-identity.md) for creation and reuse examples.
 
 ## Freshness And Lease Semantics
 

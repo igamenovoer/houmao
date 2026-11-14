@@ -200,7 +200,7 @@ def launch_profile_defaults_payload(
     if entry.env_payload:
         payload["env"] = dict(entry.env_payload)
     if entry.mailbox_payload:
-        payload["mailbox"] = entry.mailbox_payload
+        payload["mailboxes"] = entry.mailbox_payload
     if entry.posture_payload:
         payload["posture"] = entry.posture_payload
     if entry.system_skills_payload:

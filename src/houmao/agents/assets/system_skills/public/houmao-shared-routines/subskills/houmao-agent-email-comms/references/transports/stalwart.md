@@ -11,38 +11,12 @@ skill_invocation_notation: >
   Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
-# Stalwart Transport Guidance
+# Stalwart Online Mail
 
-Use this page when the resolved mailbox transport is `stalwart`.
+Use this page for a configured `online` binding whose provider transport is `stalwart`. The same agent can retain an independent offline registration. Online-first canonical identity describes its preferred email identity; it does not choose a delivery channel.
 
-For notifier-driven shared mailbox gateway work, use `houmao-shared-routines->houmao-process-emails-via-gateway`.
+Use the exact gateway URL and `/v1/mail/online/...` action pages. With no gateway, use `houmao-mgr agents self mail <action> --channel online --expected-binding-id <binding_id>`. The manager owns protected provider access; ordinary communication needs no password, management credential, or direct JMAP request.
 
-For shared gateway mailbox actions in ordinary mailbox work, stay on this skill's action pages and use the exact `gateway.base_url` returned by the resolver or already present in prompt or context.
+Keep message and thread references opaque and bound to the selected owner and account. Stop on account replacement or a binding conflict. Online errors do not authorize offline delivery. Read/reply/archive semantics stay the same across supported providers; an unsupported operation reports an explicit error. Operator-origin `post` remains unsupported for Stalwart.
 
-## Stalwart Workflow
-
-- When the current prompt or mailbox context already provides the exact `gateway.base_url`, use that value directly for shared gateway mailbox work and do not rerun manager discovery first.
-- Otherwise resolve current mailbox bindings through `houmao-mgr agents self mail resolve-live` before mailbox work.
-- Treat that resolver output as the manager-owned discovery contract for this turn.
-- When the resolver returns a `gateway` object, use this skill's shared `/v1/mail/*` action pages for the ordinary mailbox operation you need.
-- When the resolver returns `gateway: null`, run the matching `agents self mail list|peek|read|send|reply|mark|move|archive` command as the supported fallback surface.
-- Ordinary mailbox work in this change means `status`, `list`, `peek`, `read`, `send`, `reply`, manual `mark`/`move`, and archiving processed mail. `post` is explicitly unsupported for `stalwart` in v1.
-- Treat `message_ref` and `thread_ref` as opaque shared mailbox references. Do not derive raw Stalwart object identifiers or transport-local structure from the visible prefix.
-- After you successfully process one message, archive that same `message_ref` through `POST /v1/mail/archive` when gateway HTTP is in use or the direct `agents self mail archive` fallback command when it is not.
-- If a fallback `houmao-mgr agents self mail ...` result returns `authoritative: false`, treat it as submission-only and verify outcome through `houmao-mgr agents self mail list`, `houmao-mgr agents self mail status`, or transport-native mailbox state before assuming the mutation completed.
-
-## Stalwart-Specific Guidance
-
-- Read [../stalwart-resolver-fields.md](../stalwart-resolver-fields.md) before using the transport.
-- Use direct Stalwart access only when no live shared gateway mailbox facade is available or when the task falls outside the shared gateway routine surface.
-- Use the current `mailbox.stalwart.*` fields returned by the resolver for direct Stalwart-backed mailbox access.
-- Treat `mailbox.stalwart.credential_file` as secret material. Read it only when needed for authenticated mailbox access and do not print its contents.
-- Use `address` as the sender address for outbound mail.
-- Preserve reply ancestry with standard email headers and the opaque `message_ref` contract.
-
-## Guardrails
-
-- Refuse to use this page when `mailbox.transport` is not `stalwart`.
-- Do not assume filesystem mailbox `rules/`, mailbox-local SQLite, lock files, or projection symlinks exist for this transport.
-- Do not leak raw Stalwart object shapes into operator-facing behavior when a shared mailbox operation can stay transport-neutral.
-- Do not present direct env-backed transport access as the first-choice attached-session path when the shared gateway facade is available.
+Inspect bounded metadata pages before fetching selected bodies: default 50, maximum 200, optional scoped cursor, no body-in-list option. Preserve query filters through continuation and stop on stale cursor or binding errors. A page count or cached sync sample is not an exact full-inbox total. Peek/read disclose partial-content limits; report them before claiming complete inspection. Archive only after work and required replies succeed. Read or answered state alone does not complete open inbox work, so configured periodic reminders can repeat unchanged eligible work.

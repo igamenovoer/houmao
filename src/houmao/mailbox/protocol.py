@@ -19,7 +19,7 @@ import yaml
 
 from houmao.mailbox.errors import MailboxProtocolError
 
-MAILBOX_PROTOCOL_VERSION = 3
+MAILBOX_PROTOCOL_VERSION = 4
 NOTIFY_BLOCK_MAX_CHARS = 512
 NOTIFY_BLOCK_FENCE_INFO_STRING = "houmao-notify"
 NotifyBlockPlacement = Literal["append", "prepend"]
@@ -232,9 +232,8 @@ class MailboxMessage(_StrictMailboxModel):
         if value != MAILBOX_PROTOCOL_VERSION:
             raise ValueError(
                 f"protocol_version must be {MAILBOX_PROTOCOL_VERSION}; "
-                f"got {value}. Older v1 envelopes load through migration paths "
-                "that pre-fill missing fields; v2 was unreleased and is no "
-                "longer accepted."
+                f"got {value}. Restore a compatible backup or explicitly rebootstrap "
+                "unsupported mailbox state; older envelopes are not silently migrated."
             )
         return value
 

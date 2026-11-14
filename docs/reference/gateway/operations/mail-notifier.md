@@ -1,5 +1,7 @@
 # Gateway Mail-Notifier
 
+Mail operations select `offline` or `online` explicitly. `GET /v1/mail/status` summarizes both channels; `resolve-live` returns revisioned slots under `mailboxes.offline` and `mailboxes.online`. Every lifecycle request uses schema version 3 and includes `expected_binding_id`, including fresh send/post. Keep notifier rounds pinned to their supplied URL, channel, and binding; stop on mismatch rather than re-resolving and resending. Canonical online-first mail identity never selects delivery.
+
 The gateway mail-notifier is a gateway-owned background polling loop that checks the agent's mailbox for open inbox work and injects notification prompts into the gateway request queue.
 
 ## What It Does
@@ -23,19 +25,25 @@ Notifier configuration also carries two context policies:
 
 ## Current Polling Cycle
 
-When the notifier is enabled, the current implementation runs this cycle:
+Each configured channel has an independent schedule and binding-scoped state. Canonical identity changes do not reset either channel. When a selected notifier is enabled, the current implementation runs this cycle:
 
-1. Read the notifier record from gateway storage to confirm that polling is enabled and an interval is configured.
+1. Read the owner/channel/binding notifier record from gateway storage to confirm that polling is enabled and an interval is configured.
 2. Wait until the next scheduled poll time on the gateway's monotonic clock.
 3. Refresh current gateway status and verify that mailbox support is available from the runtime-owned manifest and mailbox binding.
-4. Ask the mailbox adapter for the current eligible inbox set: `read_state=any`, `answered_state=any`, `archived=false` in `any_inbox` mode, or `read_state=unread`, `answered_state=any`, `archived=false` in `unread_only` mode.
-5. If there is no eligible mail, record an `empty` audit row and stop this cycle.
+4. Observe a bounded eligible metadata view outside the terminal lock. Online mail uses account-scoped SQLite checkpoints and bounded JMAP synchronization; offline mail pages its authoritative metadata index. The policy is `read_state=any`, `answered_state=any`, `archived=false` in `any_inbox` mode, or `read_state=unread`, `answered_state=any`, `archived=false` in `unread_only` mode.
+5. If the observed view contains no eligible mail, record an `empty` audit row and stop this cycle. An incomplete sample does not establish an empty mailbox; `sync` status reports recovery and view completeness.
 6. If eligible mail exists, compute a SHA256 digest from the sorted eligible `message_ref` values.
 7. Check whether prompt enqueueing is currently blocked by gateway readiness.
-8. If configured and the current eligible set contains at least one mail item that has not yet triggered compaction during its current eligibility stretch, run the pre-notification context action. For Codex TUI `compact`, the gateway sends `/compact`, waits for prompt-ready stabilization, refreshes tracked diagnostics, and remembers the current eligible `message_ref` set as already compacted for the current eligibility stretch.
+8. If configured and the current eligible set contains at least one mail item that has not yet triggered compaction during its current eligibility stretch, run the pre-notification context action. For Codex TUI `compact`, the gateway sends `/compact`, waits for prompt-ready stabilization, refreshes tracked diagnostics, and adds the current eligible `message_ref` set to its remembered compaction eligibility. Metadata-window eviction, credential refresh, reconnect, or checkpoint rebase never removes remembered entries. Bounded round-robin metadata revalidation removes them only after confirmed deletion or loss of eligibility.
 9. If `context_error_policy=clear_context` and the refreshed degraded diagnostic is a recognized Codex compaction diagnostic, run the existing TUI clean-context reset workflow before enqueueing the wake-up prompt.
-10. If the gateway is ready, render the notification prompt and enqueue one internal `mail_notifier_prompt` request.
+10. If the gateway is ready, atomically commit one owner/channel/binding/cycle admission and its internal `mail_notifier_prompt` request. Only one pending wakeup per scope and one admission per interval cycle are allowed. Revalidate the origin revision and connection epoch before enqueueing and again before body dispatch. Replacement/detach cancels unstarted obsolete reminders.
 11. Reschedule the next poll as `now + interval_seconds`.
+
+Online synchronization defaults to at most five JMAP methods and ten seconds per observation cycle, with 50 metadata records and a 200-record cache cap. A new connection performs separately bounded account/discovery validation, then reuses its immutable credentials and role map. Network calls run outside terminal and SQLite commit locks. A busy body does not prevent checkpoint progress.
+
+Online prompt handoffs and pre-notification context actions hold shared online admission until the started effect returns. Replacement waits within its retirement deadline or reports an explicit busy/uncertain result before activation. A synchronous headless handoff conservatively retains this lease through its turn. No manifest lock spans that external effect.
+
+Online authentication or credential-file availability errors record `poll_error` while preserving the enabled setting and cadence. Restoring or refreshing the same account can recover without re-enabling the notifier. An explicit replacement uses an independent binding scope; attachment does not enable that new notifier automatically.
 
 The digest is currently used for notifier state or audit visibility only. It is not used to suppress later prompt enqueueing for the same unchanged unread snapshot.
 
@@ -84,9 +92,9 @@ The mail-notifier is managed through scoped `houmao-mgr agents single ... gatewa
 
 | Command | Description |
 | --- | --- |
-| `status` | Show whether notifier polling is enabled and report last-check metadata. |
-| `enable --interval-seconds N [--mode any_inbox|unread_only] [--appendix-text TEXT] [--context-error-policy continue_current|clear_context] [--pre-notification-context-action none|compact]` | Enable or reconfigure polling with interval `N` seconds, the selected mode, optional prompt appendix, and context policies. The current request model requires `N > 0`; the mode defaults to `any_inbox`, context error policy defaults to `continue_current`, and pre-notification context action defaults to `none`. |
-| `disable` | Disable polling and stop future notifier prompt enqueueing. Disabling does not clear stored `appendix_text`. |
+| `status --channel <offline|online>` | Show whether notifier polling is enabled and report last-check metadata. |
+| `enable --channel <offline|online> --interval-seconds N [--mode any_inbox|unread_only] [--appendix-text TEXT] [--context-error-policy continue_current|clear_context] [--pre-notification-context-action none|compact]` | Enable or reconfigure polling with interval `N` seconds, the selected mode, optional prompt appendix, and context policies. The current request model requires `N > 0`; the mode defaults to `any_inbox`, context error policy defaults to `continue_current`, and pre-notification context action defaults to `none`. |
+| `disable --channel <offline|online>` | Disable polling and stop future notifier prompt enqueueing. Disabling does not clear stored `appendix_text`. |
 
 The live gateway rereads notifier state from storage on each cycle, so enable, disable, and interval changes take effect without restarting the gateway.
 
@@ -98,7 +106,7 @@ Appendix update rules:
 
 ## Status Fields
 
-`GET /v1/mail-notifier` returns:
+`GET /v1/mail-notifier/{channel}` returns:
 
 | Field | Meaning |
 | --- | --- |
@@ -113,6 +121,7 @@ Appendix update rules:
 | `last_poll_at_utc` | Timestamp of the last completed poll attempt. |
 | `last_notification_at_utc` | Timestamp of the last cycle that successfully enqueued a notifier prompt. |
 | `last_error` | Most recent poll or mailbox-support error, when present. |
+| `sync` | Online persisted view status: phase, view completeness, unseen backlog, incremental support, last success/error, and bounded cache count. Offline is `null`. Status reads do not contact the provider. |
 
 ## Audit Outcomes
 
@@ -120,14 +129,15 @@ Notifier audit rows currently use these outcomes in practice:
 
 | Outcome | Meaning |
 | --- | --- |
-| `empty` | The eligible inbox set was empty for that poll cycle. |
+| `empty` | The bounded observed view contained no eligible items. Consult online `sync` status before interpreting this as an empty inbox. |
+| `dedup_skip` | This interval cycle already has an admission, or a previous wakeup remains pending. This does not suppress later due reminder cycles. |
 | `busy_skip` | Eligible inbox mail existed, but the gateway was busy or not prompt-ready. |
 | `enqueued` | The notifier rendered the prompt and enqueued one internal request. |
 | `pre_notification_context_error` | The configured pre-notification context action failed, so no notifier prompt was enqueued. |
 | `context_recovery_error` | Policy-selected clean-context recovery failed, so no notifier prompt was enqueued. |
 | `poll_error` | Mailbox support failed or unread polling raised an error. |
 
-The storage model still has a `dedup_skip` outcome shape, but the current notifier cycle does not emit it because the current implementation does not perform digest-based suppression.
+Deduplication uses the durable cycle key and pending request, never the eligible-set digest. Read and answered flags do not complete work in `any_inbox` mode; archive or another confirmed loss of inbox eligibility closes the work.
 
 ## Notification Prompt And Skill Guidance
 
@@ -140,7 +150,7 @@ src/houmao/agents/realm_controller/assets/system_prompts/mailbox/mail-notifier.m
 That template includes:
 
 - a concise tool-specific skill-usage block,
-- the exact live `gateway.base_url`,
+- the exact live gateway URL, selected channel, and expected binding ID,
 - a one-line `/v1/mail/*` endpoint summary.
 
 The prompt tells the agent to:
@@ -161,10 +171,11 @@ Additional runtime guidance:
 
 Current source behavior:
 
-- when the managed `agent` pack is installed, the prompt invokes `$houmao-agent-entrypoint process-emails-via-gateway <gateway-url>`,
+- when the managed `agent` pack is installed, the prompt invokes `$houmao-agent-entrypoint process-emails-via-gateway <gateway-url> channel=<channel> expected_binding_id=<binding-id>`,
 - the prompt requires both the installed agent entrypoint and shared-routines sibling, then leaves parent-scoped `SKILL-MAIN.md` selection to sibling routing,
 - ordinary mailbox details remain available through the `agent-email-comms` child in shared routines,
-- when the agent pack is unavailable, the prompt falls back to the compact mailbox API summary.
+- when required static skill siblings are unavailable, the prompt supplies the selected-channel API contract directly. Late binding does not require native skill hot-reload or a body restart.
+- missing URL/channel/binding context or a binding mismatch ends the round. Canonical identity does not supply replacement routing.
 
 ## Lifecycle Integration
 
@@ -178,9 +189,9 @@ Current source behavior:
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `GET` | `/v1/mail-notifier` | Inspect current notifier status. |
-| `PUT` | `/v1/mail-notifier` | Enable or reconfigure polling. Body fields are `interval_seconds`, optional `mode`, optional `appendix_text`, optional `context_error_policy`, and optional `pre_notification_context_action`. Omitted `appendix_text` preserves the stored appendix; an empty string clears it. |
-| `DELETE` | `/v1/mail-notifier` | Disable polling without clearing stored appendix text. |
+| `GET` | `/v1/mail-notifier/{channel}` | Inspect current notifier status. |
+| `PUT` | `/v1/mail-notifier/{channel}` | Enable or reconfigure polling. Body fields are `interval_seconds`, optional `mode`, optional `appendix_text`, optional `context_error_policy`, and optional `pre_notification_context_action`. Omitted `appendix_text` preserves the stored appendix; an empty string clears it. |
+| `DELETE` | `/v1/mail-notifier/{channel}` | Disable polling without clearing stored appendix text. |
 
 ## See Also
 

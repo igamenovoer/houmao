@@ -1,75 +1,72 @@
 # houmao-mgr agents single/self mailbox
 
-Late filesystem mailbox registration for local managed agents. These commands register, inspect, or remove filesystem mailbox bindings on existing local managed agents without requiring relaunch.
+Each agent can have an offline registry mailbox and an online provider mailbox simultaneously. Offline membership commands update an existing locally controlled agent without replacing its body or changing online mail.
 
-```
-houmao-mgr agents single --agent-id <id> mailbox [OPTIONS] COMMAND [ARGS]...
-houmao-mgr agents single --agent-name <name> mailbox [OPTIONS] COMMAND [ARGS]...
-houmao-mgr agents self mailbox [OPTIONS] COMMAND [ARGS]...
-```
-
-`agents single ... mailbox` uses the group-level selected-agent target. `agents self mailbox` targets the current registered managed tmux session and accepts no explicit selector.
-
-## Commands
-
-### `register`
-
-Register one filesystem mailbox binding for an existing local managed agent.
-
-```
-houmao-mgr agents single --agent-id <id> mailbox register [OPTIONS]
+```bash
+houmao-mgr agents single --agent-id <id> mailbox offline status
+houmao-mgr agents single --agent-id <id> mailbox offline join --address alice@houmao.localhost
+houmao-mgr agents single --agent-id <id> mailbox offline leave
+houmao-mgr agents self mailbox offline status
 ```
 
-| Option | Description |
-|---|---|
-| `--mailbox-root DIRECTORY` | Filesystem mailbox root override. Defaults to `HOUMAO_GLOBAL_MAILBOX_DIR` or the active project mailbox root. |
-| `--principal-id TEXT` | Optional mailbox principal id override. Defaults from the managed-agent identity. |
-| `--address TEXT` | Optional full mailbox address override. Defaults to the ordinary mailbox address derived from the managed-agent identity, such as `research@houmao.localhost`. |
-| `--mode [safe\|force\|stash]` | Filesystem mailbox registration mode. Default: `safe`. |
-| `--yes` | Confirm destructive replacement without prompting. |
+`agents single` selects a stable agent ID or an unambiguous friendly name. `agents self` resolves the current registered managed tmux session and accepts no explicit selector. Communication-only external imports do not grant local body or binding mutation authority.
 
-When `register` would replace existing shared mailbox state, it prompts before destructive replacement on interactive terminals. In automation or other non-interactive contexts, rerun with `--yes` to confirm the overwrite explicitly.
+## Offline Join
 
-When both `--principal-id` and `--address` are omitted for an ordinary managed agent, late binding derives principal id `HOUMAO-<agent-name>` and mailbox address `<agent-name>@houmao.localhost`. Mailbox local parts beginning with `HOUMAO-` under `houmao.localhost` are reserved for Houmao-owned system principals rather than ordinary managed-agent mailbox addresses.
+Local join uses the selected registry and its configured filesystem store. `--mailbox-root` selects a local store only when it matches that registry configuration. An occupied address owned by another agent fails. No force, stash, overwrite confirmation, or `--yes` option can take it over. The member owner is the persisted `agent_id`, independently of its friendly name or canonical mail address.
 
-### `unregister`
+Remote join requires a reachable registry-only service. The registry host owns all mailbox files. Agent hosts need no shared mount:
 
-Remove one filesystem mailbox binding from an existing local managed agent.
-
-```
-houmao-mgr agents single --agent-id <id> mailbox unregister [OPTIONS]
+```bash
+houmao-mgr agents single --agent-id <id> mailbox offline join \
+  --registry-url https://registry.example.test \
+  --address alice@houmao.localhost \
+  --credential-file /private/houmao/alice-member.token \
+  --admin-credential-file /private/houmao/registry-admin.token
 ```
 
-| Option | Description |
-|---|---|
-| `--mode [deactivate\|purge]` | Filesystem mailbox deregistration mode. Default: `deactivate`. |
+The caller prepares its private member credential before enrollment and reuses it when retrying a lost response. The administrator credential authorizes enrollment; neither an agent ID nor a mail address is a credential. Keep both files outside the checkout. Remote joins reject registry-host filesystem paths. Use HTTPS or an SSH tunnel to a loopback HTTP listener.
 
-### `status`
+A confirmed registry claim can precede local publication. Inspect status and repeat the same join inputs to reconcile a partial result. Rejoin does not rotate credentials, allocate another registration, or replace mailbox history. [Registry-Only Setup](../mailbox/operations/offline-registry.md) documents service and credential preparation.
 
-Report late mailbox registration posture for one local managed agent.
+## Offline Status and Leave
 
+`mailbox offline status` reports configured membership, binding ID, revision, and activation state without protected credential references. The ordinary `mail status` and `mail resolve-live` commands summarize both channels and canonical mail identity.
+
+`mailbox offline leave --mode deactivate` explicitly releases routing while retaining history under the previous registration. `--mode purge` selects the supported local removal policy. A remote member uses its scoped release API. A later owner receives a fresh registration and cannot inherit private views or historical references. Stopping a body, losing a gateway, or attaching online mail never releases offline membership.
+
+## Mail Follow-Up
+
+Use explicit channel selection after joining:
+
+```bash
+houmao-mgr agents single --agent-id <id> mail status
+houmao-mgr agents single --agent-id <id> mail list --channel offline
+houmao-mgr agents single --agent-id <id> gateway mail-notifier enable --channel offline --interval-seconds 60
 ```
-houmao-mgr agents single --agent-id <id> mailbox status [OPTIONS]
+
+Offline and online mail remain separate. There is no forwarding or delivery fallback between them. See [Agents Mail](agents-mail.md), [Gateway Controls](agents-gateway.md), and [Agent Identity](../run-phase/agent-identity.md).
+
+## Online Account Controls
+
+Online controls require the agent's live gateway companion. They attach a normal existing account without management authorization, provisioning, password rotation, or body restart:
+
+```bash
+houmao-mgr agents single --agent-id <id> gateway attach
+houmao-mgr agents single --agent-id <id> mailbox online status
+houmao-mgr agents single --agent-id <id> mailbox online attach \
+  --address alice@example.test --login-identity alice-login \
+  --credential-source /private/houmao/alice-account.json \
+  --jmap-url https://mail.example.test/.well-known/jmap
+houmao-mgr agents single --agent-id <id> mailbox online refresh
+houmao-mgr agents single --agent-id <id> mailbox online reconnect
+houmao-mgr agents single --agent-id <id> mailbox online detach
 ```
 
-| Option | Description |
-|---|---|
+The owner-private credential source is JSON containing a `password` string. It must exist on the gateway host, outside tracked files. The request contains its protected path; neither the password nor source reference appears in status. `--base-url` can replace `--jmap-url` and derives `/.well-known/jmap`. Select `--account-id` when discovery is ambiguous.
 
-## Workflow
+Every control pins `--expected-revision`, or reads status once to obtain the revision when the option is omitted. Concurrent changes conflict. Attaching another account requires `--replace` and creates a fresh binding ID. Same-account refresh copies the selected source into a new private immutable snapshot, advances revision/epoch, and retains binding ID and sync checkpoints. Refresh can select a new `--credential-source`. Reconnect keeps the current credential snapshot and revision while advancing the connection epoch. All controls accept a finite `--timeout-seconds` budget.
 
-The preferred local serverless mailbox workflow is:
+Detach preserves provider mail, external source files, and offline membership. Old observations cannot publish after replacement. A retirement failure does not activate the candidate. `committed: true` with warnings confirms the authoritative change despite a derived publication problem; inspect status before repeating it. Already-started sends and replies preserve an explicit acknowledgement and original binding; an uncertain result is never automatically resent.
 
-1. `houmao-mgr mailbox init`
-2. `houmao-mgr project agents launch ...` or `houmao-mgr agents self join ...`
-3. `houmao-mgr agents single --agent-name <name> mailbox register`
-4. `houmao-mgr agents single --agent-name <name> mail ...` or `houmao-mgr agents self mail ...`
-
-When you run that flow from a repo with an active `.houmao/` overlay, steps 1 and 3 now default to `<active-overlay>/mailbox`. Use `--mailbox-root` or `HOUMAO_GLOBAL_MAILBOX_DIR` only when you intentionally want a different mailbox authority.
-
-For supported tmux-backed managed sessions, including sessions adopted through `houmao-mgr agents self join`, scoped mailbox `register` and `unregister` commands update the durable manifest-backed mailbox binding without requiring relaunch. That remains true even when a joined session is controllable but non-relaunchable, as long as Houmao can still update the session manifest and validate the resulting mailbox binding safely.
-
-## See Also
-
-- [houmao-mgr](houmao-mgr.md) — parent CLI reference
-- [agents mail](agents-mail.md) — managed-agent mailbox follow-up commands
-- [Mailbox Reference](../mailbox/index.md) — mailbox subsystem details
+Configured online mail and enabled notifier service are separate. See [Stalwart Setup and First Session](../mailbox/operations/stalwart-setup-and-first-session.md) for protected credential preparation, account replacement, passive-server controls, and the separately authorized administrative provisioning path.

@@ -1,0 +1,408 @@
+{
+  "$defs": {
+    "RegistryGatewayV1": {
+      "additionalProperties": false,
+      "description": "Optional live gateway connect metadata published into the registry.",
+      "properties": {
+        "host": {
+          "enum": [
+            "127.0.0.1",
+            "0.0.0.0"
+          ],
+          "title": "Host",
+          "type": "string"
+        },
+        "port": {
+          "title": "Port",
+          "type": "integer"
+        },
+        "protocol_version": {
+          "const": "v1",
+          "title": "Protocol Version",
+          "type": "string"
+        },
+        "state_path": {
+          "title": "State Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "port",
+        "state_path",
+        "protocol_version"
+      ],
+      "title": "RegistryGatewayV1",
+      "type": "object"
+    },
+    "RegistryIdentityV1": {
+      "additionalProperties": false,
+      "description": "Identity metadata for one published managed-agent record.",
+      "properties": {
+        "backend": {
+          "enum": [
+            "local_interactive",
+            "codex_headless",
+            "codex_app_server",
+            "claude_headless",
+            "kimi_headless",
+            "cao_rest",
+            "houmao_server_rest"
+          ],
+          "title": "Backend",
+          "type": "string"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        }
+      },
+      "required": [
+        "backend",
+        "tool"
+      ],
+      "title": "RegistryIdentityV1",
+      "type": "object"
+    },
+    "RegistryLifecycleV1": {
+      "additionalProperties": false,
+      "description": "Lifecycle metadata for one managed-agent registry record.",
+      "properties": {
+        "relaunchable": {
+          "title": "Relaunchable",
+          "type": "boolean"
+        },
+        "state": {
+          "enum": [
+            "active",
+            "stopped",
+            "relaunching",
+            "retired"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "state_updated_at": {
+          "title": "State Updated At",
+          "type": "string"
+        },
+        "stop_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stop Reason"
+        },
+        "stopped_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stopped At"
+        }
+      },
+      "required": [
+        "state",
+        "relaunchable",
+        "state_updated_at"
+      ],
+      "title": "RegistryLifecycleV1",
+      "type": "object"
+    },
+    "RegistryLivenessV1": {
+      "additionalProperties": false,
+      "description": "Active-only liveness metadata for one managed-agent record.",
+      "properties": {
+        "lease_expires_at": {
+          "title": "Lease Expires At",
+          "type": "string"
+        },
+        "published_at": {
+          "title": "Published At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "published_at",
+        "lease_expires_at"
+      ],
+      "title": "RegistryLivenessV1",
+      "type": "object"
+    },
+    "RegistryMailboxBindingV1": {
+      "additionalProperties": false,
+      "description": "Public mail identity projection without backend credentials or resolver inputs.",
+      "properties": {
+        "address": {
+          "minLength": 1,
+          "title": "Address",
+          "type": "string"
+        },
+        "agent_id": {
+          "minLength": 1,
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "availability": {
+          "default": "unknown",
+          "enum": [
+            "configured",
+            "unavailable",
+            "unknown"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "binding_id": {
+          "minLength": 1,
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "channel": {
+          "enum": [
+            "offline",
+            "online"
+          ],
+          "title": "Channel",
+          "type": "string"
+        },
+        "transport": {
+          "enum": [
+            "filesystem",
+            "registry",
+            "stalwart"
+          ],
+          "title": "Transport",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id",
+        "channel",
+        "binding_id",
+        "address",
+        "transport"
+      ],
+      "title": "RegistryMailboxBindingV1",
+      "type": "object"
+    },
+    "RegistryMailboxSlotV1": {
+      "additionalProperties": false,
+      "description": "A public projection of one revisioned slot.",
+      "properties": {
+        "binding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RegistryMailboxBindingV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revision": {
+          "minLength": 1,
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "binding"
+      ],
+      "title": "RegistryMailboxSlotV1",
+      "type": "object"
+    },
+    "RegistryMailboxesV1": {
+      "additionalProperties": false,
+      "description": "Safe identity summaries for both independent channels.",
+      "properties": {
+        "offline": {
+          "$ref": "#/$defs/RegistryMailboxSlotV1"
+        },
+        "online": {
+          "$ref": "#/$defs/RegistryMailboxSlotV1"
+        }
+      },
+      "required": [
+        "offline",
+        "online"
+      ],
+      "title": "RegistryMailboxesV1",
+      "type": "object"
+    },
+    "RegistryRuntimeV1": {
+      "additionalProperties": false,
+      "description": "Pointers to runtime-owned state for one managed-agent record.",
+      "properties": {
+        "agent_def_dir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Def Dir"
+        },
+        "manifest_path": {
+          "title": "Manifest Path",
+          "type": "string"
+        },
+        "session_root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Session Root"
+        }
+      },
+      "required": [
+        "manifest_path"
+      ],
+      "title": "RegistryRuntimeV1",
+      "type": "object"
+    },
+    "RegistryTerminalV2": {
+      "additionalProperties": false,
+      "description": "Terminal-container hints for lifecycle-aware registry payloads.",
+      "properties": {
+        "current_session_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current Session Name"
+        },
+        "kind": {
+          "const": "tmux",
+          "default": "tmux",
+          "title": "Kind",
+          "type": "string"
+        },
+        "last_session_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Session Name"
+        }
+      },
+      "title": "RegistryTerminalV2",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Lifecycle-aware shared-registry ``record.json`` contract.",
+  "properties": {
+    "agent_id": {
+      "title": "Agent Id",
+      "type": "string"
+    },
+    "agent_name": {
+      "title": "Agent Name",
+      "type": "string"
+    },
+    "canonical_mail_identity": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Canonical Mail Identity"
+    },
+    "gateway": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RegistryGatewayV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "generation_id": {
+      "title": "Generation Id",
+      "type": "string"
+    },
+    "identity": {
+      "$ref": "#/$defs/RegistryIdentityV1"
+    },
+    "lifecycle": {
+      "$ref": "#/$defs/RegistryLifecycleV1"
+    },
+    "liveness": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RegistryLivenessV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "mailboxes": {
+      "$ref": "#/$defs/RegistryMailboxesV1"
+    },
+    "runtime": {
+      "$ref": "#/$defs/RegistryRuntimeV1"
+    },
+    "schema_version": {
+      "const": 4,
+      "default": 4,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "terminal": {
+      "$ref": "#/$defs/RegistryTerminalV2"
+    }
+  },
+  "required": [
+    "agent_name",
+    "agent_id",
+    "generation_id",
+    "lifecycle",
+    "identity",
+    "runtime",
+    "terminal",
+    "mailboxes",
+    "canonical_mail_identity"
+  ],
+  "title": "ManagedAgentRegistryRecordV3",
+  "type": "object"
+}

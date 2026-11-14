@@ -1,6 +1,6 @@
 ---
 name: houmao-dev-launch-agents
-description: Use when a Houmao maintainer explicitly invokes this development skill for local test-fixture setup, DeepSeek or self-hosted API configuration, imported native login, or Claude Code, Codex, or Kimi Code test launches.
+description: Use when a Houmao maintainer explicitly invokes this development skill for local test-fixture setup, DeepSeek or self-hosted API configuration, imported native login, Claude Code/Codex/Kimi Code test launches, or normal-account online mail qualification on a managed test agent.
 metadata:
   skill_invocation_notation: >
     Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
@@ -43,11 +43,14 @@ These are peer routines; each can consume already configured inputs. Read only t
 | `launch-claude-code` | Launch a raw Claude Code TUI with selected fixture inputs | [commands/launch-claude-code.md](commands/launch-claude-code.md) |
 | `launch-kimi-code` | Launch a raw Kimi Code TUI with selected fixture inputs | [commands/launch-kimi-code.md](commands/launch-kimi-code.md) |
 | `launch-fixture` | Prepare and launch an explicit raw, manager, or passive-server test lane | [commands/launch-fixture.md](commands/launch-fixture.md) |
+| `attach-online-mail` | Attach a selected existing normal mail account to an active managed test agent without body restart | [commands/attach-online-mail.md](commands/attach-online-mail.md) |
 | `help` | Explain prerequisites, API/native choices, supported surfaces, and outputs without launching | This entrypoint |
 
 ## Invocation Contract
 
 Use `houmao-dev-launch-agents->configure-fixtures()` for local setup, `houmao-dev-launch-agents->launch-fixture()` for a selected test surface, or a provider-specific launch routine for raw TUI testing. Natural-language requests and the existing `$houmao-dev-launch-agents use <subcommand> ...` form may select the same declared routines.
+
+For a managed mail test, follow `houmao-dev-launch-agents->attach-online-mail()` after launch. Model API authentication and normal-account mail authentication are independent selected inputs.
 
 Default a provider-specific launch to raw TUI and unattended posture. For `launch-fixture`, resolve the surface and mode from the test subject; ask when that distinction is material and unspecified. A setup-only request ends after offline configuration checks.
 

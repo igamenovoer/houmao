@@ -18,7 +18,7 @@ skill_invocation_notation: >
 
 ## Actor Frame Gate
 
-This parent-scoped routine is agent-only and loads through `houmao-shared-routines`. Require `actor_kind=agent`, an entrypoint name accepted by the parent, freshly verified self identity, and the exact gateway base URL supplied by the notifier prompt for this round. Reject admin frames and fail closed when any required gateway context is absent.
+This parent-scoped routine is agent-only and loads through `houmao-shared-routines`. Require `actor_kind=agent`, an entrypoint name accepted by the parent, freshly verified self identity, and the exact gateway base URL, explicit `offline|online` channel, and expected binding ID supplied by the notifier prompt for this round. Reject admin frames and fail closed when any required gateway context is absent.
 
 Use this Houmao skill when a notifier or operator prompt tells you there is open shared-mailbox inbox work to process through a live gateway facade and already provides the exact gateway base URL for the current round.
 
@@ -65,20 +65,20 @@ Related skills and boundaries:
 
 Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
 
-1. Confirm the current prompt or mailbox context already provides the exact gateway base URL for this round.
-2. If that base URL is missing, stop and report that the notifier round is missing required gateway bootstrap. Do not rediscover it inside this workflow.
-3. Use `GET /v1/mail/status` when you need to confirm mailbox identity or current gateway availability for the round.
+1. Confirm the current prompt provides the exact gateway base URL, selected channel, and expected binding ID for this round. Keep these values unchanged through every operation.
+2. If any of these three values is missing, stop and report a notifier contract error. Do not rediscover a missing value or infer the channel from the canonical mail address.
+3. Use `GET /v1/mail/status` when needed to confirm the selected channel still has the expected binding. Stop on a mismatch, including replacement after gateway acceptance. Never continue this round against a replacement mailbox.
 4. Read the prompt-provided notifier mode when present. In `any_inbox` mode, list open inbox mail including read or answered unarchived mail; in `unread_only` mode, start from unread unarchived inbox mail.
-5. Use `POST /v1/mail/list` to list the current mailbox state for the round with the read filter implied by that mode.
+5. Use `POST /v1/mail/{channel}/list` with schema version 3, `expected_binding_id`, the mode-derived read filter, and finite `limit` 50 (maximum 200). Without an explicit paging budget, inspect one page. Continue with the opaque `next_cursor` only within the prompt's page/message budget, preserving filters and binding. `has_more` and page counts describe a sample; they are not a full inbox total. Stop the page chain on a stale cursor instead of silently mixing snapshots. Every lifecycle call carries the same expected binding ID, including a fresh send.
 6. Start from mail metadata such as sender identity, subject, timestamps, `message_ref`, `thread_ref`, read state, and answered state.
 7. Check whether any open emails correspond to work you already started in an earlier round but left stalled or interrupted.
 8. When such stalled or interrupted work exists, continue that work in this round before treating unrelated open mail as new work.
 9. Decide which open emails are relevant to process in this round.
-10. Inspect only the selected emails needed to decide and perform the work for this round.
+10. Inspect only the selected emails needed to decide and perform the work for this round using peek/read. Check `content_complete` and any content-limit fields. Report missing or truncated content rather than treating it as full inspection; use an authorized retrieval path only if one is supplied.
 11. For each selected email, determine up front whether it needs a reply and remember the reply-required `message_ref`.
 12. If the current prompt requests reply hardening, create one lowest-priority one-off gateway reminder for each reply-required email and remember its `reminder_id`.
 13. Complete the requested work for the selected emails.
-14. For selected emails that need a reply, send the reply through `POST /v1/mail/reply` only after the requested work succeeds.
+14. For selected emails that need a reply, send the reply through `POST /v1/mail/{channel}/reply` only after the requested work succeeds.
 15. When a reply succeeds through the normal end-of-round path, remove any not-yet-fired reply-hardening reminder for that email.
 16. Archive only the successfully processed selected emails, and only after any required reply for that email succeeds.
 17. Stop after the round and wait for the next notification. Do not proactively poll for more mail on your own.
@@ -107,8 +107,8 @@ When reply hardening is requested:
 2. Use a one-off prompt reminder, not a repeat reminder.
 3. Use `start_after_seconds=15` by default unless the prompt specifies a different reminder delay.
 4. Append the reminder to the current reminder set as lowest priority. With the managed CLI surface, use `--after-all`. With direct gateway HTTP, first inspect current reminders and set `ranking` to one greater than the current maximum ranking.
-5. Include enough email context in the reminder prompt to identify the required reply: `message_ref`, `thread_ref` when available, sender, subject, and the intended reply obligation.
-6. Make the reminder prompt explicitly re-check whether the email has already been replied to; if it has not, send the reply through `POST /v1/mail/reply`; if it has already been replied to, do not send a duplicate reply.
+5. Include the exact gateway URL, channel, expected binding ID, and enough email context in the reminder prompt to identify the required reply: `message_ref`, `thread_ref` when available, sender, subject, and the intended reply obligation.
+6. Make the reminder prompt explicitly re-check whether the email has already been replied to; if it has not, send the reply through `POST /v1/mail/{channel}/reply`; if it has already been replied to, do not send a duplicate reply.
 7. If the normal end-of-round path sends the reply before the reminder fires, remove the hardening reminder with `houmao-mgr agents self gateway reminders remove --reminder-id <reminder_id>` or `DELETE /v1/reminders/{reminder_id}`.
 8. Keep the reminder scoped to reply assurance only. It must not archive the message unless the work and any required reply have succeeded.
 
@@ -118,6 +118,9 @@ Use this prompt template for each hardening reminder. Fill every bracketed field
 
 ```text
 Reply hardening reminder.
+
+Gateway: <exact gateway_base_url>; channel: <offline|online>; expected binding: <binding_id>
+Stop on a missing context value or binding mismatch; never switch accounts or channels.
 
 Mail: <message_ref>; thread: <thread_ref or unknown>; from: <sender>; subject: <subject>
 Reply to: <reply recipient>
@@ -147,6 +150,8 @@ For direct gateway creation, use this one-off prompt reminder shape and replace 
 
 ## Guardrails
 
+- DO NOT infer the channel from `canonical_mail_identity`, cross channels, refresh targeting after conflict, or resend cached work to another binding.
+- DO NOT fetch bodies through list, use removed `include_body` inputs, drain every cursor automatically, or restart a stale page chain inside this round.
 - DO NOT guess the gateway host or port; use the exact gateway base URL provided in the current round context.
 - DO NOT switch to `houmao-mgr agents self mail resolve-live` inside this notifier-round workflow when the base URL is missing; treat that as a contract failure for the current round.
 - DO NOT archive an email before the corresponding work succeeds.

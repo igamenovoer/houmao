@@ -59,22 +59,22 @@ Use direct gateway `/v1/...` only when the exact live `gateway.base_url` is alre
 - `GET {gateway.base_url}/v1/reminders/{reminder_id}`
 - `PUT {gateway.base_url}/v1/reminders/{reminder_id}`
 - `DELETE {gateway.base_url}/v1/reminders/{reminder_id}`
-- `GET {gateway.base_url}/v1/mail-notifier`
-- `PUT {gateway.base_url}/v1/mail-notifier`
-- `DELETE {gateway.base_url}/v1/mail-notifier`
+- `GET {gateway.base_url}/v1/mail-notifier/{channel}`
+- `PUT {gateway.base_url}/v1/mail-notifier/{channel}`
+- `DELETE {gateway.base_url}/v1/mail-notifier/{channel}`
 
 ## Shared Mailbox Facade
 
 - `GET {gateway.base_url}/v1/mail/status`
-- `POST {gateway.base_url}/v1/mail/list`
-- `POST {gateway.base_url}/v1/mail/peek`
-- `POST {gateway.base_url}/v1/mail/read`
-- `POST {gateway.base_url}/v1/mail/send`
-- `POST {gateway.base_url}/v1/mail/post`
-- `POST {gateway.base_url}/v1/mail/reply`
-- `POST {gateway.base_url}/v1/mail/mark`
-- `POST {gateway.base_url}/v1/mail/move`
-- `POST {gateway.base_url}/v1/mail/archive`
+- `POST {gateway.base_url}/v1/mail/{channel}/list`
+- `POST {gateway.base_url}/v1/mail/{channel}/peek`
+- `POST {gateway.base_url}/v1/mail/{channel}/read`
+- `POST {gateway.base_url}/v1/mail/{channel}/send`
+- `POST {gateway.base_url}/v1/mail/{channel}/post`
+- `POST {gateway.base_url}/v1/mail/{channel}/reply`
+- `POST {gateway.base_url}/v1/mail/{channel}/mark`
+- `POST {gateway.base_url}/v1/mail/{channel}/move`
+- `POST {gateway.base_url}/v1/mail/{channel}/archive`
 
 Use `houmao-shared-routines->houmao-agent-email-comms` for the exact `/v1/mail/*` request contract once the live base URL is known.
 
@@ -83,3 +83,5 @@ Use `houmao-shared-routines->houmao-agent-email-comms` for the exact `/v1/mail/*
 - Prefer `houmao-mgr agents single ... gateway reminders ...` or `houmao-mgr agents self gateway reminders ...` for operator-facing CLI work.
 - Use `/houmao/agents/{agent_ref}/gateway/reminders...` when the current task is already operating through pair-managed HTTP.
 - Use direct `{gateway.base_url}/v1/reminders...` only when the task genuinely needs the lower-level live gateway contract.
+
+Mail lifecycle bodies use schema version 2 and require `expected_binding_id` from the explicitly selected channel. Summary status reports both channels. Canonical identity never routes delivery, and conflicts do not authorize automatic resend to another binding.

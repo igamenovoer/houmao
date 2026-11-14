@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+from houmao.mailbox.online_models import (
+    OnlineAttachRequest,
+    OnlineControlRequest,
+    OnlineBindingStatus,
+)
+
 from dataclasses import dataclass
 from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict
+
+from houmao.mailbox.models import MailChannel
 
 from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputRequestV1,
@@ -302,6 +310,8 @@ class PairAuthorityClientProtocol(Protocol):
     def get_managed_agent_gateway_mail_notifier(
         self,
         agent_ref: str,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailNotifierStatusV1:
         """Return managed-agent gateway mail-notifier status."""
 
@@ -309,12 +319,16 @@ class PairAuthorityClientProtocol(Protocol):
         self,
         agent_ref: str,
         request_model: GatewayMailNotifierPutV1,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailNotifierStatusV1:
         """Enable or update managed-agent gateway mail-notifier state."""
 
     def delete_managed_agent_gateway_mail_notifier(
         self,
         agent_ref: str,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailNotifierStatusV1:
         """Disable managed-agent gateway mail-notifier state."""
 
@@ -353,6 +367,29 @@ class PairAuthorityClientProtocol(Protocol):
     ) -> GatewayReminderDeleteResultV1:
         """Delete one live managed-agent gateway reminder."""
 
+    def get_managed_agent_online_binding(self, agent_ref: str) -> OnlineBindingStatus:
+        """Read the agent's safe configured online binding."""
+
+    def attach_managed_agent_online_binding(
+        self, agent_ref: str, request_model: OnlineAttachRequest
+    ) -> OnlineBindingStatus:
+        """Attach the agent's revision-pinned online binding."""
+
+    def refresh_managed_agent_online_binding(
+        self, agent_ref: str, request_model: OnlineControlRequest
+    ) -> OnlineBindingStatus:
+        """Refresh the agent's revision-pinned online binding."""
+
+    def reconnect_managed_agent_online_binding(
+        self, agent_ref: str, request_model: OnlineControlRequest
+    ) -> OnlineBindingStatus:
+        """Reconnect the agent's revision-pinned online binding."""
+
+    def detach_managed_agent_online_binding(
+        self, agent_ref: str, request_model: OnlineControlRequest
+    ) -> OnlineBindingStatus:
+        """Detach the agent's revision-pinned online binding."""
+
     def get_managed_agent_mail_status(
         self,
         agent_ref: str,
@@ -369,6 +406,8 @@ class PairAuthorityClientProtocol(Protocol):
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailListRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailListResponse:
         """List managed-agent mail."""
 
@@ -376,6 +415,8 @@ class PairAuthorityClientProtocol(Protocol):
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailMessageRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailMessageResponse:
         """Peek at one managed-agent mail message."""
 
@@ -383,6 +424,8 @@ class PairAuthorityClientProtocol(Protocol):
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailMessageRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailMessageResponse:
         """Read one managed-agent mail message."""
 
@@ -390,6 +433,8 @@ class PairAuthorityClientProtocol(Protocol):
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailSendRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailActionResponse:
         """Send managed-agent mail."""
 
@@ -397,6 +442,8 @@ class PairAuthorityClientProtocol(Protocol):
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailPostRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailActionResponse:
         """Post operator-origin managed-agent mail."""
 
@@ -404,6 +451,8 @@ class PairAuthorityClientProtocol(Protocol):
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailReplyRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailActionResponse:
         """Reply to managed-agent mail."""
 
@@ -411,6 +460,8 @@ class PairAuthorityClientProtocol(Protocol):
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailMarkRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailLifecycleResponse:
         """Mark managed-agent mail state."""
 
@@ -418,6 +469,8 @@ class PairAuthorityClientProtocol(Protocol):
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailMoveRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailLifecycleResponse:
         """Move managed-agent mail."""
 
@@ -425,6 +478,8 @@ class PairAuthorityClientProtocol(Protocol):
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailArchiveRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailLifecycleResponse:
         """Archive managed-agent mail."""
 

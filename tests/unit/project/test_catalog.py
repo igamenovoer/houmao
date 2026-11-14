@@ -385,10 +385,13 @@ def test_project_catalog_persists_and_projects_launch_profiles(
         operator_prompt_mode="unattended",
         env_mapping={"OPENAI_BASE_URL": "https://api.example.test/v1"},
         mailbox_mapping={
-            "transport": "filesystem",
-            "principal_id": "alice",
-            "address": "alice@agents.localhost",
-            "filesystem_root": "/mail-root",
+            "offline": {
+                "transport": "filesystem",
+                "principal_id": "alice",
+                "address": "alice@agents.localhost",
+                "filesystem_root": "/mail-root",
+            },
+            "online": None,
         },
         posture_mapping={"headless": True, "gateway_port": 9011},
         relaunch_chat_session_mapping={"mode": "tool_last_or_new"},
@@ -436,11 +439,14 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             },
             "prompt_mode": "unattended",
             "env": {"OPENAI_BASE_URL": "https://api.example.test/v1"},
-            "mailbox": {
-                "transport": "filesystem",
-                "principal_id": "alice",
-                "address": "alice@agents.localhost",
-                "filesystem_root": "/mail-root",
+            "mailboxes": {
+                "offline": {
+                    "transport": "filesystem",
+                    "principal_id": "alice",
+                    "address": "alice@agents.localhost",
+                    "filesystem_root": "/mail-root",
+                },
+                "online": None,
             },
             "posture": {"headless": True, "gateway_port": 9011},
             "managed_header": "inherit",

@@ -25,7 +25,7 @@ Use this reference when the mailbox-admin task could land on more than one maint
 
 - Generic `houmao-mgr mailbox ...` commands are project-aware: when `--mailbox-root` is omitted and `HOUMAO_GLOBAL_MAILBOX_DIR` is unset, the maintained command surface can resolve the active project mailbox root.
 - `houmao-mgr project mailbox ...` intentionally fixes the target to the active overlay mailbox root.
-- `houmao-mgr agents single ... mailbox register` accepts an optional `--mailbox-root`, but it still belongs to the existing-agent late-binding lane rather than the mailbox-root lifecycle lane.
+- `houmao-mgr agents single ... mailbox offline join` accepts an optional `--mailbox-root`, but it still belongs to the existing-agent late-binding lane rather than the mailbox-root lifecycle lane.
 
 ## Boundary
 

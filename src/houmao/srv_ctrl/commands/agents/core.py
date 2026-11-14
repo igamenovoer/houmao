@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 import os
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -32,9 +33,9 @@ from houmao.agents.managed_prompt_header import (
     resolve_managed_prompt_header_decision,
     resolve_managed_prompt_header_section_decisions,
 )
-from houmao.agents.mailbox_runtime_models import MailboxDeclarativeConfig
+from houmao.agents.mailbox_runtime_models import MailboxesDeclarativeConfig
 from houmao.agents.mailbox_runtime_support import (
-    parse_declarative_mailbox_config,
+    parse_declarative_mailboxes_config,
     replaceable_mailbox_cleanup_paths,
     resolved_mailbox_config_from_payload,
 )
@@ -67,7 +68,7 @@ from houmao.agents.system_skills import (
     SystemSkillSelectionPolicy,
     parse_system_skill_selection_policy,
 )
-from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
+from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR, AgentIdMode
 from houmao.agents.realm_controller.gateway_models import (
     GatewayCurrentExecutionMode,
     GatewayTuiTrackingTimingOverridesV1,
@@ -369,7 +370,7 @@ def _load_managed_predecessor_home_context(
         session_root = runtime_owned_session_root_from_manifest_path(handle.path)
         if force_mode == "clean":
             resolved_mailbox = resolved_mailbox_config_from_payload(
-                payload.launch_plan.mailbox,
+                payload.launch_plan.mailboxes.offline.binding,
                 manifest_path=handle.path,
             )
             mailbox_cleanup_paths = replaceable_mailbox_cleanup_paths(resolved_mailbox)
@@ -575,13 +576,13 @@ def _parse_stored_launch_profile_mailbox_or_click(
     payload: dict[str, Any] | None,
     *,
     profile_name: str,
-) -> MailboxDeclarativeConfig | None:
+) -> MailboxesDeclarativeConfig | None:
     """Parse one stored launch-profile mailbox payload or raise one CLI-facing error."""
 
     if payload is None:
         return None
     try:
-        return parse_declarative_mailbox_config(
+        return parse_declarative_mailboxes_config(
             payload,
             source=f"launch dossier `{profile_name}`",
         )
@@ -662,7 +663,15 @@ def _seed_launch_profile_mail_notifier_appendix(
             "Launch-profile mail-notifier appendix defaults require runtime-owned gateway state."
         )
     paths.gateway_root.mkdir(parents=True, exist_ok=True)
-    write_gateway_mail_notifier_record(paths.queue_path, appendix_text=appendix_text)
+    for channel in ("offline", "online"):
+        binding = controller.launch_plan.mailboxes.binding_for(channel)
+        if binding is not None:
+            scope_key = json.dumps(
+                [binding.agent_id, channel, binding.binding_id], separators=(",", ":")
+            )
+            write_gateway_mail_notifier_record(
+                paths.queue_path, scope_key=scope_key, appendix_text=appendix_text
+            )
 
 
 def _merge_launch_skill_names(
@@ -758,7 +767,7 @@ def launch_managed_agent_locally(
     mailbox_transport: str | None = None,
     mailbox_root: Path | None = None,
     mailbox_account_dir: Path | None = None,
-    declared_mailbox: MailboxDeclarativeConfig | None = None,
+    declared_mailboxes: MailboxesDeclarativeConfig | None = None,
     operator_prompt_mode: OperatorPromptMode | None = None,
     persistent_env_records: dict[str, str] | None = None,
     launch_profile_model_config: ModelConfig | None = None,
@@ -783,10 +792,16 @@ def launch_managed_agent_locally(
     instance_runtime_values: Mapping[str, Any] | None = None,
     force_mode: str | None = None,
     reuse_home: bool = False,
+    agent_id_mode: AgentIdMode | None = None,
 ) -> LocalManagedAgentLaunchResult:
     """Resolve, build, and start one managed agent locally."""
 
     _validate_provider(provider)
+    if (reuse_home or force_mode is not None) and agent_id is None and agent_id_mode != "name-hash":
+        raise click.ClickException(
+            "Existing-agent reuse/force requires --agent-id or explicit --agent-id-mode name-hash. "
+            "A friendly name does not select an agent identity."
+        )
     normalized_force_mode = normalize_managed_launch_force_mode(
         force_mode,
         source="managed launch force mode",
@@ -878,6 +893,7 @@ def launch_managed_agent_locally(
             role_name=target.role_name,
             requested_agent_name=agent_name,
             requested_agent_id=agent_id,
+            requested_agent_id_mode=agent_id_mode,
         )
         memory = resolve_agent_memory(
             overlay_root=project_roots.overlay_root,
@@ -990,7 +1006,7 @@ def launch_managed_agent_locally(
                 launch_profile_system_skill_policy=launch_profile_system_skill_policy,
                 operator_prompt_mode=operator_prompt_mode or target.preset.operator_prompt_mode,
                 persistent_env_records=effective_persistent_env_records,
-                mailbox=declared_mailbox or target.preset.mailbox,
+                mailboxes=declared_mailboxes or target.preset.mailboxes,
                 extra=target.preset.extra,
                 agent_name=managed_launch_identity.agent_name,
                 agent_id=managed_launch_identity.agent_id,
@@ -1027,7 +1043,7 @@ def launch_managed_agent_locally(
             backend=resolved_backend,
             working_directory=resolved_working_directory,
             agent_name=agent_name,
-            agent_id=agent_id,
+            agent_id=managed_launch_identity.agent_id,
             tmux_session_name=session_name,
             default_tmux_session_name=default_tmux_session_name,
             launch_env_overrides=effective_launch_env_overrides,
@@ -1377,6 +1393,12 @@ def self_relaunch_agent_command(
 )
 @click.option("--agent-name", default=None, help="Optional friendly managed-agent name.")
 @click.option("--agent-id", default=None, help="Optional authoritative managed-agent id.")
+@click.option(
+    "--agent-id-mode",
+    type=click.Choice(["uuid", "name-hash"]),
+    default=None,
+    help="ID generation mode (default: uuid); cannot be combined with --agent-id.",
+)
 @click.option("--auth", default=None, help="Optional auth override for the resolved preset.")
 @click.option("--model", default=None, help="Optional one-off launch-owned model override.")
 @click.option(
@@ -1439,6 +1461,7 @@ def launch_agents_command(
     launch_profile: str | None,
     agent_name: str | None,
     agent_id: str | None,
+    agent_id_mode: AgentIdMode | None,
     auth: str | None,
     model: str | None,
     reasoning_level: int | None,
@@ -1470,7 +1493,7 @@ def launch_agents_command(
     resolved_source_working_directory = source_working_directory
     resolved_source_agent_def_dir: Path | None = None
     resolved_headless = headless
-    declared_mailbox = None
+    declared_mailboxes = None
     operator_prompt_mode: OperatorPromptMode | None = None
     persistent_env_records: dict[str, str] | None = None
     launch_profile_model_config: ModelConfig | None = None
@@ -1604,7 +1627,7 @@ def launch_agents_command(
         launch_profile_mail_notifier_appendix_text = (
             resolved_profile.gateway_mail_notifier_appendix_text
         )
-        declared_mailbox = _parse_stored_launch_profile_mailbox_or_click(
+        declared_mailboxes = _parse_stored_launch_profile_mailbox_or_click(
             resolved_profile.entry.mailbox_payload,
             profile_name=resolved_profile.entry.name,
         )
@@ -1640,6 +1663,7 @@ def launch_agents_command(
         agents=resolved_agents,
         agent_name=resolved_agent_name,
         agent_id=resolved_agent_id,
+        agent_id_mode=agent_id_mode,
         auth=resolved_auth,
         session_name=session_name,
         headless=resolved_headless,
@@ -1652,7 +1676,7 @@ def launch_agents_command(
         gateway_auto_attach=gateway_auto_attach,
         gateway_host=gateway_host,
         gateway_port=gateway_port,
-        declared_mailbox=declared_mailbox,
+        declared_mailboxes=declared_mailboxes,
         operator_prompt_mode=operator_prompt_mode,
         persistent_env_records=persistent_env_records,
         launch_profile_model_config=launch_profile_model_config,
@@ -1684,6 +1708,12 @@ def launch_agents_command(
 @agents_group.command(name="join")
 @click.option("--agent-name", required=True, help="Friendly managed-agent name.")
 @click.option("--agent-id", default=None, help="Optional authoritative managed-agent id.")
+@click.option(
+    "--agent-id-mode",
+    type=click.Choice(["uuid", "name-hash"]),
+    default=None,
+    help="ID generation mode (default: uuid); cannot be combined with --agent-id.",
+)
 @click.option("--headless", is_flag=True, help="Adopt a native headless logical session.")
 @click.option(
     "--provider",
@@ -1719,6 +1749,7 @@ def launch_agents_command(
 def join_agents_command(
     agent_name: str,
     agent_id: str | None,
+    agent_id_mode: AgentIdMode | None,
     headless: bool,
     provider: str | None,
     launch_args: tuple[str, ...],
@@ -1767,6 +1798,7 @@ def join_agents_command(
             runtime_root=None,
             agent_name=agent_name,
             agent_id=agent_id,
+            agent_id_mode=agent_id_mode,
             provider=effective_provider,
             headless=headless,
             tmux_session_name=tmux_session_name,

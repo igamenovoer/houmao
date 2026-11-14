@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from houmao.agents.brain_builder import BuildRequest, build_brain_home
+from houmao.agents.mailbox_runtime_support import safe_registry_mailboxes_projection
 from houmao.agents.agent_workspace import (
     AgentMemoryPaths,
     ensure_agent_memory,
@@ -27,9 +28,9 @@ from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
-    derive_agent_id_from_name,
+    AgentIdentityCreation,
+    AgentIdMode,
     normalize_agent_identity_name,
-    normalize_managed_agent_id,
     normalize_user_managed_agent_name,
 )
 from houmao.agents.realm_controller.boundary_models import (
@@ -63,10 +64,13 @@ from houmao.agents.realm_controller.models import (
     LaunchPlan,
 )
 from houmao.agents.realm_controller.registry_models import (
-    LiveAgentRegistryRecordV2,
+    ManagedAgentRegistryRecordV3,
     RegistryIdentityV1,
+    RegistryLifecycleV1,
+    RegistryLivenessV1,
+    RegistryMailboxesV1,
     RegistryRuntimeV1,
-    RegistryTerminalV1,
+    RegistryTerminalV2,
     canonicalize_registry_agent_name,
 )
 from houmao.agents.realm_controller.registry_storage import (
@@ -127,6 +131,7 @@ def materialize_joined_launch(
     runtime_root: Path | None,
     agent_name: str,
     agent_id: str | None,
+    agent_id_mode: AgentIdMode | None = None,
     provider: str,
     headless: bool,
     tmux_session_name: str,
@@ -152,8 +157,12 @@ def materialize_joined_launch(
     )
     normalized_agent_name = normalize_user_managed_agent_name(agent_name)
     resolved_agent_id = (
-        normalize_managed_agent_id(agent_id) if agent_id is not None else None
-    ) or derive_agent_id_from_name(normalized_agent_name)
+        AgentIdentityCreation(
+            agent_name=normalized_agent_name, agent_id=agent_id, agent_id_mode=agent_id_mode
+        )
+        .resolve()
+        .agent_id
+    )
     tool = tool_for_provider(provider)
     backend = _joined_backend(provider=provider, headless=headless)
     session_id = generate_session_id(prefix=f"joined-{backend}")
@@ -312,13 +321,20 @@ def materialize_joined_launch(
 
         published_at = datetime.now(UTC)
         publish_live_agent_record(
-            LiveAgentRegistryRecordV2(
+            ManagedAgentRegistryRecordV3(
                 agent_name=canonicalize_registry_agent_name(normalized_agent_name),
                 agent_id=resolved_agent_id,
                 generation_id=manifest_payload["registry_generation_id"],
-                published_at=published_at.isoformat(timespec="seconds"),
-                lease_expires_at=(published_at + TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL).isoformat(
-                    timespec="seconds"
+                lifecycle=RegistryLifecycleV1(
+                    state="active",
+                    relaunchable=True,
+                    state_updated_at=published_at.isoformat(timespec="seconds"),
+                ),
+                liveness=RegistryLivenessV1(
+                    published_at=published_at.isoformat(timespec="seconds"),
+                    lease_expires_at=(
+                        published_at + TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL
+                    ).isoformat(timespec="seconds"),
                 ),
                 identity=RegistryIdentityV1(backend=backend, tool=tool),
                 runtime=RegistryRuntimeV1(
@@ -326,9 +342,16 @@ def materialize_joined_launch(
                     session_root=str(session_root),
                     agent_def_dir=str(agent_def_dir),
                 ),
-                terminal=RegistryTerminalV1(kind="tmux", session_name=tmux_session_name),
+                terminal=RegistryTerminalV2(
+                    kind="tmux",
+                    current_session_name=tmux_session_name,
+                    last_session_name=tmux_session_name,
+                ),
                 gateway=None,
-                mailbox=None,
+                mailboxes=RegistryMailboxesV1.model_validate(
+                    safe_registry_mailboxes_projection(launch_plan.mailboxes)
+                ),
+                canonical_mail_identity=launch_plan.mailboxes.canonical_mail_identity,
             )
         )
         published_record = True
@@ -483,7 +506,7 @@ def materialize_delegated_launch(
 
     normalized_agent_name = normalize_agent_identity_name(session_name)
     canonical_agent_name = normalized_agent_name.canonical_name
-    agent_id = derive_agent_id_from_name(canonical_agent_name)
+    agent_id = AgentIdentityCreation(agent_name=canonical_agent_name).resolve().agent_id
     role_name = _safe_role_name(agent_profile)
     agent_def_dir = (session_root / "agent_def").resolve()
     role_prompt_path = (agent_def_dir / "roles" / role_name / "system-prompt.md").resolve()
@@ -657,13 +680,20 @@ def materialize_delegated_launch(
 
     published_at = datetime.now(UTC)
     publish_live_agent_record(
-        LiveAgentRegistryRecordV2(
+        ManagedAgentRegistryRecordV3(
             agent_name=canonicalize_registry_agent_name(canonical_agent_name),
             agent_id=agent_id,
             generation_id=manifest_payload["registry_generation_id"],
-            published_at=published_at.isoformat(timespec="seconds"),
-            lease_expires_at=(published_at + TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL).isoformat(
-                timespec="seconds"
+            lifecycle=RegistryLifecycleV1(
+                state="active",
+                relaunchable=False,
+                state_updated_at=published_at.isoformat(timespec="seconds"),
+            ),
+            liveness=RegistryLivenessV1(
+                published_at=published_at.isoformat(timespec="seconds"),
+                lease_expires_at=(published_at + TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL).isoformat(
+                    timespec="seconds"
+                ),
             ),
             identity=RegistryIdentityV1(backend="houmao_server_rest", tool=tool),
             runtime=RegistryRuntimeV1(
@@ -671,9 +701,16 @@ def materialize_delegated_launch(
                 session_root=str(session_root),
                 agent_def_dir=str(agent_def_dir),
             ),
-            terminal=RegistryTerminalV1(kind="tmux", session_name=session_name),
+            terminal=RegistryTerminalV2(
+                kind="tmux",
+                current_session_name=session_name,
+                last_session_name=session_name,
+            ),
             gateway=None,
-            mailbox=None,
+            mailboxes=RegistryMailboxesV1.model_validate(
+                safe_registry_mailboxes_projection(launch_plan.mailboxes)
+            ),
+            canonical_mail_identity=launch_plan.mailboxes.canonical_mail_identity,
         )
     )
     return manifest_path, session_root, canonical_agent_name, agent_id
@@ -734,7 +771,7 @@ def materialize_headless_launch_request(
             source_system_skill_policy=target.preset.launch_system_skill_policy,
             operator_prompt_mode=target.preset.operator_prompt_mode,
             persistent_env_records=target.preset.launch_env_records,
-            mailbox=target.preset.mailbox,
+            mailboxes=target.preset.mailboxes,
             extra=target.preset.extra,
         )
     )

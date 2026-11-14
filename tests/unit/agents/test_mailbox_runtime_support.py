@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,6 +9,8 @@ import pytest
 
 from houmao.agents.mailbox_runtime_models import (
     FilesystemMailboxResolvedConfig,
+    MailboxesResolvedConfig,
+    MailboxSlotConfig,
     StalwartMailboxResolvedConfig,
 )
 from houmao.agents.mailbox_runtime_support import (
@@ -36,22 +39,32 @@ from houmao.agents.realm_controller.manifest import (
 )
 from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
 from houmao.agents.realm_controller.registry_models import (
-    LiveAgentRegistryRecordV2,
+    ManagedAgentRegistryRecordV3,
+    RegistryMailboxesV1,
+    RegistryMailboxSlotV1,
+    RegistryLivenessV1,
+    RegistryLifecycleV1,
     RegistryGatewayV1,
     RegistryIdentityV1,
     RegistryRuntimeV1,
-    RegistryTerminalV1,
+    RegistryTerminalV2,
 )
 from houmao.agents.realm_controller.registry_storage import publish_live_agent_record
 from houmao.mailbox.managed import RegisterMailboxRequest, register_mailbox
-from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
+from houmao.mailbox import (
+    MailboxPrincipal,
+    bootstrap_filesystem_mailbox,
+    load_active_mailbox_registration,
+)
 
 
 def _build_filesystem_mailbox(tmp_path: Path) -> FilesystemMailboxResolvedConfig:
     mailbox_root = tmp_path / "mailbox"
     durable_mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
-        principal_id="HOUMAO-research",
+        principal_id=derive_agent_id_from_name("gpu"),
+        agent_id=derive_agent_id_from_name("gpu"),
+        binding_id="initial-binding",
         address="HOUMAO-research@agents.localhost",
         filesystem_root=mailbox_root.resolve(),
         bindings_version="2026-03-26T18:10:00.000001Z",
@@ -63,7 +76,9 @@ def _build_filesystem_mailbox(tmp_path: Path) -> FilesystemMailboxResolvedConfig
             address=durable_mailbox.address,
         ),
     )
-    return durable_mailbox
+    registration = load_active_mailbox_registration(mailbox_root, address=durable_mailbox.address)
+    assert registration is not None
+    return replace(durable_mailbox, binding_id=registration.registration_id)
 
 
 def _build_symlink_filesystem_mailbox(tmp_path: Path) -> FilesystemMailboxResolvedConfig:
@@ -71,7 +86,9 @@ def _build_symlink_filesystem_mailbox(tmp_path: Path) -> FilesystemMailboxResolv
     private_mailbox = (tmp_path / "private-mailboxes" / "HOUMAO-research").resolve()
     durable_mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
-        principal_id="HOUMAO-research",
+        principal_id=derive_agent_id_from_name("gpu"),
+        agent_id=derive_agent_id_from_name("gpu"),
+        binding_id="initial-binding",
         address="HOUMAO-research@agents.localhost",
         filesystem_root=mailbox_root.resolve(),
         bindings_version="2026-03-26T18:10:00.000001Z",
@@ -89,7 +106,9 @@ def _build_symlink_filesystem_mailbox(tmp_path: Path) -> FilesystemMailboxResolv
             mailbox_path=private_mailbox,
         ),
     )
-    return durable_mailbox
+    registration = load_active_mailbox_registration(mailbox_root, address=durable_mailbox.address)
+    assert registration is not None
+    return replace(durable_mailbox, binding_id=registration.registration_id)
 
 
 def _seed_manifest_with_mailbox(
@@ -114,7 +133,9 @@ def _seed_manifest_with_mailbox(
             prompt="Role prompt",
         ),
         metadata={},
-        mailbox=mailbox,
+        mailboxes=MailboxesResolvedConfig(
+            offline=MailboxSlotConfig(revision=mailbox.bindings_version, binding=mailbox)
+        ),
     )
     manifest_path = default_manifest_path(tmp_path, "claude_headless", "claude-headless-1")
     payload = build_session_manifest_payload(
@@ -226,6 +247,8 @@ def test_resolve_live_mailbox_binding_rejects_missing_active_registration(tmp_pa
     unregistered_mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
         principal_id=durable_mailbox.principal_id,
+        agent_id=durable_mailbox.agent_id,
+        binding_id="missing-binding",
         address="HOUMAO-missing@agents.localhost",
         filesystem_root=durable_mailbox.filesystem_root,
         bindings_version=durable_mailbox.bindings_version,
@@ -240,14 +263,18 @@ def test_publish_tmux_live_mailbox_projection_refreshes_current_bindings(tmp_pat
     new_root = tmp_path / "mail-new"
     previous_mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
-        principal_id="HOUMAO-research",
+        principal_id=derive_agent_id_from_name("gpu"),
+        agent_id=derive_agent_id_from_name("gpu"),
+        binding_id="initial-binding",
         address="HOUMAO-research@agents.localhost",
         filesystem_root=old_root.resolve(),
         bindings_version="2026-03-26T18:10:00.000001Z",
     )
     mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
-        principal_id="HOUMAO-research",
+        principal_id=derive_agent_id_from_name("gpu"),
+        agent_id=derive_agent_id_from_name("gpu"),
+        binding_id="initial-binding",
         address="HOUMAO-research@agents.localhost",
         filesystem_root=new_root.resolve(),
         bindings_version="2026-03-26T18:20:00.000001Z",
@@ -284,7 +311,9 @@ def test_publish_tmux_live_mailbox_projection_clears_stale_transport_vars(tmp_pa
     credential_file.write_text('{"password":"secret"}\n', encoding="utf-8")
     previous_mailbox = StalwartMailboxResolvedConfig(
         transport="stalwart",
-        principal_id="HOUMAO-research",
+        principal_id=derive_agent_id_from_name("gpu"),
+        agent_id=derive_agent_id_from_name("gpu"),
+        binding_id="initial-binding",
         address="HOUMAO-research@agents.localhost",
         jmap_url="http://stalwart.local/jmap",
         management_url="http://stalwart.local/api",
@@ -344,14 +373,13 @@ def test_resolve_live_mailbox_binding_from_manifest_path_uses_manifest_binding_a
     payload = resolution.payload()
 
     assert resolution.source == "manifest_binding"
-    assert resolution.mailbox == mailbox
+    assert resolution.mailboxes.offline.binding == mailbox
     assert resolution.gateway is not None
     assert resolution.gateway.source == "current_instance_record"
     assert resolution.gateway.base_url == "http://127.0.0.1:43123"
     assert resolution.gateway.state_path == state_path.resolve()
-    assert payload["mailbox"]["filesystem"]["inbox_path"].endswith(
-        "HOUMAO-research@agents.localhost/inbox"
-    )
+    assert payload["mailboxes"]["offline"]["binding"]["address"] == mailbox.address
+    assert payload["mailboxes"]["online"]["binding"] is None
     assert endpoint_log == ["http://127.0.0.1:43123"]
 
 
@@ -364,19 +392,31 @@ def test_resolve_live_mailbox_binding_from_agent_identity_uses_registry_manifest
     registry_root = tmp_path / "registry"
     published_at = datetime.now(UTC)
     publish_live_agent_record(
-        LiveAgentRegistryRecordV2(
+        ManagedAgentRegistryRecordV3(
             agent_name="gpu",
             agent_id=derive_agent_id_from_name("gpu"),
             generation_id="gen-1",
-            published_at=published_at.isoformat().replace("+00:00", "Z"),
-            lease_expires_at=(published_at + timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
+            lifecycle=RegistryLifecycleV1(
+                state="active", relaunchable=True, state_updated_at=published_at.isoformat()
+            ),
+            liveness=RegistryLivenessV1(
+                published_at=published_at.isoformat(),
+                lease_expires_at=(published_at + timedelta(hours=1)).isoformat(),
+            ),
+            mailboxes=RegistryMailboxesV1(
+                offline=RegistryMailboxSlotV1(revision="offline-empty", binding=None),
+                online=RegistryMailboxSlotV1(revision="online-empty", binding=None),
+            ),
+            canonical_mail_identity=None,
             identity=RegistryIdentityV1(backend="claude_headless", tool="claude"),
             runtime=RegistryRuntimeV1(
                 manifest_path=str(manifest_path),
                 session_root=str(manifest_path.parent),
                 agent_def_dir=str(tmp_path / "repo"),
             ),
-            terminal=RegistryTerminalV1(session_name="HOUMAO-gpu"),
+            terminal=RegistryTerminalV2(
+                current_session_name="HOUMAO-gpu", last_session_name="HOUMAO-gpu"
+            ),
             gateway=RegistryGatewayV1(
                 host="127.0.0.1",
                 port=49999,
@@ -398,7 +438,7 @@ def test_resolve_live_mailbox_binding_from_agent_identity_uses_registry_manifest
     )
 
     assert resolution.source == "manifest_binding"
-    assert resolution.mailbox == mailbox
+    assert resolution.mailboxes.offline.binding == mailbox
     assert resolution.gateway is not None
     assert resolution.gateway.source == "current_instance_record"
     assert resolution.gateway.base_url == "http://127.0.0.1:43124"

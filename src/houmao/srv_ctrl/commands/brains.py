@@ -13,6 +13,7 @@ from houmao.agents.brain_builder import (
     load_launch_overrides_input,
 )
 from houmao.agents.definition_parser import resolve_explicit_or_named_preset_path
+from houmao.agents.realm_controller.agent_identity import AgentIdMode
 from houmao.owned_paths import resolve_runtime_root
 from houmao.project.overlay import (
     ensure_project_aware_local_roots,
@@ -82,6 +83,12 @@ def _missing_skill_input(*, explicit_skills: tuple[str, ...], preset_selected: b
     default=None,
     help="Optional stable agent id embedded into the generated manifest.",
 )
+@click.option(
+    "--agent-id-mode",
+    type=click.Choice(["uuid", "name-hash"]),
+    default=None,
+    help="ID generation mode (default: uuid for named agents); omit identity inputs for a template.",
+)
 def build_brain_command(
     agent_def_dir: str | None,
     tool: str | None,
@@ -95,6 +102,7 @@ def build_brain_command(
     launch_overrides: str | None,
     agent_name: str | None,
     agent_id: str | None,
+    agent_id_mode: AgentIdMode | None,
 ) -> None:
     """Build one local brain home from `BuildRequest`-aligned inputs."""
 
@@ -165,10 +173,11 @@ def build_brain_command(
                     else None
                 ),
                 runtime_root=resolved_runtime_root,
-                mailbox=preset_payload.mailbox if preset_payload is not None else None,
+                mailboxes=preset_payload.mailboxes if preset_payload is not None else None,
                 extra=preset_payload.extra if preset_payload is not None else None,
                 agent_name=agent_name,
                 agent_id=agent_id,
+                agent_id_mode=agent_id_mode,
                 home_id=home_id,
                 reuse_home=reuse_home,
                 launch_overrides=direct_launch_overrides,
@@ -246,6 +255,12 @@ def build_brain_command(
     default=None,
     help="Optional stable agent id embedded into the generated manifest.",
 )
+@click.option(
+    "--agent-id-mode",
+    type=click.Choice(["uuid", "name-hash"]),
+    default=None,
+    help="ID generation mode (default: uuid for named agents); omit identity inputs for a template.",
+)
 def build_native_agent_brain_command(
     native_agent_root: Path | None,
     tool: str | None,
@@ -259,6 +274,7 @@ def build_native_agent_brain_command(
     launch_overrides: str | None,
     agent_name: str | None,
     agent_id: str | None,
+    agent_id_mode: AgentIdMode | None,
 ) -> None:
     """Build one local brain home from internal native-agent material."""
 
@@ -334,10 +350,11 @@ def build_native_agent_brain_command(
                     else None
                 ),
                 runtime_root=resolved_runtime_root,
-                mailbox=preset_payload.mailbox if preset_payload is not None else None,
+                mailboxes=preset_payload.mailboxes if preset_payload is not None else None,
                 extra=preset_payload.extra if preset_payload is not None else None,
                 agent_name=agent_name,
                 agent_id=agent_id,
+                agent_id_mode=agent_id_mode,
                 home_id=home_id,
                 reuse_home=reuse_home,
                 launch_overrides=direct_launch_overrides,

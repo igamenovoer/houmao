@@ -5,11 +5,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from houmao.agents.realm_controller.gateway_models import GatewayChatSessionSelectorV1
 from houmao.server.models import (
-    HoumaoHeadlessLaunchMailboxOptions,
+    HoumaoHeadlessLaunchMailboxesOptions,
     HoumaoHeadlessTurnEvent,
     HoumaoObservationChannel,
     HoumaoParsedSurface,
@@ -220,9 +220,18 @@ class PassiveHeadlessLaunchRequest(_PassiveModel):
     role_name: str | None = None
     agent_name: str | None = None
     agent_id: str | None = None
+    agent_id_mode: Literal["uuid", "name-hash"] | None = None
     headless_display_style: Literal["plain", "json", "fancy"] | None = None
     headless_display_detail: Literal["concise", "detail"] | None = None
-    mailbox: HoumaoHeadlessLaunchMailboxOptions | None = None
+    mailboxes: HoumaoHeadlessLaunchMailboxesOptions | None = None
+
+    @model_validator(mode="after")
+    def _identity_selection(self) -> PassiveHeadlessLaunchRequest:
+        """Reject ambiguous identity inputs before starting a body."""
+
+        if self.agent_id is not None and self.agent_id_mode is not None:
+            raise ValueError("agent_id and explicit agent_id_mode cannot be combined")
+        return self
 
     @field_validator(
         "tool",

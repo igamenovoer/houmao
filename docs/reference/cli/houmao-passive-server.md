@@ -49,6 +49,18 @@ HOUMAO_GLOBAL_REGISTRY_DIR=/tmp/houmao-registry \
 houmao-passive-server serve
 ```
 
+### `offline-registry`
+
+Start the separate authenticated offline membership, mail, and attachment service on the host that owns the filesystem store:
+
+```bash
+houmao-passive-server offline-registry \
+  --config "$HOME/.local/state/houmao/offline-registry/service.json" \
+  --host 127.0.0.1 --port 9892
+```
+
+`--config` is required and selects an owner-private configuration file. The listener defaults to `127.0.0.1:9892`. The configuration selects `registry_root`, `mailbox_root`, `admin_credential_file`, and `public_url`; see [Offline Registry Setup and Remote Access](../mailbox/operations/offline-registry.md) for initialization and private credential preparation. This service mode exposes no agent body lifecycle, gateway control, or shutdown routes. Remote agents use its configured API endpoint rather than mounting the host's store. Keep this configuration and all credentials outside the checkout.
+
 ## Root Resolution
 
 Passive-server runtime state and shared-registry state are separate roots.
@@ -144,9 +156,9 @@ Gateway routes proxy to the agent-owned gateway when one is attached. Gateway at
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/houmao/agents/{agent_ref}/gateway/mail-notifier` | Mail-notifier status. |
-| `PUT` | `/houmao/agents/{agent_ref}/gateway/mail-notifier` | Enable or reconfigure the mail notifier. |
-| `DELETE` | `/houmao/agents/{agent_ref}/gateway/mail-notifier` | Disable the mail notifier. |
+| `GET` | `/houmao/agents/{agent_ref}/gateway/mail-notifier/{channel}` | Mail-notifier status. |
+| `PUT` | `/houmao/agents/{agent_ref}/gateway/mail-notifier/{channel}` | Enable or reconfigure the mail notifier. |
+| `DELETE` | `/houmao/agents/{agent_ref}/gateway/mail-notifier/{channel}` | Disable the mail notifier. |
 | `GET` | `/houmao/agents/{agent_ref}/gateway/reminders` | List gateway reminders. |
 | `POST` | `/houmao/agents/{agent_ref}/gateway/reminders` | Create reminders. |
 | `GET` | `/houmao/agents/{agent_ref}/gateway/reminders/{reminder_id}` | Read one reminder. |
@@ -155,20 +167,20 @@ Gateway routes proxy to the agent-owned gateway when one is attached. Gateway at
 
 ### Mail Proxy
 
-Mail routes proxy through the agent gateway.
+Mail lifecycle routes preserve the explicit channel and schema version 2 `expected_binding_id` while proxying through the agent gateway. Summary status reports both configured slots and canonical identity. Binding/scope conflicts are forwarded unchanged; the proxy never retries another channel or account. Remote offline membership and storage access use the separate registry-only service rather than requiring a recipient gateway.
 
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/houmao/agents/{agent_ref}/mail/status` | Mailbox status. |
-| `POST` | `/houmao/agents/{agent_ref}/mail/list` | List mailbox messages. |
-| `POST` | `/houmao/agents/{agent_ref}/mail/peek` | Peek at one message. |
-| `POST` | `/houmao/agents/{agent_ref}/mail/read` | Read one message. |
-| `POST` | `/houmao/agents/{agent_ref}/mail/send` | Send a message. |
-| `POST` | `/houmao/agents/{agent_ref}/mail/post` | Post an operator-origin message. |
-| `POST` | `/houmao/agents/{agent_ref}/mail/reply` | Reply to a message. |
-| `POST` | `/houmao/agents/{agent_ref}/mail/mark` | Mark messages. |
-| `POST` | `/houmao/agents/{agent_ref}/mail/move` | Move messages. |
-| `POST` | `/houmao/agents/{agent_ref}/mail/archive` | Archive messages. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/{channel}/list` | List mailbox messages. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/{channel}/peek` | Peek at one message. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/{channel}/read` | Read one message. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/{channel}/send` | Send a message. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/{channel}/post` | Post an operator-origin message. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/{channel}/reply` | Reply to a message. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/{channel}/mark` | Mark messages. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/{channel}/move` | Move messages. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/{channel}/archive` | Archive messages. |
 
 ### Managed-Agent Requests
 
@@ -200,7 +212,7 @@ houmao-mgr agents global list --port 9891
 houmao-mgr agents single --agent-name <name> state --port 9891
 houmao-mgr agents single --agent-name <name> prompt --port 9891 --prompt "Summarize your status."
 houmao-mgr agents single --agent-name <name> gateway status --port 9891
-houmao-mgr agents single --agent-name <name> mail list --port 9891 --read-state unread
+houmao-mgr agents single --agent-name <name> mail list --channel offline --port 9891 --read-state unread
 houmao-mgr agents single --agent-name <name> turn submit --port 9891 --prompt "Run the next step."
 ```
 

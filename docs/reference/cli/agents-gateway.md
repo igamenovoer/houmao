@@ -309,7 +309,7 @@ houmao-mgr agents single --agent-id <id> gateway tui note-prompt [OPTIONS]
 
 ### `mail-notifier`
 
-Gateway mail-notifier lifecycle and inspection commands. The mail-notifier is a background polling loop within the gateway that periodically checks the agent's mailbox for open inbox work and injects notification prompts through the gateway's request queue. It can also run opt-in context handling before a notification prompt is enqueued.
+Gateway mail-notifier lifecycle and inspection commands require `--channel offline|online`. Each channel has independent configuration, appendix, scheduling, and binding-scoped compaction state. Unchanged eligible mail continues periodic reminders. Canonical mail identity does not select or reset notifier state. The mail-notifier is a background polling loop within the gateway that periodically checks the agent's mailbox for open inbox work and injects notification prompts through the gateway's request queue. It can also run opt-in context handling before a notification prompt is enqueued.
 
 ```
 houmao-mgr agents single --agent-id <id> gateway mail-notifier [OPTIONS] COMMAND [ARGS]...
@@ -326,7 +326,7 @@ houmao-mgr agents single --agent-id <id> gateway mail-notifier [OPTIONS] COMMAND
 Show the current mail-notifier status for one managed agent, including whether the notifier is enabled, the configured polling interval, effective mode, effective appendix text, effective context policies, and last-check metadata.
 
 ```
-houmao-mgr agents single --agent-id <id> gateway mail-notifier status [OPTIONS]
+houmao-mgr agents single --agent-id <id> gateway mail-notifier status --channel <offline|online> [OPTIONS]
 ```
 
 | Option | Description |
@@ -338,7 +338,7 @@ houmao-mgr agents single --agent-id <id> gateway mail-notifier status [OPTIONS]
 Enable or reconfigure the gateway mail-notifier for one managed agent. When enabled, the gateway polls the agent's mailbox at the specified interval and submits notification prompts for mail that matches the selected mode. The default `any_inbox` mode notifies for any unarchived inbox mail, including read or answered mail. The opt-in `unread_only` mode notifies only for unread unarchived inbox mail. `--appendix-text` replaces the runtime appendix appended to future notifier prompts; omit it to preserve the current appendix, or pass an empty value to clear it. `--context-error-policy` defaults to `continue_current`, so degraded context remains diagnostic and does not force reset. `--context-error-policy clear_context` is opt-in and clears context only when the live degraded diagnostic is recognized for the owning CLI tool. `--pre-notification-context-action compact` runs a supported compaction action before each notification prompt; v1 supports Codex TUI through `/compact` and rejects unsupported tool/backend combinations.
 
 ```
-houmao-mgr agents single --agent-id <id> gateway mail-notifier enable [OPTIONS]
+houmao-mgr agents single --agent-id <id> gateway mail-notifier enable --channel <offline|online> [OPTIONS]
 ```
 
 | Option | Description |
@@ -355,7 +355,7 @@ houmao-mgr agents single --agent-id <id> gateway mail-notifier enable [OPTIONS]
 Disable the gateway mail-notifier for one managed agent. The notifier stops polling and no further notification prompts are submitted until re-enabled. Disabling does not clear stored appendix text.
 
 ```
-houmao-mgr agents single --agent-id <id> gateway mail-notifier disable [OPTIONS]
+houmao-mgr agents single --agent-id <id> gateway mail-notifier disable --channel <offline|online> [OPTIONS]
 ```
 
 | Option | Description |

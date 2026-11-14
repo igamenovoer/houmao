@@ -858,7 +858,7 @@ def test_mailbox_export_command_validates_scope_and_writes_archive(
     assert preserve_payload["preserved_symlinks"]
 
 
-def test_mailbox_register_prompts_before_overwriting_active_registration(
+def test_mailbox_register_rejects_conflict_even_with_interactive_yes(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -905,12 +905,12 @@ def test_mailbox_register_prompts_before_overwriting_active_registration(
         input="y\n",
     )
 
-    assert result.exit_code == 0, result.output
+    assert result.exit_code != 0
     registration = load_active_mailbox_registration(mailbox_root, address=address)
-    assert registration.owner_principal_id == "HOUMAO-bob"
+    assert registration.owner_principal_id == "HOUMAO-alice"
 
 
-def test_mailbox_register_decline_keeps_existing_registration(
+def test_mailbox_register_conflict_keeps_existing_registration(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -958,12 +958,12 @@ def test_mailbox_register_decline_keeps_existing_registration(
     )
 
     assert result.exit_code != 0
-    assert "Mailbox registration cancelled" in result.output
+    assert "address conflict" in result.output
     registration = load_active_mailbox_registration(mailbox_root, address=address)
     assert registration.owner_principal_id == "HOUMAO-alice"
 
 
-def test_mailbox_register_noninteractive_conflict_requires_yes(
+def test_mailbox_register_noninteractive_conflict_is_final(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1010,12 +1010,12 @@ def test_mailbox_register_noninteractive_conflict_requires_yes(
     )
 
     assert result.exit_code != 0
-    assert "Rerun with `--yes`" in result.output
+    assert "address conflict" in result.output
     registration = load_active_mailbox_registration(mailbox_root, address=address)
     assert registration.owner_principal_id == "HOUMAO-alice"
 
 
-def test_mailbox_register_yes_overwrites_without_tty(
+def test_mailbox_register_rejects_removed_yes_flag(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1062,12 +1062,12 @@ def test_mailbox_register_yes_overwrites_without_tty(
         ],
     )
 
-    assert result.exit_code == 0, result.output
+    assert result.exit_code != 0
     registration = load_active_mailbox_registration(mailbox_root, address=address)
-    assert registration.owner_principal_id == "HOUMAO-bob"
+    assert registration.owner_principal_id == "HOUMAO-alice"
 
 
-def test_project_mailbox_register_prompts_before_overwrite(
+def test_project_mailbox_register_rejects_interactive_takeover(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1108,9 +1108,9 @@ def test_project_mailbox_register_prompts_before_overwrite(
         input="y\n",
     )
 
-    assert result.exit_code == 0, result.output
+    assert result.exit_code != 0
     registration = load_active_mailbox_registration(mailbox_root, address=address)
-    assert registration.owner_principal_id == "HOUMAO-bob"
+    assert registration.owner_principal_id == "HOUMAO-alice"
 
 
 def test_project_mailbox_uses_env_selected_overlay_root(
@@ -1270,7 +1270,15 @@ def test_project_mailbox_messages_clear_uses_selected_overlay_and_preserves_othe
 
     assert (
         runner.invoke(
-            cli, ["mailbox", "init", "--mailbox-root", str(global_mailbox_root)]
+            cli,
+            [
+                "mailbox",
+                "init",
+                "--mailbox-root",
+                str(global_mailbox_root),
+                "--registry-root",
+                str(tmp_path / "global-registry"),
+            ],
         ).exit_code
         == 0
     )
@@ -1301,6 +1309,8 @@ def test_project_mailbox_messages_clear_uses_selected_overlay_and_preserves_othe
                     "register",
                     "--mailbox-root",
                     str(global_mailbox_root),
+                    "--registry-root",
+                    str(tmp_path / "global-registry"),
                     "--address",
                     address,
                     "--principal-id",
@@ -1444,7 +1454,14 @@ def test_project_mailbox_export_uses_selected_overlay_and_ignores_global_root(
     assert (
         runner.invoke(
             cli,
-            ["mailbox", "init", "--mailbox-root", str(global_mailbox_root)],
+            [
+                "mailbox",
+                "init",
+                "--mailbox-root",
+                str(global_mailbox_root),
+                "--registry-root",
+                str(tmp_path / "global-registry"),
+            ],
         ).exit_code
         == 0
     )
@@ -1523,7 +1540,7 @@ def test_project_mailbox_export_uses_selected_overlay_and_ignores_global_root(
     assert all_accounts_payload["account_count"] >= 2
 
 
-def test_project_mailbox_register_yes_overwrites_without_tty(
+def test_project_mailbox_register_rejects_removed_yes_flag(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1564,6 +1581,6 @@ def test_project_mailbox_register_yes_overwrites_without_tty(
         ],
     )
 
-    assert result.exit_code == 0, result.output
+    assert result.exit_code != 0
     registration = load_active_mailbox_registration(mailbox_root, address=address)
-    assert registration.owner_principal_id == "HOUMAO-bob"
+    assert registration.owner_principal_id == "HOUMAO-alice"

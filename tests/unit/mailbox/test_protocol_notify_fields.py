@@ -41,8 +41,8 @@ def _base_payload(**overrides: object) -> dict[str, object]:
     return payload
 
 
-def test_protocol_version_is_three() -> None:
-    assert MAILBOX_PROTOCOL_VERSION == 3
+def test_protocol_version_is_four() -> None:
+    assert MAILBOX_PROTOCOL_VERSION == 4
 
 
 def test_notify_block_default_placement_is_append() -> None:
@@ -149,20 +149,20 @@ def test_message_rejects_unsupported_notify_auth_scheme_at_envelope_construction
 def test_legacy_v1_envelope_is_rejected_at_validation() -> None:
     payload = _base_payload(protocol_version=1)
 
-    with pytest.raises(ValueError, match="must be 3"):
+    with pytest.raises(ValueError, match="must be 4"):
         MailboxMessage.compose(payload)
 
 
 def test_v2_envelope_is_rejected_at_validation() -> None:
     payload = _base_payload(protocol_version=2)
 
-    with pytest.raises(ValueError, match="must be 3"):
+    with pytest.raises(ValueError, match="must be 4"):
         MailboxMessage.compose(payload)
 
 
-def test_v3_envelope_without_notify_fields_remains_valid() -> None:
-    message = MailboxMessage.compose(_base_payload(protocol_version=3))
+def test_current_envelope_without_notify_fields_remains_valid() -> None:
+    message = MailboxMessage.compose(_base_payload(protocol_version=MAILBOX_PROTOCOL_VERSION))
 
-    assert message.protocol_version == 3
+    assert message.protocol_version == MAILBOX_PROTOCOL_VERSION
     assert message.notify_block is None
     assert message.notify_auth is None

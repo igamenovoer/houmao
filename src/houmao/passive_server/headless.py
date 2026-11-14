@@ -44,6 +44,7 @@ from houmao.agents.realm_controller.registry_storage import (
     publish_live_agent_record,
     remove_live_agent_record,
 )
+from houmao.agents.mailbox_runtime_support import parse_declarative_mailboxes_config
 from houmao.agents.realm_controller.runtime import (
     RuntimeSessionController,
     resume_runtime_session,
@@ -240,27 +241,13 @@ class HeadlessAgentService:
             resolved_backend,
         )
 
-        mailbox_transport: str | None = None
-        mailbox_root: Path | None = None
-        mailbox_principal_id: str | None = None
-        mailbox_address: str | None = None
-        mailbox_stalwart_base_url: str | None = None
-        mailbox_stalwart_jmap_url: str | None = None
-        mailbox_stalwart_management_url: str | None = None
-        mailbox_stalwart_login_identity: str | None = None
-        if request.mailbox is not None:
-            mailbox_transport = request.mailbox.transport
-            mailbox_root = (
-                Path(request.mailbox.filesystem_root).expanduser().resolve()
-                if request.mailbox.filesystem_root
-                else None
+        declared_mailboxes = (
+            parse_declarative_mailboxes_config(
+                request.mailboxes.model_dump(mode="json"), source="headless launch mailboxes"
             )
-            mailbox_principal_id = request.mailbox.principal_id
-            mailbox_address = request.mailbox.address
-            mailbox_stalwart_base_url = request.mailbox.stalwart_base_url
-            mailbox_stalwart_jmap_url = request.mailbox.stalwart_jmap_url
-            mailbox_stalwart_management_url = request.mailbox.stalwart_management_url
-            mailbox_stalwart_login_identity = request.mailbox.stalwart_login_identity
+            if request.mailboxes is not None
+            else None
+        )
 
         tracked_agent_id = uuid.uuid4().hex[:12]
         now_utc = datetime.now(UTC).isoformat(timespec="seconds")
@@ -274,15 +261,9 @@ class HeadlessAgentService:
                 working_directory=working_dir,
                 api_base_url=self.m_config.api_base_url,
                 agent_name=request.agent_name,
-                agent_id=request.agent_id or tracked_agent_id,
-                mailbox_transport=mailbox_transport,
-                mailbox_root=mailbox_root,
-                mailbox_principal_id=mailbox_principal_id,
-                mailbox_address=mailbox_address,
-                mailbox_stalwart_base_url=mailbox_stalwart_base_url,
-                mailbox_stalwart_jmap_url=mailbox_stalwart_jmap_url,
-                mailbox_stalwart_management_url=mailbox_stalwart_management_url,
-                mailbox_stalwart_login_identity=mailbox_stalwart_login_identity,
+                agent_id=request.agent_id,
+                agent_id_mode=request.agent_id_mode,
+                mailboxes=declared_mailboxes,
                 headless_display_style=request.headless_display_style,
                 headless_display_detail=request.headless_display_detail,
                 registry_launch_authority="external",

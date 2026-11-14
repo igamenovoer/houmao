@@ -380,7 +380,7 @@ class _AppServiceDouble:
                 "last_turn_returncode": None,
                 "last_turn_history_summary": None,
                 "last_turn_error": None,
-                "mailbox": None,
+                "mailboxes": None,
                 "gateway": None,
                 "diagnostics": [],
             },
@@ -622,7 +622,10 @@ class _AppServiceDouble:
     def get_managed_agent_gateway_mail_notifier(
         self,
         agent_ref: str,
+        *,
+        channel: str,
     ) -> GatewayMailNotifierStatusV1:
+        assert channel == "offline"
         self.m_gateway_notifier_get_calls.append(agent_ref)
         return GatewayMailNotifierStatusV1(
             enabled=False,
@@ -639,7 +642,10 @@ class _AppServiceDouble:
         self,
         agent_ref: str,
         request_model: GatewayMailNotifierPutV1,
+        *,
+        channel: str,
     ) -> GatewayMailNotifierStatusV1:
+        assert channel == "offline"
         self.m_gateway_notifier_put_calls.append((agent_ref, request_model))
         return GatewayMailNotifierStatusV1(
             enabled=True,
@@ -656,7 +662,10 @@ class _AppServiceDouble:
     def delete_managed_agent_gateway_mail_notifier(
         self,
         agent_ref: str,
+        *,
+        channel: str,
     ) -> GatewayMailNotifierStatusV1:
+        assert channel == "offline"
         self.m_gateway_notifier_delete_calls.append(agent_ref)
         return GatewayMailNotifierStatusV1(
             enabled=False,
@@ -754,17 +763,27 @@ class _AppServiceDouble:
     def managed_agent_mail_status(self, agent_ref: str) -> HoumaoManagedAgentMailStatusResponse:
         self.m_mail_status_calls.append(agent_ref)
         return HoumaoManagedAgentMailStatusResponse(
-            transport="filesystem",
-            principal_id="agent-1234",
-            address="agent@agents.localhost",
-            bindings_version="v1",
+            agent_id="agent-1234",
+            offline={
+                "agent_id": "agent-1234",
+                "channel": "offline",
+                "binding_id": "binding-offline",
+                "revision": "v1",
+                "address": "agent@agents.localhost",
+                "transport": "filesystem",
+                "available": True,
+            },
+            canonical_mail_identity={"channel": "offline", "address": "agent@agents.localhost"},
         )
 
     def list_managed_agent_mail(
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailListRequest,
+        *,
+        channel: str,
     ) -> HoumaoManagedAgentMailListResponse:
+        assert channel == "offline"
         self.m_mail_list_calls.append((agent_ref, request_model))
         return HoumaoManagedAgentMailListResponse(
             transport="filesystem",
@@ -775,13 +794,19 @@ class _AppServiceDouble:
             open_count=0,
             unread_count=0,
             messages=[],
+            next_cursor=None,
+            has_more=False,
+            complete=True,
         )
 
     def send_managed_agent_mail(
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailSendRequest,
+        *,
+        channel: str,
     ) -> HoumaoManagedAgentMailActionResponse:
+        assert channel == "offline"
         self.m_mail_send_calls.append((agent_ref, request_model))
         return HoumaoManagedAgentMailActionResponse(
             operation="send",
@@ -808,7 +833,10 @@ class _AppServiceDouble:
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailReplyRequest,
+        *,
+        channel: str,
     ) -> HoumaoManagedAgentMailActionResponse:
+        assert channel == "offline"
         self.m_mail_reply_calls.append((agent_ref, request_model))
         return HoumaoManagedAgentMailActionResponse(
             operation="reply",
@@ -835,7 +863,10 @@ class _AppServiceDouble:
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailArchiveRequest,
+        *,
+        channel: str,
     ) -> HoumaoManagedAgentMailLifecycleResponse:
+        assert channel == "offline"
         self.m_mail_archive_calls.append((agent_ref, request_model))
         return HoumaoManagedAgentMailLifecycleResponse(
             operation="archive",
@@ -1341,17 +1372,17 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
         app=app,
     )
     gateway_notifier_get_route = _route(
-        "/houmao/agents/{agent_ref}/gateway/mail-notifier",
+        "/houmao/agents/{agent_ref}/gateway/mail-notifier/{channel}",
         "GET",
         app=app,
     )
     gateway_notifier_put_route = _route(
-        "/houmao/agents/{agent_ref}/gateway/mail-notifier",
+        "/houmao/agents/{agent_ref}/gateway/mail-notifier/{channel}",
         "PUT",
         app=app,
     )
     gateway_notifier_delete_route = _route(
-        "/houmao/agents/{agent_ref}/gateway/mail-notifier",
+        "/houmao/agents/{agent_ref}/gateway/mail-notifier/{channel}",
         "DELETE",
         app=app,
     )
@@ -1381,10 +1412,12 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
         app=app,
     )
     mail_status_route = _route("/houmao/agents/{agent_ref}/mail/status", "GET", app=app)
-    mail_list_route = _route("/houmao/agents/{agent_ref}/mail/list", "POST", app=app)
-    mail_send_route = _route("/houmao/agents/{agent_ref}/mail/send", "POST", app=app)
-    mail_reply_route = _route("/houmao/agents/{agent_ref}/mail/reply", "POST", app=app)
-    mail_archive_route = _route("/houmao/agents/{agent_ref}/mail/archive", "POST", app=app)
+    mail_list_route = _route("/houmao/agents/{agent_ref}/mail/{channel}/list", "POST", app=app)
+    mail_send_route = _route("/houmao/agents/{agent_ref}/mail/{channel}/send", "POST", app=app)
+    mail_reply_route = _route("/houmao/agents/{agent_ref}/mail/{channel}/reply", "POST", app=app)
+    mail_archive_route = _route(
+        "/houmao/agents/{agent_ref}/mail/{channel}/archive", "POST", app=app
+    )
 
     assert list_route.endpoint().agents[0].tracked_agent_id == "claude-headless-1"
     assert get_route.endpoint(agent_ref="claude-headless-1").transport == "headless"
@@ -1491,7 +1524,9 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
         request_model=GatewayControlInputRequestV1(sequence="<[Escape]>"),
     )
     assert gateway_control_response.action == "control_input"
-    notifier_status = gateway_notifier_get_route.endpoint(agent_ref="claude-headless-1")
+    notifier_status = gateway_notifier_get_route.endpoint(
+        agent_ref="claude-headless-1", channel="offline"
+    )
     assert notifier_status.enabled is False
     assert notifier_status.mode == "any_inbox"
     notifier_enabled = gateway_notifier_put_route.endpoint(
@@ -1501,11 +1536,17 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
             mode="unread_only",
             appendix_text="Handle release-blocking mail first.",
         ),
+        channel="offline",
     )
     assert notifier_enabled.enabled is True
     assert notifier_enabled.mode == "unread_only"
     assert notifier_enabled.appendix_text == "Handle release-blocking mail first."
-    assert gateway_notifier_delete_route.endpoint(agent_ref="claude-headless-1").enabled is False
+    assert (
+        gateway_notifier_delete_route.endpoint(
+            agent_ref="claude-headless-1", channel="offline"
+        ).enabled
+        is False
+    )
     assert (
         gateway_reminders_list_route.endpoint(agent_ref="claude-headless-1").effective_reminder_id
         == "greminder-1"
@@ -1558,32 +1599,42 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
         ).deleted
         is True
     )
-    assert mail_status_route.endpoint(agent_ref="claude-headless-1").principal_id == "agent-1234"
+    assert mail_status_route.endpoint(agent_ref="claude-headless-1").agent_id == "agent-1234"
     mail_list_response = mail_list_route.endpoint(
         agent_ref="claude-headless-1",
-        request_model=HoumaoManagedAgentMailListRequest(read_state="unread", limit=5),
+        request_model=HoumaoManagedAgentMailListRequest(
+            expected_binding_id="binding-offline", read_state="unread", limit=5
+        ),
+        channel="offline",
     )
     assert mail_list_response.box == "inbox"
     mail_send_response = mail_send_route.endpoint(
         agent_ref="claude-headless-1",
         request_model=HoumaoManagedAgentMailSendRequest(
+            expected_binding_id="binding-offline",
             to=["peer@agents.localhost"],
             subject="status",
             body_content="hello",
         ),
+        channel="offline",
     )
     assert mail_send_response.operation == "send"
     mail_reply_response = mail_reply_route.endpoint(
         agent_ref="claude-headless-1",
         request_model=HoumaoManagedAgentMailReplyRequest(
+            expected_binding_id="binding-offline",
             message_ref="msg-123",
             body_content="reply",
         ),
+        channel="offline",
     )
     assert mail_reply_response.operation == "reply"
     mail_archive_response = mail_archive_route.endpoint(
         agent_ref="claude-headless-1",
-        request_model=HoumaoManagedAgentMailArchiveRequest(message_refs=["filesystem:msg-123"]),
+        request_model=HoumaoManagedAgentMailArchiveRequest(
+            expected_binding_id="binding-offline", message_refs=["filesystem:msg-123"]
+        ),
+        channel="offline",
     )
     assert mail_archive_response.operation == "archive"
     assert len(service.m_gateway_control_calls) == 1
@@ -1610,6 +1661,53 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     assert service.m_mail_archive_calls == [
         (
             "claude-headless-1",
-            HoumaoManagedAgentMailArchiveRequest(message_refs=["filesystem:msg-123"]),
+            HoumaoManagedAgentMailArchiveRequest(
+                expected_binding_id="binding-offline", message_refs=["filesystem:msg-123"]
+            ),
         )
     ]
+
+
+def test_server_mail_proxy_preserves_structured_stale_cursor_conflict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exercise the real server service error translation through its HTTP route."""
+    from types import SimpleNamespace
+    from houmao.agents.realm_controller.errors import GatewayHttpError
+    from houmao.server.config import HoumaoServerConfig
+    from houmao.server.service import HoumaoServerService
+
+    detail = {"code": "stale_mail_cursor", "message": "Query state changed; start a fresh page"}
+    observed = {}
+
+    def fail(request_model: HoumaoManagedAgentMailListRequest, *, channel: str) -> None:
+        """Capture exact forwarding and expose a typed gateway conflict."""
+        observed.update(cursor=request_model.cursor, channel=channel)
+        raise GatewayHttpError(
+            method="POST",
+            url="http://127.0.0.1:9901/v1/mail/online/list",
+            status_code=409,
+            detail=json.dumps(detail),
+        )
+
+    service = HoumaoServerService(config=HoumaoServerConfig(runtime_root=tmp_path))
+    monkeypatch.setattr(
+        service,
+        "_require_live_managed_mail_gateway_client",
+        lambda _: SimpleNamespace(list_mail=fail),
+    )
+    monkeypatch.setattr(service, "startup", lambda: None)
+    monkeypatch.setattr(service, "shutdown", lambda: None)
+    with TestClient(create_app(service=service)) as client:
+        response = client.post(
+            "/houmao/agents/owner-a/mail/online/list",
+            json={
+                "schema_version": 3,
+                "expected_binding_id": "binding-online",
+                "limit": 7,
+                "cursor": "opaque-cursor",
+            },
+        )
+    assert response.status_code == 409
+    assert response.json() == {"detail": detail}
+    assert observed == {"cursor": "opaque-cursor", "channel": "online"}

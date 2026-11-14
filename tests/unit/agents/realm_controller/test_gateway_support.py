@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from datetime import UTC, datetime, timedelta, tzinfo
 import json
 import sqlite3
@@ -125,6 +127,8 @@ if not hasattr(gateway_service_module, "HeadlessInteractiveSession"):
 from houmao.agents.realm_controller.backends.tmux_runtime import TmuxPaneRecord
 from houmao.cao.models import CaoSuccessResponse, CaoTerminal
 from houmao.cao.rest_client import CaoApiError
+from houmao.agents.mailbox_runtime_models import MailboxesResolvedConfig, MailboxSlotConfig
+from houmao.mailbox.scope import MailScope
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
 from houmao.mailbox.filesystem import resolve_active_mailbox_local_sqlite_path
 from houmao.mailbox.managed import (
@@ -145,10 +149,12 @@ from houmao.mailbox.protocol import (
     serialize_message_document,
 )
 from houmao.mailbox.stalwart import (
+    materialize_stalwart_session_credential,
     StalwartError,
     build_stalwart_credential_ref,
     runtime_stalwart_credential_path,
 )
+from houmao.mailbox.stalwart_models import JmapMetadataPage, JmapMetadataQuery
 from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
 from houmao.server.pair_client import PairAuthorityHealthProbe
 from houmao.server.models import (
@@ -250,6 +256,47 @@ def _wait_until(
     raise AssertionError("Timed out waiting for condition.")
 
 
+def _test_binding_id(tmp_path: Path, channel: str = "offline") -> str:
+    """Resolve an explicit test registration or stable online account scope."""
+
+    if channel == "online":
+        return "online-test"
+    database = tmp_path / "mailbox" / "index.sqlite"
+    if not database.exists():
+        return "absent-test-binding"
+    with sqlite3.connect(database) as connection:
+        row = connection.execute(
+            "SELECT registration_id FROM mailbox_registrations WHERE address = ? AND status = 'active'",
+            ("HOUMAO-gpu@agents.localhost",),
+        ).fetchone()
+    return str(row[0]) if row else "absent-test-binding"
+
+
+def _test_scope_key(tmp_path: Path, channel: str = "offline") -> str:
+    """Pin notifier state to this fixture's persisted owner and binding."""
+
+    return json.dumps(
+        [derive_agent_id_from_name("HOUMAO-gpu"), channel, _test_binding_id(tmp_path, channel)],
+        separators=(",", ":"),
+    )
+
+
+def _test_ref(tmp_path: Path, raw: str, channel: str = "offline", *, kind: str = "message") -> str:
+    """Encode a fixture's raw backend message handle in its public scope."""
+
+    return MailScope(
+        derive_agent_id_from_name("HOUMAO-gpu"), channel, _test_binding_id(tmp_path, channel)
+    ).encode(raw, kind=kind)
+
+
+def _test_raw_ref(tmp_path: Path, reference: str, channel: str = "offline") -> str:
+    """Decode public targeting when inspecting the private fixture index."""
+
+    return MailScope(
+        derive_agent_id_from_name("HOUMAO-gpu"), channel, _test_binding_id(tmp_path, channel)
+    ).decode(reference)
+
+
 def _sample_headless_plan(tmp_path: Path) -> LaunchPlan:
     return LaunchPlan(
         backend="claude_headless",
@@ -315,7 +362,7 @@ def _sample_cao_plan(tmp_path: Path, *, tool: str = "codex") -> LaunchPlan:
 
 def _sample_cao_plan_with_mailbox(tmp_path: Path, *, tool: str = "codex") -> LaunchPlan:
     mailbox_root = tmp_path / "mailbox"
-    principal_id = "HOUMAO-gpu"
+    principal_id = derive_agent_id_from_name("HOUMAO-gpu")
     address = "HOUMAO-gpu@agents.localhost"
     bootstrap_filesystem_mailbox(
         mailbox_root,
@@ -326,7 +373,9 @@ def _sample_cao_plan_with_mailbox(tmp_path: Path, *, tool: str = "codex") -> Lau
         principal_id=principal_id,
         address=address,
         filesystem_root=mailbox_root.resolve(),
-        bindings_version="2026-03-16T08:00:00.000001Z",
+        bindings_version="offline-test-revision",
+        agent_id=derive_agent_id_from_name("HOUMAO-gpu"),
+        binding_id=_test_binding_id(tmp_path),
     )
     executable = "claude" if tool == "claude" else "codex"
     home_env_var = "CLAUDE_CONFIG_DIR" if tool == "claude" else "CODEX_HOME"
@@ -346,12 +395,14 @@ def _sample_cao_plan_with_mailbox(tmp_path: Path, *, tool: str = "codex") -> Lau
             prompt="role prompt",
         ),
         metadata={},
-        mailbox=mailbox,
+        mailboxes=MailboxesResolvedConfig(
+            offline=MailboxSlotConfig(revision=mailbox.bindings_version, binding=mailbox)
+        ),
     )
 
 
 def _sample_cao_plan_with_stalwart_mailbox(tmp_path: Path) -> LaunchPlan:
-    principal_id = "HOUMAO-gpu"
+    principal_id = derive_agent_id_from_name("HOUMAO-gpu")
     address = "HOUMAO-gpu@agents.localhost"
     jmap_url = "http://stalwart.local/jmap"
     management_url = "http://stalwart.local/api"
@@ -363,7 +414,9 @@ def _sample_cao_plan_with_stalwart_mailbox(tmp_path: Path) -> LaunchPlan:
         management_url=management_url,
         login_identity=address,
         credential_ref=build_stalwart_credential_ref(address=address, jmap_url=jmap_url),
-        bindings_version="2026-03-19T08:00:00.000001Z",
+        bindings_version="online-test-revision",
+        agent_id=derive_agent_id_from_name("HOUMAO-gpu"),
+        binding_id="online-test",
         credential_file=None,
     )
     return LaunchPlan(
@@ -382,7 +435,9 @@ def _sample_cao_plan_with_stalwart_mailbox(tmp_path: Path) -> LaunchPlan:
             prompt="role prompt",
         ),
         metadata={},
-        mailbox=mailbox,
+        mailboxes=MailboxesResolvedConfig(
+            online=MailboxSlotConfig(revision=mailbox.bindings_version, binding=mailbox)
+        ),
     )
 
 
@@ -491,7 +546,7 @@ def test_ensure_gateway_capability_bootstraps_nested_gateway_root(tmp_path: Path
         "cao_rest",
         "cao_rest-20260312-120000Z-abcd1234",
     )
-    _write(manifest_path, "{}\n")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
     paths = ensure_gateway_capability(
         GatewayCapabilityPublication(
@@ -541,7 +596,7 @@ def test_ensure_gateway_capability_bootstraps_nested_gateway_root(tmp_path: Path
     assert row == (1,)
 
 
-def test_gateway_storage_migrates_old_notifier_schema_with_policy_defaults(
+def test_gateway_storage_rejects_unscoped_notifier_state_without_reset(
     tmp_path: Path,
 ) -> None:
     queue_path = tmp_path / "gateway.sqlite"
@@ -588,13 +643,8 @@ def test_gateway_storage_migrates_old_notifier_schema_with_policy_defaults(
             """
         )
 
-    record = read_gateway_mail_notifier_record(queue_path)
-
-    assert record.mode == "any_inbox"
-    assert record.appendix_text == ""
-    assert record.context_error_policy == "continue_current"
-    assert record.pre_notification_context_action == "none"
-    assert record.compacted_eligible_message_refs == ()
+    with pytest.raises(ValueError, match="back up and rebootstrap"):
+        read_gateway_mail_notifier_record(queue_path, scope_key=_test_scope_key(tmp_path))
 
 
 def test_gateway_tui_tracking_timing_config_resolves_precedence() -> None:
@@ -644,7 +694,7 @@ def test_gateway_desired_config_preserves_tui_tracking_timings(tmp_path: Path) -
         "cao_rest",
         "cao_rest-20260312-120000Z-abcd1234",
     )
-    _write(manifest_path, "{}\n")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
     publication = GatewayCapabilityPublication(
         manifest_path=manifest_path,
         backend="cao_rest",
@@ -695,7 +745,7 @@ def test_ensure_gateway_capability_publishes_manifest_first_discovery_env(
     tmp_path: Path,
 ) -> None:
     manifest_path = default_manifest_path(tmp_path, "claude_headless", "claude-headless-1")
-    _write(manifest_path, "{}\n")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
     controller = RuntimeSessionController(
         launch_plan=_sample_headless_plan(tmp_path),
         role_name="role",
@@ -743,6 +793,7 @@ def test_legacy_tmux_session_stop_skips_gateway_teardown(tmp_path: Path) -> None
         agent_def_dir=(tmp_path / "agents").resolve(),
         backend_session=_FakeInteractiveSession(),
         agent_identity="HOUMAO-gpu",
+        agent_id=derive_agent_id_from_name("HOUMAO-gpu"),
     )
 
     result = controller.stop()
@@ -756,7 +807,7 @@ def test_attach_gateway_supports_runtime_owned_headless_backend(
     tmp_path: Path,
 ) -> None:
     manifest_path = default_manifest_path(tmp_path, "claude_headless", "claude-headless-1")
-    _write(manifest_path, "{}\n")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
     controller = RuntimeSessionController(
         launch_plan=_sample_headless_plan(tmp_path),
         role_name="role",
@@ -766,6 +817,7 @@ def test_attach_gateway_supports_runtime_owned_headless_backend(
         backend_session=_FakeInteractiveSession(),
         agent_identity="HOUMAO-gpu",
         tmux_session_name="HOUMAO-gpu",
+        agent_id=derive_agent_id_from_name("HOUMAO-gpu"),
     )
 
     monkeypatch.setattr(
@@ -809,7 +861,7 @@ def test_attach_gateway_supports_runtime_owned_local_interactive_backend(
     tmp_path: Path,
 ) -> None:
     manifest_path = default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
-    _write(manifest_path, "{}\n")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
     controller = RuntimeSessionController(
         launch_plan=_sample_local_interactive_plan(tmp_path),
         role_name="role",
@@ -819,6 +871,7 @@ def test_attach_gateway_supports_runtime_owned_local_interactive_backend(
         backend_session=_FakeInteractiveSession(),
         agent_identity="HOUMAO-local",
         tmux_session_name="HOUMAO-local",
+        agent_id=derive_agent_id_from_name("HOUMAO-local"),
     )
 
     monkeypatch.setattr(
@@ -2142,7 +2195,7 @@ def test_gateway_status_invalidates_stale_live_bindings(
     tmp_path: Path,
 ) -> None:
     manifest_path = default_manifest_path(tmp_path, "claude_headless", "claude-headless-1")
-    _write(manifest_path, "{}\n")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
     controller = RuntimeSessionController(
         launch_plan=_sample_headless_plan(tmp_path),
         role_name="role",
@@ -2152,6 +2205,7 @@ def test_gateway_status_invalidates_stale_live_bindings(
         backend_session=_FakeInteractiveSession(),
         agent_identity="HOUMAO-gpu",
         tmux_session_name="HOUMAO-gpu",
+        agent_id=derive_agent_id_from_name("HOUMAO-gpu"),
     )
 
     captured_unset: dict[str, object] = {}
@@ -2384,6 +2438,7 @@ def test_runtime_owned_foreground_gateway_attach_persists_tmux_execution_handle(
         backend_session=_FakeInteractiveSession(),
         agent_identity="HOUMAO-local",
         tmux_session_name="HOUMAO-local",
+        agent_id=derive_agent_id_from_name("HOUMAO-local"),
     )
 
     tmux_state = {
@@ -2544,6 +2599,7 @@ def test_runtime_owned_foreground_gateway_attach_tolerates_initial_tmux_pane_del
         backend_session=_FakeInteractiveSession(),
         agent_identity="HOUMAO-local",
         tmux_session_name="HOUMAO-local",
+        agent_id=derive_agent_id_from_name("HOUMAO-local"),
     )
 
     tmux_state = {
@@ -2654,6 +2710,7 @@ def test_runtime_owned_foreground_gateway_attach_accepts_current_instance_before
         backend_session=_FakeInteractiveSession(),
         agent_identity="HOUMAO-local",
         tmux_session_name="HOUMAO-local",
+        agent_id=derive_agent_id_from_name("HOUMAO-local"),
     )
 
     def _fake_run_tmux(
@@ -2733,6 +2790,7 @@ def test_detached_gateway_attach_timeout_includes_last_health_probe_error(
         backend_session=_FakeInteractiveSession(),
         agent_identity="HOUMAO-local",
         tmux_session_name="HOUMAO-local",
+        agent_id=derive_agent_id_from_name("HOUMAO-local"),
     )
 
     class _FakeProcess:
@@ -2817,6 +2875,7 @@ def test_same_session_gateway_detach_refuses_reserved_window_zero(
         backend_session=_FakeInteractiveSession(),
         agent_identity="HOUMAO-local",
         tmux_session_name="HOUMAO-local",
+        agent_id=derive_agent_id_from_name("HOUMAO-local"),
     )
 
     reserved_window_instance = type(
@@ -2890,6 +2949,7 @@ def test_same_session_gateway_stale_cleanup_skips_reserved_window_zero(
         backend_session=_FakeInteractiveSession(),
         agent_identity="HOUMAO-local",
         tmux_session_name="HOUMAO-local",
+        agent_id=derive_agent_id_from_name("HOUMAO-local"),
     )
 
     reserved_window_instance = type(
@@ -3054,7 +3114,9 @@ def _seed_headless_gateway_root(
     return paths.gateway_root
 
 
-def _seed_local_interactive_gateway_root(tmp_path: Path, *, tool: str = "codex") -> Path:
+def _seed_local_interactive_gateway_root(
+    tmp_path: Path, *, tool: str = "codex", mailbox_enabled: bool = False
+) -> Path:
     manifest_path = default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
     backend_state = {
         "turn_index": 2,
@@ -3064,11 +3126,16 @@ def _seed_local_interactive_gateway_root(tmp_path: Path, *, tool: str = "codex")
     }
     payload = build_session_manifest_payload(
         SessionManifestRequest(
-            launch_plan=_sample_local_interactive_plan(tmp_path, tool=tool),
+            launch_plan=replace(
+                _sample_local_interactive_plan(tmp_path, tool=tool),
+                mailboxes=_sample_cao_plan_with_mailbox(tmp_path, tool=tool).mailboxes,
+            )
+            if mailbox_enabled
+            else _sample_local_interactive_plan(tmp_path, tool=tool),
             role_name="role",
             brain_manifest_path=tmp_path / "brain.yaml",
             agent_name="HOUMAO-local",
-            agent_id=derive_agent_id_from_name("HOUMAO-local"),
+            agent_id=derive_agent_id_from_name("HOUMAO-gpu" if mailbox_enabled else "HOUMAO-local"),
             tmux_session_name="HOUMAO-local",
             session_id="local-interactive-1",
             agent_def_dir=(tmp_path / "agents").resolve(),
@@ -3356,7 +3423,7 @@ class _FakeManagedPairClient:
             turn=HoumaoManagedAgentTurnView(phase="ready", active_turn_id=None),
             last_turn=HoumaoManagedAgentLastTurnView(result="none", turn_id=None, turn_index=None),
             diagnostics=[],
-            mailbox=None,
+            mailboxes=None,
             gateway=None,
         )
         return HoumaoManagedAgentDetailResponse(
@@ -3370,7 +3437,7 @@ class _FakeManagedPairClient:
                 interruptible=False,
                 turn=summary_state.turn,
                 last_turn=summary_state.last_turn,
-                mailbox=None,
+                mailboxes=None,
                 gateway=None,
                 diagnostics=[],
             ),
@@ -4318,7 +4385,7 @@ def _seed_cao_gateway_root_with_stalwart_mailbox(
     )
     write_session_manifest(manifest_path, payload)
 
-    mailbox = plan.mailbox
+    mailbox = plan.mailboxes.online.binding
     assert isinstance(mailbox, StalwartMailboxResolvedConfig)
     credential_path = runtime_stalwart_credential_path(tmp_path, mailbox.credential_ref)
     credential_path.parent.mkdir(parents=True, exist_ok=True)
@@ -4336,6 +4403,11 @@ def _seed_cao_gateway_root_with_stalwart_mailbox(
         encoding="utf-8",
     )
     credential_path.chmod(0o600)
+    materialize_stalwart_session_credential(
+        runtime_root=tmp_path,
+        session_root=manifest_path.parent,
+        credential_ref=mailbox.credential_ref,
+    )
 
     paths = ensure_gateway_capability(
         GatewayCapabilityPublication(
@@ -4370,7 +4442,7 @@ def _install_fake_live_mailbox_projection(
         handle = load_session_manifest(manifest_path)
         payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
         mailbox = resolved_mailbox_config_from_payload(
-            payload.launch_plan.mailbox,
+            payload.launch_plan.mailboxes.offline.binding,
             manifest_path=handle.path,
         )
         if mailbox is None:
@@ -4389,7 +4461,7 @@ def _deliver_unread_mailbox_message(
     message_id: str = "msg-20260316T090000Z-a1b2c3d4e5f64798aabbccddeeff0011",
     created_at_utc: str = "2026-03-16T09:00:00Z",
     subject: str = "Gateway unread reminder",
-    recipient_principal_id: str = "HOUMAO-gpu",
+    recipient_principal_id: str = derive_agent_id_from_name("HOUMAO-gpu"),
     recipient_address: str = "HOUMAO-gpu@agents.localhost",
     body_markdown: str = "Body\n",
 ) -> str:
@@ -5448,6 +5520,15 @@ def test_gateway_service_control_coalescing_respects_prompt_notifier_and_epoch_b
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # This regression isolates control coalescing; origin rejection has its own tests.
+    monkeypatch.setattr(
+        GatewayServiceRuntime, "_mail_reminder_origin_is_current", lambda self, request_id: True
+    )
+    from contextlib import nullcontext
+
+    monkeypatch.setattr(
+        GatewayServiceRuntime, "_mail_reminder_effect_lease", lambda self, request_id: nullcontext()
+    )
     runtime, paths, fake_client = _start_cao_gateway_with_rows(
         tmp_path,
         monkeypatch,
@@ -5597,13 +5678,13 @@ def test_gateway_mail_notifier_rejects_enablement_without_manifest_mailbox_bindi
         port=43123,
     )
 
-    status = runtime.get_mail_notifier()
+    status = runtime.get_mail_notifier(channel="offline")
     assert status.enabled is False
     assert status.supported is False
     assert status.support_error is not None
 
     with pytest.raises(HTTPException, match="no mailbox binding"):
-        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=60))
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=60), channel="offline")
 
 
 def test_gateway_mail_notifier_rejects_enablement_when_manifest_is_missing(
@@ -5646,12 +5727,14 @@ def test_gateway_mail_notifier_supports_manifest_backed_mailbox_without_tmux_pro
         port=43123,
     )
 
-    status = runtime.get_mail_notifier()
+    status = runtime.get_mail_notifier(channel="offline")
     assert status.enabled is False
     assert status.supported is True
     assert status.support_error is None
 
-    enabled = runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=60))
+    enabled = runtime.put_mail_notifier(
+        GatewayMailNotifierPutV1(interval_seconds=60), channel="offline"
+    )
     assert enabled.supported is True
     assert enabled.enabled is True
     assert enabled.interval_seconds == 60
@@ -5677,31 +5760,32 @@ def test_gateway_mail_notifier_appendix_status_update_and_delete_semantics(
         port=43123,
     )
 
-    initial = runtime.get_mail_notifier()
+    initial = runtime.get_mail_notifier(channel="offline")
     assert initial.appendix_text == ""
 
     enabled = runtime.put_mail_notifier(
         GatewayMailNotifierPutV1(
             interval_seconds=60,
             appendix_text="Only process urgent contract mail.",
-        )
+        ),
+        channel="offline",
     )
     assert enabled.enabled is True
     assert enabled.appendix_text == "Only process urgent contract mail."
 
     omitted = runtime.put_mail_notifier(
-        GatewayMailNotifierPutV1(interval_seconds=30, mode="unread_only")
+        GatewayMailNotifierPutV1(interval_seconds=30, mode="unread_only"), channel="offline"
     )
     assert omitted.interval_seconds == 30
     assert omitted.mode == "unread_only"
     assert omitted.appendix_text == "Only process urgent contract mail."
 
-    disabled = runtime.delete_mail_notifier()
+    disabled = runtime.delete_mail_notifier(channel="offline")
     assert disabled.enabled is False
     assert disabled.appendix_text == "Only process urgent contract mail."
 
     cleared = runtime.put_mail_notifier(
-        GatewayMailNotifierPutV1(interval_seconds=45, appendix_text="")
+        GatewayMailNotifierPutV1(interval_seconds=45, appendix_text=""), channel="offline"
     )
     assert cleared.enabled is True
     assert cleared.appendix_text == ""
@@ -5735,23 +5819,28 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
 
     status_response = client.get("/v1/mail/status")
     assert status_response.status_code == 200
-    assert status_response.json()["transport"] == "filesystem"
+    assert status_response.json()["offline"]["transport"] == "filesystem"
 
     check_response = client.post(
-        "/v1/mail/list",
-        json=GatewayMailListRequestV1(read_state="unread", limit=10).model_dump(mode="json"),
+        "/v1/mail/offline/list",
+        json=GatewayMailListRequestV1(
+            read_state="unread", limit=10, expected_binding_id=_test_binding_id(tmp_path, "offline")
+        ).model_dump(mode="json"),
     )
     assert check_response.status_code == 200
     check_payload = check_response.json()
     assert check_payload["transport"] == "filesystem"
     assert check_payload["message_count"] == 1
     assert check_payload["unread_count"] == 1
-    assert check_payload["messages"][0]["message_ref"] == f"filesystem:{unread_message_id}"
+    assert check_payload["messages"][0]["message_ref"] == _test_ref(
+        tmp_path, f"filesystem:{unread_message_id}", "offline", kind="message"
+    )
 
     peek_response = client.post(
-        "/v1/mail/peek",
+        "/v1/mail/offline/peek",
         json=GatewayMailMessageRequestV1(
-            message_ref=f"filesystem:{unread_message_id}",
+            message_ref=_test_ref(tmp_path, f"filesystem:{unread_message_id}", "offline"),
+            expected_binding_id=_test_binding_id(tmp_path, "offline"),
         ).model_dump(mode="json"),
     )
     assert peek_response.status_code == 200
@@ -5759,9 +5848,10 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
     assert peek_response.json()["message"]["read"] is False
 
     read_response = client.post(
-        "/v1/mail/read",
+        "/v1/mail/offline/read",
         json=GatewayMailMessageRequestV1(
-            message_ref=f"filesystem:{unread_message_id}",
+            message_ref=_test_ref(tmp_path, f"filesystem:{unread_message_id}", "offline"),
+            expected_binding_id=_test_binding_id(tmp_path, "offline"),
         ).model_dump(mode="json"),
     )
     assert read_response.status_code == 200
@@ -5769,23 +5859,25 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
     assert read_response.json()["message"]["read"] is True
 
     send_response = client.post(
-        "/v1/mail/send",
+        "/v1/mail/offline/send",
         json=GatewayMailSendRequestV1(
             to=["HOUMAO-sender@agents.localhost"],
             subject="Gateway route send",
             body_content="filesystem send body",
+            expected_binding_id=_test_binding_id(tmp_path, "offline"),
         ).model_dump(mode="json"),
     )
     assert send_response.status_code == 200
     send_payload = send_response.json()
     assert send_payload["operation"] == "send"
     assert send_payload["transport"] == "filesystem"
-    assert send_payload["message"]["message_ref"].startswith("filesystem:msg-")
+    assert send_payload["message"]["message_ref"].startswith("houmao-mail:")
 
     post_response = client.post(
-        "/v1/mail/post",
+        "/v1/mail/offline/post",
         json={
-            "schema_version": 1,
+            "schema_version": 3,
+            "expected_binding_id": _test_binding_id(tmp_path),
             "subject": "Gateway route post",
             "body_content": "filesystem operator-origin body",
         },
@@ -5800,7 +5892,7 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
     with sqlite3.connect((tmp_path / "mailbox" / "index.sqlite").resolve()) as connection:
         post_row = connection.execute(
             "SELECT canonical_path FROM messages WHERE message_id = ?",
-            (post_payload["message"]["message_ref"].split(":", 1)[1],),
+            (_test_raw_ref(tmp_path, post_payload["message"]["message_ref"]).split(":", 1)[1],),
         ).fetchone()
     assert post_row is not None
     post_message = parse_message_document(Path(str(post_row[0])).read_text(encoding="utf-8"))
@@ -5816,10 +5908,11 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
     assert [principal.address for principal in post_message.reply_to] == [HOUMAO_OPERATOR_ADDRESS]
 
     reply_response = client.post(
-        "/v1/mail/reply",
+        "/v1/mail/offline/reply",
         json=GatewayMailReplyRequestV1(
-            message_ref=f"filesystem:{unread_message_id}",
+            message_ref=_test_ref(tmp_path, f"filesystem:{unread_message_id}", "offline"),
             body_content="filesystem reply body",
+            expected_binding_id=_test_binding_id(tmp_path, "offline"),
         ).model_dump(mode="json"),
     )
     assert reply_response.status_code == 200
@@ -5827,13 +5920,14 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
     assert reply_payload["operation"] == "reply"
     assert reply_payload["transport"] == "filesystem"
     assert reply_payload["message"]["subject"] == "Re: Gateway unread reminder"
-    assert reply_payload["message"]["message_ref"].startswith("filesystem:msg-")
+    assert reply_payload["message"]["message_ref"].startswith("houmao-mail:")
 
     mark_response = client.post(
-        "/v1/mail/mark",
+        "/v1/mail/offline/mark",
         json=GatewayMailMarkRequestV1(
-            message_refs=[f"filesystem:{unread_message_id}"],
+            message_refs=[_test_ref(tmp_path, f"filesystem:{unread_message_id}", "offline")],
             answered=True,
+            expected_binding_id=_test_binding_id(tmp_path, "offline"),
         ).model_dump(mode="json"),
     )
     assert mark_response.status_code == 200
@@ -5841,10 +5935,11 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
     assert mark_response.json()["messages"][0]["answered"] is True
 
     move_response = client.post(
-        "/v1/mail/move",
+        "/v1/mail/offline/move",
         json=GatewayMailMoveRequestV1(
-            message_refs=[f"filesystem:{unread_message_id}"],
+            message_refs=[_test_ref(tmp_path, f"filesystem:{unread_message_id}", "offline")],
             destination_box="archive",
+            expected_binding_id=_test_binding_id(tmp_path, "offline"),
         ).model_dump(mode="json"),
     )
     assert move_response.status_code == 200
@@ -5853,19 +5948,22 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
     assert move_response.json()["messages"][0]["archived"] is True
 
     archive_list_response = client.post(
-        "/v1/mail/list",
-        json=GatewayMailListRequestV1(box="archive", limit=10).model_dump(mode="json"),
+        "/v1/mail/offline/list",
+        json=GatewayMailListRequestV1(
+            box="archive", limit=10, expected_binding_id=_test_binding_id(tmp_path, "offline")
+        ).model_dump(mode="json"),
     )
     assert archive_list_response.status_code == 200
     assert [message["message_ref"] for message in archive_list_response.json()["messages"]] == [
-        f"filesystem:{unread_message_id}"
+        _test_ref(tmp_path, f"filesystem:{unread_message_id}")
     ]
 
     operator_reply_response = client.post(
-        "/v1/mail/reply",
+        "/v1/mail/offline/reply",
         json=GatewayMailReplyRequestV1(
             message_ref=post_payload["message"]["message_ref"],
             body_content="operator reply body",
+            expected_binding_id=_test_binding_id(tmp_path, "offline"),
         ).model_dump(mode="json"),
     )
     assert operator_reply_response.status_code == 200
@@ -5895,7 +5993,7 @@ def test_gateway_diagnostics_capture_http_validation_without_raw_body(
     client = TestClient(create_app(runtime=runtime))
 
     response = client.post(
-        "/v1/mail/send",
+        "/v1/mail/offline/send",
         json={
             "schema_version": 1,
             "to": "not-a-list",
@@ -5911,7 +6009,7 @@ def test_gateway_diagnostics_capture_http_validation_without_raw_body(
         entry for entry in entries if entry["event"] == "gateway.http_validation_failed"
     ]
     assert validation_entries
-    assert validation_entries[-1]["path"] == "/v1/mail/send"
+    assert validation_entries[-1]["path"] == "/v1/mail/offline/send"
     assert validation_entries[-1]["status_code"] == 422
     assert validation_entries[-1]["validation_errors"]
     diagnostic_text = paths.diagnostic_log_path.read_text(encoding="utf-8")
@@ -5942,29 +6040,33 @@ def test_gateway_diagnostics_capture_mailbox_success_failure_and_repair_hint(
     client = TestClient(create_app(runtime=runtime))
 
     success_response = client.post(
-        "/v1/mail/send",
+        "/v1/mail/offline/send",
         json=GatewayMailSendRequestV1(
             to=["HOUMAO-sender@agents.localhost"],
             subject="Diagnostic success",
             body_content="mailbox success secret body",
             attachments=[{"path": str(secret_attachment), "label": "secret attachment label"}],
+            expected_binding_id=_test_binding_id(tmp_path, "offline"),
         ).model_dump(mode="json"),
     )
     assert success_response.status_code == 200
 
     failure_response = client.post(
-        "/v1/mail/send",
+        "/v1/mail/offline/send",
         json=GatewayMailSendRequestV1(
             to=["bare-agent-name"],
             subject="Diagnostic failure",
             body_content="mailbox failure secret body",
             attachments=[{"path": str(secret_attachment), "label": "secret attachment label"}],
+            expected_binding_id=_test_binding_id(tmp_path, "offline"),
         ).model_dump(mode="json"),
     )
     assert failure_response.status_code == 502
 
     def _raise_repairable_mailbox_error(
         _request_payload: GatewayMailSendRequestV1,
+        *,
+        channel: str,
     ) -> GatewayMailActionResponseV1:
         raise HTTPException(
             status_code=502,
@@ -5973,11 +6075,12 @@ def test_gateway_diagnostics_capture_mailbox_success_failure_and_repair_hint(
 
     monkeypatch.setattr(runtime, "send_mail", _raise_repairable_mailbox_error)
     repair_response = client.post(
-        "/v1/mail/send",
+        "/v1/mail/offline/send",
         json=GatewayMailSendRequestV1(
             to=["HOUMAO-sender@agents.localhost"],
             subject="Diagnostic repair",
             body_content="mailbox repair secret body",
+            expected_binding_id=_test_binding_id(tmp_path, "offline"),
         ).model_dump(mode="json"),
     )
     assert repair_response.status_code == 502
@@ -6036,18 +6139,19 @@ def test_gateway_mail_send_reports_bare_agent_name_with_address_hint(
     client = TestClient(create_app(runtime=runtime))
 
     response = client.post(
-        "/v1/mail/send",
+        "/v1/mail/offline/send",
         json=GatewayMailSendRequestV1(
             to=["daq-mgr"],
             subject="Gateway route send",
             body_content="filesystem send body",
+            expected_binding_id=_test_binding_id(tmp_path, "offline"),
         ).model_dump(mode="json"),
     )
 
     assert response.status_code == 502
     detail = response.json()["detail"]
     assert "filesystem mailbox recipient `daq-mgr` is not a registered mailbox address" in detail
-    assert "`/v1/mail/send` expects email-like mailbox addresses" in detail
+    assert "`/v1/mail/offline/send` expects email-like mailbox addresses" in detail
     assert "not managed-agent names" in detail
     assert "Did you mean `daq-mgr@houmao.localhost`?" in detail
 
@@ -6083,11 +6187,12 @@ def test_gateway_mail_send_reports_inactive_registration_separately(
     client = TestClient(create_app(runtime=runtime))
 
     response = client.post(
-        "/v1/mail/send",
+        "/v1/mail/offline/send",
         json=GatewayMailSendRequestV1(
             to=["stale@houmao.localhost"],
             subject="Gateway route send",
             body_content="filesystem send body",
+            expected_binding_id=_test_binding_id(tmp_path, "offline"),
         ).model_dump(mode="json"),
     )
 
@@ -6117,11 +6222,12 @@ def test_gateway_mail_reply_enabled_operator_post_routes_reply_to_reserved_opera
     client = TestClient(create_app(runtime=runtime))
 
     post_response = client.post(
-        "/v1/mail/post",
+        "/v1/mail/offline/post",
         json=GatewayMailPostRequestV1(
             subject="Gateway route post",
             body_content="filesystem operator-origin body",
             reply_policy=HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
+            expected_binding_id=_test_binding_id(tmp_path, "offline"),
         ).model_dump(mode="json"),
     )
     assert post_response.status_code == 200
@@ -6129,7 +6235,7 @@ def test_gateway_mail_reply_enabled_operator_post_routes_reply_to_reserved_opera
     with sqlite3.connect((tmp_path / "mailbox" / "index.sqlite").resolve()) as connection:
         post_row = connection.execute(
             "SELECT canonical_path FROM messages WHERE message_id = ?",
-            (post_payload["message"]["message_ref"].split(":", 1)[1],),
+            (_test_raw_ref(tmp_path, post_payload["message"]["message_ref"]).split(":", 1)[1],),
         ).fetchone()
     assert post_row is not None
     post_message = parse_message_document(Path(str(post_row[0])).read_text(encoding="utf-8"))
@@ -6141,10 +6247,11 @@ def test_gateway_mail_reply_enabled_operator_post_routes_reply_to_reserved_opera
     assert [principal.address for principal in post_message.reply_to] == [HOUMAO_OPERATOR_ADDRESS]
 
     reply_response = client.post(
-        "/v1/mail/reply",
+        "/v1/mail/offline/reply",
         json=GatewayMailReplyRequestV1(
             message_ref=post_payload["message"]["message_ref"],
             body_content="ready",
+            expected_binding_id=_test_binding_id(tmp_path, "offline"),
         ).model_dump(mode="json"),
     )
     assert reply_response.status_code == 200
@@ -6153,7 +6260,7 @@ def test_gateway_mail_reply_enabled_operator_post_routes_reply_to_reserved_opera
     with sqlite3.connect((tmp_path / "mailbox" / "index.sqlite").resolve()) as connection:
         reply_row = connection.execute(
             "SELECT canonical_path FROM messages WHERE message_id = ?",
-            (reply_payload["message"]["message_ref"].split(":", 1)[1],),
+            (_test_raw_ref(tmp_path, reply_payload["message"]["message_ref"]).split(":", 1)[1],),
         ).fetchone()
     assert reply_row is not None
     reply_message = parse_message_document(Path(str(reply_row[0])).read_text(encoding="utf-8"))
@@ -6177,11 +6284,12 @@ def test_gateway_mail_explicit_no_reply_operator_post_rejects_reply(
     client = TestClient(create_app(runtime=runtime))
 
     post_response = client.post(
-        "/v1/mail/post",
+        "/v1/mail/offline/post",
         json=GatewayMailPostRequestV1(
             subject="Gateway route post",
             body_content="filesystem operator-origin body",
             reply_policy=HOUMAO_NO_REPLY_POLICY_VALUE,
+            expected_binding_id=_test_binding_id(tmp_path, "offline"),
         ).model_dump(mode="json"),
     )
     assert post_response.status_code == 200
@@ -6189,7 +6297,7 @@ def test_gateway_mail_explicit_no_reply_operator_post_rejects_reply(
     with sqlite3.connect((tmp_path / "mailbox" / "index.sqlite").resolve()) as connection:
         post_row = connection.execute(
             "SELECT canonical_path FROM messages WHERE message_id = ?",
-            (post_payload["message"]["message_ref"].split(":", 1)[1],),
+            (_test_raw_ref(tmp_path, post_payload["message"]["message_ref"]).split(":", 1)[1],),
         ).fetchone()
     assert post_row is not None
     post_message = parse_message_document(Path(str(post_row[0])).read_text(encoding="utf-8"))
@@ -6198,10 +6306,11 @@ def test_gateway_mail_explicit_no_reply_operator_post_rejects_reply(
     assert post_message.reply_to == []
 
     reply_response = client.post(
-        "/v1/mail/reply",
+        "/v1/mail/offline/reply",
         json=GatewayMailReplyRequestV1(
             message_ref=post_payload["message"]["message_ref"],
             body_content="should fail",
+            expected_binding_id=_test_binding_id(tmp_path, "offline"),
         ).model_dump(mode="json"),
     )
     assert reply_response.status_code == 422
@@ -6237,11 +6346,12 @@ def test_gateway_mail_self_send_stays_unread_until_explicit_mark_read(
     client = TestClient(create_app(runtime=runtime))
     try:
         send_response = client.post(
-            "/v1/mail/send",
+            "/v1/mail/offline/send",
             json=GatewayMailSendRequestV1(
                 to=["HOUMAO-gpu@agents.localhost"],
                 subject="Gateway self-send",
                 body_content="filesystem self-send body",
+                expected_binding_id=_test_binding_id(tmp_path, "offline"),
             ).model_dump(mode="json"),
         )
         assert send_response.status_code == 200
@@ -6250,8 +6360,12 @@ def test_gateway_mail_self_send_stays_unread_until_explicit_mark_read(
         assert send_payload["message"]["unread"] is True
 
         check_response = client.post(
-            "/v1/mail/list",
-            json=GatewayMailListRequestV1(read_state="unread", limit=10).model_dump(mode="json"),
+            "/v1/mail/offline/list",
+            json=GatewayMailListRequestV1(
+                read_state="unread",
+                limit=10,
+                expected_binding_id=_test_binding_id(tmp_path, "offline"),
+            ).model_dump(mode="json"),
         )
         assert check_response.status_code == 200
         check_payload = check_response.json()
@@ -6260,7 +6374,9 @@ def test_gateway_mail_self_send_stays_unread_until_explicit_mark_read(
             self_message_ref
         ]
 
-        status = runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+        status = runtime.put_mail_notifier(
+            GatewayMailNotifierPutV1(interval_seconds=1), channel="offline"
+        )
         assert status.enabled is True
         assert status.supported is True
         assert status.mode == "any_inbox"
@@ -6277,17 +6393,22 @@ def test_gateway_mail_self_send_stays_unread_until_explicit_mark_read(
         )
 
         state_response = client.post(
-            "/v1/mail/archive",
+            "/v1/mail/offline/archive",
             json=GatewayMailArchiveRequestV1(
                 message_refs=[self_message_ref],
+                expected_binding_id=_test_binding_id(tmp_path, "offline"),
             ).model_dump(mode="json"),
         )
         assert state_response.status_code == 200
         assert state_response.json()["operation"] == "archive"
 
         post_mark_read_check = client.post(
-            "/v1/mail/list",
-            json=GatewayMailListRequestV1(read_state="unread", limit=10).model_dump(mode="json"),
+            "/v1/mail/offline/list",
+            json=GatewayMailListRequestV1(
+                read_state="unread",
+                limit=10,
+                expected_binding_id=_test_binding_id(tmp_path, "offline"),
+            ).model_dump(mode="json"),
         )
         assert post_mark_read_check.status_code == 200
         assert post_mark_read_check.json()["unread_count"] == 0
@@ -6322,9 +6443,10 @@ def test_gateway_mail_read_route_marks_filesystem_message_read_without_queue_mut
     client = TestClient(create_app(runtime=runtime))
 
     response = client.post(
-        "/v1/mail/read",
+        "/v1/mail/offline/read",
         json=GatewayMailMessageRequestV1(
-            message_ref=f"filesystem:{unread_message_id}",
+            message_ref=_test_ref(tmp_path, f"filesystem:{unread_message_id}", "offline"),
+            expected_binding_id=_test_binding_id(tmp_path, "offline"),
         ).model_dump(mode="json"),
     )
 
@@ -6339,7 +6461,9 @@ def test_gateway_mail_read_route_marks_filesystem_message_read_without_queue_mut
     }
     assert response.json()["transport"] == "filesystem"
     assert response.json()["operation"] == "read"
-    assert response.json()["message"]["message_ref"] == f"filesystem:{unread_message_id}"
+    assert response.json()["message"]["message_ref"] == _test_ref(
+        tmp_path, f"filesystem:{unread_message_id}", "offline", kind="message"
+    )
     assert response.json()["message"]["read"] is True
     assert runtime.status().queue_depth == 0
 
@@ -6373,7 +6497,7 @@ def test_gateway_mail_mark_route_rejects_unsupported_mailbox_state_fields(
     client = TestClient(create_app(runtime=runtime))
 
     response = client.post(
-        "/v1/mail/mark",
+        "/v1/mail/offline/mark",
         json={
             "schema_version": 1,
             "message_refs": [f"filesystem:{unread_message_id}"],
@@ -6425,8 +6549,10 @@ def test_gateway_mail_routes_reject_missing_mailbox_binding(
     client = TestClient(create_app(runtime=runtime))
 
     response = client.post(
-        "/v1/mail/list",
-        json=GatewayMailListRequestV1().model_dump(mode="json"),
+        "/v1/mail/offline/list",
+        json=GatewayMailListRequestV1(
+            expected_binding_id=_test_binding_id(tmp_path, "offline")
+        ).model_dump(mode="json"),
     )
 
     assert response.status_code == 422
@@ -6444,7 +6570,9 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
     )
 
     class _FakeStalwartJmapClient:
-        def __init__(self, *, jmap_url: str, login_identity: str, credential_file: Path) -> None:
+        def __init__(
+            self, *, jmap_url: str, login_identity: str, credential_file: Path, **kwargs: object
+        ) -> None:
             self.m_jmap_url = jmap_url
             self.m_login_identity = login_identity
             self.m_credential_file = credential_file
@@ -6453,7 +6581,7 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
         def status(self) -> dict[str, object]:
             return {"account_id": "acc-1"}
 
-        def list_messages(
+        def _messages(
             self,
             *,
             box: str,
@@ -6480,6 +6608,44 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
                     "unread": True,
                 }
             ]
+
+        def validate_binding(self, *, sender_address: str | None = None) -> SimpleNamespace:
+            return SimpleNamespace(
+                account_id="acc-1", identity_id="identity-test", sender_address=sender_address
+            )
+
+        def primary_account_id(self) -> str:
+            return "acc-1"
+
+        def query_fingerprint(self, query: JmapMetadataQuery) -> str:
+            return "test-view"
+
+        def query_metadata_page(
+            self,
+            *,
+            query: JmapMetadataQuery,
+            limit: int = 50,
+            position: int = 0,
+            expected_query_state: str | None = None,
+        ) -> JmapMetadataPage:
+            rows = self._messages(
+                box=query.box,
+                read_state=query.read_state,
+                answered_state=query.answered_state,
+                archived=query.archived,
+                limit=limit,
+                since=query.since,
+            )
+            for row in rows:
+                row["body"] = None
+            return JmapMetadataPage(
+                messages=rows,
+                query_state="q1",
+                position=position,
+                has_more=False,
+                complete=True,
+                next_position=None,
+            )
 
         def send(
             self,
@@ -6561,9 +6727,13 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
             }
 
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.gateway_mailbox.StalwartJmapClient",
+        "houmao.mailbox.services.StalwartJmapClient",
         _FakeStalwartJmapClient,
     )
+    monkeypatch.setattr(
+        "houmao.mailbox.online_authority.StalwartJmapClient", _FakeStalwartJmapClient
+    )
+    monkeypatch.setattr("houmao.mailbox.online_binding.StalwartJmapClient", _FakeStalwartJmapClient)
     monkeypatch.setattr(
         GatewayServiceRuntime,
         "_tui_prompt_not_ready_reasons_locked",
@@ -6579,59 +6749,75 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
 
     status_response = client.get("/v1/mail/status")
     assert status_response.status_code == 200
-    assert status_response.json()["transport"] == "stalwart"
+    assert status_response.json()["online"]["transport"] == "stalwart"
 
     check_response = client.post(
-        "/v1/mail/list",
-        json=GatewayMailListRequestV1(read_state="unread", limit=5).model_dump(mode="json"),
+        "/v1/mail/online/list",
+        json=GatewayMailListRequestV1(
+            read_state="unread", limit=5, expected_binding_id=_test_binding_id(tmp_path, "online")
+        ).model_dump(mode="json"),
     )
     assert check_response.status_code == 200
     check_payload = check_response.json()
     assert check_payload["transport"] == "stalwart"
-    assert check_payload["messages"][0]["message_ref"] == "stalwart:mail-1"
-    assert check_payload["messages"][0]["thread_ref"] == "stalwart-thread:thread-1"
+    assert check_payload["messages"][0]["message_ref"] == _test_ref(
+        tmp_path, "stalwart:mail-1", "online", kind="message"
+    )
+    assert check_payload["messages"][0]["thread_ref"] == _test_ref(
+        tmp_path, "stalwart-thread:thread-1", "online", kind="thread"
+    )
 
     send_response = client.post(
-        "/v1/mail/send",
+        "/v1/mail/online/send",
         json=GatewayMailSendRequestV1(
             to=["recipient@agents.localhost"],
             subject="ignored by fake client",
             body_content="hello from test",
+            expected_binding_id=_test_binding_id(tmp_path, "online"),
         ).model_dump(mode="json"),
     )
     assert send_response.status_code == 200
-    assert send_response.json()["message"]["message_ref"] == "stalwart:sent-1"
+    assert send_response.json()["message"]["message_ref"] == _test_ref(
+        tmp_path, "stalwart:sent-1", "online", kind="message"
+    )
 
     post_response = client.post(
-        "/v1/mail/post",
+        "/v1/mail/online/post",
         json=GatewayMailPostRequestV1(
             subject="ignored by fake client",
             body_content="operator-origin body",
+            expected_binding_id=_test_binding_id(tmp_path, "online"),
         ).model_dump(mode="json"),
     )
     assert post_response.status_code == 422
     assert "unsupported" in post_response.json()["detail"]
 
     reply_response = client.post(
-        "/v1/mail/reply",
+        "/v1/mail/online/reply",
         json=GatewayMailReplyRequestV1(
-            message_ref="stalwart:mail-1",
+            message_ref=_test_ref(tmp_path, "stalwart:mail-1", "online"),
             body_content="reply body",
+            expected_binding_id=_test_binding_id(tmp_path, "online"),
         ).model_dump(mode="json"),
     )
     assert reply_response.status_code == 200
-    assert reply_response.json()["message"]["message_ref"] == "stalwart:reply-1"
+    assert reply_response.json()["message"]["message_ref"] == _test_ref(
+        tmp_path, "stalwart:reply-1", "online", kind="message"
+    )
 
     state_response = client.post(
-        "/v1/mail/mark",
+        "/v1/mail/online/mark",
         json=GatewayMailMarkRequestV1(
-            message_refs=["stalwart:mail-1"],
+            message_refs=[_test_ref(tmp_path, "stalwart:mail-1", "online")],
             read=True,
+            expected_binding_id=_test_binding_id(tmp_path, "online"),
         ).model_dump(mode="json"),
     )
     assert state_response.status_code == 200
     assert state_response.json()["transport"] == "stalwart"
-    assert state_response.json()["messages"][0]["message_ref"] == "stalwart:mail-1"
+    assert state_response.json()["messages"][0]["message_ref"] == _test_ref(
+        tmp_path, "stalwart:mail-1", "online", kind="message"
+    )
     assert state_response.json()["messages"][0]["read"] is True
 
 
@@ -6646,11 +6832,18 @@ def test_gateway_mail_mark_route_rejects_malformed_stalwart_message_normalizatio
     )
 
     class _MalformedStalwartJmapClient:
-        def __init__(self, *, jmap_url: str, login_identity: str, credential_file: Path) -> None:
+        def __init__(
+            self, *, jmap_url: str, login_identity: str, credential_file: Path, **kwargs: object
+        ) -> None:
             del jmap_url, login_identity, credential_file
 
         def status(self) -> dict[str, object]:
             return {"account_id": "acc-1"}
+
+        def validate_binding(self, *, sender_address: str | None = None) -> SimpleNamespace:
+            return SimpleNamespace(
+                account_id="acc-1", identity_id="identity-test", sender_address=sender_address
+            )
 
         def mark(
             self,
@@ -6675,8 +6868,14 @@ def test_gateway_mail_mark_route_rejects_malformed_stalwart_message_normalizatio
             }
 
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.gateway_mailbox.StalwartJmapClient",
+        "houmao.mailbox.services.StalwartJmapClient",
         _MalformedStalwartJmapClient,
+    )
+    monkeypatch.setattr(
+        "houmao.mailbox.online_authority.StalwartJmapClient", _MalformedStalwartJmapClient
+    )
+    monkeypatch.setattr(
+        "houmao.mailbox.online_binding.StalwartJmapClient", _MalformedStalwartJmapClient
     )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
@@ -6687,10 +6886,11 @@ def test_gateway_mail_mark_route_rejects_malformed_stalwart_message_normalizatio
     client = TestClient(create_app(runtime=runtime))
 
     response = client.post(
-        "/v1/mail/mark",
+        "/v1/mail/online/mark",
         json=GatewayMailMarkRequestV1(
-            message_refs=["stalwart:mail-1"],
+            message_refs=[_test_ref(tmp_path, "stalwart:mail-1", "online")],
             read=True,
+            expected_binding_id=_test_binding_id(tmp_path, "online"),
         ).model_dump(mode="json"),
     )
     assert response.status_code == 502
@@ -6734,7 +6934,9 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_repeats_after_resta
     )
     runtime.start()
     try:
-        status = runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+        status = runtime.put_mail_notifier(
+            GatewayMailNotifierPutV1(interval_seconds=1), channel="offline"
+        )
         assert status.enabled is True
         assert status.supported is True
         assert status.mode == "any_inbox"
@@ -6750,8 +6952,8 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_repeats_after_resta
         assert "Additional runtime guidance:" not in first_prompt
         assert "mark only those successfully processed emails read" not in first_prompt
         assert (
-            "Mailbox API: `GET /v1/mail/status`; "
-            "`POST /v1/mail/list|peek|read|reply|send|post|mark|move|archive`." in first_prompt
+            "Mailbox API: `GET /v1/mail/status`; `POST /v1/mail/offline/list|peek|read|reply|send|post|mark|move|archive`."
+            in first_prompt
         )
         assert "- `GET http://127.0.0.1:43123/v1/mail/status`" not in first_prompt
     finally:
@@ -6766,7 +6968,7 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_repeats_after_resta
     runtime.start()
     try:
         _wait_until(lambda: len(fake_client.submitted_prompts) >= 1, timeout_seconds=5.0)
-        status = runtime.get_mail_notifier()
+        status = runtime.get_mail_notifier(channel="offline")
         assert status.enabled is True
         assert status.mode == "any_inbox"
         assert status.last_notification_at_utc is not None
@@ -6782,7 +6984,9 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_repeats_after_resta
     assert not any(row.outcome == "dedup_skip" for row in audit_rows)
     assert len(enqueued_rows) >= 2
     assert enqueued_rows[-1].unread_count == 1
-    assert enqueued_rows[-1].unread_summary[0].message_ref == f"filesystem:{message_id}"
+    assert enqueued_rows[-1].unread_summary[0].message_ref == _test_ref(
+        tmp_path, f"filesystem:{message_id}", "offline", kind="message"
+    )
     assert enqueued_rows[-1].enqueued_request_id is not None
 
 
@@ -6827,7 +7031,7 @@ def test_gateway_mail_notifier_unread_only_skips_read_unarchived_mail(
     runtime.start()
     try:
         status = runtime.put_mail_notifier(
-            GatewayMailNotifierPutV1(interval_seconds=1, mode="unread_only")
+            GatewayMailNotifierPutV1(interval_seconds=1, mode="unread_only"), channel="offline"
         )
         assert status.enabled is True
         assert status.mode == "unread_only"
@@ -6858,14 +7062,16 @@ def test_gateway_mail_notifier_unread_only_skips_read_unarchived_mail(
     audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
     enqueued_rows = [row for row in audit_rows if row.outcome == "enqueued"]
     assert enqueued_rows
-    assert enqueued_rows[-1].unread_summary[0].message_ref == f"filesystem:{unread_message_id}"
+    assert enqueued_rows[-1].unread_summary[0].message_ref == _test_ref(
+        tmp_path, f"filesystem:{unread_message_id}", "offline", kind="message"
+    )
 
 
 def test_gateway_mail_notifier_local_interactive_waits_for_prompt_ready_posture_and_repeats(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path, mailbox_enabled=True)
     message_id = _deliver_unread_mailbox_message(tmp_path)
     fake_session = _FakeGatewayHeadlessSession(
         tmux_session_name="HOUMAO-local",
@@ -6909,28 +7115,19 @@ def test_gateway_mail_notifier_local_interactive_waits_for_prompt_ready_posture_
 
     monkeypatch.setattr(_FakeGatewayTrackingRuntime, "current_state", _tracking_state)
 
-    mailbox = FilesystemMailboxResolvedConfig(
-        transport="filesystem",
-        principal_id="HOUMAO-gpu",
-        address="HOUMAO-gpu@agents.localhost",
-        filesystem_root=(tmp_path / "mailbox").resolve(),
-        bindings_version="2026-03-16T08:00:00.000001Z",
-    )
-
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
         host="127.0.0.1",
         port=43123,
     )
-    monkeypatch.setattr(runtime, "_require_live_notifier_mailbox_config_locked", lambda: mailbox)
-    monkeypatch.setattr(runtime, "_load_mailbox_config", lambda: mailbox)
     runtime.start()
     try:
         runtime.put_mail_notifier(
             GatewayMailNotifierPutV1(
                 interval_seconds=1,
                 appendix_text="Prioritize contract notices before FYI updates.\nLeave billing alone.",
-            )
+            ),
+            channel="offline",
         )
 
         time.sleep(1.3)
@@ -6976,7 +7173,7 @@ def test_gateway_mail_notifier_degraded_local_interactive_enqueues_without_reset
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path, mailbox_enabled=True)
     message_id = _deliver_unread_mailbox_message(tmp_path)
     fake_session = _FakeGatewayHeadlessSession(
         tmux_session_name="HOUMAO-local",
@@ -7009,23 +7206,14 @@ def test_gateway_mail_notifier_degraded_local_interactive_enqueues_without_reset
         return state.model_copy(update={"chat_context": "degraded"})
 
     monkeypatch.setattr(_FakeGatewayTrackingRuntime, "current_state", _degraded_ready_state)
-    mailbox = FilesystemMailboxResolvedConfig(
-        transport="filesystem",
-        principal_id="HOUMAO-gpu",
-        address="HOUMAO-gpu@agents.localhost",
-        filesystem_root=(tmp_path / "mailbox").resolve(),
-        bindings_version="2026-03-16T08:00:00.000001Z",
-    )
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
         host="127.0.0.1",
         port=43123,
     )
-    monkeypatch.setattr(runtime, "_require_live_notifier_mailbox_config_locked", lambda: mailbox)
-    monkeypatch.setattr(runtime, "_load_mailbox_config", lambda: mailbox)
     runtime.start()
     try:
-        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1), channel="offline")
         _wait_until(lambda: len(fake_session.prompt_calls) >= 1, timeout_seconds=5.0)
     finally:
         runtime.shutdown()
@@ -7047,7 +7235,9 @@ def test_gateway_mail_notifier_degraded_non_codex_tui_enqueues_without_reset(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    gateway_root = _seed_local_interactive_gateway_root(tmp_path, tool="claude")
+    gateway_root = _seed_local_interactive_gateway_root(
+        tmp_path, tool="claude", mailbox_enabled=True
+    )
     _deliver_unread_mailbox_message(tmp_path)
     fake_session = _FakeGatewayHeadlessSession(
         tmux_session_name="HOUMAO-local",
@@ -7080,23 +7270,14 @@ def test_gateway_mail_notifier_degraded_non_codex_tui_enqueues_without_reset(
         return state.model_copy(update={"chat_context": "degraded"})
 
     monkeypatch.setattr(_FakeGatewayTrackingRuntime, "current_state", _degraded_ready_state)
-    mailbox = FilesystemMailboxResolvedConfig(
-        transport="filesystem",
-        principal_id="HOUMAO-gpu",
-        address="HOUMAO-gpu@agents.localhost",
-        filesystem_root=(tmp_path / "mailbox").resolve(),
-        bindings_version="2026-03-16T08:00:00.000001Z",
-    )
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
         host="127.0.0.1",
         port=43123,
     )
-    monkeypatch.setattr(runtime, "_require_live_notifier_mailbox_config_locked", lambda: mailbox)
-    monkeypatch.setattr(runtime, "_load_mailbox_config", lambda: mailbox)
     runtime.start()
     try:
-        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1), channel="offline")
         _wait_until(lambda: len(fake_session.prompt_calls) >= 1, timeout_seconds=5.0)
     finally:
         runtime.shutdown()
@@ -7108,7 +7289,7 @@ def test_gateway_mail_notifier_clear_context_policy_resets_codex_degraded_contex
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path, mailbox_enabled=True)
     _deliver_unread_mailbox_message(tmp_path)
     fake_session = _FakeGatewayHeadlessSession(
         tmux_session_name="HOUMAO-local",
@@ -7152,24 +7333,16 @@ def test_gateway_mail_notifier_clear_context_policy_resets_codex_degraded_contex
         )
 
     monkeypatch.setattr(_FakeGatewayTrackingRuntime, "current_state", _degraded_ready_state)
-    mailbox = FilesystemMailboxResolvedConfig(
-        transport="filesystem",
-        principal_id="HOUMAO-gpu",
-        address="HOUMAO-gpu@agents.localhost",
-        filesystem_root=(tmp_path / "mailbox").resolve(),
-        bindings_version="2026-03-16T08:00:00.000001Z",
-    )
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
         host="127.0.0.1",
         port=43123,
     )
-    monkeypatch.setattr(runtime, "_require_live_notifier_mailbox_config_locked", lambda: mailbox)
-    monkeypatch.setattr(runtime, "_load_mailbox_config", lambda: mailbox)
     runtime.start()
     try:
         runtime.put_mail_notifier(
-            GatewayMailNotifierPutV1(interval_seconds=1, context_error_policy="clear_context")
+            GatewayMailNotifierPutV1(interval_seconds=1, context_error_policy="clear_context"),
+            channel="offline",
         )
         _wait_until(lambda: len(fake_session.prompt_calls) >= 2, timeout_seconds=5.0)
     finally:
@@ -7197,7 +7370,7 @@ def test_gateway_mail_notifier_pre_notification_compacts_codex_before_prompt(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path, mailbox_enabled=True)
     _deliver_unread_mailbox_message(tmp_path)
     fake_session = _FakeGatewayHeadlessSession(
         tmux_session_name="HOUMAO-local",
@@ -7222,27 +7395,19 @@ def test_gateway_mail_notifier_pre_notification_compacts_codex_before_prompt(
         "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
         _FakeGatewayTrackingRuntime,
     )
-    mailbox = FilesystemMailboxResolvedConfig(
-        transport="filesystem",
-        principal_id="HOUMAO-gpu",
-        address="HOUMAO-gpu@agents.localhost",
-        filesystem_root=(tmp_path / "mailbox").resolve(),
-        bindings_version="2026-03-16T08:00:00.000001Z",
-    )
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
         host="127.0.0.1",
         port=43123,
     )
-    monkeypatch.setattr(runtime, "_require_live_notifier_mailbox_config_locked", lambda: mailbox)
-    monkeypatch.setattr(runtime, "_load_mailbox_config", lambda: mailbox)
     runtime.start()
     try:
         runtime.put_mail_notifier(
             GatewayMailNotifierPutV1(
                 interval_seconds=1,
                 pre_notification_context_action="compact",
-            )
+            ),
+            channel="offline",
         )
         _wait_until(lambda: len(fake_session.prompt_calls) >= 2, timeout_seconds=5.0)
     finally:
@@ -7268,7 +7433,7 @@ def test_gateway_mail_notifier_pre_notification_compaction_does_not_repeat_for_u
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path, mailbox_enabled=True)
     message_id = _deliver_unread_mailbox_message(tmp_path)
     fake_session = _FakeGatewayHeadlessSession(
         tmux_session_name="HOUMAO-local",
@@ -7293,20 +7458,11 @@ def test_gateway_mail_notifier_pre_notification_compaction_does_not_repeat_for_u
         "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
         _FakeGatewayTrackingRuntime,
     )
-    mailbox = FilesystemMailboxResolvedConfig(
-        transport="filesystem",
-        principal_id="HOUMAO-gpu",
-        address="HOUMAO-gpu@agents.localhost",
-        filesystem_root=(tmp_path / "mailbox").resolve(),
-        bindings_version="2026-03-16T08:00:00.000001Z",
-    )
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
         host="127.0.0.1",
         port=43123,
     )
-    monkeypatch.setattr(runtime, "_require_live_notifier_mailbox_config_locked", lambda: mailbox)
-    monkeypatch.setattr(runtime, "_load_mailbox_config", lambda: mailbox)
     paths = gateway_paths_from_manifest_path(
         default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
     )
@@ -7317,7 +7473,8 @@ def test_gateway_mail_notifier_pre_notification_compaction_does_not_repeat_for_u
             GatewayMailNotifierPutV1(
                 interval_seconds=1,
                 pre_notification_context_action="compact",
-            )
+            ),
+            channel="offline",
         )
         _wait_until(
             lambda: sum(1 for prompt, _ in fake_session.prompt_calls if prompt != "/compact") >= 2,
@@ -7335,8 +7492,12 @@ def test_gateway_mail_notifier_pre_notification_compaction_does_not_repeat_for_u
         len([note for note in _FakeGatewayTrackingRuntime.m_prompt_notes if note != "/compact"])
         >= 2
     )
-    record = read_gateway_mail_notifier_record(paths.queue_path)
-    assert record.compacted_eligible_message_refs == (f"filesystem:{message_id}",)
+    record = read_gateway_mail_notifier_record(
+        paths.queue_path, scope_key=_test_scope_key(tmp_path, "offline")
+    )
+    assert record.compacted_eligible_message_refs == (
+        _test_ref(tmp_path, f"filesystem:{message_id}"),
+    )
     enqueued_rows = [
         row
         for row in read_gateway_notifier_audit_records(paths.queue_path)
@@ -7357,7 +7518,7 @@ def test_gateway_mail_notifier_pre_notification_compaction_runs_once_for_expande
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path, mailbox_enabled=True)
     message_id_a = _deliver_unread_mailbox_message(tmp_path)
     fake_session = _FakeGatewayHeadlessSession(
         tmux_session_name="HOUMAO-local",
@@ -7382,20 +7543,11 @@ def test_gateway_mail_notifier_pre_notification_compaction_runs_once_for_expande
         "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
         _FakeGatewayTrackingRuntime,
     )
-    mailbox = FilesystemMailboxResolvedConfig(
-        transport="filesystem",
-        principal_id="HOUMAO-gpu",
-        address="HOUMAO-gpu@agents.localhost",
-        filesystem_root=(tmp_path / "mailbox").resolve(),
-        bindings_version="2026-03-16T08:00:00.000001Z",
-    )
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
         host="127.0.0.1",
         port=43123,
     )
-    monkeypatch.setattr(runtime, "_require_live_notifier_mailbox_config_locked", lambda: mailbox)
-    monkeypatch.setattr(runtime, "_load_mailbox_config", lambda: mailbox)
     paths = gateway_paths_from_manifest_path(
         default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
     )
@@ -7406,7 +7558,8 @@ def test_gateway_mail_notifier_pre_notification_compaction_runs_once_for_expande
             GatewayMailNotifierPutV1(
                 interval_seconds=1,
                 pre_notification_context_action="compact",
-            )
+            ),
+            channel="offline",
         )
         _wait_until(lambda: len(fake_session.prompt_calls) >= 2, timeout_seconds=5.0)
         message_id_b = _deliver_unread_mailbox_message(
@@ -7424,9 +7577,16 @@ def test_gateway_mail_notifier_pre_notification_compaction_runs_once_for_expande
 
     compact_prompts = [prompt for prompt, _ in fake_session.prompt_calls if prompt == "/compact"]
     assert compact_prompts == ["/compact", "/compact"]
-    record = read_gateway_mail_notifier_record(paths.queue_path)
+    record = read_gateway_mail_notifier_record(
+        paths.queue_path, scope_key=_test_scope_key(tmp_path, "offline")
+    )
     assert record.compacted_eligible_message_refs == tuple(
-        sorted((f"filesystem:{message_id_a}", f"filesystem:{message_id_b}"))
+        sorted(
+            (
+                _test_ref(tmp_path, f"filesystem:{message_id_a}"),
+                _test_ref(tmp_path, f"filesystem:{message_id_b}"),
+            )
+        )
     )
     enqueued_rows = [
         row
@@ -7448,7 +7608,9 @@ def test_gateway_mail_notifier_rejects_pre_notification_compact_for_non_codex_tu
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    gateway_root = _seed_local_interactive_gateway_root(tmp_path, tool="claude")
+    gateway_root = _seed_local_interactive_gateway_root(
+        tmp_path, tool="claude", mailbox_enabled=True
+    )
     fake_session = _FakeGatewayHeadlessSession(
         tmux_session_name="HOUMAO-local",
         session_id=None,
@@ -7472,20 +7634,11 @@ def test_gateway_mail_notifier_rejects_pre_notification_compact_for_non_codex_tu
         "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
         _FakeGatewayTrackingRuntime,
     )
-    mailbox = FilesystemMailboxResolvedConfig(
-        transport="filesystem",
-        principal_id="HOUMAO-gpu",
-        address="HOUMAO-gpu@agents.localhost",
-        filesystem_root=(tmp_path / "mailbox").resolve(),
-        bindings_version="2026-03-16T08:00:00.000001Z",
-    )
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
         host="127.0.0.1",
         port=43123,
     )
-    monkeypatch.setattr(runtime, "_require_live_notifier_mailbox_config_locked", lambda: mailbox)
-    monkeypatch.setattr(runtime, "_load_mailbox_config", lambda: mailbox)
     runtime.start()
     try:
         with pytest.raises(HTTPException) as exc_info:
@@ -7493,7 +7646,8 @@ def test_gateway_mail_notifier_rejects_pre_notification_compact_for_non_codex_tu
                 GatewayMailNotifierPutV1(
                     interval_seconds=1,
                     pre_notification_context_action="compact",
-                )
+                ),
+                channel="offline",
             )
     finally:
         runtime.shutdown()
@@ -7506,7 +7660,7 @@ def test_gateway_mail_notifier_pre_notification_compaction_failure_is_audited(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path, mailbox_enabled=True)
     _deliver_unread_mailbox_message(tmp_path)
     fake_session = _FakeGatewayHeadlessSession(
         tmux_session_name="HOUMAO-local",
@@ -7531,20 +7685,11 @@ def test_gateway_mail_notifier_pre_notification_compaction_failure_is_audited(
         "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
         _FakeGatewayTrackingRuntime,
     )
-    mailbox = FilesystemMailboxResolvedConfig(
-        transport="filesystem",
-        principal_id="HOUMAO-gpu",
-        address="HOUMAO-gpu@agents.localhost",
-        filesystem_root=(tmp_path / "mailbox").resolve(),
-        bindings_version="2026-03-16T08:00:00.000001Z",
-    )
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
         host="127.0.0.1",
         port=43123,
     )
-    monkeypatch.setattr(runtime, "_require_live_notifier_mailbox_config_locked", lambda: mailbox)
-    monkeypatch.setattr(runtime, "_load_mailbox_config", lambda: mailbox)
 
     def _fail_compaction(*, lock_held: bool = False) -> object:
         del lock_held
@@ -7561,7 +7706,8 @@ def test_gateway_mail_notifier_pre_notification_compaction_failure_is_audited(
             GatewayMailNotifierPutV1(
                 interval_seconds=1,
                 pre_notification_context_action="compact",
-            )
+            ),
+            channel="offline",
         )
         _wait_until(
             lambda: any(
@@ -7586,7 +7732,7 @@ def test_gateway_mail_notifier_clear_context_recovery_failure_is_audited(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path, mailbox_enabled=True)
     _deliver_unread_mailbox_message(tmp_path)
     fake_session = _FakeGatewayHeadlessSession(
         tmux_session_name="HOUMAO-local",
@@ -7630,20 +7776,11 @@ def test_gateway_mail_notifier_clear_context_recovery_failure_is_audited(
         )
 
     monkeypatch.setattr(_FakeGatewayTrackingRuntime, "current_state", _degraded_ready_state)
-    mailbox = FilesystemMailboxResolvedConfig(
-        transport="filesystem",
-        principal_id="HOUMAO-gpu",
-        address="HOUMAO-gpu@agents.localhost",
-        filesystem_root=(tmp_path / "mailbox").resolve(),
-        bindings_version="2026-03-16T08:00:00.000001Z",
-    )
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
         host="127.0.0.1",
         port=43123,
     )
-    monkeypatch.setattr(runtime, "_require_live_notifier_mailbox_config_locked", lambda: mailbox)
-    monkeypatch.setattr(runtime, "_load_mailbox_config", lambda: mailbox)
 
     def _fail_reset(*, lock_held: bool = False) -> object:
         del lock_held
@@ -7657,7 +7794,8 @@ def test_gateway_mail_notifier_clear_context_recovery_failure_is_audited(
     runtime.start()
     try:
         runtime.put_mail_notifier(
-            GatewayMailNotifierPutV1(interval_seconds=1, context_error_policy="clear_context")
+            GatewayMailNotifierPutV1(interval_seconds=1, context_error_policy="clear_context"),
+            channel="offline",
         )
         _wait_until(
             lambda: any(
@@ -7684,7 +7822,7 @@ def test_gateway_mail_notifier_persistent_degraded_context_enqueues_without_muta
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path, mailbox_enabled=True)
     message_id = _deliver_unread_mailbox_message(tmp_path)
     fake_session = _FakeGatewayHeadlessSession(
         tmux_session_name="HOUMAO-local",
@@ -7718,27 +7856,18 @@ def test_gateway_mail_notifier_persistent_degraded_context_enqueues_without_muta
 
     monkeypatch.setattr(_FakeGatewayTrackingRuntime, "current_state", _always_degraded)
     mailbox_root = tmp_path / "mailbox"
-    mailbox = FilesystemMailboxResolvedConfig(
-        transport="filesystem",
-        principal_id="HOUMAO-gpu",
-        address="HOUMAO-gpu@agents.localhost",
-        filesystem_root=mailbox_root.resolve(),
-        bindings_version="2026-03-16T08:00:00.000001Z",
-    )
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
         host="127.0.0.1",
         port=43123,
     )
-    monkeypatch.setattr(runtime, "_require_live_notifier_mailbox_config_locked", lambda: mailbox)
-    monkeypatch.setattr(runtime, "_load_mailbox_config", lambda: mailbox)
     paths = gateway_paths_from_manifest_path(
         default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
     )
     assert paths is not None
     runtime.start()
     try:
-        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1), channel="offline")
         _wait_until(
             lambda: any(
                 row.outcome == "enqueued"
@@ -7780,7 +7909,11 @@ def test_gateway_mail_notifier_headless_uses_current_context_without_clean_conte
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     gateway_root = _seed_headless_gateway_root(tmp_path)
-    _deliver_unread_mailbox_message(tmp_path)
+    _deliver_unread_mailbox_message(
+        tmp_path,
+        recipient_principal_id=derive_agent_id_from_name("HOUMAO-headless"),
+        recipient_address="HOUMAO-headless@agents.localhost",
+    )
     fake_session = _FakeGatewayHeadlessSession()
     fake_controller = _FakeGatewayHeadlessController(fake_session)
     monkeypatch.setattr(
@@ -7795,23 +7928,48 @@ def test_gateway_mail_notifier_headless_uses_current_context_without_clean_conte
         "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
         lambda **_kwargs: True,
     )
+    with sqlite3.connect(tmp_path / "mailbox" / "index.sqlite") as connection:
+        registration = connection.execute(
+            "SELECT registration_id FROM mailbox_registrations WHERE address=? AND status='active'",
+            ("HOUMAO-headless@agents.localhost",),
+        ).fetchone()
+    assert registration is not None
     mailbox = FilesystemMailboxResolvedConfig(
         transport="filesystem",
-        principal_id="HOUMAO-gpu",
-        address="HOUMAO-gpu@agents.localhost",
+        principal_id=derive_agent_id_from_name("HOUMAO-headless"),
+        address="HOUMAO-headless@agents.localhost",
         filesystem_root=(tmp_path / "mailbox").resolve(),
-        bindings_version="2026-03-16T08:00:00.000001Z",
+        bindings_version="offline-test-revision",
+        agent_id=derive_agent_id_from_name("HOUMAO-headless"),
+        binding_id=str(registration[0]),
     )
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
         host="127.0.0.1",
         port=43123,
     )
-    monkeypatch.setattr(runtime, "_require_live_notifier_mailbox_config_locked", lambda: mailbox)
-    monkeypatch.setattr(runtime, "_load_mailbox_config", lambda: mailbox)
+    from houmao.agents.realm_controller.manifest import (
+        load_session_manifest,
+        mutate_session_mailbox_binding,
+    )
+
+    assert runtime.m_manifest_path is not None
+    stored = load_session_manifest(runtime.m_manifest_path).payload
+    mutate_session_mailbox_binding(
+        runtime.m_manifest_path,
+        channel="offline",
+        expected_revision=stored["launch_plan"]["mailboxes"]["offline"]["revision"],
+        binding=mailbox,
+        agent_id=stored["agent_id"],
+        session_id=stored["runtime"]["session_id"],
+    )
+    monkeypatch.setattr(
+        runtime, "_require_live_notifier_mailbox_config_locked", lambda *, channel: mailbox
+    )
+    monkeypatch.setattr(runtime, "_load_mailbox_config", lambda *, channel: mailbox)
     runtime.start()
     try:
-        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1), channel="offline")
         assert fake_session.started_event.wait(timeout=5.0)
     finally:
         runtime.shutdown()
@@ -7873,7 +8031,8 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
             GatewayMailNotifierPutV1(
                 interval_seconds=1,
                 appendix_text="Prioritize contract notices before FYI updates.\nLeave billing alone.",
-            )
+            ),
+            channel="offline",
         )
 
         deadline = time.monotonic() + 3.0
@@ -7921,8 +8080,8 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
         assert "pixi run houmao-mgr agents self mail resolve-live" not in prompt
         assert "http://127.0.0.1:43123" in prompt
         assert (
-            "Mailbox API: `GET /v1/mail/status`; "
-            "`POST /v1/mail/list|peek|read|reply|send|post|mark|move|archive`." in prompt
+            "Mailbox API: `GET /v1/mail/status`; `POST /v1/mail/offline/list|peek|read|reply|send|post|mark|move|archive`."
+            in prompt
         )
         assert (
             "Additional runtime guidance:\n"
@@ -7930,7 +8089,7 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
             "Leave billing alone." in prompt
         )
         assert "- `GET http://127.0.0.1:43123/v1/mail/status`" not in prompt
-        assert "- `POST http://127.0.0.1:43123/v1/mail/archive`" not in prompt
+        assert "- `POST http://127.0.0.1:43123/v1/mail/offline/archive`" not in prompt
         assert "curl -sS -X POST" not in prompt
         assert "Houmao mailbox skills are not installed for this session." not in prompt
         assert "python -m houmao.agents.mailbox_runtime_support" not in prompt
@@ -7945,8 +8104,8 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
     latest_row = enqueued_rows[-1]
     assert latest_row.unread_count == 2
     assert [item.message_ref for item in latest_row.unread_summary] == [
-        f"filesystem:{first_message_id}",
-        f"filesystem:{second_message_id}",
+        _test_ref(tmp_path, f"filesystem:{first_message_id}"),
+        _test_ref(tmp_path, f"filesystem:{second_message_id}"),
     ]
 
 
@@ -7960,7 +8119,7 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
         (
             "kimi",
             "Use `houmao-agent-entrypoint process-emails-via-gateway` with the gateway "
-            "above for this round.",
+            "above for this round, channel=offline",
         ),
     ],
 )
@@ -7993,7 +8152,7 @@ def test_gateway_mail_notifier_renders_tool_native_skill_invocation(
     )
     runtime.start()
     try:
-        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1), channel="offline")
 
         deadline = time.monotonic() + 3.0
         while time.monotonic() < deadline and not fake_client.submitted_prompts:
@@ -8054,7 +8213,7 @@ def test_gateway_mail_notifier_falls_back_when_required_skill_is_missing(
     )
     runtime.start()
     try:
-        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1), channel="offline")
 
         deadline = time.monotonic() + 3.0
         while time.monotonic() < deadline and not fake_client.submitted_prompts:
@@ -8067,8 +8226,8 @@ def test_gateway_mail_notifier_falls_back_when_required_skill_is_missing(
         assert "pixi run houmao-mgr agents self mail resolve-live" not in prompt
         assert "http://127.0.0.1:43123" in prompt
         assert (
-            "Mailbox API: `GET /v1/mail/status`; "
-            "`POST /v1/mail/list|peek|read|reply|send|post|mark|move|archive`." in prompt
+            "Mailbox API: `GET /v1/mail/status`; `POST /v1/mail/offline/list|peek|read|reply|send|post|mark|move|archive`."
+            in prompt
         )
         assert "- `GET http://127.0.0.1:43123/v1/mail/status`" not in prompt
         assert "houmao-process-emails-via-gateway" not in prompt
@@ -8092,40 +8251,9 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_then_repeats_for_unchange
                 time.sleep(1.5)
             return super().send_terminal_input(terminal_id, message)
 
-    class _FakeStalwartJmapClient:
-        def __init__(self, *, jmap_url: str, login_identity: str, credential_file: Path) -> None:
-            del jmap_url, login_identity, credential_file
+    from tests.unit.mailbox.fake_notifier_client import install_notifier_client
 
-        def status(self) -> dict[str, object]:
-            return {"account_id": "acc-1"}
-
-        def list_messages(
-            self,
-            *,
-            box: str,
-            read_state: str,
-            answered_state: str,
-            archived: bool | None,
-            limit: int | None,
-            since: str | None,
-        ) -> list[dict[str, object]]:
-            del box, read_state, answered_state, archived, limit, since
-            return [
-                {
-                    "id": "mail-1",
-                    "threadId": "thread-1",
-                    "receivedAt": "2026-03-19T08:00:00Z",
-                    "subject": "Stalwart unread notifier",
-                    "preview": "preview",
-                    "body": "full body",
-                    "from": [{"email": "sender@agents.localhost"}],
-                    "to": [{"email": "HOUMAO-gpu@agents.localhost"}],
-                    "cc": [],
-                    "replyTo": [],
-                    "attachments": [],
-                    "unread": True,
-                }
-            ]
+    install_notifier_client(monkeypatch)
 
     fake_client = _SlowFakeCaoRestClient(base_url="http://localhost:9889")
     monkeypatch.setattr(
@@ -8147,10 +8275,6 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_then_repeats_for_unchange
         "_tui_prompt_not_ready_reasons_locked",
         lambda self: [],
     )
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.gateway_mailbox.StalwartJmapClient",
-        _FakeStalwartJmapClient,
-    )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
@@ -8168,7 +8292,7 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_then_repeats_for_unchange
                 payload=GatewayRequestPayloadSubmitPromptV1(prompt="busy-work"),
             )
         )
-        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1), channel="online")
 
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline:
@@ -8191,12 +8315,11 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_then_repeats_for_unchange
             in fake_client.submitted_prompts[1][1]
         )
         assert (
-            "Mailbox API: `GET /v1/mail/status`; "
-            "`POST /v1/mail/list|peek|read|reply|send|post|mark|move|archive`."
+            "Mailbox API: `GET /v1/mail/status`; `POST /v1/mail/online/list|peek|read|reply|send|post|mark|move|archive`."
             in fake_client.submitted_prompts[1][1]
         )
         assert (
-            "- `POST http://127.0.0.1:43123/v1/mail/archive`"
+            "- `POST http://127.0.0.1:43123/v1/mail/online/archive`"
             not in fake_client.submitted_prompts[1][1]
         )
     finally:
@@ -8209,7 +8332,9 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_then_repeats_for_unchange
     assert enqueued_rows
     assert len(enqueued_rows) >= 2
     assert not any(row.outcome == "dedup_skip" for row in audit_rows)
-    assert enqueued_rows[-1].unread_summary[0].message_ref == "stalwart:mail-1"
+    assert enqueued_rows[-1].unread_summary[0].message_ref == _test_ref(
+        tmp_path, "stalwart:mail-1", "online", kind="message"
+    )
 
 
 def test_gateway_mail_notifier_stalwart_adapter_records_poll_errors(
@@ -8220,34 +8345,22 @@ def test_gateway_mail_notifier_stalwart_adapter_records_poll_errors(
     manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
     _install_fake_live_mailbox_projection(monkeypatch, manifest_path=manifest_path)
 
-    class _FailingStalwartJmapClient:
-        def __init__(self, *, jmap_url: str, login_identity: str, credential_file: Path) -> None:
-            del jmap_url, login_identity, credential_file
+    from tests.unit.mailbox.fake_notifier_client import (
+        FakeNotifierJmapClient,
+        install_notifier_client,
+    )
 
-        def status(self) -> dict[str, object]:
-            return {"account_id": "acc-1"}
-
-        def list_messages(
-            self,
-            *,
-            box: str,
-            read_state: str,
-            answered_state: str,
-            archived: bool | None,
-            limit: int | None,
-            since: str | None,
-        ) -> list[dict[str, object]]:
-            del box, read_state, answered_state, archived, limit, since
+    class _FailingStalwartJmapClient(FakeNotifierJmapClient):
+        def query_metadata_page(self, **kwargs):
+            self.method_call_count += 1
             raise StalwartError("simulated stalwart mailbox failure")
+
+    install_notifier_client(monkeypatch, _FailingStalwartJmapClient)
 
     fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.CaoRestClient",
         lambda *args, **kwargs: fake_client,
-    )
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.gateway_mailbox.StalwartJmapClient",
-        _FailingStalwartJmapClient,
     )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
@@ -8260,7 +8373,7 @@ def test_gateway_mail_notifier_stalwart_adapter_records_poll_errors(
 
     runtime.start()
     try:
-        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1), channel="online")
 
         deadline = time.monotonic() + 3.0
         while time.monotonic() < deadline:
@@ -8269,9 +8382,9 @@ def test_gateway_mail_notifier_stalwart_adapter_records_poll_errors(
                 break
             time.sleep(0.05)
 
-        status = runtime.get_mail_notifier()
+        status = runtime.get_mail_notifier(channel="online")
         assert status.last_error is not None
-        assert "simulated stalwart mailbox failure" in status.last_error
+        assert "Online observation degraded" in status.last_error
         assert fake_client.submitted_prompts == []
     finally:
         runtime.shutdown()
@@ -8280,7 +8393,7 @@ def test_gateway_mail_notifier_stalwart_adapter_records_poll_errors(
     poll_error_rows = [row for row in audit_rows if row.outcome == "poll_error"]
     assert poll_error_rows
     assert poll_error_rows[-1].detail is not None
-    assert "simulated stalwart mailbox failure" in poll_error_rows[-1].detail
+    assert "Online observation degraded" in poll_error_rows[-1].detail
 
 
 def test_gateway_mail_notifier_defers_while_busy_and_logs_the_skip(
@@ -8324,7 +8437,7 @@ def test_gateway_mail_notifier_defers_while_busy_and_logs_the_skip(
                 payload=GatewayRequestPayloadSubmitPromptV1(prompt="busy-work"),
             )
         )
-        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1), channel="offline")
 
         deadline = time.monotonic() + 4.5
         while time.monotonic() < deadline and len(fake_client.submitted_prompts) < 2:
@@ -8350,7 +8463,9 @@ def test_gateway_mail_notifier_defers_while_busy_and_logs_the_skip(
         row.active_execution == "running" or (row.queue_depth is not None and row.queue_depth > 0)
         for row in busy_rows
     )
-    assert enqueued_rows[-1].unread_summary[0].message_ref == f"filesystem:{message_id}"
+    assert enqueued_rows[-1].unread_summary[0].message_ref == _test_ref(
+        tmp_path, f"filesystem:{message_id}", "offline", kind="message"
+    )
 
 
 def test_gateway_mail_notifier_enqueues_when_claude_tracked_surface_is_ready(
@@ -8392,8 +8507,8 @@ def test_gateway_mail_notifier_enqueues_when_claude_tracked_surface_is_ready(
     )
     runtime.start()
     try:
-        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=60))
-        runtime._run_notifier_cycle()
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=60), channel="offline")
+        runtime._run_notifier_cycle(channel="offline")
         _wait_until(lambda: len(fake_client.submitted_prompts) >= 1, timeout_seconds=5.0)
     finally:
         runtime.shutdown()
@@ -8406,7 +8521,9 @@ def test_gateway_mail_notifier_enqueues_when_claude_tracked_surface_is_ready(
     audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
     enqueued_rows = [row for row in audit_rows if row.outcome == "enqueued"]
     assert enqueued_rows
-    assert enqueued_rows[-1].unread_summary[0].message_ref == f"filesystem:{message_id}"
+    assert enqueued_rows[-1].unread_summary[0].message_ref == _test_ref(
+        tmp_path, f"filesystem:{message_id}", "offline", kind="message"
+    )
     assert not any(row.outcome == "busy_skip" for row in audit_rows)
 
 
@@ -8448,8 +8565,8 @@ def test_gateway_mail_notifier_defers_when_claude_tracked_surface_reports_draft(
     )
     runtime.start()
     try:
-        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=60))
-        runtime._run_notifier_cycle()
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=60), channel="offline")
+        runtime._run_notifier_cycle(channel="offline")
     finally:
         runtime.shutdown()
 

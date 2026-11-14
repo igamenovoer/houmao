@@ -1,6 +1,4 @@
-"""Mailbox-specific exception types."""
-
-from __future__ import annotations
+"""Shared safe mailbox backend failures without service import dependencies."""
 
 
 class MailboxError(RuntimeError):
@@ -13,3 +11,50 @@ class MailboxProtocolError(MailboxError):
 
 class MailboxBootstrapError(MailboxError):
     """Raised when filesystem mailbox bootstrap cannot complete safely."""
+
+
+class GatewayMailboxError(RuntimeError):
+    """Raised when a managed mailbox cannot satisfy a request."""
+
+
+class GatewayMailboxUnsupportedError(GatewayMailboxError):
+    """Raised when a provider does not implement the selected operation."""
+
+
+class GatewayMailboxMutationError(GatewayMailboxError):
+    """Preserve one provider mutation outcome and its original managed binding."""
+
+    def __init__(
+        self,
+        *,
+        operation: str,
+        outcome: str,
+        email_id: str | None,
+        submission_id: str | None,
+        agent_id: str,
+        binding_id: str,
+        revision: str,
+    ) -> None:
+        super().__init__(f"Online {operation} outcome={outcome}; reconcile before repeating")
+        self.operation = operation
+        self.outcome = outcome
+        self.email_id = email_id
+        self.submission_id = submission_id
+        self.agent_id = agent_id
+        self.binding_id = binding_id
+        self.revision = revision
+
+    def safe_payload(self) -> dict[str, str | None]:
+        """Return reconciliation facts without provider diagnostics or secrets."""
+
+        return {
+            "error_code": "mail_mutation_outcome",
+            "detail": str(self),
+            "operation": self.operation,
+            "outcome": self.outcome,
+            "email_id": self.email_id,
+            "submission_id": self.submission_id,
+            "agent_id": self.agent_id,
+            "binding_id": self.binding_id,
+            "revision": self.revision,
+        }

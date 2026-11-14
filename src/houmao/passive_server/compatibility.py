@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Literal, cast
+from typing import Literal
 
-from houmao.agents.mailbox_runtime_models import MailboxTransport
+from houmao.agents.mailbox_runtime_support import safe_registry_mailboxes_projection
 from houmao.agents.realm_controller.backends.tmux_runtime import HEADLESS_AGENT_WINDOW_NAME
 from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
 from houmao.agents.realm_controller.registry_models import ManagedAgentRegistryRecordV3
@@ -83,16 +83,9 @@ def mailbox_summary_from_registry_record(
 ) -> HoumaoManagedAgentMailboxSummaryView | None:
     """Return optional redacted mailbox posture from one registry record."""
 
-    mailbox = record.mailbox
-    if mailbox is None:
-        return None
-    transport = getattr(mailbox, "transport", None)
-    if transport not in {"filesystem", "stalwart"}:
-        return None
     return HoumaoManagedAgentMailboxSummaryView(
-        transport=cast(MailboxTransport, transport),
-        principal_id=getattr(mailbox, "principal_id", None),
-        address=getattr(mailbox, "address", None),
+        **record.mailboxes.model_dump(mode="json"),
+        canonical_mail_identity=record.canonical_mail_identity,
     )
 
 
@@ -104,13 +97,10 @@ def mailbox_summary_from_headless_control_state(
     controller = control_state.controller
     if controller is None:
         return None
-    mailbox = controller.launch_plan.mailbox
-    if mailbox is None:
-        return None
+    mailboxes = controller.launch_plan.mailboxes
     return HoumaoManagedAgentMailboxSummaryView(
-        transport=mailbox.transport,
-        principal_id=mailbox.principal_id,
-        address=mailbox.address,
+        **safe_registry_mailboxes_projection(mailboxes),
+        canonical_mail_identity=mailboxes.canonical_mail_identity,
     )
 
 
@@ -156,7 +146,7 @@ def managed_tui_state_from_observation(
             updated_at_utc=state.last_turn.updated_at_utc,
         ),
         diagnostics=_tracked_errors_from_tui_state(state),
-        mailbox=mailbox_summary,
+        mailboxes=mailbox_summary,
         gateway=gateway_summary,
     )
 
@@ -280,7 +270,7 @@ def managed_headless_state_from_control_state(
             updated_at_utc=updated_at_utc,
         ),
         diagnostics=diagnostics,
-        mailbox=mailbox_summary,
+        mailboxes=mailbox_summary,
         gateway=gateway_summary,
     )
 
@@ -318,7 +308,7 @@ def managed_headless_detail_response(
             latest_turn.history_summary if latest_turn is not None else None
         ),
         last_turn_error=latest_turn.error if latest_turn is not None else None,
-        mailbox=summary_state.mailbox,
+        mailboxes=summary_state.mailboxes,
         gateway=summary_state.gateway,
         diagnostics=list(summary_state.diagnostics),
     )

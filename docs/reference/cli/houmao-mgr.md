@@ -108,9 +108,9 @@ Managed-agent birth is source-scoped. Public project-backed launch is `houmao-mg
 | Adopt the current tmux session | `houmao-mgr agents self join --agent-name <name>` |
 | Selected-agent gateway operation | `houmao-mgr agents single --agent-id <id> gateway status` |
 | Current-session gateway operation | `houmao-mgr agents self gateway status` |
-| Selected-agent mail operation | `houmao-mgr agents single --agent-name <name> mail read --message-ref <ref>` |
-| Current-session mail operation | `houmao-mgr agents self mail read --message-ref <ref>` |
-| Selected-agent mailbox binding | `houmao-mgr agents single --agent-name <name> mailbox register` |
+| Selected-agent mail operation | `houmao-mgr agents single --agent-name <name> mail read --channel offline --message-ref <ref>` |
+| Current-session mail operation | `houmao-mgr agents self mail read --channel offline --message-ref <ref>` |
+| Selected-agent mailbox binding | `houmao-mgr agents single --agent-name <name> mailbox offline join` |
 | Current-session mailbox binding | `houmao-mgr agents self mailbox status` |
 | Selected-agent headless turn | `houmao-mgr agents single --agent-id <id> turn submit --prompt <text>` |
 | Current-session headless turn inspection | `houmao-mgr agents self turn status <turn-id>` |
@@ -131,13 +131,17 @@ Managed-agent birth is source-scoped. Public project-backed launch is `houmao-mg
 | `houmao-mgr agents relaunch` from inside the managed session | `houmao-mgr agents self relaunch` |
 | `houmao-mgr agents gateway prompt --agent-id <id> --prompt <text>` | `houmao-mgr agents single --agent-id <id> gateway prompt --prompt <text>` |
 | `houmao-mgr agents gateway prompt --prompt <text>` from inside the managed session | `houmao-mgr agents self gateway prompt --prompt <text>` |
-| `houmao-mgr agents mail read --message-ref <ref>` from inside the managed session | `houmao-mgr agents self mail read --message-ref <ref>` |
+| `houmao-mgr agents mail read --channel offline --message-ref <ref>` from inside the managed session | `houmao-mgr agents self mail read --channel offline --message-ref <ref>` |
 | `houmao-mgr agents launch --launch-profile <name>` | `houmao-mgr project [--project-dir <dir>] agents launch --profile <name>` |
 | `houmao-mgr agents external register ...` | unchanged: `houmao-mgr agents external register ...` |
 
 #### Gateway, Mail, Mailbox, Memory, And Turn
 
-Gateway commands live under both selected-agent and current-session surfaces: `agents single --agent-id <id> gateway ...`, `agents single --agent-name <name> gateway ...`, and `agents self gateway ...`. The gateway family includes `attach`, `detach`, `status`, `prompt`, `interrupt`, `send-keys`, `tui state|history|watch|note-prompt`, `mail-notifier status|enable|disable`, and `reminders list|get|create|set|remove`. The single surface is explicit selected-agent authority; the self surface is current-session authority and does not expose explicit selectors.
+New agents use UUIDs by default. `--agent-id` supplies an opaque stable ID; explicit `--agent-id-mode name-hash` selects deterministic name hashing when the caller guarantees name uniqueness. Combining supplied ID and explicit mode fails. Resume, relaunch, rename, and mail changes preserve the persisted ID. See [Agent Identity](../run-phase/agent-identity.md).
+
+Mail lifecycle operations require `--channel offline|online`. Summary `mail status` and `resolve-live` expose both slots. Use `--expected-binding-id` from status or round context to pin an operation; stale targeting fails without retrying another mailbox. Canonical mail identity prefers configured online mail, then offline, and never routes delivery. Offline join/leave uses `mailbox offline status|join|leave` without restarting the body.
+
+Gateway commands live under both selected-agent and current-session surfaces: `agents single --agent-id <id> gateway ...`, `agents single --agent-name <name> gateway ...`, and `agents self gateway ...`. The gateway family includes `attach`, `detach`, `status`, `prompt`, `interrupt`, `send-keys`, `tui state|history|watch|note-prompt`, `mail-notifier status|enable|disable --channel <offline|online>`, and `reminders list|get|create|set|remove`. The single surface is explicit selected-agent authority; the self surface is current-session authority and does not expose explicit selectors.
 
 Mail commands also live under both selected-agent and current-session surfaces. The maintained subcommands are `resolve-live`, `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`. `resolve-live` returns structured mailbox binding data plus optional `gateway.base_url`; mailbox-specific shell export is not part of the supported contract. Verified pair-owned and manager-owned execution returns authoritative results, while local live-TUI fallback is non-authoritative submission-only. Use `status`, `list`, gateway `/v1/mail/*`, filesystem mailbox inspection, or transport-native mailbox state to verify non-authoritative outcomes.
 
@@ -172,7 +176,7 @@ Local operator commands for filesystem mailbox roots and address lifecycle. This
 | `clear-messages` | Clear delivered message content and derived message state while preserving mailbox registrations. |
 | `export` | Export selected mailbox accounts and indexed messages into a portable archive directory. |
 
-`mailbox register` keeps the existing `safe`, `force`, and `stash` mode vocabulary. When a requested registration would replace existing durable mailbox state or an occupying mailbox entry artifact, the command prompts before destructive replacement on interactive terminals and accepts `--yes` for non-interactive overwrite confirmation.
+`mailbox register` makes an exclusive ownership claim in the selected registry's configured store. A same-owner retry is idempotent; an occupied address owned by another agent conflicts. Force, stash, overwrite prompts, and `--yes` cannot replace its owner. Release the old registration explicitly before a new owner joins; retained history remains private to the old registration.
 
 `mailbox messages list|get` is structural inspection over canonical message metadata plus address-scoped projection metadata. Participant-local mutable state such as `read`, `starred`, `archived`, and `deleted` belongs on actor-scoped `houmao-mgr agents single ... mail ...` or `houmao-mgr agents self mail ...` workflows rather than this operator/admin surface.
 
@@ -369,7 +373,7 @@ Low-level boundary notes:
 - `launch-profiles add` also accepts `--managed-header` or `--no-managed-header` to store explicit managed-header whole-header policy, plus repeatable `--managed-header-section SECTION=enabled|disabled` to store section policy. Omitting whole-header flags stores `inherit`; omitting section flags stores no section entries. For the conceptual model behind these flags, see [Managed Launch Prompt Header](../run-phase/managed-prompt-header.md).
 - `launch-profiles set` patches without dropping unspecified advanced blocks and exposes matching `--clear-*` flags for nullable fields (`--clear-agent-name`, `--clear-agent-id`, `--clear-workdir`, `--clear-auth`, `--clear-prompt-mode`, `--clear-env`, `--clear-system-skills`, `--clear-mailbox`, `--clear-headless`, `--clear-relaunch-chat-session`, `--clear-managed-header`, `--clear-managed-header-section`, `--clear-managed-header-sections`, `--clear-prompt-overlay`, `--clear-gateway-mail-notifier-appendix`, `--clear-memo-seed`).
 - Managed system-skill pack selectors without `--system-skills-mode` infer `extend`. Profile mode `inherit` uses the source recipe's effective selection, `extend` adds packs to that source selection, `replace` uses exactly the selected packs, and `none` installs no Houmao system-skill packs for future launches.
-- Supplying `--gateway-mail-notifier-appendix-text` on `launch-profiles add|set` stores a default appended to future runtime notifier prompts. Launching from the profile seeds that text into gateway notifier state without enabling notifier polling. Later live `agents single ... gateway mail-notifier enable --appendix-text ...` or `agents self gateway mail-notifier enable --appendix-text ...` edits runtime state only and do not rewrite the stored profile.
+- Supplying `--gateway-mail-notifier-appendix-text` on `launch-profiles add|set` stores a default appended to future runtime notifier prompts. Launching from the profile seeds that text into gateway notifier state without enabling notifier polling. Later live `agents single ... gateway mail-notifier enable --channel <offline|online> --appendix-text ...` or `agents self gateway mail-notifier enable --channel <offline|online> --appendix-text ...` edits runtime state only and do not rewrite the stored profile.
 - Stored relaunch chat-session policy is applied only by future selected-agent `agents single ... relaunch` operations. `--relaunch-chat-session-mode exact` requires `--relaunch-chat-session-id`; ids are omitted for `new` and `tool_last_or_new`.
 - Supplying a new `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir` source on `launch-profiles set` replaces the stored seed. `--clear-memo-seed` cannot be combined with a new memo seed source.
 - Memo seeds always replace only the managed-memory components represented by the seed source. `--memo-seed-text` and `--memo-seed-file` touch only `houmao-memo.md`; `--memo-seed-dir` touches `houmao-memo.md` only when that file is present and touches pages only when `pages/` is present. `--memo-seed-text ''` stores an intentional empty memo seed without clearing pages. `--clear-memo-seed` removes stored seed configuration instead of writing an empty memo.
@@ -503,7 +507,7 @@ Low-level boundary notes:
 | `accounts list|get` | Inspect mailbox registrations under the project mailbox root. |
 | `messages list|get` | Inspect structural message projections under the project mailbox root. |
 
-`project mailbox register` mirrors the generic mailbox overwrite-confirmation contract, including interactive overwrite prompts and `--yes` for non-interactive replacement.
+`project mailbox register` enforces the same exclusive ownership rule as generic registration. The project-selected store must match the selected registry configuration; it never silently reconfigures the registry or creates another offline group.
 
 `project mailbox clear-messages` mirrors the generic delivered-message reset, but targets the selected overlay mailbox root automatically.
 

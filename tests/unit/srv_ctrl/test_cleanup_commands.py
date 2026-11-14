@@ -158,6 +158,11 @@ def _registry_record(
             if lifecycle_state == "active"
             else None
         ),
+        mailboxes={
+            "offline": {"revision": "off-empty", "binding": None},
+            "online": {"revision": "on-empty", "binding": None},
+        },
+        canonical_mail_identity=None,
     )
 
 
@@ -1521,7 +1526,7 @@ def test_mailbox_cleanup_removes_inactive_registration_and_keeps_messages(
 def test_mailbox_cleanup_plain_output_lists_action_lines(tmp_path: Path) -> None:
     paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox")
     address = "HOUMAO-cleanup@agents.localhost"
-    register_mailbox(
+    registration = register_mailbox(
         paths.root,
         RegisterMailboxRequest(
             mode="safe",
@@ -1555,7 +1560,7 @@ def test_mailbox_cleanup_plain_output_lists_action_lines(tmp_path: Path) -> None
     assert result.exit_code == 0, result.output
     assert "Cleanup Plan:" in result.output
     assert "Planned Actions (1):" in result.output
-    assert str(paths.mailbox_entry_path(address)) in result.output
+    assert str(paths.root / "history" / registration["active_registration_id"]) in result.output
     assert "inactive mailbox registration is no longer active and is eligible for cleanup" in (
         result.output
     )

@@ -24,6 +24,12 @@ houmao-mgr agents self mail [OPTIONS] COMMAND [ARGS]...
 - External communication-only targets registered with `houmao-mgr agents external register` are supported through selected-agent targeting; mail operations route through the stored remote pair API and remote agent ref.
 - Current-session targeting remains local tmux-only and does not resolve external records.
 
+## Channel and Binding Scope
+
+Every lifecycle operation requires `--channel offline|online`. `mail status` and `resolve-live` summarize both channels. Online-first canonical mail identity never selects delivery, and a failed channel never falls back to the other one.
+
+Each operation resolves the selected binding once. Supply `--expected-binding-id <id>` from status or a notifier round to pin it explicitly. A replacement binding causes a conflict; the manager does not resend the operation to the replacement. Message and thread references carry owner, channel, and binding scope, so an online reference cannot target offline mail.
+
 ## Commands
 
 ### `resolve-live`
@@ -38,7 +44,7 @@ houmao-mgr agents single --agent-id <id> mail resolve-live [OPTIONS]
 |---|---|
 | `--port INTEGER` | Houmao pair authority port to use with an explicit selector. |
 
-JSON output includes the resolved mailbox binding, a `managed_agent` summary, `gateway_available`, and optional `gateway` metadata including `base_url` when a live shared `/v1/mail/*` facade is available. The transport-specific mailbox details live under `mailbox.filesystem.*` or `mailbox.stalwart.*`. Mailbox-specific shell export is not part of the supported `resolve-live` contract.
+JSON output includes the resolved mailbox binding, a `managed_agent` summary, `gateway_available`, and optional `gateway` metadata including `base_url` when a live shared `/v1/mail/*` facade is available. Configured slot summaries live under `mailboxes.offline` and `mailboxes.online`, with a derived `canonical_mail_identity`. Protected credential references are omitted. Mailbox-specific shell export is not part of the supported `resolve-live` contract.
 
 ### `status`
 
@@ -57,7 +63,7 @@ houmao-mgr agents single --agent-id <id> mail status [OPTIONS]
 List mailbox contents for one managed agent.
 
 ```
-houmao-mgr agents single --agent-id <id> mail list [OPTIONS]
+houmao-mgr agents single --agent-id <id> mail list --channel <offline|online> [OPTIONS]
 ```
 
 | Option | Description |
@@ -66,17 +72,19 @@ houmao-mgr agents single --agent-id <id> mail list [OPTIONS]
 | `--read-state [any\|read\|unread]` | Read-state filter. Defaults to `any`. |
 | `--answered-state [any\|answered\|unanswered]` | Answered-state filter. Defaults to `any`. |
 | `--archived / --not-archived` | Archived-state filter. |
-| `--limit INTEGER` | Maximum number of messages to return. |
-| `--since TEXT` | Optional RFC3339 lower bound. |
-| `--include-body` | Include full message body text. |
+| `--limit INTEGER` | Metadata records in this page: default 50, range 1–200. |
+| `--since TEXT` | Exclusive RFC3339 lower bound (strictly newer messages). |
+| `--cursor TEXT` | Opaque continuation from the same channel, binding, and filters. |
 | `--port INTEGER` | Houmao pair authority port to use with an explicit selector. |
+
+Lists return metadata only and page counts (`counts_scope=page`), plus `next_cursor`, `has_more`, and `complete`. Use the returned cursor unchanged for the next page. HTTP 409 stale-cursor results require a fresh list; a binding conflict ends the current round. The removed `--include-body` flag fails with a `peek`/`read` hint.
 
 ### `peek`
 
 Peek at one mailbox message without marking it read.
 
 ```
-houmao-mgr agents single --agent-id <id> mail peek [OPTIONS]
+houmao-mgr agents single --agent-id <id> mail peek --channel <offline|online> [OPTIONS]
 ```
 
 | Option | Description |
@@ -90,7 +98,7 @@ houmao-mgr agents single --agent-id <id> mail peek [OPTIONS]
 Read one mailbox message and mark it read.
 
 ```
-houmao-mgr agents single --agent-id <id> mail read [OPTIONS]
+houmao-mgr agents single --agent-id <id> mail read --channel <offline|online> [OPTIONS]
 ```
 
 | Option | Description |
@@ -104,7 +112,7 @@ houmao-mgr agents single --agent-id <id> mail read [OPTIONS]
 Send one mailbox message for a managed agent.
 
 ```
-houmao-mgr agents single --agent-id <id> mail send [OPTIONS]
+houmao-mgr agents single --agent-id <id> mail send --channel <offline|online> [OPTIONS]
 ```
 
 | Option | Description |
@@ -124,7 +132,7 @@ houmao-mgr agents single --agent-id <id> mail send [OPTIONS]
 Post one operator-origin mailbox note into a managed agent inbox.
 
 ```
-houmao-mgr agents single --agent-id <id> mail post [OPTIONS]
+houmao-mgr agents single --agent-id <id> mail post --channel <offline|online> [OPTIONS]
 ```
 
 | Option | Description |
@@ -145,7 +153,7 @@ houmao-mgr agents single --agent-id <id> mail post [OPTIONS]
 Reply to one mailbox message for a managed agent.
 
 ```
-houmao-mgr agents single --agent-id <id> mail reply [OPTIONS]
+houmao-mgr agents single --agent-id <id> mail reply --channel <offline|online> [OPTIONS]
 ```
 
 | Option | Description |
@@ -163,7 +171,7 @@ Replies to operator-origin parent messages succeed when the parent was posted wi
 Mark selected mailbox messages for a managed agent.
 
 ```
-houmao-mgr agents single --agent-id <id> mail mark [OPTIONS]
+houmao-mgr agents single --agent-id <id> mail mark --channel <offline|online> [OPTIONS]
 ```
 
 | Option | Description |
@@ -181,7 +189,7 @@ At least one of `--read/--unread`, `--answered/--unanswered`, or `--archived/--u
 Move selected mailbox messages for a managed agent.
 
 ```
-houmao-mgr agents single --agent-id <id> mail move [OPTIONS]
+houmao-mgr agents single --agent-id <id> mail move --channel <offline|online> [OPTIONS]
 ```
 
 | Option | Description |
@@ -195,7 +203,7 @@ houmao-mgr agents single --agent-id <id> mail move [OPTIONS]
 Archive selected mailbox messages for a managed agent.
 
 ```
-houmao-mgr agents single --agent-id <id> mail archive [OPTIONS]
+houmao-mgr agents single --agent-id <id> mail archive --channel <offline|online> [OPTIONS]
 ```
 
 | Option | Description |
@@ -208,7 +216,7 @@ houmao-mgr agents single --agent-id <id> mail archive [OPTIONS]
 - Verified pair-owned and manager-owned execution returns `authoritative: true`, `status: "verified"`, and `execution_path: "gateway_backed"` or `"manager_direct"`.
 - Local live-TUI fallback returns `authoritative: false` with submission-only status such as `submitted`, `rejected`, `busy`, `interrupted`, or `tui_error`.
 - `post` never returns a TUI-submission result because it refuses non-authoritative execution.
-- Non-authoritative fallback results may include `preview_result`, but callers must verify outcome through manager-owned follow-up such as `agents single ... mail status`, `agents self mail status`, `agents single ... mail list`, or `agents self mail list`, the live gateway `/v1/mail/*` state, filesystem mailbox inspection, or transport-native mailbox state.
+- Non-authoritative fallback results may include `preview_result`, but callers must verify outcome through manager-owned follow-up such as `agents single ... mail status`, `agents self mail status`, `agents single ... mail list --channel <channel>`, or `agents self mail list --channel <channel>`, the live gateway `/v1/mail/*` state, filesystem mailbox inspection, or transport-native mailbox state.
 
 ## Notification-prompt block
 
@@ -217,7 +225,7 @@ houmao-mgr agents single --agent-id <id> mail archive [OPTIONS]
 **Body fence (default authoring path)** — write a Markdown fenced code block with info-string `houmao-notify` inside `--body-content` (or the file passed to `--body-file`). The first such fence is extracted into the canonical `notify_block` field at composition time, with `placement="append"` by default. The fence text remains in the body source so receivers reading the full message see the same content.
 
 ```bash
-pixi run houmao-mgr agents single --agent-name alice mail send \
+pixi run houmao-mgr agents single --agent-name alice mail send --channel offline \
   --to bob@houmao.localhost \
   --subject "bench results" \
   --body-content $'see attached numbers.\n\n```houmao-notify\nIf speedup ≥ 50x, re-run on official timing path before reporting.\n```'
@@ -226,7 +234,7 @@ pixi run houmao-mgr agents single --agent-name alice mail send \
 **Explicit `--notify-block` + `--notify-block-placement` flags** — supply the value out of band. The CLI uses the explicit value directly; body-fence extraction is bypassed. The protocol-side **auto-mirror invariant** synthesizes a `houmao-notify` fenced block in the body at the requested placement when the body does not already contain one, so the receiver always finds the same text in the message body even though the channel reaches the wake-up prompt earlier.
 
 ```bash
-pixi run houmao-mgr agents single --agent-name alice mail post \
+pixi run houmao-mgr agents single --agent-name alice mail post --channel offline \
   --subject "Continue current task" \
   --body-content "Operator note from supervisor." \
   --notify-block "continue current task" \
@@ -248,19 +256,19 @@ Constraints to know:
 pixi run houmao-mgr agents self mail resolve-live
 
 # Leave one operator-origin note in the current managed agent mailbox.
-pixi run houmao-mgr agents single --agent-name research mail post \
+pixi run houmao-mgr agents single --agent-name research mail post --channel offline \
   --subject "Resume after sync" \
   --body-content "Continue from the latest mailbox checkpoint."
 
 # Archive one processed message for an explicit target.
-pixi run houmao-mgr agents single --agent-name research mail archive \
-  --message-ref filesystem:msg-20260312T050000Z-parent
+pixi run houmao-mgr agents single --agent-name research mail archive --channel offline \
+  --expected-binding-id <binding-id> --message-ref <scoped-message-ref>
 ```
 
 ## See Also
 
 - [houmao-mgr](houmao-mgr.md) — parent CLI reference
-- [agents mailbox](agents-mailbox.md) — late filesystem mailbox registration
+- [agents mailbox](agents-mailbox.md) — offline registry membership
 - [Mailbox Reference](../mailbox/index.md) — mailbox subsystem details
 - [System Skills Overview](../../getting-started/system-skills-overview.md) — actor entrypoints, the shared sibling, and the parent-scoped `agent-email-comms` and `process-emails-via-gateway` routes
 - [Managed-Agent API](../managed_agent_api.md) — HTTP mail follow-up routes

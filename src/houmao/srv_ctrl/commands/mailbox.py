@@ -16,9 +16,7 @@ from houmao.project.overlay import (
 
 from .cleanup_support import emit_cleanup_payload
 from .common import (
-    build_destructive_confirmation_callback,
     confirm_destructive_action,
-    overwrite_confirm_option,
 )
 from .mailbox_support import (
     MAILBOX_ROOT_FAILURE_TYPES,
@@ -98,12 +96,13 @@ def mailbox_group() -> None:
 
 @mailbox_group.command(name="init")
 @_mailbox_root_option
-def init_mailbox_command(mailbox_root: Path | None) -> None:
+@click.option("--registry-root", type=click.Path(path_type=Path), default=None)
+def init_mailbox_command(mailbox_root: Path | None, registry_root: Path | None) -> None:
     """Bootstrap or validate one filesystem mailbox root."""
 
     _emit_mailbox_payload(
         mailbox_root=mailbox_root,
-        payload=_call_mailbox_action(mailbox_root, init_mailbox_root),
+        payload=_call_mailbox_action(mailbox_root, init_mailbox_root, registry_root=registry_root),
     )
 
 
@@ -120,28 +119,16 @@ def status_mailbox_command(mailbox_root: Path | None) -> None:
 
 @mailbox_group.command(name="register")
 @_mailbox_root_option
-@click.option(
-    "--address",
-    required=True,
-    help="Full mailbox address, for example `agent@houmao.localhost`.",
-)
-@click.option("--principal-id", required=True, help="Mailbox owner principal id.")
-@click.option(
-    "--mode",
-    type=click.Choice(("safe", "force", "stash")),
-    default="safe",
-    show_default=True,
-    help="Filesystem mailbox registration mode.",
-)
-@overwrite_confirm_option
+@click.option("--registry-root", type=click.Path(path_type=Path), default=None)
+@click.option("--address", required=True, help="Full offline mailbox address.")
+@click.option("--principal-id", required=True, help="Stable agent_id or human/system principal ID.")
 def register_mailbox_command(
     mailbox_root: Path | None,
+    registry_root: Path | None,
     address: str,
     principal_id: str,
-    mode: str,
-    yes: bool,
 ) -> None:
-    """Register one filesystem mailbox address under the resolved root."""
+    """Claim a free offline address; occupied addresses require prior explicit release."""
 
     _emit_mailbox_payload(
         mailbox_root=mailbox_root,
@@ -150,21 +137,14 @@ def register_mailbox_command(
             register_mailbox_at_root,
             address=address,
             principal_id=principal_id,
-            mode=mode,
-            confirm_destructive_replace=build_destructive_confirmation_callback(
-                yes=yes,
-                non_interactive_message=(
-                    "Mailbox registration would replace existing durable mailbox state. "
-                    "Rerun with `--yes` to confirm overwrite non-interactively or choose "
-                    "a non-destructive registration mode."
-                ),
-            ),
+            registry_root=registry_root,
         ),
     )
 
 
 @mailbox_group.command(name="unregister")
 @_mailbox_root_option
+@click.option("--registry-root", type=click.Path(path_type=Path), default=None)
 @click.option(
     "--address",
     required=True,
@@ -177,7 +157,9 @@ def register_mailbox_command(
     show_default=True,
     help="Filesystem mailbox deregistration mode.",
 )
-def unregister_mailbox_command(mailbox_root: Path | None, address: str, mode: str) -> None:
+def unregister_mailbox_command(
+    mailbox_root: Path | None, registry_root: Path | None, address: str, mode: str
+) -> None:
     """Deactivate or purge one filesystem mailbox address."""
 
     _emit_mailbox_payload(
@@ -187,6 +169,7 @@ def unregister_mailbox_command(mailbox_root: Path | None, address: str, mode: st
             unregister_mailbox_at_root,
             address=address,
             mode=mode,
+            registry_root=registry_root,
         ),
     )
 

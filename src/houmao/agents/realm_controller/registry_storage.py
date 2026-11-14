@@ -36,7 +36,7 @@ DEFAULT_REGISTRY_LEASE_TTL = timedelta(hours=24)
 TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL = timedelta(days=36500)
 JOINED_REGISTRY_SENTINEL_LEASE_TTL = timedelta(days=30)
 DEFAULT_REGISTRY_CLEANUP_GRACE_PERIOD = timedelta(minutes=5)
-MANAGED_AGENT_REGISTRY_SCHEMA = "managed_agent_registry_record.v3.schema.json"
+MANAGED_AGENT_REGISTRY_SCHEMA = "managed_agent_registry_record.v4.schema.json"
 LIVE_AGENT_REGISTRY_SCHEMA = MANAGED_AGENT_REGISTRY_SCHEMA
 EXTERNAL_MANAGED_AGENT_REGISTRY_SCHEMA = "external_managed_agent_registry_record.v1.schema.json"
 
@@ -971,6 +971,8 @@ def _read_managed_agent_record(path: Path) -> ManagedAgentRegistryRecordV3:
                 exc,
             )
         ) from exc
+    except ValueError as exc:
+        raise SessionManifestError(f"Invalid registry record `{path}`: {exc}") from exc
 
 
 def _read_external_managed_agent_record(path: Path) -> ExternalManagedAgentRegistryRecordV1:

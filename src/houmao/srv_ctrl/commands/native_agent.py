@@ -467,7 +467,7 @@ def _recipe_summary(*, root: Path, recipe_name: str) -> dict[str, object]:
         "skills": list(parsed.skills),
         "auth": parsed.auth,
         "launch": launch_payload if isinstance(launch_payload, dict) else {},
-        "mailbox": raw_payload.get("mailbox"),
+        "mailboxes": raw_payload.get("mailboxes"),
         "extra": raw_payload.get("extra", {}),
     }
 

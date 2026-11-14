@@ -1,119 +1,72 @@
 # Mailbox Runtime Integration
 
-This page explains how mailbox support is attached to a brain home, a launch plan, a persisted session manifest, and later scoped `agents ... mail ...` commands across the filesystem and `stalwart` transports.
+This reference is for contributors changing build, runtime, gateway, or manager code. Mailbox attachment belongs to the agent's stable identity and persists independently of a body process, gateway instance, or friendly name.
 
-## Mental Model
+## Build and Launch
 
-Mailbox support spans build time, start time, resume time, and control time.
+`build_brain_home()` installs the complete `agent` skill pack. Mailbox children remain below the shared-routines sibling, while the agent entrypoint verifies self identity and selects the requested route. A live attachment does not depend on changing the running CLI's inherited environment or reloading its native skill catalog.
 
-- Build time installs the config-owned four-member `agent` pack into the runtime home; mailbox behavior is routed from the agent entrypoint to parent-scoped children in the shared sibling.
-- Start time resolves one effective mailbox config and performs transport-specific bootstrap.
-- Launch-plan composition keeps the durable mailbox binding on the manifest-backed launch plan and does not treat mailbox-specific env publication as part of the mailbox contract.
-- Session manifests persist the redacted mailbox binding rather than inline secrets.
-- Resume reconstructs the same mailbox binding from the manifest payload and materializes session-local secret files when the selected transport needs them.
-- Public scoped `houmao-mgr agents single/self ... mail ...` commands resolve current mailbox authority first, prefer verified manager-owned or gateway-backed execution when that authority is available, and only fall back to the prompt-turn path when direct authority is unavailable.
+`start_runtime_session()` resolves the already selected agent ID before mailbox work. `resolve_effective_mailboxes_config()` prepares `mailboxes.offline` and `mailboxes.online` independently:
 
-## Build Time
-
-`build_brain_home()` installs the complete `agent` pack into the selected skills destination with copy projection. Claude, Codex, and Kimi expose top-level `houmao-agent-entrypoint`, `houmao-shared-routines`, `houmao-agent-loop-pro`, and `houmao-agent-loop-lite` directories. Runtime mailbox prompts require both the entrypoint and shared root, invoke the public agent entrypoint, verify self identity, and delegate to the `process-emails-via-gateway` or `agent-email-comms` child.
-
-
-## Start Time
-
-`start_runtime_session()` does the mailbox-specific work before the interactive backend is fully in motion:
-
-1. Parse declarative mailbox config from the brain manifest when present.
-2. Apply CLI overrides such as `--mailbox-transport`, `--mailbox-root`, `--mailbox-principal-id`, and `--mailbox-address`.
-3. Resolve defaults for missing mailbox fields plus any Stalwart endpoint overrides.
-4. Bootstrap the selected transport.
-5. Build a launch plan that persists the resolved mailbox binding without mailbox-specific env publication.
-6. Persist a session manifest with the redacted mailbox payload.
-
-Transport-specific bootstrap rules:
-
-| Transport | Bootstrap work | Persisted mailbox payload |
+| Slot | Launch preparation | Durable binding scope |
 | --- | --- | --- |
-| `filesystem` | create or validate the mailbox root and register the active address | mailbox root path plus shared identity metadata |
-| `stalwart` | ensure the domain and mailbox account exist, write or reuse the durable runtime-owned credential file, and materialize the session-local credential file | JMAP URL, management URL, login identity, `credential_ref`, and shared identity metadata |
+| Offline filesystem | Verify selected registry/store association, bootstrap the store, claim the address safely | Stable agent owner and confirmed registration ID |
+| Online Stalwart | Existing launch-time management provisioning and private credential materialization | Same agent owner, independent provider binding ID and protected credential reference |
+
+Both can run during one launch. Empty slots retain a revision. Configuration never derives an owner from an email address or lets one slot replace the other.
+
+## Persistence Authority
+
+`manifest.py` provides the session-scoped OS lock, complete validation, private temporary write, atomic replace, and directory flush. Binding mutation checks expected slot revision, agent ID, and session ID. A successful mutation advances the selected revision, stamps `bindings_version`, and preserves the other slot.
+
+Ordinary controller persistence merges the current mailbox envelopes under that same lock, then reflects them into the controller and supported backend caches. An old controller cannot restore detached or replaced mail. Server-owned gateway routing fields and runtime-owned endpoint fields have separate atomic mutation ownership.
+
+Prepare membership, provider resources, and credentials before entering the manifest lock. Network operations, worker shutdown, and terminal mutations remain outside it.
 
 ```mermaid
 sequenceDiagram
-    participant Bld as build_brain_home
-    participant RT as start_runtime_session
-    participant FS as Filesystem<br/>root
-    participant SW as Stalwart
-    participant RR as Runtime<br/>root
-    participant SR as Session<br/>root
-    participant LP as LaunchPlan
-    participant Man as Session<br/>manifest
-    Bld->>Bld: install config-owned agent pack<br/>and static entrypoint
-    RT->>RT: resolve effective mailbox<br/>config and defaults
-    alt filesystem transport
-        RT->>FS: bootstrap root and register<br/>session address
-    else stalwart transport
-        RT->>SW: ensure domain and<br/>mailbox account
-        RT->>RR: write or reuse durable<br/>credential material
-        RT->>SR: materialize session-local<br/>credential file
+    participant Caller as Manager or Runtime
+    participant Registry as Offline Registry
+    participant Boundary as Manifest Mutation Boundary
+    participant Backend as Existing Body Backend
+    participant Discovery as Registry Projection
+    Caller->>Registry: confirm owner and registration
+    Registry-->>Caller: confirmed binding ID
+    Caller->>Boundary: agent/session and expected offline revision
+    Boundary->>Boundary: preserve online slot and atomically commit
+    Boundary-->>Caller: committed revision
+    Caller->>Backend: refresh cached launch plan
+    Caller->>Discovery: publish secret-free summaries
+    alt Projection fails
+        Caller-->>Caller: retain commit and report revision with reconciliation guidance
     end
-    RT->>RT: validate actionable mailbox<br/>state from binding
-    RT->>Man: persist mailbox binding<br/>and bindings_version
 ```
 
-## Refresh Behavior
+A projection failure cannot undo a confirmed claim. Join retry reuses the registration and prepared credentials. Release retry targets the original registration and cannot release a later owner's claim. Warnings identify the committed binding or empty-slot revision; release warnings do not recommend joining again.
 
-`RuntimeSessionController.refresh_mailbox_bindings()` lets a running session adopt a refreshed filesystem root while keeping the same principal and address.
+## Resume and Availability
 
-The refresh flow:
+`mailboxes_resolved_config_from_payload()` reconstructs the required current slot envelopes. It preserves persisted IDs and revisions and performs no credential materialization. Current-format records missing identity fail validation. Unsupported old formats require explicit backup and rebootstrap.
 
-1. Create a fresh `MailboxResolvedConfig` with a new `bindings_version`.
-2. Bootstrap the refreshed root.
-3. Update the backend launch plan if the backend supports launch-plan refresh.
-4. Persist the updated mailbox payload into the session manifest.
+Credential paths are private locators. Missing or expired online credentials degrade online availability without hiding configured offline mail or changing canonical identity. Discovery publishes safe owner/channel/binding/address/revision summaries rather than secret-resolution inputs.
 
-This is why code interacting with mailbox paths must respect `bindings_version` rather than caching paths forever, and why direct mailbox work should resolve current bindings through the public runtime-owned helper instead of assuming launch-time process env stays current forever.
+## Mail and Notifier Dispatch
 
-## Resume Time
+Reusable contracts, scoped references, and adapters live under `src/houmao/mailbox/`. Manager, gateway, and registry HTTP handlers call those services. Offline access selects a local filesystem backend or authenticated registry client; online access selects its provider backend.
 
-`resume_runtime_session()` reconstructs the mailbox binding from the persisted manifest payload using `resolved_mailbox_config_from_payload()`. That lets a resumed session reuse the same mailbox contract instead of resolving it again from ambient caller state.
+Lifecycle operations require an explicit channel and expected binding ID before backend I/O. A message reference also carries owner/channel/binding scope. The gateway uses `/v1/mail/{channel}/...`; summary status uses `GET /v1/mail/status`. The manager resolves authority once and does not retry an action on a replacement binding after conflict.
 
-For `stalwart`, resume also materializes the session-local credential file from the runtime-owned `credential_ref` store before direct transport access or gateway-backed transport access needs it. That keeps the manifest secret-free while still allowing direct transport access or gateway-backed transport access to reuse the same resolved mailbox capability.
+Notifier state is keyed by owner/channel/binding through `/v1/mail-notifier/{channel}`. Both channels preserve periodic reminders for eligible unchanged work, readiness and terminal admission, and one-shot compaction. Archive closes inbox work. Read or answered flags alone do not complete it.
 
-## Scoped `agents ... mail` Integration
+The lower-level prompt fallback uses `ensure_mailbox_command_ready()`, `prepare_mail_prompt()`, and `run_mail_prompt()` with explicit channel and binding scope. Verified service execution remains authoritative; TUI submission and optional transcript previews remain non-authoritative.
 
-The public mailbox control surface is `houmao-mgr agents single ... mail ...` for selected agents and `houmao-mgr agents self mail ...` for the current managed session.
+## References
 
-That layer:
-
-- resolves the target managed agent explicitly or through same-session manifest-first discovery,
-- uses scoped mail `resolve-live` to expose the current normalized mailbox binding and any live `gateway.base_url`,
-- prefers pair-owned gateway-backed execution or local manager-owned direct execution for `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`,
-- preserves the existing prompt-turn path only as the non-authoritative local live-TUI fallback when direct authority is still unavailable.
-
-The lower-level runtime prompt path is still implemented through:
-
-- `ensure_mailbox_command_ready()`,
-- `prepare_mail_prompt()`,
-- `run_mail_prompt()`,
-- `parse_mail_result()`.
-
-That lower-level path matters because projected mailbox skills and local fallback still need one structured mailbox request/result contract inside the live session. The public operator contract, however, is now gateway-first and scoped `houmao-mgr agents ... mail ...`-first rather than a direct Python-module resolver plus mailbox-local scripts.
-
-In practice, the ordinary attached-session path is:
-
-1. resolve current mailbox bindings through `pixi run houmao-mgr agents self mail resolve-live` or `pixi run houmao-mgr agents single --agent-name <name> mail resolve-live`,
-2. when the resolver returns `gateway.base_url`, prefer that live gateway `/v1/mail/*` facade for shared mailbox operations,
-3. otherwise use scoped `pixi run houmao-mgr agents single/self ... mail list|peek|read|send|post|reply|mark|move|archive`,
-4. if those manager-owned commands still return `authoritative: false`, verify outcome through manager-owned or transport-owned state instead of treating submission as mailbox truth.
-
-This design keeps mailbox control inside the same runtime session model when needed, while still presenting one simpler public workflow across both transports.
-
-For the exact request and result envelopes, use [Mailbox Runtime Contracts](../contracts/runtime-contracts.md). For the exact gateway route payloads, use [Protocol And State Contracts](../../gateway/contracts/protocol-and-state.md).
-
-## Source References
-
-- [`src/houmao/agents/brain_builder.py`](../../../../src/houmao/agents/brain_builder.py)
-- [`src/houmao/agents/mailbox_runtime_support.py`](../../../../src/houmao/agents/mailbox_runtime_support.py)
-- [`src/houmao/agents/realm_controller/launch_plan.py`](../../../../src/houmao/agents/realm_controller/launch_plan.py)
-- [`src/houmao/agents/realm_controller/runtime.py`](../../../../src/houmao/agents/realm_controller/runtime.py)
-- [`src/houmao/agents/realm_controller/mail_commands.py`](../../../../src/houmao/agents/realm_controller/mail_commands.py)
-- [`tests/integration/agents/realm_controller/test_mailbox_runtime_contract.py`](../../../../tests/integration/agents/realm_controller/test_mailbox_runtime_contract.py)
+- [Runtime Contracts](../contracts/runtime-contracts.md)
+- [Offline Registry Setup](../operations/offline-registry.md)
+- [Binding Models](../../../../src/houmao/agents/mailbox_runtime_models.py)
+- [Manifest Mutation Boundary](../../../../src/houmao/agents/realm_controller/manifest.py)
+- [Runtime Controller](../../../../src/houmao/agents/realm_controller/runtime.py)
+- [Shared Mail Services](../../../../src/houmao/mailbox/services.py)
+- [Runtime Integration Tests](../../../../tests/integration/agents/realm_controller/test_mailbox_runtime_contract.py)
+- [Registry Process Tests](../../../../tests/integration/mailbox/test_offline_registry_process.py)

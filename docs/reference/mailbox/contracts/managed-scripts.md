@@ -2,11 +2,11 @@
 
 This page documents the optional compatibility helper surface under `rules/scripts/` when a filesystem mailbox publishes it.
 
-Ordinary mailbox work should use `pixi run houmao-mgr agents self mail resolve-live` inside the owning managed session or `pixi run houmao-mgr agents single --agent-name <name> mail resolve-live` for a selected agent, gateway `/v1/mail/*` when available, and the matching scoped `agents ... mail ...` commands when it is not. The scripts documented here matter for repair, debugging, and intentionally direct filesystem workflows, not for the default attached-session path.
+Ordinary mailbox work should use `pixi run houmao-mgr agents self mail resolve-live` inside the owning managed session or `pixi run houmao-mgr agents single --agent-name <name> mail resolve-live` for a selected agent, gateway `/v1/mail/{channel}/*` when available, and the matching scoped `agents ... mail ...` commands when it is not. The scripts documented here matter for repair, debugging, and intentionally direct filesystem workflows, not for the default attached-session path.
 
 ## Mental Model
 
-The managed scripts are a compatibility mutation boundary.
+The managed scripts are an optional administrative mutation boundary over the shared services. They do not provide remote member authority or a way around registration ownership.
 
 - The runtime may materialize them into the mailbox-local `rules/` tree.
 - Operators and sessions can inspect them, but should not replace them with improvisational equivalents.
@@ -90,9 +90,9 @@ Representative failure:
 
 Payload fields:
 
-- `mode`: `safe`, `force`, or `stash`
+- `mode`: `safe` only; force/stash and overwrite confirmation cannot change another owner
 - `address`
-- `owner_principal_id`
+- `owner_principal_id`: the persisted agent ID for agent registrations; human and reserved system principals remain separate
 - `mailbox_kind`: `in_root` or `symlink`
 - `mailbox_path`
 - optional `display_name`, `manifest_path_hint`, `role`
@@ -119,7 +119,7 @@ Payload fields:
 
 - `address`
 - `message_id`
-- at least one of `read`, `starred`, `archived`, `deleted`
+- at least one of `read`, `answered`, `starred`, `archived`, `deleted`
 
 ### `repair_index.py`
 

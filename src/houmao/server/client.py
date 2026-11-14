@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+from houmao.mailbox.online_models import (
+    OnlineAttachRequest,
+    OnlineControlRequest,
+    OnlineBindingStatus,
+)
+
 import json
 from typing import TypeVar
 from urllib import error, parse, request
 
 from pydantic import BaseModel, ValidationError
+
+from houmao.mailbox.models import MailChannel
 
 from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputRequestV1,
@@ -684,13 +692,15 @@ class HoumaoServerClient(CaoRestClient):
     def get_managed_agent_gateway_mail_notifier(
         self,
         agent_ref: str,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailNotifierStatusV1:
         """Call `GET /houmao/agents/{agent_ref}/gateway/mail-notifier`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "GET",
-            f"/houmao/agents/{escaped}/gateway/mail-notifier",
+            f"/houmao/agents/{escaped}/gateway/mail-notifier/{channel}",
             GatewayMailNotifierStatusV1,
         )
 
@@ -698,13 +708,15 @@ class HoumaoServerClient(CaoRestClient):
         self,
         agent_ref: str,
         request_model: GatewayMailNotifierPutV1,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailNotifierStatusV1:
         """Call `PUT /houmao/agents/{agent_ref}/gateway/mail-notifier`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "PUT",
-            f"/houmao/agents/{escaped}/gateway/mail-notifier",
+            f"/houmao/agents/{escaped}/gateway/mail-notifier/{channel}",
             GatewayMailNotifierStatusV1,
             json_body=request_model.model_dump(mode="json", exclude_unset=True),
         )
@@ -712,13 +724,15 @@ class HoumaoServerClient(CaoRestClient):
     def delete_managed_agent_gateway_mail_notifier(
         self,
         agent_ref: str,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailNotifierStatusV1:
         """Call `DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "DELETE",
-            f"/houmao/agents/{escaped}/gateway/mail-notifier",
+            f"/houmao/agents/{escaped}/gateway/mail-notifier/{channel}",
             GatewayMailNotifierStatusV1,
         )
 
@@ -797,6 +811,72 @@ class HoumaoServerClient(CaoRestClient):
             GatewayReminderDeleteResultV1,
         )
 
+    def get_managed_agent_online_binding(self, agent_ref: str) -> OnlineBindingStatus:
+        """Read the agent's safe configured online binding."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "GET",
+            f"/houmao/agents/{escaped}/mail/online/binding",
+            OnlineBindingStatus,
+        )
+
+    def attach_managed_agent_online_binding(
+        self, agent_ref: str, request_model: OnlineAttachRequest
+    ) -> OnlineBindingStatus:
+        """Attach the agent's revision-pinned online binding."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "PUT",
+            f"/houmao/agents/{escaped}/mail/online/binding",
+            OnlineBindingStatus,
+            json_body=request_model.model_dump(mode="json"),
+            timeout_seconds=request_model.timeout_seconds * 8 + 10,
+        )
+
+    def refresh_managed_agent_online_binding(
+        self, agent_ref: str, request_model: OnlineControlRequest
+    ) -> OnlineBindingStatus:
+        """Refresh the agent's revision-pinned online binding."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/mail/online/binding/refresh",
+            OnlineBindingStatus,
+            json_body=request_model.model_dump(mode="json"),
+            timeout_seconds=request_model.timeout_seconds * 8 + 10,
+        )
+
+    def reconnect_managed_agent_online_binding(
+        self, agent_ref: str, request_model: OnlineControlRequest
+    ) -> OnlineBindingStatus:
+        """Reconnect the agent's revision-pinned online binding."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/mail/online/binding/reconnect",
+            OnlineBindingStatus,
+            json_body=request_model.model_dump(mode="json"),
+            timeout_seconds=request_model.timeout_seconds * 8 + 10,
+        )
+
+    def detach_managed_agent_online_binding(
+        self, agent_ref: str, request_model: OnlineControlRequest
+    ) -> OnlineBindingStatus:
+        """Detach the agent's revision-pinned online binding."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "DELETE",
+            f"/houmao/agents/{escaped}/mail/online/binding",
+            OnlineBindingStatus,
+            json_body=request_model.model_dump(mode="json"),
+            timeout_seconds=request_model.timeout_seconds * 8 + 10,
+        )
+
     def get_managed_agent_mail_status(
         self,
         agent_ref: str,
@@ -834,13 +914,15 @@ class HoumaoServerClient(CaoRestClient):
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailListRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailListResponse:
-        """Call `POST /houmao/agents/{agent_ref}/mail/list`."""
+        """Call `POST /houmao/agents/{agent_ref}/mail/{channel}/list`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/mail/list",
+            f"/houmao/agents/{escaped}/mail/{channel}/list",
             HoumaoManagedAgentMailListResponse,
             json_body=request_model.model_dump(mode="json"),
         )
@@ -849,13 +931,15 @@ class HoumaoServerClient(CaoRestClient):
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailMessageRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailMessageResponse:
-        """Call `POST /houmao/agents/{agent_ref}/mail/peek`."""
+        """Call `POST /houmao/agents/{agent_ref}/mail/{channel}/peek`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/mail/peek",
+            f"/houmao/agents/{escaped}/mail/{channel}/peek",
             HoumaoManagedAgentMailMessageResponse,
             json_body=request_model.model_dump(mode="json"),
         )
@@ -864,13 +948,15 @@ class HoumaoServerClient(CaoRestClient):
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailMessageRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailMessageResponse:
-        """Call `POST /houmao/agents/{agent_ref}/mail/read`."""
+        """Call `POST /houmao/agents/{agent_ref}/mail/{channel}/read`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/mail/read",
+            f"/houmao/agents/{escaped}/mail/{channel}/read",
             HoumaoManagedAgentMailMessageResponse,
             json_body=request_model.model_dump(mode="json"),
         )
@@ -879,13 +965,15 @@ class HoumaoServerClient(CaoRestClient):
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailSendRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailActionResponse:
-        """Call `POST /houmao/agents/{agent_ref}/mail/send`."""
+        """Call `POST /houmao/agents/{agent_ref}/mail/{channel}/send`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/mail/send",
+            f"/houmao/agents/{escaped}/mail/{channel}/send",
             HoumaoManagedAgentMailActionResponse,
             json_body=request_model.model_dump(mode="json"),
         )
@@ -894,13 +982,15 @@ class HoumaoServerClient(CaoRestClient):
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailPostRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailActionResponse:
-        """Call `POST /houmao/agents/{agent_ref}/mail/post`."""
+        """Call `POST /houmao/agents/{agent_ref}/mail/{channel}/post`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/mail/post",
+            f"/houmao/agents/{escaped}/mail/{channel}/post",
             HoumaoManagedAgentMailActionResponse,
             json_body=request_model.model_dump(mode="json"),
         )
@@ -909,13 +999,15 @@ class HoumaoServerClient(CaoRestClient):
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailReplyRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailActionResponse:
-        """Call `POST /houmao/agents/{agent_ref}/mail/reply`."""
+        """Call `POST /houmao/agents/{agent_ref}/mail/{channel}/reply`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/mail/reply",
+            f"/houmao/agents/{escaped}/mail/{channel}/reply",
             HoumaoManagedAgentMailActionResponse,
             json_body=request_model.model_dump(mode="json"),
         )
@@ -924,13 +1016,15 @@ class HoumaoServerClient(CaoRestClient):
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailMarkRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailLifecycleResponse:
-        """Call `POST /houmao/agents/{agent_ref}/mail/mark`."""
+        """Call `POST /houmao/agents/{agent_ref}/mail/{channel}/mark`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/mail/mark",
+            f"/houmao/agents/{escaped}/mail/{channel}/mark",
             HoumaoManagedAgentMailLifecycleResponse,
             json_body=request_model.model_dump(mode="json"),
         )
@@ -939,13 +1033,15 @@ class HoumaoServerClient(CaoRestClient):
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailMoveRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailLifecycleResponse:
-        """Call `POST /houmao/agents/{agent_ref}/mail/move`."""
+        """Call `POST /houmao/agents/{agent_ref}/mail/{channel}/move`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/mail/move",
+            f"/houmao/agents/{escaped}/mail/{channel}/move",
             HoumaoManagedAgentMailLifecycleResponse,
             json_body=request_model.model_dump(mode="json"),
         )
@@ -954,13 +1050,15 @@ class HoumaoServerClient(CaoRestClient):
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailArchiveRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailLifecycleResponse:
-        """Call `POST /houmao/agents/{agent_ref}/mail/archive`."""
+        """Call `POST /houmao/agents/{agent_ref}/mail/{channel}/archive`."""
 
         escaped = parse.quote(agent_ref, safe="")
         return self._request_root_model(
             "POST",
-            f"/houmao/agents/{escaped}/mail/archive",
+            f"/houmao/agents/{escaped}/mail/{channel}/archive",
             HoumaoManagedAgentMailLifecycleResponse,
             json_body=request_model.model_dump(mode="json"),
         )
@@ -973,6 +1071,7 @@ class HoumaoServerClient(CaoRestClient):
         params: dict[str, str] | None = None,
         json_body: object | None = None,
         raw_text_ok: bool = False,
+        timeout_seconds: float | None = None,
     ) -> tuple[object, int, str]:
         query = parse.urlencode(params or {})
         url = f"{self.base_url}{path}"
@@ -990,7 +1089,9 @@ class HoumaoServerClient(CaoRestClient):
         req = request.Request(url, data=data, method=method, headers=headers)
         try:
             with scoped_loopback_no_proxy_for_cao_base_url(self.base_url):
-                with request.urlopen(req, timeout=self.timeout_seconds) as response:
+                with request.urlopen(
+                    req, timeout=timeout_seconds or self.timeout_seconds
+                ) as response:
                     body_text = response.read().decode("utf-8")
                     try:
                         payload = json.loads(body_text)
@@ -1036,13 +1137,16 @@ class HoumaoServerClient(CaoRestClient):
         *,
         params: dict[str, str] | None = None,
         json_body: object | None = None,
+        timeout_seconds: float | None = None,
     ) -> _ModelT:
-        payload, status_code, url = self._request_root_json(
-            method,
-            path,
-            params=params,
-            json_body=json_body,
-        )
+        if timeout_seconds is None:
+            payload, status_code, url = self._request_root_json(
+                method, path, params=params, json_body=json_body
+            )
+        else:
+            payload, status_code, url = self._request_root_json(
+                method, path, params=params, json_body=json_body, timeout_seconds=timeout_seconds
+            )
         try:
             return model.model_validate(payload)
         except ValidationError as exc:

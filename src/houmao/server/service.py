@@ -6,6 +6,12 @@ live tmux/process observation and in-memory TUI tracking directly.
 
 from __future__ import annotations
 
+from houmao.mailbox.online_models import (
+    OnlineAttachRequest,
+    OnlineControlRequest,
+    OnlineBindingStatus,
+)
+
 import hashlib
 import json
 import logging
@@ -22,6 +28,14 @@ from urllib import error, parse, request
 
 from fastapi import HTTPException, Response
 from pydantic import BaseModel
+
+from houmao.agents.mailbox_runtime_models import MailboxesResolvedConfig
+from houmao.agents.mailbox_runtime_support import (
+    parse_declarative_mailboxes_config,
+    mailboxes_resolved_config_from_payload,
+    safe_registry_mailboxes_projection,
+)
+from houmao.mailbox.models import MailChannel
 
 from houmao.agents.model_selection import ModelConfig
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
@@ -92,7 +106,7 @@ from houmao.agents.mailbox_runtime_support import resolve_live_mailbox_binding_f
 from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
-    update_session_manifest,
+    update_session_server_gateway_authority,
 )
 from houmao.agents.realm_controller.registry_storage import (
     publish_live_agent_record,
@@ -907,41 +921,12 @@ class HoumaoServerService:
                 api_base_url=self.m_config.api_base_url,
                 agent_identity=request_model.agent_name,
                 agent_id=request_model.agent_id,
-                mailbox_transport=(
-                    request_model.mailbox.transport if request_model.mailbox is not None else None
-                ),
-                mailbox_root=(
-                    Path(request_model.mailbox.filesystem_root).expanduser().resolve()
-                    if request_model.mailbox is not None
-                    and request_model.mailbox.filesystem_root is not None
-                    else None
-                ),
-                mailbox_principal_id=(
-                    request_model.mailbox.principal_id
-                    if request_model.mailbox is not None
-                    else None
-                ),
-                mailbox_address=(
-                    request_model.mailbox.address if request_model.mailbox is not None else None
-                ),
-                mailbox_stalwart_base_url=(
-                    request_model.mailbox.stalwart_base_url
-                    if request_model.mailbox is not None
-                    else None
-                ),
-                mailbox_stalwart_jmap_url=(
-                    request_model.mailbox.stalwart_jmap_url
-                    if request_model.mailbox is not None
-                    else None
-                ),
-                mailbox_stalwart_management_url=(
-                    request_model.mailbox.stalwart_management_url
-                    if request_model.mailbox is not None
-                    else None
-                ),
-                mailbox_stalwart_login_identity=(
-                    request_model.mailbox.stalwart_login_identity
-                    if request_model.mailbox is not None
+                mailboxes=(
+                    parse_declarative_mailboxes_config(
+                        request_model.mailboxes.model_dump(mode="json"),
+                        source="headless launch mailboxes",
+                    )
+                    if request_model.mailboxes is not None
                     else None
                 ),
                 headless_display_style=request_model.headless_display_style,
@@ -1534,31 +1519,40 @@ class HoumaoServerService:
         return self._invoke_live_gateway(lambda: client.send_control_input(request_model))
 
     def get_managed_agent_gateway_mail_notifier(
-        self, agent_ref: str
+        self,
+        agent_ref: str,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailNotifierStatusV1:
         """Return live gateway mail-notifier status for one managed agent."""
 
         client = self._require_live_managed_gateway_client(agent_ref)
-        return self._invoke_live_gateway(client.get_mail_notifier)
+        return self._invoke_live_gateway(lambda: client.get_mail_notifier(channel=channel))
 
     def put_managed_agent_gateway_mail_notifier(
         self,
         agent_ref: str,
         request_model: GatewayMailNotifierPutV1,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailNotifierStatusV1:
         """Enable or update live gateway notifier state for one managed agent."""
 
         client = self._require_live_managed_gateway_client(agent_ref)
-        return self._invoke_live_gateway(lambda: client.put_mail_notifier(request_model))
+        return self._invoke_live_gateway(
+            lambda: client.put_mail_notifier(request_model, channel=channel)
+        )
 
     def delete_managed_agent_gateway_mail_notifier(
         self,
         agent_ref: str,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailNotifierStatusV1:
         """Disable live gateway notifier state for one managed agent."""
 
         client = self._require_live_managed_gateway_client(agent_ref)
-        return self._invoke_live_gateway(client.delete_mail_notifier)
+        return self._invoke_live_gateway(lambda: client.delete_mail_notifier(channel=channel))
 
     def list_managed_agent_gateway_reminders(
         self,
@@ -1612,6 +1606,44 @@ class HoumaoServerService:
         client = self._require_live_managed_gateway_client(agent_ref)
         return self._invoke_live_gateway(lambda: client.delete_reminder(reminder_id=reminder_id))
 
+    def online_binding_status(self, agent_ref: str) -> OnlineBindingStatus:
+        """Proxy authorized online binding status."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(lambda: client.online_binding_status())
+
+    def online_binding_attach(
+        self, agent_ref: str, request: OnlineAttachRequest
+    ) -> OnlineBindingStatus:
+        """Proxy authorized online binding attach."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(lambda: client.attach_online_binding(request))
+
+    def online_binding_refresh(
+        self, agent_ref: str, request: OnlineControlRequest
+    ) -> OnlineBindingStatus:
+        """Proxy authorized online binding refresh."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(lambda: client.refresh_online_binding(request))
+
+    def online_binding_reconnect(
+        self, agent_ref: str, request: OnlineControlRequest
+    ) -> OnlineBindingStatus:
+        """Proxy authorized online binding reconnect."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(lambda: client.reconnect_online_binding(request))
+
+    def online_binding_detach(
+        self, agent_ref: str, request: OnlineControlRequest
+    ) -> OnlineBindingStatus:
+        """Proxy authorized online binding detach."""
+
+        client = self._require_live_managed_gateway_client(agent_ref)
+        return self._invoke_live_gateway(lambda: client.detach_online_binding(request))
+
     def managed_agent_mail_status(self, agent_ref: str) -> HoumaoManagedAgentMailStatusResponse:
         """Return pair-owned mailbox status for one managed agent."""
 
@@ -1636,22 +1668,30 @@ class HoumaoServerService:
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailListRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailListResponse:
         """List pair-owned mailbox contents for one managed agent."""
 
         client = self._require_live_managed_mail_gateway_client(agent_ref)
-        response = self._invoke_live_gateway(lambda: client.list_mail(request_model))
+        response = self._invoke_live_gateway(
+            lambda: client.list_mail(request_model, channel=channel)
+        )
         return HoumaoManagedAgentMailListResponse.model_validate(response.model_dump(mode="json"))
 
     def peek_managed_agent_mail(
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailMessageRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailMessageResponse:
         """Peek at one pair-owned mailbox message for one managed agent."""
 
         client = self._require_live_managed_mail_gateway_client(agent_ref)
-        response = self._invoke_live_gateway(lambda: client.peek_mail(request_model))
+        response = self._invoke_live_gateway(
+            lambda: client.peek_mail(request_model, channel=channel)
+        )
         return HoumaoManagedAgentMailMessageResponse.model_validate(
             response.model_dump(mode="json")
         )
@@ -1660,11 +1700,15 @@ class HoumaoServerService:
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailMessageRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailMessageResponse:
         """Read one pair-owned mailbox message for one managed agent."""
 
         client = self._require_live_managed_mail_gateway_client(agent_ref)
-        response = self._invoke_live_gateway(lambda: client.read_mail(request_model))
+        response = self._invoke_live_gateway(
+            lambda: client.read_mail(request_model, channel=channel)
+        )
         return HoumaoManagedAgentMailMessageResponse.model_validate(
             response.model_dump(mode="json")
         )
@@ -1673,44 +1717,60 @@ class HoumaoServerService:
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailSendRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailActionResponse:
         """Send one pair-owned mailbox message for a managed agent."""
 
         client = self._require_live_managed_mail_gateway_client(agent_ref)
-        response = self._invoke_live_gateway(lambda: client.send_mail(request_model))
+        response = self._invoke_live_gateway(
+            lambda: client.send_mail(request_model, channel=channel)
+        )
         return HoumaoManagedAgentMailActionResponse.model_validate(response.model_dump(mode="json"))
 
     def post_managed_agent_mail(
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailPostRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailActionResponse:
         """Post one operator-origin mailbox note for one managed agent."""
 
         client = self._require_live_managed_mail_gateway_client(agent_ref)
-        response = self._invoke_live_gateway(lambda: client.post_mail(request_model))
+        response = self._invoke_live_gateway(
+            lambda: client.post_mail(request_model, channel=channel)
+        )
         return HoumaoManagedAgentMailActionResponse.model_validate(response.model_dump(mode="json"))
 
     def reply_managed_agent_mail(
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailReplyRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailActionResponse:
         """Reply through the pair-owned mailbox facade for one managed agent."""
 
         client = self._require_live_managed_mail_gateway_client(agent_ref)
-        response = self._invoke_live_gateway(lambda: client.reply_mail(request_model))
+        response = self._invoke_live_gateway(
+            lambda: client.reply_mail(request_model, channel=channel)
+        )
         return HoumaoManagedAgentMailActionResponse.model_validate(response.model_dump(mode="json"))
 
     def mark_managed_agent_mail(
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailMarkRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailLifecycleResponse:
         """Mark pair-owned mailbox state for one managed agent."""
 
         client = self._require_live_managed_mail_gateway_client(agent_ref)
-        response = self._invoke_live_gateway(lambda: client.mark_mail(request_model))
+        response = self._invoke_live_gateway(
+            lambda: client.mark_mail(request_model, channel=channel)
+        )
         return HoumaoManagedAgentMailLifecycleResponse.model_validate(
             response.model_dump(mode="json")
         )
@@ -1719,11 +1779,15 @@ class HoumaoServerService:
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailMoveRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailLifecycleResponse:
         """Move pair-owned mailbox messages for one managed agent."""
 
         client = self._require_live_managed_mail_gateway_client(agent_ref)
-        response = self._invoke_live_gateway(lambda: client.move_mail(request_model))
+        response = self._invoke_live_gateway(
+            lambda: client.move_mail(request_model, channel=channel)
+        )
         return HoumaoManagedAgentMailLifecycleResponse.model_validate(
             response.model_dump(mode="json")
         )
@@ -1732,11 +1796,15 @@ class HoumaoServerService:
         self,
         agent_ref: str,
         request_model: HoumaoManagedAgentMailArchiveRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailLifecycleResponse:
         """Archive pair-owned mailbox messages for one managed agent."""
 
         client = self._require_live_managed_mail_gateway_client(agent_ref)
-        response = self._invoke_live_gateway(lambda: client.archive_mail(request_model))
+        response = self._invoke_live_gateway(
+            lambda: client.archive_mail(request_model, channel=channel)
+        )
         return HoumaoManagedAgentMailLifecycleResponse.model_validate(
             response.model_dump(mode="json")
         )
@@ -2772,7 +2840,7 @@ class HoumaoServerService:
                 updated_at_utc=state.last_turn.updated_at_utc,
             ),
             diagnostics=diagnostics,
-            mailbox=self._mailbox_summary_for_tui_identity(state.tracked_session),
+            mailboxes=self._mailbox_summary_for_tui_identity(state.tracked_session),
             gateway=gateway_summary,
         )
 
@@ -2861,7 +2929,7 @@ class HoumaoServerService:
                 updated_at_utc=updated_at_utc,
             ),
             diagnostics=diagnostics,
-            mailbox=self._mailbox_summary_for_headless_handle(handle),
+            mailboxes=self._mailbox_summary_for_headless_handle(handle),
             gateway=(
                 gateway_summary
                 if gateway_summary is not None
@@ -2954,7 +3022,7 @@ class HoumaoServerService:
                 updated_at_utc=updated_at_utc,
             ),
             diagnostics=diagnostics,
-            mailbox=self._mailbox_summary_for_headless_handle(handle),
+            mailboxes=self._mailbox_summary_for_headless_handle(handle),
             gateway=gateway_summary,
         )
 
@@ -3139,7 +3207,7 @@ class HoumaoServerService:
                 latest_turn.history_summary if latest_turn is not None else None
             ),
             last_turn_error=latest_turn.error if latest_turn is not None else None,
-            mailbox=summary_state.mailbox,
+            mailboxes=summary_state.mailboxes,
             gateway=summary_state.gateway,
             diagnostics=list(summary_state.diagnostics),
         )
@@ -3187,7 +3255,7 @@ class HoumaoServerService:
                 latest_turn.history_summary if latest_turn is not None else None
             ),
             last_turn_error=latest_turn.error if latest_turn is not None else None,
-            mailbox=summary_state.mailbox,
+            mailboxes=summary_state.mailboxes,
             gateway=summary_state.gateway,
             diagnostics=list(summary_state.diagnostics),
         )
@@ -3650,7 +3718,7 @@ class HoumaoServerService:
             agent_name=identity.agent_name,
             agent_id=identity.agent_id,
         )
-        mailbox = getattr(shared_registry_record, "mailbox", None)
+        mailbox = getattr(shared_registry_record, "mailboxes", None)
         if mailbox is not None:
             return self._mailbox_summary_from_payload(mailbox)
         if identity.manifest_path is None:
@@ -3665,9 +3733,7 @@ class HoumaoServerService:
 
         controller = handle.controller
         if controller is not None:
-            return self._mailbox_summary_from_payload(
-                getattr(controller.launch_plan, "mailbox", None)
-            )
+            return self._mailbox_summary_from_payload(controller.launch_plan.mailboxes)
         return self._mailbox_summary_from_manifest_path(Path(handle.authority.manifest_path))
 
     def _mailbox_summary_from_manifest_path(
@@ -3681,7 +3747,7 @@ class HoumaoServerService:
             payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
         except (SessionManifestError, FileNotFoundError):
             return None
-        return self._mailbox_summary_from_payload(payload.launch_plan.mailbox)
+        return self._mailbox_summary_from_payload(payload.launch_plan.mailboxes)
 
     def _mailbox_summary_from_payload(
         self,
@@ -3691,15 +3757,34 @@ class HoumaoServerService:
 
         if mailbox is None:
             return None
-        transport = getattr(mailbox, "transport", None)
-        principal_id = getattr(mailbox, "principal_id", None)
-        address = getattr(mailbox, "address", None)
-        if transport not in {"filesystem", "stalwart"}:
-            return None
+        if hasattr(mailbox, "model_dump"):
+            mailbox = mailbox.model_dump(mode="json")
+        if isinstance(mailbox, dict):
+            from houmao.agents.realm_controller.registry_models import RegistryMailboxesV1
+
+            try:
+                projection = RegistryMailboxesV1.model_validate(mailbox)
+            except ValueError:
+                pass
+            else:
+                canonical = None
+                for channel in ("online", "offline"):
+                    binding = getattr(projection, channel).binding
+                    if binding is not None:
+                        canonical = {"channel": channel, "address": binding.address}
+                        break
+                return HoumaoManagedAgentMailboxSummaryView(
+                    **projection.model_dump(mode="json"),
+                    canonical_mail_identity=canonical,
+                )
+        if not isinstance(mailbox, MailboxesResolvedConfig):
+            try:
+                mailbox = mailboxes_resolved_config_from_payload(mailbox)
+            except ValueError:
+                return None
         return HoumaoManagedAgentMailboxSummaryView(
-            transport=transport,
-            principal_id=principal_id,
-            address=address,
+            **safe_registry_mailboxes_projection(mailbox),
+            canonical_mail_identity=mailbox.canonical_mail_identity,
         )
 
     def _shared_registry_record_for_identity(
@@ -3929,21 +4014,13 @@ class HoumaoServerService:
             "kimi_headless",
         }:
             return
-        gateway_authority = (
-            payload.gateway_authority.model_dump(mode="json")
-            if payload.gateway_authority is not None
-            else {"attach": {}, "control": {}}
-        )
-        for endpoint_name in ("attach", "control"):
-            endpoint = gateway_authority.get(endpoint_name)
-            updated_endpoint = dict(endpoint) if isinstance(endpoint, dict) else {}
-            updated_endpoint["api_base_url"] = self.m_config.api_base_url
-            updated_endpoint["managed_agent_ref"] = authority.tracked_agent_id
-            gateway_authority[endpoint_name] = updated_endpoint
         try:
-            update_session_manifest(
+            update_session_server_gateway_authority(
                 manifest_path,
-                {"gateway_authority": gateway_authority},
+                agent_id=payload.agent_id,
+                session_id=payload.runtime.session_id,
+                api_base_url=self.m_config.api_base_url,
+                managed_agent_ref=authority.tracked_agent_id,
             )
         except SessionManifestError:
             return
@@ -3988,7 +4065,11 @@ class HoumaoServerService:
         try:
             return call()
         except GatewayHttpError as exc:
-            raise HTTPException(status_code=exc.status_code or 503, detail=exc.detail) from exc
+            try:
+                detail = json.loads(exc.detail)
+            except json.JSONDecodeError:
+                detail = exc.detail
+            raise HTTPException(status_code=exc.status_code or 503, detail=detail) from exc
 
     def _require_live_managed_gateway_client(self, agent_ref: str) -> GatewayClient:
         """Return a live gateway client for one managed agent or fail."""
@@ -4033,7 +4114,7 @@ class HoumaoServerService:
         """Require pair-owned mailbox capability plus a live gateway client."""
 
         summary_state = self.managed_agent_state(agent_ref)
-        if summary_state.mailbox is None:
+        if summary_state.mailboxes is None:
             raise HTTPException(
                 status_code=503,
                 detail=(

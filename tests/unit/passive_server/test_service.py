@@ -527,7 +527,7 @@ class TestGatewayMailNotifier:
         _populate_index(svc, [_agent_with_gateway()])
         expected = _mail_notifier_status(enabled=False, interval_seconds=None)
         with patch.object(GatewayClient, "get_mail_notifier", return_value=expected):
-            result = svc.gateway_mail_notifier_status("abc123")
+            result = svc.gateway_mail_notifier_status("abc123", channel="offline")
         assert result == expected
 
     def test_enable_success_returns_status(self, tmp_path: Path) -> None:
@@ -542,6 +542,7 @@ class TestGatewayMailNotifier:
             result = svc.gateway_mail_notifier_enable(
                 "abc123",
                 GatewayMailNotifierPutV1(interval_seconds=30, mode="unread_only"),
+                channel="offline",
             )
         assert result == expected
         assert result.mode == "unread_only"
@@ -552,13 +553,13 @@ class TestGatewayMailNotifier:
         _populate_index(svc, [_agent_with_gateway()])
         expected = _mail_notifier_status(enabled=False, interval_seconds=None)
         with patch.object(GatewayClient, "delete_mail_notifier", return_value=expected):
-            result = svc.gateway_mail_notifier_disable("abc123")
+            result = svc.gateway_mail_notifier_disable("abc123", channel="offline")
         assert result == expected
 
     def test_no_gateway_returns_502(self, tmp_path: Path) -> None:
         svc = _make_service(tmp_path)
         _populate_index(svc, [_agent()])
-        result = svc.gateway_mail_notifier_status("abc123")
+        result = svc.gateway_mail_notifier_status("abc123", channel="offline")
         assert isinstance(result, tuple)
         assert result[0] == 502
         assert "No gateway" in result[1]["detail"]
@@ -572,7 +573,7 @@ class TestGatewayMailNotifier:
                 _agent_with_gateway(agent_id="a2", agent_name="HOUMAO-alpha", session_name="s2"),
             ],
         )
-        result = svc.gateway_mail_notifier_status("alpha")
+        result = svc.gateway_mail_notifier_status("alpha", channel="offline")
         assert isinstance(result, tuple)
         assert result[0] == 409
 

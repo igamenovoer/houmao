@@ -22,6 +22,8 @@ from houmao.project.overlay import (
     resolve_materialized_project_aware_agent_def_dir,
 )
 
+from houmao.agents.mailbox_runtime_support import safe_registry_mailboxes_projection
+
 from .agent_identity import AGENT_DEF_DIR_ENV_VAR, is_path_like_agent_identity
 from .errors import BrainLaunchRuntimeError
 from .loaders import load_blueprint, load_brain_recipe_from_path
@@ -180,6 +182,12 @@ def _build_parser() -> argparse.ArgumentParser:
     start.add_argument(
         "--agent-id",
         help="Optional authoritative agent id override for tmux-backed sessions.",
+    )
+    start.add_argument(
+        "--agent-id-mode",
+        choices=["uuid", "name-hash"],
+        default=None,
+        help="Creation ID mode (default: uuid); mutually exclusive with --agent-id.",
     )
     start.add_argument(
         "--mailbox-transport",
@@ -496,7 +504,7 @@ def _cmd_build_brain(args: argparse.Namespace) -> int:
             preset_path=preset_path,
             preset_launch_overrides=recipe.launch_overrides if recipe else None,
             source_system_skill_policy=recipe.launch_system_skill_policy if recipe else None,
-            mailbox=recipe.mailbox if recipe else None,
+            mailboxes=recipe.mailboxes if recipe else None,
             agent_name=recipe.default_agent_name if recipe else None,
             home_id=args.home_id,
             reuse_home=bool(args.reuse_home),
@@ -559,6 +567,7 @@ def _cmd_start_session(args: argparse.Namespace) -> int:
         cao_profile_store_dir=_optional_path(args.cao_profile_store, base=cwd),
         agent_identity=args.agent_identity,
         agent_id=args.agent_id,
+        agent_id_mode=args.agent_id_mode,
         cao_parsing_mode=args.cao_parsing_mode,
         mailbox_transport=args.mailbox_transport,
         mailbox_root=_optional_path(args.mailbox_root, base=cwd),
@@ -615,9 +624,8 @@ def _cmd_start_session(args: argparse.Namespace) -> int:
     gateway_auto_attach_error = getattr(controller, "gateway_auto_attach_error", None)
     if gateway_auto_attach_error is not None:
         payload["gateway_auto_attach_error"] = gateway_auto_attach_error
-    mailbox = getattr(controller.launch_plan, "mailbox", None)
-    if mailbox is not None:
-        payload["mailbox"] = mailbox.redacted_payload()
+    payload["mailboxes"] = safe_registry_mailboxes_projection(controller.launch_plan.mailboxes)
+    payload["canonical_mail_identity"] = controller.launch_plan.mailboxes.canonical_mail_identity
     launch_policy_provenance = getattr(controller.launch_plan, "launch_policy_provenance", None)
     if launch_policy_provenance is not None:
         payload["launch_policy_provenance"] = launch_policy_provenance.to_payload()
@@ -867,6 +875,8 @@ def _cmd_mail(args: argparse.Namespace) -> int:
     _reject_deprecated_cao_runtime_controller(controller)
     mailbox = ensure_mailbox_command_ready(
         controller.launch_plan,
+        channel=args.channel,
+        expected_binding_id=args.expected_binding_id,
         tmux_session_name=getattr(controller, "tmux_session_name", None),
     )
     prefer_live_gateway = False
@@ -882,6 +892,8 @@ def _cmd_mail(args: argparse.Namespace) -> int:
         launch_plan=controller.launch_plan,
         operation=args.mail_command,
         args=_mail_args_from_cli(args, cwd=cwd),
+        channel=args.channel,
+        expected_binding_id=args.expected_binding_id,
         prefer_live_gateway=prefer_live_gateway,
         tmux_session_name=getattr(controller, "tmux_session_name", None),
     )
@@ -988,6 +1000,10 @@ def _resolve_agent_def_dir(cli_value: str | None, *, cwd: Path) -> Path:
 
 
 def _add_mail_common_args(parser: argparse.ArgumentParser) -> None:
+    """Require explicit mail and binding scope for prompt-mediated operations."""
+
+    parser.add_argument("--channel", choices=["offline", "online"], required=True)
+    parser.add_argument("--expected-binding-id", required=True)
     parser.add_argument(
         "--agent-def-dir",
         default=None,

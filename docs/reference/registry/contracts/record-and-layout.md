@@ -1,4 +1,4 @@
-# Shared Registry Record And Layout
+# Shared Registry Record and Layout
 
 This page explains the static contract around the shared registry: where it lives, how lifecycle-record directories are named, what `record.json` contains, and what the registry intentionally does not store.
 
@@ -13,7 +13,7 @@ The registry layout is deliberately small.
 - one directory per local external communication-only `external_agent_id`,
 - one authoritative `record.json` file per directory.
 
-That keeps cross-process coordination simple and avoids central hot files such as `index.json` or SQLite.
+These lifecycle records remain projections. Offline mail membership has a separate durable authority in the selected registry host's filesystem mail store. Its SQLite ownership index survives lifecycle cleanup and stopped bodies; no cluster identifier is introduced.
 
 ## Effective Registry Root
 
@@ -58,14 +58,14 @@ External records are different: they do not point to local runtime session roots
 
 The strict persisted contract is now shipped in two complementary forms:
 
-- a packaged JSON Schema at `src/houmao/agents/realm_controller/schemas/managed_agent_registry_record.v3.schema.json` for the structural disk contract, and
-- strict Pydantic models in `registry_models.py` for typed construction, load validation, semantic invariants, and compatibility upgrades from legacy v2 live records.
+- a packaged JSON Schema at `src/houmao/agents/realm_controller/schemas/managed_agent_registry_record.v4.schema.json` for the structural disk contract, and
+- strict Pydantic models in `registry_models.py` for typed construction, load validation, and semantic invariants. Unsupported older projections require explicit backup and rebootstrap.
 
 Representative active record with optional gateway and mailbox metadata present:
 
 ```json
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "agent_name": "HOUMAO-gpu",
   "agent_id": "270b8738f2f97092e572b73d19e6f923",
   "generation_id": "98cc9a0d-d1fd-4c56-b49c-871274e28f98",
@@ -100,12 +100,23 @@ Representative active record with optional gateway and mailbox metadata present:
     "state_path": "/abs/path/runtime/sessions/codex_headless/codex-1/gateway/state.json",
     "protocol_version": "v1"
   },
-  "mailbox": {
-    "transport": "filesystem",
-    "principal_id": "HOUMAO-research",
-    "address": "HOUMAO-research@agents.localhost",
-    "filesystem_root": "/abs/path/shared-mail",
-    "bindings_version": "2026-03-13T12:00:00.123456+00:00"
+  "mailboxes": {
+    "offline": {
+      "revision": "revision-offline-a",
+      "binding": {
+        "agent_id": "270b8738f2f97092e572b73d19e6f923",
+        "channel": "offline",
+        "binding_id": "registration-a",
+        "address": "research@houmao.localhost",
+        "transport": "filesystem",
+        "availability": "unknown"
+      }
+    },
+    "online": {"revision": "revision-online-empty", "binding": null}
+  },
+  "canonical_mail_identity": {
+    "channel": "offline",
+    "address": "research@houmao.localhost"
   }
 }
 ```
@@ -163,15 +174,13 @@ Current implementation scope:
 - detached or stopped sessions omit `gateway` entirely.
 - This field group is locator metadata for fresh discovery and diagnostics. It does not replace the durable manifest authority, and once the session root is known the authoritative local live-gateway record is `<session-root>/gateway/run/current-instance.json`.
 
-### Mailbox
+### Mailboxes
 
-`mailbox` appears only when mailbox bindings exist for the session.
+`mailboxes` contains both `offline` and `online` slot summaries, including a revision when a slot is empty. A present binding includes `agent_id`, `channel`, `binding_id`, `address`, `transport`, and safe availability. `canonical_mail_identity` is the configured online address first, otherwise offline, otherwise `null`.
 
-- `transport`
-- `principal_id`
-- `address`
-- `filesystem_root`
-- `bindings_version`
+These fields project manifest binding authority; they cannot allocate an address or change mailbox configuration. Provider health does not change canonical identity. Credential references, credential paths, login names, and secret-resolution inputs remain outside discovery records.
+
+Offline registration lives in the registry-host filesystem ownership index. Stopping an agent, expiring a presence lease, or failing a local tmux probe cannot release its address. Remote members do not need a locally readable runtime manifest. Registry-only communication authority does not grant control of remote agent bodies.
 
 ### External Communication-Only Records
 
@@ -254,7 +263,7 @@ That boundary is the main reason the registry can stay small and safe to inspect
 
 - [`src/houmao/agents/realm_controller/registry_models.py`](../../../../src/houmao/agents/realm_controller/registry_models.py)
 - [`src/houmao/agents/realm_controller/registry_storage.py`](../../../../src/houmao/agents/realm_controller/registry_storage.py)
-- [`src/houmao/agents/realm_controller/schemas/managed_agent_registry_record.v3.schema.json`](../../../../src/houmao/agents/realm_controller/schemas/managed_agent_registry_record.v3.schema.json)
+- [`src/houmao/agents/realm_controller/schemas/managed_agent_registry_record.v4.schema.json`](../../../../src/houmao/agents/realm_controller/schemas/managed_agent_registry_record.v4.schema.json)
 - [`src/houmao/agents/realm_controller/schemas/external_managed_agent_registry_record.v1.schema.json`](../../../../src/houmao/agents/realm_controller/schemas/external_managed_agent_registry_record.v1.schema.json)
 - [`docs/reference/system-files/shared-registry.md`](../../system-files/shared-registry.md)
 - [`tests/unit/agents/realm_controller/test_registry_storage.py`](../../../../tests/unit/agents/realm_controller/test_registry_storage.py)

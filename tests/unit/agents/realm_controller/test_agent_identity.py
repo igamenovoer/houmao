@@ -3,14 +3,59 @@
 from __future__ import annotations
 
 import pytest
+from uuid import UUID
 
 from houmao.agents.realm_controller.agent_identity import (
+    AgentIdentityCreation,
+    derive_agent_id_from_name,
     derive_tmux_session_name,
     is_path_like_agent_identity,
     normalize_agent_identity_name,
     normalize_user_managed_agent_name,
 )
 from houmao.agents.realm_controller.errors import SessionManifestError
+
+
+def test_creation_defaults_to_distinct_uuid_for_repeated_name() -> None:
+    first = AgentIdentityCreation(agent_name="alice").resolve()
+    second = AgentIdentityCreation(agent_name="alice").resolve()
+    assert UUID(first.agent_id).version == 4
+    assert UUID(second.agent_id).version == 4
+    assert first.agent_id != second.agent_id
+    assert first.provenance == "uuid"
+
+
+def test_creation_name_hash_is_explicit_and_deterministic() -> None:
+    first = AgentIdentityCreation(agent_name="HOUMAO-alice", agent_id_mode="name-hash").resolve()
+    second = AgentIdentityCreation(agent_name="HOUMAO-alice", agent_id_mode="name-hash").resolve()
+    assert first == second
+    assert first.agent_id == derive_agent_id_from_name("HOUMAO-alice")
+    assert first.provenance == "name-hash"
+
+
+@pytest.mark.parametrize("mode", ["uuid", "name-hash"])
+def test_supplied_identity_rejects_explicit_generation(mode: str) -> None:
+    with pytest.raises(SessionManifestError, match="cannot be combined"):
+        AgentIdentityCreation(
+            agent_name="alice", agent_id="opaque-agent", agent_id_mode=mode
+        ).resolve()  # type: ignore[arg-type]
+
+
+def test_supplied_opaque_identity_is_preserved_without_generation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.agent_identity.uuid.uuid4",
+        lambda: pytest.fail("must not generate"),
+    )
+    identity = AgentIdentityCreation(agent_id="opaque-agent-key").resolve()
+    assert identity.agent_id == "opaque-agent-key"
+    assert identity.provenance == "supplied"
+
+
+def test_name_hash_requires_name() -> None:
+    with pytest.raises(SessionManifestError, match="requires an agent_name"):
+        AgentIdentityCreation(agent_id_mode="name-hash").resolve()
 
 
 @pytest.mark.parametrize(

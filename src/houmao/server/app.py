@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from houmao.mailbox.online_models import (
+    OnlineAttachRequest,
+    OnlineControlRequest,
+    OnlineBindingStatus,
+)
+
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 import os
@@ -11,6 +17,8 @@ import time
 from urllib import parse
 
 from fastapi import APIRouter, FastAPI, Query, Response
+
+from houmao.mailbox.models import MailChannel
 
 from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputRequestV1,
@@ -589,25 +597,34 @@ def create_app(
     ) -> GatewayControlInputResultV1:
         return resolved_service.send_managed_agent_gateway_control_input(agent_ref, request_model)
 
-    @app.get("/houmao/agents/{agent_ref}/gateway/mail-notifier")
-    def get_managed_agent_gateway_mail_notifier(agent_ref: str) -> GatewayMailNotifierStatusV1:
-        return resolved_service.get_managed_agent_gateway_mail_notifier(agent_ref)
+    @app.get("/houmao/agents/{agent_ref}/gateway/mail-notifier/{channel}")
+    def get_managed_agent_gateway_mail_notifier(
+        agent_ref: str, *, channel: MailChannel
+    ) -> GatewayMailNotifierStatusV1:
+        return resolved_service.get_managed_agent_gateway_mail_notifier(agent_ref, channel=channel)
 
-    @app.put("/houmao/agents/{agent_ref}/gateway/mail-notifier")
+    @app.put("/houmao/agents/{agent_ref}/gateway/mail-notifier/{channel}")
     def put_managed_agent_gateway_mail_notifier(
         agent_ref: str,
         request_model: GatewayMailNotifierPutV1,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailNotifierStatusV1:
         return resolved_service.put_managed_agent_gateway_mail_notifier(
             agent_ref,
             request_model,
+            channel=channel,
         )
 
-    @app.delete("/houmao/agents/{agent_ref}/gateway/mail-notifier")
+    @app.delete("/houmao/agents/{agent_ref}/gateway/mail-notifier/{channel}")
     def delete_managed_agent_gateway_mail_notifier(
         agent_ref: str,
+        *,
+        channel: MailChannel,
     ) -> GatewayMailNotifierStatusV1:
-        return resolved_service.delete_managed_agent_gateway_mail_notifier(agent_ref)
+        return resolved_service.delete_managed_agent_gateway_mail_notifier(
+            agent_ref, channel=channel
+        )
 
     @app.get("/houmao/agents/{agent_ref}/gateway/reminders")
     def list_managed_agent_gateway_reminders(agent_ref: str) -> GatewayReminderListV1:
@@ -646,6 +663,40 @@ def create_app(
     ) -> GatewayReminderDeleteResultV1:
         return resolved_service.delete_managed_agent_gateway_reminder(agent_ref, reminder_id)
 
+    @app.get("/houmao/agents/{agent_ref}/mail/online/binding")
+    def online_binding_status(agent_ref: str) -> OnlineBindingStatus:
+        """Proxy the online status operator surface."""
+
+        return resolved_service.online_binding_status(agent_ref)
+
+    @app.put("/houmao/agents/{agent_ref}/mail/online/binding")
+    def online_binding_attach(agent_ref: str, request: OnlineAttachRequest) -> OnlineBindingStatus:
+        """Proxy the online attach operator surface."""
+
+        return resolved_service.online_binding_attach(agent_ref, request)
+
+    @app.post("/houmao/agents/{agent_ref}/mail/online/binding/refresh")
+    def online_binding_refresh(
+        agent_ref: str, request: OnlineControlRequest
+    ) -> OnlineBindingStatus:
+        """Proxy the online refresh operator surface."""
+
+        return resolved_service.online_binding_refresh(agent_ref, request)
+
+    @app.post("/houmao/agents/{agent_ref}/mail/online/binding/reconnect")
+    def online_binding_reconnect(
+        agent_ref: str, request: OnlineControlRequest
+    ) -> OnlineBindingStatus:
+        """Proxy the online reconnect operator surface."""
+
+        return resolved_service.online_binding_reconnect(agent_ref, request)
+
+    @app.delete("/houmao/agents/{agent_ref}/mail/online/binding")
+    def online_binding_detach(agent_ref: str, request: OnlineControlRequest) -> OnlineBindingStatus:
+        """Proxy the online detach operator surface."""
+
+        return resolved_service.online_binding_detach(agent_ref, request)
+
     @app.get("/houmao/agents/{agent_ref}/mail/status")
     def managed_agent_mail_status(agent_ref: str) -> HoumaoManagedAgentMailStatusResponse:
         return resolved_service.managed_agent_mail_status(agent_ref)
@@ -654,68 +705,88 @@ def create_app(
     def managed_agent_mail_resolve_live(agent_ref: str) -> dict[str, object]:
         return resolved_service.managed_agent_mail_resolve_live(agent_ref)
 
-    @app.post("/houmao/agents/{agent_ref}/mail/list")
+    @app.post("/houmao/agents/{agent_ref}/mail/{channel}/list")
     def list_managed_agent_mail(
         agent_ref: str,
         request_model: HoumaoManagedAgentMailListRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailListResponse:
-        return resolved_service.list_managed_agent_mail(agent_ref, request_model)
+        return resolved_service.list_managed_agent_mail(agent_ref, request_model, channel=channel)
 
-    @app.post("/houmao/agents/{agent_ref}/mail/peek")
+    @app.post("/houmao/agents/{agent_ref}/mail/{channel}/peek")
     def peek_managed_agent_mail(
         agent_ref: str,
         request_model: HoumaoManagedAgentMailMessageRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailMessageResponse:
-        return resolved_service.peek_managed_agent_mail(agent_ref, request_model)
+        return resolved_service.peek_managed_agent_mail(agent_ref, request_model, channel=channel)
 
-    @app.post("/houmao/agents/{agent_ref}/mail/read")
+    @app.post("/houmao/agents/{agent_ref}/mail/{channel}/read")
     def read_managed_agent_mail(
         agent_ref: str,
         request_model: HoumaoManagedAgentMailMessageRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailMessageResponse:
-        return resolved_service.read_managed_agent_mail(agent_ref, request_model)
+        return resolved_service.read_managed_agent_mail(agent_ref, request_model, channel=channel)
 
-    @app.post("/houmao/agents/{agent_ref}/mail/send")
+    @app.post("/houmao/agents/{agent_ref}/mail/{channel}/send")
     def send_managed_agent_mail(
         agent_ref: str,
         request_model: HoumaoManagedAgentMailSendRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailActionResponse:
-        return resolved_service.send_managed_agent_mail(agent_ref, request_model)
+        return resolved_service.send_managed_agent_mail(agent_ref, request_model, channel=channel)
 
-    @app.post("/houmao/agents/{agent_ref}/mail/post")
+    @app.post("/houmao/agents/{agent_ref}/mail/{channel}/post")
     def post_managed_agent_mail(
         agent_ref: str,
         request_model: HoumaoManagedAgentMailPostRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailActionResponse:
-        return resolved_service.post_managed_agent_mail(agent_ref, request_model)
+        return resolved_service.post_managed_agent_mail(agent_ref, request_model, channel=channel)
 
-    @app.post("/houmao/agents/{agent_ref}/mail/reply")
+    @app.post("/houmao/agents/{agent_ref}/mail/{channel}/reply")
     def reply_managed_agent_mail(
         agent_ref: str,
         request_model: HoumaoManagedAgentMailReplyRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailActionResponse:
-        return resolved_service.reply_managed_agent_mail(agent_ref, request_model)
+        return resolved_service.reply_managed_agent_mail(agent_ref, request_model, channel=channel)
 
-    @app.post("/houmao/agents/{agent_ref}/mail/mark")
+    @app.post("/houmao/agents/{agent_ref}/mail/{channel}/mark")
     def mark_managed_agent_mail(
         agent_ref: str,
         request_model: HoumaoManagedAgentMailMarkRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailLifecycleResponse:
-        return resolved_service.mark_managed_agent_mail(agent_ref, request_model)
+        return resolved_service.mark_managed_agent_mail(agent_ref, request_model, channel=channel)
 
-    @app.post("/houmao/agents/{agent_ref}/mail/move")
+    @app.post("/houmao/agents/{agent_ref}/mail/{channel}/move")
     def move_managed_agent_mail(
         agent_ref: str,
         request_model: HoumaoManagedAgentMailMoveRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailLifecycleResponse:
-        return resolved_service.move_managed_agent_mail(agent_ref, request_model)
+        return resolved_service.move_managed_agent_mail(agent_ref, request_model, channel=channel)
 
-    @app.post("/houmao/agents/{agent_ref}/mail/archive")
+    @app.post("/houmao/agents/{agent_ref}/mail/{channel}/archive")
     def archive_managed_agent_mail(
         agent_ref: str,
         request_model: HoumaoManagedAgentMailArchiveRequest,
+        *,
+        channel: MailChannel,
     ) -> HoumaoManagedAgentMailLifecycleResponse:
-        return resolved_service.archive_managed_agent_mail(agent_ref, request_model)
+        return resolved_service.archive_managed_agent_mail(
+            agent_ref, request_model, channel=channel
+        )
 
     @app.get("/houmao/terminals/{terminal_id}/state")
     def terminal_state(terminal_id: TerminalId) -> HoumaoTerminalStateResponse:

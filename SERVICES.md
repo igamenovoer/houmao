@@ -35,7 +35,9 @@ All listeners bind to `127.0.0.1` inside this workspace. To use the web UI from 
 | IMAP | `127.0.0.1:10143` |
 | SMTP submission | `127.0.0.1:10587` |
 
-The administrator login is `admin`. The regular test mailbox login is `test-agent`, with address `test-agent@example.test`. Passwords were generated locally and are stored in `dockers/email-system/.env`, with file permissions `0600`. Keep credential values out of tracked files, command arguments, and shared logs.
+The administrator login is `admin`. The regular test mailbox login is `test-agent`, with addresses `test-agent@example.test` and `test-agent@example.com`. Use `test-agent@example.com` for JMAP sending and live attachment qualification. Passwords were generated locally and are stored in `dockers/email-system/.env`, with file permissions `0600`. Keep credential values out of tracked files, command arguments, and shared logs.
+
+Stalwart 0.15.5 validates a new sending identity against a recognized public suffix and rejects `.test`. On 2026-11-14, separate local fixture administration added the `example.com` domain and the `test-agent@example.com` alias without changing the password or removing the original address. Sending-identity initialization belongs to account setup; Houmao attachment only validates an existing authorized identity and never provisions one. The reserved example.com address routes only inside this local test deployment. A second normal fixture account, `test-agent-peer` (`test-agent-peer@example.com`), supports real recipient delivery and reply qualification. Its private credential is `.data/stalwart/test-agent-peer.json` under this service directory. Normal-account setup initializes authorized sending identities and missing Archive folders separately from Houmao attachment. Stalwart can suppress self-delivery as a duplicate of the sender’s Sent object, so delivery checks use the two fixture accounts.
 
 Use the session-discovery URL for Houmao's `StalwartJmapClient.jmap_url`. A GET request to `/jmap` does not return the session document.
 

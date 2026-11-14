@@ -18,10 +18,14 @@ from houmao.passive_server.discovery import (
     _summary_from_record,
 )
 from houmao.agents.realm_controller.registry_models import (
-    LiveAgentRegistryRecordV2,
+    ManagedAgentRegistryRecordV3,
+    RegistryLifecycleV1,
+    RegistryLivenessV1,
+    RegistryMailboxesV1,
+    RegistryMailboxSlotV1,
     RegistryIdentityV1,
     RegistryRuntimeV1,
-    RegistryTerminalV1,
+    RegistryTerminalV2,
 )
 from houmao.agents.realm_controller.registry_storage import (
     TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL,
@@ -40,21 +44,35 @@ def _make_record(
     session_root: str = "/tmp/session",
     published_at: datetime | None = None,
     lease_expires_at: datetime | None = None,
-) -> LiveAgentRegistryRecordV2:
+) -> ManagedAgentRegistryRecordV3:
     """Create a minimal valid registry record for testing."""
 
     now = datetime.now(UTC)
-    return LiveAgentRegistryRecordV2(
+    return ManagedAgentRegistryRecordV3(
         agent_id=agent_id,
         agent_name=agent_name,
         generation_id=generation_id,
-        published_at=(published_at or now).isoformat(timespec="seconds"),
-        lease_expires_at=(lease_expires_at or now + timedelta(hours=24)).isoformat(
-            timespec="seconds"
+        lifecycle=RegistryLifecycleV1(
+            state="active",
+            relaunchable=True,
+            state_updated_at=(published_at or now).isoformat(timespec="seconds"),
         ),
+        liveness=RegistryLivenessV1(
+            published_at=(published_at or now).isoformat(timespec="seconds"),
+            lease_expires_at=(lease_expires_at or now + timedelta(hours=24)).isoformat(
+                timespec="seconds"
+            ),
+        ),
+        mailboxes=RegistryMailboxesV1(
+            offline=RegistryMailboxSlotV1(revision="offline-0", binding=None),
+            online=RegistryMailboxSlotV1(revision="online-0", binding=None),
+        ),
+        canonical_mail_identity=None,
         identity=RegistryIdentityV1(backend=backend, tool=tool),
         runtime=RegistryRuntimeV1(manifest_path=manifest_path, session_root=session_root),
-        terminal=RegistryTerminalV1(session_name=session_name),
+        terminal=RegistryTerminalV2(
+            current_session_name=session_name, last_session_name=session_name
+        ),
     )
 
 
@@ -160,7 +178,7 @@ class TestDiscoveredAgentIndex:
 # ---------------------------------------------------------------------------
 
 
-def _write_record(registry_root: Path, record: LiveAgentRegistryRecordV2) -> None:
+def _write_record(registry_root: Path, record: ManagedAgentRegistryRecordV3) -> None:
     """Persist a record to the test registry directory."""
 
     agent_dir = registry_root / "live_agents" / record.agent_id

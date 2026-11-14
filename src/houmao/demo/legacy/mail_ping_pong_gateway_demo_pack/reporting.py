@@ -236,7 +236,7 @@ def _participant_inspect_snapshot(
             participant.tracked_agent_id
         ).model_dump(mode="json")
         gateway_mail_notifier = client.get_managed_agent_gateway_mail_notifier(
-            participant.tracked_agent_id
+            participant.tracked_agent_id, channel="offline"
         ).model_dump(mode="json")
     except Exception as exc:
         fallback = {

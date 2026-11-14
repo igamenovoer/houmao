@@ -31,6 +31,8 @@ def test_send_passes_notify_block_through_to_mail_send(
         mail_group,
         [
             "send",
+            "--channel",
+            "offline",
             "--agent-name",
             "alice",
             "--to",
@@ -69,6 +71,8 @@ def test_send_passes_notify_block_with_prepend_placement(
         mail_group,
         [
             "send",
+            "--channel",
+            "offline",
             "--agent-name",
             "alice",
             "--to",
@@ -108,6 +112,8 @@ def test_send_omits_notify_block_when_flag_absent(
         mail_group,
         [
             "send",
+            "--channel",
+            "offline",
             "--agent-name",
             "alice",
             "--to",
@@ -142,6 +148,8 @@ def test_post_passes_notify_block_through_to_mail_post(
         mail_group,
         [
             "post",
+            "--channel",
+            "offline",
             "--agent-name",
             "alice",
             "--subject",

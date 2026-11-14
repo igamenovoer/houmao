@@ -19,7 +19,7 @@ from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.gateway_models import GatewayHost, GatewayProtocolVersion
 from houmao.agents.realm_controller.models import BackendKind
 
-REGISTRY_SCHEMA_VERSION = 3
+REGISTRY_SCHEMA_VERSION = 4
 EXTERNAL_REGISTRY_SCHEMA_VERSION = 1
 LEGACY_REGISTRY_SCHEMA_VERSION = 2
 TERMINAL_KIND_TMUX: Literal["tmux"] = "tmux"
@@ -272,6 +272,40 @@ RegistryMailboxV1 = Annotated[
 ]
 
 
+class RegistryMailboxBindingV1(_StrictRegistryModel):
+    """Public mail identity projection without backend credentials or resolver inputs."""
+
+    agent_id: str = Field(min_length=1)
+    channel: Literal["offline", "online"]
+    binding_id: str = Field(min_length=1)
+    address: str = Field(min_length=1)
+    transport: Literal["filesystem", "registry", "stalwart"]
+    availability: Literal["configured", "unavailable", "unknown"] = "unknown"
+
+
+class RegistryMailboxSlotV1(_StrictRegistryModel):
+    """A public projection of one revisioned slot."""
+
+    revision: str = Field(min_length=1)
+    binding: RegistryMailboxBindingV1 | None
+
+
+class RegistryMailboxesV1(_StrictRegistryModel):
+    """Safe identity summaries for both independent channels."""
+
+    offline: RegistryMailboxSlotV1
+    online: RegistryMailboxSlotV1
+
+    @property
+    def canonical_mail_identity(self) -> dict[str, str] | None:
+        """Derive the configured online-first email identity."""
+
+        for channel, slot in (("online", self.online), ("offline", self.offline)):
+            if slot.binding is not None:
+                return {"channel": channel, "address": slot.binding.address}
+        return None
+
+
 class LiveAgentRegistryRecordV2(_StrictRegistryModel):
     """Legacy v2 shared-registry ``record.json`` contract for one live agent."""
 
@@ -332,7 +366,7 @@ class LiveAgentRegistryRecordV2(_StrictRegistryModel):
 class ManagedAgentRegistryRecordV3(_StrictRegistryModel):
     """Lifecycle-aware shared-registry ``record.json`` contract."""
 
-    schema_version: int = Field(default=REGISTRY_SCHEMA_VERSION)
+    schema_version: Literal[4] = 4
     agent_name: str
     agent_id: str
     generation_id: str
@@ -342,7 +376,8 @@ class ManagedAgentRegistryRecordV3(_StrictRegistryModel):
     terminal: RegistryTerminalV2
     liveness: RegistryLivenessV1 | None = None
     gateway: RegistryGatewayV1 | None = None
-    mailbox: RegistryMailboxV1 | None = None
+    mailboxes: RegistryMailboxesV1
+    canonical_mail_identity: dict[str, str] | None
 
     @field_validator("agent_name", "agent_id", "generation_id")
     @classmethod
@@ -359,6 +394,16 @@ class ManagedAgentRegistryRecordV3(_StrictRegistryModel):
 
         if self.schema_version != REGISTRY_SCHEMA_VERSION:
             raise ValueError(f"schema_version must be {REGISTRY_SCHEMA_VERSION}")
+        if self.canonical_mail_identity != self.mailboxes.canonical_mail_identity:
+            raise ValueError("canonical mail identity differs from configured mailbox projection")
+        for channel, slot in (
+            ("offline", self.mailboxes.offline),
+            ("online", self.mailboxes.online),
+        ):
+            if slot.binding is not None and (
+                slot.binding.agent_id != self.agent_id or slot.binding.channel != channel
+            ):
+                raise ValueError("registry mail summary scope differs from owning agent/channel")
 
         try:
             normalized_agent_name = normalize_managed_agent_name(self.agent_name)
@@ -524,14 +569,16 @@ def canonicalize_registry_agent_name(value: str) -> str:
 
 
 def parse_managed_agent_registry_record(payload: object) -> ManagedAgentRegistryRecordV3:
-    """Parse one registry payload, upgrading legacy v2 records when needed."""
+    """Parse the current registry shape without inventing legacy mailbox authority."""
 
     if not isinstance(payload, dict):
         return ManagedAgentRegistryRecordV3.model_validate(payload)
-    schema_version = payload.get("schema_version", LEGACY_REGISTRY_SCHEMA_VERSION)
-    if schema_version == LEGACY_REGISTRY_SCHEMA_VERSION:
-        legacy_record = LiveAgentRegistryRecordV2.model_validate(payload)
-        return upgrade_live_agent_registry_record_v2(legacy_record)
+    schema_version = payload.get("schema_version")
+    if schema_version != REGISTRY_SCHEMA_VERSION:
+        raise ValueError(
+            f"unsupported registry schema_version={schema_version!r}; "
+            "back up and rebootstrap registry projections with the current runtime"
+        )
     return ManagedAgentRegistryRecordV3.model_validate(payload)
 
 
@@ -540,29 +587,7 @@ def upgrade_live_agent_registry_record_v2(
 ) -> ManagedAgentRegistryRecordV3:
     """Map one legacy live-only record into the lifecycle-aware active shape."""
 
-    return ManagedAgentRegistryRecordV3(
-        agent_name=record.agent_name,
-        agent_id=record.agent_id,
-        generation_id=record.generation_id,
-        lifecycle=RegistryLifecycleV1(
-            state="active",
-            relaunchable=record.runtime.session_root is not None,
-            state_updated_at=record.published_at,
-        ),
-        identity=record.identity,
-        runtime=record.runtime,
-        terminal=RegistryTerminalV2(
-            kind=record.terminal.kind,
-            current_session_name=record.terminal.session_name,
-            last_session_name=record.terminal.session_name,
-        ),
-        liveness=RegistryLivenessV1(
-            published_at=record.published_at,
-            lease_expires_at=record.lease_expires_at,
-        ),
-        gateway=record.gateway,
-        mailbox=record.mailbox,
-    )
+    raise ValueError("legacy registry upgrade is unsupported; back up and rebootstrap projections")
 
 
 def format_registry_validation_error(prefix: str, exc: ValidationError) -> str:
