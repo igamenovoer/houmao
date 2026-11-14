@@ -1,0 +1,26 @@
+[workspace]
+name = "houmao-cccc-dev"
+description = "Build and run the reference CCCC service without nested containers"
+channels = ["conda-forge"]
+platforms = ["linux-aarch64", "linux-64"]
+
+[dependencies]
+python = "3.13.*"
+rust = "1.88.*"
+nodejs = "24.*"
+cxx-compiler = ">=1.9,<2"
+cmake = ">=3.31,<5"
+make = ">=4,<5"
+pkg-config = "*"
+openssl = ">=3,<4"
+git = ">=2,<3"
+curl = ">=8,<9"
+
+[tasks]
+build = { cmd = "python manage.py build", description = "Build CCCC and its embedded Web UI from the local reference checkout" }
+start = { cmd = "python manage.py start", description = "Start the isolated CCCC development service on loopback" }
+run = { cmd = "python manage.py run", description = "Run the isolated CCCC service in the foreground" }
+status = { cmd = "python manage.py status", description = "Show the owned process and HTTP/daemon health" }
+stop = { cmd = "python manage.py stop", description = "Stop only the service owned by this development workspace" }
+cccc = { cmd = "python manage.py cli --", description = "Run the CCCC CLI against the isolated service" }
+

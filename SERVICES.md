@@ -2,6 +2,58 @@
 
 This file records the services running for Houmao development in this workspace. Run the commands below from the project root, `/data/huangzhe/code/houmao`.
 
+## CCCC Native Pixi Service
+
+CCCC runs directly inside this development container through the isolated [Pixi workspace](tools/cccc/pixi.toml). It does not require Docker, a nested container, or a global Rust installation. The native source build and Web UI were verified on this workspace's Linux ARM64 host.
+
+| Item | Current Deployment |
+| --- | --- |
+| Product | CCCC 0.4.56 |
+| Source checkout | `extern/orphan/cccc`, commit `d12732ebd6dfdbc260a59a286bd5e510d04d4832` |
+| Build/runtime environment | `tools/cccc/pixi.toml` and its lockfile |
+| Toolchain | Pixi-managed Rust 1.88 and Node.js 24; native Cargo development build |
+| Web UI | <http://127.0.0.1:8848> |
+| HTTP health | <http://127.0.0.1:8848/api/v1/health> |
+| Daemon IPC | Owner-private local Unix-domain socket under the selected `CCCC_HOME` |
+| Persistent root | `/home/huangzhe/.local/share/houmao-cccc/` |
+| `CCCC_HOME` | `/home/huangzhe/.local/share/houmao-cccc/data/` |
+| Native executable | `/home/huangzhe/.local/share/houmao-cccc/target/debug/cccc` |
+| Process descriptor | `/home/huangzhe/.local/share/houmao-cccc/runtime.json` |
+| Private output log | `/home/huangzhe/.local/share/houmao-cccc/server.log` |
+| Lifecycle | Detached user process; start manually after this workspace restarts |
+
+The Web listener binds to loopback inside this container. Forward port `8848` through the editor or SSH to open it from another machine. Native service startup needs no model API key. No Groups, actors, or existing agent-session attachments are created by the helper.
+
+### Install, Build, and Start
+
+For a fresh checkout, clone the source into `extern/orphan/cccc` first. Then run:
+
+```bash
+pixi install --manifest-path tools/cccc/pixi.toml
+pixi run --manifest-path tools/cccc/pixi.toml build
+pixi run --manifest-path tools/cccc/pixi.toml start
+pixi run --manifest-path tools/cccc/pixi.toml status
+```
+
+The source build uses upstream's `Cargo.lock` and embeds its compiled Web UI. Its first build downloads native, Rust, and frontend dependencies. Build caches and service state stay outside the project; the local source checkout remains Git-ignored.
+
+### Stop, Restart, and Inspect
+
+```bash
+pixi run --manifest-path tools/cccc/pixi.toml stop
+pixi run --manifest-path tools/cccc/pixi.toml start
+pixi run --manifest-path tools/cccc/pixi.toml cccc --version
+pixi run --manifest-path tools/cccc/pixi.toml cccc doctor
+pixi run --manifest-path tools/cccc/pixi.toml cccc daemon status
+pixi run --manifest-path tools/cccc/pixi.toml cccc groups
+```
+
+`start` reuses this helper's verified owned process. `stop` checks PID birth identity, command, and selected home before signalling it. Runtime metadata and logs are private local files, not repository artifacts. The developer's `HOME` remains unchanged.
+
+Verification covered the native version, daemon health, CLI access, empty Group listing, all 33 embedded JavaScript/CSS assets, and browser rendering without JavaScript page errors. Repeated start and immediate stop/start were exercised. Formatting, Ruff, and strict typing cover the lifecycle helper.
+
+This minimal environment runs the coordination daemon and Web UI. Optional projected-browser/Web Model actors need additional system browser/display/VNC dependencies and were not qualified. Agent credentials and session integration remain explicit later setup steps. See [the helper README](tools/cccc/README.md) for root/port/build overrides and foreground operation.
+
 ## Stalwart Mail Server
 
 Stalwart was started and verified on 2026-11-13 for mailbox integration testing. It runs as `huangzhe` inside the Linux `aarch64` development workspace whose hostname is `main`.
