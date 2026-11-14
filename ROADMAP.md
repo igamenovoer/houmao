@@ -4,7 +4,7 @@
 
 This roadmap sequences the eleven feature requests filed on 2026-11-13 as GitHub issues [#74 through #84](https://github.com/igamenovoer/houmao/issues). It uses commit `1675029c` (`v2.4.0`) as its code baseline. All eleven issues were open when this roadmap was written.
 
-Status as of 2026-11-13: **2 of 11 work packages are done**. Usage records (#83) and the gateway plugin API (#76) are implemented and validated; the remaining nine work packages are pending. Completion evidence appears in the first two work packages below.
+Status as of 2026-11-15: **4 of 11 work packages are done**. Usage records (#83), the gateway plugin API (#76), bounded Stalwart queries and incremental sync (#80), and live Stalwart attachment (#79) are implemented and validated; the remaining seven work packages are pending. Completion evidence appears in the first four work packages below.
 
 The common goal is to let an external hub provision identities, capabilities, budgets, and execution contexts while Houmao remains the per-agent runtime, gateway, and mailbox layer. Houmao should not become the hub's account provisioner, budget-policy engine, central task planner, or combined chat/mail service.
 
@@ -22,8 +22,8 @@ The common goal is to let an external hub provision identities, capabilities, bu
 | --- | --- | --- | --- | --- |
 | 1 | Done | [#83](https://github.com/igamenovoer/houmao/issues/83): Normalized agent usage records | Queryable usage records with stable IDs, units, explicit unknowns, and incremental cursors | Defines the telemetry contract that DSH and Pi must implement |
 | 2 | Done | [#76](https://github.com/igamenovoer/houmao/issues/76): Gateway plugin API | Namespaced routes, owner-bound context, admission hooks, and plugin lifecycle | Enables both CCCC integrations and provides lifecycle machinery for later runtime changes |
-| 3 | Pending | [#80](https://github.com/igamenovoer/houmao/issues/80): Bounded Stalwart queries and incremental sync | Metadata-only listing, bounded filters, JMAP change tracking, and efficient notifications | Removes expensive mailbox behavior before more consumers depend on it |
-| 4 | Pending | [#79](https://github.com/igamenovoer/houmao/issues/79): Live Stalwart mailbox attachment | Runtime attach, refresh, detach, and notifier reconfiguration without body restart | Builds on the improved client and notifier instead of reworking them later |
+| 3 | Done | [#80](https://github.com/igamenovoer/houmao/issues/80): Bounded Stalwart queries and incremental sync | Metadata-only listing, bounded filters, JMAP change tracking, and efficient notifications | Removes expensive mailbox behavior before more consumers depend on it |
+| 4 | Done | [#79](https://github.com/igamenovoer/houmao/issues/79): Live Stalwart mailbox attachment | Runtime attach, refresh, detach, and notifier reconfiguration without body restart | Builds on the improved client and notifier instead of reworking them later |
 | 5 | Pending | [#77](https://github.com/igamenovoer/houmao/issues/77): CCCC chat gateway plugin | Live CCCC Group/Actor attachment and chat through the per-agent gateway | First real plugin consumer; validates #76 before CCCC Mail is added |
 | 6 | Pending | [#78](https://github.com/igamenovoer/houmao/issues/78): CCCC deferred Mail backend | Explicit secondary mailbox backend with non-consuming status and ordered cursors | Reuses CCCC identity binding plus the mailbox attachment and cursor patterns |
 | 7 | Pending | [#74](https://github.com/igamenovoer/houmao/issues/74): DeepSeek Harness backend | Managed DSH launch, ACP control, resume, interruption, events, and usage | Adds the primary new body after shared usage behavior is defined |
@@ -86,15 +86,23 @@ The [plugin author and operator guide](docs/reference/gateway/plugins.md) and [i
 
 #### 3. #80: Add Bounded Metadata Queries And Incremental Stalwart Mailbox Synchronization
 
-- Replace the current body-fetching list path in `src/houmao/mailbox/stalwart.py` with bounded server-side queries, metadata-only listing, explicit body retrieval, and JMAP state/change tracking where supported.
-- Update notifier state to batch wakeups, suppress duplicates, recover from stale cursors, and avoid repeated full-body scans while preserving existing read, mark, archive, and reply semantics.
-- Complete the issue with deterministic mocked-JMAP coverage and a documented load-test plan for query volume, bytes, latency, and backlog recovery.
+**Done (2026-11-14).** Implemented in [commit `2c743a2a`](https://github.com/igamenovoer/houmao/commit/2c743a2af946847dfc7675bcebed850cf1a51fee) together with #79. The [online attachment and sync change](openspec/changes/mail-02-attach-online-mail-and-sync-stalwart/proposal.md) has [32 completed tasks](openspec/changes/mail-02-attach-online-mail-and-sync-stalwart/tasks.md) and an [acceptance map covering all 36 requirements and 66 scenarios](openspec/changes/mail-02-attach-online-mail-and-sync-stalwart/acceptance.md). Its [identity and offline-mail foundation](openspec/changes/mail-01-establish-identity-and-offline-mail/acceptance.md) has 28 completed tasks and is synchronized into main specs. Change 02 spec synchronization and archiving remain separate maintenance steps.
+
+- [x] Replace body-fetching lists with server-filtered metadata pages, a finite default of 50 and maximum of 200, scoped state-validated cursors, explicit peek/read content retrieval, and visible content limits. Reuse validated account, identity, discovery, and mailbox-role state.
+- [x] Persist account/query-scoped JMAP checkpoints and bounded metadata views atomically, recover within request/time budgets, and fence superseded observations and prompt effects. Preserve read, mark, archive, reply, readiness, and one-shot compaction semantics. Per user clarification, unchanged eligible work continues periodic reminders; deduplication suppresses same-cycle and overlapping wakeups rather than future due intervals.
+- [x] Cover pagination, metadata-only wire requests, intermediate checkpoints, stale-state recovery, concurrent role changes, duplicate admission, and compaction eligibility with deterministic tests. Provide [qualification tools](scripts/qualification/stalwart-mail/README.md) and a [load-test plan](docs/reference/mailbox/operations/stalwart-qualification.md) measuring requests, bytes, latency, memory, and backlog recovery.
+
+Verification on 2026-11-14: **3,651 unit tests passed** (14 skipped), **29 affected integration tests passed**, and formatting, lint, strict typing (449 source files), and strict OpenSpec validation passed. [Live Stalwart 0.15.5 evidence](openspec/changes/mail-02-attach-online-mail-and-sync-stalwart/qualification.md) includes real two-account send/read/reply/archive, bounded observation measurements, restart recovery, and two periodic reminder cycles with same-cycle deduplication. The 100-agent/million-message workload is documented but unexecuted; these representative checks do not establish target-scale capacity.
 
 #### 4. #79: Attach Hub-Provisioned Stalwart Mailboxes To Running Agents Without Relaunch
 
-- Add CLI/API attach, credential refresh, reconnect, status, and detach operations using mailbox-level credentials rather than Stalwart management credentials.
-- Reuse the gateway's manifest-backed mailbox loading and `bindings_version` adapter rebuild behavior in `gateway_service.py`; coordinate notifier and superseded-worker cleanup without restarting the agent body.
-- Complete the issue when tests cover mailbox-disabled agents, bad credentials, endpoint failure, refresh, detach, ownership protection, secret redaction, and read/send after attachment.
+**Done (2026-11-14).** Delivered with #80 in [commit `2c743a2a`](https://github.com/igamenovoer/houmao/commit/2c743a2af946847dfc7675bcebed850cf1a51fee). The shared [acceptance map](openspec/changes/mail-02-attach-online-mail-and-sync-stalwart/acceptance.md) records the attachment contract and its test evidence.
+
+- [x] Add documented scoped CLI/API status, attach/explicit replacement, credential refresh, reconnect, and detach using protected normal-account credential references. Validate candidates before activation without management access, implicit account provisioning, or provider-password replacement.
+- [x] Mutate the manifest-backed online slot with owner/revision checks while preserving the stable agent ID, offline binding, body PID, and conversation. Use private immutable credential snapshots and connection epochs; retire old operations, cancel stale pending reminders, and return scoped confirmed or uncertain mutation outcomes without automatic resend.
+- [x] Test initially mailbox-disabled agents, invalid credentials, endpoint failure, account/address mismatch, refresh, detach, concurrent replacement, secret-safe projections, and read/send/reply/archive after attachment. [Real HTTP runtime integration](tests/integration/mailbox/test_online_runtime_contract.py) covers gateway restart, a persistent stand-in body subprocess, late polls, queued reminder cancellation, and prompt-effect retirement races. The [operator guide](docs/reference/mailbox/operations/stalwart-setup-and-first-session.md) and [developer fixture routine](skillset/dev/houmao-dev-launch-agents/commands/attach-online-mail.md) document the supported workflow.
+
+The aggregate checks and live normal-account qualification are recorded under #80 above. Live runtime qualification preserved the stand-in body's PID and conversation marker through attach, refresh, reconnect, gateway reconstruction, and detach. Autonomous real-LLM conversation behavior is outside this qualification.
 
 ### Phase 3: Add CCCC Integrations
 
@@ -160,5 +168,5 @@ The [plugin author and operator guide](docs/reference/gateway/plugins.md) and [i
 
 - Run `pixi run format`, `pixi run lint`, `pixi run typecheck`, and `pixi run test` for every change. Add targeted integration or live-provider qualification for subprocess, tmux, gateway, mailbox, DSH, Pi, and CCCC behavior.
 - Use mocked external-service tests for deterministic CI and separate live smoke tests for real provider or service compatibility.
-- Fetch and pin DSH, Pi, and CCCC references before their design work; no local checkouts currently exist under `extern/`. Stalwart source is available at `extern/orphan/stalwart`.
+- Fetch and pin DSH and Pi references before their design work. Local reference checkouts for CCCC and Stalwart are available at `extern/orphan/cccc` and `extern/orphan/stalwart`. The [CCCC Pixi workspace](tools/cccc/README.md) builds and runs its native development service without nested containers.
 - Update this roadmap when issue scope, dependencies, or delivery order changes. Code paths and line references describe the `1675029c` baseline and should be refreshed rather than preserved when the code moves.
