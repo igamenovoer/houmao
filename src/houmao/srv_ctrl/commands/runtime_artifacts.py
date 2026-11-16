@@ -55,6 +55,7 @@ from houmao.agents.realm_controller.manifest import (
     build_session_manifest_payload,
     default_manifest_path,
     generate_session_id,
+    parse_session_manifest_payload,
     write_session_manifest,
 )
 from houmao.agents.realm_controller.models import (
@@ -337,6 +338,9 @@ def materialize_joined_launch(
                     ).isoformat(timespec="seconds"),
                 ),
                 identity=RegistryIdentityV1(backend=backend, tool=tool),
+                native_surface=parse_session_manifest_payload(
+                    manifest_payload, source=str(manifest_path)
+                ).native_surface,
                 runtime=RegistryRuntimeV1(
                     manifest_path=str(manifest_path),
                     session_root=str(session_root),
@@ -696,6 +700,9 @@ def materialize_delegated_launch(
                 ),
             ),
             identity=RegistryIdentityV1(backend="houmao_server_rest", tool=tool),
+            native_surface=parse_session_manifest_payload(
+                manifest_payload, source=str(manifest_path)
+            ).native_surface,
             runtime=RegistryRuntimeV1(
                 manifest_path=str(manifest_path),
                 session_root=str(session_root),
@@ -995,7 +1002,7 @@ def _joined_backend_state(
         "tmux_window_id": tmux_window_id,
         "tmux_pane_id": tmux_pane_id,
     }
-    if backend in {"codex_headless", "claude_headless", "kimi_headless"}:
+    if backend in {"codex_headless", "claude_headless", "kimi_headless", "dsh_acp"}:
         payload["session_id"] = None
         payload["resume_selection_kind"] = (
             resume_selection.kind if resume_selection is not None else "none"

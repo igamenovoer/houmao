@@ -558,11 +558,29 @@
             "codex_app_server",
             "claude_headless",
             "kimi_headless",
+            "dsh_acp",
+            "dsh_web",
             "cao_rest",
             "houmao_server_rest"
           ],
           "title": "Backend",
           "type": "string"
+        },
+        "native_surface_kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "terminal",
+                "web"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Native Surface Kind"
         },
         "tool": {
           "title": "Tool",
@@ -666,6 +684,7 @@
             "native_developer_instructions",
             "native_append_system_prompt",
             "native_home_system_prompt",
+            "native_system_prompt_section",
             "bootstrap_message",
             "cao_profile"
           ],
@@ -834,6 +853,8 @@
             "codex_app_server",
             "claude_headless",
             "kimi_headless",
+            "dsh_acp",
+            "dsh_web",
             "cao_rest",
             "houmao_server_rest"
           ],
@@ -1351,8 +1372,11 @@
           "type": "string"
         },
         "primary_window_role": {
-          "const": "managed_agent_surface",
           "default": "managed_agent_surface",
+          "enum": [
+            "managed_agent_surface",
+            "supervisor_logs"
+          ],
           "title": "Primary Window Role",
           "type": "string"
         },
@@ -1398,6 +1422,67 @@
       ],
       "title": "SessionManifestTmuxSectionV1",
       "type": "object"
+    },
+    "TerminalNativeSurfaceV1": {
+      "additionalProperties": false,
+      "description": "Identify an actual terminal interface rather than a supervisor log pane.",
+      "properties": {
+        "kind": {
+          "const": "terminal",
+          "default": "terminal",
+          "title": "Kind",
+          "type": "string"
+        },
+        "tmux_session_name": {
+          "minLength": 1,
+          "title": "Tmux Session Name",
+          "type": "string"
+        },
+        "pane_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pane Id"
+        }
+      },
+      "required": [
+        "tmux_session_name"
+      ],
+      "title": "TerminalNativeSurfaceV1",
+      "type": "object"
+    },
+    "WebNativeSurfaceV1": {
+      "additionalProperties": false,
+      "description": "Expose only a loopback browser origin and the exact bound native session.",
+      "properties": {
+        "kind": {
+          "const": "web",
+          "default": "web",
+          "title": "Kind",
+          "type": "string"
+        },
+        "origin": {
+          "title": "Origin",
+          "type": "string"
+        },
+        "native_session_id": {
+          "minLength": 1,
+          "title": "Native Session Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "origin",
+        "native_session_id"
+      ],
+      "title": "WebNativeSurfaceV1",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -1415,6 +1500,8 @@
         "codex_app_server",
         "claude_headless",
         "kimi_headless",
+        "dsh_acp",
+        "dsh_web",
         "cao_rest",
         "houmao_server_rest"
       ],
@@ -1468,6 +1555,32 @@
       ],
       "default": null,
       "title": "Tmux Session Name"
+    },
+    "native_surface": {
+      "anyOf": [
+        {
+          "discriminator": {
+            "mapping": {
+              "terminal": "#/$defs/TerminalNativeSurfaceV1",
+              "web": "#/$defs/WebNativeSurfaceV1"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TerminalNativeSurfaceV1"
+            },
+            {
+              "$ref": "#/$defs/WebNativeSurfaceV1"
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Native Surface"
     },
     "registry_generation_id": {
       "anyOf": [

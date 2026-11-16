@@ -10,6 +10,8 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputRequestV1,
     GatewayControlInputResultV1,
     GatewayHeadlessControlStateV1,
+    GatewayWebControlStateV1,
+    GatewayWebHistoryV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
     GatewayReminderCreateBatchV1,
@@ -289,6 +291,26 @@ class PassiveServerClient(HoumaoServerClient):
             f"/houmao/agents/{escaped}/gateway/control/prompt",
             HoumaoManagedAgentGatewayPromptControlResponse,
             json_body=request_model.model_dump(mode="json"),
+        )
+
+    def get_managed_agent_gateway_web_state(self, agent_ref: str) -> GatewayWebControlStateV1:
+        """Read the attached gateway's structured native Web observation."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "GET", f"/houmao/agents/{escaped}/gateway/web/state", GatewayWebControlStateV1
+        )
+
+    def get_managed_agent_gateway_web_history(
+        self, agent_ref: str, *, limit: int = 100
+    ) -> GatewayWebHistoryV1:
+        """Read the attached gateway's bounded native Web transitions."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "GET",
+            f"/houmao/agents/{escaped}/gateway/web/history?limit={limit}",
+            GatewayWebHistoryV1,
         )
 
     def get_managed_agent_gateway_headless_control_state(

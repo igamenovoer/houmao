@@ -26,6 +26,10 @@ from .boundary_models import (
 from .errors import SessionManifestError
 from .models import LaunchPlan, SessionManifestHandle
 from houmao.agents.mailbox_runtime_models import MailboxChannel, MailboxResolvedConfig
+from houmao.agents.realm_controller.native_surface import (
+    TerminalNativeSurfaceV1,
+    WebNativeSurfaceV1,
+)
 
 LAUNCH_PLAN_SCHEMA = "launch_plan.v2.schema.json"
 SESSION_MANIFEST_SCHEMA = "session_manifest.v5.schema.json"
@@ -141,6 +145,9 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
         ),
         "system_prompt": _build_manifest_system_prompt_section(request=request),
         "backend_state": dict(request.backend_state),
+        "native_surface": _build_manifest_native_surface(
+            request=request, tmux_session_name=tmux_session_name
+        ),
     }
 
     if request.launch_plan.backend == "codex_app_server":
@@ -154,6 +161,7 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
         "codex_headless",
         "claude_headless",
         "kimi_headless",
+        "dsh_acp",
     }:
         payload["headless"] = {
             "session_id": request.backend_state.get("session_id"),
@@ -228,6 +236,37 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
     ).model_dump(mode="json")
 
 
+def _build_manifest_native_surface(
+    *,
+    request: SessionManifestRequest,
+    tmux_session_name: str | None,
+) -> dict[str, Any] | None:
+    """Describe the native human interface independently of process supervision."""
+
+    if request.launch_plan.backend == "dsh_web":
+        identity = request.backend_state.get("web_identity")
+        if not isinstance(identity, dict):
+            raise SessionManifestError("DSH Web manifest requires a native execution binding")
+        try:
+            return WebNativeSurfaceV1(
+                origin=request.backend_state["origin"],
+                native_session_id=identity["native_session_id"],
+            ).model_dump(mode="json")
+        except (KeyError, ValidationError) as exc:
+            raise SessionManifestError(
+                "DSH Web manifest requires a verified token-free native surface"
+            ) from exc
+    if (
+        request.launch_plan.backend in {"local_interactive", "cao_rest", "houmao_server_rest"}
+        and tmux_session_name is not None
+    ):
+        return TerminalNativeSurfaceV1(
+            tmux_session_name=tmux_session_name,
+            pane_id=_optional_non_empty_str(request.backend_state.get("tmux_pane_id")),
+        ).model_dump(mode="json")
+    return None
+
+
 def _build_manifest_system_prompt_section(
     *,
     request: SessionManifestRequest,
@@ -244,7 +283,12 @@ def _build_manifest_system_prompt_section(
     }
 
 
-def write_session_manifest(path: Path, payload: dict[str, Any]) -> SessionManifestHandle:
+def write_session_manifest(
+    path: Path,
+    payload: dict[str, Any],
+    *,
+    expected_web_identity: dict[str, Any] | None = None,
+) -> SessionManifestHandle:
     """Validate and persist a session manifest.
 
     Parameters
@@ -253,6 +297,8 @@ def write_session_manifest(path: Path, payload: dict[str, Any]) -> SessionManife
         Target manifest file path.
     payload:
         Manifest payload.
+    expected_web_identity:
+        Exact previously published Web execution for an intentional lifecycle change.
 
     Returns
     -------
@@ -265,6 +311,22 @@ def write_session_manifest(path: Path, payload: dict[str, Any]) -> SessionManife
         if path.exists():
             current = load_session_manifest(path).payload
             _require_same_manifest_owner(current, proposed)
+            if current.get("backend") == "dsh_web":
+                current_identity = current["backend_state"].get("web_identity")
+                proposed_identity = proposed["backend_state"].get("web_identity")
+                expected = expected_web_identity or proposed_identity
+                if proposed.get("backend") != "dsh_web" or current_identity != expected:
+                    raise SessionManifestError(
+                        "DSH Web execution binding changed; resolve the current manifest again"
+                    )
+                if current_identity == proposed_identity:
+                    proposed["backend_state"] = {
+                        **proposed["backend_state"],
+                        "turn_index": max(
+                            current["backend_state"].get("turn_index", 0),
+                            proposed["backend_state"].get("turn_index", 0),
+                        ),
+                    }
             launch_plan = dict(proposed["launch_plan"])
             launch_plan["mailboxes"] = current["launch_plan"]["mailboxes"]
             proposed["launch_plan"] = launch_plan
@@ -275,7 +337,13 @@ def write_session_manifest(path: Path, payload: dict[str, Any]) -> SessionManife
 def _preserve_headless_server_authority(current: dict[str, Any], proposed: dict[str, Any]) -> None:
     """Preserve server-owned endpoint fields while the manifest lock is held."""
 
-    if current.get("backend") not in {"codex_headless", "claude_headless", "kimi_headless"}:
+    if current.get("backend") not in {
+        "codex_headless",
+        "claude_headless",
+        "kimi_headless",
+        "dsh_acp",
+        "dsh_web",
+    }:
         return
     current_authority = current.get("gateway_authority")
     proposed_authority = proposed.get("gateway_authority")
@@ -511,6 +579,8 @@ def _resolve_manifest_identity(
         "codex_headless",
         "claude_headless",
         "kimi_headless",
+        "dsh_acp",
+        "dsh_web",
     }:
         if tmux_session_name is None:
             tmux_session_name = _optional_non_empty_str(
@@ -593,7 +663,9 @@ def _build_manifest_tmux_section(
     return {
         "session_name": tmux_session_name,
         "primary_window_index": "0",
-        "primary_window_role": "managed_agent_surface",
+        "primary_window_role": "supervisor_logs"
+        if request.launch_plan.backend == "dsh_web"
+        else "managed_agent_surface",
         "primary_window_name": request.backend_state.get("tmux_window_name"),
         "primary_window_id": _optional_non_empty_str(request.backend_state.get("tmux_window_id")),
         "primary_pane_id": _optional_non_empty_str(request.backend_state.get("tmux_pane_id")),
@@ -611,6 +683,8 @@ def _build_manifest_interactive_section(
         "codex_headless",
         "claude_headless",
         "kimi_headless",
+        "dsh_acp",
+        "dsh_web",
         "cao_rest",
         "houmao_server_rest",
     }:
@@ -628,6 +702,7 @@ def _build_manifest_interactive_section(
                 "codex_headless",
                 "claude_headless",
                 "kimi_headless",
+                "dsh_acp",
             }
             else None
         ),
@@ -679,6 +754,8 @@ def _build_manifest_gateway_authority(
         "codex_headless",
         "claude_headless",
         "kimi_headless",
+        "dsh_acp",
+        "dsh_web",
         "cao_rest",
         "houmao_server_rest",
     }:

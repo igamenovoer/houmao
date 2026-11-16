@@ -8,6 +8,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import threading
@@ -26,7 +27,15 @@ from fixturelib.auth import (
 from fixturelib.config import FixtureError, HOME_VARIABLE, REPO_ROOT, ResolvedConfig, read_env_file
 
 _COMMAND_LOCK = threading.RLock()
-_PROVIDER_PREFIXES = ("ANTHROPIC_", "CLAUDE_CODE_", "OPENAI_", "KIMI_", "DEEPSEEK_", "QWEN_")
+_PROVIDER_PREFIXES = (
+    "ANTHROPIC_",
+    "CLAUDE_CODE_",
+    "OPENAI_",
+    "KIMI_",
+    "DEEPSEEK_",
+    "QWEN_",
+    "DSH_",
+)
 _CLEAR_BINDINGS = (
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
@@ -64,7 +73,7 @@ def isolated_environment(
     result = {
         key: value
         for key, value in original.items()
-        if not key.startswith((*_PROVIDER_PREFIXES, "HOUMAO_"))
+        if not key.startswith((*_PROVIDER_PREFIXES, "HOUMAO_")) and key not in {"TMUX", "TMUX_PANE"}
     }
     result.update(dict.fromkeys(_CLEAR_BINDINGS, ""))
     result.update(
@@ -76,7 +85,32 @@ def isolated_environment(
         }
     )
     result.update(selected)
+    tmux_shim = run_dir / "bin/tmux"
+    if tmux_shim.is_file():
+        result["PATH"] = str(tmux_shim.parent) + os.pathsep + result.get("PATH", os.defpath)
     return result
+
+
+def _prepare_tmux_isolation(run_dir: Path) -> dict[str, str]:
+    """Force all fixture/runtime tmux subprocesses onto this run's private server."""
+
+    executable = shutil.which("tmux")
+    if executable is None:
+        return {}
+    server = "houmao-fixture-" + run_dir.name
+    shim = run_dir / "bin/tmux"
+    private_write(
+        shim,
+        (
+            "#!/bin/sh\nunset TMUX TMUX_PANE\nexec "
+            + shlex.quote(str(Path(executable).resolve()))
+            + " -L "
+            + shlex.quote(server)
+            + ' "$@"\n'
+        ).encode(),
+    )
+    shim.chmod(0o700)
+    return {"tmux_server": server, "tmux_executable": str(Path(executable).resolve())}
 
 
 @contextmanager
@@ -132,7 +166,13 @@ def manager_root_call(args: list[str], *, env: Mapping[str, str]) -> dict[str, A
                 diagnostic = diagnostic.replace(value, "[REDACTED]")
         runtime = env.get("HOUMAO_GLOBAL_RUNTIME_DIR")
         if runtime:
-            private_write(Path(runtime).parent / "manager-error.txt", diagnostic.encode())
+            diagnostic_root = Path(runtime).parent
+            destination = diagnostic_root / "manager-error.txt"
+            index = 1
+            while destination.exists():
+                destination = diagnostic_root / f"manager-error-{index}.txt"
+                index += 1
+            private_write(destination, diagnostic.encode())
         raise ManagedCommandError(f"Managed project operation failed: {operation}", payload)
     if not payload:
         raise FixtureError("Managed project command returned an empty result")
@@ -162,6 +202,12 @@ def credential_values(config: ResolvedConfig) -> dict[str, str]:
         return read_env_file(config.native_bundle / "env/vars.env")
     key = config.api_key.get_secret_value()
     assert config.model is not None and config.base_url is not None
+    if config.client == "dsh":
+        if config.dsh is None:
+            raise FixtureError("DSH fixtures require an explicit adapter and protocol")
+        if config.dsh.adapter == "deepseek":
+            return {"DEEPSEEK_API_KEY": key, "DEEPSEEK_BASE_URL_ANTHROPIC": config.base_url}
+        return {"OPENAI_API_KEY": key, "OPENAI_BASE_URL": config.base_url}
     if config.client == "codex":
         return {"OPENAI_API_KEY": key, "OPENAI_BASE_URL": config.base_url}
     if config.client == "claude":
@@ -227,6 +273,35 @@ def _render_setup(config: ResolvedConfig, setup: Path, *, seed: Path) -> None:
     """Render selected provider routing without copying unrelated native configuration."""
 
     private_directory(setup)
+    if config.client == "dsh":
+        if config.auth_method != "api-key" or config.dsh is None:
+            raise FixtureError("DSH fixtures require explicitly selected API credentials")
+        from houmao.agents.dsh_configuration import DshSetup
+
+        native = config.dsh.adapter == "deepseek"
+        payload = {
+            "version": 1,
+            "provider": {
+                "adapter": config.dsh.adapter,
+                "protocol": "messages" if native else "openai-completions",
+                "route": config.dsh.route,
+                "base_url_env": "DEEPSEEK_BASE_URL_ANTHROPIC" if native else "OPENAI_BASE_URL",
+                "api_key_env": "DEEPSEEK_API_KEY" if native else "OPENAI_API_KEY",
+            },
+            "models": [
+                {
+                    "id": config.model,
+                    "context_window": config.model_options.context_window,
+                    "max_output_tokens": config.model_options.max_output_tokens,
+                    "reasoning": config.model_options.dsh_reasoning,
+                }
+            ],
+            "selected_model": config.model,
+            "hmr": False,
+        }
+        DshSetup.from_mapping(payload)
+        private_write(setup / "dsh-setup.yaml", yaml.safe_dump(payload).encode())
+        return
     if config.auth_method == "native-login":
         default = seed / "tools" / config.client / "setups/default"
         if default.exists():
@@ -290,7 +365,7 @@ def _render_assets(
         "setup": "fixture",
         "auth": "default",
         "skills": [],
-        "launch": {"prompt_mode": "unattended"},
+        "launch": {"prompt_mode": config.operator_prompt_mode},
     }
     private_write(
         root / "presets" / f"{role}-{config.client}-fixture.yaml", yaml.safe_dump(preset).encode()
@@ -357,6 +432,19 @@ def _prepare_project(
         args.extend(
             ["--auth-token", values["ANTHROPIC_AUTH_TOKEN"], "--base-url", str(config.base_url)]
         )
+    elif tool == "dsh":
+        assert config.dsh is not None
+        key_name = "DEEPSEEK_API_KEY" if config.dsh.adapter == "deepseek" else "OPENAI_API_KEY"
+        args.extend(
+            [
+                "--adapter",
+                config.dsh.adapter,
+                "--api-key",
+                values[key_name],
+                "--base-url",
+                str(config.base_url),
+            ]
+        )
     else:
         args.extend(
             [
@@ -404,6 +492,8 @@ def _prepare_project(
         str(assets / "roles" / role / "system-prompt.md"),
         "--no-system-skills",
     ]
+    if config.operator_prompt_mode == "as_is":
+        args.append("--no-unattended")
     if config.model:
         args.extend(["--model", config.model])
     for key, value in runtime_values(config).items():
@@ -425,6 +515,8 @@ def prepare_run(
 
     if not role or Path(role).name != role or role in {".", ".."}:
         raise FixtureError("Role must be one directory identifier")
+    if config.client == "dsh" and config.auth_method != "api-key":
+        raise FixtureError("DSH fixtures require explicitly selected API credentials")
     seed = (seed_root or REPO_ROOT / "tests/fixtures/plain-agent-def").resolve()
     prompt = (prompt_file or seed / "roles" / role / "system-prompt.md").resolve()
     if not prompt.is_file():
@@ -463,6 +555,8 @@ def prepare_run(
         "assets_root": str(run_dir / "assets"),
         "home_path": str(run_dir / "home"),
     }
+    if config.surface != "raw" or config.mode == "tui":
+        metadata.update(_prepare_tmux_isolation(run_dir))
     write_json(run_dir / "run.json", metadata)
     try:
         assets, values = _render_assets(
@@ -475,6 +569,8 @@ def prepare_run(
         )
         home = run_dir / "home"
         private_directory(home)
+        if config.client == "dsh":
+            private_directory(home / "skills")
         _copy_files(assets / "tools" / config.client / "setups/fixture", home)
         _copy_files(assets / "tools" / config.client / "auth/default/files", home)
         if config.client == "codex":

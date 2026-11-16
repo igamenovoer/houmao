@@ -1,0 +1,12 @@
+version: 1
+provider:
+  adapter: deepseek
+  protocol: messages
+  route: deepseek-official
+  base_url_env: DEEPSEEK_BASE_URL_ANTHROPIC
+  api_key_env: DEEPSEEK_API_KEY
+models: []
+selected_model: null
+skill_roots: []
+mcp_servers: []
+hmr: false

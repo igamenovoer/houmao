@@ -46,6 +46,8 @@
             "codex_app_server",
             "claude_headless",
             "kimi_headless",
+            "dsh_acp",
+            "dsh_web",
             "cao_rest",
             "houmao_server_rest"
           ],
@@ -139,91 +141,106 @@
       "title": "RegistryLivenessV1",
       "type": "object"
     },
-    "RegistryMailboxFilesystemV1": {
+    "RegistryMailboxBindingV1": {
       "additionalProperties": false,
-      "description": "Filesystem mailbox identity metadata for one published managed-agent session.",
+      "description": "Public mail identity projection without backend credentials or resolver inputs.",
       "properties": {
-        "transport": {
-          "const": "filesystem",
-          "title": "Transport",
+        "agent_id": {
+          "minLength": 1,
+          "title": "Agent Id",
           "type": "string"
         },
-        "principal_id": {
-          "title": "Principal Id",
+        "channel": {
+          "enum": [
+            "offline",
+            "online"
+          ],
+          "title": "Channel",
+          "type": "string"
+        },
+        "binding_id": {
+          "minLength": 1,
+          "title": "Binding Id",
           "type": "string"
         },
         "address": {
+          "minLength": 1,
           "title": "Address",
           "type": "string"
         },
-        "filesystem_root": {
-          "title": "Filesystem Root",
+        "transport": {
+          "enum": [
+            "filesystem",
+            "registry",
+            "stalwart"
+          ],
+          "title": "Transport",
           "type": "string"
         },
-        "bindings_version": {
-          "title": "Bindings Version",
+        "availability": {
+          "default": "unknown",
+          "enum": [
+            "configured",
+            "unavailable",
+            "unknown"
+          ],
+          "title": "Availability",
           "type": "string"
         }
       },
       "required": [
-        "transport",
-        "principal_id",
+        "agent_id",
+        "channel",
+        "binding_id",
         "address",
-        "filesystem_root",
-        "bindings_version"
+        "transport"
       ],
-      "title": "RegistryMailboxFilesystemV1",
+      "title": "RegistryMailboxBindingV1",
       "type": "object"
     },
-    "RegistryMailboxStalwartV1": {
+    "RegistryMailboxSlotV1": {
       "additionalProperties": false,
-      "description": "Stalwart mailbox identity metadata for one published managed-agent session.",
+      "description": "A public projection of one revisioned slot.",
       "properties": {
-        "transport": {
-          "const": "stalwart",
-          "title": "Transport",
+        "revision": {
+          "minLength": 1,
+          "title": "Revision",
           "type": "string"
         },
-        "principal_id": {
-          "title": "Principal Id",
-          "type": "string"
-        },
-        "address": {
-          "title": "Address",
-          "type": "string"
-        },
-        "bindings_version": {
-          "title": "Bindings Version",
-          "type": "string"
-        },
-        "jmap_url": {
-          "title": "Jmap Url",
-          "type": "string"
-        },
-        "management_url": {
-          "title": "Management Url",
-          "type": "string"
-        },
-        "login_identity": {
-          "title": "Login Identity",
-          "type": "string"
-        },
-        "credential_ref": {
-          "title": "Credential Ref",
-          "type": "string"
+        "binding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RegistryMailboxBindingV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
-        "transport",
-        "principal_id",
-        "address",
-        "bindings_version",
-        "jmap_url",
-        "management_url",
-        "login_identity",
-        "credential_ref"
+        "revision",
+        "binding"
       ],
-      "title": "RegistryMailboxStalwartV1",
+      "title": "RegistryMailboxSlotV1",
+      "type": "object"
+    },
+    "RegistryMailboxesV1": {
+      "additionalProperties": false,
+      "description": "Safe identity summaries for both independent channels.",
+      "properties": {
+        "offline": {
+          "$ref": "#/$defs/RegistryMailboxSlotV1"
+        },
+        "online": {
+          "$ref": "#/$defs/RegistryMailboxSlotV1"
+        }
+      },
+      "required": [
+        "offline",
+        "online"
+      ],
+      "title": "RegistryMailboxesV1",
       "type": "object"
     },
     "RegistryRuntimeV1": {
@@ -302,13 +319,75 @@
       },
       "title": "RegistryTerminalV2",
       "type": "object"
+    },
+    "TerminalNativeSurfaceV1": {
+      "additionalProperties": false,
+      "description": "Identify an actual terminal interface rather than a supervisor log pane.",
+      "properties": {
+        "kind": {
+          "const": "terminal",
+          "default": "terminal",
+          "title": "Kind",
+          "type": "string"
+        },
+        "tmux_session_name": {
+          "minLength": 1,
+          "title": "Tmux Session Name",
+          "type": "string"
+        },
+        "pane_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pane Id"
+        }
+      },
+      "required": [
+        "tmux_session_name"
+      ],
+      "title": "TerminalNativeSurfaceV1",
+      "type": "object"
+    },
+    "WebNativeSurfaceV1": {
+      "additionalProperties": false,
+      "description": "Expose only a loopback browser origin and the exact bound native session.",
+      "properties": {
+        "kind": {
+          "const": "web",
+          "default": "web",
+          "title": "Kind",
+          "type": "string"
+        },
+        "origin": {
+          "title": "Origin",
+          "type": "string"
+        },
+        "native_session_id": {
+          "minLength": 1,
+          "title": "Native Session Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "origin",
+        "native_session_id"
+      ],
+      "title": "WebNativeSurfaceV1",
+      "type": "object"
     }
   },
   "additionalProperties": false,
   "description": "Lifecycle-aware shared-registry ``record.json`` contract.",
   "properties": {
     "schema_version": {
-      "default": 3,
+      "const": 4,
+      "default": 4,
       "title": "Schema Version",
       "type": "integer"
     },
@@ -329,6 +408,32 @@
     },
     "identity": {
       "$ref": "#/$defs/RegistryIdentityV1"
+    },
+    "native_surface": {
+      "anyOf": [
+        {
+          "discriminator": {
+            "mapping": {
+              "terminal": "#/$defs/TerminalNativeSurfaceV1",
+              "web": "#/$defs/WebNativeSurfaceV1"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TerminalNativeSurfaceV1"
+            },
+            {
+              "$ref": "#/$defs/WebNativeSurfaceV1"
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Native Surface"
     },
     "runtime": {
       "$ref": "#/$defs/RegistryRuntimeV1"
@@ -358,31 +463,22 @@
       ],
       "default": null
     },
-    "mailbox": {
+    "mailboxes": {
+      "$ref": "#/$defs/RegistryMailboxesV1"
+    },
+    "canonical_mail_identity": {
       "anyOf": [
         {
-          "discriminator": {
-            "mapping": {
-              "filesystem": "#/$defs/RegistryMailboxFilesystemV1",
-              "stalwart": "#/$defs/RegistryMailboxStalwartV1"
-            },
-            "propertyName": "transport"
+          "additionalProperties": {
+            "type": "string"
           },
-          "oneOf": [
-            {
-              "$ref": "#/$defs/RegistryMailboxFilesystemV1"
-            },
-            {
-              "$ref": "#/$defs/RegistryMailboxStalwartV1"
-            }
-          ]
+          "type": "object"
         },
         {
           "type": "null"
         }
       ],
-      "default": null,
-      "title": "Mailbox"
+      "title": "Canonical Mail Identity"
     }
   },
   "required": [
@@ -392,7 +488,9 @@
     "lifecycle",
     "identity",
     "runtime",
-    "terminal"
+    "terminal",
+    "mailboxes",
+    "canonical_mail_identity"
   ],
   "title": "ManagedAgentRegistryRecordV3",
   "type": "object"

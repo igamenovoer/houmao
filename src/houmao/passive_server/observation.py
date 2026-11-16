@@ -20,10 +20,12 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     tmux_session_exists,
 )
+from houmao.agents.realm_controller.native_surface import WebNativeSurfaceV1
 from houmao.hook_observation.install import hook_observation_applies
 from houmao.hook_observation.reader import HookObservationChannel
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.discovery import DiscoveredAgent, RegistryDiscoveryService
+from houmao.passive_server.web_observation import AgentWebObserver
 from houmao.passive_server.models import (
     AgentTuiDetailResponse,
     AgentTuiHistoryResponse,
@@ -615,6 +617,7 @@ class TuiObservationService:
         self.m_discovery: RegistryDiscoveryService = discovery
         self.m_config: PassiveServerConfig = config
         self.m_observers: dict[str, AgentTuiObserver] = {}
+        self.m_web_observers: dict[str, AgentWebObserver] = {}
         self.m_stop_event: threading.Event = threading.Event()
         self.m_thread: threading.Thread | None = None
 
@@ -644,6 +647,9 @@ class TuiObservationService:
             except Exception:
                 logger.debug("Error closing observer for %s", observer.m_agent_id, exc_info=True)
         self.m_observers.clear()
+        for web_observer in self.m_web_observers.values():
+            web_observer.close()
+        self.m_web_observers.clear()
 
     # -- accessor -------------------------------------------------------------
 
@@ -651,6 +657,11 @@ class TuiObservationService:
         """Return the observer for an agent, or ``None`` if not observed."""
 
         return self.m_observers.get(agent_id)
+
+    def get_web_observer(self, agent_id: str) -> AgentWebObserver | None:
+        """Return native Web observation independently of terminal parsers."""
+
+        return self.m_web_observers.get(agent_id)
 
     # -- internal -------------------------------------------------------------
 
@@ -674,7 +685,27 @@ class TuiObservationService:
     def _reconcile_observers(self, current_agents: list[DiscoveredAgent]) -> None:
         """Create new observers and remove stale ones."""
 
-        current_ids = {a.record.agent_id for a in current_agents}
+        web_agents = [
+            agent
+            for agent in current_agents
+            if (
+                agent.record.identity.backend == "dsh_web"
+                or isinstance(getattr(agent.record, "native_surface", None), WebNativeSurfaceV1)
+            )
+        ]
+        web_ids = {agent.record.agent_id for agent in web_agents}
+        terminal_agents = [
+            agent for agent in current_agents if agent.record.agent_id not in web_ids
+        ]
+        current_ids = {a.record.agent_id for a in terminal_agents}
+        for agent_id in set(self.m_web_observers) - web_ids:
+            self.m_web_observers.pop(agent_id).close()
+        for agent in web_agents:
+            web_observer = self.m_web_observers.get(agent.record.agent_id)
+            if web_observer is None:
+                self.m_web_observers[agent.record.agent_id] = AgentWebObserver(agent=agent)
+            else:
+                web_observer.set_agent(agent)
 
         # Remove observers for agents no longer in the index
         stale_ids = set(self.m_observers.keys()) - current_ids
@@ -686,7 +717,7 @@ class TuiObservationService:
                 logger.debug("Error closing stale observer for %s", agent_id, exc_info=True)
 
         # Create observers for newly discovered agents
-        for agent in current_agents:
+        for agent in terminal_agents:
             agent_id = agent.record.agent_id
             if agent_id in self.m_observers:
                 continue
@@ -704,6 +735,11 @@ class TuiObservationService:
     def _poll_all_observers(self) -> None:
         """Poll each active observer with exception isolation."""
 
+        for agent_id, web_observer in list(self.m_web_observers.items()):
+            try:
+                web_observer.poll_cycle()
+            except Exception:
+                logger.debug("Native Web observation unavailable for %s", agent_id, exc_info=True)
         for agent_id, observer in list(self.m_observers.items()):
             try:
                 observer.poll_cycle()

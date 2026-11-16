@@ -19,7 +19,7 @@ from houmao.agents.realm_controller.models import SessionEvent
 
 HeadlessDisplayStyle = Literal["plain", "json", "fancy"]
 HeadlessDisplayDetail = Literal["concise", "detail"]
-HeadlessProvider = Literal["claude", "codex", "kimi"]
+HeadlessProvider = Literal["claude", "codex", "kimi", "dsh"]
 
 CANONICAL_HEADLESS_EVENTS_ARTIFACT = "canonical-events.jsonl"
 """Artifact name for canonical normalized headless events."""
@@ -250,7 +250,59 @@ class CanonicalHeadlessEventParser:
             return self._consume_claude_payload(payload)
         if self.m_provider == "codex":
             return self._consume_codex_payload(payload)
+        if self.m_provider == "dsh":
+            return self._consume_dsh_payload(payload)
         return self._consume_kimi_payload(payload)
+
+    def _consume_dsh_payload(self, payload: Mapping[str, Any]) -> list[CanonicalHeadlessEvent]:
+        """Project driver messages while preserving native ACP outcome distinctions."""
+
+        event_type = str(payload.get("type", "unknown"))
+        kind = "diagnostic"
+        message = event_type
+        data = dict(payload)
+        if event_type == "session_init":
+            kind, message = "session", "DSH native session selected"
+        elif event_type == "session_update":
+            update = payload.get("update")
+            if not isinstance(update, dict):
+                return []
+            native_kind = update.get("sessionUpdate")
+            content = update.get("content", {})
+            if native_kind in {"agent_message_chunk", "agent_thought_chunk"}:
+                kind = "assistant" if native_kind == "agent_message_chunk" else "reasoning"
+                message = content.get("text", "") if isinstance(content, dict) else ""
+                data = {"text": message}
+            elif native_kind in {"tool_call", "tool_call_update"}:
+                kind, message = "tool_call", str(update.get("title", "DSH tool activity"))
+                data = dict(update)
+            elif native_kind == "usage_update":
+                kind, message = "context_usage", "DSH context occupancy"
+                data = dict(update)
+            else:
+                kind, message = "configuration", str(native_kind)
+        elif event_type == "native_result":
+            reason = payload.get("stop_reason")
+            kind = "completion"
+            message = str(reason)
+            data = {
+                "status": "completed" if reason == "end_turn" else str(reason),
+                "completed": reason == "end_turn",
+                "interrupted": reason == "cancelled",
+                "stop_reason": reason,
+            }
+        elif event_type in {"driver_error", "driver_cleanup_error"}:
+            kind, message = "error", str(payload.get("message", "DSH driver failed"))
+        return [
+            self._event(
+                kind=kind,
+                message=message,
+                provider_event_type=event_type,
+                session_id=self.m_session_id,
+                data=data,
+                raw_payload=dict(payload),
+            )
+        ]
 
     def _consume_claude_payload(self, payload: Mapping[str, Any]) -> list[CanonicalHeadlessEvent]:
         """Parse one Claude stream-json payload."""
@@ -1080,6 +1132,8 @@ def resolve_headless_provider(
             return "codex"
         if lowered.startswith("kimi"):
             return "kimi"
+        if lowered.startswith("dsh"):
+            return "dsh"
     raise ValueError(
         f"Unsupported headless provider tool/backend: tool={tool!r}, backend={backend!r}"
     )
@@ -1925,6 +1979,8 @@ def _coerce_provider(value: str) -> HeadlessProvider:
         return "codex"
     if value == "kimi":
         return "kimi"
+    if value == "dsh":
+        return "dsh"
     raise ValueError(f"Unsupported canonical headless provider `{value}`.")
 
 

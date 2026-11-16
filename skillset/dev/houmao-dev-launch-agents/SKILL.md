@@ -1,6 +1,6 @@
 ---
 name: houmao-dev-launch-agents
-description: Use when a Houmao maintainer explicitly invokes this development skill for local test-fixture setup, DeepSeek or self-hosted API configuration, imported native login, Claude Code/Codex/Kimi Code test launches, or normal-account online mail qualification on a managed test agent.
+description: Use when a Houmao maintainer explicitly invokes this development skill for local test-fixture setup, DeepSeek or self-hosted API configuration, imported native login, Claude Code/Codex/Kimi Code/DSH test launches, or normal-account online mail qualification on a managed test agent.
 metadata:
   skill_invocation_notation: >
     Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
@@ -28,7 +28,7 @@ If the task does not map cleanly to these steps, use the native planning tool to
 
 ## Scope
 
-This manually invoked development skill owns local test-fixture configuration and test-agent launch preparation. It supports explicit API cases and imported native login for Claude Code, Codex, and Kimi Code. It does not administer production agents or create provider accounts, API keys, or interactive logins.
+This manually invoked development skill owns local test-fixture configuration and test-agent launch preparation. It supports explicit API cases and imported native login for Claude Code, Codex, and Kimi Code. DSH uses headless ACP on raw, manager, or passive-server surfaces and native Web for the raw/manager `tui` posture. Native login remains unsupported for DSH. Web and ACP qualification remain separate. It does not administer production agents or create provider accounts, API keys, or interactive logins.
 
 The provider-specific commands retain their raw TUI contract for recorder and behavior-test callers. `launch-fixture` also covers raw headless execution and explicitly selected manager or passive-server test surfaces. Launching a raw client does not establish a Houmao managed identity. Test oracles, recording, skill-pack installation, and behavior adjudication remain owned by their calling workflows.
 
@@ -62,5 +62,6 @@ Default a provider-specific launch to raw TUI and unattended posture. For `launc
 - DO NOT guess a model, context window, capability, resume target, or initial prompt without user delegation or selected configuration.
 - DO NOT log in, refresh auth during discovery, copy a complete personal home, or replace an imported bundle without explicit selection and replacement intent.
 - DO NOT kill, reuse, or modify sessions or authorities outside the captured run ownership.
+- Every tmux test, inspection, and cleanup command must explicitly select its unique isolated server with `-L` or `-S`, after clearing inherited `TMUX` and `TMUX_PANE`. The shared localhost/default server is off limits.
 - DO NOT claim passive-server TUI birth, managed identity for a raw client, or successful qualification from configuration checks alone.
 - DO NOT route new launches through retired `brains`, `blueprints`, `api-creds`, or legacy demo trees, or add unsupported Gemini CLI launches.

@@ -1013,7 +1013,9 @@ def create_easy_specialist_command(
         kimi_code_home=kimi_code_home,
     )
     prompt_mode = (
-        "as_is" if no_unattended or tool_name not in {"claude", "codex", "kimi"} else "unattended"
+        "as_is"
+        if no_unattended or tool_name not in {"claude", "codex", "kimi", "dsh"}
+        else "unattended"
     )
     launch_mapping: dict[str, Any] = {"prompt_mode": prompt_mode}
     model_payload = _model_mapping_payload(resolved_model_config)

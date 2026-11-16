@@ -12,6 +12,7 @@ from houmao.agents.realm_controller.agent_identity import (
     normalize_managed_agent_name,
 )
 from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.agents.realm_controller.native_surface import WebNativeSurfaceV1
 from houmao.agents.realm_controller.registry_models import (
     ManagedAgentRegistryRecordV3,
     parse_managed_agent_registry_record,
@@ -101,6 +102,16 @@ def _summary_from_record(record: ManagedAgentRegistryRecordV3) -> DiscoveredAgen
         has_mailbox=has_mailbox,
         published_at=record.published_at,
         lease_expires_at=record.lease_expires_at,
+        native_surface=record.native_surface,
+        native_surface_kind=record.native_surface.kind
+        if record.native_surface is not None
+        else None,
+        browser_origin=record.native_surface.origin
+        if isinstance(record.native_surface, WebNativeSurfaceV1)
+        else None,
+        native_session_id=record.native_surface.native_session_id
+        if isinstance(record.native_surface, WebNativeSurfaceV1)
+        else None,
     )
 
 

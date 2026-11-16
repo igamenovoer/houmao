@@ -15,6 +15,11 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 from houmao.agents.realm_controller.usage_adapters import UsageAdapter
+from houmao.agents.realm_controller.usage_adapters.dsh import (
+    DshJournalError,
+    inspect_dsh_journal,
+    select_dsh_journal,
+)
 from houmao.agents.realm_controller.usage_models import (
     UsageCheckpoint,
     UsageCollectionHealth,
@@ -63,6 +68,8 @@ def _record_session(payload: dict[str, Any], provider: str) -> str | None:
     """Read explicit provider session identity without modifying parser state."""
 
     candidate = payload.get("sessionId") or payload.get("session_id")
+    if provider == "dsh" and payload.get("type") == "session":
+        candidate = payload.get("id")
     if provider == "codex":
         data = payload.get("payload")
         if payload.get("type") == "session_meta" and isinstance(data, dict):
@@ -95,6 +102,44 @@ def discover_usage_sources(
         return []
     notices = diagnostics if diagnostics is not None else []
     home = Path(binding.home_path).resolve()
+    if binding.provider == "dsh":
+        configured_root = binding.metadata.get("persistence_root")
+        root = (
+            Path(configured_root).resolve()
+            if isinstance(configured_root, str)
+            else home / "sessions"
+        )
+        if not root.is_relative_to(home):
+            notices.append("dsh_journal_source_outside_bound_root")
+            return []
+        try:
+            path = select_dsh_journal(root, binding.provider_session_id)
+            dsh_paths = [path] if path is not None else []
+            descendants = binding.metadata.get("dsh_descendant_sessions", {})
+            if isinstance(descendants, dict):
+                for child, parent in descendants.items():
+                    if not isinstance(child, str) or not isinstance(parent, str):
+                        continue
+                    try:
+                        child_path = select_dsh_journal(root, child)
+                        if child_path is None:
+                            notices.append("dsh_descendant_journal_unavailable")
+                            continue
+                        info = inspect_dsh_journal(child_path, child)
+                    except DshJournalError as exc:
+                        notices.append(str(exc))
+                        continue
+                    if info.origin != "subagent" or info.parent_session_id != parent:
+                        notices.append("dsh_descendant_journal_lineage_mismatch")
+                        continue
+                    dsh_paths.append(child_path)
+            return dsh_paths
+        except DshJournalError as exc:
+            notices.append(str(exc))
+            return []
+        except OSError:
+            notices.append("native_source_discovery_unreadable")
+            return []
     roots = {
         "claude": (home / "projects",),
         "codex": (home / "sessions", home / "archived_sessions"),
@@ -427,6 +472,29 @@ class UsageCollector:
                 provider_session_id=binding.provider_session_id,
                 profile_id=binding.profile_id if binding.profile_id != "unknown" else None,
             )
+            source_session_id = binding.provider_session_id
+            if binding.provider == "dsh":
+                try:
+                    info = inspect_dsh_journal(path, None)
+                except DshJournalError as exc:
+                    self.m_diagnostics.append(str(exc))
+                    self.m_source_pending = True
+                    return [], False
+                if info.session_id != binding.provider_session_id:
+                    descendants = binding.metadata.get("dsh_descendant_sessions", {})
+                    if (
+                        not isinstance(descendants, dict)
+                        or info.origin != "subagent"
+                        or descendants.get(info.session_id) != info.parent_session_id
+                    ):
+                        self.m_diagnostics.append("dsh_descendant_journal_lineage_mismatch")
+                        return [], False
+                    source_session_id = info.session_id
+                    adapter = UsageAdapter.from_provider(
+                        binding.provider,
+                        provider_session_id=source_session_id,
+                        profile_id=binding.profile_id if binding.profile_id != "unknown" else None,
+                    )
             if previous is not None and not replaced:
                 state = metadata.get("adapter_state")
                 if isinstance(state, dict):
@@ -447,6 +515,12 @@ class UsageCollector:
                     "attachment_baseline_observations",
                 ):
                     metadata.pop(key, None)
+            try:
+                adapter.configure_native_source(path)
+            except DshJournalError as exc:
+                self.m_diagnostics.append(str(exc))
+                self.m_source_pending = True
+                return [], False
             # Complete records are bounded. An oversized record is skipped in
             # bounded scans, retaining the last complete checkpoint until its LF.
             scan = metadata.get("oversized_scan_offset")
@@ -508,6 +582,7 @@ class UsageCollector:
                 source_id in binding.collection_boundary
                 or previous is not None
                 or bool(binding.metadata.get("fresh_session"))
+                or (binding.provider == "dsh" and source_session_id != binding.provider_session_id)
             )
             excluded_requests = set(self.m_excluded_requests)
             excluded_turns = set(self.m_excluded_turns)
@@ -528,7 +603,7 @@ class UsageCollector:
                     if not isinstance(payload, dict):
                         raise ValueError("not an object")
                     session = _record_session(payload, binding.provider)
-                    if session is not None and session != binding.provider_session_id:
+                    if session is not None and session != source_session_id:
                         notices.append("native_session_identity_mismatch")
                         gap = True
                         continue
@@ -543,7 +618,7 @@ class UsageCollector:
                     gap = True
                     continue
                 for observation in parsed:
-                    if observation.provider_session_id not in {None, binding.provider_session_id}:
+                    if observation.provider_session_id not in {None, source_session_id}:
                         notices.append("native_session_identity_mismatch")
                         gap = True
                         continue

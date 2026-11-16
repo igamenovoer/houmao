@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import re
+from pathlib import Path
 from typing import Any, Self
 
 from houmao.agents.realm_controller.usage_adapters.claude import parse_claude
@@ -13,12 +14,19 @@ from houmao.agents.realm_controller.usage_adapters.common import (
     UsageParseContext,
 )
 from houmao.agents.realm_controller.usage_adapters.kimi import parse_kimi
+from houmao.agents.realm_controller.usage_adapters.dsh import (
+    DshUsageAdapterState,
+    configure_dsh_journal,
+    inspect_dsh_journal,
+    parse_dsh,
+)
 from houmao.agents.realm_controller.usage_models import UsageObservation, UsageSourceKind
 
 _QUALIFIED_VERSIONS = {
     "claude": {"2.1.323"},
     "codex": {"0.167.2"},
     "kimi": {"2.6.0"},
+    "dsh": {"0.2.2-rc.3"},
 }
 
 
@@ -39,10 +47,11 @@ class UsageAdapter:
     ) -> Self:
         """Create an adapter for one supported provider stream."""
 
-        if provider not in {"claude", "codex", "kimi"}:
+        if provider not in {"claude", "codex", "kimi", "dsh"}:
             raise ValueError(f"Unsupported usage provider: {provider}")
         instance = cls()
-        instance.m_state = UsageAdapterState(
+        state_type = DshUsageAdapterState if provider == "dsh" else UsageAdapterState
+        instance.m_state = state_type(
             provider=provider, provider_session_id=provider_session_id, profile_id=profile_id
         )
         return instance
@@ -67,10 +76,20 @@ class UsageAdapter:
     def restore_state(self, state: Mapping[str, Any]) -> None:
         """Restore a previously persisted state for the same configured provider."""
 
-        restored = UsageAdapterState.model_validate(dict(state))
+        state_type = DshUsageAdapterState if self.m_state.provider == "dsh" else UsageAdapterState
+        restored = state_type.model_validate(dict(state))
         if restored.provider != self.m_state.provider:
             raise ValueError("Usage adapter checkpoint belongs to another provider")
         self.m_state = restored
+
+    def configure_native_source(self, path: Path) -> None:
+        """Verify provider-specific source framing before reading event rows."""
+
+        if isinstance(self.m_state, DshUsageAdapterState):
+            if not self.m_state.provider_session_id:
+                raise ValueError("dsh_journal_session_identity_missing")
+            info = inspect_dsh_journal(path, self.m_state.provider_session_id)
+            configure_dsh_journal(self.m_state, info)
 
     def parse(
         self,
@@ -94,10 +113,13 @@ class UsageAdapter:
             turn_id=turn_id,
             binding_id=binding_id,
         )
-        parser = {"claude": parse_claude, "codex": parse_codex, "kimi": parse_kimi}[
-            self.m_state.provider
-        ]
-        result = parser(payload, self.m_state, context)
+        if isinstance(self.m_state, DshUsageAdapterState):
+            result = parse_dsh(payload, self.m_state, context)
+        else:
+            parser = {"claude": parse_claude, "codex": parse_codex, "kimi": parse_kimi}[
+                self.m_state.provider
+            ]
+            result = parser(payload, self.m_state, context)
         for item in result:
             if item.kind == "cumulative" and item.measurement_scope == "session_cumulative":
                 for key, value in item.values.items():

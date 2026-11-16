@@ -44,7 +44,7 @@ Use this path when the helper's generated workdir, session name, and unattended 
 pixi run python scripts/agents/test-fixtures/fixture.py launch --run-dir /external/prepared-run
 ```
 
-Read `identity.tmux_session_name` from the result, then resolve the actual pane with `tmux list-panes`. Verify startup before sending a requested prompt. Use the helper's `stop` command for this session.
+Read `identity.tmux_session_name` from the result and `tmux_server` from private `run.json`, then resolve the actual pane with `env -u TMUX -u TMUX_PANE tmux -L CAPTURED_SERVER list-panes -t CAPTURED_SESSION`. Verify startup before sending a requested prompt. Use the helper's `stop` command for this session.
 
 ### Exact-Workdir TUI Adapter
 
@@ -89,9 +89,9 @@ os.chdir(Path(request["workdir"]).resolve(strict=True))
 os.execvpe(argv[0], argv, env)
 ```
 
-Resolve the managed interpreter once with `pixi run python -c 'import sys; print(sys.executable)'`. Build a shell pane command from that absolute interpreter, adapter path, and request path using `shlex.join`, prefixed with `exec`. Pass it to `tmux new-session -d -s NAME -c WORKDIR` using a structured subprocess argument list. Do not run `pixi run` inside the pane: its project directory handling can change the requested workdir. Keys are loaded inside the child through `run_environment`; they never become tmux command arguments.
+Resolve the managed interpreter once with `pixi run python -c 'import sys; print(sys.executable)'`. Build a shell pane command from that absolute interpreter, adapter path, and request path using `shlex.join`, prefixed with `exec`. Pass it to `tmux -L CAPTURED_SERVER new-session -d -s NAME -c WORKDIR` using a structured subprocess argument list and the cleared environment from `run_environment`. Never use the shared/default server. Do not run `pixi run` inside the pane: its project directory handling can change the requested workdir. Keys are loaded inside the child through `run_environment`; they never become tmux command arguments.
 
-The skill owns this custom session. Record `owner: skill-adapter`, the exact session and pane, selected workdir, and prepared run path in `launch.json`. The helper run remains `prepared`, and `fixture.py stop` cannot stop this custom session. Use `tmux kill-session -t CAPTURED_NAME` for its cleanup. Do not call the helper's `launch`, `prompt`, or `stop` on this adapter session. Send any explicitly requested interaction to the verified pane through the calling workflow's input surface.
+The skill owns this custom session. Record `owner: skill-adapter`, the isolated server, exact session and pane, selected workdir, and prepared run path in `launch.json`. The helper run remains `prepared`, and `fixture.py stop` cannot stop this custom session. Use `env -u TMUX -u TMUX_PANE tmux -L CAPTURED_SERVER kill-session -t CAPTURED_NAME` for its cleanup. Do not call the helper's `launch`, `prompt`, or `stop` on this adapter session. Send any explicitly requested interaction to the verified pane through the calling workflow's input surface.
 
 ## Startup Verification
 

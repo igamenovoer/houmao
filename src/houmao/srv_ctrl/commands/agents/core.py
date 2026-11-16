@@ -185,6 +185,7 @@ _PROVIDERS = frozenset(
         "claude_code",
         "codex",
         "kimi",
+        "dsh",
     }
 )
 _JOIN_SUPPORTED_PROCESSES: dict[str, tuple[str, ...]] = {
@@ -983,6 +984,14 @@ def launch_managed_agent_locally(
             target.tool,
             prefer_local_interactive=not headless,
         )
+        if (
+            resolved_backend == "dsh_web"
+            and gateway_tui_tracking_timing_overrides is not None
+            and gateway_tui_tracking_timing_overrides.has_values()
+        ):
+            raise click.ClickException(
+                "Gateway TUI timing overrides are unsupported for the DSH Web native surface."
+            )
         resolved_backend_name = resolved_backend
         build_result = build_brain_home(
             BuildRequest(
@@ -1762,6 +1771,10 @@ def join_agents_command(
 
     launch_env_bindings = _parse_join_launch_env(launch_env)
     requested_provider = provider.strip() if provider is not None else None
+    if requested_provider == "dsh":
+        raise click.ClickException(
+            "DSH adoption is unsupported; launch a managed DSH ACP agent from a project profile."
+        )
     if requested_provider is not None and requested_provider not in _PROVIDERS:
         raise click.ClickException(
             f"Invalid provider `{requested_provider}`. Available providers: {', '.join(sorted(_PROVIDERS))}."

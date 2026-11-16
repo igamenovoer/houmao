@@ -38,7 +38,7 @@ from .headless_output import (
     resolve_headless_display_style,
     resolve_headless_provider,
 )
-from .headless_runner import HeadlessCliRunner, HeadlessRunResult
+from .headless_runner import HeadlessCliRunner, HeadlessRunResult, HeadlessTurnWaitTimeout
 from .tmux_runtime import (
     HEADLESS_AGENT_WINDOW_NAME,
     TmuxCommandError,
@@ -100,6 +100,7 @@ class HeadlessInteractiveSession:
             "codex_headless",
             "claude_headless",
             "kimi_headless",
+            "dsh_acp",
         }:
             raise BackendExecutionError(f"Invalid tmux-backed backend: {backend}")
 
@@ -216,8 +217,13 @@ class HeadlessInteractiveSession:
                 session_selection=session_selection,
                 execution_model=execution_model,
             )
-        except BaseException:
-            if not getattr(self._runner, "active_process_running", False):
+        except BaseException as exc:
+            uncertain_dsh_wait = self.backend == "dsh_acp" and isinstance(
+                exc, HeadlessTurnWaitTimeout
+            )
+            if not uncertain_dsh_wait and not getattr(
+                self._runner, "active_process_running", False
+            ):
                 result = self.m_last_run_result
                 persist_terminal_evidence(
                     turn_dir,
@@ -290,7 +296,15 @@ class HeadlessInteractiveSession:
                 session_selection=session_selection,
                 extra_args=execution_projection.args,
             )
-            env = os.environ.copy()
+            env = (
+                {
+                    key: value
+                    for key, value in os.environ.items()
+                    if key in {"PATH", "LANG", "LC_ALL", "SHELL", "TERM", "COLORTERM", "TMPDIR"}
+                }
+                if self.backend == "dsh_acp"
+                else os.environ.copy()
+            )
             env.update(self._plan.env)
             env.update(execution_projection.env)
             env[self._plan.home_env_var] = str(self._plan.home_path)

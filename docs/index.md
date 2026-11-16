@@ -48,6 +48,8 @@ The public system-skill collection has six static roots: admin welcome, both act
 - [Session Lifecycle](reference/run-phase/session-lifecycle.md): Start, resume, prompt, stop, and [relaunch](reference/run-phase/session-lifecycle.md#relaunch-sequence) sessions — including the 0.8.0 `--reuse-home fresh` launch mode that reuses an existing brain home for fast restarts without rebuilding.
 - [Degraded and Stale Active Recovery](reference/run-phase/degraded-stale-recovery.md): Probe-first dispatch and recovery paths for local tmux-backed managed agents whose registry record claims `active` but whose tmux session is broken.
 - [Backends](reference/run-phase/backends.md): Backend model — local interactive, headless, and legacy/internal compatibility paths.
+- [DSH Headless](reference/run-phase/dsh-headless.md): Qualified ACP setup and lifecycle, with [integration behavior](reference/run-phase/dsh-headless-integrations.md) and the [scenario acceptance map](reference/run-phase/dsh-headless-acceptance.md).
+- [DSH Web](reference/run-phase/dsh-web.md): Shared browser/API control, with the [interactive scenario acceptance map](reference/run-phase/dsh-web-acceptance.md).
 - [Role Injection](reference/run-phase/role-injection.md): Per-backend role injection strategies.
 - [Managed Launch Prompt Header](reference/run-phase/managed-prompt-header.md): Houmao-owned prompt header with six independently controllable sections prepended to every managed launch by default — memo cue, content, per-section control, composition, opt-out flags, and stored launch-profile policy.
 

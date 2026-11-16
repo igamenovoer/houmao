@@ -60,6 +60,15 @@ def assemble_usage_record(
     children = [item for item in selected if item.parent_turn_id is not None]
     parent = [item for item in selected if item.parent_turn_id is None]
     diagnostics: list[str] = []
+    if snapshot.provider == "dsh":
+        diagnostics.extend(
+            dict.fromkeys(
+                limitation
+                for item in selected
+                if isinstance(limitation := item.metadata.get("limitation"), str)
+                and limitation.startswith(("dsh_usage_", "dsh_descendant_"))
+            )
+        )
     requests = _deduplicate_requests(parent, diagnostics)
     summaries = [
         item for item in parent if item.kind == "summary" and item.measurement_scope == "turn"
@@ -131,7 +140,12 @@ def assemble_usage_record(
             currency="USD" if metrics["cost_usd"].value is not None else None,
         ),
         sources=sources,
-        subagent_accounting="separate" if child_breakdown else "unknown",
+        subagent_accounting="unknown"
+        if snapshot.provider == "dsh"
+        and any(child.included_in_parent is None for child in child_breakdown)
+        else "separate"
+        if child_breakdown
+        else "unknown",
         subagent_usage=child_breakdown,
         diagnostics=list(dict.fromkeys(diagnostics)),
     )
@@ -148,6 +162,14 @@ def _belongs_to_turn(item: UsageObservation, snapshot: UsageTurnSnapshot) -> boo
         snapshot.provider_session_id
         and item.provider_session_id
         and item.provider_session_id != snapshot.provider_session_id
+        and item.parent_turn_id is None
+    ):
+        return False
+    if (
+        snapshot.provider == "dsh"
+        and snapshot.metadata.get("native_turn_ids")
+        and item.provider_turn_id is not None
+        and item.provider_turn_id not in snapshot.metadata["native_turn_ids"]
         and item.parent_turn_id is None
     ):
         return False
@@ -408,7 +430,7 @@ def _subagent_breakdown(
 
     grouped: dict[str, list[UsageObservation]] = defaultdict(list)
     for item in items:
-        child_id = item.provider_turn_id or item.metadata.get("child_id")
+        child_id = item.metadata.get("child_id") or item.provider_turn_id
         if isinstance(child_id, str):
             grouped[child_id].append(item)
     result: list[UsageSubagentUsage] = []

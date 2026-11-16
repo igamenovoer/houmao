@@ -4,6 +4,8 @@ This page explains the current v1 gateway contracts: how attachability is publis
 
 For the broader runtime-root and session-root filesystem map around this subtree, use [Agents And Runtime](../../system-files/agents-and-runtime.md).
 
+For `backend=dsh_web`, typed `native_surface` metadata identifies the token-free browser origin and native session. Supervisor tmux fields remain separate process/log handles. `GET /v1/control/web/state` and `/v1/control/web/history` expose native control, turn, inbox, interaction, model, sequence, and freshness facts. The passive managed detail union has `transport=web` with this same structured state. Terminal parser, capture, tracking, raw-key, and timing surfaces return unsupported semantics. See the [Web integration contract](../../run-phase/dsh-web-integrations.md) for admission acknowledgement, metadata-only operation observation, and no-replay recovery.
+
 ## Mental Model
 
 The gateway contract has two layers.

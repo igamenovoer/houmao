@@ -122,6 +122,8 @@ class AgUiRunService:
         )
         emitted_headless_count = 0
         emitted_tui_initial = False
+        emitted_web_state: str | None = None
+        web_sequence = 0
         yield mapper.run_started_event(admitted_run.run_input)
         try:
             while True:
@@ -145,6 +147,16 @@ class AgUiRunService:
                     ):
                         yield event
                     emitted_tui_initial = True
+                elif admitted_run.target_transport_family == "web":
+                    web_state = self.m_runtime.ag_ui_web_observation()
+                    content = web_state.model_dump_json(exclude={"observed_at_utc"})
+                    if content != emitted_web_state:
+                        for event in mapper.map_web_observation(
+                            web_state, sequence_index=web_sequence
+                        ):
+                            yield event
+                        emitted_web_state = content
+                        web_sequence += 1
 
                 request_state = self.m_runtime.ag_ui_request_state(
                     admitted_run.accepted_request.request_id
@@ -164,6 +176,12 @@ class AgUiRunService:
                             observation,
                             sequence_index=1,
                             include_final_text=True,
+                        ):
+                            yield event
+                    elif admitted_run.target_transport_family == "web":
+                        for event in mapper.map_web_observation(
+                            self.m_runtime.ag_ui_web_observation(),
+                            sequence_index=web_sequence,
                         ):
                             yield event
 

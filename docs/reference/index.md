@@ -25,6 +25,13 @@
 - [Launch Plan](run-phase/launch-plan.md): Composing manifest + role into a backend-specific plan.
 - [Session Lifecycle](run-phase/session-lifecycle.md): Start, resume, prompt, and stop sessions.
 - [Backends](run-phase/backends.md): Backend model and per-backend notes.
+- [DSH Headless Compatibility](run-phase/dsh-headless.md): Qualified ACP runtime, explicit setup, native prompt projection, and lifecycle limits.
+- [DSH Headless Integrations](run-phase/dsh-headless-integrations.md): Gateway, passive-server, mailbox, and owner-bound plugin behavior.
+- [DSH Headless Acceptance](run-phase/dsh-headless-acceptance.md): Scenario evidence and remaining qualification gates.
+- [DSH Web Compatibility](run-phase/dsh-web.md): Browser entry, shared-session authority, admission, and lifecycle boundaries.
+- [DSH Web Native Control](run-phase/dsh-web-control.md): Authorized API peers, final native admission, receipts, and explicit recovery.
+- [DSH Web Integrations](run-phase/dsh-web-integrations.md): Gateway/plugin delivery, shared native observation, and passive-server behavior.
+- [DSH Web Acceptance](run-phase/dsh-web-acceptance.md): Interactive delta scenarios and their qualification status.
 - [Role Injection](run-phase/role-injection.md): Per-backend role injection strategies.
 - [Managed Launch Prompt Header](run-phase/managed-prompt-header.md): Houmao-owned prompt header prepended to every managed launch by default — content, composition order, opt-out flags, and stored launch-profile policy.
 

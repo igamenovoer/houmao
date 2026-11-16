@@ -41,6 +41,12 @@ Breaking changes are allowed. Do not spend effort preserving legacy interfaces, 
 
 If a design or refactoring change breaks functionality in this repository, identify the breakage clearly and propose a direct fix in the updated design or implementation plan. Prefer repairing the repository around the new design over adding backward-compatibility shims.
 
+## Tmux Safety
+
+NEVER kill or restart the localhost tmux server. An agent may itself be running inside that server, so `tmux kill-server`, `tmux kill-session` against another agent's session, or any restart can terminate the current agent, sibling agents, and the user's sessions.
+
+Tests and tooling that need tmux MUST use an isolated server, for example `tmux -L <unique-name>` or `tmux -S <unique-socket-path>`, and clean up only that server. Do not rely on `TMUX_TMPDIR` alone: when a process inherits `TMUX` or `TMUX_PANE` from an enclosing tmux session, tmux targets that inherited server regardless of `TMUX_TMPDIR`. Clear both variables before isolating a test server.
+
 ## Coding Style & Naming Conventions
 Target Python 3.11+ with 4-space indentation and type hints for public logic. Ruff enforces formatting/linting (line length 100), and mypy runs in `strict = true` mode. Use `snake_case` for modules/functions/variables, `PascalCase` for classes, and keep CLI-facing names explicit (for example, `houmao_cli`-style semantics in scripts and commands).
 

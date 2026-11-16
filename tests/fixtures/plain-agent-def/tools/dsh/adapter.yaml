@@ -1,0 +1,27 @@
+schema_version: 1
+tool: dsh
+home_selector:
+  env_var: DSH_HOME
+launch:
+  executable: dsh
+  args: []
+  default_tool_params: {}
+  metadata:
+    tool_params: {}
+  env_injection:
+    mode: export_from_env_file
+setup_projection:
+  destination: .
+skills_projection:
+  destination: skills
+  mode: symlink
+auth_projection:
+  files_dir: files
+  file_mappings: []
+  env:
+    source: env/vars.env
+    allowlist:
+      - DEEPSEEK_API_KEY
+      - DEEPSEEK_BASE_URL_ANTHROPIC
+      - OPENAI_API_KEY
+      - OPENAI_BASE_URL

@@ -3265,3 +3265,131 @@ For maintained Kimi Code >=2.1.1, Houmao SHALL project the complete effective la
 - **WHEN** brain construction projects a managed Kimi native role prompt
 - **THEN** the brain manifest records the native injection method, managed relative path, effective-prompt digest, projected-file digest, and required Kimi engine
 - **AND THEN** provenance introduces no secret content beyond the effective prompt already owned by the managed brain
+
+### Requirement: DSH Headless Selection Resolves to Its ACP Backend
+
+An explicitly headless DSH launch SHALL resolve to backend `dsh_acp` through maintained definitions, profiles, and manager paths. Runtime manifests SHALL preserve the logical agent, runtime session, generation, native session, and qualified tool-build identities. Unsupported mode or backend combinations SHALL fail before provider launch.
+
+#### Scenario: Project Launch Selects DSH Headless
+- **WHEN** a valid project launch profile selects tool `dsh` and headless posture
+- **THEN** launch selects `dsh_acp` and publishes ordinary managed-agent identity and discovery state
+- **AND THEN** the launch does not require a separate custom launcher
+
+#### Scenario: Stale Controller Inspects a Completed Native Turn
+- **WHEN** another controller has persisted a newer DSH native session or turn binding
+- **THEN** later capability, status, attach, or detach operations preserve that newer persisted state
+
+### Requirement: DSH Runtime Configuration Is Explicit and Isolated
+
+Managed DSH launches SHALL isolate the Harness home, shared-agent root, profile, persistence, and selected skill roots. Provider route, endpoint protocol, credential reference, model, and required model metadata SHALL resolve explicitly. Native DeepSeek Messages and generic compatible routes SHALL remain distinct configurations, and secrets SHALL stay outside persisted public launch metadata.
+
+#### Scenario: Two Agents Use Different Model Routes
+- **WHEN** two DSH agents use different credentials, models, skill sets, or endpoints in the same workspace
+- **THEN** each agent uses its selected managed configuration without inheriting the other's home, history, or user-global credentials
+
+#### Scenario: A Chat Endpoint Is Supplied to a Messages Route
+- **WHEN** a selected DSH route requires Messages but the supplied endpoint configuration declares only Chat Completions
+- **THEN** validation rejects the combination before agent work
+- **AND THEN** Houmao does not relabel the protocol or silently choose another model adapter
+
+#### Scenario: The Provider Route Is Missing
+- **WHEN** a managed DSH setup has no valid selected provider route or lacks required model metadata
+- **THEN** launch fails with an actionable missing-input diagnostic instead of using a shipped model or capacity default
+
+### Requirement: DSH Roles Are Applied as Literal Native System Instructions
+
+Before DSH processes the first user prompt, the complete effective Houmao launch prompt SHALL be installed through a native system-prompt section that preserves literal text and DSH's required tool guidance. Projection SHALL record non-secret provenance. Empty prompts SHALL remove stale managed role content, and failure SHALL NOT fall back to a skill or chat bootstrap.
+
+#### Scenario: Role Contains Template-Like Text
+- **WHEN** an effective role contains `{{example}}`, dollar expressions, quotes, or multiline code
+- **THEN** DSH receives those bytes literally in native system instructions
+- **AND THEN** the role is not submitted as an ordinary user message
+
+#### Scenario: An Empty Role Replaces an Earlier Role
+- **WHEN** a preserved DSH home is rebuilt with an empty effective launch prompt
+- **THEN** stale Houmao-owned role content is absent before provider execution
+
+### Requirement: DSH Headless Lifecycle Uses the Managed Turn Envelope
+
+DSH headless turns SHALL use the maintained tmux-backed managed turn envelope, canonical semantic events, durable terminal evidence, and exact native continuation. Stop, interrupt, relaunch, reset, gateway attachment, and usage recovery SHALL retain their established identity boundaries. Starting an explicitly new conversation SHALL create a new source binding without discarding runtime-session history.
+
+#### Scenario: A Headless Turn Exits Between Prompts
+- **WHEN** a DSH turn completes and its ACP worker exits while the managed tmux session remains live
+- **THEN** the logical agent remains discoverable and gateway-attachable
+- **AND THEN** a later explicit prompt can resume the saved native conversation
+
+#### Scenario: An Operator Resets the Native Conversation
+- **WHEN** the operator explicitly selects a new DSH conversation within an existing runtime session
+- **THEN** the next turn uses a new native identity and source binding
+- **AND THEN** earlier usage and terminal results remain attributed to their original conversation and generation
+
+#### Scenario: An Attempt Dies After Admission
+- **WHEN** an admitted DSH attempt loses its owned process or execution generation
+- **THEN** its response or recorded outcome reports failure or uncertainty
+- **AND THEN** relaunch does not automatically resend that attempt's prompt
+
+### Requirement: DSH TUI Posture Resolves to a Web Backend
+
+Selecting DSH through Houmao's existing `tui` or non-headless interactive posture SHALL resolve to backend `dsh_web`. Its human interface SHALL be the native DSH Web application, and semantic control SHALL use the same host/session's Web API. Explicit headless selection SHALL continue resolving to `dsh_acp`.
+
+#### Scenario: Developer Launches DSH Interactively
+- **WHEN** a valid DSH definition or profile is launched through the maintained interactive manager path
+- **THEN** Houmao starts its managed Web Host and returns its bound native session and browser-surface metadata
+- **AND THEN** the developer does not need a new DSH-specific interaction-mode flag
+
+#### Scenario: A DSH Headless Profile Is Launched
+- **WHEN** the selected DSH launch posture is headless
+- **THEN** it retains the qualified ACP behavior from change 01 without starting a Web listener
+
+### Requirement: Native Human Surface Is Distinct From Process Supervision
+
+Interactive runtime and discovery metadata SHALL distinguish terminal and Web native surfaces. A Web surface SHALL expose a non-secret browser location and native session identity. Optional tmux supervision SHALL describe host logs and lifecycle only; its existence SHALL not imply a terminal agent interface, key control, or parser support.
+
+#### Scenario: A Web Host Is Supervised in Tmux
+- **WHEN** the DSH Web process runs under a managed tmux supervisor
+- **THEN** agent inspection identifies the browser as the native human surface
+- **AND THEN** terminal observers do not parse the supervisor's log pane as a DSH TUI
+
+#### Scenario: Native Surface Metadata Is Incompatible
+- **WHEN** a persisted DSH Web record claims a terminal parser or lacks a verifiable host/session binding
+- **THEN** runtime validation reports the incompatible record rather than guessing readiness from tmux liveness
+
+### Requirement: Managed DSH Web Startup Publishes Only Verified Authority
+
+DSH Web startup SHALL use the isolated configuration and native prompt projection established for DSH. Before publishing ready control, Houmao SHALL verify the owned local host, required companion protocol/build, bound native session, and execution incarnations. Startup failure SHALL roll back the newly owned process and partial discovery state without changing another host.
+
+#### Scenario: The Host Starts Without Its Managed Control Companion
+- **WHEN** the DSH HTTP listener starts but the required companion is absent or incompatible
+- **THEN** launch fails without publishing a controllable managed agent
+- **AND THEN** the newly owned host is stopped
+
+#### Scenario: Two DSH Web Agents Share a Project
+- **WHEN** two DSH Web agents are launched in the same project
+- **THEN** their homes, listeners, native session bindings, connection credentials, and execution authority remain isolated
+
+### Requirement: Web Human Interaction Follows the Selected Operator Policy
+
+DSH Web launch SHALL preserve native human questions, permissions, and model selection in `as_is` mode. Unattended mode SHALL apply its separately qualified no-question policy without silently approving native hard denies. Opening the browser SHALL be explicit, and credentials required for browser sign-in SHALL not enter ordinary public launch/status metadata.
+
+#### Scenario: Human Operates an As-Is DSH Session
+- **WHEN** an interactive DSH agent uses `as_is` mode and requests approval
+- **THEN** the browser presents the native interaction while Houmao observes its blocked state
+- **AND THEN** the Web adapter does not apply unattended policy on resume or status inspection
+
+#### Scenario: Automated Web Qualification Has No Display
+- **WHEN** an unattended DSH Web fixture launches on a host without a desktop browser
+- **THEN** the host becomes controllable without automatically opening a graphical application
+- **AND THEN** browser qualification can connect separately to the same bound native session
+
+### Requirement: Web Relaunch Preserves Logical Identity and Changes Execution Identity
+
+Explicit DSH Web relaunch SHALL preserve the logical agent and runtime-session history while establishing a new host/agent incarnation. Exact continuation SHALL restore only the selected supported conversation after failed-input reconciliation. Read-only control reconstruction SHALL never relaunch the host, replay work, or overwrite newer persisted native state.
+
+#### Scenario: A Stale Controller Inspects a Relaunched Host
+- **WHEN** a separately held controller inspects status or attaches a gateway after explicit Web relaunch
+- **THEN** it observes the current persisted host/session incarnation
+- **AND THEN** it does not restore the old endpoint, native conversation, or execution token
+
+#### Scenario: A Gateway Restarts While the Web Host Stays Live
+- **WHEN** gateway control reconnects to an unchanged verified Web Host and bound session
+- **THEN** observation resumes without restarting the DSH agent or changing its conversation

@@ -45,6 +45,7 @@ from typing import Any, Final, Mapping
 from houmao.hook_observation.codex_hooks_generator import build_collector_emitter_command
 from houmao.hook_observation.install import (
     COLLECTOR_RECORD_FILENAME,
+    HOOK_OBSERVATION_ENV_FLAGS,
     ObserverInstallPath,
     allocate_next_generation,
     codex_hook_artifact_dir,
@@ -232,7 +233,7 @@ def _allocate_generation(session_root: Path, *, tool: str = "claude") -> int | N
 def stop_hook_observation(session_root: Path | None, *, tool: str = "claude") -> None:
     """Stop the session's collector, tolerating an already-dead process."""
 
-    if session_root is None:
+    if session_root is None or tool not in HOOK_OBSERVATION_ENV_FLAGS:
         return
     stop_collector(session_root, tool=tool)
 

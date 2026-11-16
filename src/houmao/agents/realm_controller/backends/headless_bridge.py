@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from typing import Callable, Sequence
 
 from houmao.agents.realm_controller.backends.dispatch_control import (
+    _dispatch_origin_birth_token,
     headless_dispatch_permission_allowed,
 )
 from houmao.agents.realm_controller.backends.headless_output import (
@@ -113,14 +114,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 125
 
+    process_metadata: dict[str, str | int | None] = {
+        "runner_pid": os.getpid(),
+        "child_pid": process.pid,
+        "launched_at_utc": args.launched_at_utc,
+    }
+    if provider == "dsh":
+        process_metadata.update(
+            {
+                "runner_birth_token": _dispatch_origin_birth_token(os.getpid()),
+                "child_birth_token": _dispatch_origin_birth_token(process.pid),
+            }
+        )
     process_path.write_text(
-        (
-            "{"
-            f'"runner_pid":{os.getpid()},'
-            f'"child_pid":{process.pid},'
-            f'"launched_at_utc":"{args.launched_at_utc}"'
-            "}\n"
-        ),
+        json.dumps(process_metadata) + "\n",
         encoding="utf-8",
     )
 
@@ -203,7 +210,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         returncode=returncode,
         completed_at_utc=datetime.now(UTC).isoformat(),
         wall_time_ms=(time.monotonic() - started_monotonic) * 1000,
-        interrupted=(turn_dir / "usage-interrupt.json").exists(),
+        interrupted=(turn_dir / "usage-interrupt.json").exists()
+        or (provider == "dsh" and returncode == 130),
     )
     return returncode
 
@@ -231,7 +239,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--provider",
         required=True,
-        choices=("claude", "codex", "kimi"),
+        choices=("claude", "codex", "kimi", "dsh"),
     )
     parser.add_argument("--output-format", required=True)
     parser.add_argument("--turn-index", required=True, type=int)

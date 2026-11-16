@@ -69,7 +69,7 @@ from houmao.server.models import HoumaoHeadlessTurnEvent
 
 log = logging.getLogger(__name__)
 
-_HEADLESS_BACKENDS = frozenset({"claude_headless", "codex_headless", "kimi_headless"})
+_HEADLESS_BACKENDS = frozenset({"claude_headless", "codex_headless", "kimi_headless", "dsh_acp"})
 
 
 def _controller_primary_tmux_window_id(controller: RuntimeSessionController) -> str | None:
@@ -237,7 +237,7 @@ class HeadlessAgentService:
                 },
             )
         backend = cast(
-            Literal["claude_headless", "codex_headless", "kimi_headless"],
+            Literal["claude_headless", "codex_headless", "kimi_headless", "dsh_acp"],
             resolved_backend,
         )
 
@@ -340,6 +340,15 @@ class HeadlessAgentService:
     ) -> PassiveHeadlessTurnAcceptedResponse | tuple[int, dict[str, Any]]:
         """Submit a turn to a managed headless agent."""
 
+        with self.m_lock:
+            return self._submit_turn_locked(tracked_agent_id, prompt)
+
+    def _submit_turn_locked(
+        self, tracked_agent_id: str, prompt: str
+    ) -> PassiveHeadlessTurnAcceptedResponse | tuple[int, dict[str, Any]]:
+        """Reserve durable admission before another caller can start a worker."""
+
+        self._refresh_recovered_active_turn(tracked_agent_id)
         handle = self._require_handle(tracked_agent_id)
         if handle is None:
             return (404, {"detail": f"Managed headless agent not found: {tracked_agent_id}"})
@@ -404,7 +413,7 @@ class HeadlessAgentService:
 
         worker = threading.Thread(
             target=self._run_turn_worker,
-            args=(tracked_agent_id, turn_id, prompt, backend_session),
+            args=(tracked_agent_id, turn_id, prompt, handle.controller),
             name=f"houmao-headless-turn-{tracked_agent_id}-{turn_id}",
             daemon=True,
         )
@@ -425,6 +434,7 @@ class HeadlessAgentService:
     ) -> PassiveHeadlessTurnStatusResponse | tuple[int, dict[str, Any]]:
         """Return the status of one turn."""
 
+        self._refresh_recovered_active_turn(tracked_agent_id)
         record = self.m_store.read_turn_record(tracked_agent_id=tracked_agent_id, turn_id=turn_id)
         if record is None:
             return (404, {"detail": f"Turn not found: {turn_id}"})
@@ -448,6 +458,7 @@ class HeadlessAgentService:
     ) -> PassiveHeadlessTurnEventsResponse | tuple[int, dict[str, Any]]:
         """Return structured events from the turn's finalized stdout artifact."""
 
+        self._refresh_recovered_active_turn(tracked_agent_id)
         record = self.m_store.read_turn_record(tracked_agent_id=tracked_agent_id, turn_id=turn_id)
         if record is None:
             return (404, {"detail": f"Turn not found: {turn_id}"})
@@ -726,6 +737,7 @@ class HeadlessAgentService:
     ) -> PassiveManagedHeadlessControlState | None:
         """Return live control posture for one passive-server-managed headless agent."""
 
+        self._refresh_recovered_active_turn(tracked_agent_id)
         handle = self._require_handle(tracked_agent_id)
         authority = (
             handle.authority
@@ -780,8 +792,11 @@ class HeadlessAgentService:
         for authority in self.m_store.list_authority_records():
             tracked_agent_id = authority.tracked_agent_id
             usage_path = Path(authority.session_root) / "usage" / "records.sqlite3"
+            preserve_history = usage_path.is_file() or bool(
+                self.m_store.list_turn_records(tracked_agent_id=tracked_agent_id)
+            )
             if not tmux_session_exists(session_name=authority.tmux_session_name):
-                if usage_path.is_file():
+                if preserve_history:
                     rebuilt[tracked_agent_id] = _ManagedHeadlessHandle(
                         authority=authority, controller=None
                     )
@@ -797,7 +812,7 @@ class HeadlessAgentService:
             manifest_path = Path(authority.manifest_path).expanduser().resolve()
             agent_def_dir = Path(authority.agent_def_dir).expanduser().resolve()
             if not manifest_path.is_file() or not agent_def_dir.is_dir():
-                if usage_path.is_file():
+                if preserve_history:
                     rebuilt[tracked_agent_id] = _ManagedHeadlessHandle(
                         authority=authority, controller=None
                     )
@@ -816,7 +831,7 @@ class HeadlessAgentService:
                     session_manifest_path=manifest_path,
                 )
             except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
-                if usage_path.is_file():
+                if preserve_history:
                     rebuilt[tracked_agent_id] = _ManagedHeadlessHandle(
                         authority=authority, controller=None
                     )
@@ -860,18 +875,38 @@ class HeadlessAgentService:
 
         with self.m_lock:
             self.m_handles = rebuilt
+        for tracked_agent_id in rebuilt:
+            self._refresh_recovered_active_turn(tracked_agent_id)
+
+    def _refresh_recovered_active_turn(self, tracked_agent_id: str) -> None:
+        """Reconcile an inherited attempt from artifacts without restarting its work."""
+
+        with self.m_lock:
+            handle = self.m_handles.get(tracked_agent_id)
+            if handle is None or (handle.turn_worker is not None and handle.turn_worker.is_alive()):
+                return
+            active = self.m_store.read_active_turn(tracked_agent_id=tracked_agent_id)
+            if active is not None:
+                self._refresh_turn_record_locked(
+                    tracked_agent_id=tracked_agent_id,
+                    turn_id=active.turn_id,
+                    completion_events=None,
+                    error_detail=None,
+                )
 
     def _run_turn_worker(
         self,
         tracked_agent_id: str,
         turn_id: str,
         prompt: str,
-        backend_session: HeadlessInteractiveSession,
+        controller: RuntimeSessionController,
     ) -> None:
         """Worker thread: send prompt and finalize turn record."""
 
         try:
-            events = backend_session.send_prompt(prompt, turn_artifact_dir_name=turn_id)
+            events = controller.send_prompt(
+                prompt=prompt, turn_artifact_dir_name=turn_id, refresh_registry=False
+            )
             self._refresh_turn_record(
                 tracked_agent_id=tracked_agent_id,
                 turn_id=turn_id,
@@ -965,6 +1000,8 @@ class HeadlessAgentService:
 
         turn_dir = Path(record.turn_artifact_dir)
         stdout_path = turn_dir / "stdout.jsonl"
+        if (turn_dir / "provider-stdout.jsonl").is_file():
+            stdout_path = turn_dir / "provider-stdout.jsonl"
         stderr_path = turn_dir / "stderr.log"
         status_path = turn_dir / "exitcode"
         if not status_path.exists() and headless_artifact_process_alive(turn_dir):

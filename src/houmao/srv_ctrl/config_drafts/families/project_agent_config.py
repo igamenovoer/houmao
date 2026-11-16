@@ -7,7 +7,7 @@ from typing import Any
 
 from houmao.srv_ctrl.config_drafts.models import ConfigDraft, DraftField
 
-_TOOL_CHOICES: tuple[str, ...] = ("claude", "codex", "kimi")
+_TOOL_CHOICES: tuple[str, ...] = ("claude", "codex", "kimi", "dsh")
 _EASY_SPECIALIST_SETUP = "default"
 _EASY_SPECIALIST_PROMPT_MODE = "unattended"
 

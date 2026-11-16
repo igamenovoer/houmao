@@ -18,6 +18,11 @@ from houmao.agents.realm_controller.agent_identity import (
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.gateway_models import GatewayHost, GatewayProtocolVersion
 from houmao.agents.realm_controller.models import BackendKind
+from houmao.agents.realm_controller.native_surface import (
+    NativeSurfaceV1,
+    TerminalNativeSurfaceV1,
+    WebNativeSurfaceV1,
+)
 
 REGISTRY_SCHEMA_VERSION = 4
 EXTERNAL_REGISTRY_SCHEMA_VERSION = 1
@@ -316,6 +321,7 @@ class LiveAgentRegistryRecordV2(_StrictRegistryModel):
     published_at: str
     lease_expires_at: str
     identity: RegistryIdentityV1
+    native_surface: NativeSurfaceV1 | None = None
     runtime: RegistryRuntimeV1
     terminal: RegistryTerminalV1
     gateway: RegistryGatewayV1 | None = None
@@ -342,6 +348,7 @@ class LiveAgentRegistryRecordV2(_StrictRegistryModel):
 
         if self.schema_version != LEGACY_REGISTRY_SCHEMA_VERSION:
             raise ValueError(f"schema_version must be {LEGACY_REGISTRY_SCHEMA_VERSION}")
+        _validate_native_surface(self.identity, self.native_surface, self.terminal.session_name)
 
         try:
             normalized_agent_name = normalize_managed_agent_name(self.agent_name)
@@ -372,6 +379,7 @@ class ManagedAgentRegistryRecordV3(_StrictRegistryModel):
     generation_id: str
     lifecycle: RegistryLifecycleV1
     identity: RegistryIdentityV1
+    native_surface: NativeSurfaceV1 | None = None
     runtime: RegistryRuntimeV1
     terminal: RegistryTerminalV2
     liveness: RegistryLivenessV1 | None = None
@@ -394,6 +402,7 @@ class ManagedAgentRegistryRecordV3(_StrictRegistryModel):
 
         if self.schema_version != REGISTRY_SCHEMA_VERSION:
             raise ValueError(f"schema_version must be {REGISTRY_SCHEMA_VERSION}")
+        _validate_native_surface(self.identity, self.native_surface, self.terminal.session_name)
         if self.canonical_mail_identity != self.mailboxes.canonical_mail_identity:
             raise ValueError("canonical mail identity differs from configured mailbox projection")
         for channel, slot in (
@@ -580,6 +589,31 @@ def parse_managed_agent_registry_record(payload: object) -> ManagedAgentRegistry
             "back up and rebootstrap registry projections with the current runtime"
         )
     return ManagedAgentRegistryRecordV3.model_validate(payload)
+
+
+def _validate_native_surface(
+    identity: RegistryIdentityV1,
+    surface: NativeSurfaceV1 | None,
+    tmux_session_name: str,
+) -> None:
+    """Keep a Web human surface distinct from supervisory terminal metadata."""
+
+    if identity.backend == "dsh_web":
+        if identity.tool != "dsh" or not isinstance(surface, WebNativeSurfaceV1):
+            raise ValueError("dsh_web registry records require their typed native Web surface")
+    elif isinstance(surface, WebNativeSurfaceV1):
+        raise ValueError("a Web native surface requires backend=dsh_web")
+    if isinstance(surface, TerminalNativeSurfaceV1) and identity.backend not in {
+        "local_interactive",
+        "cao_rest",
+        "houmao_server_rest",
+    }:
+        raise ValueError("headless process supervision is not a native terminal surface")
+    if (
+        isinstance(surface, TerminalNativeSurfaceV1)
+        and surface.tmux_session_name != tmux_session_name
+    ):
+        raise ValueError("terminal native surface differs from registry terminal authority")
 
 
 def upgrade_live_agent_registry_record_v2(

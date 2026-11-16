@@ -21,6 +21,7 @@ from pydantic import (
 )
 
 from houmao.agents.mailbox_runtime_models import MailboxTransport
+from houmao.agents.realm_controller.native_surface import NativeSurfaceV1
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayAdmissionState,
@@ -52,6 +53,8 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayRecoveryState,
     GatewayRequestCreateV1,
     GatewayTuiTrackingTimingOverridesV1,
+    GatewayWebControlStateV1,
+    GatewayWebHistoryV1,
 )
 from houmao.cao.models import CaoHealthResponse, CaoSuccessResponse
 from houmao.hook_observation.health import HookChannelState
@@ -71,7 +74,7 @@ from houmao.shared_tui_tracking.models import (
 )
 
 TerminalId = Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{8}$")]
-ManagedAgentTransportKind = Literal["tui", "headless"]
+ManagedAgentTransportKind = Literal["tui", "headless", "web"]
 ManagedAgentLifecycleState = Literal["active", "stopped", "relaunching", "retired"]
 ManagedAgentManagementKind = Literal["local_lifecycle", "external_communication_only"]
 ManagedAgentLifecycleOwner = Literal["local", "remote"]
@@ -514,6 +517,7 @@ class HoumaoManagedAgentIdentity(_HoumaoModel):
 
     tracked_agent_id: str
     transport: ManagedAgentTransportKind
+    native_surface: NativeSurfaceV1 | None = None
     tool: str
     session_name: str | None = None
     terminal_id: str | None = None
@@ -678,6 +682,7 @@ class HoumaoManagedAgentStateResponse(_HoumaoModel):
     diagnostics: list[HoumaoErrorDetail] = Field(default_factory=list)
     mailboxes: HoumaoManagedAgentMailboxSummaryView | None = None
     gateway: HoumaoManagedAgentGatewaySummaryView | None = None
+    web: GatewayWebControlStateV1 | None = None
     memory_root: str | None = None
     memo_file: str | None = None
     pages_dir: str | None = None
@@ -728,6 +733,7 @@ class HoumaoManagedAgentHistoryResponse(_HoumaoModel):
 
     tracked_agent_id: str
     entries: list[HoumaoManagedAgentHistoryEntry] = Field(default_factory=list)
+    web: GatewayWebHistoryV1 | None = None
 
     @field_validator("tracked_agent_id")
     @classmethod
@@ -813,8 +819,17 @@ class HoumaoManagedAgentHeadlessDetailView(_HoumaoModel):
         return stripped
 
 
+class HoumaoManagedAgentWebDetailView(_HoumaoModel):
+    """Canonical rich native Web inspection, with no terminal parser projection."""
+
+    transport: Literal["web"] = "web"
+    state: GatewayWebControlStateV1
+
+
 ManagedAgentDetailPayload = Annotated[
-    HoumaoManagedAgentTuiDetailView | HoumaoManagedAgentHeadlessDetailView,
+    HoumaoManagedAgentTuiDetailView
+    | HoumaoManagedAgentHeadlessDetailView
+    | HoumaoManagedAgentWebDetailView,
     Field(discriminator="transport"),
 ]
 

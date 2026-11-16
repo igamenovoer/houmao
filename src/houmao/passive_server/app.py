@@ -55,6 +55,8 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMemoryPageTreeResponseV1,
     GatewayMemoryPageWriteRequestV1,
     GatewayMemorySummaryV1,
+    GatewayWebControlStateV1,
+    GatewayWebHistoryV1,
 )
 from houmao.agents.realm_controller.usage_models import UsagePage
 from houmao.version import get_version
@@ -63,6 +65,8 @@ from houmao.passive_server.models import (
     AgentTuiDetailResponse,
     AgentTuiHistoryResponse,
     AgentTuiStateResponse,
+    AgentWebStateResponse,
+    AgentWebHistoryResponse,
     DiscoveredAgentConflictResponse,
     DiscoveredAgentListResponse,
     DiscoveredAgentSummary,
@@ -275,6 +279,24 @@ def create_app(
     @app.get("/houmao/agents/{agent_ref}/gateway/tui/state")
     def gateway_tui_state(agent_ref: str) -> HoumaoTerminalStateResponse:
         result = resolved_service.gateway_tui_state(agent_ref)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.get("/houmao/agents/{agent_ref}/gateway/web/state")
+    def gateway_web_state(agent_ref: str) -> GatewayWebControlStateV1:
+        """Read structured native Web state from an attached gateway."""
+
+        result = resolved_service.gateway_web_state(agent_ref)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
+        return result
+
+    @app.get("/houmao/agents/{agent_ref}/gateway/web/history")
+    def gateway_web_history(agent_ref: str, limit: int = 100) -> GatewayWebHistoryV1:
+        """Read bounded native Web transition metadata from an attached gateway."""
+
+        result = resolved_service.gateway_web_history(agent_ref, limit=limit)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result
@@ -610,21 +632,25 @@ def create_app(
     # -- TUI observation routes -----------------------------------------------
 
     @app.get("/houmao/agents/{agent_ref}/state")
-    def agent_state(agent_ref: str) -> AgentTuiStateResponse:
+    def agent_state(agent_ref: str) -> AgentTuiStateResponse | AgentWebStateResponse:
         result = resolved_service.agent_state(agent_ref)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result
 
     @app.get("/houmao/agents/{agent_ref}/state/detail")
-    def agent_state_detail(agent_ref: str) -> AgentTuiDetailResponse:
+    def agent_state_detail(
+        agent_ref: str,
+    ) -> AgentTuiDetailResponse | HoumaoManagedAgentDetailResponse:
         result = resolved_service.agent_state_detail(agent_ref)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result
 
     @app.get("/houmao/agents/{agent_ref}/history")
-    def agent_history(agent_ref: str, limit: int = 50) -> AgentTuiHistoryResponse:
+    def agent_history(
+        agent_ref: str, limit: int = 50
+    ) -> AgentTuiHistoryResponse | AgentWebHistoryResponse:
         result = resolved_service.agent_history(agent_ref, limit=limit)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]

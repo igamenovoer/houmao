@@ -421,23 +421,30 @@ class UsageStore:
     def _put_alias(self, connection: sqlite3.Connection, snapshot: UsageTurnSnapshot) -> None:
         """Bind a provider turn to one accounting turn before final insertion."""
 
-        if snapshot.provider_turn_id is None:
-            return
-        key = (
-            snapshot.binding_id or "",
-            snapshot.provider_session_id or "",
-            snapshot.provider_turn_id,
-        )
-        row = connection.execute(
-            "SELECT turn_id FROM provider_turn_aliases WHERE binding_id=? AND provider_session_id=? AND provider_turn_id=?",
-            key,
-        ).fetchone()
-        if row is not None and row["turn_id"] != snapshot.turn_id:
-            raise UsageConflictError("Provider turn already has an accounting identity")
-        connection.execute(
-            "INSERT OR IGNORE INTO provider_turn_aliases VALUES (?, ?, ?, ?)",
-            (*key, snapshot.turn_id),
-        )
+        native_ids = [snapshot.provider_turn_id] if snapshot.provider_turn_id is not None else []
+        if snapshot.provider == "dsh":
+            interval_ids = snapshot.metadata.get("native_turn_ids", [])
+            if not isinstance(interval_ids, list) or any(
+                not isinstance(value, str) or not value for value in interval_ids
+            ):
+                raise UsageConflictError("Native interval turn identities are invalid")
+            native_ids.extend(interval_ids)
+        for native_id in dict.fromkeys(native_ids):
+            key = (
+                snapshot.binding_id or "",
+                snapshot.provider_session_id or "",
+                native_id,
+            )
+            row = connection.execute(
+                "SELECT turn_id FROM provider_turn_aliases WHERE binding_id=? AND provider_session_id=? AND provider_turn_id=?",
+                key,
+            ).fetchone()
+            if row is not None and row["turn_id"] != snapshot.turn_id:
+                raise UsageConflictError("Provider turn already has an accounting identity")
+            connection.execute(
+                "INSERT OR IGNORE INTO provider_turn_aliases VALUES (?, ?, ?, ?)",
+                (*key, snapshot.turn_id),
+            )
 
     def _put_pending(
         self, connection: sqlite3.Connection, pending: UsagePendingTurn

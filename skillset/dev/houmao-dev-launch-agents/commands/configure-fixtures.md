@@ -12,7 +12,7 @@ If local settings do not match the examples, use the native planning tool to map
 
 ## Fresh Host Setup
 
-Run from the checkout. Require Pixi and the selected client CLI on `PATH`, then use `pixi install` when repository dependencies are not installed. Managed preparation also needs Git; TUI and managed execution need tmux. Resolve `claude`, `codex`, or `kimi`; when only `kimi-code` exists, record that path and pass it through `prepare --executable PATH` later. Report a missing client; global client installation and interactive login are separate tasks.
+Run from the checkout. Require Pixi and the selected client CLI on `PATH`, then use `pixi install` when repository dependencies are not installed. Managed preparation also needs Git; TUI and managed execution need tmux. Resolve `claude`, `codex`, `kimi`, or the explicitly selected qualified `dsh`; when only `kimi-code` exists, record that path and pass it through `prepare --executable PATH` later. Report a missing client; global client installation and interactive login are separate tasks.
 
 Use the repository's [fixture helper guide](../../../../scripts/agents/test-fixtures/README.md) and [case descriptors](../../../../tests/fixtures/agent-launch/README.md) as the configuration contract. No local model service is required for `cloud-api`.
 
@@ -51,6 +51,13 @@ pixi run python scripts/agents/test-fixtures/fixture.py check \
 The [2026-11-13 qualification](../../../../openspec/changes/archive/2026-11-13-refresh-test-agent-fixtures/tests/qualification.md) used `deepseek-flash`, context `1048576`, Codex effort `low`, and Kimi reasoning key `reasoning_content`. This is a recorded tested combination, not an automatic model default. Use it when selected by the developer or when model selection is delegated; use explicit overrides for another model. Generic fixtures must not inherit those model-specific settings blindly.
 
 ## Self-Hosted Setup
+
+For DSH, select the pinned runtime through [the development preparation guide](../../../../tools/dsh/README.md). The cloud route uses native Messages, while the self-hosted route explicitly uses pi-ai Chat Completions. Add the selected case's `MAX_OUTPUT_TOKENS` and `DSH_REASONING` references to the external env file, alongside its model and context. Reasoning must be JSON `false` or a qualified preset mapping. DSH ignores ambient credentials and requires `--env-file`; no local model or auth JSON is needed for the cloud route. Select `headless` for ACP or raw/manager `tui` for Web. Native-login selection remains rejected.
+
+```bash
+pixi run python scripts/agents/test-fixtures/fixture.py check \
+  --case cloud-api --client dsh --env-file /external/selected-deepseek.env
+```
 
 Select `self-hosted` with the model, endpoint references, and Kimi context described in the shared credential reference. The endpoint must offer the client's protocol. Use a custom versioned descriptor when only some protocols are available; do not insert a translation proxy or assume that a Chat Completions server supports Responses.
 

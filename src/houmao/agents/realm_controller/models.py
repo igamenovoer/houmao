@@ -13,6 +13,7 @@ from typing import Any, Literal, Protocol
 
 from houmao.agents.launch_policy.models import LaunchPolicyProvenance
 from houmao.agents.mailbox_runtime_models import MailboxesResolvedConfig
+from houmao.agents.realm_controller.native_surface import NativeSurfaceKind
 
 BackendKind = Literal[
     "local_interactive",
@@ -20,6 +21,8 @@ BackendKind = Literal[
     "codex_app_server",
     "claude_headless",
     "kimi_headless",
+    "dsh_acp",
+    "dsh_web",
     "cao_rest",
     "houmao_server_rest",
 ]
@@ -28,6 +31,7 @@ RoleInjectionMethod = Literal[
     "native_developer_instructions",
     "native_append_system_prompt",
     "native_home_system_prompt",
+    "native_system_prompt_section",
     "bootstrap_message",
     "cao_profile",
 ]
@@ -171,6 +175,7 @@ class LaunchPlan:
     mailboxes: MailboxesResolvedConfig = field(default_factory=MailboxesResolvedConfig)
     launch_policy_provenance: LaunchPolicyProvenance | None = None
     transient_env_var_names: frozenset[str] = field(default_factory=frozenset)
+    native_surface_kind: NativeSurfaceKind | None = None
 
     @classmethod
     def for_joined_session(
@@ -225,6 +230,7 @@ class LaunchPlan:
 
         return {
             "backend": self.backend,
+            "native_surface_kind": self.native_surface_kind,
             "tool": self.tool,
             "executable": self.executable,
             "args": list(self.args),

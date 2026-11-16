@@ -30,6 +30,9 @@ Use `scripts/agents/test-fixtures/fixture.py`; do not implement another dotenv p
 | Claude | Anthropic Messages | `DEEPSEEK_BASE_URL_ANTHROPIC` for cloud | Auth token, API root, and selected model aliases |
 | Codex | OpenAI Responses | `DEEPSEEK_BASE_URL_OPENAI` for cloud | Run-local provider block plus private `OPENAI_API_KEY` |
 | Kimi | OpenAI Chat Completions | `DEEPSEEK_BASE_URL_OPENAI` for cloud | Selected `KIMI_MODEL_*` env, including required context |
+| DSH | Native DeepSeek Messages for cloud; declared pi-ai Chat Completions for self-hosted | The selected descriptor's matching endpoint | Isolated native setup and explicit model/context/output/reasoning metadata |
+
+DSH requires an explicitly selected external env file and ignores ambient key/model references. Its cloud route needs no auth JSON or self-hosted service. Declare maximum output tokens and reasoning metadata in addition to context. JSON `false` disables reasoning; a numbered effort mapping must match the exact model/adapter. ACP and Web reuse these explicit cases. DSH native login remains unsupported. Browser/API connection credentials belong to the external private run and remain separate from public surface metadata.
 
 Claude expects its API root without an added trailing `/v1`; Codex and Kimi preserve a selected version/custom prefix. A Chat-only service cannot satisfy Codex's Responses requirement. Descriptor validation checks declared protocols; a live run establishes actual endpoint compatibility.
 

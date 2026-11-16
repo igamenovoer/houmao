@@ -21,7 +21,16 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from houmao.agents.realm_controller.models import LaunchPlan
+from houmao.agents.realm_controller.dsh_web_usage import (
+    assemble_web_usage,
+    stage_web_evidence,
+    web_identity,
+)
 from houmao.agents.realm_controller.usage_adapters import UsageAdapter
+from houmao.agents.realm_controller.usage_adapters.dsh import (
+    DshJournalError,
+    read_dsh_interval,
+)
 from houmao.agents.realm_controller.usage_collection import (
     UsageCollector,
     complete_file_position,
@@ -46,7 +55,7 @@ from houmao.agents.realm_controller.usage_store import (
 from houmao.hook_observation.reader import HookObservationReader
 
 _LOGGER = logging.getLogger(__name__)
-_PROVIDERS = {"claude", "codex", "kimi"}
+_PROVIDERS = {"claude", "codex", "kimi", "dsh"}
 _TOKEN_FIELDS = (
     "input_tokens",
     "output_tokens",
@@ -61,6 +70,37 @@ def _now() -> str:
     """Return an unambiguous timestamp for lifecycle evidence."""
 
     return datetime.now(UTC).isoformat()
+
+
+def _headless_backend(backend: str) -> bool:
+    """Identify supported managed headless envelopes independently of suffixes."""
+
+    return backend.endswith("_headless") or backend == "dsh_acp"
+
+
+def _dsh_link_descendant(
+    item: UsageObservation, snapshot: UsageTurnSnapshot
+) -> UsageObservation | None:
+    """Associate only native child turns proven inside this managed ACP interval."""
+
+    children = snapshot.metadata.get("native_descendant_turns", {})
+    if not isinstance(children, dict):
+        return None
+    turns = children.get(item.provider_session_id)
+    if not isinstance(turns, list) or item.provider_turn_id not in turns:
+        return None
+    return item.model_copy(
+        update={
+            "parent_turn_id": snapshot.turn_id,
+            "turn_id": snapshot.turn_id,
+            "is_sidechain": True,
+            "metadata": {
+                **item.metadata,
+                "child_id": item.provider_session_id,
+                "included_in_parent": False,
+            },
+        }
+    )
 
 
 def write_usage_json(path: Path, payload: dict[str, Any]) -> None:
@@ -139,6 +179,13 @@ def headless_artifact_process_alive(turn_dir: Path) -> bool:
         if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
             return False
         os.kill(pid, 0)
+        birth = metadata.get("child_birth_token")
+        if birth is not None:
+            from houmao.agents.realm_controller.backends.dispatch_control import (
+                _dispatch_origin_birth_token,
+            )
+
+            return isinstance(birth, str) and _dispatch_origin_birth_token(pid) == birth
         proc = Path(f"/proc/{pid}/stat")
         if proc.exists():
             fields = proc.read_text().rsplit(")", 1)[1].split()
@@ -265,6 +312,8 @@ class UsageService:
         generation = payload.get("registry_generation_id") or runtime.get("registry_generation_id")
         self.m_generation_id = generation if isinstance(generation, str) else None
         provider_id = state.get("session_id") or state.get("thread_id")
+        if self.m_backend == "dsh_web" and isinstance(state.get("web_identity"), dict):
+            provider_id = state["web_identity"].get("native_session_id") or provider_id
         for section in ("headless", "local_interactive", "codex"):
             data = payload.get(section)
             if isinstance(data, dict):
@@ -280,7 +329,7 @@ class UsageService:
         if not 1 <= limit <= 500:
             raise ValueError("Usage page limit must be between 1 and 500")
         queryable = bool(self.m_runtime_session_id) and (
-            self.store_path.exists() or self.m_backend.endswith("_headless")
+            self.store_path.exists() or _headless_backend(self.m_backend)
         )
         if not queryable:
             if after is not None:
@@ -292,7 +341,7 @@ class UsageService:
             )
         health = self.store.get_collection_health()
         capability = self.m_capability
-        if self.m_backend.endswith("_headless") and not capability.turn_recording:
+        if _headless_backend(self.m_backend) and not capability.turn_recording:
             capability = UsageCapability(
                 status="partial",
                 turn_recording=True,
@@ -401,6 +450,128 @@ class UsageService:
         self.m_active_binding_id = binding.binding_id
         return binding
 
+    def bind_dsh_web(
+        self, *, identity: dict[str, Any], evidence_path: Path, new_session: bool = False
+    ) -> UsageSourceBinding:
+        """Persist the verified startup boundary before publishing browser authority.
+
+        A restored conversation reuses its original binding and checkpoints.
+        New host identities authorize additional metadata without moving that
+        boundary or rewriting the generation of an existing usage record.
+        """
+
+        verified = web_identity(identity)
+        with self.m_lock, _artifact_finalization_lock(self.m_session_root / "usage"):
+            if (
+                self.m_store is not None
+                and self.m_runtime_session_id != verified["runtime_session_id"]
+            ):
+                raise UsageStoreError("Web binding changed the runtime accounting identity")
+            self.m_runtime_session_id = verified["runtime_session_id"]
+            self.m_agent_id = verified["agent_id"]
+            self.m_generation_id = verified["generation"]
+            self.m_backend = "dsh_web"
+            self.m_provider = "dsh"
+            self.m_provider_session_id = verified["native_session_id"]
+            self.m_active_binding_id = None
+            # Existing bindings always win on reconstruction, even if a caller
+            # repeats the original create notification after a lost response.
+            existing = any(
+                item.provider == "dsh" and item.provider_session_id == self.m_provider_session_id
+                for item in self.store.list_bindings()
+            )
+            binding = self._binding(new_session=new_session and not existing)
+            if binding.agent_id != self.m_agent_id:
+                raise UsageStoreError("Web binding changed the agent accounting identity")
+            path = evidence_path.resolve()
+            sources = list(binding.metadata.get("dsh_web_sources", []))
+            source = next((item for item in sources if item["path"] == str(path)), None)
+            if source is None:
+                # Only an initial attachment excludes pre-existing work. A
+                # restarted collector must retain the earlier durable boundary.
+                source = {
+                    "path": str(path),
+                    # A replacement Host can write preactivation abandonment
+                    # proof before bind returns. Existing native accounting
+                    # boundaries already exclude historical consumption.
+                    "boundary": 0 if sources else complete_file_position(path),
+                    "identities": [],
+                }
+                sources.append(source)
+            if verified not in source["identities"]:
+                source["identities"].append(verified)
+            binding = binding.model_copy(
+                update={
+                    "metadata": {
+                        **binding.metadata,
+                        "dsh_web_identity": verified,
+                        "dsh_web_evidence_path": str(path),
+                        "dsh_web_sources": sources,
+                    }
+                }
+            )
+            self.store.put_binding(binding)
+            return binding
+
+    def begin_dsh_web_turn(self, *, operation_id: str, turn_index: int) -> str:
+        """Register an exact managed operation before its native input is admitted."""
+
+        with self.m_lock:
+            return self.register_managed_turn(
+                turn_id=operation_id, turn_index=turn_index, refresh_manifest=False
+            )
+
+    def settle_dsh_web_turn(
+        self,
+        *,
+        operation_id: str,
+        receipt: dict[str, Any] | None = None,
+        outcome: str | None = None,
+    ) -> None:
+        """Reconcile native proof, or close an explicitly refused, unclaimed attempt.
+
+        An uncertain transport failure supplies no outcome and remains pending.
+        A caller must never label a lost response as a definitive refusal.
+        """
+
+        with self.m_lock:
+            self.collect(max_batches=32, refresh_manifest=False)
+            pending = self.store.get_pending_turn(operation_id)
+            if pending is None or pending.finalized or outcome is None:
+                return
+            if receipt is not None or pending.snapshot.provider_turn_id is not None:
+                # Claimed work obtains its outcome only from the native journal.
+                return
+            if outcome not in {"failed", "interrupted"}:
+                raise ValueError("An unclaimed Web operation cannot be completed")
+            with _artifact_finalization_lock(self.m_session_root / "usage"):
+                pending = self.store.get_pending_turn(operation_id)
+                assert pending is not None
+                if pending.finalized:
+                    return
+                from houmao.agents.realm_controller.usage_extraction import assemble_usage_record
+
+                finalization = pending.finalization or UsageFinalization(
+                    turn_id=operation_id,
+                    outcome=cast(Any, outcome),
+                    completed_at_utc=_now(),
+                    metadata={"observation_ids": [], "dsh_web_dispatch_refused": True},
+                )
+                self.store.set_finalization(operation_id, finalization)
+                self.store.finalize(
+                    assemble_usage_record(
+                        pending.snapshot,
+                        [],
+                        outcome=finalization.outcome,
+                        completed_at_utc=finalization.completed_at_utc,
+                    )
+                )
+
+    def reconcile_dsh_web(self) -> None:
+        """Resume bounded journal and persisted-claim reconciliation without execution."""
+
+        self.collect(max_batches=32)
+
     def register_managed_turn(
         self,
         *,
@@ -442,7 +613,7 @@ class UsageService:
             counter_epoch=binding.counter_epoch,
             coverage="complete",
             metadata={
-                "registered_headless": self.m_backend.endswith("_headless"),
+                "registered_headless": _headless_backend(self.m_backend),
                 "baseline_source_ids": baseline_ids,
             },
         )
@@ -506,7 +677,7 @@ class UsageService:
     def _read_hooks(self) -> list[Any]:
         """Read the runtime-owned hook channel for verified session/turn identity."""
 
-        if self.m_provider not in _PROVIDERS:
+        if self.m_provider not in {"claude", "codex", "kimi"}:
             return []
         if self.m_hook_reader is None:
             adapter = cast(Literal["claude", "codex", "kimi"], self.m_provider)
@@ -516,7 +687,7 @@ class UsageService:
         for observation in batch.observations:
             if observation.kind == "session_started" and observation.session_id:
                 self.m_hook_session_id = observation.session_id
-                if not self.m_backend.endswith("_headless") or self.m_provider_session_id is None:
+                if not _headless_backend(self.m_backend) or self.m_provider_session_id is None:
                     self.m_provider_session_id = observation.session_id
         return list(batch.observations)
 
@@ -531,9 +702,9 @@ class UsageService:
             if refresh_manifest:
                 self._refresh_manifest()
             hooks = self._read_hooks()
-            if self.m_hook_session_id and not self.m_backend.endswith("_headless"):
+            if self.m_hook_session_id and not _headless_backend(self.m_backend):
                 self.m_provider_session_id = self.m_hook_session_id
-            if self.m_backend.endswith("_headless") and self.m_active_binding_id is None:
+            if _headless_backend(self.m_backend) and self.m_active_binding_id is None:
                 # Execution registers the source binding. A background reader
                 # must not invent a competing provisional/attachment binding.
                 existing = [
@@ -555,8 +726,8 @@ class UsageService:
             binding = self._binding()
             if binding.provisional:
                 self.m_capability = UsageCapability(
-                    status="partial" if self.m_backend.endswith("_headless") else "unavailable",
-                    turn_recording=self.m_backend.endswith("_headless"),
+                    status="partial" if _headless_backend(self.m_backend) else "unavailable",
+                    turn_recording=_headless_backend(self.m_backend),
                     reasons=["provider_session_binding_pending"],
                 )
                 return []
@@ -569,8 +740,22 @@ class UsageService:
                 }
             )
             collector = UsageCollector.from_binding(self.store, collector_binding)
+            if self.m_backend == "dsh_web":
+                try:
+                    _proof, proof_caught_up = stage_web_evidence(self.store, binding)
+                except (OSError, ValueError, UnicodeError):
+                    self._degraded("dsh_web_claim_evidence_gap")
+                    return []
             accepted = collector.collect(max_batches=max_batches)
             self.m_native_caught_up = collector.caught_up
+            if self.m_backend == "dsh_web":
+                try:
+                    proof, proof_after_caught_up = stage_web_evidence(self.store, binding)
+                except (OSError, ValueError, UnicodeError):
+                    self._degraded("dsh_web_claim_evidence_gap")
+                    return accepted
+                accepted.extend(proof)
+                self.m_native_caught_up &= proof_caught_up and proof_after_caught_up
             accepted.extend(self._stage_hooks(binding, hooks))
             all_observations = self.store.list_observations(binding_id=binding.binding_id)
             scopes = sorted({item.measurement_scope for item in all_observations if item.values})
@@ -581,12 +766,14 @@ class UsageService:
             )
             self.m_capability = UsageCapability(
                 status="available" if has_turns else "partial",
-                turn_recording=has_turns or self.m_backend.endswith("_headless"),
+                turn_recording=has_turns or _headless_backend(self.m_backend),
                 source_kinds=kinds,
                 observed_scopes=scopes,
                 reasons=[] if has_turns else ["verified_turn_association_unavailable"],
             )
             diagnostics = collector.diagnostics
+            if self.m_backend == "dsh_web" and not (proof_caught_up and proof_after_caught_up):
+                diagnostics.append("dsh_web_claim_evidence_pending")
             self.m_health = UsageCollectionHealth(
                 status="degraded" if diagnostics else "healthy",
                 updated_at_utc=_now(),
@@ -608,8 +795,12 @@ class UsageService:
                 )
             self.store.set_collection_health(self.m_health)
             if finalize_native:
-                self._assemble_native(binding, all_observations)
-                if self.m_backend.endswith("_headless"):
+                if self.m_backend == "dsh_web":
+                    with _artifact_finalization_lock(self.m_session_root / "usage"):
+                        assemble_web_usage(self, binding, all_observations)
+                else:
+                    self._assemble_native(binding, all_observations)
+                if _headless_backend(self.m_backend):
                     self._recover_known_headless()
             return accepted
 
@@ -684,23 +875,34 @@ class UsageService:
 
         from houmao.agents.realm_controller.usage_extraction import assemble_usage_record
 
-        if self.m_backend.endswith("_headless"):
+        if _headless_backend(self.m_backend):
             # Headless lifecycle and its artifact cutoff are authoritative.
             # Native files supplement that managed row, never create another.
             for headless_pending in self.store.list_pending_turns(include_finalized=True):
                 snapshot = headless_pending.snapshot
+                native_turn_ids = snapshot.metadata.get("native_turn_ids", [])
                 if (
                     not headless_pending.finalized
                     or snapshot.binding_id != binding.binding_id
-                    or snapshot.provider_turn_id is None
+                    or (snapshot.provider_turn_id is None and not native_turn_ids)
                 ):
                     continue
-                relevant = [
-                    item
-                    for item in observations
-                    if item.provider_turn_id == snapshot.provider_turn_id
-                    and item.source_kind == "native_session_log"
-                ]
+                relevant = []
+                for item in observations:
+                    if item.source_kind != "native_session_log":
+                        continue
+                    if (
+                        snapshot.provider == "dsh"
+                        and item.provider_session_id != snapshot.provider_session_id
+                    ):
+                        child = _dsh_link_descendant(item, snapshot)
+                        if child is not None:
+                            relevant.append(child)
+                    elif (
+                        item.provider_turn_id == snapshot.provider_turn_id
+                        or item.provider_turn_id in native_turn_ids
+                    ):
+                        relevant.append(item)
                 self._check_late_native_evidence(snapshot, headless_pending.finalization, relevant)
             return
         turns = list(
@@ -817,7 +1019,7 @@ class UsageService:
         if original is None:
             return
         proposed_observations = relevant
-        if snapshot.backend.endswith("_headless"):
+        if _headless_backend(snapshot.backend):
             original_observations = [
                 UsageObservation.model_validate(item)
                 for item in finalization.metadata.get("observations", [])
@@ -941,6 +1143,39 @@ class UsageService:
             and original_session_id != provider_session_id
         ):
             raise ValueError("Headless terminal evidence belongs to a different provider session")
+        dsh_interval = None
+        dsh_diagnostic = None
+        if snapshot.provider == "dsh":
+            try:
+                dsh_interval = read_dsh_interval(turn_dir, snapshot)
+                provider_session_id = dsh_interval.session_id
+                if not dsh_interval.root_turn_ids:
+                    dsh_diagnostic = "dsh_native_admission_unverified"
+            except DshJournalError as exc:
+                dsh_diagnostic = str(exc)
+            snapshot = snapshot.model_copy(
+                update={
+                    **(
+                        {"coverage": "partial"}
+                        if dsh_interval is not None and not dsh_interval.coverage_complete
+                        else {}
+                    ),
+                    "metadata": {
+                        **snapshot.metadata,
+                        "native_turn_ids": dsh_interval.root_turn_ids if dsh_interval else [],
+                        "native_descendant_turns": dsh_interval.descendant_turn_ids
+                        if dsh_interval
+                        else {},
+                        "native_descendant_parents": dsh_interval.descendant_parents
+                        if dsh_interval
+                        else {},
+                        "native_interval_verified": bool(
+                            dsh_interval and dsh_interval.root_turn_ids
+                        ),
+                        **({"dsh_accounting_limitation": dsh_diagnostic} if dsh_diagnostic else {}),
+                    },
+                }
+            )
         observed, output_session_id, output_turn_id, raw_count = self._headless_output(
             turn_dir,
             snapshot,
@@ -953,6 +1188,31 @@ class UsageService:
         self.m_provider_session_id = session_id
         self.m_active_binding_id = snapshot.binding_id
         native = self._binding(new_session=bool(snapshot.baseline))
+        if dsh_interval is not None:
+            native = native.model_copy(
+                update={
+                    "metadata": {
+                        **native.metadata,
+                        **(
+                            {"persistence_root": dsh_interval.persistence_root}
+                            if dsh_interval.persistence_root is not None
+                            else {}
+                        ),
+                        **(
+                            {"working_directory": dsh_interval.working_directory}
+                            if dsh_interval.working_directory is not None
+                            else {}
+                        ),
+                        "dsh_descendant_sessions": {
+                            child: parent
+                            for child, parent in dsh_interval.descendant_parents.items()
+                            if dsh_interval.descendant_local.get(child)
+                            and dsh_interval.descendant_turn_ids.get(child)
+                        },
+                    }
+                }
+            )
+            self.store.put_binding(native)
         self.collect(finalize_native=False, max_batches=32, refresh_manifest=False)
         observed = [item.model_copy(update={"binding_id": native.binding_id}) for item in observed]
         native_observations = self.store.list_observations(binding_id=native.binding_id)
@@ -971,6 +1231,10 @@ class UsageService:
                     if self.m_native_caught_up
                     else item.model_copy(update={"coverage": "partial"})
                 )
+            elif snapshot.provider == "dsh":
+                child = _dsh_link_descendant(item, snapshot)
+                if child is not None:
+                    candidates.append(child)
         native_turns = {
             item.provider_turn_id
             for item in candidates
@@ -979,6 +1243,40 @@ class UsageService:
         native_turn_id = output_turn_id or (
             next(iter(native_turns)) if len(native_turns) == 1 else None
         )
+        if snapshot.provider == "dsh":
+            owned = set(dsh_interval.root_turn_ids) if dsh_interval is not None else set()
+            candidates = [
+                item
+                for item in candidates
+                if item.provider_turn_id in owned or item.parent_turn_id == snapshot.turn_id
+            ]
+            native_turn_id = next(iter(owned)) if len(owned) == 1 else None
+            if dsh_interval is not None:
+                measured = {item.provider_session_id for item in candidates if item.parent_turn_id}
+                for descendant_id in dsh_interval.descendant_parents:
+                    if descendant_id in measured:
+                        continue
+                    source = opaque_usage_reference(
+                        f"dsh-descendant:{snapshot.turn_id}:{descendant_id}"
+                    )
+                    candidates.append(
+                        UsageObservation(
+                            observation_id=source,
+                            provider="dsh",
+                            provider_session_id=descendant_id,
+                            turn_id=snapshot.turn_id,
+                            binding_id=native.binding_id,
+                            parent_turn_id=snapshot.turn_id,
+                            source_kind="houmao_runtime",
+                            source_ref=source,
+                            profile_id="dsh-native-descendant-v1",
+                            is_sidechain=True,
+                            metadata={
+                                "child_id": descendant_id,
+                                "limitation": "dsh_descendant_usage_unverified",
+                            },
+                        )
+                    )
         if session_id is not None:
             snapshot = snapshot.model_copy(update={"provider_session_id": session_id})
         if native_turn_id is not None:
@@ -988,7 +1286,7 @@ class UsageService:
                 for item in candidates
                 if item.provider_turn_id in {None, native_turn_id} or item.is_sidechain
             ]
-        else:
+        elif snapshot.provider != "dsh":
             candidates = []
         snapshot = snapshot.model_copy(update={"binding_id": native.binding_id})
         self.store.put_pending_turn(snapshot)
@@ -1032,6 +1330,9 @@ class UsageService:
             completed_at_utc=finalization.completed_at_utc,
             wall_time_ms=finalization.wall_time_ms,
         )
+        limitation = snapshot.metadata.get("dsh_accounting_limitation")
+        if isinstance(limitation, str) and limitation not in record.diagnostics:
+            record.diagnostics.append(limitation)
         write_usage_json(cached, record.model_dump(mode="json"))
         self.store.finalize(record)
         baseline = dict(native.baseline)
@@ -1053,6 +1354,10 @@ class UsageService:
         """Read independent output copies without losing valid crash-time stdout."""
 
         observations: list[UsageObservation] = []
+        if self.m_provider == "dsh":
+            # ACP usage_update is context occupancy. Native session identity and
+            # root membership come only from the bound companion sidecars.
+            return [], None, None, 0
         session_ids: set[str] = set()
         turn_ids: set[str] = set()
         count = 0

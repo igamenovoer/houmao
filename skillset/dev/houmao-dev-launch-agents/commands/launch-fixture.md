@@ -19,7 +19,9 @@ If the test does not fit a supported lane, use the native planning tool to inspe
 | `manager` | `headless`, `tui` | Current `houmao-mgr project agents launch`; captured agent/gateway identity |
 | `passive-server` | `headless` | Same-host `houmao-passive-server` with an explicitly selected local authority URL |
 
-Choose from the test subject. Do not infer headless from unattended posture. Provider-specific commands retain raw TUI behavior. For an exact raw TUI workdir/session, explicit `as_is`, or extra native arguments, use [the common adapter](../references/common-launch.md#exact-workdir-tui-adapter). The helper's normal TUI launches are unattended and allocate their own workdir/session; it exposes no corresponding overrides for managed lanes.
+DSH supports the headless lane on all three surfaces, using ACP for raw execution and the maintained `dsh_acp` backend for managed execution. Its raw/manager `tui` posture selects native Web. Select a qualified DSH executable and explicit external API env file with model/context/output/reasoning metadata. Passing headless ACP does not qualify a browser surface; use the separate browser/API qualification. Native-login selection remains unsupported.
+
+Choose from the test subject. Do not infer headless from unattended posture. Provider-specific commands retain raw TUI behavior. The helper defaults to `--prompt-mode unattended`; select `--prompt-mode as_is` deliberately for native human approval/question tests. For an exact terminal workdir/session or extra terminal-client arguments, use [the common adapter](../references/common-launch.md#exact-workdir-tui-adapter). Normal helper launches allocate their own workdir/session.
 
 Keep runtime, registry, generated homes, and workdir state external. An already-running passive server must be authorized for this test and able to read the private paths on the same dev box. Pass its URL with `launch --passive-url URL`; preparation alone does not select a server. Start a new server only when included in the requested test setup, with isolated external roots. TUI birth belongs to the manager. Never stop a pre-existing server as fixture cleanup.
 
@@ -37,6 +39,8 @@ Select `self-hosted` with its own private inputs for that case. For native login
 
 The returned `run_dir` owns the configured project and selected executable. Preparation is offline. See the [helper guide](../../../../scripts/agents/test-fixtures/README.md) for the supported role/seed/system-prompt inputs. Installing the case's skill pack and defining test assertions remain caller responsibilities.
 
+For DSH, use `--client dsh --mode headless` for ACP or `--mode tui` for Web, and `--executable /selected/qualified-runtime/node_modules/.bin/dsh`. The API file must contain the selected case's context, maximum-output-token, and reasoning fields. Equivalent `--max-output-tokens` and `--dsh-reasoning` flags are available for explicit non-secret overrides. The helper never reads ambient DSH auth or retargets the selected adapter after a failure.
+
 ## Launch and Follow-Up
 
 For headless execution, use the prompt selected by the test. The following minimal prompts are examples; execute them only as an authorized smoke test:
@@ -52,9 +56,17 @@ pixi run python scripts/agents/test-fixtures/fixture.py prompt \
 
 Raw headless launch requires a prompt and stores native JSONL/stderr privately. Its follow-up uses the captured provider session ID. Managed follow-up uses the captured authority and gateway. Do not guess a resume target or launch another agent as a substitute for resumption. A headless manager launch may create the agent without an initial prompt; raw headless may not.
 
+Use `fixture.py interrupt --run-dir /external/prepared-run` only when interruption is part of the selected test. It targets the captured managed authority or the birth-verified active raw driver. DSH uses native ACP cancellation or exact Web turn/incarnation interruption. Neither interruption nor reconnect authorizes replay. Use the opt-in [DSH qualification runner](../../../../scripts/qualification/dsh/README.md) for prompt/tool completion, exact resume, interruption, accounting, and isolated-home evidence.
+
 When the selected test needs online mail, continue with [attach-online-mail.md](attach-online-mail.md) for an existing normal account and an active managed gateway. A raw-client launch alone supplies no managed authority for this attachment.
 
 For passive birth, add the selected `--passive-url http://127.0.0.1:PORT` to `launch`. For TUI, omit the prompt initially, verify the live process and surface, then use `prompt` or the caller's input interface as appropriate. The fixture helper sends TUI text and Enter separately. A recorder caller retains ownership of recorded inputs and recording timing.
+
+For DSH Web, use the private browser connection mechanism and verify that the root token exchange redirects to a clean origin. Never share its launch token, signed URL, cookies, private logs, or browser storage. Select the exact published native session from the sidebar; the stock client has no qualified session-ID deep link. The programmatic Peer uses separate credentials with `interactions=none`. Browser navigation never retargets that API binding. The helper sends semantic Web prompts, so terminal key/capture/parser routes do not apply.
+
+Request the private handoff explicitly with `fixture.py browser-connection --run-dir /external/prepared-run`. Pass the resulting user-private descriptor path only to the intended local browser consumer. The command prints token-free identity and the path, without printing the token or signed URL. Use the [Web qualification runner](../../../../scripts/qualification/dsh/README.md#live-web-qualification) for the opt-in real-provider browser/API smoke; hermetic browser tests require no account.
+
+In a mixed-control test, alternate browser and API prompts on the same native session, verify shared native history, then inspect human-origin usage separately from managed attempts. Use `as_is` when a human question must be answered in the browser. An ordinary busy/question-blocked delivery is refused rather than buffered. After uncertain admission, inspect the original receipt and state without resending; explicit operator queueing and lifecycle actions need their own selected test steps.
 
 ## Verification and Handoff
 

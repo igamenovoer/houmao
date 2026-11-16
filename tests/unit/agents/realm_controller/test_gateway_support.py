@@ -3082,21 +3082,36 @@ def _seed_headless_gateway_root(
     managed_api_base_url: str | None = None,
     managed_agent_ref: str | None = None,
     include_local_authority: bool = True,
+    tool: str = "claude",
 ) -> Path:
-    manifest_path = default_manifest_path(tmp_path, "claude_headless", "claude-headless-1")
+    plan = _sample_headless_plan(tmp_path)
+    if tool == "dsh":
+        plan = replace(
+            plan,
+            backend="dsh_acp",
+            tool="dsh",
+            executable="dsh",
+            home_env_var="DSH_HOME",
+            args=[],
+            role_injection=replace(plan.role_injection, method="native_system_prompt_section"),
+            metadata={"headless_output_format": "dsh-acp"},
+        )
+    runtime_session_id = f"{tool}-headless-1"
+    native_session_id = f"{tool}-session-1"
+    manifest_path = default_manifest_path(tmp_path, plan.backend, runtime_session_id)
     agent_def_dir = (tmp_path / "agents").resolve() if include_local_authority else None
     payload = build_session_manifest_payload(
         SessionManifestRequest(
-            launch_plan=_sample_headless_plan(tmp_path),
+            launch_plan=plan,
             role_name="role",
             brain_manifest_path=tmp_path / "brain.yaml",
             agent_name="HOUMAO-headless",
             agent_id=derive_agent_id_from_name("HOUMAO-headless"),
             tmux_session_name="HOUMAO-headless",
-            session_id="claude-headless-1",
+            session_id=runtime_session_id,
             agent_def_dir=agent_def_dir,
             backend_state={
-                "session_id": "claude-session-1",
+                "session_id": native_session_id,
                 "api_base_url": managed_api_base_url,
                 "managed_agent_ref": managed_agent_ref,
             },
@@ -3106,12 +3121,12 @@ def _seed_headless_gateway_root(
     paths = ensure_gateway_capability(
         GatewayCapabilityPublication(
             manifest_path=manifest_path,
-            backend="claude_headless",
-            tool="claude",
-            session_id="claude-headless-1",
+            backend=plan.backend,
+            tool=tool,
+            session_id=runtime_session_id,
             tmux_session_name="HOUMAO-headless",
             working_directory=tmp_path,
-            backend_state={"session_id": "claude-session-1"},
+            backend_state={"session_id": native_session_id},
             agent_def_dir=tmp_path / "agents",
         )
     )
@@ -3297,6 +3312,7 @@ class _FakeGatewayHeadlessSession:
         backend: str = "claude_headless",
     ) -> None:
         self.backend = backend
+        self.native_invocation_active = False
         self.state = type(
             "State",
             (),
@@ -7908,17 +7924,20 @@ def test_gateway_mail_notifier_persistent_degraded_context_enqueues_without_muta
     assert state_row is None or state_row == (0,)
 
 
+@pytest.mark.parametrize("tool", ["claude", "dsh"])
 def test_gateway_mail_notifier_headless_uses_current_context_without_clean_context_selector(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    tool: str,
 ) -> None:
-    gateway_root = _seed_headless_gateway_root(tmp_path)
+    gateway_root = _seed_headless_gateway_root(tmp_path, tool=tool)
     _deliver_unread_mailbox_message(
         tmp_path,
         recipient_principal_id=derive_agent_id_from_name("HOUMAO-headless"),
         recipient_address="HOUMAO-headless@agents.localhost",
     )
-    fake_session = _FakeGatewayHeadlessSession()
+    backend = "dsh_acp" if tool == "dsh" else "claude_headless"
+    fake_session = _FakeGatewayHeadlessSession(backend=backend)
     fake_controller = _FakeGatewayHeadlessController(fake_session)
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
@@ -7975,13 +7994,14 @@ def test_gateway_mail_notifier_headless_uses_current_context_without_clean_conte
     try:
         runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1), channel="offline")
         assert fake_session.started_event.wait(timeout=5.0)
+        _wait_until(lambda: len(fake_session.prompt_calls) >= 2, timeout_seconds=5.0)
     finally:
         runtime.shutdown()
 
     assert fake_session.session_selections
     assert getattr(fake_session.session_selections[0], "mode", None) != "new"
     paths = gateway_paths_from_manifest_path(
-        default_manifest_path(tmp_path, "claude_headless", "claude-headless-1")
+        default_manifest_path(tmp_path, backend, f"{tool}-headless-1")
     )
     assert paths is not None
     audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
@@ -8645,11 +8665,11 @@ class _PluginDispatchAdapter:
 
 
 def _plugin_dispatch_runtime(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, tool: str = "claude"
 ) -> tuple[GatewayServiceRuntime, _PluginDispatchAdapter]:
     """Start the real core with a controlled native adapter and ordinary storage."""
 
-    root = _seed_headless_gateway_root(tmp_path)
+    root = _seed_headless_gateway_root(tmp_path, tool=tool)
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=root, host="127.0.0.1", port=43123
     )
@@ -8672,12 +8692,13 @@ def _dispatch_test_event(runtime: GatewayServiceRuntime, timeout: float = 1.0) -
     )
 
 
+@pytest.mark.parametrize("tool", ["claude", "dsh"])
 def test_plugin_dispatch_waits_for_handoff_but_not_completed_turn(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tool: str
 ) -> None:
     """A started thread is insufficient; a confirmed native handoff is sufficient."""
 
-    runtime, adapter = _plugin_dispatch_runtime(tmp_path, monkeypatch)
+    runtime, adapter = _plugin_dispatch_runtime(tmp_path, monkeypatch, tool=tool)
     results: list[object] = []
     sender = threading.Thread(target=lambda: results.append(_dispatch_test_event(runtime)))
     sender.start()
@@ -8707,12 +8728,13 @@ def test_plugin_dispatch_waits_for_handoff_but_not_completed_turn(
 
 
 @pytest.mark.parametrize("failure", ["death", "replacement", "launch", "timeout", "after_handoff"])
+@pytest.mark.parametrize("tool", ["claude", "dsh"])
 def test_plugin_failed_attempt_never_dispatches_after_recovery(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str, tool: str
 ) -> None:
     """An unsuccessful request cannot later reach a ready or replacement body."""
 
-    runtime, adapter = _plugin_dispatch_runtime(tmp_path, monkeypatch)
+    runtime, adapter = _plugin_dispatch_runtime(tmp_path, monkeypatch, tool=tool)
     errors: list[PluginDispatchError] = []
 
     def send() -> None:
@@ -8766,12 +8788,13 @@ def test_plugin_failed_attempt_never_dispatches_after_recovery(
         runtime.shutdown()
 
 
+@pytest.mark.parametrize("tool", ["claude", "dsh"])
 def test_plugin_busy_request_is_immediate_and_is_not_queued(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tool: str
 ) -> None:
     """Concurrent sender attempts fail while a confirmed headless turn runs."""
 
-    runtime, adapter = _plugin_dispatch_runtime(tmp_path, monkeypatch)
+    runtime, adapter = _plugin_dispatch_runtime(tmp_path, monkeypatch, tool=tool)
     adapter.release.set()
     try:
         _dispatch_test_event(runtime)

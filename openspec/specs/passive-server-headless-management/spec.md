@@ -23,7 +23,7 @@ The endpoint SHALL reject invalid launch inputs with HTTP 422, call `start_runti
 - **AND THEN** the response body explains the validation failure
 
 #### Scenario: Unsupported backend returns 422
-- **WHEN** a caller sends `POST /houmao/agents/headless/launches` with a tool whose resolved backend is not one of `claude_headless`, `codex_headless`, `kimi_headless`, or `gemini_headless`
+- **WHEN** a caller sends `POST /houmao/agents/headless/launches` with a tool whose resolved backend is not one of `claude_headless`, `codex_headless`, `kimi_headless`, or `dsh_acp`
 - **THEN** the response status code is 422
 
 #### Scenario: Successful Kimi headless launch
@@ -31,6 +31,11 @@ The endpoint SHALL reject invalid launch inputs with HTTP 422, call `start_runti
 - **THEN** the response status code is 200
 - **AND THEN** the response body contains `tracked_agent_id`, `manifest_path`, `session_root`, and `detail`
 - **AND THEN** the launched Kimi agent can accept later managed turn submissions through the passive server
+
+#### Scenario: Successful DSH ACP Launch
+- **WHEN** a caller supplies valid DSH inputs that resolve to `dsh_acp`
+- **THEN** the passive server returns normal managed launch metadata
+- **AND THEN** later prompt, interrupt, stop, and usage operations use the saved DSH authority
 
 ### Requirement: Passive server headless launch publishes shared-registry state
 `POST /houmao/agents/headless/launches` SHALL explicitly publish a `LiveAgentRegistryRecordV2` for the launched headless agent after `start_runtime_session()` succeeds and before the launch is reported as successful.
@@ -254,3 +259,17 @@ The passive server SHALL expose `GET /houmao/agents/{agent_ref}/usage` with opti
 
 - **WHEN** a caller saves the cursor from the current final page and another turn later finalizes
 - **THEN** the next request after that cursor returns the new record without repeating earlier history
+
+### Requirement: Passive Server Preserves DSH Headless Execution Evidence
+
+Server-managed DSH headless turns SHALL expose canonical semantic events and preserve raw ACP output as a distinct provider-debug artifact. Restart recovery SHALL preserve exact native session selection, active-attempt ownership, terminal results, and shared usage identities without replaying an admitted prompt.
+
+#### Scenario: DSH Events and Raw Output Are Queried
+- **WHEN** a caller retrieves a completed DSH turn's event stream and stdout artifact
+- **THEN** events contain normalized semantic records and the raw provider artifact retains the ACP frames
+- **AND THEN** neither response is replaced by rendered tmux console text
+
+#### Scenario: Passive Server Restarts After Native Admission
+- **WHEN** the passive server restarts while an owned DSH attempt is active or durably terminal
+- **THEN** it recovers or reconciles that attempt from its authority and evidence
+- **AND THEN** it does not start another process or resend the prompt merely to reconstruct status

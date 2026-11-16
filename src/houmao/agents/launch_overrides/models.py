@@ -12,6 +12,8 @@ SupportedLaunchBackend: TypeAlias = Literal[
     "codex_app_server",
     "claude_headless",
     "kimi_headless",
+    "dsh_acp",
+    "dsh_web",
     "cao_rest",
 ]
 ToolParamValueType: TypeAlias = Literal["boolean"]
@@ -25,6 +27,8 @@ _SUPPORTED_LAUNCH_BACKENDS: Final[frozenset[str]] = frozenset(
         "codex_app_server",
         "claude_headless",
         "kimi_headless",
+        "dsh_acp",
+        "dsh_web",
         "cao_rest",
     }
 )

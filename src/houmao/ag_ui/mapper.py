@@ -34,6 +34,7 @@ from houmao.ag_ui.graphics import (
 from houmao.ag_ui.runtime import AgUiTuiObservation
 from houmao.ag_ui.state import JsonObject, JsonValue
 from houmao.agents.realm_controller.backends.headless_output import CanonicalHeadlessEvent
+from houmao.agents.realm_controller.gateway_models import GatewayWebControlStateV1
 
 
 class AgUiEventMapper:
@@ -171,6 +172,26 @@ class AgUiEventMapper:
                 )
             )
         return events
+
+    def map_web_observation(
+        self,
+        observation: GatewayWebControlStateV1,
+        *,
+        sequence_index: int,
+    ) -> list[BaseEvent]:
+        """Publish shared native activity without attributing human output to a caller."""
+
+        return [
+            ActivitySnapshotEvent(
+                message_id=f"{self.m_run_id}:web:{sequence_index}",
+                activity_type="houmao.web.state",
+                content=json.dumps(
+                    {"source": "houmao.web", "state": observation.model_dump(mode="json")},
+                    sort_keys=True,
+                ),
+                replace=True,
+            )
+        ]
 
     def graphic_artifact_events(
         self,

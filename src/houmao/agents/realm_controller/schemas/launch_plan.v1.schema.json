@@ -29,6 +29,31 @@
           "title": "Transport",
           "type": "string"
         },
+        "channel": {
+          "const": "offline",
+          "title": "Channel",
+          "type": "string"
+        },
+        "agent_id": {
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "binding_id": {
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "registry_root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Registry Root"
+        },
         "principal_id": {
           "title": "Principal Id",
           "type": "string"
@@ -69,12 +94,72 @@
       },
       "required": [
         "transport",
+        "channel",
+        "agent_id",
+        "binding_id",
         "principal_id",
         "address",
         "bindings_version",
         "filesystem_root"
       ],
       "title": "LaunchPlanMailboxFilesystemV1",
+      "type": "object"
+    },
+    "LaunchPlanMailboxRegistryV1": {
+      "additionalProperties": false,
+      "description": "Protected remote offline binding; no registry-local paths are accepted.",
+      "properties": {
+        "transport": {
+          "const": "registry",
+          "title": "Transport",
+          "type": "string"
+        },
+        "channel": {
+          "const": "offline",
+          "title": "Channel",
+          "type": "string"
+        },
+        "agent_id": {
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "binding_id": {
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "principal_id": {
+          "title": "Principal Id",
+          "type": "string"
+        },
+        "address": {
+          "title": "Address",
+          "type": "string"
+        },
+        "bindings_version": {
+          "title": "Bindings Version",
+          "type": "string"
+        },
+        "registry_url": {
+          "title": "Registry Url",
+          "type": "string"
+        },
+        "credential_ref": {
+          "title": "Credential Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "transport",
+        "channel",
+        "agent_id",
+        "binding_id",
+        "principal_id",
+        "address",
+        "bindings_version",
+        "registry_url",
+        "credential_ref"
+      ],
+      "title": "LaunchPlanMailboxRegistryV1",
       "type": "object"
     },
     "LaunchPlanMailboxStalwartV1": {
@@ -84,6 +169,24 @@
         "transport": {
           "const": "stalwart",
           "title": "Transport",
+          "type": "string"
+        },
+        "channel": {
+          "const": "online",
+          "title": "Channel",
+          "type": "string"
+        },
+        "provider": {
+          "const": "stalwart",
+          "title": "Provider",
+          "type": "string"
+        },
+        "agent_id": {
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "binding_id": {
+          "title": "Binding Id",
           "type": "string"
         },
         "principal_id": {
@@ -103,8 +206,52 @@
           "type": "string"
         },
         "management_url": {
-          "title": "Management Url",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Management Url"
+        },
+        "account_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Account Id"
+        },
+        "identity_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Identity Id"
+        },
+        "credential_source_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credential Source Ref"
         },
         "login_identity": {
           "title": "Login Identity",
@@ -117,11 +264,14 @@
       },
       "required": [
         "transport",
+        "channel",
+        "provider",
+        "agent_id",
+        "binding_id",
         "principal_id",
         "address",
         "bindings_version",
         "jmap_url",
-        "management_url",
         "login_identity",
         "credential_ref"
       ],
@@ -137,6 +287,7 @@
             "native_developer_instructions",
             "native_append_system_prompt",
             "native_home_system_prompt",
+            "native_system_prompt_section",
             "bootstrap_message",
             "cao_profile"
           ],
@@ -204,6 +355,70 @@
       ],
       "title": "LaunchPolicyProvenanceV1",
       "type": "object"
+    },
+    "MailboxSlotPayloadV1": {
+      "additionalProperties": false,
+      "description": "Persisted slot authority, including empty-slot tombstone revisions.",
+      "properties": {
+        "revision": {
+          "minLength": 1,
+          "title": "Revision",
+          "type": "string"
+        },
+        "binding": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "filesystem": "#/$defs/LaunchPlanMailboxFilesystemV1",
+                  "registry": "#/$defs/LaunchPlanMailboxRegistryV1",
+                  "stalwart": "#/$defs/LaunchPlanMailboxStalwartV1"
+                },
+                "propertyName": "transport"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/LaunchPlanMailboxFilesystemV1"
+                },
+                {
+                  "$ref": "#/$defs/LaunchPlanMailboxStalwartV1"
+                },
+                {
+                  "$ref": "#/$defs/LaunchPlanMailboxRegistryV1"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Binding"
+        }
+      },
+      "required": [
+        "revision",
+        "binding"
+      ],
+      "title": "MailboxSlotPayloadV1",
+      "type": "object"
+    },
+    "MailboxesPayloadV1": {
+      "additionalProperties": false,
+      "description": "Both mailbox channels, each with independent revision authority.",
+      "properties": {
+        "offline": {
+          "$ref": "#/$defs/MailboxSlotPayloadV1"
+        },
+        "online": {
+          "$ref": "#/$defs/MailboxSlotPayloadV1"
+        }
+      },
+      "required": [
+        "offline",
+        "online"
+      ],
+      "title": "MailboxesPayloadV1",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -216,11 +431,29 @@
         "codex_app_server",
         "claude_headless",
         "kimi_headless",
+        "dsh_acp",
+        "dsh_web",
         "cao_rest",
         "houmao_server_rest"
       ],
       "title": "Backend",
       "type": "string"
+    },
+    "native_surface_kind": {
+      "anyOf": [
+        {
+          "enum": [
+            "terminal",
+            "web"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Native Surface Kind"
     },
     "tool": {
       "title": "Tool",
@@ -285,31 +518,8 @@
       "title": "Metadata",
       "type": "object"
     },
-    "mailbox": {
-      "anyOf": [
-        {
-          "discriminator": {
-            "mapping": {
-              "filesystem": "#/$defs/LaunchPlanMailboxFilesystemV1",
-              "stalwart": "#/$defs/LaunchPlanMailboxStalwartV1"
-            },
-            "propertyName": "transport"
-          },
-          "oneOf": [
-            {
-              "$ref": "#/$defs/LaunchPlanMailboxFilesystemV1"
-            },
-            {
-              "$ref": "#/$defs/LaunchPlanMailboxStalwartV1"
-            }
-          ]
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Mailbox"
+    "mailboxes": {
+      "$ref": "#/$defs/MailboxesPayloadV1"
     },
     "launch_policy_provenance": {
       "anyOf": [
@@ -332,7 +542,8 @@
     "home_selector",
     "env_var_names",
     "role_injection",
-    "metadata"
+    "metadata",
+    "mailboxes"
   ],
   "title": "LaunchPlanPayloadV1",
   "type": "object"

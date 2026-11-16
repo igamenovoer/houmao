@@ -15,14 +15,14 @@ from fixturelib.auth import (
     import_auth,
 )
 from fixturelib.config import FixtureError, ResolvedConfig, resolve_config
-from fixturelib.prepare import prepare_run
-from fixturelib.launch import check_run, launch_run, prompt_run, public_run, stop_run
+from fixturelib.prepare import load_run, prepare_run
+from fixturelib.launch import check_run, interrupt_run, launch_run, prompt_run, public_run, stop_run
 
 
 def add_case_arguments(parser: argparse.ArgumentParser) -> None:
     """Add explicit API case and client configuration selection."""
 
-    parser.add_argument("--client", choices=("claude", "codex", "kimi"))
+    parser.add_argument("--client", choices=("claude", "codex", "kimi", "dsh"))
     parser.add_argument("--case", choices=("self-hosted", "cloud-api"))
     parser.add_argument("--auth-method", choices=("api-key", "native-login"), default="api-key")
     parser.add_argument("--auth-bundle")
@@ -32,10 +32,15 @@ def add_case_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--env-file", type=Path)
     parser.add_argument("--descriptor", type=Path)
     parser.add_argument("--context-window", type=int)
+    parser.add_argument("--max-output-tokens", type=int)
+    parser.add_argument(
+        "--dsh-reasoning", help="Explicit DSH reasoning JSON: false or preset mapping"
+    )
     parser.add_argument("--capabilities", help="Explicit comma-separated model capabilities")
     parser.add_argument("--reasoning-key")
     parser.add_argument("--reasoning-effort")
     parser.add_argument("--mode", choices=("headless", "tui"), default="headless")
+    parser.add_argument("--prompt-mode", choices=("unattended", "as_is"), default="unattended")
     parser.add_argument(
         "--surface", choices=("raw", "manager", "passive-server"), default="manager"
     )
@@ -74,10 +79,10 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     prepare.add_argument("--role", default="server-api-smoke")
     prepare.add_argument("--system-prompt-file", type=Path)
     prepare.add_argument("--executable")
-    for name in ("launch", "prompt", "stop"):
+    for name in ("launch", "prompt", "interrupt", "stop", "browser-connection"):
         command = commands.add_parser(name, help=f"{name.title()} one prepared external run")
         command.add_argument("--run-dir", type=Path, required=True)
-        if name != "stop":
+        if name in {"launch", "prompt"}:
             command.add_argument("--prompt", required=name == "prompt")
             command.add_argument("--timeout", type=float, default=300)
         if name == "launch":
@@ -91,6 +96,8 @@ def selected_configuration(args: argparse.Namespace) -> ResolvedConfig:
     if args.client is None:
         raise FixtureError("Select --client for configuration preparation")
     if args.auth_method == "native-login":
+        if args.client == "dsh":
+            raise FixtureError("DSH fixtures support explicitly selected API credentials only")
         if args.case is not None or args.env_file is not None or args.base_url is not None:
             raise FixtureError("Native login selection is independent of API case/env routing")
         if not args.auth_bundle:
@@ -101,6 +108,7 @@ def selected_configuration(args: argparse.Namespace) -> ResolvedConfig:
             client=args.client,
             mode=args.mode,
             surface=args.surface,
+            operator_prompt_mode=args.prompt_mode,
             auth_method="native-login",
             model=args.model,
             native_bundle=bundle_path(
@@ -114,11 +122,14 @@ def selected_configuration(args: argparse.Namespace) -> ResolvedConfig:
         client=args.client,
         mode=args.mode,
         surface=args.surface,
+        operator_prompt_mode=args.prompt_mode,
         model=args.model,
         base_url=args.base_url,
         env_file=args.env_file,
         descriptor_path=args.descriptor,
         context_window=args.context_window,
+        max_output_tokens=args.max_output_tokens,
+        dsh_reasoning=args.dsh_reasoning,
         capabilities=[item.strip() for item in args.capabilities.split(",")]
         if args.capabilities is not None
         else None,
@@ -180,6 +191,14 @@ def main(argv: list[str] | None = None) -> int:
             payload = prompt_run(args.run_dir, prompt=args.prompt, timeout=args.timeout)
         elif args.command == "stop":
             payload = stop_run(args.run_dir)
+        elif args.command == "interrupt":
+            payload = interrupt_run(args.run_dir)
+        elif args.command == "browser-connection":
+            from fixturelib.web import browser_connection_file
+
+            run = load_run(args.run_dir)
+            connection = browser_connection_file(run)
+            payload = {"connection_file": str(connection), "identity": run["identity"]}
         else:
             config = selected_configuration(args)
             if args.command == "prepare":

@@ -1,0 +1,82 @@
+schema_version: 1
+tool: dsh
+strategies:
+  - strategy_id: dsh-acp-unattended-0.2.2-rc.3
+    operator_prompt_mode: unattended
+    backends:
+      - dsh_acp
+      - raw_launch
+    supported_versions: "==0.2.2rc3"
+    minimal_inputs:
+      credential_forms:
+        - Explicit API key and endpoint references selected by dsh-setup.yaml
+      requires_user_prepared_state: false
+      notes:
+        - DSH uses isolated managed profiles with no-question startup policy.
+        - Native login, implicit provider fallback, and interactive Web control are unsupported in this headless change.
+        - Runtime preparation identifies the actual executable and installed package bytes independently of the ACP handshake version.
+    system_prompt:
+      method: native_system_prompt_section
+      owned_surface: Houmao literal native system-prompt section
+      precedence_conflicts:
+        - --profile
+        - --config
+        - --patch
+      required_engine_env: {}
+      evidence:
+        - kind: source_reference
+          ref: extern/orphan/deepseek-harness/packages/core/system-prompt/README.md
+          note: Native additive sections support interpolate false and preserve built-in instructions.
+    evidence:
+      - kind: source_reference
+        ref: extern/orphan/deepseek-harness/packages/acp/acp/src/session.ts
+        note: Pinned source 39163dd30f703a79079e2d2446545cff3c453738 establishes ACP lifecycle, cancellation, and exact continuation.
+      - kind: live_probe
+        ref: tests/integration/agents/dsh/test_native_companion.py
+        note: Isolated DSH 0.2.2-rc.3 qualifies literal roles, native admission, persistence, and pre-activation abandoned-input reconciliation against a controlled model.
+    owned_paths:
+      - path: houmao-profile.patch.json
+        keys:
+          - managed provider and model route
+          - isolated persistence and selected skill roots
+          - startup permissions and disabled autonomous root work
+    actions: []
+  - strategy_id: dsh-web-unattended-0.2.2-rc.3
+    operator_prompt_mode: unattended
+    backends:
+      - dsh_web
+    supported_versions: "==0.2.2rc3"
+    minimal_inputs:
+      credential_forms:
+        - Explicit API key and endpoint references selected by dsh-setup.yaml
+      requires_user_prepared_state: false
+      notes:
+        - The owned loopback Web Host uses an isolated home and a separate API connection from the browser.
+        - Startup selects the no-question native policy; later observation and reconnection retain live human model and permission changes.
+        - Raw keys, terminal parser controls, and external Web Host adoption are unsupported.
+    system_prompt:
+      method: native_system_prompt_section
+      owned_surface: Houmao literal native system-prompt section
+      precedence_conflicts:
+        - --profile
+        - --config
+        - --patch
+      required_engine_env: {}
+      evidence:
+        - kind: source_reference
+          ref: extern/orphan/deepseek-harness/packages/core/system-prompt/README.md
+          note: Native additive sections preserve the built-in prompt and literal role bytes.
+    evidence:
+      - kind: source_reference
+        ref: extern/orphan/deepseek-harness/packages/api/session-controller/src/agent.ts
+        note: Pinned revision 39163dd30f703a79079e2d2446545cff3c453738 supplies native shared-agent identity.
+      - kind: live_probe
+        ref: tests/integration/agents/dsh/web/test_native_control.py
+        note: Actual isolated 0.2.2-rc.3 Web Hosts qualify authenticated control and native conditional admission against a synthetic model.
+    owned_paths:
+      - path: houmao-web
+        keys:
+          - private Web profile and owned listener configuration
+          - independent authenticated API connection and exact native incarnation
+          - startup permissions and literal role projection
+    actions: []

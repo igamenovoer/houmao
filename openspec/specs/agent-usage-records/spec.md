@@ -298,3 +298,111 @@ Public records SHALL expose only allowlisted accounting evidence and safe proven
 
 - **WHEN** an input event contains accounting fields alongside prompt, tool, or credential data
 - **THEN** the usage response includes only the allowed accounting fields and safe source references
+
+### Requirement: DSH Consumption Uses Qualified Native Journal Evidence
+
+DSH accounting SHALL use a qualified native journal bound to the managed home and exact native session. ACP context-occupancy updates SHALL remain distinct from consumed-token measurements. Unsupported journal formats, missing evidence, or unreadable sources SHALL produce explicit collection limitations while preserving finalized history.
+
+#### Scenario: ACP Reports Occupancy Without Consumption
+- **WHEN** ACP exposes a usage update with used context and capacity but the journal has no valid provider token sample
+- **THEN** consumption metrics remain unavailable
+- **AND THEN** the occupancy value is not charged as input or total tokens
+
+#### Scenario: Native Journal Encoding Is Unsupported
+- **WHEN** a bound DSH journal has an unqualified format or encoding
+- **THEN** collection reports the unsupported source without interpreting arbitrary lines or erasing earlier records
+
+### Requirement: DSH Request Attempts Contribute Once
+
+DSH accounting SHALL distinguish native turns, steps, provider attempts, and inherited history. Repeated samples within one attempt SHALL not become repeated charges; separately billed retries SHALL remain distinct. Failed or interrupted attempts SHALL preserve reported usage, and absent measurements SHALL remain unknown.
+
+#### Scenario: A Step Retries a Billed Request
+- **WHEN** a native step records usage for a failed attempt and usage for a later retry
+- **THEN** both distinct settled attempts contribute once when their lifecycle evidence establishes separate requests
+
+#### Scenario: A Settled Message Repeats an Attempt Sample
+- **WHEN** the same provider attempt's usage appears in its embedded stream and settled message metadata
+- **THEN** the selected authoritative sample contributes once with provenance for the source evidence
+
+#### Scenario: Interrupted Work Has No Reported Usage
+- **WHEN** a DSH attempt terminates before any valid provider usage is preserved
+- **THEN** its final record retains the outcome with unavailable token metrics instead of zero-valued estimates
+
+### Requirement: DSH Token Normalization Preserves Disjoint Buckets
+
+DSH uncached input, cache-read input, cache-write input, output, reasoning, and exact reported totals SHALL retain their validated meanings. Normalized totals SHALL use reported values or a verified formula with explicit provenance. Missing cache buckets SHALL not be assumed zero, and reasoning already included in output SHALL not be added again.
+
+#### Scenario: DSH Reports All Disjoint Input Buckets
+- **WHEN** a request reports uncached input, cache reads, cache writes, and output under the qualified DSH contract
+- **THEN** normalization records each bucket and derives aggregate input or total only through the validated disjoint-bucket formula
+
+#### Scenario: A Cache Bucket Is Absent
+- **WHEN** a request omits a cache bucket and supplies no exact total that resolves the missing measurement
+- **THEN** the affected aggregate remains partial or unavailable
+- **AND THEN** an explicitly reported zero remains distinguishable from the missing bucket
+
+### Requirement: A DSH Managed Interval Can Cover Multiple Native Turns
+
+One managed DSH submission SHALL be associated with its verified native admission and all proven root activity in its owned interval. Multiple native turns SHALL not force fabricated one-to-one provider identities. Descendant work SHALL identify its actual inclusion scope; unproven association SHALL remain unknown rather than inferred from timing alone.
+
+#### Scenario: A Child Result Starts Another Root Turn
+- **WHEN** one ACP prompt remains active across an initial root turn and a later root turn triggered by managed child completion
+- **THEN** the managed record includes the proven root attempt evidence once across those native boundaries
+- **AND THEN** child measurements identify whether they overlap, are separate, are excluded, or have unknown inclusion
+
+#### Scenario: The Same Interval Is Recovered Twice
+- **WHEN** recovery observes the same terminal interval after a controller or recorder restart
+- **THEN** the original managed accounting identity and evidence cutoff produce at most one immutable final record
+
+### Requirement: DSH Resume Establishes Nonchargeable Historical Boundaries
+
+Starting or resuming DSH collection SHALL preserve the attachment boundary, journal continuity, accepted offsets, and original terminal facts. Resumed history and copied ancestor evidence SHALL not be charged as new work. A truncated tail or replaced generation SHALL require continuity validation before new measurements are attributed.
+
+#### Scenario: Resume Reads Earlier Completed Turns
+- **WHEN** the exact native session contains completed history before the managed turn's starting boundary
+- **THEN** those earlier requests remain nonchargeable for the new turn
+
+#### Scenario: Collection Stops Before Its Checkpoint Commits
+- **WHEN** collection restarts after reading a DSH request but before advancing its durable checkpoint
+- **THEN** ingestion safely reprocesses that evidence without a duplicate usage record
+
+### Requirement: DSH Web Accounting Includes Verified Human-Initiated Work
+
+The bound DSH Web session SHALL use the shared native-journal accounting contract for human and managed work. Native turn identity, terminal outcome, source boundaries, and actual request route SHALL establish accounting. Browser connection state and visible output SHALL not substitute for provider evidence, and unrelated host sessions SHALL remain excluded.
+
+#### Scenario: A Human Completes a Browser Turn
+- **WHEN** a human submits work directly to the bound Web session and qualified native evidence records its requests and terminal outcome
+- **THEN** a native-observed usage record appears in the existing runtime-session stream
+- **AND THEN** no Houmao prompt submission is required to make that work accountable
+
+#### Scenario: Human Changes the Model in the Browser
+- **WHEN** later native requests use a model/provider route selected through the browser
+- **THEN** their usage retains that actual route evidence
+- **AND THEN** earlier records are not relabeled with the new model selection
+
+### Requirement: Mixed Web Input Does Not Create Duplicate or Invented Charges
+
+Managed Web submissions SHALL correlate through native input identity and claim evidence. A native turn containing human and managed input SHALL be accounted once with its real scope; token shares by sender SHALL not be fabricated. Human work outside a proven managed association SHALL remain independently native-observed rather than being absorbed by a broad wait-for-idle interval.
+
+#### Scenario: Human Steering Shares a Managed Turn
+- **WHEN** human steering is consumed within a native turn also associated with a managed submission
+- **THEN** the turn's provider requests contribute once with mixed-input attribution
+- **AND THEN** collection does not emit an additional human record covering those same requests
+
+#### Scenario: Human Follow-Up Runs Before a Programmatic Wait Returns
+- **WHEN** a human's distinct follow-up turn runs before a shared-session wait becomes idle
+- **THEN** its usage follows its actual native input/turn association
+- **AND THEN** wait timing alone does not charge that turn to the earlier managed submission
+
+### Requirement: Web Observation Recovery Preserves Accounting Continuity
+
+DSH Web API reconnection, gateway restart, and explicit host relaunch SHALL preserve existing journal bindings, accounting identities, and finalized records. Repeated API events and native journal copies SHALL contribute once. Unknown observation gaps SHALL remain explicit, and failed attempts SHALL never be executed again to reconstruct usage.
+
+#### Scenario: API Stream Repeats Events After Reconnect
+- **WHEN** a Web event is observed again after connection recovery and also exists in the bound journal
+- **THEN** the same native request contributes once using its verified source identity
+
+#### Scenario: Host Relaunch Preserves a Conversation
+- **WHEN** explicit relaunch restores the same native conversation under another host incarnation
+- **THEN** new observations retain the correct generation and historical baseline
+- **AND THEN** prior usage is not charged again merely because the connection identity changed

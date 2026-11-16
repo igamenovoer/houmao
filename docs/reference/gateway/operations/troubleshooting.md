@@ -2,6 +2,10 @@
 
 This page covers the current operator-facing failure modes for gateway attach, live readiness, and same-session gateway lifecycle.
 
+## Web Supervisor Is Alive but Native Control Is Unavailable
+
+For `dsh_web`, inspect `/v1/control/web/state`. A healthy gateway or supervisor pane does not establish native readiness. Revoked API credentials, stale observation, a disposed native agent, and execution identity changes close ordinary admission. Passive inspection may use a verified direct native source with the same detail contract; otherwise it reports unavailable state. Use explicit verified reconnection or managed lifecycle controls, then inspect receipts/history for uncertain outcomes. Previous input is never resent automatically. Raw keys and TUI timing flags are unsupported for Web agents. See [DSH Web Gateway and Passive Observation](../../run-phase/dsh-web-integrations.md).
+
 ## Attach Times Out Waiting For Health Readiness
 
 If attach reports `Timed out waiting for gateway health readiness on 127.0.0.1:<port>.`, the runtime started a gateway surface and discovered the intended listener, but repeated `GET /health` probes did not return a valid gateway health payload before the readiness deadline.

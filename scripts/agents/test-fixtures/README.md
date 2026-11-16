@@ -46,7 +46,7 @@ pixi run python scripts/agents/test-fixtures/fixture.py stop --run-dir /external
 
 Use the `run_dir` returned by `prepare`. Preparation performs local validation and project construction without contacting the model endpoint. Each invocation creates a unique run with private `assets/`, `home/`, `workdir/`, `private-env.json`, and `run.json`. Launch records the actual owned runtime path, including project-overlay runtime placement. Managed preparation uses current project/tool/credential/specialist behavior. Secret-bearing credential commands execute in-process, so keys do not become OS arguments. Generated setups contain routing and model metadata; private credential files hold keys.
 
-`--surface raw` starts the installed client directly for native-format qualification. Raw headless launch requires a prompt, writes `raw-turn-N.jsonl`/`.stderr` privately, and captures an exact provider session ID for later `prompt` calls. Raw TUI uses an owned tmux session. `--surface manager` uses `houmao-mgr project agents launch` with a project specialist. Headless prompts use the existing gateway, and TUI prompts send literal text and Enter separately. TUI runs use unattended mode. Kimi prompt mode omits `--auto`, because that flag is incompatible with prompt mode.
+`--surface raw` starts the installed client for native-format qualification. Raw headless launch requires a prompt, writes `raw-turn-N.jsonl`/`.stderr` privately, and captures an exact provider session ID for later `prompt` calls. Terminal TUI clients use an owned tmux session. `--surface manager` uses `houmao-mgr project agents launch` with a project specialist. Headless and DSH Web prompts use semantic control; terminal TUI prompts send literal text and Enter separately. Automation defaults to `--prompt-mode unattended`; select `--prompt-mode as_is` deliberately for human interaction tests. Kimi prompt mode omits `--auto`, because that flag is incompatible with prompt mode.
 
 `--surface passive-server` supports headless birth only. Start `houmao-passive-server` with external runtime/registry roots, then pass its local authority URL with `launch --passive-url http://127.0.0.1:PORT`. The helper builds the selected brain and uses `/houmao/agents/headless/launches` and `/houmao/agents/{id}/turns`. The server runs on the same dev box and must be able to read those private paths. TUI birth uses the manager.
 
@@ -61,6 +61,35 @@ For direct follow-up, use the recorded `agent_id` with `houmao-mgr agents single
 Claude uses Anthropic Messages, Codex uses Responses, and Kimi uses Chat Completions. Supply the API root for Claude, without an added trailing `/v1`; the client appends `/v1/messages`. Codex and Kimi preserve a supplied version/custom prefix. A descriptor must declare the selected protocol; a Chat-only server cannot qualify Codex.
 
 Model selection is always explicit for API cases. Kimi additionally requires `--context-window TOKENS` or the case's context reference. Capabilities default to `tool_use`; opt into `thinking` or `image_in` only for a qualified model. Optional `--reasoning-key`, `--reasoning-effort`, `--context-window`, and `--capabilities` project selected values without inheriting historical model assumptions. Codex renders an explicit model/provider and optional context/effort; the generic tracked template requires a selected `OPENAI_BASE_URL` at build time. Empty or conflicting routing fails before launch.
+
+## DSH ACP and Web
+
+DSH uses `--client dsh --mode headless` for ACP on `raw`, `manager`, and `passive-server` surfaces. Its `--mode tui` posture selects the native Web surface on `raw` and `manager`. Web qualification is tracked separately in the [compatibility reference](../../../docs/reference/run-phase/dsh-web.md) and [scenario map](../../../docs/reference/run-phase/dsh-web-acceptance.md); a passing ACP run does not qualify Web. Native-login selection is rejected before any private run is allocated. Install and explicitly select the qualified executable described in [DSH preparation](../../../tools/dsh/README.md); product launch never installs a runtime.
+
+Cloud configuration uses the native DeepSeek Messages adapter. Self-hosted configuration separately selects the pi-ai `openai-completions` adapter. Both require an exact model, context window, maximum output tokens, and declared reasoning support. Use `--dsh-reasoning false` for a model with reasoning disabled, or a JSON mapping such as `'{"0":"off","1":"low","2":"high"}'` only when that model and adapter support those efforts. The case metadata references can supply all three required metadata fields. DSH's Messages adapter preserves an explicit trailing `/v1` and otherwise appends it; endpoint URLs always name the root before `/messages`.
+
+```bash
+pixi run python scripts/agents/test-fixtures/fixture.py check \
+  --case cloud-api --client dsh --env-file /external/selected-deepseek.env
+pixi run python scripts/agents/test-fixtures/fixture.py prepare \
+  --case cloud-api --client dsh --mode headless --surface raw \
+  --env-file /external/selected-deepseek.env \
+  --executable /selected/qualified-runtime/node_modules/.bin/dsh
+```
+
+DSH reads only the explicitly selected external env file, with optional explicit non-secret flags. It never substitutes ambient API keys, model metadata, or native login. A new cloud host needs no self-hosted model or auth JSON. The generated setup references private credential variable names and contains no key. Every agent owns a DSH home, shared-agent root, selected skills, raw journal, and invocation artifacts.
+
+Raw DSH calls use the packaged ACP driver with create/exact-resume/prompt/close, rather than the one-shot CLI. `raw-turns/turn-N/provider-stdout.jsonl` retains native ACP frames separately from `raw-turn-N.jsonl` driver events. Continuation preserves the captured exact native ID and fails rather than selecting another session. `interrupt --run-dir PATH` sends native cancellation through the captured managed authority or the birth-verified raw driver; a timeout or interruption never resends a prompt.
+
+For Web preparation, use the same explicit case and env file with `--mode tui --surface manager` (or `raw`). The host stays headless at the operating-system level: it binds loopback and does not open a browser automatically. Select `--prompt-mode as_is` only when testing human questions or native approval behavior; normal automated browser checks retain unattended defaults.
+
+After launch, explicitly request `fixture.py browser-connection --run-dir /external/prepared-run` to create the private browser descriptor. This command returns a path and token-free identity, never the sign-in token itself. A deliberately chosen local browser consumer reads the descriptor; the maintained Bun browser qualification uses the same mechanism.
+
+Browser sign-in uses a private local URL obtained from the run's connection mechanism. Keep the token and browser cookies outside public summaries. The native root token exchange redirects to a clean origin. Select and verify the exact native session in the sidebar before submitting browser input; there is no supported `?sessionId=` shortcut. The programmatic adapter keeps its own API Peer with `interactions=none` and remains bound to its recorded session when the browser navigates elsewhere.
+
+Browser and API clients can alternate work on that same native session. A browser draft is local until submitted. Ordinary API delivery uses `ready_only`; busy, queued, maintenance, or question-blocked work refuses immediately. Explicit operator queueing requires its own policy selection. After a lost response, inspect the original receipt and state; reconnecting does not authorize resending. `interrupt` targets captured native activity and `stop` terminates only the owned host.
+
+Every helper-owned tmux command explicitly names a unique `-L` server. A private run-owned PATH shim applies the same target to managed runtime subprocesses, clearing inherited `TMUX` and `TMUX_PANE`. Cleanup stops only captured sessions/agents within that server. Raw headless ACP requires no tmux server. A separately started passive server must use its own explicit isolated tmux target; the client cannot change a pre-existing server's process environment.
 
 ## Qualification
 

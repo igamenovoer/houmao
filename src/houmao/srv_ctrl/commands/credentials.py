@@ -43,11 +43,12 @@ CredentialTargetKind = Literal["project", "agent_def_dir"]
 CredentialWriteOperation = Literal["add", "set"]
 CredentialLoginOperation = Literal["add", "set"]
 
-_SUPPORTED_CREDENTIAL_TOOLS: tuple[str, ...] = ("claude", "codex", "kimi")
+_SUPPORTED_CREDENTIAL_TOOLS: tuple[str, ...] = ("claude", "codex", "kimi", "dsh")
 _TOOL_DISPLAY_NAMES: dict[str, str] = {
     "claude": "Claude",
     "codex": "Codex",
     "kimi": "Kimi",
+    "dsh": "DeepSeek Harness",
 }
 _SECRET_ENV_TOKENS: tuple[str, ...] = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 _CLAUDE_RUNTIME_STATE_TEMPLATE_FILENAME = "claude_state.template.json"
@@ -71,8 +72,12 @@ _PROVIDER_HOME_ENV_VARS: dict[str, str] = {
     "claude": "CLAUDE_CONFIG_DIR",
     "codex": "CODEX_HOME",
     "kimi": "KIMI_CODE_HOME",
+    "dsh": "DSH_HOME",
 }
 _PROVIDER_AUTH_ENV_VARS: dict[str, frozenset[str]] = {
+    "dsh": frozenset(
+        {"DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL_ANTHROPIC", "OPENAI_API_KEY", "OPENAI_BASE_URL"}
+    ),
     "claude": frozenset(
         {
             "ANTHROPIC_API_KEY",
@@ -216,6 +221,29 @@ def ensure_specialist_credential_bundle(
         )
         if kimi_code_home is not None:
             clear_file_sources = set(_KIMI_CODE_HOME_FILE_SOURCES)
+    elif tool == "dsh":
+        if any(
+            value is not None
+            for value in (
+                claude_auth_token,
+                claude_oauth_token,
+                claude_state_template_file,
+                claude_config_dir,
+                codex_org_id,
+                codex_auth_json,
+                kimi_model_name,
+                kimi_config_toml,
+                kimi_credential_json,
+                kimi_code_home,
+            )
+        ):
+            raise click.ClickException(
+                "DSH supports explicit API credentials; native login import is unsupported."
+            )
+        env_values = _compact_env_values(
+            {"DEEPSEEK_API_KEY": api_key, "DEEPSEEK_BASE_URL_ANTHROPIC": base_url}
+        )
+        file_sources = {}
     else:
         raise click.ClickException(f"Unsupported specialist tool `{tool}`.")
 
@@ -480,9 +508,68 @@ def _build_tool_group(*, tool: str, project_only: bool, native_only: bool = Fals
         tool_group.add_command(
             _build_kimi_set_command(project_only=project_only, native_only=native_only)
         )
+    elif tool == "dsh":
+        for operation in ("add", "set"):
+            tool_group.add_command(
+                _build_dsh_write_command(
+                    operation=operation, project_only=project_only, native_only=native_only
+                )
+            )
     else:
         raise click.ClickException(f"Unsupported credential tool `{tool}`.")
     return tool_group
+
+
+def _build_dsh_write_command(
+    *, operation: CredentialWriteOperation, project_only: bool, native_only: bool
+) -> click.Command:
+    """Build an API-only DSH credential writer with an explicitly selected adapter."""
+
+    @click.command(name=operation)
+    @_target_options(project_only, native_only=native_only)
+    @click.option("--name", required=True, help="Credential name.")
+    @click.option("--adapter", type=click.Choice(("deepseek", "pi-ai")), required=True)
+    @click.option("--api-key", default=None, help="Selected adapter's API key.")
+    @click.option("--base-url", default=None, help="Selected adapter's protocol endpoint.")
+    def write_command(
+        name: str,
+        adapter: str,
+        api_key: str | None,
+        base_url: str | None,
+        use_project: bool = False,
+        agent_def_dir: Path | None = None,
+        native_agent_root: Path | None = None,
+    ) -> None:
+        """Write explicit API credentials without discovering or importing native login state."""
+
+        target = _resolve_command_target(
+            project_only=project_only,
+            native_only=native_only,
+            use_project=use_project,
+            agent_def_dir=agent_def_dir,
+            native_agent_root=native_agent_root,
+            allow_project_bootstrap=True,
+        )
+        key_name, endpoint_name = (
+            ("DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL_ANTHROPIC")
+            if adapter == "deepseek"
+            else ("OPENAI_API_KEY", "OPENAI_BASE_URL")
+        )
+        emit(
+            _write_credential_bundle(
+                target=target,
+                tool="dsh",
+                name=name,
+                env_values=_compact_env_values({key_name: api_key, endpoint_name: base_url}),
+                file_sources={},
+                require_any_input=True,
+                operation=operation,
+                clear_env_names=set(),
+                clear_file_sources=set(),
+            )
+        )
+
+    return write_command
 
 
 def _build_list_command(

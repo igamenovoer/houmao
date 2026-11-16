@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import json
 import uuid
+import fcntl
+import os
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Callable, Literal, Mapping
+from typing import Callable, Iterator, Literal, Mapping
 
 from pydantic import ValidationError
 
@@ -449,8 +452,24 @@ def publish_managed_agent_record(
     *,
     env: Mapping[str, str] | None = None,
     now: datetime | None = None,
+    expected_generation_id: str | None = None,
 ) -> ManagedAgentRegistryRecordV3:
     """Publish or refresh one shared managed-agent record atomically."""
+
+    with _managed_agent_record_lock(record.agent_id, env=env):
+        return _publish_managed_agent_record_locked(
+            record, env=env, now=now, expected_generation_id=expected_generation_id
+        )
+
+
+def _publish_managed_agent_record_locked(
+    record: ManagedAgentRegistryRecordV3 | LiveAgentRegistryRecordV2,
+    *,
+    env: Mapping[str, str] | None,
+    now: datetime | None,
+    expected_generation_id: str | None,
+) -> ManagedAgentRegistryRecordV3:
+    """Validate and replace one record while its logical owner lock is held."""
 
     current_time = _coerce_now(now)
     try:
@@ -473,11 +492,15 @@ def publish_managed_agent_record(
         raise SessionManifestError("Refusing to publish an active record with an expired lease.")
 
     existing = load_managed_agent_record_by_agent_id(publish_record.agent_id, env=env)
-    _raise_if_conflicting_active_generation(
-        existing=existing,
-        desired=publish_record,
-        now=current_time,
-    )
+    if expected_generation_id is not None:
+        _require_web_generation_handoff(existing, publish_record, expected_generation_id)
+    else:
+        _raise_if_conflicting_active_generation(
+            existing=existing,
+            desired=publish_record,
+            now=current_time,
+        )
+    _require_current_web_manifest_generation(publish_record)
 
     payload = publish_record.model_dump(mode="json")
     try:
@@ -617,6 +640,18 @@ def remove_managed_agent_record(
 ) -> bool:
     """Remove one registry directory when it still belongs to the caller."""
 
+    with _managed_agent_record_lock(agent_id, env=env):
+        return _remove_managed_agent_record_locked(agent_id, generation_id=generation_id, env=env)
+
+
+def _remove_managed_agent_record_locked(
+    agent_id: str,
+    *,
+    generation_id: str | None,
+    env: Mapping[str, str] | None,
+) -> bool:
+    """Remove the captured owner while publication cannot replace its record."""
+
     path = record_path_for_agent_id(agent_id, env=env)
     record_dir = path.parent
 
@@ -631,6 +666,11 @@ def remove_managed_agent_record(
             and record.generation_id != generation_id
         ):
             return False
+        if record is not None and record.identity.backend == "dsh_web":
+            try:
+                _require_current_web_manifest_generation(record)
+            except SessionManifestError:
+                return False
 
     if not record_dir.exists():
         return False
@@ -692,104 +732,112 @@ def cleanup_stale_managed_agent_records(
     planned: list[str] = []
     actions: list[RegistryCleanupAction] = []
     for candidate in sorted(paths.live_agents_dir.iterdir()):
-        if candidate.is_symlink():
-            should_remove = True
-            remove_reason = "shared-registry entry is a symlink"
-            preserve_reason = ""
-            record_path = candidate / "record.json"
-        elif not candidate.is_dir():
-            continue
-        else:
-            record_path = candidate / "record.json"
-            should_remove = False
-            remove_reason = ""
-            preserve_reason = "registry record remains valid"
-            if record_path.is_symlink():
+        with _managed_agent_record_lock(candidate.name, env=env):
+            if candidate.is_symlink():
                 should_remove = True
-                remove_reason = "shared-registry record.json is a symlink"
-            elif not record_path.is_file():
-                should_remove = True
-                remove_reason = "shared-registry record.json is missing"
-            else:
-                try:
-                    record = _read_managed_agent_record(record_path)
-                except SessionManifestError:
-                    should_remove = True
-                    remove_reason = "shared-registry record.json is malformed"
-                else:
-                    if record.lifecycle.state in {"stopped", "retired"}:
-                        preserve_reason = f"lifecycle state `{record.lifecycle.state}` is durable"
-                    else:
-                        should_remove = _record_expired_beyond_grace(
-                            record,
-                            now=current_time,
-                            grace_period=grace_period,
-                        )
-                        if should_remove:
-                            remove_reason = "registry lease expired beyond the cleanup grace period"
-                        elif (
-                            probe_local_tmux
-                            and record.terminal.current_session_name is not None
-                            and not tmux_session_exists(
-                                session_name=record.terminal.current_session_name,
-                            )
-                        ):
-                            should_remove = True
-                            remove_reason = "local tmux liveness probe found no owning session"
-                        elif probe_local_tmux and record.terminal.current_session_name is not None:
-                            preserve_reason = (
-                                "local tmux liveness probe confirmed the owning session"
-                            )
-                        elif not probe_local_tmux:
-                            preserve_reason = (
-                                "lease remains fresh and local tmux checking was disabled"
-                            )
-
-        if should_remove:
-            if dry_run:
-                planned.append(candidate.name)
-                actions.append(
-                    RegistryCleanupAction(
-                        agent_id=candidate.name,
-                        path=candidate,
-                        outcome="planned",
-                        reason=remove_reason,
-                    )
-                )
+                remove_reason = "shared-registry entry is a symlink"
+                preserve_reason = ""
+                record_path = candidate / "record.json"
+            elif not candidate.is_dir():
                 continue
-            try:
-                remove_tree_or_path(candidate, allowed_roots=(paths.live_agents_dir,))
-            except OSError as exc:
-                failed.append(candidate.name)
-                actions.append(
-                    RegistryCleanupAction(
-                        agent_id=candidate.name,
-                        path=candidate,
-                        outcome="failed",
-                        reason=f"{remove_reason}; removal failed: {exc}",
-                    )
-                )
             else:
-                removed.append(candidate.name)
-                actions.append(
-                    RegistryCleanupAction(
-                        agent_id=candidate.name,
-                        path=candidate,
-                        outcome="removed",
-                        reason=remove_reason,
-                    )
-                )
-            continue
+                record_path = candidate / "record.json"
+                should_remove = False
+                remove_reason = ""
+                preserve_reason = "registry record remains valid"
+                if record_path.is_symlink():
+                    should_remove = True
+                    remove_reason = "shared-registry record.json is a symlink"
+                elif not record_path.is_file():
+                    should_remove = True
+                    remove_reason = "shared-registry record.json is missing"
+                else:
+                    try:
+                        record = _read_managed_agent_record(record_path)
+                    except SessionManifestError:
+                        should_remove = True
+                        remove_reason = "shared-registry record.json is malformed"
+                    else:
+                        if record.lifecycle.state in {"stopped", "retired"}:
+                            preserve_reason = (
+                                f"lifecycle state `{record.lifecycle.state}` is durable"
+                            )
+                        else:
+                            should_remove = _record_expired_beyond_grace(
+                                record,
+                                now=current_time,
+                                grace_period=grace_period,
+                            )
+                            if should_remove:
+                                remove_reason = (
+                                    "registry lease expired beyond the cleanup grace period"
+                                )
+                            elif (
+                                probe_local_tmux
+                                and record.terminal.current_session_name is not None
+                                and not tmux_session_exists(
+                                    session_name=record.terminal.current_session_name,
+                                )
+                            ):
+                                should_remove = True
+                                remove_reason = "local tmux liveness probe found no owning session"
+                            elif (
+                                probe_local_tmux
+                                and record.terminal.current_session_name is not None
+                            ):
+                                preserve_reason = (
+                                    "local tmux liveness probe confirmed the owning session"
+                                )
+                            elif not probe_local_tmux:
+                                preserve_reason = (
+                                    "lease remains fresh and local tmux checking was disabled"
+                                )
 
-        preserved.append(candidate.name)
-        actions.append(
-            RegistryCleanupAction(
-                agent_id=candidate.name,
-                path=candidate,
-                outcome="preserved",
-                reason=preserve_reason,
+            if should_remove:
+                if dry_run:
+                    planned.append(candidate.name)
+                    actions.append(
+                        RegistryCleanupAction(
+                            agent_id=candidate.name,
+                            path=candidate,
+                            outcome="planned",
+                            reason=remove_reason,
+                        )
+                    )
+                    continue
+                try:
+                    remove_tree_or_path(candidate, allowed_roots=(paths.live_agents_dir,))
+                except OSError as exc:
+                    failed.append(candidate.name)
+                    actions.append(
+                        RegistryCleanupAction(
+                            agent_id=candidate.name,
+                            path=candidate,
+                            outcome="failed",
+                            reason=f"{remove_reason}; removal failed: {exc}",
+                        )
+                    )
+                else:
+                    removed.append(candidate.name)
+                    actions.append(
+                        RegistryCleanupAction(
+                            agent_id=candidate.name,
+                            path=candidate,
+                            outcome="removed",
+                            reason=remove_reason,
+                        )
+                    )
+                continue
+
+            preserved.append(candidate.name)
+            actions.append(
+                RegistryCleanupAction(
+                    agent_id=candidate.name,
+                    path=candidate,
+                    outcome="preserved",
+                    reason=preserve_reason,
+                )
             )
-        )
 
     return RegistryCleanupResult(
         registry_root=paths.root,
@@ -914,6 +962,66 @@ def _raise_if_conflicting_active_generation(
         f"`{existing.generation_id}` already owns that logical identity, "
         f"so generation `{desired.generation_id}` must stand down."
     )
+
+
+@contextmanager
+def _managed_agent_record_lock(agent_id: str, *, env: Mapping[str, str] | None) -> Iterator[None]:
+    """Serialize publication and removal on a stable lock outside the removable record."""
+
+    normalized = _normalize_agent_id_component(agent_id)
+    directory = resolve_global_registry_root(env=env) / ".managed-agent-locks"
+    if directory.is_symlink():
+        raise SessionManifestError("Shared-registry ownership lock directory is unsafe")
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{normalized}.lock"
+    descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def _require_web_generation_handoff(
+    existing: ManagedAgentRegistryRecordV3 | None,
+    desired: ManagedAgentRegistryRecordV3,
+    expected_generation_id: str,
+) -> None:
+    """Authorize explicit Web replacement only from the captured same runtime owner."""
+
+    if (
+        existing is None
+        or existing.generation_id != expected_generation_id
+        or existing.identity.backend != "dsh_web"
+        or desired.identity.backend != "dsh_web"
+        or existing.agent_id != desired.agent_id
+        or existing.agent_name != desired.agent_name
+        or existing.runtime != desired.runtime
+    ):
+        raise SessionManifestError("DSH Web registry generation handoff lost its captured owner")
+
+
+def _require_current_web_manifest_generation(record: ManagedAgentRegistryRecordV3) -> None:
+    """Prevent a stale Web controller from publishing after a newer manifest commit."""
+
+    if record.identity.backend != "dsh_web":
+        return
+    try:
+        payload = json.loads(Path(record.runtime.manifest_path).read_text(encoding="utf-8"))
+        identity = payload["backend_state"]["web_identity"]
+        if (
+            payload["backend"] != "dsh_web"
+            or payload["agent_id"] != record.agent_id
+            or payload["registry_generation_id"] != record.generation_id
+            or identity["generation"] != record.generation_id
+            or identity["agent_id"] != record.agent_id
+        ):
+            raise ValueError("Web manifest owner changed")
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise SessionManifestError(
+            "DSH Web registry publication has stale manifest authority"
+        ) from exc
 
 
 def _raise_if_external_name_conflicts_with_different_record(
@@ -1093,10 +1201,13 @@ def publish_live_agent_record(
     *,
     env: Mapping[str, str] | None = None,
     now: datetime | None = None,
+    expected_generation_id: str | None = None,
 ) -> ManagedAgentRegistryRecordV3:
     """Compatibility wrapper for active record publication."""
 
-    return publish_managed_agent_record(record, env=env, now=now)
+    return publish_managed_agent_record(
+        record, env=env, now=now, expected_generation_id=expected_generation_id
+    )
 
 
 def remove_live_agent_record(

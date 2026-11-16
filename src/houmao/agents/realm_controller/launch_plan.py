@@ -13,6 +13,9 @@ from houmao.agents.kimi_system_prompt import (
     force_kimi_v2_engine_env,
     validate_kimi_native_prompt_launch,
 )
+from houmao.agents.dsh_configuration import DshConfigurationError, DshSetup, prepare_dsh_home
+from houmao.agents.model_mapping_policy import resolve_reasoning_mapping
+from houmao.agents.model_selection import parse_model_config
 from houmao.agents.kimi_workspace_trust import (
     KimiWorkspaceTrustError,
     ensure_kimi_workspace_trust,
@@ -121,6 +124,10 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     launch_contract = _require_mapping(runtime, "launch_contract")
 
     tool = _require_str(inputs, "tool")
+    if (tool == "dsh") != (request.backend in {"dsh_acp", "dsh_web"}):
+        raise LaunchPlanError(
+            "DSH requires backend=dsh_acp for headless or dsh_web for interactive Web."
+        )
     executable = _require_str(runtime, "launch_executable")
     home_env_var = _require_str(home_selector, "env_var")
     home_path = Path(_require_str(home_selector, "value")).resolve()
@@ -162,6 +169,10 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         backend=_launch_surface_for_backend(request.backend),
     )
     args = list(resolved_launch_behavior.args_before_policy)
+    if request.backend == "dsh_web" and args:
+        raise LaunchPlanError(
+            "DSH Web uses owned native configuration; raw launch arguments and terminal controls are unsupported"
+        )
     configured_cao_parsing_mode = _extract_configured_cao_parsing_mode(runtime=runtime)
     if configured_cao_parsing_mode is not None:
         metadata[_CAO_PARSING_MODE_METADATA_KEY] = configured_cao_parsing_mode
@@ -175,6 +186,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         "claude_headless",
         "codex_headless",
         "kimi_headless",
+        "dsh_acp",
     }:
         metadata["headless_output_format"] = "stream-json"
         metadata["headless_display_style"] = "plain"
@@ -251,6 +263,37 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         )
     args.extend(codex_cli_config_args)
     args.extend(provider_model_selection_cli_args)
+    if tool == "dsh":
+        dsh_metadata, env_values = _prepare_dsh_launch(
+            request=request,
+            home_path=home_path,
+            environment=env_values,
+            launch_contract=launch_contract,
+            executable=executable,
+            detected_version=(
+                launch_policy_result.provenance.detected_tool_version
+                if launch_policy_result.provenance
+                else None
+            ),
+        )
+        metadata["dsh"] = dsh_metadata
+        metadata["native_system_prompt"] = {
+            "method": "native_system_prompt_section",
+            "path": dsh_metadata["role_path"],
+            "effective_prompt_sha256": dsh_metadata["role_sha256"],
+            "validation": "passed",
+        }
+        args.extend(
+            [
+                "--profile",
+                "web" if request.backend == "dsh_web" else "acp",
+                "--patch",
+                str(dsh_metadata["patch_path"]),
+            ]
+        )
+        env_var_names = sorted(env_values)
+        if request.backend == "dsh_acp":
+            metadata["headless_output_format"] = "dsh-acp"
     if tool == "kimi" and request.backend in {"local_interactive", "kimi_headless"}:
         metadata["native_system_prompt"] = _ensure_kimi_native_system_prompt_for_start(
             executable=executable,
@@ -309,7 +352,92 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         metadata=metadata,
         mailboxes=request.mailboxes,
         launch_policy_provenance=launch_policy_result.provenance,
+        native_surface_kind=(
+            "web"
+            if request.backend == "dsh_web"
+            else "terminal"
+            if request.backend in {"local_interactive", "cao_rest", "houmao_server_rest"}
+            else None
+        ),
     )
+
+
+def _prepare_dsh_launch(
+    *,
+    request: LaunchPlanRequest,
+    home_path: Path,
+    environment: dict[str, str],
+    launch_contract: dict[str, Any],
+    executable: str,
+    detected_version: str | None,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Project DSH at explicit provider start and keep control restoration read-only."""
+
+    version = detected_version or detect_tool_version(executable=executable).raw
+    if not SupportedVersionSpec.parse("==0.2.2rc3").contains(ToolVersion.parse(version)):
+        raise LaunchPlanError("DSH requires the qualified 0.2.2-rc.3 executable build.")
+    setup_path = home_path / "dsh-setup.yaml"
+    try:
+        setup = DshSetup.from_file(setup_path)
+        selection = _optional_model_selection_contract(launch_contract) or {}
+        resolved = selection.get("resolved")
+        effective = resolved.get("effective") if isinstance(resolved, dict) else None
+        model_config = parse_model_config(effective, source="DSH resolved launch model")
+        model_name = model_config.name if model_config else None
+        reasoning_key: str | None = None
+        if model_config is not None and model_config.reasoning is not None:
+            mapping = resolve_reasoning_mapping(
+                tool="dsh",
+                requested_level=model_config.reasoning.level,
+                model_name=model_name,
+                home_path=home_path,
+            )
+            reasoning_key = mapping.get("profile_key")
+        if request.intent == "provider_start":
+            prepared = prepare_dsh_home(
+                home_path,
+                setup,
+                environment,
+                request.role_package.system_prompt,
+                selected_model=model_name,
+                reasoning_level=reasoning_key,
+                skill_roots=(home_path / "skills",),
+                operator_prompt_mode=_requested_operator_prompt_mode(request.brain_manifest)
+                or "unattended",
+            )
+            metadata = {
+                **prepared.metadata,
+                "setup_path": str(setup_path),
+                "patch_path": str(prepared.patch_path),
+                "role_path": str(prepared.role_path),
+                "persistence_root": str(prepared.persistence_root),
+                "agents_home": str(prepared.agents_home),
+                "reasoning_level": reasoning_key,
+            }
+            private_environment = prepared.environment
+        else:
+            provenance = launch_contract.get("construction_provenance")
+            projected = provenance.get("dsh") if isinstance(provenance, dict) else None
+            if not isinstance(projected, dict):
+                raise DshConfigurationError(
+                    "DSH control restoration requires a prepared managed home"
+                )
+            metadata = dict(projected)
+            metadata["reasoning_level"] = reasoning_key
+            private_environment = {
+                "DSH_HOME": str(home_path),
+                "DSH_AGENTS_HOME": str(home_path / "shared-agents"),
+                **{
+                    name: environment[name]
+                    for name in (setup.api_key_env, setup.base_url_env)
+                    if name in environment
+                },
+            }
+        metadata["detected_tool_version"] = version
+        metadata["mcp_server_names"] = [str(server["name"]) for server in setup.mcp_servers]
+        return metadata, private_environment
+    except (DshConfigurationError, ValueError) as exc:
+        raise LaunchPlanError(str(exc)) from exc
 
 
 def _strip_kimi_observer_block_before_policy_synthesis(
@@ -623,6 +751,7 @@ def _native_role_injection_method(
         "native_developer_instructions",
         "native_append_system_prompt",
         "native_home_system_prompt",
+        "native_system_prompt_section",
     ]
     | None
 ):
@@ -638,6 +767,8 @@ def _native_role_injection_method(
         return "native_append_system_prompt"
     if backend == "kimi_headless":
         return "native_home_system_prompt"
+    if backend in {"dsh_acp", "dsh_web"}:
+        return "native_system_prompt_section"
     if backend == "local_interactive" and tool == "kimi":
         return "native_home_system_prompt"
     return None
@@ -652,6 +783,10 @@ def _plan_legacy_role_injection(
 ) -> RoleInjectionPlan:
     """Create the pre-policy role-injection plan for direct helper callers."""
 
+    if backend in {"dsh_acp", "dsh_web"}:
+        return RoleInjectionPlan(
+            method="native_system_prompt_section", role_name=role_name, prompt=role_prompt
+        )
     if backend in {"codex_app_server", "codex_headless"}:
         return RoleInjectionPlan(
             method="native_developer_instructions",
@@ -730,8 +865,14 @@ def backend_for_tool(
     """
 
     if prefer_cao:
+        if tool == "dsh":
+            raise LaunchPlanError(
+                "DSH has no CAO backend; select headless ACP or managed Web explicitly."
+            )
         return "cao_rest"
     if prefer_local_interactive:
+        if tool == "dsh":
+            return "dsh_web"
         if tool in {"codex", "claude", "kimi"}:
             return "local_interactive"
         raise LaunchPlanError(f"No local interactive backend for tool {tool!r}")
@@ -741,6 +882,8 @@ def backend_for_tool(
         return "claude_headless"
     if tool == "kimi":
         return "kimi_headless"
+    if tool == "dsh":
+        return "dsh_acp"
     raise LaunchPlanError(f"No default backend for tool {tool!r}")
 
 

@@ -900,6 +900,7 @@ class HoumaoServerService:
                 "claude_headless",
                 "codex_headless",
                 "kimi_headless",
+                "dsh_acp",
             }:
                 raise HTTPException(
                     status_code=422,
@@ -909,7 +910,7 @@ class HoumaoServerService:
                     ),
                 )
             resolved_headless_backend = cast(
-                Literal["claude_headless", "codex_headless", "kimi_headless"],
+                Literal["claude_headless", "codex_headless", "kimi_headless", "dsh_acp"],
                 resolved_backend,
             )
             controller = start_runtime_session(
@@ -4012,6 +4013,7 @@ class HoumaoServerService:
             "claude_headless",
             "codex_headless",
             "kimi_headless",
+            "dsh_acp",
         }:
             return
         try:

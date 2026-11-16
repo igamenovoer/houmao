@@ -141,11 +141,13 @@ def build_houmao_state_snapshot(
     }
 
 
-def _target_transport_family(backend: str) -> Literal["http_rest", "tmux"]:
+def _target_transport_family(backend: str) -> Literal["http_rest", "tmux", "web"]:
     """Return the compact transport family exposed to AG-UI clients."""
 
     if backend in {"cao_rest", "houmao_server_rest"}:
         return "http_rest"
+    if backend == "dsh_web":
+        return "web"
     return "tmux"
 
 

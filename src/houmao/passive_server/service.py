@@ -54,6 +54,8 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
+    GatewayWebControlStateV1,
+    GatewayWebHistoryV1,
     GatewayMemoryActionResponseV1,
     GatewayMemoryMemoResponseV1,
     GatewayMemoryMemoWriteRequestV1,
@@ -82,6 +84,9 @@ from houmao.passive_server.compatibility import (
     managed_headless_detail_response,
     managed_headless_history_from_turn_records,
     managed_headless_state_from_control_state,
+    managed_web_state_from_observation,
+    managed_web_detail_response,
+    managed_web_history_response,
     managed_tui_detail_response,
     managed_tui_history_from_observation,
     managed_tui_state_from_observation,
@@ -92,6 +97,8 @@ from houmao.passive_server.headless import HeadlessAgentService
 from houmao.passive_server.models import (
     AgentTuiDetailResponse,
     AgentTuiHistoryResponse,
+    AgentWebStateResponse,
+    AgentWebHistoryResponse,
     AgentTuiStateResponse,
     DiscoveredAgentConflictResponse,
     DiscoveredAgentListResponse,
@@ -544,6 +551,20 @@ class PassiveServerService:
             return client.get_tui_state()
         except GatewayHttpError as exc:
             return (502, {"detail": exc.detail})
+
+    def gateway_web_state(
+        self, agent_ref: str
+    ) -> GatewayWebControlStateV1 | tuple[int, dict[str, Any]]:
+        """Proxy the gateway's structured native Web state without cold activation."""
+
+        return self._gateway_proxy(agent_ref, lambda client: client.get_web_state())
+
+    def gateway_web_history(
+        self, agent_ref: str, *, limit: int = 100
+    ) -> GatewayWebHistoryV1 | tuple[int, dict[str, Any]]:
+        """Proxy bounded native Web transition metadata."""
+
+        return self._gateway_proxy(agent_ref, lambda client: client.get_web_history(limit=limit))
 
     def gateway_tui_history(
         self,
@@ -1291,6 +1312,18 @@ class PassiveServerService:
             return (404, {"detail": f"Agent not found: {agent_ref}"})
         if is_headless_backend(resolved.record.identity.backend):
             return self._managed_headless_unavailable_error(agent_ref)
+        if resolved.record.identity.backend == "dsh_web":
+            web_observer = self.m_observation.get_web_observer(resolved.record.agent_id)
+            if web_observer is None:
+                return (503, {"detail": "Native Web observation is not initialized"})
+            try:
+                return managed_web_state_from_observation(
+                    agent=resolved,
+                    state=web_observer.current_state().web,
+                    gateway_summary=self._managed_gateway_summary(resolved),
+                )
+            except (RuntimeError, ValueError, OSError):
+                return (503, {"detail": "Verified native Web authority is unavailable"})
         observer = self.m_observation.get_observer(resolved.record.agent_id)
         if observer is None:
             return (503, {"detail": "Observer not yet initialized for this agent"})
@@ -1318,6 +1351,18 @@ class PassiveServerService:
             return (404, {"detail": f"Agent not found: {agent_ref}"})
         if is_headless_backend(resolved.record.identity.backend):
             return self._managed_headless_unavailable_error(agent_ref)
+        if resolved.record.identity.backend == "dsh_web":
+            web_observer = self.m_observation.get_web_observer(resolved.record.agent_id)
+            if web_observer is None:
+                return (503, {"detail": "Native Web observation is not initialized"})
+            try:
+                return managed_web_detail_response(
+                    agent=resolved,
+                    state=web_observer.current_state().web,
+                    gateway_summary=self._managed_gateway_summary(resolved),
+                )
+            except (RuntimeError, ValueError, OSError):
+                return (503, {"detail": "Verified native Web authority is unavailable"})
         observer = self.m_observation.get_observer(resolved.record.agent_id)
         if observer is None:
             return (503, {"detail": "Observer not yet initialized for this agent"})
@@ -1350,6 +1395,17 @@ class PassiveServerService:
             return (404, {"detail": f"Agent not found: {agent_ref}"})
         if is_headless_backend(resolved.record.identity.backend):
             return self._managed_headless_unavailable_error(agent_ref)
+        if resolved.record.identity.backend == "dsh_web":
+            web_observer = self.m_observation.get_web_observer(resolved.record.agent_id)
+            if web_observer is None:
+                return (503, {"detail": "Native Web observation is not initialized"})
+            try:
+                return managed_web_history_response(
+                    agent=resolved,
+                    history=web_observer.history(limit=limit).web,
+                )
+            except (RuntimeError, ValueError, OSError):
+                return (503, {"detail": "Verified native Web authority is unavailable"})
         observer = self.m_observation.get_observer(resolved.record.agent_id)
         if observer is None:
             return (503, {"detail": "Observer not yet initialized for this agent"})
@@ -1520,12 +1576,22 @@ class PassiveServerService:
 
     # -- agent TUI observation --------------------------------------------------
 
-    def agent_state(self, agent_ref: str) -> AgentTuiStateResponse | tuple[int, dict[str, Any]]:
+    def agent_state(
+        self, agent_ref: str
+    ) -> AgentTuiStateResponse | AgentWebStateResponse | tuple[int, dict[str, Any]]:
         """Return compact observation state for an agent."""
 
         resolved = self._resolve_agent_or_error(agent_ref)
         if isinstance(resolved, tuple):
             return resolved
+        if resolved.record.identity.backend == "dsh_web":
+            web_observer = self.m_observation.get_web_observer(resolved.record.agent_id)
+            if web_observer is None:
+                return (503, {"detail": "Native Web observation is not initialized"})
+            try:
+                return web_observer.current_state()
+            except (RuntimeError, ValueError, OSError):
+                return (503, {"detail": "Verified native Web authority is unavailable"})
         observer = self.m_observation.get_observer(resolved.record.agent_id)
         if observer is None:
             return (503, {"detail": "Observer not yet initialized for this agent"})
@@ -1533,12 +1599,14 @@ class PassiveServerService:
 
     def agent_state_detail(
         self, agent_ref: str
-    ) -> AgentTuiDetailResponse | tuple[int, dict[str, Any]]:
+    ) -> AgentTuiDetailResponse | HoumaoManagedAgentDetailResponse | tuple[int, dict[str, Any]]:
         """Return detailed observation state for an agent."""
 
         resolved = self._resolve_agent_or_error(agent_ref)
         if isinstance(resolved, tuple):
             return resolved
+        if resolved.record.identity.backend == "dsh_web":
+            return self.managed_agent_state_detail(agent_ref)
         observer = self.m_observation.get_observer(resolved.record.agent_id)
         if observer is None:
             return (503, {"detail": "Observer not yet initialized for this agent"})
@@ -1546,12 +1614,20 @@ class PassiveServerService:
 
     def agent_history(
         self, agent_ref: str, limit: int = 50
-    ) -> AgentTuiHistoryResponse | tuple[int, dict[str, Any]]:
+    ) -> AgentTuiHistoryResponse | AgentWebHistoryResponse | tuple[int, dict[str, Any]]:
         """Return recent state transitions for an agent."""
 
         resolved = self._resolve_agent_or_error(agent_ref)
         if isinstance(resolved, tuple):
             return resolved
+        if resolved.record.identity.backend == "dsh_web":
+            web_observer = self.m_observation.get_web_observer(resolved.record.agent_id)
+            if web_observer is None:
+                return (503, {"detail": "Native Web observation is not initialized"})
+            try:
+                return web_observer.history(limit=limit)
+            except (RuntimeError, ValueError, OSError):
+                return (503, {"detail": "Verified native Web authority is unavailable"})
         observer = self.m_observation.get_observer(resolved.record.agent_id)
         if observer is None:
             return (503, {"detail": "Observer not yet initialized for this agent"})

@@ -11,10 +11,37 @@
         "transport": {
           "enum": [
             "tui",
-            "headless"
+            "headless",
+            "web"
           ],
           "title": "Transport",
           "type": "string"
+        },
+        "native_surface": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "terminal": "#/$defs/TerminalNativeSurfaceV1",
+                  "web": "#/$defs/WebNativeSurfaceV1"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/TerminalNativeSurfaceV1"
+                },
+                {
+                  "$ref": "#/$defs/WebNativeSurfaceV1"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Native Surface"
         },
         "tool": {
           "title": "Tool",
@@ -221,6 +248,67 @@
         "tool"
       ],
       "title": "HoumaoManagedAgentIdentity",
+      "type": "object"
+    },
+    "TerminalNativeSurfaceV1": {
+      "additionalProperties": false,
+      "description": "Identify an actual terminal interface rather than a supervisor log pane.",
+      "properties": {
+        "kind": {
+          "const": "terminal",
+          "default": "terminal",
+          "title": "Kind",
+          "type": "string"
+        },
+        "tmux_session_name": {
+          "minLength": 1,
+          "title": "Tmux Session Name",
+          "type": "string"
+        },
+        "pane_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pane Id"
+        }
+      },
+      "required": [
+        "tmux_session_name"
+      ],
+      "title": "TerminalNativeSurfaceV1",
+      "type": "object"
+    },
+    "WebNativeSurfaceV1": {
+      "additionalProperties": false,
+      "description": "Expose only a loopback browser origin and the exact bound native session.",
+      "properties": {
+        "kind": {
+          "const": "web",
+          "default": "web",
+          "title": "Kind",
+          "type": "string"
+        },
+        "origin": {
+          "title": "Origin",
+          "type": "string"
+        },
+        "native_session_id": {
+          "minLength": 1,
+          "title": "Native Session Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "origin",
+        "native_session_id"
+      ],
+      "title": "WebNativeSurfaceV1",
       "type": "object"
     }
   },

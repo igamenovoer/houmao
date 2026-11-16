@@ -1,5 +1,9 @@
 schema_version: 1
 case: self-hosted
+dsh:
+  adapter: pi-ai
+  protocol: openai_chat
+  route: houmao-self-hosted
 model_env: HOUMAO_TEST_SELF_HOSTED_MODEL
 api_key_env: HOUMAO_TEST_SELF_HOSTED_API_KEY
 endpoints:
@@ -11,6 +15,8 @@ endpoints:
     base_url_env: HOUMAO_TEST_SELF_HOSTED_OPENAI_BASE_URL
 metadata:
   context_window_env: HOUMAO_TEST_SELF_HOSTED_CONTEXT_WINDOW
+  max_output_tokens_env: HOUMAO_TEST_SELF_HOSTED_MAX_OUTPUT_TOKENS
+  dsh_reasoning_env: HOUMAO_TEST_SELF_HOSTED_DSH_REASONING
   capabilities_env: HOUMAO_TEST_SELF_HOSTED_CAPABILITIES
   reasoning_key_env: HOUMAO_TEST_SELF_HOSTED_REASONING_KEY
   reasoning_effort_env: HOUMAO_TEST_SELF_HOSTED_REASONING_EFFORT

@@ -22,7 +22,9 @@ from houmao.agents.realm_controller.gateway_models import (
     BlueprintGatewayDefaults,
     GatewayAttachBackendMetadataCaoV1,
     GatewayAttachBackendMetadataHoumaoServerV1,
+    GatewayAttachBackendMetadataWebV1,
     GatewayAttachBackendMetadataHeadlessV1,
+    GatewayDshCapabilitiesV1,
     GatewayAttachContractV1,
     GatewayCurrentInstanceV1,
     GatewayDesiredConfigV1,
@@ -42,6 +44,7 @@ from houmao.agents.realm_controller.gateway_models import (
     default_gateway_execution_mode_for_backend,
     format_gateway_validation_error,
 )
+from houmao.agents.realm_controller.native_surface import WebNativeSurfaceV1
 from houmao.agents.realm_controller.manifest import (
     default_session_root,
     load_session_manifest,
@@ -422,10 +425,12 @@ def _build_manifest_backed_attach_contract(
             tool=payload.tool,
             runtime_session_id=payload.runtime.session_id,
             authority=authority,
+            backend_state=payload.backend_state,
         ),
         manifest_path=str(handle.path.resolve()),
         agent_def_dir=payload.runtime.agent_def_dir,
         runtime_session_id=payload.runtime.session_id,
+        native_surface=payload.native_surface,
         desired_host=desired_host,
         desired_port=desired_port,
     )
@@ -453,13 +458,17 @@ def _manifest_backed_attach_backend_metadata(
     tool: str,
     runtime_session_id: str | None,
     authority: ManifestSessionAuthority,
+    backend_state: Mapping[str, object] | None = None,
 ) -> (
     GatewayAttachBackendMetadataHeadlessV1
     | GatewayAttachBackendMetadataCaoV1
     | GatewayAttachBackendMetadataHoumaoServerV1
+    | GatewayAttachBackendMetadataWebV1
 ):
     """Build strict attach backend metadata from normalized manifest authority."""
 
+    if backend == "dsh_web":
+        return web_attach_metadata_from_state(backend_state or {})
     if backend == "cao_rest":
         return GatewayAttachBackendMetadataCaoV1(
             api_base_url=_require_gateway_manifest_value(
@@ -515,9 +524,27 @@ def _manifest_backed_attach_backend_metadata(
     return GatewayAttachBackendMetadataHeadlessV1(
         session_id=runtime_session_id,
         tool=tool,
+        native_capabilities=GatewayDshCapabilitiesV1() if backend == "dsh_acp" else None,
         managed_api_base_url=authority.attach.api_base_url,
         managed_agent_ref=authority.attach.managed_agent_ref,
     )
+
+
+def web_attach_metadata_from_state(
+    state: Mapping[str, object],
+) -> GatewayAttachBackendMetadataWebV1:
+    """Project only token-free location and bound identity from native runtime state."""
+
+    try:
+        return GatewayAttachBackendMetadataWebV1.model_validate(
+            {
+                "origin": state["origin"],
+                "browser_url": state["browser_url"],
+                "identity": state["web_identity"],
+            }
+        )
+    except (KeyError, ValidationError) as exc:
+        raise SessionManifestError("Owned Web runtime identity is unavailable") from exc
 
 
 def _load_optional_attach_contract(path: Path) -> GatewayAttachContractV1 | None:
@@ -542,6 +569,7 @@ def _preserve_existing_headless_managed_metadata(
         "claude_headless",
         "codex_headless",
         "kimi_headless",
+        "dsh_acp",
     }:
         return attach_contract
     if not paths.attach_path.is_file():
@@ -628,8 +656,11 @@ def build_attach_contract(
         GatewayAttachBackendMetadataHeadlessV1
         | GatewayAttachBackendMetadataCaoV1
         | GatewayAttachBackendMetadataHoumaoServerV1
+        | GatewayAttachBackendMetadataWebV1
     )
-    if request.backend == "cao_rest":
+    if request.backend == "dsh_web":
+        backend_metadata = web_attach_metadata_from_state(request.backend_state)
+    elif request.backend == "cao_rest":
         backend_metadata = GatewayAttachBackendMetadataCaoV1(
             api_base_url=_require_backend_state_string(
                 request.backend_state,
@@ -692,6 +723,9 @@ def build_attach_contract(
                 key="session_id",
             ),
             tool=request.tool,
+            native_capabilities=GatewayDshCapabilitiesV1()
+            if request.backend == "dsh_acp"
+            else None,
         )
 
     desired_host = None
@@ -711,6 +745,14 @@ def build_attach_contract(
         if request.agent_def_dir is not None
         else None,
         runtime_session_id=request.session_id,
+        native_surface=(
+            WebNativeSurfaceV1(
+                origin=backend_metadata.origin,
+                native_session_id=backend_metadata.identity.native_session_id,
+            )
+            if isinstance(backend_metadata, GatewayAttachBackendMetadataWebV1)
+            else None
+        ),
         desired_host=desired_host,
         desired_port=desired_port,
     )
@@ -868,10 +910,13 @@ def build_gateway_manifest(
             agent_def_dir = payload.runtime.agent_def_dir or agent_def_dir
             runtime_session_id = payload.runtime.session_id or runtime_session_id
         if authority is not None:
-            backend_metadata = _gateway_manifest_backend_metadata(
-                attach_contract=attach_contract,
-                authority=authority,
-            )
+            if payload is not None and payload.backend == "dsh_web":
+                backend_metadata = web_attach_metadata_from_state(payload.backend_state)
+            else:
+                backend_metadata = _gateway_manifest_backend_metadata(
+                    attach_contract=attach_contract,
+                    authority=authority,
+                )
 
     manifest = GatewayManifestV1(
         attach_identity=attach_contract.attach_identity,
@@ -882,6 +927,14 @@ def build_gateway_manifest(
         manifest_path=manifest_path,
         agent_def_dir=agent_def_dir,
         runtime_session_id=runtime_session_id,
+        native_surface=(
+            WebNativeSurfaceV1(
+                origin=backend_metadata.origin,
+                native_session_id=backend_metadata.identity.native_session_id,
+            )
+            if isinstance(backend_metadata, GatewayAttachBackendMetadataWebV1)
+            else attach_contract.native_surface
+        ),
         desired_host=attach_contract.desired_host,
         desired_port=attach_contract.desired_port,
         gateway_pid=current_instance.pid if current_instance is not None else None,
@@ -1262,6 +1315,9 @@ def build_offline_gateway_status(
         managed_agent_recovery="idle",
         request_admission="blocked_unavailable",
         terminal_surface_eligibility="unknown",
+        native_surface=attach_contract.native_surface,
+        native_surface_kind="web" if attach_contract.backend == "dsh_web" else None,
+        native_surface_eligibility="unknown",
         active_execution="idle",
         execution_mode=(
             desired_config.desired_execution_mode
@@ -1281,9 +1337,12 @@ def _gateway_manifest_backend_metadata(
     GatewayAttachBackendMetadataHeadlessV1
     | GatewayAttachBackendMetadataCaoV1
     | GatewayAttachBackendMetadataHoumaoServerV1
+    | GatewayAttachBackendMetadataWebV1
 ):
     """Rebuild outward-facing backend metadata from manifest authority when possible."""
 
+    if attach_contract.backend == "dsh_web":
+        return cast(GatewayAttachBackendMetadataWebV1, attach_contract.backend_metadata)
     if attach_contract.backend == "cao_rest":
         return GatewayAttachBackendMetadataCaoV1(
             api_base_url=_require_gateway_manifest_value(

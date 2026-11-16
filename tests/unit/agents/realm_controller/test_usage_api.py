@@ -119,6 +119,7 @@ def test_gateway_usage_collection_follows_gateway_lifecycle(
         m_host="127.0.0.1",
         m_port=19891,
         m_attach_contract=SimpleNamespace(attach_identity="agent-a"),
+        m_adapter=Mock(),
         m_usage_service=service,
         m_stop_event=threading.Event(),
         m_tui_tracking=None,

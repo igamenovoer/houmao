@@ -140,6 +140,15 @@ class _FakeRuntimeController:
     def build_shared_registry_record(self) -> object:
         return self.m_registry_record
 
+    def send_prompt(
+        self, prompt: str, *, turn_artifact_dir_name: str, refresh_registry: bool = True
+    ) -> list[SessionEvent]:
+        """Forward controlled work through the same controller surface as production."""
+
+        return self.backend_session.send_prompt(
+            prompt, turn_artifact_dir_name=turn_artifact_dir_name
+        )
+
     def stop(self, *, force_cleanup: bool = False) -> SimpleNamespace:
         self.stop_calls.append(force_cleanup)
         return SimpleNamespace(status="ok")

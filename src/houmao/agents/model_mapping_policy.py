@@ -20,6 +20,7 @@ from houmao.agents.launch_policy.provider_hooks import (
     set_toml_key,
 )
 from houmao.agents.model_selection import ModelConfig
+from houmao.agents.dsh_configuration import DshSetup
 
 _CLAUDE_SETTINGS_FILENAME = "settings.json"
 _CODEX_CONFIG_FILENAME = "config.toml"
@@ -150,6 +151,8 @@ def project_reasoning_level(
         home_path=home_path,
         env_model_values=env_model_values,
     )
+    if tool == "dsh":
+        return mapping
     if tool == "claude":
         native_setting = _require_single_native_setting(mapping)
         set_json_key(
@@ -205,6 +208,11 @@ def project_model_name(
     """Project one normalized model name into the runtime home or launch env."""
 
     stripped_model_name = model_name.strip()
+    if tool == "dsh":
+        model, _ = DshSetup.from_file(home_path / "dsh-setup.yaml").select_model(
+            stripped_model_name
+        )
+        return {"surface": "native_configuration", "value": model.id}
     if not stripped_model_name:
         raise ValueError("model_name must not be empty")
 
@@ -424,7 +432,54 @@ def _resolve_reasoning_ladder(
             env_model_values=env_model_values,
         )
 
+    if tool == "dsh":
+        return _resolve_dsh_reasoning_ladder(home_path=home_path, model_name=model_name)
+
     raise ValueError(f"Unsupported model-mapping tool {tool!r}")
+
+
+def _resolve_dsh_reasoning_ladder(
+    *, home_path: Path | None, model_name: str | None
+) -> dict[str, Any]:
+    """Resolve explicitly numbered DSH efforts without guessing model capabilities."""
+
+    if home_path is None:
+        raise ValueError("DSH reasoning mapping requires a constructed runtime home.")
+    model, _ = DshSetup.from_file(home_path / "dsh-setup.yaml").select_model(model_name)
+    efforts = model.reasoning
+    if efforts is None:
+        return {
+            "off_preset": (
+                _native_setting(
+                    "reasoning_effort", "off", surface="native_configuration", path="dsh-setup.yaml"
+                ),
+            ),
+            "positive_presets": (),
+        }
+    if any(not level.isdigit() or str(int(level)) != level for level in efforts):
+        raise ValueError("DSH common reasoning mapping requires numbered preset keys.")
+    positive = sorted(int(level) for level in efforts if int(level) > 0)
+    if positive != list(range(1, len(positive) + 1)):
+        raise ValueError("DSH positive reasoning presets must be numbered consecutively from 1.")
+    if "0" in efforts and efforts["0"] != "off":
+        raise ValueError("DSH reasoning preset 0 must explicitly disable reasoning.")
+
+    def setting(level: str) -> tuple[dict[str, Any], ...]:
+        """Retain the exact profile key and native effort for one declared preset."""
+
+        value = _native_setting(
+            "reasoning_effort",
+            efforts[level],
+            surface="native_configuration",
+            path="dsh-setup.yaml",
+        )
+        value["profile_key"] = level
+        return (value,)
+
+    return {
+        "off_preset": setting("0") if "0" in efforts else None,
+        "positive_presets": tuple(setting(str(level)) for level in positive),
+    }
 
 
 def _resolve_codex_reasoning_ladder(
@@ -587,6 +642,8 @@ def _projection_key_path_for_scale(native_scale: str) -> list[object]:
         return ["effortLevel"]
     if native_scale == "model_reasoning_effort":
         return ["model_reasoning_effort"]
+    if native_scale == "reasoning_effort":
+        return ["reasoning_effort"]
     if native_scale == "thinking_enabled":
         return ["thinking", "enabled"]
     if native_scale == "thinking_effort":
@@ -670,6 +727,8 @@ def _mutated_model_config_paths(
 ) -> tuple[Path, ...]:
     """Return the runtime-home files mutated by one effective model projection."""
 
+    if tool == "dsh":
+        return ()
     if tool == "claude":
         if model_config.reasoning is None:
             return ()

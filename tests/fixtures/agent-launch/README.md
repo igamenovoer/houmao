@@ -1,16 +1,20 @@
 # Generic Agent Launch Fixtures
 
-These tracked descriptors define two API cases: `self-hosted` and `cloud-api`. Select the client (`claude`, `codex`, or `kimi`), model, mode, and launch surface independently. DeepSeek is the initial cloud configuration. There is no pinned model, local port, personal account, reasoning effort, or model context default.
+These tracked descriptors define two API cases: `self-hosted` and `cloud-api`. Select the client (`claude`, `codex`, `kimi`, or `dsh`), model, mode, and launch surface independently. DSH uses ACP for `headless` and native Web for `tui`; their qualification evidence remains separate. DeepSeek is the initial cloud configuration. There is no pinned model, local port, personal account, reasoning effort, or model context default.
 
 Use the development helper through `pixi run python scripts/agents/test-fixtures/fixture.py`. Seed roles and setups remain in [plain-agent-def](../plain-agent-def/README.md); managed preparation creates a fresh project instead of treating that seed tree as a project overlay.
 
 Copy required variable names from [.env.example](.env.example) into a local ignored env file. The helper reads only an explicitly selected file as literal data. Process variables take precedence over file values; explicit non-secret flags take precedence over both. It does not execute shell syntax or expand variables.
+
+DSH requires that selected env file to remain outside the checkout and ignores ambient credential/model variables. Its cloud descriptor declares `deepseek/messages`; its self-hosted descriptor declares `pi-ai/openai-completions`. Supply the case's context, maximum-output-token, and DSH-reasoning references explicitly. The reasoning reference is JSON `false` or a qualified numbered effort mapping, never a guessed default. Raw ACP/Web and manager preparations resolve the same route and private credentials; passive-server birth remains headless. See the [DSH workflow](../../../scripts/agents/test-fixtures/README.md#dsh-acp-and-web) for commands and runtime qualification.
 
 | Client | Protocol | Base URL Convention |
 | --- | --- | --- |
 | Claude | Anthropic Messages | Root before `/v1/messages`, for example the configured Anthropic gateway root. |
 | Codex | OpenAI Responses | Prefix before `/responses`; preserve an explicitly supplied `/v1` prefix. |
 | Kimi | OpenAI Chat Completions | Prefix before `/chat/completions`; preserve an explicitly supplied `/v1` prefix. |
+| DSH Cloud | DeepSeek Messages | Prefix before `/messages`; append `/v1` only when absent. |
+| DSH Self-Hosted | Explicit pi-ai `openai-completions` | Preserve the configured prefix before `/chat/completions`. |
 
 Cloud credentials reference `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL_ANTHROPIC`, and `DEEPSEEK_BASE_URL_OPENAI`. Supply `--model` or `HOUMAO_TEST_CLOUD_MODEL`. A cloud key is mandatory. A self-hosted server without authentication can use the explicit anonymous placeholder that the helper supplies when its optional key reference is empty.
 

@@ -33,6 +33,20 @@ _RESERVED_ARGS_BY_BACKEND: Final[dict[SupportedLaunchBackend, tuple[str, ...]]] 
         "--plan",
     ),
     "cao_rest": (),
+    "dsh_acp": ("--profile", "--config", "--patch", "web", "headless"),
+    "dsh_web": (
+        "--profile",
+        "--config",
+        "--patch",
+        "--host",
+        "--port",
+        "--open",
+        "--no-open",
+        "web",
+        "headless",
+        "--tui",
+        "--no-tui",
+    ),
 }
 _UNSUPPORTED_OVERRIDE_BACKENDS: Final[frozenset[SupportedLaunchBackend]] = frozenset({"cao_rest"})
 

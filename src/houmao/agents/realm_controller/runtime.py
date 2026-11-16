@@ -11,7 +11,7 @@ import sqlite3
 import subprocess
 import sys
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Literal, cast
@@ -87,6 +87,9 @@ from .backends.headless_base import (
     headless_backend_state_payload,
 )
 from .backends.kimi_headless import KimiHeadlessSession
+from .backends.dsh_acp import DshAcpSession
+from .backends.dsh_web import DshWebSession, DshWebSessionState
+from .native_surface import NativeSurfaceV1
 from .backends.headless_output import (
     HeadlessDisplayDetail,
     HeadlessDisplayStyle,
@@ -260,6 +263,8 @@ _TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
         "codex_headless",
         "claude_headless",
         "kimi_headless",
+        "dsh_acp",
+        "dsh_web",
         "cao_rest",
     }
 )
@@ -269,6 +274,8 @@ _GATEWAY_ATTACH_SUPPORTED_BACKENDS: tuple[BackendKind, ...] = (
     "codex_headless",
     "claude_headless",
     "kimi_headless",
+    "dsh_acp",
+    "dsh_web",
     "cao_rest",
 )
 _STOPPED_SESSION_RELAUNCH_BACKENDS: frozenset[BackendKind] = frozenset(
@@ -277,6 +284,8 @@ _STOPPED_SESSION_RELAUNCH_BACKENDS: frozenset[BackendKind] = frozenset(
         "codex_headless",
         "claude_headless",
         "kimi_headless",
+        "dsh_acp",
+        "dsh_web",
     }
 )
 _PRIMARY_AGENT_WINDOW_INDEX = "0"
@@ -397,11 +406,53 @@ class RuntimeSessionController:
     registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime"
     agent_launch_authority: SessionManifestAgentLaunchAuthorityV1 | None = None
     operation_warnings: tuple[str, ...] = ()
+    m_web_manifest_identity: dict[str, Any] | None = field(default=None, init=False, repr=False)
+    m_web_registry_handoff_generation: str | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         """Strip retired mailbox-live metadata from persisted launch plans."""
 
         self.launch_plan = _without_retired_mailbox_metadata(self.launch_plan)
+        if isinstance(self.backend_session, DshWebSession):
+            self.m_web_manifest_identity = dict(self.backend_session.state.web_identity)
+            self.backend_session.set_binding_changed_callback(self._persist_web_binding_change)
+
+    def _persist_web_binding_change(self) -> None:
+        """Publish an intentional Web reset before its next native input handoff."""
+
+        self.persist_manifest(refresh_registry=True)
+        self.ensure_gateway_capability()
+
+    def send_web_prompt(
+        self,
+        prompt: str,
+        *,
+        admission_policy: str = "ready_only",
+        operator: bool = True,
+        turn_artifact_dir_name: str | None = None,
+        session_selection: HeadlessTurnSessionSelection | None = None,
+        execution_model: ModelConfig | None = None,
+        deadline_epoch_ms: int | None = None,
+        timeout_seconds: float = 300,
+        refresh_registry: bool = True,
+    ) -> list[SessionEvent]:
+        """Submit explicitly scoped Web control while preserving native identity authority."""
+
+        if not isinstance(self.backend_session, DshWebSession):
+            raise SessionManifestError("Web prompt control requires backend=dsh_web")
+        self._reset_operation_warnings()
+        events = self.backend_session.send_web_prompt(
+            prompt,
+            admission_policy=admission_policy,
+            operator=operator,
+            turn_artifact_dir_name=turn_artifact_dir_name,
+            session_selection=session_selection,
+            execution_model=execution_model,
+            deadline_epoch_ms=deadline_epoch_ms,
+            timeout_seconds=timeout_seconds,
+        )
+        self.persist_manifest(refresh_registry=refresh_registry)
+        return events
 
     def send_prompt(
         self,
@@ -415,6 +466,15 @@ class RuntimeSessionController:
         """Send a prompt and persist updated session state."""
 
         self._reset_operation_warnings()
+        if isinstance(self.backend_session, DshWebSession):
+            return self.send_web_prompt(
+                prompt,
+                session_selection=session_selection,
+                turn_artifact_dir_name=turn_artifact_dir_name,
+                execution_model=execution_model,
+                refresh_registry=refresh_registry,
+                operator=self.backend_session.m_dispatch_control is None,
+            )
         if isinstance(self.backend_session, HeadlessInteractiveSession):
             events = self.backend_session.send_prompt(
                 prompt,
@@ -570,7 +630,7 @@ class RuntimeSessionController:
             if detach_result is not None and detach_result.status == "ok":
                 self.gateway_host = None
                 self.gateway_port = None
-        if isinstance(self.backend_session, HeadlessInteractiveSession):
+        if isinstance(self.backend_session, (HeadlessInteractiveSession, DshWebSession)):
             self.backend_session.configure_stop_force_cleanup(force_cleanup=force_cleanup)
         try:
             result = self.backend_session.terminate()
@@ -1006,7 +1066,15 @@ class RuntimeSessionController:
                 detail=str(exc),
             )
 
-        self.persist_manifest()
+        if isinstance(self.backend_session, DshWebSession):
+            try:
+                self.persist_manifest(refresh_registry=False)
+                self.refresh_shared_registry_record()
+                self.ensure_gateway_capability()
+            except (OSError, SessionManifestError) as exc:
+                return SessionControlResult(status="error", action="relaunch", detail=str(exc))
+        else:
+            self.persist_manifest()
         return result
 
     def revive_stopped_session(
@@ -1073,9 +1141,12 @@ class RuntimeSessionController:
             _rollback_stopped_session_revival(self)
             return result
 
-        self.registry_generation_id = new_registry_generation_id()
+        if not isinstance(self.backend_session, DshWebSession):
+            self.registry_generation_id = new_registry_generation_id()
         try:
             self.persist_manifest(refresh_registry=False)
+            if isinstance(self.backend_session, DshWebSession):
+                self.refresh_shared_registry_record()
             self.ensure_gateway_capability()
             _refresh_pair_launch_registration(self)
         except (OSError, SessionManifestError) as exc:
@@ -1117,7 +1188,11 @@ class RuntimeSessionController:
                 agent_launch_authority=self.agent_launch_authority,
             )
         )
-        committed = write_session_manifest(self.manifest_path, payload)
+        committed = write_session_manifest(
+            self.manifest_path, payload, expected_web_identity=self.m_web_manifest_identity
+        )
+        if isinstance(self.backend_session, DshWebSession):
+            self.m_web_manifest_identity = dict(committed.payload["backend_state"]["web_identity"])
         self.launch_plan = replace(
             self.launch_plan,
             mailboxes=mailboxes_resolved_config_from_payload(
@@ -1323,6 +1398,12 @@ class RuntimeSessionController:
                     f"`{existing_record.agent_name}`"
                 ),
             )
+        if self.m_web_registry_handoff_generation is not None:
+            published = publish_live_agent_record(
+                record, expected_generation_id=self.m_web_registry_handoff_generation
+            )
+            self.m_web_registry_handoff_generation = None
+            return published
         return publish_live_agent_record(record)
 
     def should_publish_shared_registry_record(self) -> bool:
@@ -1528,6 +1609,18 @@ def start_runtime_session(
         raise SessionManifestError(str(exc)) from exc
     tool = str(manifest.get("inputs", {}).get("tool", ""))
     selected_backend = backend or backend_for_tool(tool)
+    if selected_backend == "dsh_web" and (
+        cao_parsing_mode is not None
+        or headless_display_style is not None
+        or headless_display_detail is not None
+        or (
+            gateway_tui_tracking_timing_overrides is not None
+            and gateway_tui_tracking_timing_overrides.has_values()
+        )
+    ):
+        raise SessionManifestError(
+            "DSH Web does not support terminal parser, display, or timing controls."
+        )
     if gateway_auto_attach and selected_backend not in _TMUX_BACKED_BACKENDS:
         raise SessionManifestError(
             "Launch-time gateway attach is only supported for tmux-backed backends."
@@ -1674,6 +1767,21 @@ def start_runtime_session(
             },
         )
 
+    registry_generation_id = (
+        new_registry_generation_id() if selected_backend in _TMUX_BACKED_BACKENDS else None
+    )
+    if selected_backend == "dsh_web":
+        launch_plan = replace(
+            launch_plan,
+            metadata={
+                **launch_plan.metadata,
+                "managed_web_identity": {
+                    "agent_id": resolved_agent_id,
+                    "runtime_session_id": session_id,
+                    "generation": registry_generation_id,
+                },
+            },
+        )
     hook_observation_root = manifest_path.parent
     launch_plan = activate_hook_observation_for_provider_start(
         launch_plan,
@@ -1707,6 +1815,8 @@ def start_runtime_session(
         startup_warnings = (*startup_warnings, *backend_session.startup_warnings)
     elif isinstance(backend_session, HeadlessInteractiveSession):
         resolved_tmux_session_name = backend_session.state.tmux_session_name
+    elif isinstance(backend_session, DshWebSession):
+        resolved_tmux_session_name = backend_session.state.tmux_session_name
 
     controller = RuntimeSessionController(
         launch_plan=launch_plan,
@@ -1728,9 +1838,7 @@ def start_runtime_session(
         agent_identity_warnings=agent_identity_warnings,
         startup_warnings=startup_warnings,
         parsing_mode=resolved_parsing_mode,
-        registry_generation_id=(
-            new_registry_generation_id() if selected_backend in _TMUX_BACKED_BACKENDS else None
-        ),
+        registry_generation_id=registry_generation_id,
         registry_launch_authority=registry_launch_authority,
         agent_launch_authority=None,
     )
@@ -1947,6 +2055,22 @@ def _resume_runtime_session_controller(
             requested_agent_id=manifest_payload.agent_id,
         ).tmux_session_name
 
+    registry_generation_id = manifest_payload.registry_generation_id
+    if backend in _TMUX_BACKED_BACKENDS and (registry_generation_id is None or stopped_revival):
+        registry_generation_id = new_registry_generation_id()
+    if backend == "dsh_web":
+        launch_plan = replace(
+            launch_plan,
+            metadata={
+                **launch_plan.metadata,
+                "managed_web_identity": {
+                    "agent_id": manifest_payload.agent_id,
+                    "runtime_session_id": manifest_payload.runtime.session_id,
+                    "generation": registry_generation_id,
+                },
+            },
+        )
+
     backend_session = _create_backend_session(
         launch_plan=launch_plan,
         role_name=role_name,
@@ -1965,10 +2089,8 @@ def _resume_runtime_session_controller(
         resolved_tmux_session_name = backend_session.state.session_name
     elif isinstance(backend_session, HeadlessInteractiveSession):
         resolved_tmux_session_name = backend_session.state.tmux_session_name
-
-    registry_generation_id = manifest_payload.registry_generation_id
-    if backend in _TMUX_BACKED_BACKENDS and (registry_generation_id is None or stopped_revival):
-        registry_generation_id = new_registry_generation_id()
+    elif isinstance(backend_session, DshWebSession):
+        resolved_tmux_session_name = backend_session.state.tmux_session_name
 
     controller = RuntimeSessionController(
         launch_plan=launch_plan,
@@ -2012,6 +2134,27 @@ def _create_backend_session(
     stopped_revival: bool = False,
 ) -> InteractiveSession:
     """Create a concrete backend session for start/resume flows."""
+
+    if launch_plan.backend == "dsh_web":
+        web_state = (
+            DshWebSessionState.from_payload(resume_state.backend_state)
+            if resume_state is not None
+            else None
+        )
+        return cast(
+            InteractiveSession,
+            DshWebSession.from_launch_plan(
+                launch_plan=launch_plan,
+                role_name=role_name,
+                session_manifest_path=_require_session_manifest_path(
+                    session_manifest_path, backend=launch_plan.backend
+                ),
+                agent_def_dir=agent_def_dir,
+                state=web_state,
+                tmux_session_name=agent_identity,
+                provider_start=resume_state is None,
+            ),
+        )
 
     if launch_plan.backend == "codex_app_server":
         raise SessionManifestError(
@@ -2077,6 +2220,29 @@ def _create_backend_session(
                 session_manifest_path=_require_session_manifest_path(
                     session_manifest_path,
                     backend=launch_plan.backend,
+                ),
+                agent_def_dir=agent_def_dir,
+                state=state,
+                tmux_session_name=agent_identity,
+            ),
+        )
+
+    if launch_plan.backend == "dsh_acp":
+        state = _resume_headless_state(
+            resume_state, launch_plan=launch_plan, stopped_revival=stopped_revival
+        )
+        if (
+            state is not None
+            and Path(state.working_directory).resolve() != launch_plan.working_directory
+        ):
+            raise SessionManifestError("DSH resume requires the recorded working directory")
+        return cast(
+            InteractiveSession,
+            DshAcpSession(
+                launch_plan=launch_plan,
+                role_name=role_name,
+                session_manifest_path=_require_session_manifest_path(
+                    session_manifest_path, backend=launch_plan.backend
                 ),
                 agent_def_dir=agent_def_dir,
                 state=state,
@@ -2663,6 +2829,50 @@ def _relaunch_backend_session(
     """Dispatch the shared relaunch primitive across supported tmux-backed backends."""
 
     backend_session = controller.backend_session
+    if isinstance(backend_session, DshWebSession):
+        handle = load_session_manifest(controller.manifest_path)
+        expected_identity = controller.m_web_manifest_identity
+        if handle.payload["backend_state"].get("web_identity") != expected_identity:
+            return SessionControlResult(
+                status="error", action="relaunch", detail="DSH Web relaunch authority is stale"
+            )
+        previous_generation = str(backend_session.state.web_identity["generation"])
+        existing_record = (
+            load_managed_agent_record_by_agent_id(controller.agent_id)
+            if controller.agent_id is not None
+            else None
+        )
+        if existing_record is not None and (
+            existing_record.generation_id != previous_generation
+            or Path(existing_record.runtime.manifest_path).resolve()
+            != controller.manifest_path.resolve()
+        ):
+            return SessionControlResult(
+                status="error", action="relaunch", detail="DSH Web registry owner changed"
+            )
+        generation = new_registry_generation_id()
+        previous_plan = controller.launch_plan
+        launch_plan = replace(
+            previous_plan,
+            metadata={
+                **previous_plan.metadata,
+                "managed_web_identity": {
+                    "agent_id": backend_session.state.web_identity["agent_id"],
+                    "runtime_session_id": backend_session.state.web_identity["runtime_session_id"],
+                    "generation": generation,
+                },
+            },
+        )
+        backend_session.update_launch_plan(launch_plan)
+        result = backend_session.relaunch(chat_session=chat_session)
+        if result.status == "ok":
+            controller.launch_plan = launch_plan
+            controller.registry_generation_id = generation
+            if existing_record is not None:
+                controller.m_web_registry_handoff_generation = previous_generation
+        else:
+            backend_session.update_launch_plan(previous_plan)
+        return result
     if isinstance(backend_session, LocalInteractiveSession):
         return backend_session.relaunch(chat_session=chat_session)
     if isinstance(backend_session, HeadlessInteractiveSession):
@@ -2909,6 +3119,8 @@ def _backend_state_for_session(session: InteractiveSession) -> GatewayJsonObject
         capability artifacts.
     """
 
+    if isinstance(session, DshWebSession):
+        return cast(GatewayJsonObject, session.state.to_payload())
     if isinstance(session, CodexAppServerSession):
         return cast(GatewayJsonObject, codex_backend_state_payload(session.state))
     if isinstance(session, HeadlessInteractiveSession):
@@ -3103,6 +3315,7 @@ def _launch_plan_with_headless_display_controls(
         "claude_headless",
         "codex_headless",
         "kimi_headless",
+        "dsh_acp",
     }:
         return launch_plan
 
@@ -3124,6 +3337,8 @@ def _backend_requires_provider_start_relaunch(backend: BackendKind) -> bool:
         "codex_headless",
         "claude_headless",
         "kimi_headless",
+        "dsh_acp",
+        "dsh_web",
     }
 
 
@@ -3967,6 +4182,7 @@ def _build_shared_registry_record_for_controller(
         gateway=_shared_registry_gateway_payload(controller),
         mailboxes=_shared_registry_mailbox_payload(controller),
         canonical_mail_identity=controller.launch_plan.mailboxes.canonical_mail_identity,
+        native_surface=_registry_native_surface(controller),
     )
 
 
@@ -4027,7 +4243,19 @@ def _build_stopped_shared_registry_record_for_controller(
         gateway=None,
         mailboxes=_shared_registry_mailbox_payload(controller),
         canonical_mail_identity=controller.launch_plan.mailboxes.canonical_mail_identity,
+        native_surface=_registry_native_surface(controller),
     )
+
+
+def _registry_native_surface(controller: RuntimeSessionController) -> NativeSurfaceV1 | None:
+    """Read the latest persisted surface rather than a stale controller snapshot."""
+
+    if not controller.manifest_path.is_file():
+        return None
+    manifest = load_session_manifest(controller.manifest_path)
+    return parse_session_manifest_payload(
+        manifest.payload, source=str(manifest.path)
+    ).native_surface
 
 
 def _shared_registry_runtime_payload(
@@ -4071,7 +4299,7 @@ def _shared_registry_record_is_relaunchable(
 def _rollback_stopped_session_revival(controller: RuntimeSessionController) -> None:
     """Best-effort cleanup for a failed stopped-session revival attempt."""
 
-    if not isinstance(controller.backend_session, HeadlessInteractiveSession):
+    if not isinstance(controller.backend_session, (HeadlessInteractiveSession, DshWebSession)):
         controller.tmux_session_name = None
         return
     controller.backend_session.configure_stop_force_cleanup(force_cleanup=True)
@@ -4199,6 +4427,17 @@ def _attach_gateway_for_controller(
         )
 
     paths = _require_gateway_paths_for_controller(controller)
+    if (
+        controller.launch_plan.backend == "dsh_web"
+        and tui_tracking_timing_overrides is not None
+        and tui_tracking_timing_overrides.has_values()
+    ):
+        return GatewayControlResult(
+            status="error",
+            action="gateway_attach",
+            detail="DSH Web does not support terminal tracking timing controls.",
+            gateway_root=str(paths.gateway_root),
+        )
     attach_contract = resolve_internal_gateway_attach_contract(paths)
     try:
         host, requested_port = _resolve_gateway_listener(
@@ -4813,7 +5052,7 @@ def _same_session_gateway_shell_command(
     paths: GatewayPaths,
     host: GatewayHost,
     port: int,
-    tui_tracking_timings: GatewayTuiTrackingTimingConfigV1,
+    tui_tracking_timings: GatewayTuiTrackingTimingConfigV1 | None,
 ) -> str:
     """Return the shell command used to launch a gateway in an auxiliary tmux window."""
 
@@ -4840,7 +5079,11 @@ def _same_session_gateway_shell_command(
             host,
             "--port",
             str(port),
-            *_gateway_tui_tracking_timing_cli_args(tui_tracking_timings),
+            *(
+                _gateway_tui_tracking_timing_cli_args(tui_tracking_timings)
+                if tui_tracking_timings is not None
+                else ()
+            ),
         )
     )
     log_target = shlex.quote(str(paths.log_path))
@@ -4883,7 +5126,9 @@ def _launch_same_session_gateway_window(
         paths=paths,
         host=host,
         port=port,
-        tui_tracking_timings=tui_tracking_timings,
+        tui_tracking_timings=(
+            None if controller.launch_plan.backend == "dsh_web" else tui_tracking_timings
+        ),
     )
     try:
         result = run_tmux_shared(
@@ -5139,7 +5384,11 @@ def _start_gateway_process(
             host,
             "--port",
             str(port),
-            *_gateway_tui_tracking_timing_cli_args(tui_tracking_timings),
+            *(
+                _gateway_tui_tracking_timing_cli_args(tui_tracking_timings)
+                if controller.launch_plan.backend != "dsh_web"
+                else ()
+            ),
         ],
         stdout=log_stream,
         stderr=subprocess.STDOUT,

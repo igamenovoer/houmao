@@ -1,6 +1,10 @@
 schema_version: 1
 case: cloud-api
 service: deepseek
+dsh:
+  adapter: deepseek
+  protocol: anthropic_messages
+  route: deepseek-official
 model_env: HOUMAO_TEST_CLOUD_MODEL
 api_key_env: DEEPSEEK_API_KEY
 endpoints:
@@ -12,6 +16,8 @@ endpoints:
     base_url_env: DEEPSEEK_BASE_URL_OPENAI
 metadata:
   context_window_env: HOUMAO_TEST_CLOUD_CONTEXT_WINDOW
+  max_output_tokens_env: HOUMAO_TEST_CLOUD_MAX_OUTPUT_TOKENS
+  dsh_reasoning_env: HOUMAO_TEST_CLOUD_DSH_REASONING
   capabilities_env: HOUMAO_TEST_CLOUD_CAPABILITIES
   reasoning_key_env: HOUMAO_TEST_CLOUD_REASONING_KEY
   reasoning_effort_env: HOUMAO_TEST_CLOUD_REASONING_EFFORT

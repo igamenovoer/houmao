@@ -21,6 +21,7 @@ from houmao.agents.codex_cli_config import (
     codex_config_override_payload,
     codex_provider_cli_config_overrides,
 )
+from houmao.agents.dsh_configuration import DshConfigurationError, DshSetup, prepare_dsh_home
 from houmao.agents.definition_parser import (
     AgentPreset,
     ToolAdapter,
@@ -833,6 +834,37 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         reasoning_projection=reasoning_projection,
     )
     codex_cli_config_args = codex_config_override_args(codex_cli_config_overrides)
+    dsh_projection: dict[str, Any] | None = None
+    if request.tool == "dsh":
+        try:
+            prepared = prepare_dsh_home(
+                home_path,
+                DshSetup.from_file(home_path / "dsh-setup.yaml"),
+                {key: env_values[key] for key in selected_env_names},
+                request.role_prompt_override or "",
+                selected_model=(
+                    resolved_model_config.config.name if resolved_model_config.config else None
+                ),
+                reasoning_level=(
+                    str(reasoning_projection["profile_key"])
+                    if reasoning_projection is not None and "profile_key" in reasoning_projection
+                    else None
+                ),
+                skill_roots=(skill_destination_dir,),
+                operator_prompt_mode=_resolved_operator_prompt_mode(request.operator_prompt_mode),
+            )
+        except DshConfigurationError as exc:
+            raise BuildError(str(exc)) from exc
+        launch_helper_args.extend(["--profile", "acp", "--patch", str(prepared.patch_path)])
+        projected_model_env_exports.update(prepared.environment)
+        dsh_projection = {
+            **prepared.metadata,
+            "setup_path": str(home_path / "dsh-setup.yaml"),
+            "patch_path": str(prepared.patch_path),
+            "role_path": str(prepared.role_path),
+            "persistence_root": str(prepared.persistence_root),
+            "agents_home": str(prepared.agents_home),
+        }
 
     if adapter.env_injection_mode == "home_dotenv":
         env_file_in_home = adapter.env_file_in_home or ".env"
@@ -872,6 +904,8 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         "direct_overrides_present": request.launch_overrides is not None,
         "existing_home_mode": existing_home_mode,
     }
+    if dsh_projection is not None:
+        construction_provenance["dsh"] = dsh_projection
     if request.launch_profile_provenance is not None:
         construction_provenance["launch_profile"] = dict(request.launch_profile_provenance)
     if request.private_skills:
@@ -1204,6 +1238,13 @@ def _extract_native_model_config_baseline(
 ) -> ModelConfig | None:
     """Extract one launch-time baseline model config from copied native state."""
 
+    if tool == "dsh":
+        try:
+            setup = DshSetup.from_file(home_path / "dsh-setup.yaml")
+        except DshConfigurationError as exc:
+            raise BuildError(str(exc)) from exc
+        return ModelConfig(name=setup.selected_model)
+
     if tool == "claude":
         model_name = _non_empty_str(auth_env_values.get("ANTHROPIC_MODEL"))
         return ModelConfig(name=model_name) if model_name is not None else None
@@ -1244,6 +1285,12 @@ def _project_model_name(
 
     if model_name is None:
         return None
+    if tool == "dsh":
+        try:
+            model, _ = DshSetup.from_file(home_path / "dsh-setup.yaml").select_model(model_name)
+        except DshConfigurationError as exc:
+            raise BuildError(str(exc)) from exc
+        return {"surface": "native_configuration", "value": model.id}
     if tool == "claude":
         del launch_env_exports
         return {

@@ -16,6 +16,12 @@ from pydantic import (
 from .agent_identity import normalize_managed_agent_id, normalize_managed_agent_name
 from .errors import SessionManifestError
 from .models import BackendKind, CaoParsingMode, RoleInjectionMethod
+from houmao.agents.realm_controller.native_surface import (
+    NativeSurfaceKind,
+    NativeSurfaceV1,
+    TerminalNativeSurfaceV1,
+    WebNativeSurfaceV1,
+)
 
 OperatorPromptModeV1: TypeAlias = Literal["as_is", "unattended"]
 LaunchPolicySelectionSourceV1: TypeAlias = Literal["registry", "env_override"]
@@ -38,6 +44,8 @@ _TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
         "codex_headless",
         "claude_headless",
         "kimi_headless",
+        "dsh_acp",
+        "dsh_web",
         "cao_rest",
         "houmao_server_rest",
     }
@@ -242,6 +250,7 @@ class LaunchPlanPayloadV1(_StrictBoundaryModel):
     """Persisted `launch_plan.v1` payload."""
 
     backend: BackendKind
+    native_surface_kind: NativeSurfaceKind | None = None
     tool: str
     executable: str
     args: list[str]
@@ -259,6 +268,24 @@ class LaunchPlanPayloadV1(_StrictBoundaryModel):
         if not value.strip():
             raise ValueError("must not be empty")
         return value
+
+    @model_validator(mode="after")
+    def _validate_native_surface(self) -> "LaunchPlanPayloadV1":
+        """Require Web posture without changing existing terminal launch defaults."""
+
+        if self.backend == "dsh_web" and (self.tool != "dsh" or self.native_surface_kind != "web"):
+            raise ValueError("dsh_web requires tool=dsh and native_surface_kind=web")
+        if self.backend != "dsh_web" and self.native_surface_kind == "web":
+            raise ValueError("a Web native surface requires backend=dsh_web")
+        if self.native_surface_kind == "terminal" and self.backend not in {
+            "local_interactive",
+            "cao_rest",
+            "houmao_server_rest",
+        }:
+            raise ValueError(
+                "a terminal native surface requires an actual interactive terminal backend"
+            )
+        return self
 
 
 class CodexSectionV1(_StrictBoundaryModel):
@@ -428,7 +455,9 @@ class SessionManifestTmuxSectionV1(_StrictBoundaryModel):
 
     session_name: str
     primary_window_index: str = "0"
-    primary_window_role: Literal["managed_agent_surface"] = "managed_agent_surface"
+    primary_window_role: Literal["managed_agent_surface", "supervisor_logs"] = (
+        "managed_agent_surface"
+    )
     primary_window_name: str | None = None
     primary_window_id: str | None = None
     primary_pane_id: str | None = None
@@ -635,6 +664,7 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
     agent_name: str | None = None
     agent_id: str
     tmux_session_name: str | None = None
+    native_surface: NativeSurfaceV1 | None = None
     registry_generation_id: str | None = None
     registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime"
     runtime: SessionManifestRuntimeSectionV1
@@ -683,6 +713,58 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
             raise ValueError("launch_plan.backend must match manifest backend")
         if self.launch_plan.tool != self.tool:
             raise ValueError("launch_plan.tool must match manifest tool")
+        if self.backend == "dsh_web":
+            surface = self.native_surface
+            identity = self.backend_state.get("web_identity")
+            if not isinstance(surface, WebNativeSurfaceV1) or not isinstance(identity, dict):
+                raise ValueError(
+                    "dsh_web requires a verified native Web surface and execution identity"
+                )
+            required = (
+                "agent_id",
+                "runtime_session_id",
+                "generation",
+                "host_incarnation",
+                "native_session_id",
+                "agent_incarnation",
+            )
+            if (
+                type(identity.get("protocol_version")) is not int
+                or identity.get("protocol_version") != 1
+                or any(
+                    not isinstance(identity.get(key), str) or not identity[key] for key in required
+                )
+            ):
+                raise ValueError("dsh_web requires a complete versioned execution identity")
+            if (
+                self.backend_state.get("origin") != surface.origin
+                or self.backend_state.get("browser_url") != surface.origin
+                or identity["native_session_id"] != surface.native_session_id
+                or identity["agent_id"] != self.agent_id
+                or identity["runtime_session_id"] != self.runtime.session_id
+                or identity["generation"] != self.registry_generation_id
+            ):
+                raise ValueError("native Web identity differs from manifest execution authority")
+            if self.interactive is not None and (
+                self.interactive.terminal_id is not None
+                or self.interactive.parsing_mode is not None
+            ):
+                raise ValueError("Web supervision cannot publish terminal parser authority")
+            if self.tmux is not None and self.tmux.primary_window_role != "supervisor_logs":
+                raise ValueError("Web tmux metadata must identify supervisory logs")
+        elif isinstance(self.native_surface, WebNativeSurfaceV1):
+            raise ValueError("a Web native surface requires backend=dsh_web")
+        if (
+            isinstance(self.native_surface, TerminalNativeSurfaceV1)
+            and self.native_surface.tmux_session_name != self.tmux_session_name
+        ):
+            raise ValueError("terminal native surface differs from tmux session authority")
+        if isinstance(self.native_surface, TerminalNativeSurfaceV1) and self.backend not in {
+            "local_interactive",
+            "cao_rest",
+            "houmao_server_rest",
+        }:
+            raise ValueError("headless process supervision is not a native terminal surface")
 
         if self.agent_name is not None:
             try:
@@ -737,7 +819,19 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
                 "runtime.registry_launch_authority must match top-level registry_launch_authority"
             )
 
-        if self.backend == "codex_app_server":
+        if self.backend == "dsh_web":
+            if any(
+                section is not None
+                for section in (
+                    self.codex,
+                    self.headless,
+                    self.local_interactive,
+                    self.cao,
+                    self.houmao_server,
+                )
+            ):
+                raise ValueError("Web manifests must omit terminal/headless backend sections")
+        elif self.backend == "codex_app_server":
             if self.codex is None:
                 raise ValueError("codex is required for backend=codex_app_server")
             if (
@@ -754,6 +848,7 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
             "codex_headless",
             "claude_headless",
             "kimi_headless",
+            "dsh_acp",
         }:
             if self.headless is None:
                 raise ValueError(

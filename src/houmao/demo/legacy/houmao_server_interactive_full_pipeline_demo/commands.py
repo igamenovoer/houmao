@@ -716,9 +716,11 @@ def _managed_agent_snapshot(
         ready_posture = detail_payload.surface.ready_posture
         stable = detail_payload.stability.stable
         stable_for_seconds = detail_payload.stability.stable_for_seconds
-    else:
+    elif detail_payload.transport == "headless":
         can_accept_prompt_now = detail_payload.can_accept_prompt_now
         interruptible = detail_payload.interruptible
+    else:
+        raise DemoWorkflowError("Web detail is unsupported by this legacy full-pipeline demo.")
 
     gateway_queue_depth: int | None = None
     if state_response.gateway is not None:

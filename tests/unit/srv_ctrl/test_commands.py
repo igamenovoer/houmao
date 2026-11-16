@@ -354,6 +354,7 @@ def test_main_recovers_stale_local_managed_agent_stop_without_traceback(
         generation_id="gen-1",
         lifecycle=SimpleNamespace(state="active"),
         identity=SimpleNamespace(backend="codex_headless", tool="codex"),
+        native_surface=None,
         runtime=SimpleNamespace(
             agent_def_dir=str((tmp_path / "agent-def").resolve()),
             manifest_path=str((tmp_path / "missing-manifest.json").resolve()),

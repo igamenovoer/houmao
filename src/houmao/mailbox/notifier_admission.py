@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import sqlite3
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,7 @@ def admit_mail_reminder(
     payload_json: str,
     accepted_at_utc: str,
     managed_agent_instance_epoch: int,
+    initial_state: Literal["accepted", "observing"] = "accepted",
 ) -> bool:
     """Commit a cycle admission and its pending prompt in the same transaction.
 
@@ -75,7 +77,7 @@ def admit_mail_reminder(
                 """
             SELECT 1 FROM mail_reminder_admission a JOIN gateway_requests r
             ON a.request_id=r.request_id
-            WHERE a.scope_key=? AND r.state IN ('accepted','running') LIMIT 1
+            WHERE a.scope_key=? AND r.state IN ('accepted','running','observing') LIMIT 1
         """,
                 (scope_key,),
             ).fetchone()
@@ -87,9 +89,15 @@ def admit_mail_reminder(
             INSERT INTO gateway_requests (
                 request_id,request_kind,payload_json,state,accepted_at_utc,
                 managed_agent_instance_epoch
-            ) VALUES (?,'mail_notifier_prompt',?,'accepted',?,?)
+            ) VALUES (?,'mail_notifier_prompt',?,?,?,?)
         """,
-            (request_id, payload_json, accepted_at_utc, managed_agent_instance_epoch),
+            (
+                request_id,
+                payload_json,
+                initial_state,
+                accepted_at_utc,
+                managed_agent_instance_epoch,
+            ),
         )
         connection.execute(
             """

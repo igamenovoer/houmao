@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -24,13 +25,20 @@ from tests.unit.agents.realm_controller.test_gateway_support import (
 
 
 @pytest.mark.parametrize("operation", ["ensure", "attach", "detach", "status"])
+@pytest.mark.parametrize("tool", ["claude", "dsh", "dsh_web"])
 def test_gateway_controls_preserve_newer_native_conversation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str, tool: str
 ) -> None:
     """An old controller must not overwrite a native turn committed by the gateway."""
 
     plan = _sample_headless_plan(tmp_path)
-    manifest = default_manifest_path(tmp_path, "claude_headless", "managed-one")
+    if tool == "dsh":
+        plan = replace(plan, backend="dsh_acp", tool="dsh", home_env_var="DSH_HOME")
+    elif tool == "dsh_web":
+        plan = replace(
+            plan, backend="dsh_web", tool="dsh", home_env_var="DSH_HOME", native_surface_kind="web"
+        )
+    manifest = default_manifest_path(tmp_path, plan.backend, "managed-one")
     controller = RuntimeSessionController(
         launch_plan=plan,
         role_name="role",
@@ -54,10 +62,36 @@ def test_gateway_controls_preserve_newer_native_conversation(
         "houmao.agents.realm_controller.runtime.unset_tmux_session_environment_shared", Mock()
     )
     monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._read_optional_tmux_session_env_var",
+        Mock(return_value=None),
+    )
+    monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._start_gateway_process",
         lambda **_kwargs: 43123,
     )
     # A separately resumed gateway commits a later native conversation and turn.
+    backend_state = {
+        "session_id": "gateway-authored-conversation",
+        "turn_index": 7,
+        "role_bootstrap_applied": True,
+        "tmux_session_name": "HOUMAO-held-controller",
+    }
+    if tool == "dsh_web":
+        backend_state.update(
+            {
+                "origin": "http://127.0.0.1:55123",
+                "browser_url": "http://127.0.0.1:55123",
+                "web_identity": {
+                    "protocol_version": 1,
+                    "agent_id": "held-owner",
+                    "runtime_session_id": "managed-one",
+                    "generation": "new-generation",
+                    "host_incarnation": "new-host",
+                    "native_session_id": "gateway-authored-conversation",
+                    "agent_incarnation": "new-body",
+                },
+            }
+        )
     write_session_manifest(
         manifest,
         build_session_manifest_payload(
@@ -65,16 +99,12 @@ def test_gateway_controls_preserve_newer_native_conversation(
                 launch_plan=plan,
                 role_name="role",
                 brain_manifest_path=tmp_path / "brain.yaml",
-                backend_state={
-                    "session_id": "gateway-authored-conversation",
-                    "turn_index": 7,
-                    "role_bootstrap_applied": True,
-                    "tmux_session_name": "HOUMAO-held-controller",
-                },
+                backend_state=backend_state,
                 agent_name="HOUMAO-held-controller",
                 agent_id="held-owner",
                 tmux_session_name="HOUMAO-held-controller",
                 session_id="managed-one",
+                registry_generation_id="new-generation" if tool == "dsh_web" else None,
                 agent_def_dir=tmp_path / "agents",
             )
         ),
@@ -90,8 +120,16 @@ def test_gateway_controls_preserve_newer_native_conversation(
         controller.gateway_status()
     assert manifest.read_bytes() == original
     saved = load_session_manifest(manifest).payload
-    assert saved["headless"]["session_id"] == "gateway-authored-conversation"
-    assert saved["headless"]["turn_index"] == 7
+    if tool == "dsh_web":
+        assert saved["native_surface"] == {
+            "kind": "web",
+            "origin": "http://127.0.0.1:55123",
+            "native_session_id": "gateway-authored-conversation",
+        }
+        assert saved["backend_state"]["web_identity"] == backend_state["web_identity"]
+    else:
+        assert saved["headless"]["session_id"] == "gateway-authored-conversation"
+        assert saved["headless"]["turn_index"] == 7
     assert saved["backend_state"]["session_id"] == "gateway-authored-conversation"
     stale_backend.assert_not_called()
     paths = gateway_paths_from_manifest_path(manifest)

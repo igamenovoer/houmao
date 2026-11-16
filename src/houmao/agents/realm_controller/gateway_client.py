@@ -55,6 +55,8 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayReminderPutV1,
     GatewayReminderV1,
     GatewayStatusV1,
+    GatewayWebControlStateV1,
+    GatewayWebHistoryV1,
     GatewayMemoryActionResponseV1,
     GatewayMemoryMemoResponseV1,
     GatewayMemoryMemoWriteRequestV1,
@@ -494,6 +496,18 @@ class GatewayClient:
             "/v1/control/prompt",
             GatewayPromptControlResultV1,
             body=payload.model_dump(mode="json"),
+        )
+
+    def get_web_state(self) -> GatewayWebControlStateV1:
+        """Read the gateway's structured native Web observation."""
+
+        return self._request_model("GET", "/v1/control/web/state", GatewayWebControlStateV1)
+
+    def get_web_history(self, *, limit: int = 100) -> GatewayWebHistoryV1:
+        """Read bounded native Web transitions."""
+
+        return self._request_model(
+            "GET", f"/v1/control/web/history?limit={limit}", GatewayWebHistoryV1
         )
 
     def get_tui_state(self) -> HoumaoTerminalStateResponse:

@@ -7,7 +7,12 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from houmao.agents.realm_controller.gateway_models import GatewayChatSessionSelectorV1
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayChatSessionSelectorV1,
+    GatewayWebControlStateV1,
+    GatewayWebHistoryV1,
+)
+from houmao.agents.realm_controller.native_surface import NativeSurfaceV1
 from houmao.server.models import (
     HoumaoHeadlessLaunchMailboxesOptions,
     HoumaoHeadlessTurnEvent,
@@ -71,6 +76,10 @@ class DiscoveredAgentSummary(_PassiveModel):
     has_mailbox: bool
     published_at: str
     lease_expires_at: str
+    native_surface_kind: Literal["terminal", "web", "headless"] | None = None
+    browser_origin: str | None = None
+    native_session_id: str | None = None
+    native_surface: NativeSurfaceV1 | None = None
 
 
 class DiscoveredAgentListResponse(_PassiveModel):
@@ -178,6 +187,24 @@ class AgentTuiHistoryResponse(_PassiveModel):
     agent_id: str
     agent_name: str
     entries: list[HoumaoRecentTransition] = Field(default_factory=list)
+
+
+class AgentWebStateResponse(_PassiveModel):
+    """Compact native Web state without terminal or local browser draft signals."""
+
+    transport: Literal["web"] = "web"
+    agent_id: str
+    agent_name: str
+    web: GatewayWebControlStateV1
+
+
+class AgentWebHistoryResponse(_PassiveModel):
+    """Bounded native Web transitions for one discovered logical agent."""
+
+    transport: Literal["web"] = "web"
+    agent_id: str
+    agent_name: str
+    web: GatewayWebHistoryV1
 
 
 # ---------------------------------------------------------------------------

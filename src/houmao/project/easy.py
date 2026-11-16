@@ -15,6 +15,7 @@ TOOL_PROVIDER_MAP: dict[str, str] = {
     "claude": "claude_code",
     "codex": "codex",
     "kimi": "kimi",
+    "dsh": "dsh",
 }
 
 TOOL_AUTH_FILE_FLAG_NAMES: dict[str, str] = {

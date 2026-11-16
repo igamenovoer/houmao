@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 import json
 from pathlib import Path
 import shlex
-from typing import Any, Literal, cast
+from typing import Any, Literal, TypedDict, cast
 import uuid
 
 import click
@@ -31,6 +31,10 @@ from houmao.agents.mailbox_runtime_support import (
 )
 from houmao.agents.model_selection import ModelConfig, normalize_model_config
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
+from houmao.agents.realm_controller.backends.dsh_web import DshWebSession
+from houmao.agents.realm_controller.web_observation import WebObservation, web_state_is_fresh
+from houmao.agents.realm_controller.gateway_storage import web_attach_metadata_from_state
+from houmao.passive_server.compatibility import managed_web_state_from_native
 from houmao.agents.realm_controller.backends.headless_output import (
     HeadlessProvider,
     resolve_headless_provider,
@@ -174,6 +178,7 @@ from houmao.server.models import (
     HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentGatewaySummaryView,
     HoumaoManagedAgentHeadlessDetailView,
+    HoumaoManagedAgentWebDetailView,
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentLastTurnView,
     HoumaoManagedAgentListResponse,
@@ -204,7 +209,7 @@ from .common import (
     resolve_server_base_url,
 )
 
-_HEADLESS_BACKENDS = frozenset({"claude_headless", "codex_headless", "kimi_headless"})
+_HEADLESS_BACKENDS = frozenset({"claude_headless", "codex_headless", "kimi_headless", "dsh_acp"})
 _SUPPORTED_LOCAL_TUI_PROCESSES: dict[str, tuple[str, ...]] = {
     "claude": ("claude", "claude-code"),
     "codex": ("codex",),
@@ -1841,6 +1846,8 @@ def managed_agent_state_payload(target: ManagedAgentTarget) -> HoumaoManagedAgen
             return _annotate_external_state_response(response, target.external_record)
         return response
     controller = _require_live_local_controller(target, operation="inspect managed-agent state")
+    if target.identity.transport == "web":
+        return _local_web_state_response(controller=controller, identity=target.identity)
     if target.identity.transport == "tui":
         tracked_state = _refresh_local_tui_state(controller=controller)
         return _local_tui_state_response_from_state(
@@ -1863,6 +1870,15 @@ def managed_agent_detail_payload(target: ManagedAgentTarget) -> HoumaoManagedAge
             return _annotate_external_detail_response(response, target.external_record)
         return response
     controller = _require_live_local_controller(target, operation="inspect managed-agent detail")
+    if target.identity.transport == "web":
+        summary = _local_web_state_response(controller=controller, identity=target.identity)
+        assert summary.web is not None
+        return HoumaoManagedAgentDetailResponse(
+            tracked_agent_id=summary.tracked_agent_id,
+            identity=summary.identity,
+            summary_state=summary,
+            detail=HoumaoManagedAgentWebDetailView(state=summary.web),
+        )
     if target.identity.transport == "tui":
         tracked_state = _refresh_local_tui_state(controller=controller)
         summary_state = _local_tui_state_response_from_state(
@@ -2303,6 +2319,14 @@ def attach_gateway(
     """Attach or reuse a live gateway for one managed agent."""
 
     _raise_external_unsupported(target, operation="agents single ... gateway attach")
+    if (
+        target.identity.transport == "web"
+        and tui_tracking_timing_overrides is not None
+        and tui_tracking_timing_overrides.has_values()
+    ):
+        raise click.ClickException(
+            "Gateway TUI timing overrides are unsupported for the Web native surface."
+        )
 
     target = _local_gateway_target_for_passive_pair(target, operation="attach")
     execution_mode_override: GatewayCurrentExecutionMode = (
@@ -4590,8 +4614,13 @@ def _identity_from_record(record: ManagedAgentRegistryRecordV3) -> HoumaoManaged
     """Project one registry record into the shared identity payload."""
 
     transport: ManagedAgentTransportKind = (
-        "headless" if record.identity.backend in _HEADLESS_BACKENDS else "tui"
+        "web"
+        if record.identity.backend == "dsh_web"
+        else "headless"
+        if record.identity.backend in _HEADLESS_BACKENDS
+        else "tui"
     )
+    manifest = _managed_manifest_for_identity(Path(record.runtime.manifest_path))
     tracked_agent_id = record.agent_id or record.agent_name or record.terminal.session_name
     tmux_window_name = _managed_tmux_window_name_from_manifest_path(
         manifest_path=Path(record.runtime.manifest_path),
@@ -4604,10 +4633,13 @@ def _identity_from_record(record: ManagedAgentRegistryRecordV3) -> HoumaoManaged
     return HoumaoManagedAgentIdentity(
         tracked_agent_id=tracked_agent_id,
         transport=transport,
+        native_surface=manifest.native_surface if manifest is not None else record.native_surface,
         tool=record.identity.tool,
         session_name=record.terminal.session_name if transport == "tui" else None,
         terminal_id=None,
-        runtime_session_id=tracked_agent_id,
+        runtime_session_id=manifest.runtime.session_id
+        if transport == "web" and manifest is not None
+        else tracked_agent_id,
         tmux_session_name=record.terminal.session_name,
         tmux_window_name=tmux_window_name,
         manifest_path=record.runtime.manifest_path,
@@ -4733,8 +4765,13 @@ def _identity_from_controller(controller: RuntimeSessionController) -> HoumaoMan
         controller.agent_id or controller.agent_identity or controller.manifest_path.parent.name
     )
     transport: ManagedAgentTransportKind = (
-        "headless" if controller.launch_plan.backend in _HEADLESS_BACKENDS else "tui"
+        "web"
+        if controller.launch_plan.backend == "dsh_web"
+        else "headless"
+        if controller.launch_plan.backend in _HEADLESS_BACKENDS
+        else "tui"
     )
+    manifest = _managed_manifest_for_identity(controller.manifest_path)
     tmux_window_name = _managed_tmux_window_name_from_manifest_path(
         manifest_path=controller.manifest_path,
         default=(
@@ -4746,10 +4783,13 @@ def _identity_from_controller(controller: RuntimeSessionController) -> HoumaoMan
     return HoumaoManagedAgentIdentity(
         tracked_agent_id=tracked_agent_id,
         transport=transport,
+        native_surface=manifest.native_surface if manifest is not None else None,
         tool=controller.launch_plan.tool,
         session_name=controller.tmux_session_name if transport == "tui" else None,
         terminal_id=None,
-        runtime_session_id=controller.manifest_path.parent.name,
+        runtime_session_id=manifest.runtime.session_id
+        if transport == "web" and manifest is not None
+        else controller.manifest_path.parent.name,
         tmux_session_name=controller.tmux_session_name,
         tmux_window_name=tmux_window_name,
         manifest_path=str(controller.manifest_path),
@@ -4972,6 +5012,16 @@ def _tracked_tui_identity_for_controller(
     )
 
 
+def _managed_manifest_for_identity(manifest_path: Path) -> SessionManifestPayloadV4 | None:
+    """Read current persisted identity without activating or retargeting an agent."""
+
+    try:
+        handle = load_session_manifest(manifest_path)
+        return parse_session_manifest_payload(handle.payload, source=str(handle.path))
+    except SessionManifestError:
+        return None
+
+
 def _managed_tmux_window_name_from_manifest_path(
     *,
     manifest_path: Path,
@@ -5116,10 +5166,18 @@ def _tracked_errors(*, tracked_state: HoumaoTerminalStateResponse) -> list[Houma
     return diagnostics
 
 
+class _ControllerMemoryStateFields(TypedDict):
+    """Named optional memory locations accepted by managed state responses."""
+
+    memory_root: str | None
+    memo_file: str | None
+    pages_dir: str | None
+
+
 def _controller_memory_state_fields(
     *,
     controller: RuntimeSessionController,
-) -> dict[str, str | None]:
+) -> _ControllerMemoryStateFields:
     """Return memory fields for one managed-agent state response."""
 
     memory_root = getattr(controller, "memory_root", None)
@@ -5130,6 +5188,66 @@ def _controller_memory_state_fields(
         "memo_file": str(memo_file) if memo_file is not None else None,
         "pages_dir": str(pages_dir) if pages_dir is not None else None,
     }
+
+
+def _local_web_state_response(
+    *,
+    controller: RuntimeSessionController,
+    identity: HoumaoManagedAgentIdentity,
+) -> HoumaoManagedAgentStateResponse:
+    """Observe the latest owned Web binding without starting a host or parsing logs."""
+
+    manifest = _managed_manifest_for_identity(controller.manifest_path)
+    if manifest is None:
+        raise click.ClickException("Verified native Web manifest authority is unavailable")
+    metadata = web_attach_metadata_from_state(manifest.backend_state)
+    observer = WebObservation(metadata=metadata, state=lambda: {}, history=lambda **_: {})
+    state = observer.unavailable()
+    client = _live_gateway_client_for_controller(controller)
+    if client is not None:
+        try:
+            observed = client.get_web_state()
+            if (
+                observed.identity == metadata.identity
+                and observed.origin == metadata.origin
+                and observed.browser_url == metadata.browser_url
+                and observed.availability == "available"
+                and web_state_is_fresh(observed)
+            ):
+                state = observed
+        except GatewayHttpError:
+            pass
+    if state.availability != "available":
+        backend: DshWebSession | None = None
+        try:
+            if controller.agent_def_dir is None:
+                raise ValueError("Direct Web observation requires private runtime authority")
+            fresh = resume_runtime_session(
+                agent_def_dir=controller.agent_def_dir,
+                session_manifest_path=controller.manifest_path,
+            )
+            if not isinstance(fresh.backend_session, DshWebSession):
+                raise click.ClickException(
+                    "Native Web observation requires the Web runtime adapter"
+                )
+            backend = fresh.backend_session
+            state = WebObservation(
+                metadata=metadata,
+                state=backend.observe_web_state,
+                history=backend.observe_web_history,
+            ).refresh()
+        except (RuntimeError, OSError, ValueError):
+            state = observer.unavailable()
+        finally:
+            if backend is not None:
+                backend.close_control_connection()
+    summary = managed_web_state_from_native(
+        identity=identity,
+        state=state,
+        mailbox_summary=_local_mailbox_summary(controller),
+        gateway_summary=_local_gateway_summary(controller),
+    )
+    return summary.model_copy(update=dict(_controller_memory_state_fields(controller=controller)))
 
 
 def _local_headless_state_response(

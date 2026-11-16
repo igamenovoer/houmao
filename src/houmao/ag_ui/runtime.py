@@ -10,9 +10,10 @@ from houmao.ag_ui.state import GatewayStatusSnapshot, JsonObject, JsonValue
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayRequestCreateV1,
+    GatewayWebControlStateV1,
 )
 
-AgUiTargetTransportFamily = Literal["headless", "tui", "http_rest", "unknown"]
+AgUiTargetTransportFamily = Literal["headless", "tui", "web", "http_rest", "unknown"]
 AgUiObservedRequestTerminalState = Literal["completed", "failed", "coalesced"]
 
 
@@ -85,12 +86,17 @@ class AgUiRuntimeObservationProtocol(Protocol):
     def ag_ui_tui_observation(self) -> AgUiTuiObservation:
         """Return sanitized TUI observation for lower-fidelity AG-UI streaming."""
 
+    def ag_ui_web_observation(self) -> GatewayWebControlStateV1:
+        """Return structured native Web state without inventing output ownership."""
+
 
 def ag_ui_target_transport_family_for_backend(backend: str) -> AgUiTargetTransportFamily:
     """Map one gateway backend value to the AG-UI observation family."""
 
-    if backend in {"claude_headless", "codex_headless", "kimi_headless"}:
+    if backend in {"claude_headless", "codex_headless", "kimi_headless", "dsh_acp"}:
         return "headless"
+    if backend == "dsh_web":
+        return "web"
     if backend in {"local_interactive", "cao_rest"}:
         return "tui"
     if backend in {"codex_app_server", "houmao_server_rest"}:

@@ -16,7 +16,11 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
+from houmao.agents.realm_controller.backends.dispatch_control import (
+    HeadlessDispatchControl,
+    _dispatch_origin_birth_token,
+)
+from houmao.agents.realm_controller.backends.dsh_acp_connection import signal_dsh_native_process
 from houmao.agents.realm_controller.usage_support import (
     headless_artifact_process_alive,
     persist_terminal_evidence,
@@ -50,6 +54,10 @@ _DEFAULT_COMPLETION_TIMEOUT_SECONDS = 300.0
 _DEFAULT_COMPLETION_POLL_INTERVAL_SECONDS = 0.1
 
 
+class HeadlessTurnWaitTimeout(BackendExecutionError):
+    """Indicate controller wait expiry while owned execution may remain active."""
+
+
 @dataclass(frozen=True)
 class HeadlessProcessMetadata:
     """Durable process identity for one tmux-backed headless turn."""
@@ -57,6 +65,8 @@ class HeadlessProcessMetadata:
     runner_pid: int | None = None
     child_pid: int | None = None
     launched_at_utc: str | None = None
+    runner_birth_token: str | None = None
+    child_birth_token: str | None = None
 
 
 @dataclass(frozen=True)
@@ -94,11 +104,45 @@ class HeadlessCliRunner:
         self.m_interrupt_requested: bool = False
         self.m_active_turn_dir: Path | None = None
         self.m_dispatch_control: HeadlessDispatchControl | None = None
+        self.m_active_provider: HeadlessProvider | None = None
 
     def set_dispatch_control(self, control: HeadlessDispatchControl | None) -> None:
         """Set a request-scoped launch guard without changing ordinary turns."""
 
         self.m_dispatch_control = control
+
+    def restore_dsh_attempt(self, *, turn_dir: Path, tmux_session_name: str | None) -> None:
+        """Recover a caller-validated native attempt's exact live driver identity.
+
+        Parameters
+        ----------
+        turn_dir:
+            Managed artifact directory whose native binding and execution
+            generation the DSH session has already verified.
+        tmux_session_name:
+            Existing managed envelope identity. No pane or process is created.
+        """
+
+        self.m_active_provider = "dsh"
+        if (turn_dir / "exitcode").exists():
+            raise BackendExecutionError("DSH attempt already has terminal evidence")
+        try:
+            metadata = load_headless_process_metadata(process_path=turn_dir / "process.json")
+        except (OSError, ValueError) as exc:
+            raise BackendExecutionError("DSH owned driver identity is unavailable") from exc
+        if (
+            metadata.child_pid is None
+            or not metadata.child_birth_token
+            or _dispatch_origin_birth_token(metadata.child_pid) != metadata.child_birth_token
+        ):
+            raise BackendExecutionError("DSH owned driver identity is unavailable")
+        self.m_active_turn_dir = turn_dir
+        self._active_process_path = turn_dir / "process.json"
+        self._active_process_metadata = metadata
+        self._active_tmux_session_name = tmux_session_name
+        # Supervisory panes never substitute for native cancellation authority.
+        self._active_tmux_pane_target = None
+        self._active_tmux_wait_signal = None
 
     def _require_dispatch_allowed(self) -> None:
         """Check permission immediately before changing or launching execution."""
@@ -135,6 +179,7 @@ class HeadlessCliRunner:
         if not turn_id or Path(turn_id).name != turn_id or turn_id in {".", ".."}:
             raise BackendExecutionError("Headless turn ID must be one directory name")
         self.m_interrupt_requested = False
+        self.m_active_provider = provider
         self.m_active_turn_dir = (
             (turn_artifacts_root / turn_id).resolve() if turn_artifacts_root is not None else None
         )
@@ -192,6 +237,8 @@ class HeadlessCliRunner:
             )
         completed_at_utc = datetime.now(UTC).isoformat()
         elapsed_ms = (time.monotonic() - started_monotonic) * 1000
+        if provider == "dsh" and result.returncode == 130:
+            self.m_interrupt_requested = True
         if self.m_active_turn_dir is not None:
             persist_terminal_evidence(
                 self.m_active_turn_dir,
@@ -217,7 +264,9 @@ class HeadlessCliRunner:
             return self._active_process.poll() is None
         if self.m_active_turn_dir is not None and (self.m_active_turn_dir / "exitcode").exists():
             return False
-        if self.m_active_turn_dir is not None and self._active_process_path is not None:
+        if self.m_active_turn_dir is not None and (
+            self._active_process_path is not None or self.m_active_provider == "dsh"
+        ):
             return headless_artifact_process_alive(self.m_active_turn_dir)
         metadata = self._active_process_metadata
         if metadata is None or metadata.child_pid is None:
@@ -259,7 +308,7 @@ class HeadlessCliRunner:
             self._active_process_metadata = metadata
         if metadata is not None and metadata.child_pid is not None and self.active_process_running:
             self._note_interruption()
-            _signal_pid(metadata.child_pid, signal.SIGTERM)
+            self._signal_active_tmux_process(signal.SIGTERM)
 
     def interrupt(self) -> SessionControlResult:
         """Interrupt an in-flight process with best-effort termination."""
@@ -281,6 +330,13 @@ class HeadlessCliRunner:
                 status="ok",
                 action="interrupt",
                 detail="Sent terminate signal to active tmux-backed headless process",
+            )
+
+        if self.m_active_provider == "dsh":
+            return SessionControlResult(
+                status="error",
+                action="interrupt",
+                detail="DSH attempt process identity is unavailable; no replacement surface was signalled",
             )
 
         pane_target = self._active_tmux_pane_target
@@ -335,6 +391,13 @@ class HeadlessCliRunner:
                 detail="Killed active tmux-backed headless process",
             )
 
+        if self.m_active_provider == "dsh":
+            return SessionControlResult(
+                status="ok" if not self.active_process_running else "error",
+                action="terminate",
+                detail="DSH attempt ended or its exact process identity is unavailable",
+            )
+
         pane_target = self._active_tmux_pane_target
         if pane_target is None:
             return SessionControlResult(
@@ -375,6 +438,8 @@ class HeadlessCliRunner:
         provider: HeadlessProvider | None,
     ) -> HeadlessRunResult:
         self._require_dispatch_allowed()
+        if provider == "dsh":
+            raise BackendExecutionError("Managed DSH ACP execution requires its tmux turn envelope")
         process = subprocess.Popen(
             command,
             cwd=str(cwd),
@@ -487,6 +552,8 @@ class HeadlessCliRunner:
                 if self.m_dispatch_control is not None
                 else None
             )
+            if provider == "dsh" and permission_path is not None:
+                env = {**env, "HOUMAO_DSH_DISPATCH_GUARD": str(permission_path)}
             bridge_args = [
                 sys.executable,
                 "-m",
@@ -582,6 +649,25 @@ class HeadlessCliRunner:
                 ),
             )
             if self.m_dispatch_control is not None:
+                if provider == "dsh":
+                    handoff_path = turn_dir / "dsh-native-handoff.json"
+                    while not handoff_path.is_file() and not status_path.is_file():
+                        self._require_dispatch_allowed()
+                        time.sleep(0.01)
+                    if not handoff_path.is_file():
+                        raise BackendExecutionError("DSH native handoff was not confirmed")
+                    try:
+                        receipt = json.loads(handoff_path.read_text(encoding="utf-8"))
+                        if (
+                            receipt.get("version") != 1
+                            or receipt.get("attempt_id") != turn_dir.name
+                            or not receipt.get("native_session_id")
+                        ):
+                            raise ValueError("Invalid DSH native receipt")
+                    except (OSError, ValueError) as exc:
+                        raise BackendExecutionError(
+                            "DSH native handoff evidence is invalid"
+                        ) from exc
                 has_native_handoff = (
                     self._active_process_metadata is not None
                     and self._active_process_metadata.child_pid is not None
@@ -614,7 +700,7 @@ class HeadlessCliRunner:
                 if status_path.is_file():
                     break
                 if time.monotonic() >= deadline:
-                    raise BackendExecutionError(
+                    raise HeadlessTurnWaitTimeout(
                         "Timed out waiting for tmux headless turn completion marker."
                     )
                 time.sleep(max(completion_poll_interval_seconds, 0.01))
@@ -646,7 +732,9 @@ class HeadlessCliRunner:
                 stderr=stderr_text,
                 returncode=returncode,
                 session_id=session_id,
-                stdout_path=stdout_path,
+                stdout_path=turn_dir / "provider-stdout.jsonl"
+                if provider == "dsh"
+                else stdout_path,
                 stderr_path=stderr_path,
                 status_path=status_path,
                 process_path=process_path,
@@ -654,18 +742,24 @@ class HeadlessCliRunner:
                 process_metadata=process_metadata,
                 completion_source="process_exit",
             )
-        except BaseException:
+        except BaseException as exc:
             control = self.m_dispatch_control
-            if control is not None:
+            if control is not None and not (
+                provider == "dsh"
+                and isinstance(exc, HeadlessTurnWaitTimeout)
+                and control.m_handoff_confirmed.is_set()
+                and self.active_process_running
+            ):
                 self.cancel_request_dispatch(control)
             raise
         finally:
             environment_path.unlink(missing_ok=True)
-            self._active_tmux_session_name = None
-            self._active_tmux_pane_target = None
-            self._active_tmux_wait_signal = None
-            self._active_process_path = None
-            self._active_process_metadata = None
+            if provider != "dsh" or not headless_artifact_process_alive(turn_dir):
+                self._active_tmux_session_name = None
+                self._active_tmux_pane_target = None
+                self._active_tmux_wait_signal = None
+                self._active_process_path = None
+                self._active_process_metadata = None
 
     def _run_in_tmux_legacy(
         self,
@@ -859,6 +953,14 @@ class HeadlessCliRunner:
                 self._active_process_metadata = metadata
         if metadata is None:
             return False
+        if self.m_active_provider == "dsh":
+            if sig == signal.SIGKILL and self.m_active_turn_dir is not None:
+                signal_dsh_native_process(self.m_active_turn_dir, sig)
+            if metadata.child_pid is None or metadata.child_birth_token is None:
+                return False
+            if _dispatch_origin_birth_token(metadata.child_pid) != metadata.child_birth_token:
+                return False
+            return _signal_pid(metadata.child_pid, sig)
         if _signal_pid(metadata.child_pid, sig):
             return True
         return _signal_pid(metadata.runner_pid, sig)
@@ -982,6 +1084,8 @@ def load_headless_process_metadata(*, process_path: Path) -> HeadlessProcessMeta
         runner_pid=_coerce_optional_pid(payload.get("runner_pid")),
         child_pid=_coerce_optional_pid(payload.get("child_pid")),
         launched_at_utc=_coerce_optional_string(payload.get("launched_at_utc")),
+        runner_birth_token=_coerce_optional_string(payload.get("runner_birth_token")),
+        child_birth_token=_coerce_optional_string(payload.get("child_birth_token")),
     )
 
 

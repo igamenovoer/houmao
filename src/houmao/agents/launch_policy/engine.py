@@ -37,7 +37,7 @@ from houmao.agents.launch_policy.provider_hooks import (
     set_toml_key,
 )
 
-_VERSION_PATTERN = re.compile(r"(\d+\.\d+\.\d+)")
+_VERSION_PATTERN = re.compile(r"(\d+\.\d+\.\d+(?:[-+][A-Za-z0-9][A-Za-z0-9.-]*)?)")
 _OVERRIDE_ENV_VAR = "HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY"
 _EvidenceKind = Literal["official_docs", "source_reference", "live_probe"]
 _ActionKind = Literal[
@@ -55,6 +55,8 @@ _SUPPORTED_BACKENDS: tuple[LaunchSurface, ...] = (
     "codex_app_server",
     "claude_headless",
     "kimi_headless",
+    "dsh_acp",
+    "dsh_web",
     "cao_rest",
 )
 _EVIDENCE_KINDS: tuple[_EvidenceKind, ...] = (
@@ -363,6 +365,7 @@ def _parse_native_system_prompt_contract(
         "native_developer_instructions",
         "native_append_system_prompt",
         "native_home_system_prompt",
+        "native_system_prompt_section",
     }
     if method_raw not in supported_methods:
         raise LaunchPolicyError(f"{source}.method is unsupported: `{method_raw}`.")

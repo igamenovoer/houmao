@@ -1336,13 +1336,15 @@ def _normalized_detail(detail: HoumaoManagedAgentDetailResponse) -> dict[str, An
             "parsed_surface_present": detail.detail.parsed_surface is not None,
             "diagnostic_count": diagnostic_count,
         }
-    return {
-        "transport": "headless",
-        "can_accept_prompt_now": detail.detail.can_accept_prompt_now,
-        "interruptible": detail.detail.interruptible,
-        "last_turn_status": detail.detail.last_turn_status,
-        "diagnostic_count": len(detail.detail.diagnostics),
-    }
+    if detail.detail.transport == "headless":
+        return {
+            "transport": "headless",
+            "can_accept_prompt_now": detail.detail.can_accept_prompt_now,
+            "interruptible": detail.detail.interruptible,
+            "last_turn_status": detail.detail.last_turn_status,
+            "diagnostic_count": len(detail.detail.diagnostics),
+        }
+    raise SuiteError("Web detail is unsupported by this legacy parallel validation demo.")
 
 
 def _normalized_history(history: HoumaoManagedAgentHistoryResponse) -> dict[str, Any]:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import re
@@ -12,7 +13,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 import yaml
 
-Client = Literal["claude", "codex", "kimi"]
+Client = Literal["claude", "codex", "kimi", "dsh"]
 Mode = Literal["headless", "tui"]
 Surface = Literal["raw", "manager", "passive-server"]
 Protocol = Literal["anthropic_messages", "openai_responses", "openai_chat"]
@@ -21,8 +22,14 @@ CLIENT_PROTOCOL: dict[Client, Protocol] = {
     "claude": "anthropic_messages",
     "codex": "openai_responses",
     "kimi": "openai_chat",
+    "dsh": "anthropic_messages",
 }
-HOME_VARIABLE = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME", "kimi": "KIMI_CODE_HOME"}
+HOME_VARIABLE = {
+    "claude": "CLAUDE_CONFIG_DIR",
+    "codex": "CODEX_HOME",
+    "kimi": "KIMI_CODE_HOME",
+    "dsh": "DSH_HOME",
+}
 _ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 
 
@@ -42,6 +49,8 @@ class MetadataReferences(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
     context_window_env: str | None = None
+    max_output_tokens_env: str | None = None
+    dsh_reasoning_env: str | None = None
     capabilities_env: str | None = None
     reasoning_key_env: str | None = None
     reasoning_effort_env: str | None = None
@@ -58,6 +67,16 @@ class CaseDescriptor(BaseModel):
     api_key_env: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
     endpoints: dict[Protocol, EndpointReference]
     metadata: MetadataReferences = Field(default_factory=MetadataReferences)
+    dsh: DshRoute | None = None
+
+
+class DshRoute(BaseModel):
+    """Declare the exact DSH adapter, protocol, and provider route for a case."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    adapter: Literal["deepseek", "pi-ai"]
+    protocol: Literal["anthropic_messages", "openai_chat"]
+    route: str
 
 
 class ModelOptions(BaseModel):
@@ -65,6 +84,8 @@ class ModelOptions(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
     context_window: int | None = Field(default=None, gt=0)
+    max_output_tokens: int | None = Field(default=None, gt=0)
+    dsh_reasoning: dict[str, str] | Literal[False] | None = None
     capabilities: list[Literal["tool_use", "thinking", "image_in"]] = Field(
         default_factory=lambda: ["tool_use"]
     )
@@ -81,6 +102,7 @@ class ResolvedConfig(BaseModel):
     client: Client
     mode: Mode
     surface: Surface
+    operator_prompt_mode: Literal["unattended", "as_is"] = "unattended"
     auth_method: Literal["api-key", "native-login"] = "api-key"
     model: str | None = None
     protocol: Protocol | None = None
@@ -88,6 +110,7 @@ class ResolvedConfig(BaseModel):
     api_key: SecretStr = Field(default_factory=lambda: SecretStr(""), exclude=True)
     model_options: ModelOptions = Field(default_factory=ModelOptions)
     native_bundle: Path | None = Field(default=None, exclude=True)
+    dsh: DshRoute | None = None
 
     def summary(self) -> dict[str, object]:
         """Return a serializable description without credential values or files."""
@@ -140,7 +163,7 @@ def load_descriptor(path: Path) -> CaseDescriptor:
     return result
 
 
-def _base_url(value: str, protocol: Protocol) -> str:
+def _base_url(value: str, protocol: Protocol, client: Client) -> str:
     """Validate a client base URL while preserving its configured version prefix."""
 
     parts = urlsplit(value)
@@ -156,7 +179,11 @@ def _base_url(value: str, protocol: Protocol) -> str:
         raise FixtureError("Endpoint must be an HTTP(S) base URL without credentials or query")
     if parts.path.rstrip("/").endswith(("/messages", "/responses", "/chat/completions")):
         raise FixtureError("Supply a client base URL, not a complete API request URL")
-    if protocol == "anthropic_messages" and parts.path.rstrip("/").endswith("/v1"):
+    if (
+        client == "claude"
+        and protocol == "anthropic_messages"
+        and parts.path.rstrip("/").endswith("/v1")
+    ):
         raise FixtureError("Claude base URL must be the root before its appended /v1/messages")
     return value.rstrip("/")
 
@@ -167,12 +194,15 @@ def resolve_config(
     client: Client,
     mode: Mode = "headless",
     surface: Surface = "manager",
+    operator_prompt_mode: Literal["unattended", "as_is"] = "unattended",
     model: str | None = None,
     base_url: str | None = None,
     env_file: Path | None = None,
     process_env: Mapping[str, str] | None = None,
     descriptor_path: Path | None = None,
     context_window: int | None = None,
+    max_output_tokens: int | None = None,
+    dsh_reasoning: str | None = None,
     capabilities: list[str] | None = None,
     reasoning_key: str | None = None,
     reasoning_effort: str | None = None,
@@ -181,6 +211,10 @@ def resolve_config(
 
     if case not in {"self-hosted", "cloud-api"}:
         raise FixtureError("Select case self-hosted or cloud-api")
+    if client == "dsh" and (env_file is None and process_env is None):
+        raise FixtureError(
+            "DSH requires an explicitly selected --env-file; ambient auth is disabled"
+        )
     if surface == "passive-server" and mode != "headless":
         raise FixtureError("Passive-server birth supports headless mode; use manager for TUI")
     descriptor = load_descriptor(
@@ -188,13 +222,25 @@ def resolve_config(
     )
     if descriptor.case != case:
         raise FixtureError("Descriptor case does not match the selected case")
-    env = {**read_env_file(env_file), **dict(os.environ if process_env is None else process_env)}
+    # DSH never discovers ambient credentials. Explicit synthetic process inputs
+    # remain available to hermetic callers; other clients retain their precedence.
+    inherited = (
+        {}
+        if client == "dsh" and process_env is None
+        else dict(os.environ if process_env is None else process_env)
+    )
+    if client == "dsh" and env_file is not None and env_file.resolve().is_relative_to(REPO_ROOT):
+        raise FixtureError("DSH credential env files must remain outside the checkout")
+    env = {**read_env_file(env_file), **inherited}
     selected_model = model if model is not None else env.get(descriptor.model_env)
     if not selected_model or not selected_model.strip():
         raise FixtureError(f"Supply --model or {descriptor.model_env}")
     if "\n" in selected_model or "\x00" in selected_model:
         raise FixtureError("Model must be a nonempty single-line identifier")
-    protocol = CLIENT_PROTOCOL[client]
+    dsh_route = descriptor.dsh if client == "dsh" else None
+    if client == "dsh" and dsh_route is None:
+        raise FixtureError("Selected case must explicitly declare its DSH adapter/protocol/route")
+    protocol = dsh_route.protocol if dsh_route is not None else CLIENT_PROTOCOL[client]
     endpoint = descriptor.endpoints.get(protocol)
     if endpoint is None:
         raise FixtureError(f"Selected case does not declare required protocol {protocol}")
@@ -214,6 +260,8 @@ def resolve_config(
         return (env.get(reference) or None) if reference else None
 
     raw_context = metadata("context_window")
+    raw_output = metadata("max_output_tokens")
+    raw_reasoning = dsh_reasoning if dsh_reasoning is not None else metadata("dsh_reasoning")
     try:
         selected_context = (
             context_window
@@ -223,6 +271,10 @@ def resolve_config(
         options = ModelOptions.model_validate(
             {
                 "context_window": selected_context,
+                "max_output_tokens": max_output_tokens
+                if max_output_tokens is not None
+                else (int(raw_output) if raw_output else None),
+                "dsh_reasoning": json.loads(raw_reasoning) if raw_reasoning is not None else None,
                 "capabilities": capabilities
                 if capabilities is not None
                 else (
@@ -246,14 +298,55 @@ def resolve_config(
         raise FixtureError(
             "Kimi requires --context-window or its configured context-window reference"
         )
+    if client == "dsh":
+        from houmao.agents.dsh_configuration import DshSetup
+
+        if (
+            options.context_window is None
+            or options.max_output_tokens is None
+            or options.dsh_reasoning is None
+        ):
+            raise FixtureError(
+                "DSH requires explicit --context-window, --max-output-tokens, and --dsh-reasoning "
+                "or the case's declared metadata references"
+            )
+        assert dsh_route is not None
+        try:
+            DshSetup.from_mapping(
+                {
+                    "version": 1,
+                    "provider": {
+                        "adapter": dsh_route.adapter,
+                        "protocol": "messages"
+                        if protocol == "anthropic_messages"
+                        else "openai-completions",
+                        "route": dsh_route.route,
+                        "base_url_env": endpoint.base_url_env,
+                        "api_key_env": descriptor.api_key_env,
+                    },
+                    "models": [
+                        {
+                            "id": selected_model,
+                            "context_window": options.context_window,
+                            "max_output_tokens": options.max_output_tokens,
+                            "reasoning": options.dsh_reasoning,
+                        }
+                    ],
+                    "selected_model": selected_model,
+                }
+            )
+        except ValueError as exc:
+            raise FixtureError("Invalid explicit DSH route or model metadata") from exc
     return ResolvedConfig(
         case=case,
         client=client,
         mode=mode,
         surface=surface,
+        operator_prompt_mode=operator_prompt_mode,
         model=selected_model,
         protocol=protocol,
-        base_url=_base_url(url, protocol),
+        base_url=_base_url(url, protocol, client),
         api_key=SecretStr(key or "EMPTY"),
         model_options=options,
+        dsh=dsh_route,
     )

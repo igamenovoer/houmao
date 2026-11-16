@@ -7,7 +7,12 @@ from typing import Literal
 from houmao.agents.mailbox_runtime_support import safe_registry_mailboxes_projection
 from houmao.agents.realm_controller.backends.tmux_runtime import HEADLESS_AGENT_WINDOW_NAME
 from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayWebControlStateV1,
+    GatewayWebHistoryV1,
+)
 from houmao.agents.realm_controller.registry_models import ManagedAgentRegistryRecordV3
+from houmao.agents.realm_controller.native_surface import WebNativeSurfaceV1
 from houmao.passive_server.discovery import DiscoveredAgent
 from houmao.passive_server.headless import PassiveManagedHeadlessControlState
 from houmao.passive_server.models import (
@@ -30,11 +35,13 @@ from houmao.server.models import (
     HoumaoManagedAgentStateResponse,
     HoumaoManagedAgentTurnView,
     HoumaoManagedAgentTuiDetailView,
+    HoumaoManagedAgentWebDetailView,
     ManagedAgentAvailability,
     ManagedAgentLastTurnResult,
 )
+from houmao.shared_tui_tracking.models import TurnPhase
 
-_HEADLESS_BACKENDS = frozenset({"claude_headless", "codex_headless", "kimi_headless"})
+_HEADLESS_BACKENDS = frozenset({"claude_headless", "codex_headless", "kimi_headless", "dsh_acp"})
 
 
 def is_headless_backend(backend: str) -> bool:
@@ -48,8 +55,12 @@ def managed_identity_from_discovered_summary(
 ) -> HoumaoManagedAgentIdentity:
     """Project one discovery summary into the shared managed-agent identity model."""
 
-    transport: Literal["headless", "tui"] = (
-        "headless" if is_headless_backend(summary.backend) else "tui"
+    transport: Literal["headless", "tui", "web"] = (
+        "web"
+        if summary.backend == "dsh_web"
+        else "headless"
+        if is_headless_backend(summary.backend)
+        else "tui"
     )
     tmux_window_name = (
         HEADLESS_AGENT_WINDOW_NAME
@@ -59,6 +70,7 @@ def managed_identity_from_discovered_summary(
     return HoumaoManagedAgentIdentity(
         tracked_agent_id=summary.agent_id,
         transport=transport,
+        native_surface=summary.native_surface,
         tool=summary.tool,
         session_name=summary.tmux_session_name if transport == "tui" else None,
         terminal_id=summary.agent_id if transport == "tui" else None,
@@ -76,6 +88,111 @@ def managed_identity_from_discovered_agent(agent: DiscoveredAgent) -> HoumaoMana
     """Project one full discovered agent into the shared managed-agent identity model."""
 
     return managed_identity_from_discovered_summary(agent.summary)
+
+
+def managed_web_state_from_observation(
+    *,
+    agent: DiscoveredAgent,
+    state: GatewayWebControlStateV1,
+    gateway_summary: HoumaoManagedAgentGatewaySummaryView | None = None,
+) -> HoumaoManagedAgentStateResponse:
+    """Project native facts without terminal readiness or caller ownership guesses."""
+
+    return managed_web_state_from_native(
+        identity=managed_identity_from_discovered_agent(agent),
+        state=state,
+        mailbox_summary=mailbox_summary_from_registry_record(agent.record),
+        gateway_summary=gateway_summary,
+    )
+
+
+def managed_web_state_from_native(
+    *,
+    identity: HoumaoManagedAgentIdentity,
+    state: GatewayWebControlStateV1,
+    mailbox_summary: HoumaoManagedAgentMailboxSummaryView | None = None,
+    gateway_summary: HoumaoManagedAgentGatewaySummaryView | None = None,
+) -> HoumaoManagedAgentStateResponse:
+    """Share native Web projection between direct manager and passive inspection."""
+
+    identity = identity.model_copy(
+        update={
+            "runtime_session_id": state.identity.runtime_session_id,
+            "native_surface": WebNativeSurfaceV1(
+                origin=state.origin, native_session_id=state.identity.native_session_id
+            ),
+        }
+    )
+    phase: TurnPhase = "unknown"
+    if state.availability == "available":
+        phase = "blocked" if state.interaction_waits else "active" if state.active_turn else "ready"
+    result: ManagedAgentLastTurnResult = "none"
+    if state.last_turn is not None:
+        results: dict[str, ManagedAgentLastTurnResult] = {
+            "success": "success",
+            "completed": "success",
+            "end_turn": "success",
+            "interrupted": "interrupted",
+            "cancelled": "interrupted",
+            "failed": "known_failure",
+            "error": "known_failure",
+        }
+        result = results.get(state.last_turn.result, "unknown")
+    return HoumaoManagedAgentStateResponse(
+        tracked_agent_id=identity.tracked_agent_id,
+        identity=identity,
+        availability="available" if state.availability == "available" else "unavailable",
+        turn=HoumaoManagedAgentTurnView(
+            phase=phase,
+            active_turn_id=f"native-turn:{state.identity.native_session_id}:{state.active_turn.turn}"
+            if state.active_turn
+            else None,
+        ),
+        last_turn=HoumaoManagedAgentLastTurnView(
+            result=result,
+            turn_id=f"native-turn:{state.identity.native_session_id}:{state.last_turn.turn}"
+            if state.last_turn
+            else None,
+            turn_index=state.last_turn.turn if state.last_turn else None,
+            updated_at_utc=state.observed_at_utc if state.last_turn else None,
+        ),
+        diagnostics=[
+            HoumaoErrorDetail(kind="web_unavailable", message=message)
+            for message in state.diagnostics
+        ],
+        mailboxes=mailbox_summary,
+        gateway=gateway_summary,
+        web=state,
+    )
+
+
+def managed_web_detail_response(
+    *,
+    agent: DiscoveredAgent,
+    state: GatewayWebControlStateV1,
+    gateway_summary: HoumaoManagedAgentGatewaySummaryView | None = None,
+) -> HoumaoManagedAgentDetailResponse:
+    """Return the canonical native Web detail with shared identity and bindings."""
+
+    summary = managed_web_state_from_observation(
+        agent=agent, state=state, gateway_summary=gateway_summary
+    )
+    return HoumaoManagedAgentDetailResponse(
+        tracked_agent_id=summary.tracked_agent_id,
+        identity=summary.identity,
+        summary_state=summary,
+        detail=HoumaoManagedAgentWebDetailView(state=state),
+    )
+
+
+def managed_web_history_response(
+    *,
+    agent: DiscoveredAgent,
+    history: GatewayWebHistoryV1,
+) -> HoumaoManagedAgentHistoryResponse:
+    """Preserve native turn/input and incarnation metadata in bounded history."""
+
+    return HoumaoManagedAgentHistoryResponse(tracked_agent_id=agent.record.agent_id, web=history)
 
 
 def mailbox_summary_from_registry_record(

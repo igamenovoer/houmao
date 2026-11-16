@@ -16,13 +16,13 @@
           "title": "Port",
           "type": "integer"
         },
+        "state_path": {
+          "title": "State Path",
+          "type": "string"
+        },
         "protocol_version": {
           "const": "v1",
           "title": "Protocol Version",
-          "type": "string"
-        },
-        "state_path": {
-          "title": "State Path",
           "type": "string"
         }
       },
@@ -37,7 +37,7 @@
     },
     "RegistryIdentityV1": {
       "additionalProperties": false,
-      "description": "Identity metadata for one live published agent.",
+      "description": "Identity metadata for one published managed-agent record.",
       "properties": {
         "backend": {
           "enum": [
@@ -46,6 +46,8 @@
             "codex_app_server",
             "claude_headless",
             "kimi_headless",
+            "dsh_acp",
+            "dsh_web",
             "cao_rest",
             "houmao_server_rest"
           ],
@@ -66,27 +68,27 @@
     },
     "RegistryMailboxFilesystemV1": {
       "additionalProperties": false,
-      "description": "Filesystem mailbox identity metadata for one live published session.",
+      "description": "Filesystem mailbox identity metadata for one published managed-agent session.",
       "properties": {
-        "address": {
-          "title": "Address",
-          "type": "string"
-        },
-        "bindings_version": {
-          "title": "Bindings Version",
-          "type": "string"
-        },
-        "filesystem_root": {
-          "title": "Filesystem Root",
+        "transport": {
+          "const": "filesystem",
+          "title": "Transport",
           "type": "string"
         },
         "principal_id": {
           "title": "Principal Id",
           "type": "string"
         },
-        "transport": {
-          "const": "filesystem",
-          "title": "Transport",
+        "address": {
+          "title": "Address",
+          "type": "string"
+        },
+        "filesystem_root": {
+          "title": "Filesystem Root",
+          "type": "string"
+        },
+        "bindings_version": {
+          "title": "Bindings Version",
           "type": "string"
         }
       },
@@ -102,8 +104,17 @@
     },
     "RegistryMailboxStalwartV1": {
       "additionalProperties": false,
-      "description": "Stalwart mailbox identity metadata for one live published session.",
+      "description": "Stalwart mailbox identity metadata for one published managed-agent session.",
       "properties": {
+        "transport": {
+          "const": "stalwart",
+          "title": "Transport",
+          "type": "string"
+        },
+        "principal_id": {
+          "title": "Principal Id",
+          "type": "string"
+        },
         "address": {
           "title": "Address",
           "type": "string"
@@ -112,29 +123,20 @@
           "title": "Bindings Version",
           "type": "string"
         },
-        "credential_ref": {
-          "title": "Credential Ref",
-          "type": "string"
-        },
         "jmap_url": {
           "title": "Jmap Url",
-          "type": "string"
-        },
-        "login_identity": {
-          "title": "Login Identity",
           "type": "string"
         },
         "management_url": {
           "title": "Management Url",
           "type": "string"
         },
-        "principal_id": {
-          "title": "Principal Id",
+        "login_identity": {
+          "title": "Login Identity",
           "type": "string"
         },
-        "transport": {
-          "const": "stalwart",
-          "title": "Transport",
+        "credential_ref": {
+          "title": "Credential Ref",
           "type": "string"
         }
       },
@@ -153,20 +155,8 @@
     },
     "RegistryRuntimeV1": {
       "additionalProperties": false,
-      "description": "Pointers to runtime-owned state for one live session.",
+      "description": "Pointers to runtime-owned state for one managed-agent record.",
       "properties": {
-        "agent_def_dir": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Agent Def Dir"
-        },
         "manifest_path": {
           "title": "Manifest Path",
           "type": "string"
@@ -182,6 +172,18 @@
           ],
           "default": null,
           "title": "Session Root"
+        },
+        "agent_def_dir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Def Dir"
         }
       },
       "required": [
@@ -192,7 +194,7 @@
     },
     "RegistryTerminalV1": {
       "additionalProperties": false,
-      "description": "Terminal-container hints for the live published session.",
+      "description": "Legacy live-session terminal hints for schema-version 2 registry payloads.",
       "properties": {
         "kind": {
           "const": "tmux",
@@ -210,18 +212,131 @@
       ],
       "title": "RegistryTerminalV1",
       "type": "object"
+    },
+    "TerminalNativeSurfaceV1": {
+      "additionalProperties": false,
+      "description": "Identify an actual terminal interface rather than a supervisor log pane.",
+      "properties": {
+        "kind": {
+          "const": "terminal",
+          "default": "terminal",
+          "title": "Kind",
+          "type": "string"
+        },
+        "tmux_session_name": {
+          "minLength": 1,
+          "title": "Tmux Session Name",
+          "type": "string"
+        },
+        "pane_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pane Id"
+        }
+      },
+      "required": [
+        "tmux_session_name"
+      ],
+      "title": "TerminalNativeSurfaceV1",
+      "type": "object"
+    },
+    "WebNativeSurfaceV1": {
+      "additionalProperties": false,
+      "description": "Expose only a loopback browser origin and the exact bound native session.",
+      "properties": {
+        "kind": {
+          "const": "web",
+          "default": "web",
+          "title": "Kind",
+          "type": "string"
+        },
+        "origin": {
+          "title": "Origin",
+          "type": "string"
+        },
+        "native_session_id": {
+          "minLength": 1,
+          "title": "Native Session Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "origin",
+        "native_session_id"
+      ],
+      "title": "WebNativeSurfaceV1",
+      "type": "object"
     }
   },
   "additionalProperties": false,
-  "description": "Shared-registry ``record.json`` contract for one live published agent.",
+  "description": "Legacy v2 shared-registry ``record.json`` contract for one live agent.",
   "properties": {
-    "agent_id": {
-      "title": "Agent Id",
-      "type": "string"
+    "schema_version": {
+      "default": 2,
+      "title": "Schema Version",
+      "type": "integer"
     },
     "agent_name": {
       "title": "Agent Name",
       "type": "string"
+    },
+    "agent_id": {
+      "title": "Agent Id",
+      "type": "string"
+    },
+    "generation_id": {
+      "title": "Generation Id",
+      "type": "string"
+    },
+    "published_at": {
+      "title": "Published At",
+      "type": "string"
+    },
+    "lease_expires_at": {
+      "title": "Lease Expires At",
+      "type": "string"
+    },
+    "identity": {
+      "$ref": "#/$defs/RegistryIdentityV1"
+    },
+    "native_surface": {
+      "anyOf": [
+        {
+          "discriminator": {
+            "mapping": {
+              "terminal": "#/$defs/TerminalNativeSurfaceV1",
+              "web": "#/$defs/WebNativeSurfaceV1"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TerminalNativeSurfaceV1"
+            },
+            {
+              "$ref": "#/$defs/WebNativeSurfaceV1"
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Native Surface"
+    },
+    "runtime": {
+      "$ref": "#/$defs/RegistryRuntimeV1"
+    },
+    "terminal": {
+      "$ref": "#/$defs/RegistryTerminalV1"
     },
     "gateway": {
       "anyOf": [
@@ -233,17 +348,6 @@
         }
       ],
       "default": null
-    },
-    "generation_id": {
-      "title": "Generation Id",
-      "type": "string"
-    },
-    "identity": {
-      "$ref": "#/$defs/RegistryIdentityV1"
-    },
-    "lease_expires_at": {
-      "title": "Lease Expires At",
-      "type": "string"
     },
     "mailbox": {
       "anyOf": [
@@ -270,21 +374,6 @@
       ],
       "default": null,
       "title": "Mailbox"
-    },
-    "published_at": {
-      "title": "Published At",
-      "type": "string"
-    },
-    "runtime": {
-      "$ref": "#/$defs/RegistryRuntimeV1"
-    },
-    "schema_version": {
-      "default": 2,
-      "title": "Schema Version",
-      "type": "integer"
-    },
-    "terminal": {
-      "$ref": "#/$defs/RegistryTerminalV1"
     }
   },
   "required": [

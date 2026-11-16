@@ -17,6 +17,8 @@ LaunchSurface = Literal[
     "codex_app_server",
     "claude_headless",
     "kimi_headless",
+    "dsh_acp",
+    "dsh_web",
     "cao_rest",
 ]
 LaunchPolicySelectionSource = Literal["registry", "env_override"]
@@ -25,6 +27,7 @@ NativeSystemPromptMethod = Literal[
     "native_developer_instructions",
     "native_append_system_prompt",
     "native_home_system_prompt",
+    "native_system_prompt_section",
 ]
 
 
@@ -70,13 +73,11 @@ class ToolVersion:
         if not cleaned:
             raise LaunchPolicyError("Tool version must not be empty.")
 
-        pieces = cleaned.split(".")
-        parsed_parts: list[int] = []
-        for piece in pieces:
-            if not piece.isdigit():
-                raise LaunchPolicyError(f"Unsupported version component `{piece}` in `{value}`.")
-            parsed_parts.append(int(piece))
-        return cls(parts=tuple(parsed_parts), raw=cleaned)
+        try:
+            parsed = Version(cleaned)
+        except InvalidVersion as exc:
+            raise LaunchPolicyError(f"Unsupported tool version `{value}`.") from exc
+        return cls(parts=parsed.release, raw=cleaned)
 
 
 @dataclass(frozen=True)
