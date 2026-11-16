@@ -4,6 +4,10 @@ This implementation record tracks the ordered scope of [issue #74](https://githu
 
 Implementation is complete in [commit 07e74da4](https://github.com/igamenovoer/houmao/commit/07e74da419d04f716454cce343530abf19d32322) on `devel`: headless ACP has 29/29 completed tasks and interactive Web has 35/35. Both changes have synchronized main specifications. The issue follow-up below records closure separately from OpenSpec archive work.
 
+## Postponed Pi Integration
+
+Pi integration ([#75](https://github.com/igamenovoer/houmao/issues/75)) is postponed. It is excluded from the current implementation sequence and has no scheduled start date. The issue remains open for future reprioritization. Work on existing providers, including DSH, can proceed independently.
+
 ## Accepted Headless Predecessor
 
 `dsh-01-add-acp-headless-backend` completed all 29 tasks before Web implementation began. Its seven delta specifications were synchronized. The final headless full unit gate passed 4,018 tests with 14 skipped; its final controlled native matrix passed 17 cases. The explicitly selected DeepSeek Messages manager smoke passed tool completion, exact resume, usage, interruption, and two-home isolation. The [headless acceptance map](../../../docs/reference/run-phase/dsh-headless-acceptance.md) records all 61 scenarios and the self-hosted live limitation.
@@ -37,7 +41,7 @@ Issue status was reviewed on 2026-11-16. DSH implementation evidence supports th
 | [#63: Persist gateway execution posture](https://github.com/igamenovoer/houmao/issues/63) | Open | Gateway foreground/background launch overrides exist; persisting that execution-mode preference in reusable profiles remains separate work. |
 | [#64: Tool-specific launch options](https://github.com/igamenovoer/houmao/issues/64) | Open | DSH setup/model selection does not complete the requested general tool-option surface or Codex fast-mode controls. |
 | [#69: Public integration SDK](https://github.com/igamenovoer/houmao/issues/69) | Open | Internal backend integration does not establish the requested general public SDK. |
-| [#75: Pi backend](https://github.com/igamenovoer/houmao/issues/75) | Open | A separate selectable body with its own RPC, persistence, usage, and reload qualification is required. |
+| [#75: Pi backend](https://github.com/igamenovoer/houmao/issues/75) | Postponed; issue open | Resume after explicit reprioritization. Retain RPC, persistence, usage, and reload qualification requirements for that future integration. |
 | [#81: Execution-owner-aware lifecycle](https://github.com/igamenovoer/houmao/issues/81) | Open | Cross-user, container, and remote-executor ownership and control routing remain outside the owned local DSH host boundary. |
 | [#82: Coordinated live refresh](https://github.com/igamenovoer/houmao/issues/82) | Open | DSH resource activation is startup-only and managed HMR remains disabled. Coordinated revision activation and active-turn recovery still require implementation. |
 | [#84: Authenticated remote gateways](https://github.com/igamenovoer/houmao/issues/84) | Open | Independent local browser/API peers do not provide the requested remote exposure, TLS/proxy, mailbox authorization, and role boundaries. |
