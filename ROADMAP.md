@@ -4,7 +4,7 @@
 
 This roadmap sequences the eleven feature requests filed on 2026-11-13 as GitHub issues [#74 through #84](https://github.com/igamenovoer/houmao/issues). It uses commit `1675029c` (`v2.4.0`) as its code baseline. All eleven issues were open when this roadmap was written.
 
-Status as of 2026-11-15: **4 of 11 work packages are done**. Usage records (#83), the gateway plugin API (#76), bounded Stalwart queries and incremental sync (#80), and live Stalwart attachment (#79) are implemented and validated; the remaining seven work packages are pending. Completion evidence appears in the first four work packages below.
+Status as of 2026-11-16: **6 of 11 work packages are done**. Usage records (#83), the gateway plugin API (#76), bounded Stalwart queries and incremental sync (#80), live Stalwart attachment (#79), CCCC chat (#77), and CCCC deferred Mail (#78) are implemented and validated. The remaining five work packages are pending. Completion evidence appears in the first six work packages below.
 
 The common goal is to let an external hub provision identities, capabilities, budgets, and execution contexts while Houmao remains the per-agent runtime, gateway, and mailbox layer. Houmao should not become the hub's account provisioner, budget-policy engine, central task planner, or combined chat/mail service.
 
@@ -24,8 +24,8 @@ The common goal is to let an external hub provision identities, capabilities, bu
 | 2 | Done | [#76](https://github.com/igamenovoer/houmao/issues/76): Gateway plugin API | Namespaced routes, owner-bound context, admission hooks, and plugin lifecycle | Enables both CCCC integrations and provides lifecycle machinery for later runtime changes |
 | 3 | Done | [#80](https://github.com/igamenovoer/houmao/issues/80): Bounded Stalwart queries and incremental sync | Metadata-only listing, bounded filters, JMAP change tracking, and efficient notifications | Removes expensive mailbox behavior before more consumers depend on it |
 | 4 | Done | [#79](https://github.com/igamenovoer/houmao/issues/79): Live Stalwart mailbox attachment | Runtime attach, refresh, detach, and notifier reconfiguration without body restart | Builds on the improved client and notifier instead of reworking them later |
-| 5 | Pending | [#77](https://github.com/igamenovoer/houmao/issues/77): CCCC chat gateway plugin | Live CCCC Group/Actor attachment and chat through the per-agent gateway | First real plugin consumer; validates #76 before CCCC Mail is added |
-| 6 | Pending | [#78](https://github.com/igamenovoer/houmao/issues/78): CCCC deferred Mail backend | Explicit secondary mailbox backend with non-consuming status and ordered cursors | Reuses CCCC identity binding plus the mailbox attachment and cursor patterns |
+| 5 | Done | [#77](https://github.com/igamenovoer/houmao/issues/77): CCCC chat gateway plugin | Live CCCC Group/Actor attachment and chat through the per-agent gateway | First real plugin consumer; validates #76 before CCCC Mail is added |
+| 6 | Done | [#78](https://github.com/igamenovoer/houmao/issues/78): CCCC deferred Mail backend | Explicit secondary mailbox backend with non-consuming status and ordered cursors | Reuses CCCC identity binding plus the mailbox attachment and cursor patterns |
 | 7 | Pending | [#74](https://github.com/igamenovoer/houmao/issues/74): DeepSeek Harness backend | Managed DSH launch, ACP control, resume, interruption, events, and usage | Adds the primary new body after shared usage behavior is defined |
 | 8 | Pending | [#75](https://github.com/igamenovoer/houmao/issues/75): Pi backend | Managed Pi launch, JSONL RPC control, resume, events, usage, and idle-only reload | Reuses the adapter patterns established by DSH |
 | 9 | Pending | [#82](https://github.com/igamenovoer/houmao/issues/82): Live skill and tool refresh | Per-backend capability reporting and coordinated activation at safe execution boundaries | Requires DSH HMR, Pi idle-only reload, and gateway admission to exist |
@@ -80,7 +80,7 @@ The [usage reference](docs/reference/run-phase/usage-records.md) documents provi
 
 Verification on 2026-11-13: **3,455 unit tests passed** (14 skipped), **19 targeted integration tests passed**, and **2 installed-wheel tests passed**. The [installed qualification](examples/gateway-plugin/qualification.md) covers detached and same-session gateway processes, body/gateway loss, recovery without replay, cursor continuity, sender retries, and completed cleanup. Formatting, lint, type checking, strict documentation, distribution builds, and strict OpenSpec validation passed.
 
-The [plugin author and operator guide](docs/reference/gateway/plugins.md) and [independent example](examples/gateway-plugin/README.md) document the supported trusted-package contract. Actual CCCC chat and Mail integrations (#77 and #78), authenticated remote access (#84), and the broader public SDK (#69) remain separate work.
+The [plugin author and operator guide](docs/reference/gateway/plugins.md) and [independent example](examples/gateway-plugin/README.md) document the supported trusted-package contract. CCCC chat and Mail integrations (#77 and #78) now use this contract. Authenticated remote access (#84) and the broader public SDK (#69) remain separate work.
 
 ### Phase 2: Scale And Reconfigure Mailboxes
 
@@ -108,15 +108,23 @@ The aggregate checks and live normal-account qualification are recorded under #8
 
 #### 5. #77: Add A CCCC Chat Gateway Plugin For Already-Running Agents
 
-- Implement live CCCC endpoint and Group/Actor attachment through the plugin API, with send, reply, bounded history, membership/status, reconnect, deduplication, and idle wakeup.
-- Route incoming ordinary chat through gateway admission while keeping peer messages separate from privileged operator interruption. Keep any required transport client inside the plugin rather than the agent body.
-- Complete the issue with two-actor gateway tests, sender isolation, reply threading, live attachment, reconnect recovery, and a runnable CCCC setup example.
+**Done (2026-11-16).** Implemented in [commit `06722493`](https://github.com/igamenovoer/houmao/commit/0672249363037ad87371913bc72e6468d3e113df). The [archived chat change](openspec/changes/archive/2026-11-16-cccc-01-add-owner-bound-chat-plugin/proposal.md) has [34 completed tasks](openspec/changes/archive/2026-11-16-cccc-01-add-owner-bound-chat-plugin/tasks.md) and an [acceptance map covering all 75 scenarios](docs/reference/gateway/cccc-acceptance.md). Its contracts are synchronized into main specs.
+
+- [x] Add the independently installed `houmao-cccc` plugin with live attachment of externally provisioned CCCC endpoint and Group/Actor bindings. Expose owner-bound send, reply, bounded history, membership/status, reconnect, and explicit delivery outcomes through gateway HTTP and a thin CLI.
+- [x] Route ordinary chat through gateway readiness and body-incarnation checks. Preserve sender isolation and native reply ancestry; report refused or uncertain handoffs and require explicit sender retries. Reconnect and recovery preserve receipts without replaying ordinary chat.
+- [x] Cover two gateways with distinct Actors, live attachment, reply threading, bounded history, reconnect, deduplication, receiver lease expiry, and body/gateway failure. Publish the [runnable setup example](examples/cccc-gateway/README.md), [operator guide](docs/reference/gateway/cccc.md), and [service start instructions](SERVICES.md#cccc-external-receiver-test-service).
+
+Verification on 2026-11-15: native receiver tests, actual-provider HTTP and process recovery tests, independent installed-wheel checks in both gateway modes, and the required two-real-agent chat smoke passed. The [chat qualification report](examples/cccc-gateway/qualification.md) records the tested versions and scope. The integration requires the pinned CCCC source plus the tracked protocol-v1 receiver patches; service provisioning remains external to the gateway plugin. Authenticated remote exposure remains work for #84.
 
 #### 6. #78: Expose CCCC Deferred Mail As An Explicit Secondary Mailbox Backend
 
-- Add caller-selectable CCCC Mail send, deferred-inbox read, reply, capability inspection, and delivery outcomes under the gateway owner's CCCC identity.
-- Preserve ordered-batch cursor semantics and provide non-consuming status/peek behavior. Keep Stalwart and CCCC delivery separate, with no automatic mirroring, retry, or failover.
-- Complete the issue with cursor, reconnection, Stalwart-unavailable, unsupported-recipient, and gateway-admission tests plus documentation of CCCC actor addressing and receipts.
+**Done (2026-11-16).** Delivered with #77 in [commit `06722493`](https://github.com/igamenovoer/houmao/commit/0672249363037ad87371913bc72e6468d3e113df). The [archived Mail change](openspec/changes/archive/2026-11-16-cccc-02-add-explicit-deferred-mail/proposal.md) has [26 completed tasks](openspec/changes/archive/2026-11-16-cccc-02-add-explicit-deferred-mail/tasks.md) and an [acceptance map covering all 35 scenarios](docs/reference/gateway/cccc-mail-acceptance.md). Its contract is synchronized into the [main specification](openspec/specs/cccc-deferred-mail/spec.md).
+
+- [x] Add explicitly selected CCCC Mail send, deferred-inbox read, reply, capability inspection, and delivery outcomes under the gateway owner's Group/Actor identity. Keep CCCC Mail outside both email slots and restrict recipients to supported CCCC Actors.
+- [x] Preserve ordered-batch consumption with non-consuming status/peek, bounded precommit limits, cursor preconditions, and durable read receipts. Report uncertain outcomes for explicit reconciliation; keep Stalwart and CCCC delivery independent, with caller-controlled backend selection and retries.
+- [x] Verify reconnect and restart recovery, concurrent and lost-response reads, unsupported recipients and email operations, ordinary gateway admission, and continued CCCC exchange during a selected Stalwart outage. Publish [Mail operation and receipt documentation](docs/reference/gateway/cccc-mail.md) and [reproducible qualification tools](scripts/qualification/cccc/README.md).
+
+Verification on 2026-11-15: **3,798 unit tests passed** (14 existing skips), **29 actual-service integration cases passed**, and formatting, lint, strict typing, distribution validation, and strict documentation checks passed. Independent-wheel Mail qualification passed in both gateway modes, including package upgrade with preserved body and conversation state. The required two-real-agent deferred send/read/reply smoke and real Stalwart fault/coexistence checks also passed; the [Mail qualification report](examples/cccc-gateway/mail-qualification.md) records this evidence. Representative checks establish the implemented contracts, while target-scale capacity and authenticated remote deployment remain unqualified.
 
 ### Phase 4: Add Managed Agent Backends
 
