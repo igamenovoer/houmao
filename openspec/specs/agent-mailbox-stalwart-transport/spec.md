@@ -4,35 +4,30 @@
 Define the real email-backed `stalwart` mailbox transport contract, including provisioning, shared mailbox operations, and the JMAP automation surface.
 ## Requirements
 ### Requirement: Stalwart-backed mailbox transport provisions mailbox principals through server-owned management surfaces
-The system SHALL support a mailbox transport named `stalwart` for mailbox-enabled sessions.
+The online Stalwart backend SHALL support attachment of an existing account with mailbox-level credentials. This path SHALL NOT call management APIs, create a domain/account, require a management URL or administrative credential, or rotate an externally supplied password.
 
-When the `stalwart` transport is selected, the runtime SHALL provision or confirm the server-side mailbox prerequisites through Stalwart management surfaces rather than through filesystem mailbox registration flows.
+When an operator explicitly selects account provisioning, the separate provisioning workflow SHALL create or confirm its domain, individual account, access credential reference, and idempotent re-entry through management surfaces. Provisioning SHALL not be an implicit side effect of normal attachment, reconnect, resume, or gateway adapter construction.
 
-At minimum, those prerequisites SHALL include:
-
-- a local Stalwart-managed mail domain for the selected mailbox address,
-- an individual mailbox account bound to the selected mailbox address,
-- mailbox access credentials resolved through a secret-free `credential_ref` suitable for mailbox operations,
-- idempotent re-entry behavior when the same mailbox principal is started again.
-
-When Stalwart credential references are persisted for resume or gateway adapter construction, the persisted mailbox binding SHALL keep only the secret-free `credential_ref`; the credential material itself SHALL remain session-scoped outside the manifest payload and MAY be materialized as a runtime-owned file in v1.
-
-The `stalwart` transport SHALL NOT require `safe`, `force`, `stash`, `deactivate`, or `purge` filesystem mailbox registration semantics in order to create or reuse a mailbox-enabled session.
+Persisted bindings SHALL contain only selected protected credential references; actual credentials SHALL remain private and outside manifest/discovery payloads. Private runtime materialization SHALL be scoped to its owner and binding revision. Stalwart SHALL not require filesystem registration or force/stash/deactivate/purge workflows.
 
 #### Scenario: Starting a Stalwart-backed session provisions a missing mailbox account
-- **WHEN** a developer starts a mailbox-enabled session with `transport=stalwart` for a mailbox address that is not yet present in the target Stalwart server
-- **THEN** the runtime creates or confirms the required domain and mailbox account through Stalwart management surfaces
-- **AND THEN** the resulting session can use that mailbox without creating a filesystem mailbox registration
+- **WHEN** an operator explicitly selects provisioning for a missing Stalwart account
+- **THEN** that workflow creates or confirms the domain and account through management surfaces
+- **AND THEN** it produces a usable online binding without filesystem registration
 
 #### Scenario: Restarting the same Stalwart-backed mailbox principal is idempotent
-- **WHEN** a developer starts a second session for the same mailbox principal against the same Stalwart environment
-- **THEN** the runtime reuses or confirms the existing server-side mailbox principal instead of creating a conflicting duplicate mailbox
-- **AND THEN** mailbox enablement succeeds without invoking filesystem registration conflict modes
+- **WHEN** an explicitly selected provisioning workflow re-enters for an existing account
+- **THEN** it confirms or reuses that account without creating a conflicting duplicate
 
 #### Scenario: Restarting the same Stalwart-backed mailbox principal reuses credential references without unnecessary rotation
-- **WHEN** a developer resumes or starts the same mailbox principal again against the same Stalwart environment
-- **THEN** the runtime reuses or confirms the existing secret-free `credential_ref` or equivalent credential material when it is still valid
-- **AND THEN** mailbox enablement does not rotate credentials unnecessarily unless a later explicit refresh path requests it
+- **WHEN** an existing online binding is resumed or reconstructed for gateway use
+- **THEN** its selected credential reference is reused
+- **AND THEN** no provisioning or password rotation occurs implicitly
+
+#### Scenario: Hub-managed account attaches without management credentials
+- **WHEN** a caller supplies only the discovery endpoint, account identity, address, and valid mailbox credential reference
+- **THEN** attachment succeeds without any management request
+- **AND THEN** the hub-supplied password remains unchanged
 
 ### Requirement: Stalwart-backed mailbox transport delegates shared mailbox state and integrity to the mail server
 For the `stalwart` transport, the system SHALL treat the Stalwart server as the authority for:
@@ -109,3 +104,22 @@ SMTP submission and IMAP access MAY remain compatibility or debugging surfaces, 
 - **WHEN** a shared mailbox move operation targets a Stalwart-backed message
 - **THEN** the transport performs the mailbox membership update through JMAP-backed Stalwart mailbox operations
 - **AND THEN** the caller does not need to understand Stalwart-native object shapes or mailbox ids
+
+### Requirement: Stalwart discovery distinguishes session and request endpoints
+The backend SHALL accept an explicit JMAP session-discovery URL and use the returned API URL for method calls. Base-URL convenience input SHALL derive the standard discovery endpoint rather than assume that the API POST path supports session GET. Required capability or discovery failures SHALL remain explicit.
+
+#### Scenario: Discovery advertises a different API path
+- **WHEN** session discovery returns a usable API URL different from its own path
+- **THEN** subsequent method calls use that advertised API URL within the configured connection policy
+
+### Requirement: Stalwart account and sending identity match the binding
+The backend SHALL pin the validated provider account and authorized sending identity to the online binding. It SHALL not select an arbitrary first account or sender identity when the requested identity is missing or ambiguous. Account-scope changes SHALL require explicit replacement rather than ordinary credential refresh.
+
+#### Scenario: Login name differs from the sending address
+- **WHEN** the validated account authorizes the requested address but its login identity is a different string
+- **THEN** send uses the explicitly matched sending identity for that address
+- **AND THEN** it does not choose an unrelated first identity
+
+#### Scenario: Multiple accounts have no unambiguous selection
+- **WHEN** discovery presents multiple accounts without a valid explicit or unambiguous primary selection
+- **THEN** attachment reports the ambiguity before activating a binding

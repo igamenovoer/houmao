@@ -774,6 +774,7 @@ def test_ensure_gateway_capability_publishes_manifest_first_discovery_env(
         lambda record: record,
     )
 
+    controller.persist_manifest(refresh_registry=False)
     controller.ensure_gateway_capability()
 
     assert ("HOUMAO-gpu",) == tuple({call[0] for call in published_env_calls})
@@ -842,6 +843,7 @@ def test_attach_gateway_supports_runtime_owned_headless_backend(
         ),
     )
 
+    controller.persist_manifest(refresh_registry=False)
     controller.ensure_gateway_capability()
     result = controller.attach_gateway()
 
@@ -896,6 +898,7 @@ def test_attach_gateway_supports_runtime_owned_local_interactive_backend(
         ),
     )
 
+    controller.persist_manifest(refresh_registry=False)
     controller.ensure_gateway_capability()
     result = controller.attach_gateway()
 
@@ -2220,6 +2223,7 @@ def test_gateway_status_invalidates_stale_live_bindings(
         ),
     )
 
+    controller.persist_manifest(refresh_registry=False)
     controller.ensure_gateway_capability()
     paths = gateway_paths_from_manifest_path(manifest_path)
     assert paths is not None

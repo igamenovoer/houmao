@@ -1,0 +1,1685 @@
+diff --git a/crates/cccc-contracts/src/actor.rs b/crates/cccc-contracts/src/actor.rs
+index 3f7ee1fd..a2ddbb40 100644
+--- a/crates/cccc-contracts/src/actor.rs
++++ b/crates/cccc-contracts/src/actor.rs
+@@ -35,6 +35,7 @@ pub enum RuntimeStateSource {
+     #[serde(rename = "managed_session", alias = "app_server")]
+     ManagedSession,
+     ExternalSession,
++    ExternalReceiver,
+ }
+ 
+ /// Provider-supported execution path. Default preserves each Runtime's
+@@ -252,6 +253,9 @@ pub struct Actor {
+     /// User-owned native receiver; CCCC must never launch or stop its runtime.
+     #[serde(default, skip_serializing_if = "String::is_empty")]
+     pub external_session_id: String,
++    /// Generic receiver controlled by an external owner, with no process rights.
++    #[serde(default)]
++    pub external_receiver: bool,
+     #[serde(default)]
+     pub internal_kind: Option<String>,
+     #[serde(default)]
+@@ -295,6 +299,7 @@ impl Actor {
+             runtime_mode: RuntimeMode::default(),
+             runtime_state_source: RuntimeStateSource::default(),
+             external_session_id: String::new(),
++            external_receiver: false,
+             internal_kind: None,
+             avatar_asset_path: String::new(),
+             profile_id: String::new(),
+@@ -308,6 +313,12 @@ impl Actor {
+     }
+ 
+     pub fn normalize_runtime_constraints(&mut self) {
++        if self.external_receiver {
++            self.runner = RunnerKind::Headless;
++            self.runtime_state_source = RuntimeStateSource::ExternalReceiver;
++            self.command.clear();
++            return;
++        }
+         if !self.external_session_id.is_empty() {
+             self.runner = RunnerKind::Headless;
+             self.runtime_state_source = RuntimeStateSource::ExternalSession;
+diff --git a/crates/cccc-daemon/src/ops/actor_delivery.rs b/crates/cccc-daemon/src/ops/actor_delivery.rs
+index 3ddbb3e6..e294754f 100644
+--- a/crates/cccc-daemon/src/ops/actor_delivery.rs
++++ b/crates/cccc-daemon/src/ops/actor_delivery.rs
+@@ -430,7 +430,8 @@ pub fn dispatch(home: &HomeLayout, group: &GroupDoc, event: &Event) -> DispatchR
+ /// Whether work reaches this Actor by push rather than by its own pull. What
+ /// runs now decides; saved settings apply when nothing does.
+ pub(super) fn receives_push(group: &GroupDoc, actor: &Actor) -> bool {
+-    !actor.external_session_id.is_empty()
++    actor.external_receiver
++        || !actor.external_session_id.is_empty()
+         || !crate::ops::actor_runtime::is_structured(actor)
+         || crate::ops::local_headless::supports(actor)
+         || actor.runtime == ActorRuntime::Deepseek
+@@ -498,6 +499,23 @@ fn dispatch_to_inner(
+     let mut online = 0;
+     let preclaimed = claims.is_some();
+     for actor in targets {
++        if actor.external_receiver {
++            match super::external_receiver::offer(
++                home,
++                group,
++                actor,
++                event,
++                preclaimed || force_ambiguous,
++            ) {
++                Ok(true) => {
++                    online += 1;
++                    queued += 1;
++                }
++                Ok(false) => {}
++                Err(error) => tracing::warn!(code=%error.code, "external receiver offer failed"),
++            }
++            continue;
++        }
+         if !actor.enabled || held_for_switch(group, actor) {
+             continue;
+         }
+@@ -610,6 +628,9 @@ pub fn dispatch_unread(home: &HomeLayout, group: &GroupDoc, actor_id: &str) -> u
+     let Some(actor) = group.actors.iter().find(|actor| actor.id == actor_id) else {
+         return 0;
+     };
++    if actor.external_receiver {
++        return 0;
++    }
+     if !actor.enabled || held_for_switch(group, actor) || !receives_push(group, actor) {
+         return 0;
+     }
+diff --git a/crates/cccc-daemon/src/ops/actor_runtime.rs b/crates/cccc-daemon/src/ops/actor_runtime.rs
+index 87e67fe4..06d732b0 100644
+--- a/crates/cccc-daemon/src/ops/actor_runtime.rs
++++ b/crates/cccc-daemon/src/ops/actor_runtime.rs
+@@ -50,6 +50,12 @@ pub fn apply(
+         .iter()
+         .find(|actor| actor.id == actor_id)
+         .ok_or_else(|| OpError::new("not_found", format!("actor not found: {actor_id}")))?;
++    if stored_actor.external_receiver {
++        if matches!(kind, "actor.stop" | "actor.restart" | "actor.new_session") {
++            super::external_receiver::retire(home, &group.group_id, actor_id)?;
++        }
++        return Ok(None);
++    }
+     if !stored_actor.external_session_id.is_empty() {
+         return apply_resolved(home, group, stored_actor, kind);
+     }
+@@ -84,6 +90,9 @@ pub(super) fn apply_resolved(
+     actor: &Actor,
+     kind: &str,
+ ) -> Result<Option<SessionStatus>, OpError> {
++    if actor.external_receiver {
++        return Ok(None);
++    }
+     if !actor.external_session_id.is_empty() {
+         let result = external_lifecycle(kind)?;
+         if matches!(kind, "actor.start" | "actor.restore") {
+@@ -408,6 +417,10 @@ pub fn stop_group(home: &HomeLayout, group: &GroupDoc) -> Result<Vec<SessionStat
+     super::deepseek_runtime::stop_group(&group.group_id);
+     let mut stopped = Vec::new();
+     for actor in &group.actors {
++        if actor.external_receiver {
++            super::external_receiver::retire(home, &group.group_id, &actor.id)?;
++            continue;
++        }
+         if let Some(status) = stop(group, &actor.id)? {
+             stopped.push(status);
+         }
+diff --git a/crates/cccc-daemon/src/ops/external_receiver.rs b/crates/cccc-daemon/src/ops/external_receiver.rs
+new file mode 100644
+index 00000000..03973ae7
+--- /dev/null
++++ b/crates/cccc-daemon/src/ops/external_receiver.rs
+@@ -0,0 +1,871 @@
++//! Fixed-Actor external receiver protocol. CCCC retains all message authority.
++use super::operation::{Operation, Policy};
++use crate::dispatch::{OpError, OpResult, object, required_arg};
++use cccc_contracts::{Actor, ActorRuntime, DaemonRequest, Event, GroupState};
++use cccc_core::{GroupDoc, GroupStore, HomeLayout, actors, fs, ledger};
++use serde::{Deserialize, Serialize};
++use serde_json::{Map, Value, json};
++use sha2::{Digest, Sha256};
++use std::collections::BTreeMap;
++use std::path::PathBuf;
++use std::sync::OnceLock;
++use std::time::{SystemTime, UNIX_EPOCH};
++
++const LEASE_MS: u64 = 45_000;
++const ATTEMPT_MS: u64 = 15_000;
++const MAX_EVENT_BYTES: usize = 65_536;
++const MAX_RESPONSE_BYTES: usize = 262_144;
++
++#[derive(Clone, Serialize, Deserialize)]
++struct Grant {
++    id: String,
++    hash: String,
++    group_id: String,
++    group_generation: String,
++    actor_id: String,
++    actor_generation: String,
++    revoked: bool,
++}
++#[derive(Clone, Serialize, Deserialize)]
++struct Lease {
++    id: String,
++    generation: u64,
++    grant_id: String,
++    expires_ms: u64,
++}
++#[derive(Clone, Serialize, Deserialize)]
++struct Attempt {
++    id: String,
++    event_id: String,
++    actor_id: String,
++    actor_generation: String,
++    lease_generation: u64,
++    lease_id: String,
++    state: String,
++    deadline_ms: u64,
++    offered: bool,
++    boot: String,
++    retryable: bool,
++    error_code: Option<String>,
++}
++impl Attempt {
++    fn public(&self) -> Value {
++        json!({"id":self.id,"attempt_id":self.id,"event_id":self.event_id,"actor_id":self.actor_id,"actor_generation":self.actor_generation,"lease_generation":self.lease_generation,"state":self.state,"retryable":self.retryable,"error_code":self.error_code})
++    }
++}
++#[derive(Default, Serialize, Deserialize)]
++struct State {
++    generation: u64,
++    leases: BTreeMap<String, Lease>,
++    attempts: Vec<Attempt>,
++}
++
++pub(super) fn resolve_operation(request: &DaemonRequest) -> Option<Operation> {
++    Some(match request.op.as_str() {
++        "external_receiver_rpc" => Operation::new(Policy::GlobalWrite, rpc),
++        "external_receiver_grant" => Operation::new(Policy::GlobalWrite, grant),
++        "external_receiver_revoke" => Operation::new(Policy::GlobalWrite, revoke),
++        "external_receiver_takeover" => Operation::new(Policy::GlobalWrite, takeover),
++        _ => return None,
++    })
++}
++fn now_ms() -> u64 {
++    SystemTime::now()
++        .duration_since(UNIX_EPOCH)
++        .unwrap_or_default()
++        .as_millis()
++        .try_into()
++        .unwrap_or(u64::MAX)
++}
++fn boot() -> &'static str {
++    static BOOT: OnceLock<String> = OnceLock::new();
++    BOOT.get_or_init(|| uuid::Uuid::new_v4().to_string())
++}
++fn state_path(home: &HomeLayout, group: &str) -> Result<PathBuf, OpError> {
++    Ok(GroupStore::new(home.clone())
++        .map_err(OpError::io)?
++        .state_dir(group)
++        .map_err(OpError::io)?
++        .join("external_receiver.json"))
++}
++fn read_state(home: &HomeLayout, group: &str) -> Result<State, OpError> {
++    let path = state_path(home, group)?;
++    if !path.exists() {
++        return Ok(State::default());
++    }
++    fs::read_json(&path).map_err(OpError::io)
++}
++fn save_state(home: &HomeLayout, group: &str, state: &State) -> Result<(), OpError> {
++    fs::write_secret_json(&state_path(home, group)?, state).map_err(OpError::io)
++}
++fn grants_path(home: &HomeLayout) -> PathBuf {
++    home.root().join("state/external_receiver_grants.json")
++}
++fn grants(home: &HomeLayout) -> Result<Vec<Grant>, OpError> {
++    let path = grants_path(home);
++    if !path.exists() {
++        return Ok(vec![]);
++    }
++    fs::read_json(&path).map_err(OpError::io)
++}
++fn save_grants(home: &HomeLayout, values: &[Grant]) -> Result<(), OpError> {
++    fs::write_secret_json(&grants_path(home), &values).map_err(OpError::io)
++}
++fn digest(value: &[u8]) -> String {
++    format!("{:x}", Sha256::digest(value))
++}
++fn group(home: &HomeLayout, id: &str) -> Result<GroupDoc, OpError> {
++    GroupStore::new(home.clone())
++        .map_err(OpError::io)?
++        .load(id)
++        .map_err(OpError::io)
++}
++fn actor<'a>(group: &'a GroupDoc, id: &str) -> Result<&'a Actor, OpError> {
++    group
++        .actors
++        .iter()
++        .find(|a| a.id == id)
++        .ok_or_else(|| OpError::new("actor_not_found", "Actor unavailable"))
++}
++fn authenticate(home: &HomeLayout, token: &str) -> Result<(Grant, GroupDoc), OpError> {
++    let hash = digest(token.as_bytes());
++    let grant = grants(home)?
++        .into_iter()
++        .find(|g| !g.revoked && g.hash == hash)
++        .ok_or_else(|| OpError::new("invalid_grant", "Invalid Actor grant"))?;
++    let group = group(home, &grant.group_id)?;
++    let actor = actor(&group, &grant.actor_id)?;
++    if group.generation != grant.group_generation
++        || !actor.external_receiver
++        || actors::generation_identity(actor) != grant.actor_generation
++    {
++        return Err(OpError::new("stale_binding", "Actor registration changed"));
++    }
++    Ok((grant, group))
++}
++fn admin(request: &DaemonRequest) -> Result<(), OpError> {
++    if request.args.get("by").and_then(Value::as_str) != Some("user") {
++        return Err(OpError::new(
++            "permission_denied",
++            "Operator authority required",
++        ));
++    }
++    Ok(())
++}
++fn grant(home: &HomeLayout, request: &DaemonRequest) -> OpResult {
++    admin(request)?;
++    let gid = required_arg(request, "group_id")?;
++    let aid = required_arg(request, "actor_id")?;
++    let store = GroupStore::new(home.clone()).map_err(OpError::io)?;
++    let before = store.load(&gid).map_err(OpError::io)?;
++    let old = actor(&before, &aid)?;
++    if !old.external_session_id.is_empty() || super::actor_runtime::actor_is_running(&before, old) {
++        return Err(OpError::new(
++            "actor_busy",
++            "A running or native Actor cannot be converted",
++        ));
++    }
++    let group = store
++        .mutate(&gid, |g| {
++            let a = g
++                .actors
++                .iter_mut()
++                .find(|a| a.id == aid)
++                .ok_or_else(|| std::io::Error::other("Actor unavailable"))?;
++            a.external_receiver = true;
++            a.runtime = ActorRuntime::Custom;
++            a.normalize_runtime_constraints();
++            Ok(g.clone())
++        })
++        .map_err(OpError::io)?;
++    let generation = actors::generation_identity(actor(&group, &aid)?);
++    let token = format!(
++        "{}{}",
++        uuid::Uuid::new_v4().simple(),
++        uuid::Uuid::new_v4().simple()
++    );
++    let item = Grant {
++        id: uuid::Uuid::new_v4().to_string(),
++        hash: digest(token.as_bytes()),
++        group_id: gid.clone(),
++        group_generation: group.generation,
++        actor_id: aid.clone(),
++        actor_generation: generation.clone(),
++        revoked: false,
++    };
++    let mut values = grants(home)?;
++    values.push(item.clone());
++    save_grants(home, &values)?;
++    object(
++        json!({"grant_id":item.id,"token":token,"group_id":gid,"actor_id":aid,"actor_generation":generation,"protocol_version":1}),
++    )
++}
++fn revoke(home: &HomeLayout, request: &DaemonRequest) -> OpResult {
++    admin(request)?;
++    let id = required_arg(request, "grant_id")?;
++    let mut values = grants(home)?;
++    let grant = values
++        .iter_mut()
++        .find(|g| g.id == id)
++        .ok_or_else(|| OpError::new("grant_not_found", "Grant unavailable"))?;
++    grant.revoked = true;
++    let grant = grant.clone();
++    save_grants(home, &values)?;
++    let mut state = read_state(home, &grant.group_id)?;
++    if state
++        .leases
++        .get(&grant.actor_id)
++        .is_some_and(|l| l.grant_id == id)
++    {
++        retire_state(&mut state, &grant.actor_id);
++        save_state(home, &grant.group_id, &state)?;
++    }
++    object(json!({"revoked":true}))
++}
++fn takeover(home: &HomeLayout, request: &DaemonRequest) -> OpResult {
++    admin(request)?;
++    let gid = required_arg(request, "group_id")?;
++    let aid = required_arg(request, "actor_id")?;
++    let mut state = read_state(home, &gid)?;
++    retire_state(&mut state, &aid);
++    save_state(home, &gid, &state)?;
++    object(json!({"retired":true,"group_id":gid,"actor_id":aid}))
++}
++fn retire_state(state: &mut State, aid: &str) {
++    state.leases.remove(aid);
++    for a in &mut state.attempts {
++        if a.actor_id == aid && matches!(a.state.as_str(), "pending" | "offered") {
++            a.state = if a.offered { "uncertain" } else { "failed" }.into();
++            a.error_code = Some("receiver_retired".into());
++        }
++    }
++}
++pub(crate) fn retire(home: &HomeLayout, gid: &str, aid: &str) -> Result<(), OpError> {
++    let mut s = read_state(home, gid)?;
++    retire_state(&mut s, aid);
++    save_state(home, gid, &s)
++}
++fn sweep(home: &HomeLayout, gid: &str, state: &mut State) -> Result<(), OpError> {
++    let now = now_ms();
++    let mut changed = Vec::new();
++    state.leases.retain(|_, l| l.expires_ms > now);
++    for a in &mut state.attempts {
++        if matches!(a.state.as_str(), "pending" | "offered")
++            && (a.deadline_ms <= now
++                || a.boot != boot()
++                || !state
++                    .leases
++                    .get(&a.actor_id)
++                    .is_some_and(|l| l.id == a.lease_id && l.generation == a.lease_generation))
++        {
++            a.state = if a.offered { "uncertain" } else { "failed" }.into();
++            a.error_code = Some("receiver_unavailable".into());
++            changed.push(a.clone());
++        }
++    }
++    if !changed.is_empty() {
++        save_state(home, gid, state)?;
++        let g = group(home, gid)?;
++        for a in changed {
++            append_receipt(home, &g, &a)?;
++        }
++    }
++    Ok(())
++}
++fn append_receipt(home: &HomeLayout, g: &GroupDoc, a: &Attempt) -> Result<(), OpError> {
++    let mut e = Event::new("runtime.delivery", &g.group_id);
++    e.by = "system".into();
++    e.data=json!({"actor_id":a.actor_id,"source_event_id":a.event_id,"delivery_id":a.id,"state":match a.state.as_str(){"pending"|"offered"=>"claimed","refused"=>"failed","uncertain"=>"ambiguous",v=>v},"external_state":a.state,"transport":"external_receiver","retryable":a.retryable,"error_code":a.error_code,"actor_generation":a.actor_generation,"lease_generation":a.lease_generation}).as_object().unwrap().clone();
++    ledger::append(
++        &GroupStore::new(home.clone())
++            .map_err(OpError::io)?
++            .ledger_path(&g.group_id)
++            .map_err(OpError::io)?,
++        &e,
++    )
++    .map_err(OpError::io)
++}
++pub(crate) fn offer(
++    home: &HomeLayout,
++    g: &GroupDoc,
++    a: &Actor,
++    e: &Event,
++    retry: bool,
++) -> Result<bool, OpError> {
++    let mut state = read_state(home, &g.group_id)?;
++    sweep(home, &g.group_id, &mut state)?;
++    if !retry
++        && state.attempts.iter().any(|v| {
++            v.actor_id == a.id
++                && v.actor_generation == actors::generation_identity(a)
++                && v.event_id == e.id
++        })
++    {
++        save_state(home, &g.group_id, &state)?;
++        return Ok(false);
++    }
++    let lease = state.leases.get(&a.id).cloned();
++    let enabled = a.enabled && !matches!(g.state, GroupState::Paused | GroupState::Stopped);
++    let busy = state
++        .attempts
++        .iter()
++        .any(|v| v.actor_id == a.id && matches!(v.state.as_str(), "pending" | "offered"));
++    let ready = lease.is_some() && enabled && !busy;
++    let value = Attempt {
++        id: uuid::Uuid::new_v4().to_string(),
++        event_id: e.id.clone(),
++        actor_id: a.id.clone(),
++        actor_generation: actors::generation_identity(a),
++        lease_generation: lease.as_ref().map_or(0, |v| v.generation),
++        lease_id: lease.map_or(String::new(), |v| v.id),
++        state: if ready {
++            "pending"
++        } else if busy {
++            "refused"
++        } else {
++            "failed"
++        }
++        .into(),
++        deadline_ms: now_ms() + ATTEMPT_MS,
++        offered: false,
++        boot: boot().into(),
++        retryable: true,
++        error_code: if ready {
++            None
++        } else {
++            Some(
++                if busy {
++                    "receiver_busy"
++                } else {
++                    "receiver_unavailable"
++                }
++                .into(),
++            )
++        },
++    };
++    // Persist ownership before the provider can offer any content externally.
++    state.attempts.push(value.clone());
++    save_state(home, &g.group_id, &state)?;
++    append_receipt(home, g, &value)?;
++    Ok(ready)
++}
++fn args_only(args: &Map<String, Value>, names: &[&str]) -> Result<(), OpError> {
++    if args.keys().any(|k| !names.contains(&k.as_str())) {
++        return Err(OpError::new("invalid_args", "Unsupported request fields"));
++    }
++    Ok(())
++}
++fn string(args: &Map<String, Value>, name: &str) -> Result<String, OpError> {
++    args.get(name)
++        .and_then(Value::as_str)
++        .filter(|v| !v.is_empty() && v.len() <= 1024)
++        .map(str::to_owned)
++        .ok_or_else(|| OpError::new("invalid_args", format!("{name} required")))
++}
++fn lease<'a>(state: &'a State, g: &Grant, args: &Map<String, Value>) -> Result<&'a Lease, OpError> {
++    let id = string(args, "lease_id")?;
++    let generation = args
++        .get("lease_generation")
++        .and_then(Value::as_u64)
++        .ok_or_else(|| OpError::new("invalid_args", "lease_generation required"))?;
++    state
++        .leases
++        .get(&g.actor_id)
++        .filter(|l| {
++            l.id == id
++                && l.generation == generation
++                && l.grant_id == g.id
++                && l.expires_ms > now_ms()
++        })
++        .ok_or_else(|| OpError::new("receiver_lease_lost", "Receiver lease is no longer active"))
++}
++fn rpc(home: &HomeLayout, request: &DaemonRequest) -> OpResult {
++    let (grant, group) = authenticate(home, &required_arg(request, "token")?)?;
++    let op = required_arg(request, "operation")?;
++    let args = request
++        .args
++        .get("arguments")
++        .and_then(Value::as_object)
++        .ok_or_else(|| OpError::new("invalid_args", "arguments object required"))?;
++    let result = match op.as_str() {
++        "binding" => {
++            args_only(args, &[])?;
++            object(
++                json!({"protocol_version":1,"group_id":grant.group_id,"actor_id":grant.actor_id,"actor_generation":grant.actor_generation}),
++            )
++        }
++        "capabilities" => {
++            args_only(args, &[])?;
++            object(
++                json!({"protocol_version":1,"operations":["binding","capabilities","lease.acquire","lease.renew","lease.release","lease.next","lease.outcome","chat.send","chat.reply","chat.retry","chat.history","chat.deliveries","members"],"limits":{"max_event_bytes":MAX_EVENT_BYTES,"max_history_limit":100,"max_response_bytes":MAX_RESPONSE_BYTES,"lease_seconds":45},"recipient_scope":"bound_group","mail":false}),
++            )
++        }
++        "members" => {
++            args_only(args, &[])?;
++            let s = read_state(home, &group.group_id)?;
++            object(
++                json!({"members":group.actors.iter().map(|a|json!({"id":a.id,"title":a.title,"role":actors::effective_role(&group,&a.id),"enabled":a.enabled,"receive_status":if a.external_receiver{if s.leases.get(&a.id).is_some_and(|l|l.expires_ms>now_ms()){"connected"}else{"unavailable"}}else{"unknown"}})).collect::<Vec<_>>()}),
++            )
++        }
++        "lease.acquire" | "lease.renew" | "lease.release" | "lease.next" | "lease.outcome" => {
++            lease_rpc(home, &grant, &group, &op, args)
++        }
++        "chat.send" | "chat.reply" => send_rpc(home, &grant, &group, &op, args),
++        "chat.retry" => retry_rpc(home, &grant, &group, args),
++        "chat.history" => history_rpc(home, &grant, &group, args),
++        "chat.deliveries" => {
++            args_only(args, &["event_id", "limit"])?;
++            let eid = string(args, "event_id")?;
++            visible_event(home, &group, &grant.actor_id, &eid)?;
++            let mut s = read_state(home, &group.group_id)?;
++            sweep(home, &group.group_id, &mut s)?;
++            save_state(home, &group.group_id, &s)?;
++            let limit = match args.get("limit") {
++                None => 50,
++                Some(value) => value
++                    .as_u64()
++                    .filter(|v| (1..=100).contains(v))
++                    .ok_or_else(|| OpError::new("invalid_args", "limit must be 1..100"))?
++                    as usize,
++            };
++            let mut selected = s
++                .attempts
++                .iter()
++                .rev()
++                .filter(|a| a.event_id == eid)
++                .map(Attempt::public)
++                .take(limit + 1)
++                .collect::<Vec<_>>();
++            let has_more = selected.len() > limit;
++            selected.truncate(limit);
++            object(json!({"event_id":eid,"deliveries":selected,"has_more":has_more}))
++        }
++        _ => Err(OpError::new(
++            "unsupported_operation",
++            "Operation unavailable for this Actor grant",
++        )),
++    }?;
++    if serde_json::to_vec(&json!({"ok":true,"result":result}))
++        .map_err(OpError::invalid)?
++        .len()
++        > MAX_RESPONSE_BYTES
++    {
++        return Err(OpError::new(
++            "content_limit",
++            "Response exceeds selected byte limit",
++        ));
++    }
++    Ok(result)
++}
++fn lease_rpc(
++    home: &HomeLayout,
++    g: &Grant,
++    group: &GroupDoc,
++    op: &str,
++    args: &Map<String, Value>,
++) -> OpResult {
++    let mut s = read_state(home, &g.group_id)?;
++    sweep(home, &group.group_id, &mut s)?;
++    if op != "lease.release"
++        && (!actor(group, &g.actor_id)?.enabled
++            || matches!(group.state, GroupState::Paused | GroupState::Stopped))
++    {
++        retire_state(&mut s, &g.actor_id);
++        save_state(home, &g.group_id, &s)?;
++        return Err(OpError::new(
++            "receiver_unavailable",
++            "Actor or Group is inactive",
++        ));
++    }
++    match op {
++        "lease.acquire" => {
++            args_only(args, &[])?;
++            if s.leases.contains_key(&g.actor_id) {
++                save_state(home, &g.group_id, &s)?;
++                return Err(OpError::new(
++                    "receiver_lease_conflict",
++                    "An unexpired receiver already owns intake",
++                ));
++            }
++            if !actor(group, &g.actor_id)?.enabled
++                || matches!(group.state, GroupState::Paused | GroupState::Stopped)
++            {
++                return Err(OpError::new(
++                    "receiver_unavailable",
++                    "Actor or Group is inactive",
++                ));
++            }
++            s.generation += 1;
++            let l = Lease {
++                id: uuid::Uuid::new_v4().to_string(),
++                generation: s.generation,
++                grant_id: g.id.clone(),
++                expires_ms: now_ms() + LEASE_MS,
++            };
++            s.leases.insert(g.actor_id.clone(), l.clone());
++            save_state(home, &g.group_id, &s)?;
++            object(json!({"lease_id":l.id,"lease_generation":l.generation,"expires_in_seconds":45}))
++        }
++        "lease.renew" => {
++            args_only(args, &["lease_id", "lease_generation"])?;
++            let mut l = lease(&s, g, args)?.clone();
++            l.expires_ms = now_ms() + LEASE_MS;
++            s.leases.insert(g.actor_id.clone(), l.clone());
++            save_state(home, &g.group_id, &s)?;
++            object(json!({"lease_id":l.id,"lease_generation":l.generation,"expires_in_seconds":45}))
++        }
++        "lease.release" => {
++            args_only(args, &["lease_id", "lease_generation"])?;
++            lease(&s, g, args)?;
++            retire_state(&mut s, &g.actor_id);
++            save_state(home, &g.group_id, &s)?;
++            object(json!({"released":true}))
++        }
++        "lease.next" => {
++            args_only(args, &["lease_id", "lease_generation", "timeout_seconds"])?;
++            let l = lease(&s, g, args)?.clone();
++            if !actor(group, &g.actor_id)?.enabled
++                || matches!(group.state, GroupState::Paused | GroupState::Stopped)
++            {
++                retire_state(&mut s, &g.actor_id);
++                save_state(home, &g.group_id, &s)?;
++                return Err(OpError::new(
++                    "receiver_unavailable",
++                    "Actor or Group is inactive",
++                ));
++            }
++            let selected = s.attempts.iter_mut().find(|a| {
++                a.actor_id == g.actor_id
++                    && a.actor_generation == g.actor_generation
++                    && a.state == "pending"
++                    && a.lease_id == l.id
++                    && a.lease_generation == l.generation
++            });
++            let Some(a) = selected else {
++                save_state(home, &g.group_id, &s)?;
++                return object(json!({"offer":null}));
++            };
++            let e = visible_event(home, group, &g.actor_id, &a.event_id)?;
++            let text = e
++                .data
++                .get("text")
++                .and_then(Value::as_str)
++                .or_else(|| e.data.get("message").and_then(Value::as_str))
++                .unwrap_or_default();
++            let packet = json!({"attempt_id":a.id,"event_id":e.id,"group_id":g.group_id,"actor_id":g.actor_id,"actor_generation":g.actor_generation,"lease_generation":l.generation,"message_mode":e.data.get("message_mode").and_then(Value::as_str).unwrap_or("send"),"text":text,"sender":e.by,"reply_to":e.data.get("reply_to"),"remaining_seconds":(a.deadline_ms.saturating_sub(now_ms()))as f64/1000.0});
++            if serde_json::to_vec(&packet).map_err(OpError::invalid)?.len() > MAX_EVENT_BYTES {
++                a.state = "failed".into();
++                a.error_code = Some("event_too_large".into());
++                a.retryable = false;
++                let a = a.clone();
++                save_state(home, &g.group_id, &s)?;
++                append_receipt(home, group, &a)?;
++                return Err(OpError::new(
++                    "event_too_large",
++                    "Event exceeds negotiated payload limit",
++                ));
++            }
++            a.offered = true;
++            a.state = "offered".into();
++            save_state(home, &g.group_id, &s)?;
++            object(json!({"offer":packet}))
++        }
++        "lease.outcome" => {
++            args_only(
++                args,
++                &[
++                    "lease_id",
++                    "lease_generation",
++                    "attempt_id",
++                    "outcome",
++                    "retryable",
++                    "error_code",
++                ],
++            )?;
++            let l = lease(&s, g, args)?.clone();
++            let id = string(args, "attempt_id")?;
++            let outcome = string(args, "outcome")?;
++            if !matches!(
++                outcome.as_str(),
++                "accepted" | "refused" | "failed" | "uncertain"
++            ) {
++                return Err(OpError::new("invalid_args", "Invalid handoff outcome"));
++            }
++            let a = s
++                .attempts
++                .iter_mut()
++                .find(|a| {
++                    a.id == id
++                        && a.actor_id == g.actor_id
++                        && a.actor_generation == g.actor_generation
++                        && a.lease_id == l.id
++                        && a.lease_generation == l.generation
++                })
++                .ok_or_else(|| OpError::new("attempt_not_found", "Attempt unavailable"))?;
++            if a.state == outcome {
++                return object(json!({"settled":true,"attempt_id":id,"outcome":outcome}));
++            }
++            if a.state != "offered" || a.deadline_ms <= now_ms() {
++                return Err(OpError::new(
++                    "attempt_conflict",
++                    "Attempt is no longer offered",
++                ));
++            }
++            a.state = outcome.clone();
++            a.retryable = args
++                .get("retryable")
++                .and_then(Value::as_bool)
++                .unwrap_or(outcome != "accepted");
++            a.error_code = args
++                .get("error_code")
++                .and_then(Value::as_str)
++                .filter(|v| {
++                    v.len() <= 128 && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
++                })
++                .map(str::to_owned);
++            let a = a.clone();
++            save_state(home, &g.group_id, &s)?;
++            append_receipt(home, group, &a)?;
++            object(json!({"settled":true,"attempt_id":id,"outcome":outcome}))
++        }
++        _ => unreachable!(),
++    }
++}
++fn native(home: &HomeLayout, op: &str, args: Map<String, Value>) -> OpResult {
++    let request = DaemonRequest {
++        v: 1,
++        op: op.into(),
++        args,
++    };
++    super::messaging::resolve_operation(&request)
++        .ok_or_else(|| OpError::new("unsupported_operation", "Unsupported native operation"))?
++        .execute(home, &request)
++}
++fn visible_event(home: &HomeLayout, g: &GroupDoc, aid: &str, id: &str) -> Result<Event, OpError> {
++    let mut a = Map::new();
++    a.insert("group_id".into(), json!(g.group_id));
++    a.insert("actor_id".into(), json!(aid));
++    a.insert("by".into(), json!(aid));
++    a.insert("event_id".into(), json!(id));
++    let result = native(home, "message_history", a)?;
++    serde_json::from_value(
++        result
++            .get("messages")
++            .and_then(Value::as_array)
++            .and_then(|v| v.first())
++            .cloned()
++            .ok_or_else(|| OpError::new("event_not_found", "Event unavailable"))?,
++    )
++    .map_err(OpError::invalid)
++}
++fn send_rpc(
++    home: &HomeLayout,
++    g: &Grant,
++    group: &GroupDoc,
++    op: &str,
++    args: &Map<String, Value>,
++) -> OpResult {
++    args_only(
++        args,
++        if op == "chat.send" {
++            &["operation_id", "to", "text", "mode"]
++        } else {
++            &["operation_id", "event_id", "text", "mode"]
++        },
++    )?;
++    let id = string(args, "operation_id")?;
++    if id.len() > 128 {
++        return Err(OpError::new("invalid_args", "operation_id too long"));
++    }
++    let text = string_text(args)?;
++    let mode = args.get("mode").and_then(Value::as_str).unwrap_or("send");
++    if !matches!(mode, "send" | "request_reply") {
++        return Err(OpError::new(
++            "unsupported_operation",
++            "Deferred Mail is not enabled",
++        ));
++    }
++    let client_id = format!("external:{}:{op}:{id}", g.actor_generation);
++    let fingerprint = digest(&serde_json::to_vec(args).map_err(OpError::invalid)?);
++    let mut a = Map::new();
++    a.insert("group_id".into(), json!(g.group_id));
++    a.insert("by".into(), json!(g.actor_id));
++    a.insert("client_id".into(), json!(client_id));
++    a.insert("text".into(), json!(text));
++    a.insert("message_mode".into(), json!(mode));
++    a.insert(
++        "refs".into(),
++        json!([{"source":"external_receiver","operation_id":id,"fingerprint":fingerprint}]),
++    );
++    if op == "chat.send" {
++        let to = args
++            .get("to")
++            .and_then(Value::as_array)
++            .filter(|v| !v.is_empty())
++            .ok_or_else(|| OpError::new("invalid_args", "Explicit recipients required"))?;
++        if to.iter().any(|v| {
++            !v.is_string()
++                || v.as_str().is_some_and(|v| {
++                    v.contains('@') && !matches!(v, "@all" | "@peers" | "@foreman")
++                })
++        }) {
++            return Err(OpError::new(
++                "unsupported_recipient",
++                "Unsupported recipient",
++            ));
++        }
++        a.insert("to".into(), json!(to));
++    } else {
++        let eid = string(args, "event_id")?;
++        visible_event(home, group, &g.actor_id, &eid)?;
++        a.insert("reply_to".into(), json!(eid));
++        if mode == "request_reply" {
++            return Err(OpError::new("invalid_args", "Replies use send mode"));
++        }
++    }
++    if let Some(existing) =
++        super::message_idempotency::find(home, &g.group_id, "chat.message", &g.actor_id, &a)
++    {
++        let matching = existing
++            .data
++            .get("refs")
++            .and_then(Value::as_array)
++            .is_some_and(|refs| {
++                refs.iter()
++                    .any(|r| r["source"] == "external_receiver" && r["fingerprint"] == fingerprint)
++            });
++        if !matching {
++            return Err(OpError::new(
++                "operation_conflict",
++                "Operation ID already has different inputs",
++            ));
++        }
++        return mutation_result(home, group, existing, true);
++    }
++    let result = native(
++        home,
++        if op == "chat.send" {
++            "message_send"
++        } else {
++            "reply"
++        },
++        a,
++    )?;
++    let event: Event = serde_json::from_value(
++        result
++            .get("event")
++            .cloned()
++            .ok_or_else(|| OpError::new("provider_error", "Missing committed event"))?,
++    )
++    .map_err(OpError::invalid)?;
++    mutation_result(home, group, event, false)
++}
++fn string_text(args: &Map<String, Value>) -> Result<String, OpError> {
++    let v = args
++        .get("text")
++        .and_then(Value::as_str)
++        .filter(|v| !v.trim().is_empty() && v.len() <= 49152)
++        .ok_or_else(|| OpError::new("invalid_args", "Bounded non-empty text required"))?;
++    Ok(v.into())
++}
++fn mutation_result(home: &HomeLayout, g: &GroupDoc, event: Event, duplicate: bool) -> OpResult {
++    let mut s = read_state(home, &g.group_id)?;
++    sweep(home, &g.group_id, &mut s)?;
++    save_state(home, &g.group_id, &s)?;
++    object(
++        json!({"deliveries":s.attempts.iter().filter(|a|a.event_id==event.id).map(Attempt::public).collect::<Vec<_>>(),"event":event,"stored":true,"duplicate":duplicate}),
++    )
++}
++fn history_rpc(
++    home: &HomeLayout,
++    g: &Grant,
++    group: &GroupDoc,
++    args: &Map<String, Value>,
++) -> OpResult {
++    args_only(args, &["limit", "before_event_id", "event_id", "max_bytes"])?;
++    let mut a = args.clone();
++    let bytes = a
++        .remove("max_bytes")
++        .and_then(|v| v.as_u64())
++        .unwrap_or(MAX_RESPONSE_BYTES as u64)
++        .min(MAX_RESPONSE_BYTES as u64) as usize;
++    a.insert("group_id".into(), json!(g.group_id));
++    a.insert("actor_id".into(), json!(g.actor_id));
++    a.insert("by".into(), json!(g.actor_id));
++    let result = native(home, "message_history", a)?;
++    if serde_json::to_vec(&result).map_err(OpError::invalid)?.len() > bytes {
++        return Err(OpError::new(
++            "content_limit",
++            "History exceeds selected byte limit",
++        ));
++    }
++    let _ = group;
++    Ok(result)
++}
++fn retry_rpc(
++    home: &HomeLayout,
++    g: &Grant,
++    group: &GroupDoc,
++    args: &Map<String, Value>,
++) -> OpResult {
++    args_only(args, &["event_id", "actor_ids", "allow_uncertain_retry"])?;
++    let eid = string(args, "event_id")?;
++    let e = visible_event(home, group, &g.actor_id, &eid)?;
++    if e.by != g.actor_id {
++        return Err(OpError::new(
++            "permission_denied",
++            "Only original sender can retry",
++        ));
++    }
++    let targets = args
++        .get("actor_ids")
++        .and_then(Value::as_array)
++        .filter(|v| !v.is_empty())
++        .ok_or_else(|| OpError::new("invalid_args", "actor_ids required"))?;
++    let mut s = read_state(home, &g.group_id)?;
++    sweep(home, &group.group_id, &mut s)?;
++    for target in targets {
++        let aid = target
++            .as_str()
++            .ok_or_else(|| OpError::new("invalid_args", "Actor ID required"))?;
++        let a = actor(group, aid)?;
++        if !a.external_receiver || !super::actor_delivery::event_targets_actor(group, &e, aid) {
++            return Err(OpError::new(
++                "unsupported_recipient",
++                "Recipient outside original external audience",
++            ));
++        }
++        if let Some(old) = s
++            .attempts
++            .iter()
++            .rev()
++            .find(|v| v.event_id == eid && v.actor_id == aid)
++        {
++            if matches!(old.state.as_str(), "pending" | "offered" | "accepted") {
++                return Err(OpError::new(
++                    "attempt_conflict",
++                    "Delivery cannot be retried in current state",
++                ));
++            }
++            if old.state == "uncertain"
++                && !args
++                    .get("allow_uncertain_retry")
++                    .and_then(Value::as_bool)
++                    .unwrap_or(false)
++            {
++                return Err(OpError::new(
++                    "uncertain_conflict",
++                    "Explicit duplicate-risk acknowledgement required",
++                ));
++            }
++        }
++    }
++    save_state(home, &g.group_id, &s)?;
++    for t in targets {
++        offer(home, group, actor(group, t.as_str().unwrap())?, &e, true)?;
++    }
++    mutation_result(home, group, e, false)
++}
++
++#[cfg(test)]
++mod tests;
+diff --git a/crates/cccc-daemon/src/ops/external_receiver/tests.rs b/crates/cccc-daemon/src/ops/external_receiver/tests.rs
+new file mode 100644
+index 00000000..b9ed4566
+--- /dev/null
++++ b/crates/cccc-daemon/src/ops/external_receiver/tests.rs
+@@ -0,0 +1,400 @@
++use super::*;
++
++struct Fixture {
++    _temp: tempfile::TempDir,
++    home: HomeLayout,
++    group: GroupDoc,
++    alice: String,
++    bob: String,
++}
++impl Fixture {
++    fn new() -> Self {
++        let temp = tempfile::tempdir().unwrap();
++        let home = HomeLayout::from_path(temp.path()).unwrap();
++        let store = GroupStore::new(home.clone()).unwrap();
++        let mut g = store.create("external receiver tests", "").unwrap();
++        for id in ["alice", "bob"] {
++            let mut actor = Actor::new(id);
++            actor.runtime = ActorRuntime::Custom;
++            actor.command = vec!["unexpected-process".into()];
++            actors::add(&mut g, actor).unwrap();
++        }
++        g.state = GroupState::Active;
++        store.save(&g).unwrap();
++        let issue = |id: &str| {
++            grant(
++                &home,
++                &DaemonRequest {
++                    v: 1,
++                    op: "external_receiver_grant".into(),
++                    args: json!({"by":"user","group_id":g.group_id,"actor_id":id})
++                        .as_object()
++                        .unwrap()
++                        .clone(),
++                },
++            )
++            .unwrap()["token"]
++                .as_str()
++                .unwrap()
++                .to_owned()
++        };
++        let alice = issue("alice");
++        let bob = issue("bob");
++        let group = store.load(&g.group_id).unwrap();
++        Self {
++            _temp: temp,
++            home,
++            group,
++            alice,
++            bob,
++        }
++    }
++    fn rpc(&self, token: &str, operation: &str, args: Value) -> Result<Value, OpError> {
++        rpc(
++            &self.home,
++            &DaemonRequest {
++                v: 1,
++                op: "external_receiver_rpc".into(),
++                args: json!({"token":token,"operation":operation,"arguments":args})
++                    .as_object()
++                    .unwrap()
++                    .clone(),
++            },
++        )
++        .map(Value::Object)
++    }
++    fn lease(&self, token: &str) -> Value {
++        let l = self.rpc(token, "lease.acquire", json!({})).unwrap();
++        json!({"lease_id":l["lease_id"],"lease_generation":l["lease_generation"]})
++    }
++    fn send(&self, id: &str, text: &str) -> Value {
++        self.rpc(
++            &self.alice,
++            "chat.send",
++            json!({"operation_id":id,"to":["bob"],"text":text,"mode":"send"}),
++        )
++        .unwrap()
++    }
++}
++
++#[test]
++fn grants_are_actor_bound_and_do_not_create_native_processes() {
++    let f = Fixture::new();
++    let binding = f.rpc(&f.alice, "binding", json!({})).unwrap();
++    assert_eq!(binding["actor_id"], "alice");
++    assert_eq!(
++        f.rpc(&f.alice, "binding", json!({"actor_id":"bob"}))
++            .unwrap_err()
++            .code,
++        "invalid_args"
++    );
++    assert_eq!(
++        f.rpc("invalid", "binding", json!({})).unwrap_err().code,
++        "invalid_grant"
++    );
++    for a in &f.group.actors {
++        assert!(a.external_receiver);
++        assert!(a.command.is_empty());
++        assert!(
++            super::super::actor_runtime::apply(&f.home, &f.group, &a.id, "actor.start")
++                .unwrap()
++                .is_none()
++        );
++        assert!(!super::super::actor_runtime::actor_is_running(&f.group, a));
++    }
++}
++
++#[test]
++fn recreated_actor_invalidates_old_grant() {
++    let f = Fixture::new();
++    GroupStore::new(f.home.clone())
++        .unwrap()
++        .mutate(&f.group.group_id, |g| {
++            g.actors[0].generation = uuid::Uuid::new_v4().to_string();
++            Ok(())
++        })
++        .unwrap();
++    assert_eq!(
++        f.rpc(&f.alice, "binding", json!({})).unwrap_err().code,
++        "stale_binding"
++    );
++}
++
++#[test]
++fn leases_wait_for_expiry_and_require_operator_takeover() {
++    let f = Fixture::new();
++    let old = f.lease(&f.bob);
++    assert_eq!(
++        f.rpc(&f.bob, "lease.acquire", json!({})).unwrap_err().code,
++        "receiver_lease_conflict"
++    );
++    assert_eq!(
++        f.rpc(&f.bob, "lease.acquire", json!({"force":true}))
++            .unwrap_err()
++            .code,
++        "invalid_args"
++    );
++    takeover(
++        &f.home,
++        &DaemonRequest {
++            v: 1,
++            op: "external_receiver_takeover".into(),
++            args: json!({"by":"user","group_id":f.group.group_id,"actor_id":"bob"})
++                .as_object()
++                .unwrap()
++                .clone(),
++        },
++    )
++    .unwrap();
++    let new = f.lease(&f.bob);
++    assert_ne!(old["lease_generation"], new["lease_generation"]);
++    assert_eq!(
++        f.rpc(&f.bob, "lease.renew", old).unwrap_err().code,
++        "receiver_lease_lost"
++    );
++}
++
++#[test]
++fn expired_lease_allows_new_generation_without_message_replay() {
++    let f = Fixture::new();
++    let old = f.lease(&f.bob);
++    let mut s = read_state(&f.home, &f.group.group_id).unwrap();
++    s.leases.get_mut("bob").unwrap().expires_ms = 0;
++    save_state(&f.home, &f.group.group_id, &s).unwrap();
++    let new = f.lease(&f.bob);
++    assert_ne!(old["lease_generation"], new["lease_generation"]);
++    assert!(f.rpc(&f.bob, "lease.next", new).unwrap()["offer"].is_null());
++}
++
++#[test]
++fn clean_release_allows_reacquisition() {
++    let f = Fixture::new();
++    let old = f.lease(&f.bob);
++    f.rpc(&f.bob, "lease.release", old.clone()).unwrap();
++    let new = f.lease(&f.bob);
++    assert_ne!(old, new);
++}
++
++#[test]
++fn sends_have_authoritative_receipts_and_explicit_retries() {
++    let f = Fixture::new();
++    let lease = f.lease(&f.bob);
++    let sent = f.send("send1", "test payload");
++    assert_eq!(sent["stored"], true);
++    let offer = f.rpc(&f.bob, "lease.next", lease.clone()).unwrap()["offer"].clone();
++    assert_eq!(offer["event_id"], sent["event"]["id"]);
++    let mut outcome = lease.clone();
++    outcome["attempt_id"] = offer["attempt_id"].clone();
++    outcome["outcome"] = json!("refused");
++    outcome["error_code"] = json!("body_busy");
++    f.rpc(&f.bob, "lease.outcome", outcome.clone()).unwrap();
++    f.rpc(&f.bob, "lease.outcome", outcome).unwrap();
++    assert!(f.rpc(&f.bob, "lease.next", lease.clone()).unwrap()["offer"].is_null());
++    assert_eq!(
++        f.rpc(
++            &f.bob,
++            "chat.retry",
++            json!({"event_id":sent["event"]["id"],"actor_ids":["bob"]})
++        )
++        .unwrap_err()
++        .code,
++        "permission_denied"
++    );
++    f.rpc(
++        &f.alice,
++        "chat.retry",
++        json!({"event_id":sent["event"]["id"],"actor_ids":["bob"]}),
++    )
++    .unwrap();
++    let next = f.rpc(&f.bob, "lease.next", lease).unwrap()["offer"].clone();
++    assert_eq!(next["event_id"], offer["event_id"]);
++    assert_ne!(next["attempt_id"], offer["attempt_id"]);
++    let path = GroupStore::new(f.home.clone())
++        .unwrap()
++        .ledger_path(&f.group.group_id)
++        .unwrap();
++    assert!(
++        ledger::read_all(&path)
++            .unwrap()
++            .iter()
++            .any(|e| e.kind == "runtime.delivery" && e.data["external_state"] == "refused")
++    );
++}
++
++#[test]
++fn offered_work_is_uncertain_after_crash_and_never_reoffered() {
++    let f = Fixture::new();
++    let lease = f.lease(&f.bob);
++    let sent = f.send("send1", "unique body text");
++    let offer = f.rpc(&f.bob, "lease.next", lease.clone()).unwrap()["offer"].clone();
++    let mut s = read_state(&f.home, &f.group.group_id).unwrap();
++    s.attempts.last_mut().unwrap().boot = "old-provider".into();
++    save_state(&f.home, &f.group.group_id, &s).unwrap();
++    assert!(f.rpc(&f.bob, "lease.next", lease).unwrap()["offer"].is_null());
++    let receipts = f
++        .rpc(
++            &f.alice,
++            "chat.deliveries",
++            json!({"event_id":sent["event"]["id"]}),
++        )
++        .unwrap();
++    assert_eq!(receipts["deliveries"][0]["state"], "uncertain");
++    assert_eq!(
++        f.rpc(
++            &f.alice,
++            "chat.retry",
++            json!({"event_id":offer["event_id"],"actor_ids":["bob"]})
++        )
++        .unwrap_err()
++        .code,
++        "uncertain_conflict"
++    );
++    let state = serde_json::to_string(&read_state(&f.home, &f.group.group_id).unwrap()).unwrap();
++    assert!(!state.contains("unique body text"));
++}
++
++#[test]
++fn send_operation_ids_reconcile_without_duplicate_handoff() {
++    let f = Fixture::new();
++    let l = f.lease(&f.bob);
++    let sent = f.send("idempotent", "same input");
++    let again = f.send("idempotent", "same input");
++    assert_eq!(sent["event"]["id"], again["event"]["id"]);
++    assert_eq!(again["duplicate"], true);
++    assert_eq!(
++        f.rpc(
++            &f.alice,
++            "chat.send",
++            json!({"operation_id":"idempotent","to":["bob"],"text":"different","mode":"send"})
++        )
++        .unwrap_err()
++        .code,
++        "operation_conflict"
++    );
++    let _ = f.rpc(&f.bob, "lease.next", l.clone()).unwrap();
++    assert!(f.rpc(&f.bob, "lease.next", l).unwrap()["offer"].is_null());
++}
++
++#[test]
++fn reply_preserves_native_ancestry_and_history_does_not_consume_mail() {
++    let f = Fixture::new();
++    let sent = f.send("one", "hello");
++    let reply = f
++        .rpc(
++            &f.bob,
++            "chat.reply",
++            json!({"operation_id":"reply-one","event_id":sent["event"]["id"],"text":"received"}),
++        )
++        .unwrap();
++    assert_eq!(reply["event"]["data"]["reply_to"], sent["event"]["id"]);
++    let before = cccc_core::inbox::cursor(&f.home, &f.group.group_id, "bob").unwrap();
++    let h = f.rpc(&f.bob, "chat.history", json!({"limit":1})).unwrap();
++    assert_eq!(h["messages"].as_array().unwrap().len(), 1);
++    assert_eq!(
++        before,
++        cccc_core::inbox::cursor(&f.home, &f.group.group_id, "bob").unwrap()
++    );
++    assert_eq!(
++        f.rpc(&f.bob, "chat.history", json!({"limit":1,"max_bytes":1}))
++            .unwrap_err()
++            .code,
++        "content_limit"
++    );
++}
++
++#[test]
++fn unavailable_actor_fails_immediately_without_reconnect_replay() {
++    let f = Fixture::new();
++    let sent = f.send("no-receiver", "body unavailable");
++    assert_eq!(sent["deliveries"][0]["state"], "failed");
++    let l = f.lease(&f.bob);
++    assert!(f.rpc(&f.bob, "lease.next", l).unwrap()["offer"].is_null());
++}
++
++#[test]
++fn unsupported_inputs_do_not_gain_control_or_mail_authority() {
++    let f = Fixture::new();
++    assert_eq!(
++        f.rpc(
++            &f.alice,
++            "chat.send",
++            json!({"operation_id":"a","text":"x","to":["bob"],"mode":"mail"})
++        )
++        .unwrap_err()
++        .code,
++        "unsupported_operation"
++    );
++    assert_eq!(
++        f.rpc(
++            &f.alice,
++            "chat.send",
++            json!({"operation_id":"b","text":"x","to":["user","bob"],"mode":"send"})
++        )
++        .unwrap_err()
++        .code,
++        "mixed_recipient_kinds"
++    );
++    assert!(f.rpc(&f.alice, "actor.stop", json!({})).is_err());
++}
++
++#[test]
++fn receipt_results_obey_count_bounds_and_exclude_private_lease_material() {
++    let f = Fixture::new();
++    let l = f.lease(&f.bob);
++    let sent = f.send("receipt1", "hello");
++    let o = f.rpc(&f.bob, "lease.next", l.clone()).unwrap()["offer"].clone();
++    let mut out = l;
++    out["attempt_id"] = o["attempt_id"].clone();
++    out["outcome"] = json!("refused");
++    f.rpc(&f.bob, "lease.outcome", out).unwrap();
++    f.rpc(
++        &f.alice,
++        "chat.retry",
++        json!({"event_id":sent["event"]["id"],"actor_ids":["bob"]}),
++    )
++    .unwrap();
++    let receipts = f
++        .rpc(
++            &f.alice,
++            "chat.deliveries",
++            json!({"event_id":sent["event"]["id"],"limit":1}),
++        )
++        .unwrap();
++    assert_eq!(receipts["deliveries"].as_array().unwrap().len(), 1);
++    assert_eq!(receipts["has_more"], true);
++    assert!(receipts["deliveries"][0].get("lease_id").is_none());
++    assert!(receipts["deliveries"][0].get("boot").is_none());
++    assert_eq!(
++        f.rpc(
++            &f.alice,
++            "chat.deliveries",
++            json!({"event_id":sent["event"]["id"],"limit":0})
++        )
++        .unwrap_err()
++        .code,
++        "invalid_args"
++    );
++}
++
++#[test]
++fn stopped_group_retires_lease_without_controlling_agent_runtime() {
++    let f = Fixture::new();
++    let l = f.lease(&f.bob);
++    GroupStore::new(f.home.clone())
++        .unwrap()
++        .mutate(&f.group.group_id, |g| {
++            g.state = GroupState::Stopped;
++            Ok(())
++        })
++        .unwrap();
++    assert_eq!(
++        f.rpc(&f.bob, "lease.renew", l).unwrap_err().code,
++        "receiver_unavailable"
++    );
++    assert!(
++        read_state(&f.home, &f.group.group_id)
++            .unwrap()
++            .leases
++            .is_empty()
++    );
++}
+diff --git a/crates/cccc-daemon/src/ops/mod.rs b/crates/cccc-daemon/src/ops/mod.rs
+index 11a8d7f8..a228ac46 100644
+--- a/crates/cccc-daemon/src/ops/mod.rs
++++ b/crates/cccc-daemon/src/ops/mod.rs
+@@ -33,6 +33,7 @@ pub(crate) mod connect_outbound;
+ mod connect_peer;
+ mod context;
+ mod direct;
++pub(crate) mod external_receiver;
+ pub(crate) use connect::ConnectService;
+ mod context_projection;
+ mod deepseek_runtime;
+@@ -105,6 +106,7 @@ use operation::Operation;
+ 
+ pub(crate) fn resolve_operation(request: &DaemonRequest) -> Option<Operation> {
+     for resolver in [
++        external_receiver::resolve_operation,
+         group_creation::resolve_operation,
+         groups::resolve_operation,
+         hermes_runtime::resolve_operation,
+diff --git a/crates/cccc-web/src/auth.rs b/crates/cccc-web/src/auth.rs
+index e9a54a12..c973e51f 100644
+--- a/crates/cccc-web/src/auth.rs
++++ b/crates/cccc-web/src/auth.rs
+@@ -65,6 +65,13 @@ pub async fn authorize(
+     mut request: Request,
+     next: Next,
+ ) -> Response {
++    // This exact Actor-scoped RPC route performs its own grant authentication.
++    // It must never inherit the browser/local-administrator principal.
++    if request.method() == Method::POST
++        && request.uri().path() == "/api/v1/external-receiver/v1/rpc"
++    {
++        return next.run(request).await;
++    }
+     // Explicit bearer clients may connect through host-rewriting proxies.
+     // Browser cookies still require source validation, including WebSocket GETs.
+     let store = match AccessTokenStore::new(state.home.clone()) {
+@@ -262,7 +269,9 @@ fn accepts_local_principal(method: &Method, path: &str) -> bool {
+ }
+ 
+ fn requires_admin(method: &Method, path: &str) -> bool {
+-    path.starts_with("/api/v1/local_sessions")
++    path.starts_with("/api/v1/external-receiver/v1/grants")
++        || path == "/api/v1/external-receiver/v1/takeover"
++        || path.starts_with("/api/v1/local_sessions")
+         || path.starts_with("/api/v1/chet/")
+         || path.starts_with("/api/v1/process-recovery/")
+         || path.starts_with("/api/v1/voice/asr/providers")
+diff --git a/crates/cccc-web/src/routes/external_receiver.rs b/crates/cccc-web/src/routes/external_receiver.rs
+new file mode 100644
+index 00000000..0036a0b6
+--- /dev/null
++++ b/crates/cccc-web/src/routes/external_receiver.rs
+@@ -0,0 +1,198 @@
++//! Actor-only receiver RPC and separately authenticated operator provisioning.
++use crate::{AppState, auth::Principal};
++use axum::{
++    Extension, Json, Router,
++    extract::{Path, State},
++    http::{HeaderMap, StatusCode, header},
++    response::{IntoResponse, Response},
++    routing::{delete, post},
++};
++use cccc_contracts::DaemonRequest;
++use serde::Deserialize;
++use serde_json::{Map, Value, json};
++
++#[derive(Deserialize)]
++#[serde(deny_unknown_fields)]
++struct Rpc {
++    operation: String,
++    arguments: Map<String, Value>,
++}
++#[derive(Deserialize)]
++#[serde(deny_unknown_fields)]
++struct ActorInput {
++    group_id: String,
++    actor_id: String,
++}
++
++pub fn routes() -> Router<AppState> {
++    Router::new()
++        .route("/api/v1/external-receiver/v1/rpc", post(rpc))
++        .route("/api/v1/external-receiver/v1/grants", post(grant))
++        .route(
++            "/api/v1/external-receiver/v1/grants/{grant_id}",
++            delete(revoke),
++        )
++        .route("/api/v1/external-receiver/v1/takeover", post(takeover))
++}
++fn error(status: StatusCode, code: &str) -> Response {
++    (status,Json(json!({"ok":false,"error":{"code":code,"message":"CCCC external receiver request failed","retryable":matches!(status.as_u16(),409|503)}}))).into_response()
++}
++fn operator(state: &AppState, principal: &Principal, headers: &HeaderMap) -> bool {
++    !state.web_mode.is_read_only()
++        && principal.current_admin(&state.home).unwrap_or(false)
++        && (!headers.contains_key(header::AUTHORIZATION) || !principal.raw_token.is_empty())
++}
++async fn call(state: &AppState, op: &str, args: Map<String, Value>) -> Response {
++    match state
++        .client
++        .call(&DaemonRequest {
++            v: 1,
++            op: op.into(),
++            args,
++        })
++        .await
++    {
++        Ok(r) if r.ok => Json(json!({"ok":true,"result":r.result})).into_response(),
++        Ok(r) => {
++            let code = r.error.map_or_else(|| "provider_error".into(), |e| e.code);
++            let status = if code == "invalid_grant" {
++                StatusCode::UNAUTHORIZED
++            } else if code.contains("permission") {
++                StatusCode::FORBIDDEN
++            } else if code.contains("conflict")
++                || code == "actor_busy"
++                || code == "receiver_lease_lost"
++            {
++                StatusCode::CONFLICT
++            } else if code.ends_with("not_found") {
++                StatusCode::NOT_FOUND
++            } else if code.contains("unavailable") {
++                StatusCode::SERVICE_UNAVAILABLE
++            } else {
++                StatusCode::UNPROCESSABLE_ENTITY
++            };
++            error(status, &code)
++        }
++        Err(_) => error(StatusCode::SERVICE_UNAVAILABLE, "daemon_unavailable"),
++    }
++}
++async fn rpc(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<Rpc>) -> Response {
++    let Some(token) = headers
++        .get(header::AUTHORIZATION)
++        .and_then(|v| v.to_str().ok())
++        .and_then(|v| v.strip_prefix("Bearer "))
++        .filter(|v| !v.is_empty())
++    else {
++        return error(StatusCode::UNAUTHORIZED, "invalid_grant");
++    };
++    let wait = if body.operation == "lease.next" {
++        body.arguments
++            .get("timeout_seconds")
++            .and_then(Value::as_f64)
++            .unwrap_or(0.0)
++            .clamp(0.0, 20.0)
++    } else {
++        0.0
++    };
++    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs_f64(wait);
++    let args = json!({"token":token,"operation":body.operation,"arguments":body.arguments})
++        .as_object()
++        .unwrap()
++        .clone();
++    loop {
++        let response = match state
++            .client
++            .call(&DaemonRequest {
++                v: 1,
++                op: "external_receiver_rpc".into(),
++                args: args.clone(),
++            })
++            .await
++        {
++            Ok(v) => v,
++            Err(_) => return error(StatusCode::SERVICE_UNAVAILABLE, "daemon_unavailable"),
++        };
++        if response.ok {
++            let empty = response.result.get("offer") == Some(&Value::Null);
++            if body.operation == "lease.next" && empty && tokio::time::Instant::now() < deadline {
++                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
++                continue;
++            }
++            return Json(json!({"ok":true,"result":response.result})).into_response();
++        }
++        let code = response
++            .error
++            .map_or_else(|| "provider_error".into(), |e| e.code);
++        let status = if code == "invalid_grant" {
++            StatusCode::UNAUTHORIZED
++        } else if code.contains("permission") {
++            StatusCode::FORBIDDEN
++        } else if code.contains("conflict") || code.ends_with("lease_lost") {
++            StatusCode::CONFLICT
++        } else if code.ends_with("not_found") {
++            StatusCode::NOT_FOUND
++        } else if code.contains("unavailable") {
++            StatusCode::SERVICE_UNAVAILABLE
++        } else {
++            StatusCode::UNPROCESSABLE_ENTITY
++        };
++        return error(status, &code);
++    }
++}
++async fn grant(
++    State(state): State<AppState>,
++    Extension(principal): Extension<Principal>,
++    headers: HeaderMap,
++    Json(body): Json<ActorInput>,
++) -> Response {
++    if !operator(&state, &principal, &headers) {
++        return error(StatusCode::FORBIDDEN, "operator_required");
++    }
++    call(
++        &state,
++        "external_receiver_grant",
++        json!({"by":"user","group_id":body.group_id,"actor_id":body.actor_id})
++            .as_object()
++            .unwrap()
++            .clone(),
++    )
++    .await
++}
++async fn revoke(
++    State(state): State<AppState>,
++    Extension(principal): Extension<Principal>,
++    headers: HeaderMap,
++    Path(id): Path<String>,
++) -> Response {
++    if !operator(&state, &principal, &headers) {
++        return error(StatusCode::FORBIDDEN, "operator_required");
++    }
++    call(
++        &state,
++        "external_receiver_revoke",
++        json!({"by":"user","grant_id":id})
++            .as_object()
++            .unwrap()
++            .clone(),
++    )
++    .await
++}
++async fn takeover(
++    State(state): State<AppState>,
++    Extension(principal): Extension<Principal>,
++    headers: HeaderMap,
++    Json(body): Json<ActorInput>,
++) -> Response {
++    if !operator(&state, &principal, &headers) {
++        return error(StatusCode::FORBIDDEN, "operator_required");
++    }
++    call(
++        &state,
++        "external_receiver_takeover",
++        json!({"by":"user","group_id":body.group_id,"actor_id":body.actor_id})
++            .as_object()
++            .unwrap()
++            .clone(),
++    )
++    .await
++}
+diff --git a/crates/cccc-web/src/routes/mod.rs b/crates/cccc-web/src/routes/mod.rs
+index 3ddb10e5..6a970587 100644
+--- a/crates/cccc-web/src/routes/mod.rs
++++ b/crates/cccc-web/src/routes/mod.rs
+@@ -12,6 +12,7 @@ mod codex_voice;
+ mod connect;
+ mod context;
+ mod diagnostics;
++mod external_receiver;
+ mod file_response;
+ mod filesystem;
+ mod grok_webhook;
+@@ -88,6 +89,7 @@ fn first_non_blank<'a>(value: &'a Value, names: &[&str]) -> Option<&'a str> {
+ pub fn router() -> Router<AppState> {
+     Router::new()
+         .merge(system::routes())
++        .merge(external_receiver::routes())
+         .merge(system_branding::routes())
+         .merge(system_branding_assets::routes())
+         .merge(system_branding_manifest::routes())

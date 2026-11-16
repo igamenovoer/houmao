@@ -16,6 +16,33 @@ Skip cloning when the checkout already exists. The Pixi lockfile records the too
 
 The default Cargo development profile follows upstream's disabled debug information and retains incremental builds. This is a local development build, not an upstream release artifact or a benchmark qualification. The helper builds the selected source checkout without modifying tracked upstream files.
 
+## Prepare the Compatible Receiver Service
+
+The stock reference build above cannot accept Houmao external receivers. The maintained protocol-v1 extension is pinned in [the tracked dependency](../../extern/tracked/cccc-receiver/README.md). Prepare its clean source independently, then select a separate root and port:
+
+```bash
+pixi run --manifest-path tools/cccc/pixi.toml prepare-receiver
+export HOUMAO_CCCC_SOURCE="$HOME/.local/share/houmao-cccc/source-receiver"
+export HOUMAO_CCCC_ROOT="$HOME/.local/share/houmao-cccc-receiver"
+export HOUMAO_CCCC_PORT=8849
+pixi run --manifest-path tools/cccc/pixi.toml build
+pixi run --manifest-path tools/cccc/pixi.toml start
+pixi run --manifest-path tools/cccc/pixi.toml status
+```
+
+Keep these selections for subsequent lifecycle commands. The preparation helper verifies the upstream commit and patch digest, refuses changed existing sources, and records a sibling preparation receipt. Use a fresh `prepare-receiver --output /external/path` when selecting a changed patch series. It never changes the orphan reference checkout. Build metadata records the source revision, diff/patch digest, protocol identity when recognized, and executable digest. A source identity without a matching build receipt does not attest to the executable.
+
+Provision Groups and inactive Actors explicitly through CCCC's operator interface. Then use the root managed environment's private grant export utility:
+
+```bash
+pixi run python tools/cccc/provision.py \
+  --endpoint http://127.0.0.1:8849 \
+  --group-id GROUP_ID --actor-id ACTOR_ID --agent-id HOUMAO_AGENT_UUID \
+  --output "$HOME/.local/state/houmao/credentials/cccc-actor.json"
+```
+
+The helper refuses overwrite and writes the token only to a new private file outside the checkout. Remote HTTPS administration additionally requires `--admin-credential /private/admin.json`, containing a `token` field. Local loopback administration uses CCCC's existing Origin/Referer policy; normal Actor grants never acquire operator authority. See [the gateway example](../../examples/cccc-gateway/README.md) for wheel installation and owner-bound attachment. No model credentials are required until running real coding agents.
+
 ## Start and Inspect
 
 ```bash
@@ -49,6 +76,7 @@ The default persistent root is `~/.local/share/houmao-cccc/`:
 | `cache/npm/` | Frontend package download cache |
 | `server.log` | Owner-private service output |
 | `runtime.json` | Owner-private helper process descriptor and source revision |
+| `build.json` | Source/patch/protocol identity and executable digest from the managed build |
 
 The helper leaves the developer's `HOME` unchanged. It does not load the repository's `.env`, install agent CLIs, configure provider keys, or attach existing agent sessions. Model credentials are unnecessary for starting and checking the coordination service. Configure any later CCCC-managed actors explicitly, using protected sources rather than tracked files or shell arguments containing keys.
 

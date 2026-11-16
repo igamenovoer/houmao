@@ -1,0 +1,12 @@
+schema_version: 1
+gateway:
+  plugins:
+    cccc:
+      implementation: cccc
+      credential_ref:
+        file: /absolute/private/path/cccc-actor.json
+      config:
+        endpoint: http://127.0.0.1:8849
+        group_id: REPLACE_WITH_GROUP_ID
+        actor_id: REPLACE_WITH_ACTOR_ID
+        actor_generation: REPLACE_WITH_ACTOR_GENERATION

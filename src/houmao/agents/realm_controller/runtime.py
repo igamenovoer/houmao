@@ -1075,6 +1075,7 @@ class RuntimeSessionController:
 
         self.registry_generation_id = new_registry_generation_id()
         try:
+            self.persist_manifest(refresh_registry=False)
             self.ensure_gateway_capability()
             _refresh_pair_launch_registration(self)
         except (OSError, SessionManifestError) as exc:
@@ -1147,12 +1148,24 @@ class RuntimeSessionController:
         *,
         blueprint_gateway_defaults: BlueprintGatewayDefaults | None = None,
     ) -> None:
-        """Publish stable gateway capability for runtime-owned tmux-backed sessions."""
+        """Publish gateway capability from current persisted session authority.
 
-        if not self._is_tmux_backed():
+        A gateway may have committed newer native conversation state than this
+        controller holds. Capability discovery and gateway lifecycle actions do
+        not own that state and must never persist the controller's snapshot.
+        """
+
+        if not self._is_tmux_backed() or _tmux_session_name_for_controller(self) is None:
             return
-        self.persist_manifest(refresh_registry=False)
-        session_name = _tmux_session_name_for_controller(self)
+        handle = load_session_manifest(self.manifest_path)
+        payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+        self.launch_plan = replace(
+            self.launch_plan,
+            mailboxes=mailboxes_resolved_config_from_payload(
+                payload.launch_plan.mailboxes, manifest_path=handle.path
+            ),
+        )
+        session_name = payload.tmux_session_name
         if session_name is None:
             return
         session_id = _runtime_session_id_from_manifest_path(self.manifest_path)
@@ -1161,22 +1174,23 @@ class RuntimeSessionController:
         paths = ensure_gateway_capability(
             GatewayCapabilityPublication(
                 manifest_path=self.manifest_path,
-                backend=self.launch_plan.backend,
-                tool=self.launch_plan.tool,
+                backend=payload.backend,
+                tool=payload.tool,
                 session_id=session_id,
                 tmux_session_name=session_name,
-                working_directory=self.launch_plan.working_directory,
-                backend_state=_backend_state_for_session(self.backend_session),
-                agent_def_dir=_runtime_agent_def_dir(self),
+                working_directory=Path(payload.working_directory),
+                backend_state=cast(GatewayJsonObject, payload.backend_state),
+                agent_def_dir=Path(payload.runtime.agent_def_dir)
+                if payload.runtime.agent_def_dir is not None
+                else None,
                 blueprint_gateway_defaults=blueprint_gateway_defaults,
             )
         )
         stable_discovery_env = {
             AGENT_MANIFEST_PATH_ENV_VAR: str(self.manifest_path.resolve()),
         }
-        if self.agent_id is not None:
-            stable_discovery_env[AGENT_ID_ENV_VAR] = self.agent_id
-        memory = _memory_from_controller(self)
+        stable_discovery_env[AGENT_ID_ENV_VAR] = payload.agent_id
+        memory = _memory_from_manifest_payload(payload=payload)
         if memory is not None:
             stable_discovery_env.update(memory_env(memory))
         set_tmux_session_environment_shared(
@@ -3899,14 +3913,6 @@ def _runtime_session_id_from_manifest_path(manifest_path: Path) -> str | None:
     return paths.session_root.name
 
 
-def _runtime_agent_def_dir(controller: RuntimeSessionController) -> Path | None:
-    """Return the runtime-owned agent-definition directory when available."""
-
-    if controller.agent_def_dir is None:
-        return None
-    return controller.agent_def_dir.resolve()
-
-
 def _build_shared_registry_record_for_controller(
     controller: RuntimeSessionController,
 ) -> ManagedAgentRegistryRecordV3 | None:
@@ -4132,13 +4138,13 @@ def _require_gateway_paths_for_controller(controller: RuntimeSessionController) 
         Resolved gateway filesystem layout for the controller.
     """
 
-    controller.ensure_gateway_capability()
     paths = gateway_paths_from_manifest_path(controller.manifest_path)
     if paths is None:
         raise GatewayDiscoveryError(
             "Gateway operations require a runtime-owned session manifest rooted at "
             "`<session-root>/manifest.json`."
         )
+    controller.ensure_gateway_capability()
     return paths
 
 

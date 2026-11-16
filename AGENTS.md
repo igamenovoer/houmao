@@ -8,6 +8,7 @@ Classify every new file by purpose before placing it: `distro` (part of the rele
 - `scripts/` (`utility`): automation and helper CLIs, grouped in purpose-specific subdirectories (`agents/`, `demo/`, `explore/`, `openspec/`, `parity/`, `qualification/`).
 - `tools/` (`utility`): development and operational tooling such as `tools/terminal_record/`.
 - `apps/` (standalone, not packaged): developer applications outside the Houmao Python package (for example `apps/ag-ui-workbench/`); each app owns its JavaScript dependencies, lockfile, build scripts, and tests. Do not add `apps/` to Python package include rules or runtime imports.
+- `packages/` (`distro`): independently installed optional distributions, including `packages/houmao-cccc/`. Each owns its package metadata and imports only supported public Houmao interfaces. Core wheel/sdist inventories continue to include only `src/houmao/`.
 - `docs/`: reference and migration documentation.
 - `openspec/`: spec-driven change artifacts (`specs/`, `changes/`).
 - `examples/`: example deployments such as `examples/writer-team/`.

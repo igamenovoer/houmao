@@ -11,6 +11,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -165,6 +166,56 @@ def _build(source: Path, root: Path) -> None:
         env=_environment(root),
         check=True,
     )
+    identity = _source_identity(source)
+    identity["binary_sha256"] = hashlib.sha256(
+        (root / "target/debug/cccc").read_bytes()
+    ).hexdigest()
+    identity["binary_verified"] = True
+    (root / "build.json").write_text(json.dumps(identity, indent=2) + "\n")
+
+
+def _source_identity(source: Path) -> dict[str, Any]:
+    """Describe the exact selected source, including maintained receiver patches."""
+
+    revision = subprocess.check_output(
+        ["git", "-C", str(source), "rev-parse", "HEAD"], text=True
+    ).strip()
+    difference = subprocess.check_output(["git", "-C", str(source), "diff", "--binary", "HEAD"])
+    identity: dict[str, Any] = {
+        "source_revision": revision,
+        "source_diff_sha256": hashlib.sha256(difference).hexdigest(),
+        "receiver_protocol_version": None,
+        "binary_verified": False,
+    }
+    manifest_path = (
+        Path(__file__).resolve().parents[2] / "extern/tracked/cccc-receiver/upstream.json"
+    )
+    manifest = json.loads(manifest_path.read_text())
+    patches = [manifest_path.parent / patch for patch in manifest["patches"]]
+    digest = hashlib.sha256(revision.encode())
+    for patch in patches:
+        digest.update(patch.read_bytes())
+    receipt_path = source.parent / (source.name + ".receipt.json")
+    receipt = json.loads(receipt_path.read_text()) if receipt_path.is_file() else {}
+    prepared_matches = (
+        receipt.get("selection") == digest.hexdigest()
+        and receipt.get("diff_sha256") == identity["source_diff_sha256"]
+    )
+    single_matches = (
+        len(patches) == 1
+        and hashlib.sha256(patches[0].read_bytes()).hexdigest() == identity["source_diff_sha256"]
+    )
+    if revision == manifest["revision"] and (prepared_matches or single_matches):
+        identity["receiver_protocol_version"] = manifest["protocol_version"]
+        identity["receiver_selection_sha256"] = digest.hexdigest()
+        identity["receiver_patches"] = [
+            {
+                "path": str(patch.relative_to(manifest_path.parent)),
+                "sha256": hashlib.sha256(patch.read_bytes()).hexdigest(),
+            }
+            for patch in patches
+        ]
+    return identity
 
 
 def _status(root: Path, binary: Path) -> dict[str, Any]:
@@ -181,6 +232,7 @@ def _status(root: Path, binary: Path) -> dict[str, Any]:
         "cccc_home": str(root / "data"),
         "log": str(root / "server.log"),
         "source_revision": metadata.get("source_revision"),
+        "build_identity": metadata.get("build_identity"),
     }
 
 
@@ -197,6 +249,20 @@ def _start(source: Path, root: Path, binary: Path, port: int) -> None:
             raise RuntimeError(f"Owned CCCC process is not healthy; inspect {root / 'server.log'}")
         print(json.dumps(current, indent=2))
         return
+    source_identity = _source_identity(source)
+    build_identity = source_identity
+    build_path = root / "build.json"
+    if build_path.is_file():
+        built = json.loads(build_path.read_text())
+        if (
+            built.get("binary_sha256") != hashlib.sha256(binary.read_bytes()).hexdigest()
+            or built.get("source_revision") != source_identity["source_revision"]
+            or built.get("source_diff_sha256") != source_identity["source_diff_sha256"]
+        ):
+            raise RuntimeError(
+                "Selected source or executable differs from the build; rebuild first"
+            )
+        build_identity = built
     with socket.socket() as probe:
         probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         probe.bind(("127.0.0.1", port))
@@ -227,9 +293,8 @@ def _start(source: Path, root: Path, binary: Path, port: int) -> None:
         "start_ticks": _start_ticks(process.pid),
         "url": f"http://127.0.0.1:{port}",
         "started_at_utc": datetime.now(UTC).isoformat(),
-        "source_revision": subprocess.check_output(
-            ["git", "-C", str(source), "rev-parse", "HEAD"], text=True
-        ).strip(),
+        "source_revision": source_identity["source_revision"],
+        "build_identity": build_identity,
     }
     _write_metadata(root, metadata)
     deadline = time.monotonic() + 30

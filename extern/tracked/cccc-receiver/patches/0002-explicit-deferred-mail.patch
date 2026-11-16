@@ -1,0 +1,1236 @@
+diff --git a/crates/cccc-core/src/inbox.rs b/crates/cccc-core/src/inbox.rs
+index 9385e367..36e85c13 100644
+--- a/crates/cccc-core/src/inbox.rs
++++ b/crates/cccc-core/src/inbox.rs
+@@ -14,6 +14,10 @@ use crate::ledger;
+ use crate::{GroupDoc, GroupStore, HomeLayout};
+ 
+ mod deliveries;
++mod explicit;
++pub use explicit::{
++    MailReadDecision, MailReadResult, explicit_mail_peek, explicit_mail_read, mail_read_receipt,
++};
+ mod notices;
+ pub(crate) mod projection;
+ 
+@@ -47,6 +51,8 @@ struct PendingRead {
+     actor_id: String,
+     expected: PendingCursor,
+     target: PendingCursor,
++    #[serde(default)]
++    operation: Option<MailReadDecision>,
+ }
+ 
+ #[derive(Debug, Clone)]
+@@ -165,6 +171,7 @@ pub fn consume_unread(
+             schema: PENDING_READ_SCHEMA,
+             group_id: group.group_id.clone(),
+             actor_id: actor_id.to_owned(),
++            operation: None,
+             expected: stored_cursor_record(home, &group.group_id, actor_id)?,
+             target: PendingCursor {
+                 event_id: boundary.id.clone(),
+@@ -460,7 +467,11 @@ fn load_pending(home: &HomeLayout, group_id: &str) -> io::Result<Option<PendingR
+     if pending.schema != PENDING_READ_SCHEMA
+         || pending.group_id != group_id
+         || pending.actor_id.trim().is_empty()
+-        || pending.target.event_id.trim().is_empty()
++        || (pending.target.event_id.trim().is_empty()
++            && pending
++                .operation
++                .as_ref()
++                .is_none_or(|op| op.outcome != "empty"))
+     {
+         return Err(io::Error::other("pending Mail read document is invalid"));
+     }
+@@ -473,7 +484,10 @@ fn pending_has_fact(home: &HomeLayout, group_id: &str, pending: &PendingRead) ->
+     let ledger_path = GroupStore::new(home.clone())?.ledger_path(group_id)?;
+     let mut found = false;
+     ledger::visit_newest_first(&ledger_path, |event| {
+-        found = event.kind == "mail.read"
++        found = pending.operation.as_ref().is_none_or(|op| {
++            event.id == op.read_event_id
++                && event.data.get("operation") == serde_json::to_value(op).ok().as_ref()
++        }) && event.kind == "mail.read"
+             && event.data.get("actor_id").and_then(Value::as_str)
+                 == Some(pending.actor_id.as_str())
+             && event.data.get("event_id").and_then(Value::as_str)
+@@ -711,6 +725,7 @@ mod tests {
+                 ledger::append(&ledger_path, &read).expect("append committed read");
+             }
+             let pending = PendingRead {
++                operation: None,
+                 schema: PENDING_READ_SCHEMA,
+                 group_id: group.group_id.clone(),
+                 actor_id: "reader".into(),
+@@ -906,6 +921,7 @@ mod tests {
+             .expect("read data");
+         ledger::append(&ledger_path, &read_event).expect("append read");
+         let pending = PendingRead {
++            operation: None,
+             schema: PENDING_READ_SCHEMA,
+             group_id: group.group_id.clone(),
+             actor_id: "peer1".into(),
+@@ -1012,6 +1028,7 @@ mod tests {
+         // marker behind; every reader resolves it on load.
+         let linger = |target: &Event| {
+             let pending = PendingRead {
++                operation: None,
+                 schema: PENDING_READ_SCHEMA,
+                 group_id: group.group_id.clone(),
+                 actor_id: "peer1".into(),
+diff --git a/crates/cccc-core/src/inbox/explicit.rs b/crates/cccc-core/src/inbox/explicit.rs
+new file mode 100644
+index 00000000..7357c806
+--- /dev/null
++++ b/crates/cccc-core/src/inbox/explicit.rs
+@@ -0,0 +1,220 @@
++//! Explicit, bounded, operation-identified Mail reads sharing the native journal.
++use super::*;
++
++/// Durable payload-free operation decision embedded in the native read fact.
++#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
++pub struct MailReadDecision {
++    pub operation_id: String,
++    pub actor_generation: String,
++    pub fingerprint: String,
++    pub before_cursor: String,
++    pub after_cursor: String,
++    pub event_ids: Vec<String>,
++    pub outcome: String,
++    pub read_event_id: String,
++}
++
++/// Domain outcomes retain IO failures separately from rejected preconditions.
++#[derive(Debug)]
++pub enum MailReadResult {
++    Completed {
++        messages: Vec<Event>,
++        receipt: MailReadDecision,
++        has_more: bool,
++        already_completed: bool,
++    },
++    CursorConflict,
++    OperationConflict,
++    ContentLimit,
++}
++
++fn decision(
++    home: &HomeLayout,
++    group: &GroupDoc,
++    actor: &str,
++    operation_id: &str,
++) -> io::Result<Option<MailReadDecision>> {
++    let generation = crate::actors::find(group, actor)
++        .map(crate::actors::generation_identity)
++        .unwrap_or_default();
++    let mut found = None;
++    let path = GroupStore::new(home.clone())?.ledger_path(&group.group_id)?;
++    ledger::visit_newest_first(&path, |event| {
++        if event.kind == "mail.read"
++            && event.data.get("actor_id").and_then(Value::as_str) == Some(actor)
++        {
++            if let Some(value) = event.data.get("operation") {
++                if let Ok(value) = serde_json::from_value::<MailReadDecision>(value.clone()) {
++                    if value.actor_generation == generation && value.operation_id == operation_id {
++                        found = Some(value);
++                        return ControlFlow::Break(());
++                    }
++                }
++            }
++        }
++        ControlFlow::Continue(())
++    })?;
++    Ok(found)
++}
++
++fn locked<T>(
++    home: &HomeLayout,
++    group: &GroupDoc,
++    action: impl FnOnce() -> io::Result<T>,
++) -> io::Result<T> {
++    let lock = path(home, &group.group_id)?.with_file_name("read_cursors.json.lock");
++    with_exclusive_lock(&lock, || {
++        recover_pending_locked(home, &group.group_id)?;
++        action()
++    })
++}
++
++/// Inspect an operation decision without initiating a new read.
++pub fn mail_read_receipt(
++    home: &HomeLayout,
++    group: &GroupDoc,
++    actor: &str,
++    operation_id: &str,
++) -> io::Result<Option<MailReadDecision>> {
++    locked(home, group, || decision(home, group, actor, operation_id))
++}
++
++/// Capture a consistent non-consuming next-batch view and authoritative cursor.
++pub fn explicit_mail_peek(
++    home: &HomeLayout,
++    group: &GroupDoc,
++    actor: &str,
++    limit: usize,
++) -> io::Result<(Vec<Event>, String, String, String)> {
++    locked(home, group, || {
++        let state = load_raw(home, &group.group_id)?;
++        let messages = projection::pages(home, group, &[actor.to_owned()], &state, limit.min(201))?
++            .remove(actor)
++            .unwrap_or_default();
++        let cursor = stored_cursor_record(home, &group.group_id, actor)?;
++        Ok((messages, cursor.event_id, cursor.ts, cursor.updated_at))
++    })
++}
++
++/// Select a complete prefix before the journal commits, under the native read lock.
++/// The pure callback includes the caller's full response-envelope/reference reserve.
++#[allow(clippy::too_many_arguments)]
++pub fn explicit_mail_read(
++    home: &HomeLayout,
++    group: &GroupDoc,
++    actor: &str,
++    operation_id: &str,
++    fingerprint: &str,
++    expected_cursor: &str,
++    limit: usize,
++    fits: impl Fn(&[Event], &MailReadDecision, bool) -> io::Result<bool>,
++) -> io::Result<MailReadResult> {
++    locked(home, group, || {
++        if let Some(receipt) = decision(home, group, actor, operation_id)? {
++            return Ok(if receipt.fingerprint == fingerprint {
++                MailReadResult::Completed {
++                    messages: Vec::new(),
++                    receipt,
++                    has_more: false,
++                    already_completed: true,
++                }
++            } else {
++                MailReadResult::OperationConflict
++            });
++        }
++        let expected = stored_cursor_record(home, &group.group_id, actor)?;
++        if expected.event_id != expected_cursor {
++            return Ok(MailReadResult::CursorConflict);
++        }
++        let mut state = load_raw(home, &group.group_id)?;
++        let mut candidates =
++            projection::pages(home, group, &[actor.to_owned()], &state, limit.min(200) + 1)?
++                .remove(actor)
++                .unwrap_or_default();
++        let mut fact = Event::new("mail.read", &group.group_id);
++        fact.by = actor.to_owned();
++        let mut receipt = MailReadDecision {
++            operation_id: operation_id.to_owned(),
++            actor_generation: crate::actors::find(group, actor)
++                .map(crate::actors::generation_identity)
++                .unwrap_or_default(),
++            fingerprint: fingerprint.to_owned(),
++            before_cursor: expected.event_id.clone(),
++            after_cursor: expected.event_id.clone(),
++            event_ids: Vec::new(),
++            outcome: "empty".into(),
++            read_event_id: fact.id.clone(),
++        };
++        let available = candidates.len();
++        let mut selected = 0;
++        for count in 1..=available.min(limit.min(200)) {
++            let mut next = receipt.clone();
++            next.after_cursor = candidates[count - 1].id.clone();
++            next.event_ids.push(next.after_cursor.clone());
++            next.outcome = "consumed".into();
++            if !fits(&candidates[..count], &next, available > count)? {
++                break;
++            }
++            receipt = next;
++            selected = count;
++        }
++        if available > 0 && selected == 0 || available == 0 && !fits(&[], &receipt, false)? {
++            return Ok(MailReadResult::ContentLimit);
++        }
++        candidates.truncate(selected);
++        let target = if let Some(last) = candidates.last() {
++            PendingCursor {
++                event_id: last.id.clone(),
++                ts: last.ts.clone(),
++                updated_at: cccc_contracts::utc_now(),
++            }
++        } else {
++            expected.clone()
++        };
++        let pending = PendingRead {
++            schema: PENDING_READ_SCHEMA,
++            group_id: group.group_id.clone(),
++            actor_id: actor.to_owned(),
++            expected,
++            target: target.clone(),
++            operation: Some(receipt.clone()),
++        };
++        fact.data = json!({"actor_id":actor,"event_id":receipt.after_cursor,"operation":receipt})
++            .as_object()
++            .unwrap()
++            .clone();
++        write_json(&pending_path(home, &group.group_id)?, &pending)?;
++        fault(1)?;
++        ledger::append(
++            &GroupStore::new(home.clone())?.ledger_path(&group.group_id)?,
++            &fact,
++        )?;
++        fault(2)?;
++        if !candidates.is_empty() {
++            state.cursors.insert(actor.to_owned(), target.event_id);
++            save(home, &group.group_id, &state, actor, &target.ts)?;
++        }
++        fault(3)?;
++        let _ = clear_pending(home, &group.group_id);
++        Ok(MailReadResult::Completed {
++            messages: candidates,
++            receipt,
++            has_more: available > selected,
++            already_completed: false,
++        })
++    })
++}
++
++#[cfg(test)]
++thread_local! { static FAULT: std::cell::Cell<u8> = const { std::cell::Cell::new(0) }; }
++fn fault(phase: u8) -> io::Result<()> {
++    #[cfg(test)]
++    if FAULT.with(|value| value.get()) == phase {
++        return Err(io::Error::other("injected journal interruption"));
++    }
++    let _ = phase;
++    Ok(())
++}
++
++#[cfg(test)]
++mod tests;
+diff --git a/crates/cccc-core/src/inbox/explicit/tests.rs b/crates/cccc-core/src/inbox/explicit/tests.rs
+new file mode 100644
+index 00000000..1fd5a1aa
+--- /dev/null
++++ b/crates/cccc-core/src/inbox/explicit/tests.rs
+@@ -0,0 +1,300 @@
++use super::*;
++use cccc_contracts::Actor;
++struct Fixture {
++    _temp: tempfile::TempDir,
++    home: HomeLayout,
++    group: GroupDoc,
++}
++impl Fixture {
++    fn new() -> Self {
++        let t = tempfile::tempdir().unwrap();
++        let home = HomeLayout::from_path(t.path()).unwrap();
++        let store = GroupStore::new(home.clone()).unwrap();
++        let mut group = store.create("explicit Mail", "").unwrap();
++        crate::actors::add(&mut group, Actor::new("peer")).unwrap();
++        store.save(&group).unwrap();
++        Self {
++            _temp: t,
++            home,
++            group,
++        }
++    }
++    fn mail(&self, text: &str) -> Event {
++        let mut e = Event::new("chat.message", &self.group.group_id);
++        e.by = "user".into();
++        e.data = json!({"to":["peer"],"message_mode":"mail","text":text})
++            .as_object()
++            .unwrap()
++            .clone();
++        ledger::append(
++            &GroupStore::new(self.home.clone())
++                .unwrap()
++                .ledger_path(&self.group.group_id)
++                .unwrap(),
++            &e,
++        )
++        .unwrap();
++        e
++    }
++    fn read(&self, id: &str, fingerprint: &str, cursor: &str) -> io::Result<MailReadResult> {
++        explicit_mail_read(
++            &self.home,
++            &self.group,
++            "peer",
++            id,
++            fingerprint,
++            cursor,
++            1,
++            |_, _, _| Ok(true),
++        )
++    }
++}
++#[test]
++fn decisions_reconcile_before_cursor_precondition() {
++    let f = Fixture::new();
++    let first = f.mail("first");
++    let second = f.mail("second");
++    let result = f.read("read1", "fp", "").unwrap();
++    let MailReadResult::Completed {
++        messages, receipt, ..
++    } = result
++    else {
++        panic!()
++    };
++    assert_eq!(messages[0].id, first.id);
++    assert_eq!(receipt.after_cursor, first.id);
++    assert!(matches!(
++        f.read("other", "fp", "").unwrap(),
++        MailReadResult::CursorConflict
++    ));
++    let repeat = f.read("read1", "fp", "").unwrap();
++    assert!(matches!(
++        repeat,
++        MailReadResult::Completed {
++            already_completed: true,
++            ..
++        }
++    ));
++    assert!(matches!(
++        f.read("read1", "changed", "").unwrap(),
++        MailReadResult::OperationConflict
++    ));
++    assert_eq!(
++        explicit_mail_peek(&f.home, &f.group, "peer", 50).unwrap().0[0].id,
++        second.id
++    );
++}
++#[test]
++fn empty_decision_survives_new_arrival() {
++    let f = Fixture::new();
++    let MailReadResult::Completed { receipt, .. } = f.read("empty", "fp", "").unwrap() else {
++        panic!()
++    };
++    assert_eq!(receipt.outcome, "empty");
++    f.mail("later");
++    assert!(
++        matches!(f.read("empty","fp","").unwrap(),MailReadResult::Completed{already_completed:true,messages,..} if messages.is_empty())
++    );
++    assert_eq!(
++        explicit_mail_peek(&f.home, &f.group, "peer", 50)
++            .unwrap()
++            .0
++            .len(),
++        1
++    );
++}
++#[test]
++fn size_rejection_precedes_pending_marker_and_fact() {
++    let f = Fixture::new();
++    f.mail("large");
++    let before = ledger::read_all(
++        &GroupStore::new(f.home.clone())
++            .unwrap()
++            .ledger_path(&f.group.group_id)
++            .unwrap(),
++    )
++    .unwrap()
++    .len();
++    let r = explicit_mail_read(
++        &f.home,
++        &f.group,
++        "peer",
++        "size",
++        "fp",
++        "",
++        10,
++        |_, _, _| Ok(false),
++    )
++    .unwrap();
++    assert!(matches!(r, MailReadResult::ContentLimit));
++    assert!(
++        mail_read_receipt(&f.home, &f.group, "peer", "size")
++            .unwrap()
++            .is_none()
++    );
++    assert_eq!(cursor(&f.home, &f.group.group_id, "peer").unwrap(), None);
++    assert!(!pending_path(&f.home, &f.group.group_id).unwrap().exists());
++    assert_eq!(
++        ledger::read_all(
++            &GroupStore::new(f.home.clone())
++                .unwrap()
++                .ledger_path(&f.group.group_id)
++                .unwrap()
++        )
++        .unwrap()
++        .len(),
++        before
++    );
++}
++#[test]
++fn native_journal_recovers_each_durable_boundary() {
++    for phase in 1..=3 {
++        let f = Fixture::new();
++        let first = f.mail("first");
++        let second = f.mail("second");
++        FAULT.with(|v| v.set(phase));
++        assert!(f.read("crash", "fp", "").is_err());
++        FAULT.with(|v| v.set(0));
++        let receipt = mail_read_receipt(&f.home, &f.group, "peer", "crash").unwrap();
++        if phase == 1 {
++            assert!(receipt.is_none());
++            assert_eq!(cursor(&f.home, &f.group.group_id, "peer").unwrap(), None);
++            assert_eq!(
++                explicit_mail_peek(&f.home, &f.group, "peer", 50).unwrap().0[0].id,
++                first.id
++            );
++        } else {
++            assert_eq!(receipt.unwrap().event_ids, vec![first.id.clone()]);
++            assert_eq!(
++                cursor(&f.home, &f.group.group_id, "peer").unwrap(),
++                Some(first.id)
++            );
++            assert_eq!(
++                explicit_mail_peek(&f.home, &f.group, "peer", 50).unwrap().0[0].id,
++                second.id
++            );
++            assert!(matches!(
++                f.read("crash", "fp", "").unwrap(),
++                MailReadResult::Completed {
++                    already_completed: true,
++                    ..
++                }
++            ));
++        }
++        assert!(!pending_path(&f.home, &f.group.group_id).unwrap().exists());
++    }
++}
++#[test]
++fn empty_fact_recovers_without_cursor_publication() {
++    for phase in 1..=3 {
++        let f = Fixture::new();
++        FAULT.with(|v| v.set(phase));
++        assert!(f.read("empty-crash", "fp", "").is_err());
++        FAULT.with(|v| v.set(0));
++        let receipt = mail_read_receipt(&f.home, &f.group, "peer", "empty-crash").unwrap();
++        assert_eq!(receipt.is_some(), phase > 1);
++        if let Some(receipt) = receipt {
++            assert_eq!(receipt.outcome, "empty");
++        }
++        assert!(
++            cursor(&f.home, &f.group.group_id, "peer")
++                .unwrap()
++                .is_none()
++        );
++    }
++}
++#[test]
++fn distinct_concurrent_reads_share_the_native_lock() {
++    let f = Fixture::new();
++    f.mail("one");
++    f.mail("two");
++    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
++    let handles = (0..2)
++        .map(|i| {
++            let b = barrier.clone();
++            let h = f.home.clone();
++            let g = f.group.clone();
++            std::thread::spawn(move || {
++                b.wait();
++                explicit_mail_read(
++                    &h,
++                    &g,
++                    "peer",
++                    &format!("read{i}"),
++                    "fp",
++                    "",
++                    1,
++                    |_, _, _| Ok(true),
++                )
++                .unwrap()
++            })
++        })
++        .collect::<Vec<_>>();
++    let results = handles
++        .into_iter()
++        .map(|h| h.join().unwrap())
++        .collect::<Vec<_>>();
++    assert_eq!(
++        results
++            .iter()
++            .filter(|v| matches!(v, MailReadResult::Completed { .. }))
++            .count(),
++        1
++    );
++    assert_eq!(
++        results
++            .iter()
++            .filter(|v| matches!(v, MailReadResult::CursorConflict))
++            .count(),
++        1
++    );
++    assert_eq!(
++        explicit_mail_peek(&f.home, &f.group, "peer", 50)
++            .unwrap()
++            .0
++            .len(),
++        1
++    );
++}
++#[test]
++fn native_consumer_cannot_interleave_cursor_comparison_and_commit() {
++    let f = Fixture::new();
++    let first = f.mail("one");
++    let second = f.mail("two");
++    let h = f.home.clone();
++    let g = f.group.clone();
++    let started = std::sync::Arc::new(std::sync::Barrier::new(2));
++    let b = started.clone();
++    let native = std::thread::spawn(move || {
++        b.wait();
++        consume_unread(&h, &g, "peer", "peer", 1).unwrap()
++    });
++    started.wait();
++    let explicit = f.read("gateway", "fp", "").unwrap();
++    let native = native.join().unwrap();
++    match explicit {
++        MailReadResult::Completed { messages, .. } => {
++            assert_eq!(messages[0].id, first.id);
++            assert_eq!(native.messages[0].id, second.id);
++        }
++        MailReadResult::CursorConflict => {
++            assert_eq!(native.messages[0].id, first.id);
++            assert_eq!(
++                explicit_mail_peek(&f.home, &f.group, "peer", 50).unwrap().0[0].id,
++                second.id
++            );
++        }
++        _ => panic!(),
++    }
++}
++#[test]
++fn recreation_does_not_inherit_old_decisions() {
++    let mut f = Fixture::new();
++    f.read("empty", "fp", "").unwrap();
++    f.group.actors[0].generation = uuid::Uuid::new_v4().to_string();
++    assert!(
++        mail_read_receipt(&f.home, &f.group, "peer", "empty")
++            .unwrap()
++            .is_none()
++    );
++}
+diff --git a/crates/cccc-daemon/src/ops/automation_runtime.rs b/crates/cccc-daemon/src/ops/automation_runtime.rs
+index 4309ffe6..915e0e5a 100644
+--- a/crates/cccc-daemon/src/ops/automation_runtime.rs
++++ b/crates/cccc-daemon/src/ops/automation_runtime.rs
+@@ -57,7 +57,11 @@ pub fn tick_group(home: &HomeLayout, group_id: &str, include_unread: bool, cance
+             .map(|group| {
+                 actors::visible(&group)
+                     .filter(|actor| actor.enabled)
+-                    .filter(|actor| actor_runtime_status::resolve(home, &group, actor).running)
++                    .filter(|actor| {
++                        actor_runtime_status::resolve(home, &group, actor).running
++                            || (actor.external_receiver
++                                && super::external_receiver::available(home, &group, &actor.id))
++                    })
+                     .map(|actor| actor.id.clone())
+                     .collect::<HashSet<_>>()
+             })
+diff --git a/crates/cccc-daemon/src/ops/external_receiver.rs b/crates/cccc-daemon/src/ops/external_receiver.rs
+index 03973ae7..0b537368 100644
+--- a/crates/cccc-daemon/src/ops/external_receiver.rs
++++ b/crates/cccc-daemon/src/ops/external_receiver.rs
+@@ -1,4 +1,5 @@
+ //! Fixed-Actor external receiver protocol. CCCC retains all message authority.
++mod mail;
+ use super::operation::{Operation, Policy};
+ use crate::dispatch::{OpError, OpResult, object, required_arg};
+ use cccc_contracts::{Actor, ActorRuntime, DaemonRequest, Event, GroupState};
+@@ -397,7 +398,7 @@ fn rpc(home: &HomeLayout, request: &DaemonRequest) -> OpResult {
+         "capabilities" => {
+             args_only(args, &[])?;
+             object(
+-                json!({"protocol_version":1,"operations":["binding","capabilities","lease.acquire","lease.renew","lease.release","lease.next","lease.outcome","chat.send","chat.reply","chat.retry","chat.history","chat.deliveries","members"],"limits":{"max_event_bytes":MAX_EVENT_BYTES,"max_history_limit":100,"max_response_bytes":MAX_RESPONSE_BYTES,"lease_seconds":45},"recipient_scope":"bound_group","mail":false}),
++                json!({"protocol_version":1,"operations":["binding","capabilities","lease.acquire","lease.renew","lease.release","lease.next","lease.outcome","chat.send","chat.reply","chat.retry","chat.history","chat.deliveries","members","mail.send","mail.reply","mail.peek","mail.cursor","mail.read","mail.read-receipts"],"limits":{"max_event_bytes":MAX_EVENT_BYTES,"max_history_limit":100,"max_response_bytes":MAX_RESPONSE_BYTES,"lease_seconds":45,"max_mail_messages":200,"max_mail_response_bytes":1048576,"default_mail_messages":50,"default_mail_response_bytes":262144},"recipient_scope":"bound_group","mail":true,"features":{"mail_expected_cursor":true,"mail_read_receipts":true,"mail_read_crash_recovery":true,"mail_precommit_response_budget":true}}),
+             )
+         }
+         "members" => {
+@@ -410,6 +411,10 @@ fn rpc(home: &HomeLayout, request: &DaemonRequest) -> OpResult {
+         "lease.acquire" | "lease.renew" | "lease.release" | "lease.next" | "lease.outcome" => {
+             lease_rpc(home, &grant, &group, &op, args)
+         }
++        "mail.send" | "mail.reply" => send_rpc(home, &grant, &group, &op, args),
++        "mail.peek" | "mail.cursor" | "mail.read" | "mail.read-receipts" => {
++            mail::rpc(home, &grant, &group, &op, args)
++        }
+         "chat.send" | "chat.reply" => send_rpc(home, &grant, &group, &op, args),
+         "chat.retry" => retry_rpc(home, &grant, &group, args),
+         "chat.history" => history_rpc(home, &grant, &group, args),
+@@ -448,7 +453,11 @@ fn rpc(home: &HomeLayout, request: &DaemonRequest) -> OpResult {
+     if serde_json::to_vec(&json!({"ok":true,"result":result}))
+         .map_err(OpError::invalid)?
+         .len()
+-        > MAX_RESPONSE_BYTES
++        > if op.starts_with("mail.") {
++            1048576
++        } else {
++            MAX_RESPONSE_BYTES
++        }
+     {
+         return Err(OpError::new(
+             "content_limit",
+@@ -523,6 +532,15 @@ fn lease_rpc(
+         }
+         "lease.next" => {
+             args_only(args, &["lease_id", "lease_generation", "timeout_seconds"])?;
++            if args.get("timeout_seconds").is_some_and(|v| {
++                v.as_f64()
++                    .is_none_or(|v| !v.is_finite() || !(0.0..=20.0).contains(&v))
++            }) {
++                return Err(OpError::new(
++                    "invalid_args",
++                    "timeout_seconds must be numeric 0..20",
++                ));
++            }
+             let l = lease(&s, g, args)?.clone();
+             if !actor(group, &g.actor_id)?.enabled
+                 || matches!(group.state, GroupState::Paused | GroupState::Stopped)
+@@ -545,14 +563,14 @@ fn lease_rpc(
+                 save_state(home, &g.group_id, &s)?;
+                 return object(json!({"offer":null}));
+             };
+-            let e = visible_event(home, group, &g.actor_id, &a.event_id)?;
++            let e = mail::offered_event(home, group, &g.actor_id, &a.event_id)?;
+             let text = e
+                 .data
+                 .get("text")
+                 .and_then(Value::as_str)
+                 .or_else(|| e.data.get("message").and_then(Value::as_str))
+                 .unwrap_or_default();
+-            let packet = json!({"attempt_id":a.id,"event_id":e.id,"group_id":g.group_id,"actor_id":g.actor_id,"actor_generation":g.actor_generation,"lease_generation":l.generation,"message_mode":e.data.get("message_mode").and_then(Value::as_str).unwrap_or("send"),"text":text,"sender":e.by,"reply_to":e.data.get("reply_to"),"remaining_seconds":(a.deadline_ms.saturating_sub(now_ms()))as f64/1000.0});
++            let packet = json!({"kind":if e.kind == "system.notify" { "mail_notice" } else { "chat" },"pending_count":e.data.get("context").and_then(|v|v.get("source_event_ids")).and_then(Value::as_array).map(Vec::len),"attempt_id":a.id,"event_id":e.id,"group_id":g.group_id,"actor_id":g.actor_id,"actor_generation":g.actor_generation,"lease_generation":l.generation,"message_mode":e.data.get("message_mode").and_then(Value::as_str).unwrap_or("send"),"text":text,"sender":e.by,"reply_to":e.data.get("reply_to"),"remaining_seconds":(a.deadline_ms.saturating_sub(now_ms()))as f64/1000.0});
+             if serde_json::to_vec(&packet).map_err(OpError::invalid)?.len() > MAX_EVENT_BYTES {
+                 a.state = "failed".into();
+                 a.error_code = Some("event_too_large".into());
+@@ -667,7 +685,11 @@ fn send_rpc(
+ ) -> OpResult {
+     args_only(
+         args,
+-        if op == "chat.send" {
++        if op == "mail.send" {
++            &["operation_id", "to", "text"]
++        } else if op == "mail.reply" {
++            &["operation_id", "event_id", "text"]
++        } else if op == "chat.send" {
+             &["operation_id", "to", "text", "mode"]
+         } else {
+             &["operation_id", "event_id", "text", "mode"]
+@@ -678,8 +700,12 @@ fn send_rpc(
+         return Err(OpError::new("invalid_args", "operation_id too long"));
+     }
+     let text = string_text(args)?;
+-    let mode = args.get("mode").and_then(Value::as_str).unwrap_or("send");
+-    if !matches!(mode, "send" | "request_reply") {
++    let mode = if op.starts_with("mail.") {
++        "mail"
++    } else {
++        args.get("mode").and_then(Value::as_str).unwrap_or("send")
++    };
++    if !matches!(mode, "send" | "request_reply") && !op.starts_with("mail.") {
+         return Err(OpError::new(
+             "unsupported_operation",
+             "Deferred Mail is not enabled",
+@@ -697,7 +723,7 @@ fn send_rpc(
+         "refs".into(),
+         json!([{"source":"external_receiver","operation_id":id,"fingerprint":fingerprint}]),
+     );
+-    if op == "chat.send" {
++    if op.ends_with(".send") {
+         let to = args
+             .get("to")
+             .and_then(Value::as_array)
+@@ -744,7 +770,7 @@ fn send_rpc(
+     }
+     let result = native(
+         home,
+-        if op == "chat.send" {
++        if op.ends_with(".send") {
+             "message_send"
+         } else {
+             "reply"
+@@ -773,7 +799,7 @@ fn mutation_result(home: &HomeLayout, g: &GroupDoc, event: Event, duplicate: boo
+     sweep(home, &g.group_id, &mut s)?;
+     save_state(home, &g.group_id, &s)?;
+     object(
+-        json!({"deliveries":s.attempts.iter().filter(|a|a.event_id==event.id).map(Attempt::public).collect::<Vec<_>>(),"event":event,"stored":true,"duplicate":duplicate}),
++        json!({"consumed":false,"deliveries":s.attempts.iter().filter(|a|a.event_id==event.id).map(Attempt::public).collect::<Vec<_>>(),"event":event,"stored":true,"duplicate":duplicate}),
+     )
+ }
+ fn history_rpc(
+@@ -869,3 +895,10 @@ fn retry_rpc(
+ 
+ #[cfg(test)]
+ mod tests;
++
++/// External intake is eligible without asserting ownership of a runtime process.
++pub(crate) fn available(home: &HomeLayout, group: &GroupDoc, actor: &str) -> bool {
++    read_state(home, &group.group_id)
++        .ok()
++        .is_some_and(|s| s.leases.get(actor).is_some_and(|l| l.expires_ms > now_ms()))
++}
+diff --git a/crates/cccc-daemon/src/ops/external_receiver/mail.rs b/crates/cccc-daemon/src/ops/external_receiver/mail.rs
+new file mode 100644
+index 00000000..b994ef7c
+--- /dev/null
++++ b/crates/cccc-daemon/src/ops/external_receiver/mail.rs
+@@ -0,0 +1,237 @@
++//! Deferred Mail operations; all consuming decisions use the native core journal.
++use super::*;
++use cccc_core::inbox::{self, MailReadDecision, MailReadResult};
++
++const MAX_BYTES: usize = 1048576;
++fn bounded(
++    args: &Map<String, Value>,
++    name: &str,
++    default: usize,
++    minimum: usize,
++    maximum: usize,
++) -> Result<usize, OpError> {
++    args.get(name).map_or(Ok(default), |v| {
++        v.as_u64()
++            .and_then(|v| usize::try_from(v).ok())
++            .filter(|v| (minimum..=maximum).contains(v))
++            .ok_or_else(|| OpError::new("invalid_args", "Invalid Mail bound"))
++    })
++}
++fn identifier(value: &str, empty: bool) -> bool {
++    (empty || !value.is_empty())
++        && value.len() <= 512
++        && value
++            .bytes()
++            .all(|v| v.is_ascii_alphanumeric() || b"_.:-".contains(&v))
++}
++fn public(receipt: &MailReadDecision) -> Value {
++    json!({"operation_id":receipt.operation_id,"actor_generation":receipt.actor_generation,"before_cursor":receipt.before_cursor,"after_cursor":receipt.after_cursor,"event_ids":receipt.event_ids,"outcome":receipt.outcome,"read_event_id":receipt.read_event_id})
++}
++fn read_result(
++    messages: &[Event],
++    receipt: &MailReadDecision,
++    has_more: bool,
++    repeated: bool,
++) -> Value {
++    json!({"messages":messages,"cursor":{"event_id":receipt.after_cursor,"ts":messages.last().map(|e|e.ts.as_str()).unwrap_or(""),"updated_at":""},"has_more":has_more,"outcome":if repeated {"already_completed"} else {receipt.outcome.as_str()},"receipt":public(receipt)})
++}
++fn fits(
++    value: &Value,
++    count: usize,
++    max_bytes: usize,
++    overhead: usize,
++    per_event: usize,
++) -> std::io::Result<bool> {
++    Ok(serde_json::to_vec(&json!({"ok":true,"result":value}))
++        .map_err(std::io::Error::other)?
++        .len()
++        .saturating_add(overhead)
++        .saturating_add(per_event.saturating_mul(count))
++        <= max_bytes)
++}
++pub(super) fn rpc(
++    home: &HomeLayout,
++    grant: &Grant,
++    group: &GroupDoc,
++    op: &str,
++    args: &Map<String, Value>,
++) -> OpResult {
++    if op == "mail.cursor" {
++        args_only(args, &[])?;
++        let (_, id, ts, updated_at) =
++            inbox::explicit_mail_peek(home, group, &grant.actor_id, 0).map_err(OpError::io)?;
++        if !identifier(&id, true) {
++            return Err(OpError::new(
++                "content_limit",
++                "Native cursor exceeds supported reference limit",
++            ));
++        }
++        return object(json!({"cursor":{"event_id":id,"ts":ts,"updated_at":updated_at}}));
++    }
++    if op == "mail.read-receipts" {
++        args_only(args, &["operation_id"])?;
++        let id = string(args, "operation_id")?;
++        if id.len() > 128 {
++            return Err(OpError::new("invalid_args", "operation_id too long"));
++        }
++        let receipt =
++            inbox::mail_read_receipt(home, group, &grant.actor_id, &id).map_err(OpError::io)?;
++        return object(match receipt {
++            Some(v) => json!({"found":true,"receipt":public(&v)}),
++            None => json!({"found":false,"operation_id":id}),
++        });
++    }
++    args_only(
++        args,
++        if op == "mail.read" {
++            &[
++                "operation_id",
++                "expected_cursor",
++                "limit",
++                "max_bytes",
++                "response_overhead_bytes",
++                "per_event_overhead_bytes",
++            ]
++        } else {
++            &[
++                "limit",
++                "max_bytes",
++                "response_overhead_bytes",
++                "per_event_overhead_bytes",
++            ]
++        },
++    )?;
++    let limit = bounded(args, "limit", 50, 1, 200)?;
++    let bytes = bounded(args, "max_bytes", 262144, 1024, MAX_BYTES)?;
++    let overhead = bounded(args, "response_overhead_bytes", 0, 0, MAX_BYTES)?;
++    let per_event = bounded(args, "per_event_overhead_bytes", 0, 0, MAX_BYTES)?;
++    if overhead >= bytes {
++        return Err(OpError::new(
++            "content_limit",
++            "Response metadata exceeds selected limit",
++        ));
++    }
++    if op == "mail.peek" {
++        let (mut messages, id, ts, updated_at) =
++            inbox::explicit_mail_peek(home, group, &grant.actor_id, limit + 1)
++                .map_err(OpError::io)?;
++        if !identifier(&id, true) {
++            return Err(OpError::new(
++                "content_limit",
++                "Native cursor exceeds supported reference limit",
++            ));
++        }
++        let available = messages.len();
++        let mut selected = 0;
++        for count in 0..=available.min(limit) {
++            if messages[..count].iter().any(|e| !identifier(&e.id, false)) {
++                break;
++            }
++            let candidate = json!({"messages":&messages[..count],"cursor":{"event_id":id,"ts":ts,"updated_at":updated_at},"has_more":available>count,"count_accuracy":"bounded","consumed":false});
++            if !fits(&candidate, count, bytes, overhead, per_event).map_err(OpError::io)? {
++                break;
++            }
++            selected = count;
++        }
++        if available > 0 && selected == 0 {
++            return Err(OpError::new(
++                "content_limit",
++                "First pending Mail does not fit selected complete response limit",
++            ));
++        }
++        messages.truncate(selected);
++        let result = json!({"messages":messages,"cursor":{"event_id":id,"ts":ts,"updated_at":updated_at},"has_more":available>selected,"count_accuracy":"bounded","consumed":false});
++        if !fits(&result, selected, bytes, overhead, per_event).map_err(OpError::io)? {
++            return Err(OpError::new(
++                "content_limit",
++                "Response metadata exceeds selected limit",
++            ));
++        }
++        return object(result);
++    }
++    let id = string(args, "operation_id")?;
++    if id.len() > 128 {
++        return Err(OpError::new("invalid_args", "operation_id too long"));
++    }
++    let expected = args
++        .get("expected_cursor")
++        .and_then(Value::as_str)
++        .filter(|v| identifier(v, true))
++        .ok_or_else(|| OpError::new("invalid_args", "expected_cursor required"))?;
++    let fingerprint=digest(&serde_json::to_vec(&json!({"expected_cursor":expected,"limit":limit,"max_bytes":bytes,"response_overhead_bytes":overhead,"per_event_overhead_bytes":per_event})).map_err(OpError::invalid)?);
++    let result = inbox::explicit_mail_read(
++        home,
++        group,
++        &grant.actor_id,
++        &id,
++        &fingerprint,
++        expected,
++        limit,
++        |messages, receipt, more| {
++            if messages.iter().any(|e| !identifier(&e.id, false))
++                || !identifier(&receipt.after_cursor, true)
++            {
++                return Ok(false);
++            }
++            fits(
++                &read_result(messages, receipt, more, false),
++                messages.len(),
++                bytes,
++                overhead,
++                per_event,
++            )
++        },
++    )
++    .map_err(OpError::io)?;
++    match result {
++        MailReadResult::Completed {
++            messages,
++            receipt,
++            has_more,
++            already_completed,
++        } => object(read_result(
++            &messages,
++            &receipt,
++            has_more,
++            already_completed,
++        )),
++        MailReadResult::CursorConflict => Err(OpError::new(
++            "cursor_conflict",
++            "Expected Mail cursor is stale",
++        )),
++        MailReadResult::OperationConflict => Err(OpError::new(
++            "operation_conflict",
++            "Read operation ID has different inputs",
++        )),
++        MailReadResult::ContentLimit => Err(OpError::new(
++            "content_limit",
++            "Complete leading Mail does not fit selected response limit",
++        )),
++    }
++}
++
++/// Read only same-registration targeted notices, or ordinary visible chat sources.
++pub(super) fn offered_event(
++    home: &HomeLayout,
++    group: &GroupDoc,
++    actor: &str,
++    id: &str,
++) -> Result<Event, OpError> {
++    let path = GroupStore::new(home.clone())
++        .map_err(OpError::io)?
++        .ledger_path(&group.group_id)
++        .map_err(OpError::io)?;
++    let notice = ledger::inspect_status(&path, |events, _, generations| {
++        events[generations.get(actor).copied().unwrap_or(0)..]
++            .iter()
++            .find(|e| {
++                e.id == id
++                    && e.kind == "system.notify"
++                    && e.data["kind"] == "mail_notice"
++                    && e.data["target_actor_id"] == actor
++            })
++            .cloned()
++    })
++    .map_err(OpError::io)?;
++    notice.map_or_else(|| visible_event(home, group, actor, id), Ok)
++}
+diff --git a/crates/cccc-daemon/src/ops/external_receiver/tests.rs b/crates/cccc-daemon/src/ops/external_receiver/tests.rs
+index b9ed4566..aa2260d1 100644
+--- a/crates/cccc-daemon/src/ops/external_receiver/tests.rs
++++ b/crates/cccc-daemon/src/ops/external_receiver/tests.rs
+@@ -398,3 +398,216 @@ fn stopped_group_retires_lease_without_controlling_agent_runtime() {
+             .is_empty()
+     );
+ }
++
++#[test]
++fn deferred_mail_is_explicit_non_consuming_until_read() {
++    let f = Fixture::new();
++    let lease = f.lease(&f.bob);
++    let sent = f
++        .rpc(
++            &f.alice,
++            "mail.send",
++            json!({"operation_id":"mail1","to":["bob"],"text":"deferred"}),
++        )
++        .unwrap();
++    assert_eq!(sent["event"]["data"]["message_mode"], "mail");
++    assert_eq!(sent["consumed"], false);
++    assert!(f.rpc(&f.bob, "lease.next", lease).unwrap()["offer"].is_null());
++    let cursor = f.rpc(&f.bob, "mail.cursor", json!({})).unwrap();
++    assert_eq!(cursor["cursor"]["event_id"], "");
++    for _ in 0..2 {
++        let p = f.rpc(&f.bob, "mail.peek", json!({"limit":1})).unwrap();
++        assert_eq!(p["messages"][0]["id"], sent["event"]["id"]);
++    }
++    let reply = f
++        .rpc(
++            &f.bob,
++            "mail.reply",
++            json!({"operation_id":"reply1","event_id":sent["event"]["id"],"text":"deferred reply"}),
++        )
++        .unwrap();
++    assert_eq!(reply["event"]["data"]["reply_to"], sent["event"]["id"]);
++    assert_eq!(reply["event"]["data"]["message_mode"], "mail");
++    assert_eq!(f.rpc(&f.bob, "mail.cursor", json!({})).unwrap(), cursor);
++    let read = f
++        .rpc(
++            &f.bob,
++            "mail.read",
++            json!({"operation_id":"read1","expected_cursor":"","limit":1}),
++        )
++        .unwrap();
++    assert_eq!(read["outcome"], "consumed");
++    assert_eq!(read["receipt"]["event_ids"], json!([sent["event"]["id"]]));
++    let repeated = f
++        .rpc(
++            &f.bob,
++            "mail.read",
++            json!({"operation_id":"read1","expected_cursor":"","limit":1}),
++        )
++        .unwrap();
++    assert_eq!(repeated["outcome"], "already_completed");
++    assert_eq!(repeated["messages"], json!([]));
++    assert_eq!(
++        f.rpc(
++            &f.bob,
++            "mail.read",
++            json!({"operation_id":"read2","expected_cursor":""})
++        )
++        .unwrap_err()
++        .code,
++        "cursor_conflict"
++    );
++    assert_eq!(
++        f.rpc(
++            &f.bob,
++            "mail.read",
++            json!({"operation_id":"read1","expected_cursor":"","limit":2})
++        )
++        .unwrap_err()
++        .code,
++        "operation_conflict"
++    );
++    assert_eq!(
++        f.rpc(
++            &f.bob,
++            "mail.read-receipts",
++            json!({"operation_id":"read1"})
++        )
++        .unwrap()["found"],
++        true
++    );
++    assert_eq!(
++        f.rpc(
++            &f.bob,
++            "mail.read-receipts",
++            json!({"operation_id":"unknown"})
++        )
++        .unwrap()["found"],
++        false
++    );
++}
++#[test]
++fn mail_complete_response_budget_includes_reference_reserve_before_consumption() {
++    let f = Fixture::new();
++    for i in 0..3 {
++        f.rpc(
++            &f.alice,
++            "mail.send",
++            json!({"operation_id":format!("m{i}"),"to":["bob"],"text":"x".repeat(800)}),
++        )
++        .unwrap();
++    }
++    let before = f.rpc(&f.bob, "mail.cursor", json!({})).unwrap();
++    assert_eq!(
++        f.rpc(
++            &f.bob,
++            "mail.read",
++            json!({"operation_id":"oversize","expected_cursor":"","max_bytes":1024})
++        )
++        .unwrap_err()
++        .code,
++        "content_limit"
++    );
++    assert_eq!(f.rpc(&f.bob, "mail.cursor", json!({})).unwrap(), before);
++    assert_eq!(
++        f.rpc(
++            &f.bob,
++            "mail.read-receipts",
++            json!({"operation_id":"oversize"})
++        )
++        .unwrap()["found"],
++        false
++    );
++    let read=f.rpc(&f.bob,"mail.read",json!({"operation_id":"budget","expected_cursor":"","limit":3,"max_bytes":4500,"response_overhead_bytes":1000,"per_event_overhead_bytes":500})).unwrap();
++    let count = read["messages"].as_array().unwrap().len();
++    assert!(count >= 1 && count < 3);
++    let bytes = serde_json::to_vec(&json!({"ok":true,"result":read}))
++        .unwrap()
++        .len();
++    assert!(bytes + 1000 + count * 500 <= 4500);
++    assert_eq!(read["has_more"], true);
++}
++#[test]
++fn mail_empty_operation_reuse_preserves_later_mail() {
++    let f = Fixture::new();
++    let args = json!({"operation_id":"empty","expected_cursor":""});
++    let empty = f.rpc(&f.bob, "mail.read", args.clone()).unwrap();
++    assert_eq!(empty["outcome"], "empty");
++    f.rpc(
++        &f.alice,
++        "mail.send",
++        json!({"operation_id":"later","to":["bob"],"text":"later"}),
++    )
++    .unwrap();
++    let repeat = f.rpc(&f.bob, "mail.read", args).unwrap();
++    assert_eq!(repeat["outcome"], "already_completed");
++    assert_eq!(repeat["receipt"]["outcome"], "empty");
++    assert_eq!(
++        f.rpc(&f.bob, "mail.peek", json!({})).unwrap()["messages"]
++            .as_array()
++            .unwrap()
++            .len(),
++        1
++    );
++}
++#[test]
++fn lease_poll_timeout_is_strict_even_though_daemon_does_not_wait() {
++    let f = Fixture::new();
++    let lease = f.lease(&f.bob);
++    for value in [json!(true), json!("1"), json!(-1), json!(20.1)] {
++        let mut args = lease.clone();
++        args["timeout_seconds"] = value;
++        assert_eq!(
++            f.rpc(&f.bob, "lease.next", args).unwrap_err().code,
++            "invalid_args"
++        );
++    }
++    for value in [json!(0), json!(0.25), json!(20)] {
++        let mut args = lease.clone();
++        args["timeout_seconds"] = value;
++        f.rpc(&f.bob, "lease.next", args).unwrap();
++    }
++}
++#[test]
++fn external_notice_offer_is_content_free_and_does_not_consume_mail() {
++    let f = Fixture::new();
++    let lease = f.lease(&f.bob);
++    // Native source and policy are exercised without a stand-in notice offer.
++    let mut event = Event::new("chat.message", &f.group.group_id);
++    event.by = "alice".into();
++    event.data = json!({"to":["bob"],"message_mode":"mail","text":"secret Mail body"})
++        .as_object()
++        .unwrap()
++        .clone();
++    event.ts = (chrono::Utc::now() - chrono::Duration::seconds(2000)).to_rfc3339();
++    let path = GroupStore::new(f.home.clone())
++        .unwrap()
++        .ledger_path(&f.group.group_id)
++        .unwrap();
++    ledger::append(&path, &event).unwrap();
++    super::super::automation_runtime::tick_group(
++        &f.home,
++        &f.group.group_id,
++        true,
++        &std::sync::atomic::AtomicBool::new(false),
++    );
++    let offer = f.rpc(&f.bob, "lease.next", lease.clone()).unwrap()["offer"].clone();
++    assert_eq!(offer["kind"], "mail_notice");
++    assert!(!offer["text"].as_str().unwrap().contains("secret Mail body"));
++    assert!(offer["pending_count"].as_u64().unwrap() > 0);
++    assert_eq!(
++        f.rpc(&f.bob, "mail.cursor", json!({})).unwrap()["cursor"]["event_id"],
++        ""
++    );
++    let mut outcome = lease.clone();
++    outcome["attempt_id"] = offer["attempt_id"].clone();
++    outcome["outcome"] = json!("refused");
++    f.rpc(&f.bob, "lease.outcome", outcome).unwrap();
++    super::super::automation_runtime::tick_group(
++        &f.home,
++        &f.group.group_id,
++        true,
++        &std::sync::atomic::AtomicBool::new(false),
++    );
++    assert!(f.rpc(&f.bob, "lease.next", lease).unwrap()["offer"].is_null());
++}

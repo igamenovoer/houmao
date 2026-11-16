@@ -54,6 +54,41 @@ Verification covered the native version, daemon health, CLI access, empty Group 
 
 This minimal environment runs the coordination daemon and Web UI. Optional projected-browser/Web Model actors need additional system browser/display/VNC dependencies and were not qualified. Agent credentials and session integration remain explicit later setup steps. See [the helper README](tools/cccc/README.md) for root/port/build overrides and foreground operation.
 
+## CCCC External Receiver Test Service
+
+The compatible protocol-v1 receiver service runs beside the reference service on loopback port `8849`. It uses the pinned CCCC revision above plus [the ordered chat and deferred-Mail patches](extern/tracked/cccc-receiver/upstream.json). The two services have separate daemon homes and ledgers.
+
+| Item | Current Deployment |
+| --- | --- |
+| Web UI and HTTP | <http://127.0.0.1:8849> |
+| Health | <http://127.0.0.1:8849/api/v1/health> |
+| Prepared source | `/home/huangzhe/.local/share/houmao-cccc/source-receiver-mail/` |
+| Persistent root | `/home/huangzhe/.local/share/houmao-cccc-receiver/` |
+| `CCCC_HOME` | `/home/huangzhe/.local/share/houmao-cccc-receiver/data/` |
+| Executable | `/home/huangzhe/.local/share/houmao-cccc-receiver/target/debug/cccc` |
+| Private descriptor/log | `runtime.json` and `server.log` under the persistent root |
+| Receiver protocol | Version `1`; fixed-Actor bearer RPC under `/api/v1/external-receiver/v1/` |
+| Provider extensions | Owner-bound immediate chat and explicit deferred Mail with durable ordered-read receipts |
+| Verified executable SHA256 | `1a89d73eb09f06fb463bf38ce3aba078b5ca94dd986ecbe764d4b23d92b4378b` |
+| Lifecycle | Detached user process; start manually after workspace restart |
+
+Use these explicit selections for start, status, stop, and CLI access:
+
+```bash
+export HOUMAO_CCCC_SOURCE="$HOME/.local/share/houmao-cccc/source-receiver-mail"
+export HOUMAO_CCCC_ROOT="$HOME/.local/share/houmao-cccc-receiver"
+export HOUMAO_CCCC_PORT=8849
+pixi run --manifest-path tools/cccc/pixi.toml start
+pixi run --manifest-path tools/cccc/pixi.toml status
+pixi run --manifest-path tools/cccc/pixi.toml stop
+```
+
+For fresh installation, follow [Prepare the Compatible Receiver Service](tools/cccc/README.md#prepare-the-compatible-receiver-service), including its source preparation and build commands. The service does not create agents, Groups, or grants at startup. [The gateway example](examples/cccc-gateway/README.md) explains explicit Actor provisioning and private credential export.
+
+Chat verification on 2026-11-15 passed 13 native provider tests, actual HTTP authority/lease/retry/history checks, and the installed-wheel two-real-agent chat smoke. That smoke used Claude Code 2.1.323, headless manager fixtures, and the local cloud-api DeepSeek profile (`deepseek-flash`). The peer received ordinary chat and authored a reply with native ancestry. Its agents and owned Group were cleaned up; no model key, Actor token, native agent output, or private credential file is tracked.
+
+The Mail extension's clean prepared source passed 26 native inbox tests, 18 receiver/provider tests, six actual Mail HTTP tests, and six isolated recovery tests. Build metadata verifies the executable against the two-patch source selection. [Deferred Mail setup](docs/reference/gateway/cccc-mail.md) documents explicit reads, receipt recovery, and upgrading an earlier prepared checkout. The separate [Mail acceptance map](docs/reference/gateway/cccc-mail-acceptance.md) records installed-wheel, real Stalwart fault/coexistence, and real-agent evidence; service health alone does not establish those gates.
+
 ## Stalwart Mail Server
 
 Stalwart was started and verified on 2026-11-13 for mailbox integration testing. It runs as `huangzhe` inside the Linux `aarch64` development workspace whose hostname is `main`.

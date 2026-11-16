@@ -11,7 +11,19 @@ REPO_ROOT = Path(__file__).resolve().parent
 DOCS_ROOT = REPO_ROOT / "docs"
 WORKSPACE_PREFIX = "/data1/huangzhe/code/houmao/"
 REPO_LINK_RE = re.compile(r"(?<!\!)\[([^\]]+)\]\(([^)\s]+)([^)]*)\)")
-REWRITABLE_PREFIXES = ("src/", "tests/", "tools/", "scripts/", "context/", "openspec/")
+REWRITABLE_PREFIXES = (
+    "src/",
+    "tests/",
+    "tools/",
+    "scripts/",
+    "context/",
+    "openspec/",
+    "extern/tracked/",
+    "examples/",
+    "packages/",
+    "skillset/dev/",
+    "SERVICES.md",
+)
 
 
 def _repo_ref() -> str:

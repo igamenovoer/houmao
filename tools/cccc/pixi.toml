@@ -17,6 +17,7 @@ git = ">=2,<3"
 curl = ">=8,<9"
 
 [tasks]
+prepare-receiver = { cmd = "python prepare_receiver.py", description = "Prepare the pinned CCCC receiver extension in an external source tree" }
 build = { cmd = "python manage.py build", description = "Build CCCC and its embedded Web UI from the local reference checkout" }
 start = { cmd = "python manage.py start", description = "Start the isolated CCCC development service on loopback" }
 run = { cmd = "python manage.py run", description = "Run the isolated CCCC service in the foreground" }
