@@ -3220,7 +3220,6 @@ def test_headless_detail_uses_exit_artifact_even_when_tmux_session_is_live(
     turn_dir.mkdir(parents=True)
     (turn_dir / "exitcode").write_text("0\n", encoding="utf-8")
     controller = SimpleNamespace(
-        execution_scope=nullcontext,
         manifest_path=manifest_path,
         tmux_session_name="join-sess",
         launch_plan=launch_plan,

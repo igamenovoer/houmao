@@ -234,3 +234,9 @@ Entries such as `A::function` identify the concrete test function in the linked 
 ## Remaining Qualification Boundary
 
 The deferred item is real Docker execution against a deliberately prepared existing container. Native argv and immutable-ID validation do not establish container launch/control qualification. The host qualification above covers restricted sudo, SSH, DSH ACP/Web, and a focused Codex headless smoke. Strong isolation between agents sharing a UID, public network authentication, asset deployment, interactive forwarding, and cross-context migration remain outside this change.
+
+## Repository Verification
+
+Final host integration selection ran all of `tests/integration/execution/` with explicit entrypoint, DSH, and Codex selectors: **11 passed in 157.78 seconds**. The full managed unit task (`pixi run --as-is --offline test`) passed **4,634 tests**, with 14 deliberately skipped. Strict type checking passed across 484 source files. Ruff lint, formatting checks, strict documentation build, wheel/sdist build, Twine metadata validation, and strict OpenSpec change validation passed.
+
+The wheel and sdist include the execution package, private stdio CLI, and locator schema. Package inspection confirmed that test trees, disposable scratch trees, and standalone applications did not enter the core wheel. These results do not claim live Docker qualification.

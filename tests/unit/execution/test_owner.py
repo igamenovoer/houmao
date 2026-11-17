@@ -157,7 +157,9 @@ def test_scope_expansion_uses_observed_owner_home(
 
     monkeypatch.setenv("HOME", str(Path(policy.profile.project_root).parent))
     response = handle_request(
-        ExecutionRequestV1(operation="launch", arguments={"workdir": "~/project"}),
+        ExecutionRequestV1(
+            operation="launch", arguments={"profile": "selected", "workdir": "~/project"}
+        ),
         policy,
         lambda *_: {},
     )
@@ -172,7 +174,11 @@ def test_first_birth_route_mismatch_is_rejected_before_context_creation(
     """A stale operator profile cannot initialize or launch through changed owner policy."""
 
     response = handle_request(
-        ExecutionRequestV1(operation="launch", expected_route_fingerprint="0" * 64),
+        ExecutionRequestV1(
+            operation="launch",
+            arguments={"profile": "selected"},
+            expected_route_fingerprint="0" * 64,
+        ),
         policy,
         lambda *_: pytest.fail("mismatched route reached runtime dispatch"),
     )
@@ -196,7 +202,10 @@ def test_operation_and_project_scope_are_checked_before_initialization(
     response = handle_request(
         ExecutionRequestV1(
             operation="launch",
-            arguments={"project_dir": str(Path(policy.profile.project_root).parent)},
+            arguments={
+                "profile": "selected",
+                "project_dir": str(Path(policy.profile.project_root).parent),
+            },
         ),
         policy,
         unexpected,
@@ -226,6 +235,151 @@ def test_expected_binding_never_repairs_lost_context(policy: OwnerPolicyV1) -> N
     assert not Path(policy.runtime_root).exists()
 
 
+@pytest.mark.parametrize(
+    "operation,arguments",
+    [
+        ("launch", {"unknown_launch_parameter": True}),
+        ("launch", {"headless": "yes"}),
+        ("launch", {"reasoning_level": True}),
+        ("launch", {"gateway_port": []}),
+        ("launch", {"env_set": "NAME=value"}),
+        ("launch", {"workdir": []}),
+        ("prompt", {"prompt": 42}),
+        ("prompt", {"prompt": ""}),
+        ("prompt", {"prompt": "hello", "reasoning_level": True}),
+        ("refresh", {"timeout_seconds": "30"}),
+        ("refresh", {"timeout_seconds": True}),
+        ("refresh", {"timeout_seconds": -1.0}),
+        ("gateway_attach", {"background": "yes"}),
+        ("relaunch", {"chat_session": {"mode": "unsupported"}}),
+        ("cleanup", {"kind": "session", "dry_run": "false"}),
+        ("cleanup", {"kind": []}),
+        ("stop", {"unknown_control_parameter": "value"}),
+    ],
+)
+def test_invalid_operation_arguments_do_not_initialize_state(
+    policy: OwnerPolicyV1,
+    operation: str,
+    arguments: dict[str, Any],
+) -> None:
+    """Shape refusals precede context, registry, and runtime creation even for mutations."""
+
+    controller = policy.controller.model_copy(
+        update={
+            "operations": (*policy.controller.operations, operation),
+        }
+    )
+    permitted = policy.model_copy(update={"controller": controller})
+    if operation == "launch":
+        arguments = {"profile": "selected", **arguments}
+    response = handle_request(
+        ExecutionRequestV1(
+            operation=operation,
+            arguments=arguments,
+            agent_id=None if operation == "launch" else "agent-a",
+        ),
+        permitted,
+        lambda *_: pytest.fail("invalid arguments reached runtime dispatch"),
+    )
+    assert response.outcome == "rejected" and response.admitted is False
+    assert response.error_code == "invalid_arguments"
+    assert response.binding is None
+    assert not policy.context_file.exists()
+    assert not Path(policy.runtime_root).exists()
+    assert not Path(policy.registry_root).exists()
+
+
+def test_valid_launch_value_shapes_reach_dispatch(policy: OwnerPolicyV1) -> None:
+    """Preflight accepts genuine CLI value shapes while leaving preparation to dispatch."""
+
+    request = ExecutionRequestV1(
+        operation="launch",
+        arguments={
+            "specialist": "selected-source",
+            "headless": True,
+            "reasoning_level": 1,
+            "gateway_port": 1234,
+            "env_set": ["NAME=value"],
+            "workdir": policy.profile.project_root,
+            "gateway_tui_watch_poll_interval_seconds": 0.25,
+        },
+    )
+    response = handle_request(request, policy, lambda *_: {"accepted": True})
+    assert response.outcome == "completed"
+    assert response.result == {"accepted": True}
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {},
+        {"profile": ""},
+        {"specialist": "  "},
+        {"profile": "selected", "specialist": "also-selected"},
+    ],
+)
+def test_invalid_launch_source_selection_leaves_owner_uninitialized(
+    policy: OwnerPolicyV1,
+    arguments: dict[str, Any],
+) -> None:
+    """Missing, empty, or conflicting source selectors cannot initialize execution state."""
+
+    response = handle_request(
+        ExecutionRequestV1(operation="launch", arguments=arguments),
+        policy,
+        lambda *_: pytest.fail("invalid source selection reached dispatch"),
+    )
+    assert response.outcome == "rejected" and response.admitted is False
+    assert response.error_code == "invalid_arguments"
+    assert not Path(policy.runtime_root).exists()
+
+
+def test_missing_control_identity_does_not_initialize_context(policy: OwnerPolicyV1) -> None:
+    """An owner policy grant cannot replace the required exact target selector."""
+
+    response = handle_request(
+        ExecutionRequestV1(operation="stop"),
+        policy,
+        lambda *_: pytest.fail("missing agent identity reached dispatch"),
+    )
+    assert response.error_code == "agent_required"
+    assert response.admitted is False
+    assert not Path(policy.runtime_root).exists()
+
+
+@pytest.mark.parametrize(
+    "operation,arguments",
+    [
+        ("resume", {}),
+        ("cleanup", {"kind": "session", "dry_run": True}),
+    ],
+)
+def test_readonly_control_never_initializes_missing_context(
+    policy: OwnerPolicyV1,
+    operation: str,
+    arguments: dict[str, Any],
+) -> None:
+    """Resume inspection and cleanup dry runs preserve missing owner authority."""
+
+    permitted = policy.model_copy(
+        update={
+            "controller": policy.controller.model_copy(
+                update={
+                    "operations": (*policy.controller.operations, operation),
+                }
+            )
+        }
+    )
+    response = handle_request(
+        ExecutionRequestV1(operation=operation, agent_id="agent-a", arguments=arguments),
+        permitted,
+        lambda *_: pytest.fail("missing owner context reached dispatch"),
+    )
+    assert response.error_code == "context_uninitialized"
+    assert response.admitted is False
+    assert not Path(policy.runtime_root).exists()
+
+
 def test_dispatch_uses_target_environment_and_explicit_tmux_scope(
     policy: OwnerPolicyV1,
     monkeypatch: pytest.MonkeyPatch,
@@ -251,7 +405,11 @@ def test_dispatch_uses_target_environment_and_explicit_tmux_scope(
         assert binding is not None and binding.uid == policy.uid
         return {"observed": True}
 
-    response = handle_request(ExecutionRequestV1(operation="launch"), policy, inspect_environment)
+    response = handle_request(
+        ExecutionRequestV1(operation="launch", arguments={"profile": "selected"}),
+        policy,
+        inspect_environment,
+    )
     assert response.outcome == "completed"
     assert response.result == {"observed": True}
     assert os.environ["HOME"] == "/wrong/operator/home"
@@ -312,7 +470,7 @@ def test_stdio_is_framed_and_admitted_failure_is_indeterminate(
 
         raise RuntimeError("synthetic-private-material")
 
-    request = ExecutionRequestV1(operation="launch")
+    request = ExecutionRequestV1(operation="launch", arguments={"profile": "selected"})
     output = BytesIO()
     assert (
         serve_stdio(

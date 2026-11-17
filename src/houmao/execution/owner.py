@@ -11,6 +11,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager, redirect_stdout
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import pwd
@@ -50,6 +51,7 @@ _READ_ONLY_OPERATIONS = frozenset(
         "state",
         "inspect",
         "capture",
+        "resume",
         "home",
         "status",
         "refresh_check",
@@ -312,8 +314,11 @@ def handle_request(
                 "operation_denied", "Owner policy does not allow this operation."
             )
         with owner_environment(policy):
+            _validate_request_shape(request)
             _validate_project_scope(request, policy)
-        mutating = request.operation not in _READ_ONLY_OPERATIONS
+        mutating = request.operation not in _READ_ONLY_OPERATIONS and not (
+            request.operation == "cleanup" and request.arguments.get("dry_run") is True
+        )
         binding = observe_binding(
             policy,
             initialize=mutating and request.expected_binding is None,
@@ -505,6 +510,149 @@ def _validate_project_scope(request: ExecutionRequestV1, policy: OwnerPolicyV1) 
             raise OwnerAdmissionError(
                 "project_scope_denied", "Requested path is outside the admitted project scope."
             )
+
+
+def _validate_request_shape(request: ExecutionRequestV1) -> None:
+    """Reject unsupported fields and invalid mutation values before creating owner state."""
+
+    if request.operation == "launch":
+        _validate_launch_shape(request.arguments)
+        return
+    allowed = {
+        "describe": set(),
+        "state": set(),
+        "inspect": set(),
+        "capture": set(),
+        "resume": set(),
+        "home": set(),
+        "status": set(),
+        "refresh_check": set(),
+        "interrupt": set(),
+        "stop": set(),
+        "gateway_status": set(),
+        "gateway_detach": set(),
+        "prompt": {"prompt", "model", "reasoning_level"},
+        "refresh": {"timeout_seconds"},
+        "relaunch": {"chat_session"},
+        "gateway_attach": {"background", "tui_tracking_timing_overrides"},
+        "cleanup": {"kind", "dry_run", "purge_registry"},
+    }
+    fields = allowed.get(request.operation)
+    if fields is None or set(request.arguments) - fields:
+        raise OwnerAdmissionError("invalid_arguments", "Unsupported finite operation arguments.")
+    if request.operation != "describe" and request.agent_id is None:
+        raise OwnerAdmissionError("agent_required", "An exact managed-agent ID is required.")
+    arguments = request.arguments
+    invalid = False
+    if request.operation == "prompt":
+        prompt, model = arguments.get("prompt"), arguments.get("model")
+        reasoning = arguments.get("reasoning_level")
+        invalid = (
+            not isinstance(prompt, str)
+            or not prompt
+            or (model is not None and not isinstance(model, str))
+            or (
+                reasoning is not None
+                and (isinstance(reasoning, bool) or not isinstance(reasoning, int) or reasoning < 0)
+            )
+        )
+    elif request.operation == "refresh" and "timeout_seconds" in arguments:
+        timeout = arguments["timeout_seconds"]
+        invalid = (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, (int, float))
+            or not math.isfinite(timeout)
+            or not 0 < timeout <= 120
+        )
+    elif request.operation == "cleanup":
+        kind = arguments.get("kind")
+        invalid = (
+            not isinstance(kind, str)
+            or kind not in {"session", "logs", "mailbox"}
+            or not isinstance(arguments.get("dry_run", False), bool)
+            or not isinstance(arguments.get("purge_registry", False), bool)
+        )
+    elif request.operation == "gateway_attach":
+        invalid = not isinstance(arguments.get("background", False), bool)
+        timing = arguments.get("tui_tracking_timing_overrides")
+        if timing is not None:
+            from houmao.agents.realm_controller.gateway_models import (
+                GatewayTuiTrackingTimingOverridesV1,
+            )
+
+            try:
+                GatewayTuiTrackingTimingOverridesV1.model_validate(timing)
+            except ValueError:
+                invalid = True
+    elif request.operation == "relaunch" and arguments.get("chat_session") is not None:
+        from pydantic import TypeAdapter
+        from houmao.agents.realm_controller.models import RelaunchChatSessionSelection
+
+        try:
+            TypeAdapter(RelaunchChatSessionSelection).validate_json(
+                json.dumps(arguments["chat_session"])
+            )
+        except ValueError:
+            invalid = True
+    if invalid:
+        raise OwnerAdmissionError("invalid_arguments", "Invalid finite operation arguments.")
+
+
+def _validate_launch_shape(arguments: JsonObject) -> None:
+    """Validate provided launch values using maintained option types without callbacks."""
+
+    import click
+    from houmao.srv_ctrl.commands.project_easy import launch_easy_instance_command
+
+    parameters = {
+        parameter.name: parameter
+        for parameter in launch_easy_instance_command.params
+        if parameter.name is not None and parameter.name != "executor"
+    }
+    if set(arguments) - (set(parameters) | {"project_dir"}):
+        raise OwnerAdmissionError("invalid_arguments", "Unsupported project launch parameter.")
+    sources = [arguments.get(name) for name in ("profile", "specialist")]
+    selected = [value for value in sources if value is not None]
+    if len(selected) != 1 or not isinstance(selected[0], str) or not selected[0].strip():
+        raise OwnerAdmissionError(
+            "invalid_arguments", "Select exactly one nonempty project launch source."
+        )
+    if "project_dir" in arguments and not isinstance(arguments["project_dir"], str):
+        raise OwnerAdmissionError("invalid_arguments", "Invalid project launch path.")
+    with click.Context(launch_easy_instance_command) as context:
+        for name, value in arguments.items():
+            if name == "project_dir" or value is None:
+                continue
+            parameter = parameters[name]
+            values = value if parameter.multiple and isinstance(value, list) else [value]
+            if parameter.multiple and not isinstance(value, list):
+                raise OwnerAdmissionError(
+                    "invalid_arguments", "Invalid repeatable launch argument."
+                )
+            for item in values:
+                kind = parameter.type
+                if isinstance(kind, click.types.BoolParamType):
+                    valid = isinstance(item, bool)
+                elif isinstance(kind, click.types.IntParamType):
+                    valid = isinstance(item, int) and not isinstance(item, bool)
+                elif isinstance(kind, click.types.FloatParamType):
+                    valid = (
+                        isinstance(item, (int, float))
+                        and not isinstance(item, bool)
+                        and math.isfinite(item)
+                    )
+                else:
+                    valid = isinstance(item, str)
+                if not valid:
+                    raise OwnerAdmissionError(
+                        "invalid_arguments", "Invalid project launch value type."
+                    )
+                try:
+                    kind.convert(item, parameter, context)
+                except (click.BadParameter, TypeError, ValueError):
+                    raise OwnerAdmissionError(
+                        "invalid_arguments", "Invalid project launch value."
+                    ) from None
 
 
 def _read_trusted_file(path: Path, *, limit: int) -> bytes:

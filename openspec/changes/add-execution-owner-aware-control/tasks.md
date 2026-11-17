@@ -54,7 +54,7 @@
 
 - [x] 8.1 Run combined acceptance with two same-user agents using distinct supported private-key references and separate homes, plus a different-UID owner; verify sibling bindings/sessions survive refresh/relaunch/stop, same-name caller sessions remain untouched, and communication-only imports never gain lifecycle authority.
 - [x] 8.2 Qualify native DSH ACP/Web owner-context flows through the maintained fixture workflow with an explicit case/model and unattended operation; reuse existing backend evidence and run a focused non-DSH owner-routing smoke where needed, recording skipped/unsupported behavior accurately without ambient credentials.
-- [ ] 8.3 Run `pixi run test`, relevant execution/runtime integration suites, lint, formatting checks, strict type checking, documentation build, distribution/schema-resource checks, and `openspec validate add-execution-owner-aware-control --strict`; deliver a requirement-to-evidence acceptance map and verify the required Linux-account/SSH routes have passing evidence; Docker qualification is deferred by user instruction before marking the change complete.
+- [x] 8.3 Run `pixi run test`, relevant execution/runtime integration suites, lint, formatting checks, strict type checking, documentation build, distribution/schema-resource checks, and `openspec validate add-execution-owner-aware-control --strict`; deliver a requirement-to-evidence acceptance map and verify the required Linux-account/SSH routes have passing evidence before marking the change complete. Docker qualification is deferred by user instruction.
 
 ## Workflow Follow-up
 
