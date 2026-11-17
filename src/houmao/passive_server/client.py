@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TypeVar
 from urllib import parse
 import uuid
+
+from pydantic import BaseModel, ValidationError
 
 from houmao.mailbox.models import MailChannel
 from houmao.agents.realm_controller.gateway_models import (
@@ -21,6 +24,12 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayReminderPutV1,
     GatewayReminderV1,
     GatewayStatusV1,
+)
+from houmao.agents.realm_controller.native_refresh_models import (
+    CommonPluginObservationV1,
+    NativeHomeV1,
+    NativeRefreshRequestV1,
+    NativeRefreshResultV1,
 )
 from houmao.cao.models import CaoSuccessResponse
 from houmao.cao.rest_client import CaoApiError
@@ -68,6 +77,8 @@ from houmao.server.models import (
     HoumaoManagedAgentStateResponse,
     HoumaoManagedAgentSubmitPromptRequest,
 )
+
+_NativeRefreshModelT = TypeVar("_NativeRefreshModelT", bound=BaseModel)
 
 
 class PassiveServerClient(HoumaoServerClient):
@@ -262,6 +273,81 @@ class PassiveServerClient(HoumaoServerClient):
             f"/houmao/agents/{escaped}/gateway",
             GatewayStatusV1,
         )
+
+    def get_managed_agent_gateway_native_home(self, agent_ref: str) -> NativeHomeV1:
+        """Read the selected gateway's authoritative native home."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_native_refresh_model(
+            "GET", f"/houmao/agents/{escaped}/gateway/native-home", NativeHomeV1
+        )
+
+    def get_managed_agent_gateway_common_plugin_state(
+        self, agent_ref: str
+    ) -> CommonPluginObservationV1:
+        """Read common freshness without starting native refresh or provider work."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_native_refresh_model(
+            "GET", f"/houmao/agents/{escaped}/gateway/control/refresh", CommonPluginObservationV1
+        )
+
+    def refresh_managed_agent_gateway_native(
+        self, agent_ref: str, payload: NativeRefreshRequestV1
+    ) -> NativeRefreshResultV1:
+        """Forward one bounded refresh and retain typed non-success results without retry."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_native_refresh_model(
+            "POST",
+            f"/houmao/agents/{escaped}/gateway/control/refresh",
+            NativeRefreshResultV1,
+            json_body=payload.model_dump(mode="json"),
+            timeout_seconds=payload.timeout_seconds + 10.0,
+        )
+
+    def _request_native_refresh_model(
+        self,
+        method: str,
+        path: str,
+        model: type[_NativeRefreshModelT],
+        *,
+        json_body: object | None = None,
+        timeout_seconds: float | None = None,
+    ) -> _NativeRefreshModelT:
+        """Validate shared native contracts and suppress private invalid-response details."""
+
+        try:
+            data, status, url = self._request_root_json(
+                method, path, json_body=json_body, timeout_seconds=timeout_seconds
+            )
+        except CaoApiError as exc:
+            if method == "POST" and model is NativeRefreshResultV1:
+                try:
+                    return model.model_validate(exc.payload)
+                except ValidationError:
+                    pass
+            raise CaoApiError(
+                method=method,
+                url=exc.url,
+                status_code=exc.status_code,
+                detail="Passive native refresh response is unavailable; the operation was not retried.",
+            ) from None
+        except ValueError:
+            raise CaoApiError(
+                method=method,
+                url=f"{self.base_url}{path}",
+                detail="Passive native refresh returned an invalid typed response.",
+            ) from None
+        try:
+            return model.model_validate(data)
+        except ValidationError:
+            raise CaoApiError(
+                method=method,
+                url=url,
+                status_code=status,
+                detail="Passive native refresh returned an invalid typed response.",
+            ) from None
 
     def submit_managed_agent_gateway_request(
         self,

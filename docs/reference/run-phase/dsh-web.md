@@ -83,6 +83,8 @@ Explicit relaunch reconciles provably abandoned, unclaimed Houmao input before a
 
 Web detail and bounded history come from native state, history, and follow services. Terminal capture and production DOM automation do not provide Web authority. An unreachable or stale native source is unavailable even while the supervising tmux process remains alive. Sequence gaps require a new baseline; repeated events do not become new activity. The [integration reference](dsh-web-integrations.md) describes gateway, plugin, mail, and passive-server projections.
 
+The launch-time companion also supports owner-bound skills/MCP inspection and non-restarting refresh. The [common refresh contract](dsh-web-control.md#common-plugin-observation-and-refresh) defines evidence, external home edits, automatic watchers, native maintenance, broader partial effects, and explicit implementation-version limits. Refresh retains the process and conversation; lifecycle changes use separate relaunch.
+
 The DSH journal collector includes verified human-origin turns. Managed input claims determine attribution; waiting for a programmatic result does not own later human work. Mixed managed/human input in one native turn charges that turn once, while a later human turn remains separate. Journal requests supply the actual provider/model and disjoint usage buckets, including a model changed in the browser. Reconnect, gateway restart, and explicit host relaunch preserve accounting cutoffs and immutable finalized records.
 
 ## Qualification Boundaries

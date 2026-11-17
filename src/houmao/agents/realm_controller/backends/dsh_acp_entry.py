@@ -13,7 +13,7 @@ import sys
 import threading
 from typing import Any
 
-from houmao.agents.dsh_configuration import DshConfigurationError, DshSetup, prepare_dsh_home
+from houmao.agents.dsh_configuration import DshConfigurationError, DshSetup, load_dsh_home
 from houmao.agents.realm_controller.backends.dsh_acp_connection import (
     DshAcpProtocolError,
     DshAcpRequestError,
@@ -57,18 +57,15 @@ def main() -> int:
         print(json.dumps(event, ensure_ascii=False), flush=True)
 
     def prepare(invocation: DshAcpInvocation) -> DshAcpInvocation:
-        """Resolve the exact model and compose per-attempt assets under the lock."""
+        """Load current home inputs and compose transient control under the lock."""
 
         setup = DshSetup.from_file(Path(private["setup_path"]))
-        prepared = prepare_dsh_home(
+        prepared = load_dsh_home(
             home,
             setup,
             os.environ,
-            private["role_prompt"],
             selected_model=private.get("model"),
             reasoning_level=private.get("reasoning_level"),
-            skill_roots=(home / "skills",),
-            operator_prompt_mode=private.get("operator_prompt_mode", "unattended"),
         )
         abandoned: list[str] = []
         for path in sorted(turn_dir.parent.glob("*/dsh-native-evidence.jsonl")):
@@ -106,6 +103,7 @@ def main() -> int:
             patch_stream.write(
                 json.dumps(
                     [
+                        *prepared.invocation_patch,
                         {
                             "insert": [
                                 {
@@ -117,7 +115,7 @@ def main() -> int:
                                     },
                                 }
                             ]
-                        }
+                        },
                     ]
                 )
             )
@@ -136,8 +134,8 @@ def main() -> int:
             environment=prepared.environment,
             persistence_root=prepared.persistence_root,
             mcp_servers=tuple(prepared.mcp_servers),
-            model=(prepared.provider, prepared.model),
-            reasoning_effort=prepared.metadata.get("reasoning_effort"),
+            model=prepared.model,
+            reasoning_effort=prepared.reasoning_effort,
             dispatch_guard=Path(guard) if guard else None,
         )
 

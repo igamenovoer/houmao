@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, fields
 from importlib.resources import files
 import json
+import math
 import os
 from pathlib import Path
 import shlex
@@ -571,6 +572,82 @@ class DshWebSession:
         """Read fresh native state without creating, restoring, or retargeting an Agent."""
 
         return self._client().state(self.state.web_identity)
+
+    def observe_common_plugins(self) -> dict[str, Any]:
+        """Read effective skill/MCP evidence from the already-owned native host."""
+
+        return self._client().observe_common_plugins(self.state.web_identity)
+
+    def refresh_common_plugins(
+        self,
+        timeout_seconds: float = 30.0,
+        *,
+        deadline_monotonic: float | None = None,
+        expected_identity: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Refresh through a separate owner connection so operator reads stay responsive.
+
+        The native host retains maintenance authority if this request loses its
+        response. Closing this connection never restarts or retries the agent.
+        """
+
+        if (
+            not math.isfinite(timeout_seconds)
+            or timeout_seconds <= 0
+            or (deadline_monotonic is not None and not math.isfinite(deadline_monotonic))
+        ):
+            raise DshWebError("invalid_request", "Native refresh requires a finite deadline")
+        deadline = min(
+            deadline_monotonic if deadline_monotonic is not None else float("inf"),
+            time.monotonic() + timeout_seconds,
+        )
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise DshWebError("expired", "Native refresh deadline elapsed before authentication")
+        state = self.state
+        identity = dict(state.web_identity)
+        native_keys = (
+            "agent_id",
+            "runtime_session_id",
+            "generation",
+            "host_incarnation",
+            "native_session_id",
+            "agent_incarnation",
+        )
+        if expected_identity is not None and any(
+            identity.get(key) != expected_identity.get(key) for key in native_keys
+        ):
+            raise DshWebError(
+                "stale_identity", "Native refresh identity changed before authentication"
+            )
+        if _dispatch_origin_birth_token(state.supervisor_pid) != state.supervisor_birth_token:
+            raise BackendExecutionError("DSH Web owned host is unavailable")
+        bootstrap = Path(state.bootstrap_path)
+        if bootstrap.stat().st_mode & 0o077:
+            raise BackendExecutionError("DSH Web bootstrap credentials must remain private")
+        payload = json.loads(bootstrap.read_text(encoding="utf-8"))
+        if payload.get("origin") != state.origin:
+            raise BackendExecutionError("DSH Web bootstrap origin changed")
+        client = DshWebClient.from_connection(
+            state.origin,
+            launch_token=payload["launch_token"],
+            timeout_seconds=remaining,
+        )
+        try:
+            if self.m_state is not state or state.web_identity != identity:
+                raise DshWebError(
+                    "stale_identity", "Native refresh identity changed during authentication"
+                )
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise DshWebError(
+                    "expired", "Native refresh deadline elapsed during authentication"
+                )
+            return client.refresh_common_plugins(
+                identity, timeout_seconds=remaining, deadline_monotonic=deadline
+            )
+        finally:
+            client.close()
 
     def observe_web_history(self, after_sequence: int = -1, limit: int = 100) -> dict[str, Any]:
         """Read bounded native metadata history from this exact live incarnation."""

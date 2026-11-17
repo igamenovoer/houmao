@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 import os
 import json
+import math
 from pathlib import Path
 import shutil
 import subprocess
@@ -72,6 +73,10 @@ from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR,
 from houmao.agents.realm_controller.gateway_models import (
     GatewayCurrentExecutionMode,
     GatewayTuiTrackingTimingOverridesV1,
+)
+from houmao.agents.realm_controller.native_refresh_models import (
+    CommonPluginObservationV1,
+    NativeRefreshResultV1,
 )
 from houmao.agents.realm_controller.gateway_storage import (
     gateway_paths_from_manifest_path,
@@ -171,7 +176,10 @@ from ..managed_agents import (
     list_managed_agents,
     managed_agent_identity_payload,
     managed_agent_state_payload,
+    managed_agent_native_home,
+    managed_agent_common_plugin_state,
     prompt_managed_agent,
+    refresh_managed_agent,
     relaunch_managed_agent,
     resolve_current_session_managed_agent_target,
     resolve_relaunch_managed_agent_target,
@@ -1881,6 +1889,101 @@ def state_agent_command(port: int | None, agent_id: str | None, agent_name: str 
     )
 
 
+def _common_check_succeeded(observation: CommonPluginObservationV1) -> bool:
+    """Require confirmed common freshness and settled native readiness."""
+
+    return (
+        observation.freshness == "current"
+        and observation.coverage_complete
+        and observation.native_ready
+        and observation.native_settled
+    )
+
+
+def _native_refresh_succeeded(result: NativeRefreshResultV1) -> bool:
+    """Accept confirmed current scope or complete qualified future consumption."""
+
+    if not result.native_ready or not result.native_settled:
+        return False
+    if result.outcome in {"already_current", "refreshed"}:
+        return _common_check_succeeded(result.observation)
+    if result.outcome != "automatic" or not result.observation.automatic:
+        return False
+    required = [item for item in result.observation.resources if item.required]
+    return (
+        result.observation.native_ready
+        and result.observation.native_settled
+        and {item.kind for item in required} == {"skills", "mcp"}
+        and all(
+            item.supported
+            and (
+                item.boundary in {"next_step", "next_turn", "next_load"}
+                or (item.freshness == "current" and item.complete)
+            )
+            for item in required
+        )
+    )
+
+
+def _finite_refresh_timeout(ctx: click.Context, param: click.Parameter, value: float) -> float:
+    """Reject NaN before resolving authority or issuing a native request."""
+
+    if not math.isfinite(value):
+        raise click.BadParameter("must be finite", ctx=ctx, param=param)
+    return value
+
+
+@agents_group.command(name="home")
+@pair_port_option()
+@managed_agent_selector_options
+def native_home_agent_command(
+    port: int | None, agent_id: str | None, agent_name: str | None
+) -> None:
+    """Show the active agent's native home without rebuilding its material."""
+
+    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    emit(
+        managed_agent_native_home(target),
+        plain_renderer=lambda payload: click.echo(cast(dict[str, object], payload)["home_dir"]),
+    )
+
+
+@agents_group.command(name="refresh")
+@click.option(
+    "--check", "check_only", is_flag=True, help="Inspect common freshness without reload."
+)
+@click.option(
+    "--timeout-seconds",
+    type=click.FloatRange(min=0.0, max=120.0, min_open=True),
+    default=30.0,
+    show_default=True,
+    callback=_finite_refresh_timeout,
+    help="Bound one native refresh operation; refresh never restarts the agent.",
+)
+@pair_port_option()
+@managed_agent_selector_options
+def refresh_agent_command(
+    port: int | None,
+    agent_id: str | None,
+    agent_name: str | None,
+    check_only: bool,
+    timeout_seconds: float,
+) -> None:
+    """Observe skills/MCP, then use qualified automatic behavior or native refresh."""
+
+    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    if check_only:
+        observation = managed_agent_common_plugin_state(target)
+        emit(observation)
+        succeeded = _common_check_succeeded(observation)
+    else:
+        result = refresh_managed_agent(target, timeout_seconds=timeout_seconds)
+        emit(result)
+        succeeded = _native_refresh_succeeded(result)
+    if not succeeded:
+        raise click.exceptions.Exit(1)
+
+
 @agents_group.command(name="prompt")
 @click.option(
     "--prompt",
@@ -2092,7 +2195,7 @@ def _install_scoped_agents_commands() -> None:
     selector_port_params = selector_params | frozenset({"port"})
     gateway_self_params = gateway_single_params | frozenset({"pair_port"})
 
-    for command_name in ("state", "prompt", "interrupt", "stop", "relaunch"):
+    for command_name in ("state", "home", "refresh", "prompt", "interrupt", "stop", "relaunch"):
         agents_single_group.add_command(
             clone_scoped_command_tree(
                 legacy_commands[command_name],
@@ -2133,7 +2236,7 @@ def _install_scoped_agents_commands() -> None:
             inject_params=_self_gateway_injections,
         )
     )
-    for command_name in ("mail", "turn", "memory"):
+    for command_name in ("home", "refresh", "mail", "turn", "memory"):
         agents_self_group.add_command(
             clone_scoped_command_tree(
                 legacy_commands[command_name],

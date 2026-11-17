@@ -170,3 +170,39 @@ def test_prompt_forwards_only_the_optional_dispatch_permission_reference(tmp_pat
     assert call.call_args.args[1]["dispatch_permission_path"] == str(permission)
     client.prompt({}, "input", operation_id="direct", deadline_epoch_ms=100)
     assert "dispatch_permission_path" not in call.call_args.args[1]
+
+
+def test_refresh_forwards_original_absolute_deadline_after_lock_claim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Native preflight shares the remaining original budget rather than a reset timer."""
+
+    client = DshWebClient()
+    client.call = Mock(return_value={})
+    monkeypatch.setattr(client_module.time, "monotonic", lambda: 100.0)
+    client.refresh_common_plugins(
+        {"native_session_id": "native"}, timeout_seconds=30, deadline_monotonic=102.0
+    )
+    client.call.assert_called_once_with(
+        "refresh",
+        {
+            "identity": {"native_session_id": "native"},
+            "timeout_seconds": 2.0,
+            "deadline_monotonic_ms": 102000.0,
+        },
+    )
+
+
+def test_refresh_does_not_send_after_serialization_consumes_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Waiting for an owned client lock cannot create a delayed native mutation."""
+
+    client = DshWebClient()
+    client.call = Mock()
+    times = iter([100.0, 103.0])
+    monkeypatch.setattr(client_module.time, "monotonic", lambda: next(times))
+    with pytest.raises(DshWebError) as expired:
+        client.refresh_common_plugins({}, timeout_seconds=30, deadline_monotonic=102.0)
+    assert expired.value.code == "expired"
+    client.call.assert_not_called()

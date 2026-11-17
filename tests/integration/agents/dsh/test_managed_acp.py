@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from houmao.agents.dsh_configuration import DshSetup, prepare_dsh_home
 from houmao.agents.realm_controller.backends.dsh_acp import DshAcpSession
 from houmao.agents.realm_controller.models import (
     HeadlessTurnSessionSelection,
@@ -67,6 +68,13 @@ def _launch_plan(root: Path, executable: Path, endpoint: str) -> tuple[LaunchPla
             prompt="Managed literal {{example}} $HOME",
         ),
         metadata={"dsh": {"setup_path": str(setup_path), "model": "controlled"}},
+    )
+    prepare_dsh_home(
+        home,
+        DshSetup.from_file(setup_path),
+        plan.env,
+        plan.role_injection.prompt,
+        skill_roots=(home / "skills",),
     )
     manifest = root / "runtime" / "manifest.json"
     manifest.parent.mkdir()

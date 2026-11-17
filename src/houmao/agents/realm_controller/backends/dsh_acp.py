@@ -9,6 +9,7 @@ from pathlib import Path
 import sys
 from typing import Any
 
+from houmao.agents.dsh_configuration import DshSetup, load_dsh_home
 from houmao.agents.model_mapping_policy import resolve_reasoning_mapping
 from houmao.agents.model_selection import ModelConfig
 from houmao.agents.realm_controller.backends.dispatch_control import _dispatch_origin_birth_token
@@ -208,12 +209,29 @@ class DshAcpSession(HeadlessInteractiveSession):
 
         self.m_turn_dir = self._turn_artifacts_root / turn_artifact_dir_name
         self.m_execution_model = execution_model
+        projection_model = execution_model
+        if (
+            execution_model is not None
+            and execution_model.name is None
+            and execution_model.reasoning is not None
+        ):
+            setup = self._plan.metadata.get("dsh")
+            if not isinstance(setup, dict) or not isinstance(setup.get("setup_path"), str):
+                raise BackendExecutionError("DSH setup projection is unavailable")
+            current = load_dsh_home(
+                self._plan.home_path,
+                DshSetup.from_file(Path(setup["setup_path"])),
+                self._plan.env,
+            )
+            projection_model = ModelConfig(
+                name=current.model[1], reasoning=execution_model.reasoning
+            )
         try:
             return super()._execute_prompt(
                 prompt,
                 turn_artifact_dir_name=turn_artifact_dir_name,
                 session_selection=session_selection,
-                execution_model=execution_model,
+                execution_model=projection_model,
             )
         finally:
             binding_path = self.m_turn_dir / "dsh-native-binding.json"
@@ -256,11 +274,16 @@ class DshAcpSession(HeadlessInteractiveSession):
         if not isinstance(setup, dict) or not isinstance(setup.get("setup_path"), str):
             raise BackendExecutionError("DSH setup projection is unavailable")
         model = self.m_execution_model
-        model_name = (
-            model.name if model is not None and model.name is not None else setup.get("model")
-        )
-        reasoning_key = setup.get("reasoning_level")
+        reasoning_key = None
         if model is not None and model.reasoning is not None:
+            model_name = model.name
+            if model_name is None:
+                current = load_dsh_home(
+                    self._plan.home_path,
+                    DshSetup.from_file(Path(setup["setup_path"])),
+                    self._plan.env,
+                )
+                model_name = current.model[1]
             mapping = resolve_reasoning_mapping(
                 tool="dsh",
                 requested_level=model.reasoning.level,
@@ -274,16 +297,16 @@ class DshAcpSession(HeadlessInteractiveSession):
             "working_directory": str(self._plan.working_directory),
             "home_path": str(self._plan.home_path),
             "setup_path": setup["setup_path"],
-            "operator_prompt_mode": setup.get("operator_prompt_mode", "unattended"),
-            "role_prompt": self._plan.role_injection.prompt,
             "prompt": prompt,
             "session_id": session_id,
             "attempt_id": self.m_turn_dir.name,
             "runtime_session_id": runtime_session_id,
             "generation": generation,
             "turn_dir": str(self.m_turn_dir),
-            "model": model_name,
-            "reasoning_level": reasoning_key,
+            "model": model.name if model is not None else None,
+            "reasoning_level": (
+                reasoning_key if model is not None and model.reasoning is not None else None
+            ),
         }
         input_path = self.m_turn_dir / "dsh-driver-input.json"
         _write_private_json(input_path, private)

@@ -40,6 +40,12 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMemorySummaryV1,
 )
 from houmao.cao.models import CaoSuccessResponse
+from houmao.agents.realm_controller.native_refresh_models import (
+    CommonPluginObservationV1,
+    NativeHomeV1,
+    NativeRefreshRequestV1,
+    NativeRefreshResultV1,
+)
 from houmao.server.client import HoumaoServerClient
 from houmao.server.models import (
     HoumaoCurrentInstance,
@@ -171,6 +177,19 @@ class PairAuthorityClientProtocol(Protocol):
 
     def get_managed_agent_gateway_status(self, agent_ref: str) -> GatewayStatusV1:
         """Return gateway status for one managed agent."""
+
+    def get_managed_agent_gateway_native_home(self, agent_ref: str) -> NativeHomeV1:
+        """Read the owning gateway's bound native home."""
+
+    def get_managed_agent_gateway_common_plugin_state(
+        self, agent_ref: str
+    ) -> CommonPluginObservationV1:
+        """Read common-plugin evidence through the owning gateway."""
+
+    def refresh_managed_agent_gateway_native(
+        self, agent_ref: str, payload: NativeRefreshRequestV1
+    ) -> NativeRefreshResultV1:
+        """Preserve one owning-gateway native refresh result without retry."""
 
     def attach_managed_agent_gateway(
         self,

@@ -11,7 +11,9 @@ from houmao.mailbox.online_models import (
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
@@ -59,6 +61,13 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayWebHistoryV1,
 )
 from houmao.agents.realm_controller.usage_models import UsagePage
+from houmao.agents.realm_controller.native_refresh_models import (
+    CommonPluginObservationV1,
+    NativeHomeV1,
+    NativeRefreshRequestV1,
+    NativeRefreshResultV1,
+    native_refresh_status_code,
+)
 from houmao.version import get_version
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.models import (
@@ -124,6 +133,19 @@ def create_app(
         lifespan=_lifespan,
     )
 
+    @app.exception_handler(RequestValidationError)
+    async def _native_refresh_validation_error(
+        request: Request, exc: RequestValidationError
+    ) -> Response:
+        """Keep rejected refresh content out of the public validation response."""
+
+        route = request.scope.get("route")
+        if getattr(route, "path", None) == "/houmao/agents/{agent_ref}/gateway/control/refresh":
+            return JSONResponse(
+                status_code=422, content={"detail": "Invalid native refresh request"}
+            )
+        return await request_validation_exception_handler(request, exc)
+
     @app.get("/health")
     def health() -> PassiveHealthResponse:
         return resolved_service.health()
@@ -174,6 +196,40 @@ def create_app(
         return result
 
     # -- gateway proxy routes -------------------------------------------------
+
+    @app.get("/houmao/agents/{agent_ref}/gateway/native-home", response_model=NativeHomeV1)
+    def gateway_native_home(agent_ref: str) -> NativeHomeV1 | Response:
+        """Project the active native-home descriptor from the addressed gateway."""
+
+        result = resolved_service.gateway_native_home(agent_ref)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])
+        return result
+
+    @app.get(
+        "/houmao/agents/{agent_ref}/gateway/control/refresh",
+        response_model=CommonPluginObservationV1,
+    )
+    def gateway_common_plugin_state(agent_ref: str) -> CommonPluginObservationV1 | Response:
+        """Preserve normal pending or unknown observations without initiating native work."""
+
+        result = resolved_service.gateway_common_plugin_state(agent_ref)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])
+        return result
+
+    @app.post(
+        "/houmao/agents/{agent_ref}/gateway/control/refresh", response_model=NativeRefreshResultV1
+    )
+    def gateway_refresh_native(agent_ref: str, payload: NativeRefreshRequestV1) -> Response:
+        """Project one gateway-owned refresh with its typed outcome and HTTP status."""
+
+        result = resolved_service.gateway_refresh_native(agent_ref, payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])
+        return JSONResponse(
+            status_code=native_refresh_status_code(result), content=result.model_dump(mode="json")
+        )
 
     @app.get("/houmao/agents/{agent_ref}/gateway")
     def gateway_status(agent_ref: str) -> GatewayStatusV1:

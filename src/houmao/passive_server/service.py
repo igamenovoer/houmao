@@ -23,6 +23,12 @@ from houmao.agents.realm_controller.gateway_client import (
     GatewayClient,
     GatewayEndpoint,
 )
+from houmao.agents.realm_controller.native_refresh_models import (
+    CommonPluginObservationV1,
+    NativeHomeV1,
+    NativeRefreshRequestV1,
+    NativeRefreshResultV1,
+)
 from houmao.mailbox.models import MailChannel
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
@@ -422,6 +428,81 @@ class PassiveServerService:
             return client.status()
         except GatewayHttpError as exc:
             return (502, {"detail": exc.detail})
+
+    def gateway_native_home(self, agent_ref: str) -> NativeHomeV1 | tuple[int, dict[str, Any]]:
+        """Proxy authoritative native-home inspection without reading local home material."""
+
+        return self._native_refresh_gateway_proxy(agent_ref, lambda _client, home: home)
+
+    def gateway_common_plugin_state(
+        self, agent_ref: str
+    ) -> CommonPluginObservationV1 | tuple[int, dict[str, Any]]:
+        """Preserve passive common-plugin evidence without making a freshness decision."""
+
+        return self._native_refresh_gateway_proxy(
+            agent_ref, lambda client, _home: client.get_common_plugin_state()
+        )
+
+    def gateway_refresh_native(
+        self, agent_ref: str, payload: NativeRefreshRequestV1
+    ) -> NativeRefreshResultV1 | tuple[int, dict[str, Any]]:
+        """Forward exactly one refresh, including typed refusal and partial-effect results."""
+
+        return self._native_refresh_gateway_proxy(
+            agent_ref, lambda client, _home: client.refresh_native(payload)
+        )
+
+    def _native_refresh_gateway_proxy(
+        self,
+        agent_ref: str,
+        callback: Callable[[GatewayClient, NativeHomeV1], _GatewayProxyT],
+    ) -> _GatewayProxyT | tuple[int, dict[str, Any]]:
+        """Resolve one gateway and suppress private transport or invalid-response details."""
+
+        resolved = self._resolve_agent_or_error(agent_ref)
+        if isinstance(resolved, tuple):
+            return resolved
+        client = self._gateway_client_for_agent(resolved)
+        if client is None:
+            return (502, {"detail": "Native refresh projection requires an attached gateway"})
+        try:
+            home = client.get_native_home()
+            record = resolved.record
+            surface = record.native_surface
+            if (
+                home.agent_id != record.agent_id
+                or home.identity.get("agent_id") != record.agent_id
+                or home.backend != record.identity.backend
+                or home.tool != record.identity.tool
+                or home.identity.get("generation") != record.generation_id
+                or (
+                    surface is not None
+                    and surface.kind == "web"
+                    and home.identity.get("native_session_id") != surface.native_session_id
+                )
+            ):
+                return (502, {"detail": "Agent gateway native authority does not match selection"})
+            client.bind_native_home(home)
+            result = callback(client, home)
+            returned_home: NativeHomeV1 | None = None
+            if isinstance(result, NativeHomeV1):
+                returned_home = result
+            elif isinstance(result, CommonPluginObservationV1):
+                returned_home = result.home
+            elif isinstance(result, NativeRefreshResultV1):
+                returned_home = result.observation.home
+            if returned_home != home or (
+                isinstance(result, NativeRefreshResultV1)
+                and result.before is not None
+                and result.before.home != home
+            ):
+                return (502, {"detail": "Agent gateway native authority changed during request"})
+            return result
+        except GatewayHttpError as exc:
+            return (
+                exc.status_code or 502,
+                {"detail": "Agent gateway native refresh response is unavailable"},
+            )
 
     def gateway_memory(
         self,

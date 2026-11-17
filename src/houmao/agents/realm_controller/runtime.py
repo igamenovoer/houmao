@@ -510,10 +510,14 @@ class RuntimeSessionController:
         self,
         execution_model: ModelConfig | None,
     ) -> ModelConfig | None:
-        """Resolve one request-scoped execution model against launch-owned defaults."""
+        """Use native DSH defaults or resolve another tool's launch-owned defaults."""
 
         if execution_model is None or execution_model.is_empty():
             return None
+        if isinstance(self.backend_session, DshAcpSession):
+            # ACP consumes current materialized native defaults. Filling missing
+            # request fields from launch provenance would mask later home edits.
+            return execution_model
         try:
             brain_manifest = load_brain_manifest(self.brain_manifest_path)
             launch_model = extract_resolved_model_config_from_brain_manifest(

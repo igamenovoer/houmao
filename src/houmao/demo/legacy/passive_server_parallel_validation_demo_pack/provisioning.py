@@ -1247,7 +1247,7 @@ def _wait_for_progress(
 
 def _wait_for_absence(
     *,
-    client: PairAuthorityClientProtocol,
+    client: PairAuthorityClientProtocol | HoumaoServerClient,
     agent_ref: str,
     timeout_seconds: float,
     poll_interval_seconds: float,

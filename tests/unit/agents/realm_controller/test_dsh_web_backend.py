@@ -1,6 +1,7 @@
 """Verify semantic Web output and exact supervisor cleanup authority."""
 
 from pathlib import Path
+import json
 import threading
 import time
 from unittest.mock import Mock
@@ -124,3 +125,153 @@ def test_dispatch_cancellation_revokes_permission_without_waiting_for_http_lock(
     finally:
         release.set()
         assert settled.wait(2)
+
+
+def test_refresh_uses_independent_authority_without_blocking_native_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A long refresh cannot claim the ordinary client's HTTP serialization lock."""
+
+    bootstrap = tmp_path / "bootstrap.json"
+    bootstrap.write_text('{"origin":"http://127.0.0.1:1234","launch_token":"synthetic-only"}')
+    bootstrap.chmod(0o600)
+    session = DshWebSession()
+    identity = {"native_session_id": "native"}
+    session.m_state = Mock(
+        spec=DshWebSessionState,
+        supervisor_pid=123,
+        supervisor_birth_token="owned",
+        bootstrap_path=str(bootstrap),
+        origin="http://127.0.0.1:1234",
+        web_identity=identity,
+    )
+    session.m_client = Mock(state=Mock(return_value={"available": True}))
+    entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+
+    def native_refresh(*_args: object, **_kwargs: object) -> dict[str, str]:
+        """Hold only the separately authenticated refresh connection."""
+
+        entered.set()
+        assert release.wait(3)
+        return {"outcome": "refreshed"}
+
+    independent = Mock(refresh_common_plugins=native_refresh)
+    connect = Mock(return_value=independent)
+    monkeypatch.setattr(backend_module, "_dispatch_origin_birth_token", lambda _: "owned")
+    monkeypatch.setattr(backend_module.DshWebClient, "from_connection", connect)
+
+    def request() -> None:
+        """Complete the original operation without replay or connection borrowing."""
+
+        try:
+            assert session.refresh_common_plugins(2)["outcome"] == "refreshed"
+        finally:
+            finished.set()
+
+    thread = threading.Thread(target=request)
+    thread.start()
+    try:
+        assert entered.wait(1)
+        started = time.monotonic()
+        assert session.observe_web_state() == {"available": True}
+        assert time.monotonic() - started < 0.2
+    finally:
+        release.set()
+        thread.join(3)
+    assert finished.is_set()
+    independent.close.assert_called_once()
+    connect.assert_called_once()
+    assert connect.call_args.args == ("http://127.0.0.1:1234",)
+    assert connect.call_args.kwargs["launch_token"] == "synthetic-only"
+    assert 0 < connect.call_args.kwargs["timeout_seconds"] <= 2
+    assert json.loads(bootstrap.read_text())["launch_token"] == "synthetic-only"
+    session.m_client.refresh_common_plugins.assert_not_called()
+
+
+def test_authentication_cannot_extend_native_refresh_deadline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An authenticated connection closes without mutation after its original budget."""
+
+    bootstrap = tmp_path / "bootstrap.json"
+    bootstrap.write_text('{"origin":"http://127.0.0.1:1234","launch_token":"synthetic-only"}')
+    bootstrap.chmod(0o600)
+    session = DshWebSession()
+    session.m_state = Mock(
+        spec=DshWebSessionState,
+        supervisor_pid=123,
+        supervisor_birth_token="owned",
+        bootstrap_path=str(bootstrap),
+        origin="http://127.0.0.1:1234",
+        web_identity={"native_session_id": "native"},
+    )
+    clock = [100.0]
+    monkeypatch.setattr(backend_module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(backend_module, "_dispatch_origin_birth_token", lambda _: "owned")
+    client = Mock()
+
+    def authenticate(*_args: object, **kwargs: object) -> Mock:
+        """Consume the whole original budget during synthetic authentication."""
+
+        assert kwargs["timeout_seconds"] == 2.0
+        clock[0] = 103.0
+        return client
+
+    monkeypatch.setattr(backend_module.DshWebClient, "from_connection", authenticate)
+    with pytest.raises(backend_module.DshWebError) as expired:
+        session.refresh_common_plugins(30, deadline_monotonic=102.0)
+    assert expired.value.code == "expired"
+    client.refresh_common_plugins.assert_not_called()
+    client.close.assert_called_once()
+
+
+def test_authentication_cannot_retarget_refresh_to_a_replacement_agent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An explicit native reset during authentication cannot receive stale work."""
+
+    bootstrap = tmp_path / "bootstrap.json"
+    bootstrap.write_text('{"origin":"http://127.0.0.1:1234","launch_token":"synthetic-only"}')
+    bootstrap.chmod(0o600)
+    session = DshWebSession()
+    session.m_state = Mock(
+        spec=DshWebSessionState,
+        supervisor_pid=123,
+        supervisor_birth_token="owned",
+        bootstrap_path=str(bootstrap),
+        origin="http://127.0.0.1:1234",
+        web_identity={"native_session_id": "old"},
+    )
+    monkeypatch.setattr(backend_module, "_dispatch_origin_birth_token", lambda _: "owned")
+    client = Mock()
+
+    def authenticate(*_args: object, **_kwargs: object) -> Mock:
+        """Publish a replacement exactly where the native owner connection waits."""
+
+        session.state.web_identity = {"native_session_id": "replacement"}
+        return client
+
+    monkeypatch.setattr(backend_module.DshWebClient, "from_connection", authenticate)
+    with pytest.raises(backend_module.DshWebError) as stale:
+        session.refresh_common_plugins(5)
+    assert stale.value.code == "stale_identity"
+    client.refresh_common_plugins.assert_not_called()
+    client.close.assert_called_once()
+
+
+def test_captured_service_identity_is_checked_before_native_authentication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A changed Agent between service preflight and backend entry cannot be selected."""
+
+    session = DshWebSession()
+    session.m_state = Mock(
+        spec=DshWebSessionState,
+        web_identity={"native_session_id": "replacement"},
+    )
+    connect = Mock(side_effect=AssertionError("No stale authentication"))
+    monkeypatch.setattr(backend_module.DshWebClient, "from_connection", connect)
+    with pytest.raises(backend_module.DshWebError) as stale:
+        session.refresh_common_plugins(5, expected_identity={"native_session_id": "old"})
+    assert stale.value.code == "stale_identity"
+    connect.assert_not_called()

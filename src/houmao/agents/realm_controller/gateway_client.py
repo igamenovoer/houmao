@@ -19,6 +19,13 @@ from pydantic import BaseModel, ValidationError
 from houmao.ag_ui.models import AgUiEventPublishRequest, AgUiEventPublishResponse
 from houmao.agents.realm_controller.errors import GatewayHttpError
 from houmao.agents.realm_controller.usage_models import UsagePage
+from houmao.agents.realm_controller.native_refresh_models import (
+    CommonPluginObservationV1,
+    NativeHomeV1,
+    NativeRefreshRequestV1,
+    NativeRefreshResultV1,
+    native_home_etag,
+)
 from houmao.mailbox.models import MailChannel
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
@@ -117,6 +124,7 @@ class GatewayClient:
 
         self.m_endpoint = endpoint
         self.m_timeout_seconds = timeout_seconds
+        self.m_native_home_etag: str | None = None
         self.m_opener = _build_gateway_client_opener(
             respect_proxy_env=gateway_client_respects_proxy_env()
         )
@@ -130,6 +138,122 @@ class GatewayClient:
         """Call `GET /v1/status`."""
 
         return self._request_model("GET", "/v1/status", GatewayStatusV1)
+
+    def get_native_home(self) -> NativeHomeV1:
+        """Read the bound native home without inspecting configuration contents."""
+
+        home = self._request_native_read_model("/v1/native-home", NativeHomeV1)
+        self._require_native_home_matches(home, method="GET", path="/v1/native-home")
+        return home
+
+    def bind_native_home(self, home: NativeHomeV1) -> None:
+        """Fence subsequent common-resource requests to captured native authority."""
+
+        self.m_native_home_etag = native_home_etag(home)
+
+    def _require_native_home_matches(self, home: NativeHomeV1, *, method: str, path: str) -> None:
+        """Reject a response from another execution without exposing its private inputs."""
+
+        if (
+            self.m_native_home_etag is not None
+            and native_home_etag(home) != self.m_native_home_etag
+        ):
+            raise GatewayHttpError(
+                method=method,
+                url=self._build_url(path),
+                status_code=412,
+                detail="Gateway native execution authority changed.",
+            )
+
+    def get_common_plugin_state(self) -> CommonPluginObservationV1:
+        """Observe skills/MCP freshness without initiating native refresh."""
+
+        observation = self._request_native_read_model(
+            "/v1/control/refresh", CommonPluginObservationV1
+        )
+        self._require_native_home_matches(
+            observation.home, method="GET", path="/v1/control/refresh"
+        )
+        return observation
+
+    def _request_native_read_model(self, path: str, model: type[_ModelT]) -> _ModelT:
+        """Keep invalid native configuration or transport details out of read errors."""
+
+        try:
+            return self._request_model("GET", path, model)
+        except GatewayHttpError as exc:
+            raise GatewayHttpError(
+                method="GET",
+                url=self._build_url(path),
+                status_code=exc.status_code,
+                detail="Gateway native resource observation is unavailable.",
+            ) from None
+        except ValueError:
+            raise GatewayHttpError(
+                method="GET",
+                url=self._build_url(path),
+                detail="Gateway native resource observation returned an invalid response.",
+            ) from None
+
+    def refresh_native(self, payload: NativeRefreshRequestV1) -> NativeRefreshResultV1:
+        """Request one bounded native refresh and preserve typed refusal results.
+
+        The native operation is never retried. Typed non-success responses are
+        returned as outcomes so CLI and passive-server callers retain common
+        observations, native effects, and restart/uncertainty information.
+        """
+
+        url = self._build_url("/v1/control/refresh")
+        request_obj = request.Request(
+            url=url,
+            method="POST",
+            data=payload.model_dump_json().encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                **({"If-Match": self.m_native_home_etag} if self.m_native_home_etag else {}),
+            },
+        )
+        try:
+            with self.m_opener.open(
+                request_obj, timeout=(payload.timeout_seconds or 30.0) + 5.0
+            ) as response:
+                encoded = response.read()
+        except error.HTTPError as exc:
+            encoded = exc.read()
+            try:
+                result = NativeRefreshResultV1.model_validate_json(encoded)
+            except ValidationError:
+                raise GatewayHttpError(
+                    method="POST",
+                    url=url,
+                    status_code=exc.code,
+                    detail="Gateway refresh returned an invalid typed refusal.",
+                ) from None
+            self._require_native_refresh_matches(result)
+            return result
+        except (error.URLError, TimeoutError, OSError):
+            raise GatewayHttpError(
+                method="POST",
+                url=url,
+                detail="Gateway refresh confirmation is unavailable; the operation was not retried.",
+            ) from None
+        try:
+            result = NativeRefreshResultV1.model_validate_json(encoded)
+        except ValidationError:
+            raise GatewayHttpError(
+                method="POST", url=url, detail="Gateway refresh returned an invalid result."
+            ) from None
+        self._require_native_refresh_matches(result)
+        return result
+
+    def _require_native_refresh_matches(self, result: NativeRefreshResultV1) -> None:
+        """Keep both refresh observations within the client-captured execution."""
+
+        for observation in (result.observation, result.before):
+            if observation is not None:
+                self._require_native_home_matches(
+                    observation.home, method="POST", path="/v1/control/refresh"
+                )
 
     def get_plugins(self) -> GatewayPluginStatusResponse:
         """Read host-maintained plugin status and active configuration identity."""
@@ -646,6 +770,8 @@ class GatewayClient:
         url = self._build_url(path)
         payload: bytes | None = None
         headers: dict[str, str] = {}
+        if path in {"/v1/native-home", "/v1/control/refresh"} and self.m_native_home_etag:
+            headers["If-Match"] = self.m_native_home_etag
         if body is not None:
             payload = json.dumps(body).encode("utf-8")
             headers["Content-Type"] = "application/json"

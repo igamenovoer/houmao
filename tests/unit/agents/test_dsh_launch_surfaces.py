@@ -15,7 +15,7 @@ import pytest
 import yaml
 
 from houmao.agents.brain_builder import BuildError, BuildRequest, build_brain_home
-from houmao.agents.dsh_configuration import DshSetup, prepare_dsh_home
+from houmao.agents.dsh_configuration import DshSetup, load_dsh_home
 from houmao.agents.launch_overrides import LaunchDefaults, ToolLaunchMetadata
 from houmao.agents.launch_overrides.resolver import resolve_launch_behavior
 from houmao.agents.launch_policy.models import SupportedVersionSpec, ToolVersion
@@ -33,6 +33,7 @@ from houmao.agents.realm_controller.launch_plan import (
     build_launch_plan,
 )
 from houmao.agents.realm_controller.loaders import RolePackage
+from houmao.agents.realm_controller.runtime import RuntimeSessionController
 from houmao.srv_ctrl.commands.main import cli
 from houmao.project.overlay import require_project_overlay
 
@@ -121,7 +122,7 @@ def test_dsh_brains_preserve_explicit_selection_and_isolate_homes(tmp_path: Path
 
 
 def test_dsh_model_override_validates_without_mutating_profile(tmp_path: Path) -> None:
-    """Leave per-turn re-preparation under the backend's invocation lock."""
+    """Validate request controls without rewriting the materialized native profile."""
 
     built = build_brain_home(_seed(tmp_path))
     patch = built.home_path / "houmao-profile.patch.json"
@@ -179,7 +180,7 @@ def test_dsh_reasoning_does_not_invent_capabilities(tmp_path: Path) -> None:
             "0",
             "off",
         ),
-        (None, ModelConfig(reasoning=ModelReasoningConfig(level=0)), "model-a", None, None),
+        (None, ModelConfig(reasoning=ModelReasoningConfig(level=0)), "model-a", None, "off"),
     ],
     ids=["saturated-override", "selected-model-fallback", "explicit-off", "nonreasoning-off"],
 )
@@ -230,18 +231,18 @@ def test_dsh_prompt_invocation_uses_the_effective_reasoning_profile_key(
     assert "Private prompt" not in command
     assert patch_path.read_bytes() == original_patch
     private = json.loads(Path(command[-1]).read_text())
-    assert private["model"] == expected_model
+    assert private["model"] == execution_model.name
     assert private["reasoning_level"] == expected_key
-    prepared = prepare_dsh_home(
+    prepared = load_dsh_home(
         built.home_path,
         DshSetup.from_file(Path(private["setup_path"])),
         plan.env,
-        private["role_prompt"],
         selected_model=private["model"],
         reasoning_level=private["reasoning_level"],
     )
-    assert prepared.model == expected_model
-    assert prepared.metadata["reasoning_effort"] == expected_effort
+    assert prepared.model == ("deepseek-official", expected_model)
+    assert prepared.reasoning_effort == expected_effort
+    assert patch_path.read_bytes() == original_patch
 
 
 def test_dsh_missing_route_and_undeclared_model_fail_before_launch(tmp_path: Path) -> None:
@@ -252,6 +253,20 @@ def test_dsh_missing_route_and_undeclared_model_fail_before_launch(tmp_path: Pat
     env.write_text("DEEPSEEK_API_KEY=synthetic\n")
     with pytest.raises(BuildError, match="endpoint reference"):
         build_brain_home(request)
+
+
+def test_dsh_controller_keeps_request_fields_separate_from_frozen_launch_defaults(
+    tmp_path: Path,
+) -> None:
+    """Reasoning-only ACP requests preserve current-native model fallback downstream."""
+
+    controller = object.__new__(RuntimeSessionController)
+    controller.backend_session = object.__new__(DshAcpSession)
+    controller.brain_manifest_path = tmp_path / "unread-frozen-brain.json"
+    controller.brain_manifest_path.write_text("invalid saved launch projection")
+    request = ModelConfig(reasoning=ModelReasoningConfig(level=1))
+    assert controller._resolve_headless_execution_model(request) == request
+    assert controller._resolve_headless_execution_model(None) is None
 
 
 @pytest.mark.parametrize("backend,profile", [("dsh_acp", "acp"), ("dsh_web", "web")])

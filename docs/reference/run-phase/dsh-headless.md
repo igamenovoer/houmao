@@ -45,6 +45,18 @@ The companion registers the full effective Houmao prompt as an additive native s
 
 Managed configuration isolates the DSH home, shared-agent root, persistence root, selected skills, and credentials. The native DeepSeek adapter uses Messages and the explicit `DEEPSEEK_BASE_URL_ANTHROPIC` reference. Generic compatible routes separately declare their adapter, protocol, endpoint, model capacities, and reasoning metadata. A shared hostname does not establish protocol compatibility. Keys remain in local environment inputs; public provenance stores references rather than values.
 
+### Materialization and Current-Home Loading
+
+Launch and explicit relaunch materialize `houmao-profile.patch.json`, `houmao-role.txt`, the private native credentials stub, skill roots, and persistence directories. An ordinary ACP invocation reads those existing files. It does not rebuild them from the saved Houmao launch plan or repair missing material. Removing required native inputs causes an explicit failure before prompt submission.
+
+Each ordinary invocation rereads the selected home `dsh-setup.yaml` for current ACP MCP declarations and explicit credential references. The materialized native patch supplies the current profile, provider configuration, model defaults, and skill-provider configuration. Editing setup launch fields alone does not regenerate that patch or role text. Native profile and patch precedence still applies; a lower-priority home setting can remain masked by a materialized launch overlay.
+
+Request-scoped model/reasoning controls use a private per-attempt overlay and advertised ACP selectors. The next prompt selects the current materialized native default, so a previous request override does not become the next default. The companion/control patch, evidence files, dispatch guard, and selected credential environment remain private per-attempt inputs. These operations do not rewrite persistent home material.
+
+For the qualified rc.3 ACP profile, a later ordinary invocation discovers skill additions, metadata edits, removals, and current MCP add/update/remove declarations while resuming the exact native conversation. Existing conversation history remains present, including older skill catalogs. The latest catalog and current tool schemas describe the next prompt's resources; old catalogs in history do not establish current discovery. Skill bodies remain native on-demand loads; editing a body does not replace material already recorded in conversation history.
+
+The generic Houmao refresh contract uses this qualified next-invocation boundary without starting a worker, creating a conversation, or making a model request. Between prompts, there is no live native ACP worker whose resources Houmao can report as currently loaded. Passive inspection preserves that distinction. Refresh never restarts a worker or materializes edited Houmao profiles; explicit relaunch performs manifest-backed generation under its separate conversation policy.
+
 ### Setup Fields
 
 The selected tool setup supplies `dsh-setup.yaml`. Packaged starter and fixture adapters both project it into the private managed home. The starter intentionally has an empty model catalog, so a contributor must provide exact model metadata before building an agent.
@@ -58,9 +70,9 @@ The selected tool setup supplies `dsh-setup.yaml`. Packaged starter and fixture 
 | `models` | A nonempty exact catalog. Each entry requires `id`, positive `context_window`, positive `max_output_tokens`, and explicit `reasoning`. Output capacity cannot exceed context capacity. |
 | `selected_model` | One exact declared model ID. Common launch/profile model overrides must also resolve to this catalog. |
 | `models[].reasoning` | `false` for a model without reasoning, or consecutive numbered positive presets starting at `1`. Optional preset `0` maps to `off`. Positive presets name supported native efforts; common integer reasoning overrides saturate at the highest declared positive preset. |
-| `skill_roots` | Optional absolute directories, added to the managed selected-skill projection. Native user-global skill discovery and skill watching are disabled. |
+| `skill_roots` | Optional absolute directories, added during launch materialization. The generated native skill-provider configuration disables user-global discovery and watching; later invocations consume its current configuration. |
 | `mcp_servers` | Optional ACP stdio or Streamable HTTP declarations. Stdio requires an absolute `command`, string `args`, and ordered `env` name/value entries. HTTP uses `type: http`, an absolute HTTP(S) `url`, and ordered `headers`. SSE is unsupported by the pinned ACP build. |
-| `hmr` | `false`; configuration and projected assets activate at startup. |
+| `hmr` | `false` for this setup format; native ACP inputs activate at each ordinary worker startup. |
 
 The endpoint must implement the selected protocol. Preserve the base path required by that deployment; Houmao does not rewrite a Chat Completions endpoint into Messages or add a guessed version suffix. Credential-bearing URLs and query strings are rejected for provider endpoints.
 
@@ -126,7 +138,7 @@ The launch command requires the qualified DSH executable and a model server at t
 
 ### Startup Permissions and Prompt Provenance
 
-The default `unattended` posture writes the qualified native approval policy `never` and sandbox mode `workspace-write`. Native hard denies remain enforceable. Selecting `as_is` through the specialist's `--no-unattended` option omits those permission overrides and preserves native defaults. ACP permission requests without a supported responder are rejected; headless mode does not invent an operator dialog. The selected mode is recorded with configuration provenance and carried into each per-turn preparation.
+The default `unattended` posture writes the qualified native approval policy `never` and sandbox mode `workspace-write`. Native hard denies remain enforceable. Selecting `as_is` through the specialist's `--no-unattended` option omits those permission overrides and preserves native defaults. ACP permission requests without a supported responder are rejected; headless mode does not invent an operator dialog. Launch records the selected mode with configuration provenance. Later ordinary invocations consume the materialized native permissions without reapplying that saved launch mode.
 
 Prompt provenance records the SHA-256 digest of the complete effective launch prompt. The private role file retains the literal bytes, while public metadata contains no prompt or key values. Rebuilding with an empty prompt replaces the old managed role file, and the companion registers no stale section. The companion and starter setup ship as package resources; provider launch requires no JavaScript build or package installation. DSH's built-in system sections, working-directory project instructions, and tool schemas remain native inputs alongside the additive Houmao section.
 
@@ -138,9 +150,9 @@ Consumed tokens come from settled provider attempts, not ACP context-occupancy u
 
 ## Capability Limits
 
-The selected contract supports creation, exact resume, prompt, cancel, close, native system instructions, selected skills, and native journal accounting. `session/load`, transcript replay, deletion, fork, additional workspaces, raw keystrokes, and coordinated resource refresh are unsupported. Change 01 makes no interactive support claim; the succeeding change owns the browser surface selected by `tui`.
+The selected ACP wire contract supports creation, exact resume, prompt, cancel, close, native system instructions, selected skills, and native journal accounting. `session/load`, transcript replay, deletion, fork, additional workspaces, raw keystrokes, and a live ACP wire reload are unsupported. The browser surface selected by `tui` has a separate native observation and refresh mechanism.
 
-Gateway attach/manifest metadata exposes these lists under `backend_metadata.native_capabilities`, including `resource_activation: startup-only` and `accounting_source: dsh-journal-v4`. Unsupported selectors fail validation before native mutation. Profile edits do not advertise coordinated live activation; launch a later explicitly selected invocation to apply startup inputs.
+Gateway attach/manifest metadata exposes these capability lists under `backend_metadata.native_capabilities`, including `resource_activation: next-invocation` and `accounting_source: dsh-journal-v4`. Supported operations include native-home inspection, common-plugin observation, and home refresh. The unsupported `acp_wire_reload` operation remains separate from qualified future consumption through the generic refresh contract. Unsupported selectors fail validation before native mutation. The common view covers skills and MCP; native-special-plugin state remains agent-native. Live qualification and future boundaries come from the common observation rather than the static operation list.
 
 ## Qualification
 
@@ -154,3 +166,5 @@ HOUMAO_DSH_EXECUTABLE="$PWD/tmp/dsh/npm-runtime/node_modules/.bin/dsh" \
 These tests establish native behavior without a paid provider. The required live DeepSeek gate separately exercises prompt/tool completion, interruption, continuation, accounting, and isolation. An unavailable self-hosted lane must be recorded as not run. Neither passing unit tests nor a version-matched executable establishes live provider acceptance.
 
 Run all controlled native scenarios with the same explicit executable using `pixi run pytest -q tests/integration/agents/dsh`. Managed scenarios install a private tmux wrapper whose every invocation targets an explicit isolated socket. Both inherited `TMUX` and `TMUX_PANE` are cleared, and cleanup addresses only that private server. Live qualification uses the [opt-in DSH runner](../../../scripts/qualification/dsh/README.md) and an explicitly selected external env file.
+
+`test_current_home.py::test_exact_continuation_consumes_external_skill_and_mcp_changes` executes raw and manager fixture flows with the explicit `cloud-api` case, synthetic selected credentials, and a controlled local Messages endpoint. Four ordinary turns qualify skill/MCP add, update, and remove, preserve edited role/credentials/profile/setup bytes, retain one exact conversation, and produce exactly four provider requests. `test_request_model_controls_return_to_current_native_defaults` qualifies transient model/reasoning overrides and externally edited native defaults. These tests establish selected rc.3 behavior; they do not qualify another installed version, every native plugin, or live-provider acceptance.

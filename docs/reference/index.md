@@ -25,6 +25,9 @@
 - [Launch Plan](run-phase/launch-plan.md): Composing manifest + role into a backend-specific plan.
 - [Session Lifecycle](run-phase/session-lifecycle.md): Start, resume, prompt, and stop sessions.
 - [Backends](run-phase/backends.md): Backend model and per-backend notes.
+- [Native Home and Common-Plugin Refresh](run-phase/native-refresh.md): External update, passive freshness checks, native automatic updates, refresh effects, and the separate relaunch boundary.
+- [Native Refresh Compatibility](run-phase/native-refresh-compatibility.md): Best-effort Kimi Code, Codex, and Claude Code evidence, managed transport limits, and common-plugin freshness coverage.
+- [Native Refresh Acceptance](run-phase/native-refresh-acceptance.md): Scenario-level evidence for all 112 native-home/common-refresh, CLI, DSH headless, and passive-proxy delta scenarios.
 - [DSH Headless Compatibility](run-phase/dsh-headless.md): Qualified ACP runtime, explicit setup, native prompt projection, and lifecycle limits.
 - [DSH Headless Integrations](run-phase/dsh-headless-integrations.md): Gateway, passive-server, mailbox, and owner-bound plugin behavior.
 - [DSH Headless Acceptance](run-phase/dsh-headless-acceptance.md): Scenario evidence and remaining qualification gates.

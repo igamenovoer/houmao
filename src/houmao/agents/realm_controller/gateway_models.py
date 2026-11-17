@@ -431,6 +431,9 @@ class GatewayDshCapabilitiesV1(_StrictGatewayModel):
             "native_system_prompt",
             "skills",
             "journal_accounting",
+            "native_home",
+            "common_plugin_observation",
+            "native_home_refresh",
         ]
     )
     unsupported_operations: list[str] = Field(
@@ -441,11 +444,11 @@ class GatewayDshCapabilitiesV1(_StrictGatewayModel):
             "fork",
             "additional_workspaces",
             "raw_keys",
-            "live_refresh",
+            "acp_wire_reload",
             "interactive_web",
         ]
     )
-    resource_activation: Literal["startup-only"] = "startup-only"
+    resource_activation: Literal["next-invocation"] = "next-invocation"
     accounting_source: Literal["dsh-journal-v4"] = "dsh-journal-v4"
 
 
@@ -520,7 +523,7 @@ class GatewayAttachBackendMetadataWebV1(_StrictGatewayModel):
     origin: str
     browser_url: str
     identity: GatewayWebExecutionIdentityV1
-    resource_activation: Literal["startup-only"] = "startup-only"
+    resource_activation: Literal["native-config-resources"] = "native-config-resources"
     accounting_source: Literal["dsh-journal-v4"] = "dsh-journal-v4"
     supported_operations: list[str] = Field(
         default_factory=lambda: [
@@ -534,6 +537,9 @@ class GatewayAttachBackendMetadataWebV1(_StrictGatewayModel):
             "journal_accounting",
             "admission_receipt",
             "operator_admission_policies",
+            "native_home",
+            "common_plugin_observation",
+            "native_home_refresh",
         ]
     )
     unsupported_operations: list[str] = Field(
@@ -545,7 +551,7 @@ class GatewayAttachBackendMetadataWebV1(_StrictGatewayModel):
             "terminal_tracking",
             "tui_timing",
             "external_host_adoption",
-            "live_refresh",
+            "hot_code_hmr",
         ]
     )
 

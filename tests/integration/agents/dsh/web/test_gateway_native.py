@@ -45,6 +45,9 @@ def _runtime(
     executable: Path,
     endpoint: str,
     monkeypatch: pytest.MonkeyPatch,
+    *,
+    agent_id: str = "owner1",
+    session_name: str = "HOUMAO-web-integration",
 ) -> tuple[GatewayServiceRuntime, DshWebSession]:
     """Create owned native execution and reconstruct exact controllers without ambient accounts."""
 
@@ -58,7 +61,7 @@ def _runtime(
         metadata={
             **plan.metadata,
             "managed_web_identity": {
-                "agent_id": "owner1",
+                "agent_id": agent_id,
                 "runtime_session_id": "runtime1",
                 "generation": "web-integration-generation",
             },
@@ -68,7 +71,7 @@ def _runtime(
     manifest.parent.mkdir()
     definitions = root / "agent-defs"
     definitions.mkdir()
-    name = "HOUMAO-web-integration"
+    name = session_name
     backend = DshWebSession.from_launch_plan(
         launch_plan=plan,
         session_manifest_path=manifest,
@@ -88,7 +91,7 @@ def _runtime(
             backend_session=selected,
             agent_def_dir=definitions,
             agent_identity=name,
-            agent_id="owner1",
+            agent_id=agent_id,
             tmux_session_name=name,
             registry_generation_id="web-integration-generation",
         )

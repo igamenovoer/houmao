@@ -580,6 +580,18 @@ def prepare_run(
         selected_env = {**values, **runtime_values(config), HOME_VARIABLE[config.client]: str(home)}
         write_json(run_dir / "private-env.json", selected_env)
         env = isolated_environment(selected_env, run_dir=run_dir)
+        if config.client == "dsh" and config.surface == "raw" and config.mode == "headless":
+            from houmao.agents.dsh_configuration import DshSetup, prepare_dsh_home
+
+            prepare_dsh_home(
+                home,
+                DshSetup.from_file(home / "dsh-setup.yaml"),
+                env,
+                (assets / "roles" / role / "system-prompt.md").read_text(),
+                selected_model=config.model,
+                skill_roots=(home / "skills",),
+                operator_prompt_mode=config.operator_prompt_mode,
+            )
         if config.surface != "raw":
             metadata.update(_prepare_project(config, run_dir, assets, values, role=role, env=env))
         metadata["status"] = "prepared"

@@ -5,9 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 import ipaddress
 import json
+import math
 import os
 from pathlib import Path
 import threading
+import time
 from typing import Any, cast
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -245,6 +247,57 @@ class DshWebClient:
         """Read a fresh native snapshot without cold activation."""
 
         return cast(dict[str, Any], self.call("state", {"identity": identity}))
+
+    def observe_common_plugins(self, identity: Mapping[str, Any]) -> dict[str, Any]:
+        """Read source/runtime common-resource evidence without initiating reload."""
+
+        return cast(dict[str, Any], self.call("common_state", {"identity": identity}))
+
+    def refresh_common_plugins(
+        self,
+        identity: Mapping[str, Any],
+        *,
+        timeout_seconds: float,
+        deadline_monotonic: float | None = None,
+    ) -> dict[str, Any]:
+        """Request one non-restarting native refresh, preserving its partial outcome."""
+
+        if (
+            not math.isfinite(timeout_seconds)
+            or timeout_seconds <= 0
+            or (deadline_monotonic is not None and not math.isfinite(deadline_monotonic))
+        ):
+            raise DshWebError(
+                "invalid_request", "Native refresh timeout must be positive and finite"
+            )
+        deadline = min(
+            deadline_monotonic if deadline_monotonic is not None else float("inf"),
+            time.monotonic() + timeout_seconds,
+        )
+        if not math.isfinite(deadline):
+            raise DshWebError("invalid_request", "Native refresh deadline must be finite")
+        try:
+            with self.m_lock:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise DshWebError("expired", "Native refresh deadline elapsed before handoff")
+                return cast(
+                    dict[str, Any],
+                    self.call(
+                        "refresh",
+                        {
+                            "identity": identity,
+                            "timeout_seconds": remaining,
+                            "deadline_monotonic_ms": deadline * 1000,
+                        },
+                    ),
+                )
+        except DshWebError as exc:
+            if exc.code == "outcome_uncertain":
+                raise DshWebError(
+                    exc.code, "Native refresh response was lost; inspect common state"
+                ) from None
+            raise
 
     def history(
         self, identity: Mapping[str, Any], *, after_sequence: int = -1, limit: int = 100

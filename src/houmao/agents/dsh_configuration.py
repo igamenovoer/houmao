@@ -1,4 +1,4 @@
-"""Validate explicit DSH model routes and prepare isolated native ACP profiles."""
+"""Materialize DSH launch profiles and read current native ACP invocation inputs."""
 
 from __future__ import annotations
 
@@ -230,6 +230,211 @@ class DshPreparedHome:
     mcp_servers: tuple[dict[str, Any], ...]
 
 
+@dataclass(frozen=True)
+class DshLoadedHome:
+    """Carry current native defaults and optional private invocation overrides."""
+
+    patch_path: Path
+    role_path: Path
+    persistence_root: Path
+    agents_home: Path
+    environment: dict[str, str]
+    mcp_servers: tuple[dict[str, Any], ...]
+    model: tuple[str, str]
+    reasoning_effort: str | None
+    invocation_patch: tuple[dict[str, Any], ...]
+
+
+def load_dsh_home(
+    home_path: Path,
+    setup: DshSetup,
+    environment: Mapping[str, str],
+    *,
+    selected_model: str | None = None,
+    reasoning_level: str | None = None,
+) -> DshLoadedHome:
+    """Read a materialized home without rebuilding or repairing its files.
+
+    Parameters
+    ----------
+    home_path:
+        Existing managed native home. Launch materialization owns its creation.
+    setup:
+        Current setup loaded from its selected file, including current ACP MCP
+        declarations and explicit credential references.
+    environment:
+        Explicit selected invocation environment, filtered for credential isolation.
+    selected_model, reasoning_level:
+        Request-scoped overrides only. Absent controls select the current
+        materialized native defaults rather than a previous turn's override.
+
+    Returns
+    -------
+    DshLoadedHome
+        Read-only native paths, selected private environment, current MCP inputs,
+        and a detached transient patch for explicit model controls.
+
+    Raises
+    ------
+    DshConfigurationError
+        Required material is missing or an explicit override cannot be applied.
+    """
+
+    home = home_path.resolve()
+    patch_path = home / "houmao-profile.patch.json"
+    role_path = home / "houmao-role.txt"
+    agents_home = home / "shared-agents"
+    if (
+        not home.is_dir()
+        or not role_path.is_file()
+        or not (home / "houmao-empty-credentials.yaml").is_file()
+        or not agents_home.is_dir()
+    ):
+        raise DshConfigurationError("DSH requires an existing materialized native home")
+    try:
+        raw = json.loads(patch_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise DshConfigurationError("Cannot read the materialized DSH native patch") from exc
+    if not isinstance(raw, list) or any(not isinstance(row, dict) for row in raw):
+        raise DshConfigurationError("DSH native patch must contain a list of rows")
+    configs = {
+        row["id"]: row["config"]
+        for row in raw
+        if isinstance(row.get("id"), str) and "config" in row
+    }
+    persistence = _mapping(configs.get("session-persistence-jsonl"), "persistence config")
+    persistence_root = Path(_text(persistence.get("root"), "persistence root"))
+    if not persistence_root.is_absolute() or not persistence_root.is_dir():
+        raise DshConfigurationError("DSH requires an existing absolute persistence root")
+    private_environment = _selected_environment(home, setup, environment)
+    patch: list[dict[str, Any]] = []
+    acp = dict(_mapping(configs.get("acp"), "materialized ACP config"))
+    provider_name = _text(acp.get("provider"), "materialized ACP provider")
+    model_name = _text(acp.get("model"), "materialized ACP model")
+    model_selection = (provider_name, model_name)
+    effort = _materialized_reasoning(configs, provider_name, model_name)
+    if selected_model is not None or reasoning_level is not None:
+        model_name = selected_model or _text(acp.get("model"), "materialized ACP model")
+        model, effort = setup.select_model(model_name, reasoning_level)
+        if selected_model is not None and effort is None and model.reasoning is not None:
+            default_level = "0" if "0" in model.reasoning else min(model.reasoning, key=int)
+            effort = model.reasoning[default_level]
+        if selected_model is not None:
+            model_selection = (setup.route, model.id)
+        if selected_model is not None:
+            acp.update({"provider": setup.route, "model": model.id})
+            patch.append({"id": "acp", "config": acp})
+        if setup.adapter == "deepseek":
+            config = dict(_mapping(configs.get("llm-deepseek"), "materialized adapter config"))
+            if selected_model is not None:
+                config.update(
+                    {
+                        "maxTokens": model.max_output_tokens,
+                        "defaultContextWindow": model.context_window,
+                    }
+                )
+                if model.reasoning is None:
+                    config.update({"thinking": "disabled", "reasoningEffort": "off"})
+                    effort = "off"
+                else:
+                    config["thinking"] = "enabled"
+            elif effort not in {None, "off"}:
+                config["thinking"] = "enabled"
+            if effort is not None:
+                config["reasoningEffort"] = effort
+            patch.append({"id": "llm-deepseek", "config": config})
+        else:
+            config = dict(_mapping(configs.get("llm-pi-ai"), "materialized adapter config"))
+            providers = dict(_mapping(config.get("providers"), "materialized providers"))
+            provider = dict(_mapping(providers.get(setup.route), "materialized provider"))
+            if selected_model is not None:
+                provider.update(
+                    {
+                        "defaultMaxTokens": model.max_output_tokens,
+                        "defaultContextWindow": model.context_window,
+                    }
+                )
+                if model.reasoning is None:
+                    provider.pop("reasoning", None)
+            if effort is not None:
+                provider["reasoning"] = effort
+            providers[setup.route] = provider
+            config["providers"] = providers
+            patch.append({"id": "llm-pi-ai", "config": config})
+    return DshLoadedHome(
+        patch_path,
+        role_path,
+        persistence_root,
+        agents_home,
+        private_environment,
+        setup.mcp_servers,
+        model_selection,
+        effort,
+        tuple(patch),
+    )
+
+
+def _materialized_reasoning(configs: Mapping[str, Any], provider: str, model: str) -> str | None:
+    """Read native provider defaults without mapping frozen launch selections."""
+
+    if provider == "deepseek-official":
+        config = _mapping(configs.get("llm-deepseek"), "materialized adapter config")
+        if config.get("thinking") == "disabled":
+            return "off"
+        return _text(config.get("reasoningEffort", "high"), "materialized reasoning effort")
+    config = _mapping(configs.get("llm-pi-ai"), "materialized adapter config")
+    providers = _mapping(config.get("providers"), "materialized providers")
+    profile = _mapping(providers.get(provider), "materialized provider")
+    catalog = profile.get("models", [])
+    if not isinstance(catalog, list):
+        raise DshConfigurationError("Materialized provider models must be a list")
+    entry = next(
+        (item for item in catalog if isinstance(item, dict) and item.get("id") == model),
+        None,
+    )
+    if entry is None or not isinstance(entry.get("reasoningEfforts"), dict):
+        return None
+    # ACP advertises the empty value when the provider has no explicit default.
+    value = profile.get("reasoning", "")
+    if not isinstance(value, str):
+        raise DshConfigurationError("Materialized reasoning effort must be a string")
+    return value
+
+
+def _selected_environment(
+    home: Path, setup: DshSetup, environment: Mapping[str, str]
+) -> dict[str, str]:
+    """Select declared routing/authentication without changing native home files."""
+
+    endpoint = environment.get(setup.base_url_env, "").strip()
+    key = environment.get(setup.api_key_env, "")
+    if not endpoint:
+        raise DshConfigurationError(f"DSH launch requires endpoint reference {setup.base_url_env}")
+    if not key.strip():
+        raise DshConfigurationError(f"DSH launch requires credential reference {setup.api_key_env}")
+    parsed = _http_url(endpoint, field="endpoint")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise DshConfigurationError(
+            "DSH endpoint cannot contain credentials, query parameters, or fragments"
+        )
+    result = {
+        name: value
+        for name, value in environment.items()
+        if name
+        not in {"DSH_HOME", "DSH_AGENTS_HOME", "DSH_PERMISSION_MODE", "DSH_BUNDLED_SKILL_DIR"}
+        and not re.search(r"API_KEY|TOKEN|SECRET|PASSWORD|ACCESS_KEY|BASE_URL", name)
+    }
+    result.update(
+        {
+            "DSH_HOME": str(home),
+            "DSH_AGENTS_HOME": str(home / "shared-agents"),
+            setup.api_key_env: key,
+            setup.base_url_env: endpoint,
+        }
+    )
+    return result
+
+
 def prepare_dsh_home(
     home_path: Path,
     setup: DshSetup,
@@ -278,18 +483,9 @@ def prepare_dsh_home(
     if effort is None and model.reasoning is not None:
         default_level = "0" if "0" in model.reasoning else min(model.reasoning, key=int)
         effort = model.reasoning[default_level]
-    endpoint = environment.get(setup.base_url_env, "").strip()
-    key = environment.get(setup.api_key_env, "")
-    if not endpoint:
-        raise DshConfigurationError(f"DSH launch requires endpoint reference {setup.base_url_env}")
-    if not key.strip():
-        raise DshConfigurationError(f"DSH launch requires credential reference {setup.api_key_env}")
-    parsed = _http_url(endpoint, field="endpoint")
-    if parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise DshConfigurationError(
-            "DSH endpoint cannot contain credentials, query parameters, or fragments"
-        )
     home = home_path.resolve()
+    private_env = _selected_environment(home, setup, environment)
+    endpoint = private_env[setup.base_url_env]
     roots = tuple(dict.fromkeys([*setup.skill_roots, *(path.resolve() for path in skill_roots)]))
     if any(not root.is_dir() for root in roots):
         raise DshConfigurationError("Every selected DSH skill root must exist as a directory")
@@ -386,21 +582,6 @@ def prepare_dsh_home(
         )
     patch_path = home / "houmao-profile.patch.json"
     _write_private(patch_path, json.dumps(patch, ensure_ascii=False, indent=2) + "\n")
-    private_env = {
-        name: value
-        for name, value in environment.items()
-        if name
-        not in {"DSH_HOME", "DSH_AGENTS_HOME", "DSH_PERMISSION_MODE", "DSH_BUNDLED_SKILL_DIR"}
-        and not re.search(r"API_KEY|TOKEN|SECRET|PASSWORD|ACCESS_KEY|BASE_URL", name)
-    }
-    private_env.update(
-        {
-            "DSH_HOME": str(home),
-            "DSH_AGENTS_HOME": str(agents_home),
-            setup.api_key_env: key,
-            setup.base_url_env: endpoint,
-        }
-    )
     metadata: dict[str, Any] = {
         "adapter": setup.adapter,
         "protocol": setup.protocol,

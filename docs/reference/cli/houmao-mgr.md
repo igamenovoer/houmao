@@ -84,11 +84,11 @@ For dedicated coverage of complex nested command families, see:
 - `agents global` does not target exactly one agent and does not accept `--agent-id` or `--agent-name`. `agents global list` reads the shared local registry and may include local managed agents from multiple project overlays.
 - `agents single` requires exactly one group-level selector, either `--agent-id <id>` or `--agent-name <name>`. Nested commands consume that group selector; leaf commands do not repeat it.
 - `agents single` does not fall back to the current tmux session. Use `agents self ...` for the current managed session.
-- `agents single` owns selected-agent lifecycle controls: `state`, `prompt`, `interrupt`, `stop`, `relaunch`, `gateway`, `mail`, `mailbox`, `memory`, `turn`, and `cleanup`.
+- `agents single` owns selected-agent lifecycle controls: `state`, `home`, `refresh`, `prompt`, `interrupt`, `stop`, `relaunch`, `gateway`, `mail`, `mailbox`, `memory`, `turn`, and `cleanup`.
 - `agents single relaunch` has selected-agent recovery authority. It may refresh an active tmux-backed surface, revive stopped relaunchable records, and recover degraded or stale active records where the runtime supports those paths.
 - `agents self join` adopts the current tmux session as one managed-agent identity. `join` may accept identity creation fields such as `--agent-name`; those fields do not select another existing agent.
 - `agents self` follow-up commands resolve the target from the caller's current managed tmux session and do not accept `--agent-id`, `--agent-name`, or `--current-session`.
-- `agents self` exposes `identity`, `state`, `prompt`, `interrupt`, `relaunch`, `gateway`, `mail`, `mailbox`, `memory`, and `turn`. It intentionally does not expose `stop`, `cleanup`, or an effective-system-prompt retrieval command. Inspect secret-free prompt method and digest provenance in maintained manifests instead of retrieving prompt text through the manager.
+- `agents self` exposes `identity`, `state`, `home`, `refresh`, `prompt`, `interrupt`, `relaunch`, `gateway`, `mail`, `mailbox`, `memory`, and `turn`. It intentionally does not expose `stop`, `cleanup`, or an effective-system-prompt retrieval command. Inspect secret-free prompt method and digest provenance in maintained manifests instead of retrieving prompt text through the manager.
 - `agents self relaunch` is active-current-session refresh only. Selected-agent stopped-record revival and degraded/stale recovery remain under `agents single --agent-id <id> relaunch` or `agents single --agent-name <name> relaunch`.
 - `agents external` manages remotely owned or communication-only references. It does not expose local lifecycle commands such as `prompt`, `interrupt`, `stop`, `relaunch`, `gateway`, `turn`, or `cleanup` under the `external` group.
 
@@ -104,7 +104,10 @@ Managed-agent birth is source-scoped. Public project-backed launch is `houmao-mg
 | Prompt the current managed session | `houmao-mgr agents self prompt --prompt <text>` |
 | Stop one selected agent | `houmao-mgr agents single --agent-id <id> stop` |
 | Relaunch one selected stopped/degraded agent | `houmao-mgr agents single --agent-id <id> relaunch` |
-| Refresh the current managed session | `houmao-mgr agents self relaunch` |
+| Read the current native home | `houmao-mgr agents self home` |
+| Check current skill/MCP freshness | `houmao-mgr agents self refresh --check` |
+| Refresh native resources without agent restart | `houmao-mgr agents self refresh` |
+| Relaunch the current managed session | `houmao-mgr agents self relaunch` |
 | Adopt the current tmux session | `houmao-mgr agents self join --agent-name <name>` |
 | Selected-agent gateway operation | `houmao-mgr agents single --agent-id <id> gateway status` |
 | Current-session gateway operation | `houmao-mgr agents self gateway status` |

@@ -41,6 +41,7 @@ Available functionality:
 - `join` one already-running supported provider session.
 - `list` current live managed agents from the lifecycle perspective.
 - `stop`, `relaunch`, or `cleanup` selected managed-agent instances.
+- Inspect the active native home and check/refresh skill and MCP resources without restarting the agent.
 - `runtime-variables` for typed, revisioned per-instance values.
 - `mindsets` for named question sets, current revisions, diffs, and atomic skill snapshots.
 - `private-workspace` for manifest validation, semantic directory resolution, materialization, remapping, tracking posture, mindset projection, and safe cleanup.
@@ -63,6 +64,8 @@ Related skills and boundaries:
 - Use `houmao-shared-routines->houmao-agent-gateway` for gateway sidecar lifecycle and gateway-only control.
 
 ## Subcommands
+
+For native-resource follow-up, use `houmao-mgr agents single --agent-id <id> home` or verified `agents self home`, then update native files through external tooling. `refresh --check` reads skill/MCP freshness; `refresh` requests native rediscovery and can also reload native-specific extensions. Report current/pending/unknown evidence and native boundaries. A busy self refresh must not wait for its own active turn; a qualified automatic result can describe the next turn/load. Refresh never installs packages, regenerates Houmao launch materials, or restarts the agent. A restart-required result calls for a separate explicit relaunch decision, preserving its conversation policy. Read native-special-plugin state through the body's native facilities.
 
 This packaged skill covers these managed-agent instance lifecycle and state actions:
 

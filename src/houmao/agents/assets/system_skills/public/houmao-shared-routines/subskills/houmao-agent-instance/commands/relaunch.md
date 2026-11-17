@@ -2,6 +2,8 @@
 
 Use this action only when the user wants to relaunch one tmux-backed managed-agent surface without rebuilding the managed-agent home. Relaunch can target either an active managed session or a stopped relaunchable lifecycle record; stopped relaunch revives the same managed-agent identity, session root, and built home instead of behaving like a fresh launch.
 
+For skills/MCP updates that should preserve the running agent, use the parent's native-resource guidance and scoped `refresh --check` or `refresh`. Do not translate that request into relaunch. Refresh can report partial effects or restart-required; invoke this relaunch workflow only for a separately explicit restart/relaunch request. Relaunch can regenerate launch-derived material and follows its stored/default conversation policy.
+
 ## Workflow
 
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.

@@ -4,6 +4,7 @@ import { chmodSync, existsSync, readFileSync, renameSync, statSync, writeFileSyn
 import { isAbsolute } from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
+import { createCommonRefresh } from './managed-refresh.mjs';
 
 export const name = 'houmao-managed-web';
 export const inject = ['agents', 'sessions', 'agentPresets', 'llm', 'systemPrompt', 'sessionPersistence', 'sessionQuery', 'connection', 'webServer', 'typertGateway', 'attachments'];
@@ -209,6 +210,16 @@ export function apply(ctx, config) {
     const {installModelSelection} = await import(pathToFileURL(nativeRequire.resolve('@deepseek-ai/dsh-agent')).href);
     return {agentPreset: preset.id, setup: async agentCtx => { installModelSelection(agentCtx); await ctx.agentPresets.mount(agentCtx, preset.id); }};
   };
+  const commonRefresh = createCommonRefresh(ctx, {
+    cwd: control.working_directory, identity, live, authenticate, requireIdentity,
+    pendingInteractions, pendingInbox, fail,
+    ready: async agent => {
+      const value = snapshot(agent, true);
+      if (!value.available || !value.model || value.interaction_waits.length) return false;
+      await ctx.llm.resolveCallConfig(agent.model.current());
+      return true;
+    },
+  });
 
   ctx.on('webserver/entry-url', (origin, entries) => {
     const signed = entries.find(entry => new URL(entry.url).searchParams.has('token'));
@@ -287,7 +298,9 @@ export function apply(ctx, config) {
   ctx.on('agent/disposed', ({agent}) => { if (agent === root) record('disposed', agent); });
 
   const operations = {
-    describe: async () => ({protocol_version: VERSION, identity: identity(root), capabilities: ['state', 'history', 'conversation', 'prompt', 'receipt', 'interrupt', 'start', 'reset', 'stop', 'set_model'], build: '0.2.2-rc.3'}),
+    describe: async () => ({protocol_version: VERSION, identity: identity(root), capabilities: ['state', 'history', 'conversation', 'prompt', 'receipt', 'interrupt', 'start', 'reset', 'stop', 'set_model', 'common_state', 'refresh'], build: '0.2.2-rc.3'}),
+    common_state: async request => commonRefresh.observe(requireIdentity(request.identity)),
+    refresh: async (request, signal, peer) => commonRefresh.refresh(requireIdentity(request.identity), request, signal, peer),
     state: async request => {
       if (request.identity) requireIdentity(request.identity);
       if (!live()) return snapshot(root);

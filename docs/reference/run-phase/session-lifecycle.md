@@ -143,6 +143,10 @@ def close() -> None
 
 Releases resources held by the session controller without necessarily terminating the underlying agent process. Use this when detaching from a session that should continue running.
 
+### Native Home and Refresh
+
+Use scoped `agents single ... home` or `agents self home` to inspect the active native home. `refresh --check` observes common skill/MCP freshness without initiating reload. `refresh` chooses verified no-op, automatic future discovery, or a qualified native reload. It preserves the running agent and conversation, can have broader native extension effects, and never applies edited Houmao launch profiles or regenerates launch-derived materials. See [Native Home and Common-Plugin Refresh](native-refresh.md).
+
 ### relaunch
 
 ```python

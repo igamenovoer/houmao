@@ -126,6 +126,9 @@ Gateway routes proxy to the agent-owned gateway when one is attached. Gateway at
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/houmao/agents/{agent_ref}/gateway` | Gateway status. |
+| `GET` | `/houmao/agents/{agent_ref}/gateway/native-home` | Authoritative native-home descriptor from the agent gateway. |
+| `GET` | `/houmao/agents/{agent_ref}/gateway/control/refresh` | Passive skill/MCP capabilities, freshness, native boundaries, and health. |
+| `POST` | `/houmao/agents/{agent_ref}/gateway/control/refresh` | One observe-first refresh through the agent-owned gateway. |
 | `POST` | `/houmao/agents/{agent_ref}/gateway/requests` | Create a gateway request. |
 | `POST` | `/houmao/agents/{agent_ref}/gateway/control/prompt` | Submit a prompt through live-gateway control. |
 | `POST` | `/houmao/agents/{agent_ref}/gateway/control/send-keys` | Send raw gateway control input. |
@@ -136,6 +139,10 @@ Gateway routes proxy to the agent-owned gateway when one is attached. Gateway at
 | `POST` | `/houmao/agents/{agent_ref}/gateway/tui/note-prompt` | Record explicit prompt provenance on the gateway tracker. |
 | `POST` | `/houmao/agents/{agent_ref}/gateway/attach` | Returns not implemented; run local `houmao-mgr agents single --agent-id <id> gateway attach` or `houmao-mgr agents self gateway attach` on the host that owns the agent. |
 | `POST` | `/houmao/agents/{agent_ref}/gateway/detach` | Returns not implemented; run local gateway detach on the host that owns the agent. |
+
+Native-home and refresh projections use the shared [native refresh contracts](../gateway/operations/native-refresh.md). GET preserves normal pending/unknown observations as HTTP 200. POST preserves typed no-op, automatic, confirmed, busy, restart-required, unsupported, partial, and uncertain outcomes, including already-applied effects and native-only diagnostics. It accepts only `schema_version` and an optional finite positive `timeout_seconds` up to 120 seconds (default 30). A missing or unreachable gateway returns HTTP 502. The passive server makes no local freshness decision, reads no native home material, and performs no automatic attachment, relaunch, replacement process, or retry.
+
+`PassiveServerClient.refresh_managed_agent_gateway_native()` returns typed non-success refresh outcomes. Its HTTP timeout adds ten seconds to the requested native budget for the gateway and passive-server hops. Transport, invalid-response, and scoped resolution errors remain exceptions with safe diagnostics.
 
 ### Gateway Memory Proxy
 

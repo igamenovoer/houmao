@@ -91,6 +91,24 @@ from houmao.gateway.plugins import (
 from houmao.agents.realm_controller.usage_models import UsagePage
 from houmao.agents.realm_controller.usage_store import UsageStoreError
 from houmao.agents.realm_controller.usage_support import UsageService
+from houmao.agents.realm_controller.native_refresh import (
+    inspect_native_home,
+    inspect_native_home_from_manifest,
+    observe_common_plugins,
+    perform_native_refresh,
+    plan_native_refresh,
+    unknown_common_observation,
+)
+from houmao.agents.realm_controller.native_refresh_models import (
+    CommonPluginObservationV1,
+    NativeHomeChangedError,
+    NativeHomeV1,
+    NativeRefreshRequestV1,
+    NativeRefreshResultV1,
+    native_home_etag,
+    native_refresh_status_code,
+    refresh_guard_can_release,
+)
 from houmao.mailbox.models import MailChannel, MailboxChannelStatusV1
 from houmao.mailbox.scope import MailScope, MailboxScopeError
 from houmao.mailbox.errors import GatewayMailboxMutationError
@@ -1756,6 +1774,11 @@ class GatewayServiceRuntime:
         self.m_plugin_host: GatewayPluginHost | None = None
         self.m_plugin_lifecycle_deferred: bool = False
         self.m_plugin_dispatch_pending: bool = False
+        self.m_prompt_control_inflight: int = 0
+        self.m_native_refresh_active: bool = False
+        self.m_native_refresh_uncertain: bool = False
+        self.m_native_refresh_operation_id: int = 0
+        self.m_native_refresh_thread: threading.Thread | None = None
         usage_manifest = self.m_attach_contract.manifest_path
         self.m_usage_manifest_path: Path = (
             Path(usage_manifest).expanduser().resolve()
@@ -1946,6 +1969,221 @@ class GatewayServiceRuntime:
 
         with self.m_lock:
             return self._refresh_status_snapshot(active_execution=self._active_execution_state())
+
+    def _native_refresh_controller(self) -> RuntimeSessionController:
+        """Reconnect existing native authority without status-driven recovery."""
+
+        adapter = self.m_adapter
+        if isinstance(
+            adapter,
+            (_DshWebGatewayAdapter, _LocalHeadlessGatewayAdapter, _RestBackedGatewayAdapter),
+        ):
+            return adapter._resume_controller()
+        raise GatewayError("Native refresh authority is unavailable for this gateway")
+
+    def native_home(self) -> NativeHomeV1:
+        """Read the active native home without running status recovery or refresh."""
+
+        if isinstance(self.m_adapter, _ServerManagedHeadlessGatewayAdapter):
+            manifest_path = self.m_manifest_path
+            if manifest_path is None:
+                raise GatewayError("Native home authority is unavailable")
+            return inspect_native_home_from_manifest(manifest_path)
+        return inspect_native_home(self._native_refresh_controller())
+
+    def observe_common_plugins(self) -> CommonPluginObservationV1:
+        """Passively observe common freshness and reconcile settled native readiness."""
+
+        if isinstance(self.m_adapter, _ServerManagedHeadlessGatewayAdapter):
+            return unknown_common_observation(self.native_home())
+        return self._observe_native_refresh_state(self._native_refresh_controller())
+
+    def _observe_native_refresh_state(
+        self, controller: RuntimeSessionController
+    ) -> CommonPluginObservationV1:
+        """Fence passive settlement evidence against a concurrently starting operation."""
+
+        with self.m_lock:
+            operation_id = getattr(self, "m_native_refresh_operation_id", 0)
+            active_at_read = getattr(self, "m_native_refresh_active", False)
+        observation = observe_common_plugins(controller)
+        with self.m_lock:
+            if (
+                not active_at_read
+                and not getattr(self, "m_native_refresh_active", False)
+                and operation_id == getattr(self, "m_native_refresh_operation_id", 0)
+                and refresh_guard_can_release(observation)
+            ):
+                self.m_native_refresh_uncertain = False
+                self.m_reminder_condition.notify_all()
+        return observation
+
+    def refresh_native(
+        self, payload: NativeRefreshRequestV1, *, expected_home_etag: str | None = None
+    ) -> NativeRefreshResultV1:
+        """Observe first, then reserve ordinary admission for one bounded native reload."""
+
+        deadline = time.monotonic() + payload.timeout_seconds
+        observed = threading.Event()
+        observations: list[tuple[RuntimeSessionController | None, CommonPluginObservationV1]] = []
+        observation_errors: list[Exception] = []
+
+        def read_only() -> None:
+            """Bound caller waiting without scheduling native mutation after a late read."""
+
+            try:
+                if isinstance(self.m_adapter, _ServerManagedHeadlessGatewayAdapter):
+                    observations.append((None, self.observe_common_plugins()))
+                else:
+                    selected = self._native_refresh_controller()
+                    observations.append((selected, self._observe_native_refresh_state(selected)))
+            except Exception as exc:
+                observation_errors.append(exc)
+            finally:
+                observed.set()
+
+        observer = threading.Thread(
+            target=read_only, name="gateway-refresh-observation", daemon=True
+        )
+        try:
+            observer.start()
+        except RuntimeError:
+            raise GatewayError("Native refresh observation is unavailable") from None
+        if not observed.wait(timeout=max(0.0, deadline - time.monotonic())):
+            raise HTTPException(
+                status_code=503, detail="Native refresh observation deadline expired before handoff"
+            )
+        if observation_errors:
+            raise observation_errors[0]
+        controller, before = observations[0]
+        if expected_home_etag is not None and native_home_etag(before.home) != expected_home_etag:
+            raise NativeHomeChangedError("Native execution authority changed before refresh")
+        planned = plan_native_refresh(before)
+        if planned is not None:
+            return planned
+        if controller is None:
+            return NativeRefreshResultV1(method="none", outcome="unsupported", observation=before)
+
+        def expired() -> NativeRefreshResultV1:
+            """Report deadline exhaustion before any mutating worker owns admission."""
+
+            return NativeRefreshResultV1(
+                method="none",
+                outcome="unavailable",
+                observation=before,
+                before=before,
+                native_settled=before.native_settled,
+                native_ready=before.native_ready,
+                diagnostics=["native_refresh_deadline_expired_before_handoff"],
+            )
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or not self.m_lock.acquire(timeout=remaining):
+            return expired()
+        try:
+            if (
+                self._native_refresh_blocks_input_locked()
+                or self._active_execution_state() != "idle"
+                or queue_depth_from_sqlite(self.m_paths.queue_path) > 0
+            ):
+                return NativeRefreshResultV1(
+                    method="none",
+                    outcome="busy",
+                    observation=before,
+                    diagnostics=["managed_input_pending"],
+                )
+            if time.monotonic() >= deadline:
+                return expired()
+            self.m_native_refresh_active = True
+            self.m_native_refresh_uncertain = False
+            operation_id = getattr(self, "m_native_refresh_operation_id", 0) + 1
+            self.m_native_refresh_operation_id = operation_id
+        finally:
+            self.m_lock.release()
+
+        completed = threading.Event()
+        results: list[NativeRefreshResultV1] = []
+
+        def run() -> None:
+            """Keep reservation ownership after caller timeout until actual settlement."""
+
+            try:
+                result = perform_native_refresh(
+                    controller,
+                    payload,
+                    deadline_monotonic=deadline,
+                    observation=before,
+                )
+            except Exception:
+                result = self._unconfirmed_native_refresh_result(before)
+            with self.m_lock:
+                results.append(result)
+                if self.m_native_refresh_operation_id == operation_id:
+                    self.m_native_refresh_active = False
+                    self.m_native_refresh_uncertain = not (
+                        result.native_settled
+                        and result.native_ready
+                        and refresh_guard_can_release(result.observation)
+                    )
+                    self.m_reminder_condition.notify_all()
+                completed.set()
+            if (
+                not result.native_settled
+                or not result.native_ready
+                or not refresh_guard_can_release(result.observation)
+            ):
+                self._await_native_refresh_settlement(operation_id)
+
+        thread = threading.Thread(target=run, name="gateway-native-refresh", daemon=True)
+        self.m_native_refresh_thread = thread
+        try:
+            thread.start()
+        except RuntimeError:
+            with self.m_lock:
+                self.m_native_refresh_active = False
+                self.m_reminder_condition.notify_all()
+            return NativeRefreshResultV1(
+                method="none",
+                outcome="unavailable",
+                observation=before,
+                diagnostics=["native_refresh_worker_unavailable"],
+            )
+        if completed.wait(timeout=max(0.0, deadline - time.monotonic())):
+            return results[0]
+        return self._unconfirmed_native_refresh_result(before)
+
+    @staticmethod
+    def _unconfirmed_native_refresh_result(
+        before: CommonPluginObservationV1,
+    ) -> NativeRefreshResultV1:
+        """Represent a lost confirmation without guessing whether effects occurred."""
+
+        return NativeRefreshResultV1(
+            method="native_reload",
+            outcome="outcome_unknown",
+            observation=before.model_copy(update={"native_settled": False, "native_ready": False}),
+            before=before,
+            effects="unknown",
+            native_settled=False,
+            native_ready=False,
+            diagnostics=["native_refresh_confirmation_unavailable"],
+        )
+
+    def _await_native_refresh_settlement(self, operation_id: int) -> None:
+        """Release uncertain admission only after passive native settlement evidence."""
+
+        while not self.m_stop_event.wait(0.25):
+            with self.m_lock:
+                if (
+                    self.m_native_refresh_operation_id != operation_id
+                    or not self.m_native_refresh_uncertain
+                ):
+                    return
+            try:
+                self.observe_common_plugins()
+            except Exception:
+                # Connection loss cannot establish settlement or readiness.
+                continue
 
     def get_usage(self, *, after: str | None = None, limit: int = 100) -> UsagePage:
         """Read finalized accounting independently of the terminal-mutation lock."""
@@ -2416,6 +2654,8 @@ class GatewayServiceRuntime:
         if self.m_attach_contract.backend == "dsh_web":
             return self._create_web_request(request_payload)
         with self.m_lock:
+            if request_payload.kind == "submit_prompt":
+                self._require_no_native_refresh_locked()
             status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
             if status.request_admission == "blocked_reconciliation":
                 raise HTTPException(
@@ -2516,6 +2756,8 @@ class GatewayServiceRuntime:
 
         adapter = cast(_DshWebGatewayAdapter, self.m_adapter)
         with self.m_lock:
+            if request_payload.kind == "submit_prompt":
+                self._require_no_native_refresh_locked()
             status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
             if (
                 status.request_admission != "open"
@@ -3111,6 +3353,8 @@ class GatewayServiceRuntime:
         selection: HeadlessTurnSessionSelection | None = None
         consume_override = False
         with self.m_lock:
+            if self._native_refresh_blocks_input_locked():
+                fail("not_ready", 409)
             if self.m_host != "127.0.0.1":
                 fail("listener_policy", 422)
             if self.m_stop_event.is_set() or not is_active() or self.m_worker_thread is None:
@@ -3363,6 +3607,8 @@ class GatewayServiceRuntime:
                 dispatch_mode == "tui" and request_payload.chat_session is not None
             )
             admission_facts = self._prompt_admission_facts_locked()
+            if dispatch_mode != "web":
+                self.m_prompt_control_inflight = getattr(self, "m_prompt_control_inflight", 0) + 1
 
         usage_turn_id: str | None = None
         if dispatch_mode == "web":
@@ -3390,6 +3636,9 @@ class GatewayServiceRuntime:
                 error_code="dispatch_failed",
                 detail=str(exc),
             )
+        finally:
+            with self.m_lock:
+                self.m_prompt_control_inflight -= 1
 
         if consume_headless_override:
             with self.m_lock:
@@ -3496,6 +3745,7 @@ class GatewayServiceRuntime:
 
         thread = threading.Thread(target=execute, name="gateway-web-prompt", daemon=True)
         with self.m_lock:
+            self._require_no_native_refresh_locked()
             self.m_direct_prompt_thread = thread
             self.m_direct_prompt_turn_id = turn_id
             thread.start()
@@ -3544,6 +3794,7 @@ class GatewayServiceRuntime:
                 },
             )
         with self.m_lock:
+            self._require_no_native_refresh_locked()
             status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
             if status.request_admission == "blocked_reconciliation":
                 raise HTTPException(
@@ -3774,6 +4025,13 @@ class GatewayServiceRuntime:
     ) -> None:
         """Reject prompt control for unavailable or reconciliation-blocked gateway state."""
 
+        if self._native_refresh_blocks_input_locked():
+            self._raise_prompt_control_http_error(
+                status_code=409,
+                admission_policy=admission_policy,
+                error_code="native_refresh_in_progress",
+                detail="Native refresh is active or its readiness is uncertain.",
+            )
         if status.request_admission == "blocked_reconciliation":
             self._raise_prompt_control_http_error(
                 status_code=409,
@@ -3881,6 +4139,7 @@ class GatewayServiceRuntime:
     ) -> None:
         """Require prompt-ready posture for ready-only direct prompt control."""
 
+        self._require_no_native_refresh_locked()
         if status.active_execution != "idle" or status.queue_depth > 0:
             reasons: list[str] = []
             if status.active_execution != "idle":
@@ -5668,6 +5927,8 @@ class GatewayServiceRuntime:
     ) -> str | None:
         """Atomically admit one cycle and its immutable-origin internal prompt."""
 
+        if self._native_refresh_blocks_input_locked():
+            return None
         from houmao.mailbox.notifier_admission import admit_mail_reminder
 
         request_id = generate_gateway_request_id()
@@ -6197,8 +6458,21 @@ class GatewayServiceRuntime:
                 return None
 
             with sqlite3.connect(self.m_paths.queue_path) as connection:
-                record = self._next_effective_accepted_request_locked(connection)
+                if self._native_refresh_blocks_input_locked():
+                    row = connection.execute(
+                        "SELECT request_id, request_kind, payload_json, managed_agent_instance_epoch "
+                        "FROM gateway_requests WHERE state='accepted' AND request_kind='interrupt' "
+                        "ORDER BY accepted_at_utc ASC LIMIT 1"
+                    ).fetchone()
+                    record = self._accepted_gateway_request_from_row(row) if row else None
+                else:
+                    record = self._next_effective_accepted_request_locked(connection)
                 if record is None:
+                    return None
+                if (
+                    record.request_kind != "interrupt"
+                    and self._native_refresh_blocks_input_locked()
+                ):
                     return None
                 direct = self.m_direct_prompt_thread
                 if record.request_kind == "submit_prompt" and (
@@ -6758,6 +7032,10 @@ class GatewayServiceRuntime:
     def _active_execution_state(self) -> GatewayExecutionState:
         """Return whether a queue item is currently running."""
 
+        if self._native_refresh_blocks_input_locked():
+            return "running"
+        if getattr(self, "m_prompt_control_inflight", 0):
+            return "running"
         if self.m_plugin_dispatch_pending:
             return "running"
         direct_prompt_thread = self.m_direct_prompt_thread
@@ -6776,6 +7054,23 @@ class GatewayServiceRuntime:
         if row is None or int(row[0]) == 0:
             return "idle"
         return "running"
+
+    def _native_refresh_blocks_input_locked(self) -> bool:
+        """Return whether managed reload owns admission or awaits native settlement."""
+
+        return bool(
+            getattr(self, "m_native_refresh_active", False)
+            or getattr(self, "m_native_refresh_uncertain", False)
+        )
+
+    def _require_no_native_refresh_locked(self) -> None:
+        """Reject ordinary input while reload or uncertain readiness holds admission."""
+
+        if self._native_refresh_blocks_input_locked():
+            raise HTTPException(
+                status_code=409,
+                detail="Native refresh is active or its readiness is uncertain.",
+            )
 
     def _active_headless_turn_id_locked(self) -> str | None:
         """Return the current headless turn id from queued or running prompt work."""
@@ -7288,7 +7583,13 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         )
         return JSONResponse(
             status_code=422,
-            content=jsonable_encoder({"detail": exc.errors()}),
+            content=jsonable_encoder(
+                {
+                    "detail": validation_errors
+                    if request.url.path == "/v1/control/refresh"
+                    else exc.errors()
+                }
+            ),
         )
 
     @app.get("/health", response_model=GatewayHealthResponseV1)
@@ -7302,6 +7603,63 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         """Serve the structured gateway status snapshot."""
 
         return runtime.status()
+
+    def _require_native_authority_match(request: Request) -> NativeHomeV1 | None:
+        """Enforce captured execution authority before using a possibly reused listener."""
+
+        expected = request.headers.get("if-match")
+        if expected is None:
+            return None
+        home = runtime.native_home()
+        if native_home_etag(home) != expected:
+            raise HTTPException(status_code=412, detail="Native execution authority changed")
+        return home
+
+    @app.get("/v1/native-home", response_model=NativeHomeV1)
+    def _native_home(request: Request) -> NativeHomeV1:
+        """Read active native-home authority without materialization or recovery."""
+
+        try:
+            return _require_native_authority_match(request) or runtime.native_home()
+        except (RuntimeError, OSError, ValueError):
+            raise HTTPException(status_code=503, detail="Native home is unavailable") from None
+
+    @app.get("/v1/control/refresh", response_model=CommonPluginObservationV1)
+    def _common_plugin_state(request: Request) -> CommonPluginObservationV1:
+        """Observe native common-plugin state without initiating reload."""
+
+        try:
+            expected = _require_native_authority_match(request)
+            observation = runtime.observe_common_plugins()
+            if expected is not None and observation.home != expected:
+                raise HTTPException(status_code=412, detail="Native execution authority changed")
+            return observation
+        except (RuntimeError, OSError, ValueError):
+            raise HTTPException(
+                status_code=503, detail="Native common-plugin observation is unavailable"
+            ) from None
+
+    @app.post("/v1/control/refresh", response_model=NativeRefreshResultV1)
+    def _native_refresh(payload: NativeRefreshRequestV1, request: Request) -> JSONResponse:
+        """Run one bounded native refresh and preserve typed non-success evidence."""
+
+        try:
+            expected = request.headers.get("if-match")
+            result = (
+                runtime.refresh_native(payload, expected_home_etag=expected)
+                if expected is not None
+                else runtime.refresh_native(payload)
+            )
+        except NativeHomeChangedError:
+            raise HTTPException(
+                status_code=412, detail="Native execution authority changed"
+            ) from None
+        except (RuntimeError, OSError, ValueError):
+            raise HTTPException(status_code=503, detail="Native refresh is unavailable") from None
+        return JSONResponse(
+            status_code=native_refresh_status_code(result),
+            content=result.model_dump(mode="json"),
+        )
 
     @app.get("/v1/usage", response_model=UsagePage)
     def _usage(

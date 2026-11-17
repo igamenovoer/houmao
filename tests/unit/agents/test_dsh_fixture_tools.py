@@ -292,7 +292,9 @@ for line in sys.stdin:
         record('created')
         send({'id':frame['id'], 'result':{'sessionId':native, 'configOptions':[
             {'id':'model', 'type':'select', 'currentValue':selected_model,
-             'options':[{'value':selected_model}]}]}})
+             'options':[{'value':selected_model}]},
+            {'id':'reasoning_effort', 'type':'select', 'currentValue':'off',
+             'options':[{'value':'off'}]}]}})
     elif method == 'session/prompt':
         record('admitted', message_id='synthetic-input')
         record('claimed', message_id='synthetic-input', turn=1)

@@ -65,6 +65,17 @@ from houmao.mailbox.services import (
     build_gateway_mailbox_adapter,
 )
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
+from houmao.agents.realm_controller.native_refresh import (
+    inspect_native_home,
+    observe_common_plugins,
+    plan_native_refresh,
+)
+from houmao.agents.realm_controller.native_refresh_models import (
+    CommonPluginObservationV1,
+    NativeHomeV1,
+    NativeRefreshRequestV1,
+    NativeRefreshResultV1,
+)
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayControlInputRequestV1,
@@ -1907,6 +1918,111 @@ def managed_agent_detail_payload(target: ManagedAgentTarget) -> HoumaoManagedAge
         identity=summary_state.identity,
         summary_state=summary_state,
         detail=detail,
+    )
+
+
+def _require_native_common_target(target: ManagedAgentTarget) -> None:
+    """Reject external and inactive authority before native body inspection."""
+
+    if (
+        target.mode == "external"
+        or target.identity.management_kind == "external_communication_only"
+    ):
+        raise click.ClickException("Native home and refresh require a locally managed agent.")
+    if target.identity.lifecycle_state not in {None, "active"}:
+        raise click.ClickException("Native home and refresh require an active managed agent.")
+    if target.mode not in {"local", "server"}:
+        raise click.ClickException("Native home and refresh require healthy active authority.")
+    if target.mode == "server" and (
+        target.client is None or target.client.pair_authority_kind != "houmao-passive-server"
+    ):
+        raise click.ClickException("Native home and refresh require the maintained passive server.")
+
+
+def _native_common_gateway_client(controller: RuntimeSessionController) -> GatewayClient | None:
+    """Use an attached gateway without falling back after its transport fails."""
+
+    if gateway_paths_from_manifest_path(controller.manifest_path) is None:
+        return None
+    client = _live_gateway_client_for_controller(controller)
+    if (
+        client is None
+        and _gateway_status_for_controller(controller).gateway_health != "not_attached"
+    ):
+        raise click.ClickException(
+            "The attached gateway is unavailable; native refresh was not run."
+        )
+    if client is not None:
+        try:
+            expected = inspect_native_home(controller)
+            actual = client.get_native_home()
+        except (RuntimeError, OSError, ValueError):
+            raise click.ClickException(
+                "The attached gateway native authority is unavailable; native refresh was not run."
+            ) from None
+        if actual != expected:
+            raise click.ClickException(
+                "The attached gateway belongs to a different native execution; native refresh was not run."
+            )
+        client.bind_native_home(expected)
+    return client
+
+
+def managed_agent_native_home(target: ManagedAgentTarget) -> NativeHomeV1:
+    """Read authoritative native-home selection without materializing inputs."""
+
+    _require_native_common_target(target)
+    if target.mode == "server":
+        assert target.client is not None
+        return pair_request(target.client.get_managed_agent_gateway_native_home, target.agent_ref)
+    controller = _require_live_local_controller(target, operation="inspect the native home")
+    client = _native_common_gateway_client(controller)
+    return client.get_native_home() if client is not None else inspect_native_home(controller)
+
+
+def managed_agent_common_plugin_state(target: ManagedAgentTarget) -> CommonPluginObservationV1:
+    """Read common evidence without forcing discovery or attaching a gateway."""
+
+    _require_native_common_target(target)
+    if target.mode == "server":
+        assert target.client is not None
+        return pair_request(
+            target.client.get_managed_agent_gateway_common_plugin_state, target.agent_ref
+        )
+    controller = _require_live_local_controller(target, operation="inspect common-plugin state")
+    client = _native_common_gateway_client(controller)
+    return (
+        client.get_common_plugin_state()
+        if client is not None
+        else observe_common_plugins(controller)
+    )
+
+
+def refresh_managed_agent(
+    target: ManagedAgentTarget, *, timeout_seconds: float = 30.0
+) -> NativeRefreshResultV1:
+    """Use the owning gateway or permit only a qualified local mutation-free result."""
+
+    request = NativeRefreshRequestV1(timeout_seconds=timeout_seconds)
+    _require_native_common_target(target)
+    if target.mode == "server":
+        assert target.client is not None
+        return pair_request(
+            target.client.refresh_managed_agent_gateway_native, target.agent_ref, request
+        )
+    controller = _require_live_local_controller(target, operation="refresh native resources")
+    client = _native_common_gateway_client(controller)
+    if client is not None:
+        return client.refresh_native(request)
+    observation = observe_common_plugins(controller)
+    planned = plan_native_refresh(observation)
+    if planned is not None:
+        return planned
+    return NativeRefreshResultV1(
+        method="none",
+        outcome="unsupported",
+        observation=observation,
+        diagnostics=["gateway_attachment_required"],
     )
 
 

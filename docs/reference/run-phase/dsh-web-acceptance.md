@@ -20,6 +20,43 @@ Hermetic Web functions resolve under `tests/unit/agents/realm_controller/` in `t
 
 All tmux-backed checks clear `TMUX` and `TMUX_PANE`, force a private `-S` or `-L` target for every command, and clean up only their owned server. Reports contain no real keys, launch tokens, signed URLs, cookies, private transcripts, or credential-bearing live paths. Test-only DOM automation stays outside product code.
 
+## Native Home Refresh Evidence
+
+The follow-on change `add-native-agent-home-refresh` adds `tests/integration/agents/dsh/web/test_refresh.py` and `test_refresh_gateway.py`. The final combined suite passed all 28 cases in 68.12 seconds against the explicitly selected `0.2.2-rc.3` executable: 26 direct-native cases and two public runtime/gateway cases, including real two-agent CLI/direct-gateway/passive-server acceptance. Both public cases passed again in 11.08 seconds after the final captured-identity handoff guard. Direct native checks use no tmux; gateway cases use the existing fixture's cleared inherited selectors and explicit private socket. All refresh cases use synthetic credentials, no ambient authentication, and zero refresh-created model requests. Ordinary browser and skill-history cases create their own explicitly controlled model turns.
+
+The independent contract/authority suite passed 53 cases: 27 regressions for strict evidence, owner identity/time, native readiness and qualified automatic coverage, plus 26 native-home authority cases. The final focused model/deadline/client/backend/companion suite passed 85 cases, including expiry during authentication and client-lock acquisition, deadline forwarding, and replacement during authentication. Focused strict typing passed both modified Python backend modules and the native refresh service. Fixture audit found only source fixtures in the checkout, no credential or runtime-state artifacts. Native credentials and logs remain in disposable external test roots.
+
+| Boundary | Executed Evidence |
+| --- | --- |
+| Skill add/update/remove, same identity/journal, verified no-op | `test_native_common_refresh_updates_skill_catalog_and_then_noops` |
+| Native extension skill assets require source/runtime comparison | `test_native_office_provider_cache_is_compared_with_current_assets` |
+| Opaque cached providers cannot claim complete current, including empty providers | Both cases of `test_opaque_native_provider_cannot_establish_complete_current_scope` |
+| MCP declaration replacement, negotiated tool generations, unknown implementation revision | `test_native_mcp_declarations_and_connection_generations` |
+| Applied declaration freshness remains separate from unavailable MCP health | `test_applied_unreachable_mcp_keeps_declaration_freshness_separate_from_health` |
+| Actual loaded skill history remains intact while later native loads read edited bodies | `test_loaded_skill_history_survives_refresh_and_next_load_reads_new_body` |
+| Autonomous update without Houmao receipt | `test_native_watcher_update_needs_no_houmao_receipt` |
+| Native watcher remains active during managed reconciliation | `test_native_watcher_can_race_managed_reconciliation` |
+| Two native homes remain isolated | `test_native_refresh_keeps_distinct_homes_isolated` |
+| Passive reads leave cache/configuration unchanged | `test_native_read_does_not_apply_edited_profile` |
+| Busy maintenance and host-shared native child refuse immediately | `test_native_refresh_refuses_existing_maintenance_without_waiting`, `test_refresh_refuses_host_shared_native_child` |
+| Competing native Agent activation cannot start during shared refresh | `test_native_child_activation_cannot_race_shared_refresh` |
+| Browser-native work wins between observation and managed refresh admission | `test_browser_turn_wins_before_native_refresh_admission` |
+| Missing confirmation retains native work and responsive observation | `test_timed_out_refresh_remains_observable_and_settles_without_replay` |
+| Actual wire response loss retains original native work without replay | `test_actual_native_http_response_loss_does_not_replay_refresh` |
+| Native preflight cannot reset an expired operation deadline | `test_native_observation_cannot_reset_expired_refresh_deadline` |
+| Late settlement cannot start a later resource restart after expiry | `test_expired_native_apply_does_not_start_later_resource_restarts` |
+| Busy native serialization leaves no deferred mutation | `test_busy_native_serializer_leaves_no_deferred_mutation` |
+| Invalid readiness prevents native finally from waking queued input | `test_invalid_readiness_retains_maintenance_until_explicit_disposal` |
+| Invalid input is not repaired from a launch manifest | `test_invalid_native_input_reports_failure_without_repair` |
+| Broader native pending/failure preserves actual common effects | Both cases of `test_broader_native_result_preserves_confirmed_common_state` |
+| Real native Loader activation failure retains applied common effects | `test_failed_native_replacement_retains_applied_common_effects` |
+| Lifecycle configuration cannot replace the running agent through refresh | `test_refresh_rejects_lifecycle_profile_changes_before_apply` |
+| Public native-home and refresh routes map actual native pending/current/no-op/MCP evidence | `test_public_gateway_native_refresh_preserves_real_common_evidence` in `test_refresh_gateway.py` |
+| Home authority requires the captured live primary surface and exact session bindings | `test_native_refresh_authority.py`: caller/native home separation, headless between-worker envelope, unknown thin joined home, stale/missing/dead/reused identity, explicit native identity allowlist, and private home material left unread |
+| Two native agents share scoped CLI, direct gateway and passive refresh semantics | `test_two_native_agents_share_cli_gateway_and_passive_refresh_contract` in `test_refresh_gateway.py`; real loopback HTTP, native watcher/no-op, broader partial failure, isolated inventories and unchanged identities |
+
+The native-result probe supplies controlled pending/failure diagnostics around actual native profile reconciliation. These checks establish result preservation, not arbitrary HMR code replacement. Full HMR replacement, arbitrary user extension lifecycle behavior, and external MCP package revisions remain outside the executed claims. The [control contract](dsh-web-control.md#common-plugin-observation-and-refresh) records these limits.
+
 ## Scenario Map
 
 ### agent-gateway

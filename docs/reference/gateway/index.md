@@ -36,6 +36,7 @@ The gateway is a session-owned FastAPI companion process attached to one runtime
 - [Gateway Troubleshooting](operations/troubleshooting.md): Diagnose pair-managed current-session attach failures, stale gateway metadata, and reserved-window safety checks.
 - [Gateway AG-UI Routes](ag-ui.md): Direct per-agent AG-UI run/connect routes, CopilotKit graphics setup, smoke commands, and lifecycle limits.
 - [Usage Records](../run-phase/usage-records.md): Finalized headless and qualified TUI accounting, provider source semantics, source limitations, and resumable cursor polling through `GET /v1/usage`.
+- [Native Home and Common-Plugin Refresh](operations/native-refresh.md): Inspect the bound native home, observe skill/MCP freshness, and request native refresh without restarting the agent.
 - [Gateway Plugins](plugins.md): Install external Python integrations, select owner-bound accounts, declare namespaced routes, and handle immediate dispatch or sender-owned retries.
 - [CCCC Chat Integration](cccc.md): Attach an existing agent to an external CCCC Actor, send ordinary chat, inspect provider receipts, and explicitly retry failed handoffs.
 - [CCCC Deferred Mail](cccc-mail.md): Select ordered correspondence explicitly, consume bounded batches, and recover read outcomes through authoritative receipts.

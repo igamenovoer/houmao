@@ -68,6 +68,9 @@ def test_only_dsh_publication_describes_the_native_acp_capability_contract(
         "native_system_prompt",
         "skills",
         "journal_accounting",
+        "native_home",
+        "common_plugin_observation",
+        "native_home_refresh",
     }.issubset(capabilities.supported_operations)
     assert {
         "fork",
@@ -76,10 +79,10 @@ def test_only_dsh_publication_describes_the_native_acp_capability_contract(
         "delete",
         "additional_workspaces",
         "raw_keys",
-        "live_refresh",
+        "acp_wire_reload",
     }.issubset(capabilities.unsupported_operations)
     assert not set(capabilities.supported_operations).intersection(
         capabilities.unsupported_operations
     )
-    assert capabilities.resource_activation == "startup-only"
+    assert capabilities.resource_activation == "next-invocation"
     assert capabilities.accounting_source == "dsh-journal-v4"

@@ -130,6 +130,9 @@ Current v1 routes:
 - `GET /health`
 - `GET /v1/status`
 - `GET /v1/usage`
+- `GET /v1/native-home`
+- `GET /v1/control/refresh`
+- `POST /v1/control/refresh`
 - `GET /v1/plugins`
 - `GET /v1/plugins/{instance_id}/_status`
 - Plugin-owned routes below `/v1/plugins/{instance_id}` for explicitly selected, valid implementations.
@@ -326,6 +329,16 @@ Each record preserves stable accounting and provider identities, outcome, metric
 Capability follows validated evidence rather than backend name. A TUI without a qualified source returns an unavailable capability response; session-only evidence does not imply per-turn metrics. Previously finalized records remain readable when current collection becomes degraded or unavailable. A never-supported target may have null stream/cursor fields and an empty record list.
 
 Invalid, wrong-stream, or future-position cursors and invalid page limits return HTTP 422. Unreadable or incompatible accounting storage returns HTTP 503 with a safe diagnostic. An unavailable source is a capability limitation, not an empty successful replacement for unreadable storage.
+
+### Native Home and Refresh
+
+`GET /v1/native-home` reads the authoritative native-home descriptor of the bound active agent. It does not create or repair a home. `GET /v1/control/refresh` reads common-plugin capabilities and observations for skills/MCP, with scope, completeness, per-resource current/pending/unknown freshness, native boundaries, and health. A normal pending or unknown observation remains HTTP 200. Neither read initiates a rescan, native reload, worker, or model turn; native automatic updates remain independent.
+
+`POST /v1/control/refresh` accepts only a schema version and an optional finite bounded timeout. It first observes common state, then returns a verified already-current no-op, qualified automatic future discovery, or one native reload. Native reload can affect other extensions and apply partially. Results preserve common observations separately from native completion, diagnostics, and effect evidence. The public contract exposes no common native-special-plugin inventory or freshness API.
+
+Refresh never invokes agent restart, host exit, cold activation, or relaunch. Typed POST outcomes use HTTP 200 for already-current/confirmed common refresh/qualified automatic discovery, 409 for busy or common restart-required, 422 for invalid input, 501 for unsupported control, and 503 for unavailable/failed/partial-unverified/uncertain execution. A restart requirement after partial application retains those applied effects.
+
+Managed ordinary work observes refresh admission, while health, status, interruption, and explicit recovery remain independently available. A caller timeout does not release a guard for native work still executing. Missing freshness evidence alone does not indefinitely block an otherwise settled valid runtime. See [Native Home and Common-Plugin Refresh](../operations/native-refresh.md) for state interpretation, broader native effects, and passive-server projection.
 
 ### `POST /v1/requests`
 

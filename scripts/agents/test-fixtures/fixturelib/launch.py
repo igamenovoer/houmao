@@ -194,20 +194,14 @@ def _raw_turn(run: dict[str, Any], prompt: str, timeout: float) -> None:
                 "working_directory": run["workdir"],
                 "home_path": run["home_path"],
                 "setup_path": str(Path(run["home_path"]) / "dsh-setup.yaml"),
-                "role_prompt": (
-                    Path(run["assets_root"]) / "roles" / run["role"] / "system-prompt.md"
-                ).read_text(),
                 "prompt": prompt,
                 "session_id": run.get("identity", {}).get("provider_session_id"),
                 "attempt_id": f"turn-{index}",
                 "runtime_session_id": root.name,
                 "generation": "raw-fixture-" + root.name,
                 "turn_dir": str(turn_dir),
-                "model": run["configuration"]["model"],
+                "model": None,
                 "reasoning_level": None,
-                "operator_prompt_mode": run["configuration"].get(
-                    "operator_prompt_mode", "unattended"
-                ),
             },
         )
     with stdout.open("wb") as out, stderr.open("wb") as err:
