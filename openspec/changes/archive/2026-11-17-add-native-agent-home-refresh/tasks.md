@@ -1,6 +1,6 @@
 # Tasks
 
-Implementation follows [design.md](design.md) and the four delta specs under `specs/`. DSH headless and Web are primary; Kimi Code, Codex, and Claude Code are best effort, with Pi postponed. The [preflight evidence](../../../context/plans/native-agent-home-refresh/preflight.md) and [native probes](../../../scripts/qualification/native_refresh/README.md) are inputs to qualification, not proof that these implementation tasks are complete.
+Implementation follows [design.md](design.md) and the four delta specs under `specs/`. DSH headless and Web are primary; Kimi Code, Codex, and Claude Code are best effort, with Pi postponed. The [preflight evidence](../../../../context/plans/native-agent-home-refresh/preflight.md) and [native probes](../../../../scripts/qualification/native_refresh/README.md) are inputs to qualification, not proof that these implementation tasks are complete.
 
 Every task remains unchecked until its implementation and specified verification are complete. Common results cover skills/MCP; native refresh is allowed broader nontransactional effects.
 

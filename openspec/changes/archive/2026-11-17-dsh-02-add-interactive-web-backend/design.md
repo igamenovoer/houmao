@@ -2,7 +2,7 @@
 
 ## Context
 
-See [proposal.md](proposal.md) for the interactive scope. Apply this change only after [change 01](../dsh-01-add-acp-headless-backend/design.md) is implemented, validated, and synchronized. Reuse its exact tool/build qualification, configuration resolver, native role companion, isolated homes, uncompressed journal reader, and usage ledger integration.
+See [proposal.md](proposal.md) for the interactive scope. Apply this change only after [change 01](../2026-11-17-dsh-01-add-acp-headless-backend/design.md) is implemented, validated, and synchronized. Reuse its exact tool/build qualification, configuration resolver, native role companion, isolated homes, uncompressed journal reader, and usage ledger integration.
 
 The confirmed interaction contract is `dsh + headless -> dsh_acp` and `dsh + tui/interactive -> dsh_web`. Interactive DSH uses the browser as its native human interface. Human and programmatic input must address one live native session. The implementation must preserve ordinary Houmao immediate-refusal and no-replay behavior.
 

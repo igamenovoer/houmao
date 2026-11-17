@@ -30,7 +30,7 @@ Operators, external tools, and agents can update skills and MCP materials outsid
 
 ## Impact
 
-The implementation touches runtime/backend observation and refresh contracts, native-home resolution, DSH preparation and companions, gateway admission/models/client, scoped manager commands, passive-server proxy routes, and qualification tests. Existing control and fixture infrastructure supplies target identity, native maintenance, session continuity, and isolated tmux testing. The [native preflight evidence](../../../context/plans/native-agent-home-refresh/preflight.md) and [reusable probes](../../../scripts/qualification/native_refresh/README.md) guide version-specific qualification; they do not constitute completed implementation.
+The implementation touches runtime/backend observation and refresh contracts, native-home resolution, DSH preparation and companions, gateway admission/models/client, scoped manager commands, passive-server proxy routes, and qualification tests. Existing control and fixture infrastructure supplies target identity, native maintenance, session continuity, and isolated tmux testing. The [native preflight evidence](../../../../context/plans/native-agent-home-refresh/preflight.md) and [reusable probes](../../../../scripts/qualification/native_refresh/README.md) guide version-specific qualification; they do not constitute completed implementation.
 
 Planning artifacts belong under `openspec/changes/add-native-agent-home-refresh/`. Future implementation belongs under `src/houmao/` (`distro`), automated coverage under `tests/` (`CI`), and durable qualification tooling under `scripts/qualification/` (`utility`). Reference and workflow documentation will explain the native-home editing sequence and the distinction from relaunch.
 

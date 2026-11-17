@@ -2,7 +2,7 @@
 
 ## Context
 
-See [proposal.md](proposal.md) for motivation and scope. This is the first of two sequential DSH changes; [change 02](../dsh-02-add-interactive-web-backend/proposal.md) depends on its configuration, prompt, lifecycle, and journal adapters.
+See [proposal.md](proposal.md) for motivation and scope. This is the first of two sequential DSH changes; [change 02](../2026-11-17-dsh-02-add-interactive-web-backend/proposal.md) depends on its configuration, prompt, lifecycle, and journal adapters.
 
 The maintained runtime dispatches Claude, Codex, and Kimi headless turns through `HeadlessInteractiveSession`, `HeadlessCliRunner`, a separate capture/render bridge, and a stable tmux window. `codex_app_server` is explicitly blocked at launch and provides no maintained persistent-process pattern to reuse. Tool choices also occur in manager configuration, credentials, model projection, launch-policy registries, runtime schemas, and passive-server headless authorities. Adding a backend literal alone would leave those paths inconsistent.
 

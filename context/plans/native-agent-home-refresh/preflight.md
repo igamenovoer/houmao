@@ -2,7 +2,7 @@
 
 ## Status and Scope
 
-Pre-implementation qualification for [issue #82](https://github.com/igamenovoer/houmao/issues/82) and [add-native-agent-home-refresh](../../../openspec/changes/add-native-agent-home-refresh/proposal.md), executed on 2026-11-17. DSH is the primary target. Kimi Code, Codex, and Claude Code receive best-effort support for verified native behavior.
+Pre-implementation qualification for [issue #82](https://github.com/igamenovoer/houmao/issues/82) and [add-native-agent-home-refresh](../../../openspec/changes/archive/2026-11-17-add-native-agent-home-refresh/proposal.md), executed on 2026-11-17. DSH is the primary target. Kimi Code, Codex, and Claude Code receive best-effort support for verified native behavior.
 
 The probes use disposable native homes, synthetic local MCP servers, and no model prompts or real provider credentials. A successful native control request establishes only the resource behavior actually checked. It does not establish a maintained Houmao transport, conversation-history preservation, or coverage for every native configuration field.
 
@@ -32,7 +32,7 @@ Claude's `mcp_set_servers` accepts replacement declarations rather than directly
 
 ## DSH HMR Design Blocker
 
-The [current design](../../../openspec/changes/add-native-agent-home-refresh/design.md) proposes enabling HMR with `root: []` and using serialized HMR reconciliation behind native maintenance. Two executed negative probes contradict assumptions needed for that approach:
+The [current design](../../../openspec/changes/archive/2026-11-17-add-native-agent-home-refresh/design.md) proposes enabling HMR with `root: []` and using serialized HMR reconciliation behind native maintenance. Two executed negative probes contradict assumptions needed for that approach:
 
 1. With `root: []`, HMR still watches explicit profile configuration. Editing a patch changed the running plugin before an explicit refresh call. An explicit refresh admission reservation therefore does not govern every reload introduced by enabling that profile.
 2. Editing a loaded host dependency and ordinary plugin configuration, then calling `reconcileProfile()`, returned a pending `host-module` result after the ordinary plugin had stopped and its replacement had started. A restart-required decision derived from that result would come after native effects.

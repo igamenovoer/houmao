@@ -144,7 +144,7 @@ Real self-hosted qualification requires an explicitly configured compatible mode
 
 ## Ordered Roadmap
 
-1. Headless implementation and acceptance are complete in `openspec/changes/dsh-01-add-acp-headless-backend/`, including real-provider evidence and final regression checks. Synchronize its validated delta specs before starting the successor.
-2. Apply `openspec/changes/dsh-02-add-interactive-web-backend/` using the same qualified source/build, isolated configuration, literal prompt companion, native journal reader, and ledger. Interactive Web ownership, browser/API coexistence, admission races, and human-origin accounting require their own implementation and acceptance.
+1. Headless implementation and acceptance are complete in `openspec/changes/archive/2026-11-17-dsh-01-add-acp-headless-backend/`, including real-provider evidence and final regression checks. Synchronize its validated delta specs before starting the successor.
+2. Apply `openspec/changes/archive/2026-11-17-dsh-02-add-interactive-web-backend/` using the same qualified source/build, isolated configuration, literal prompt companion, native journal reader, and ledger. Interactive Web ownership, browser/API coexistence, admission races, and human-origin accounting require their own implementation and acceptance.
 
 Keep the combined issue [#74](https://github.com/igamenovoer/houmao/issues/74) scope open until both ordered changes have accepted evidence. A complete headless implementation does not qualify the Web surface. Final headless acceptance includes the regression checks for the reviewed source tree before synchronizing the first change's delta specs.

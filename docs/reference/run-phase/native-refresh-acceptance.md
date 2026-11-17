@@ -1,6 +1,6 @@
 # Native Home Refresh Acceptance Map
 
-This map covers all **112 delta scenarios** in `openspec/changes/add-native-agent-home-refresh/specs/`: 59 native-home/common-refresh, 23 scoped CLI, 14 DSH headless, and 16 passive-proxy scenarios. Scenario names below match those artifacts exactly. DSH headless and Web are primary; secondary-tool limitations do not become claims that the native tools lack reload facilities.
+This map covers all **112 delta scenarios** in `openspec/changes/archive/2026-11-17-add-native-agent-home-refresh/specs/`: 59 native-home/common-refresh, 23 scoped CLI, 14 DSH headless, and 16 passive-proxy scenarios. Scenario names below match those artifacts exactly. DSH headless and Web are primary; secondary-tool limitations do not become claims that the native tools lack reload facilities.
 
 ## Evidence and Qualification Boundaries
 
@@ -42,7 +42,7 @@ The [refresh contract](native-refresh.md), [gateway operations reference](../gat
 
 ## Native Agent Home Refresh
 
-Source: `openspec/changes/add-native-agent-home-refresh/specs/native-agent-home-refresh/spec.md` (59 scenarios).
+Source: `openspec/changes/archive/2026-11-17-add-native-agent-home-refresh/specs/native-agent-home-refresh/spec.md` (59 scenarios).
 
 | ID | Scenario | Named Evidence | Assessment and Limits |
 | --- | --- | --- | --- |
@@ -108,7 +108,7 @@ Source: `openspec/changes/add-native-agent-home-refresh/specs/native-agent-home-
 
 ## Scoped CLI
 
-Source: `openspec/changes/add-native-agent-home-refresh/specs/houmao-mgr-agents-scope-cli/spec.md` (23 scenarios).
+Source: `openspec/changes/archive/2026-11-17-add-native-agent-home-refresh/specs/houmao-mgr-agents-scope-cli/spec.md` (23 scenarios).
 
 | ID | Scenario | Named Evidence | Assessment and Limits |
 | --- | --- | --- | --- |
@@ -138,7 +138,7 @@ Source: `openspec/changes/add-native-agent-home-refresh/specs/houmao-mgr-agents-
 
 ## DSH Headless Control
 
-Source: `openspec/changes/add-native-agent-home-refresh/specs/dsh-headless-control/spec.md` (14 scenarios).
+Source: `openspec/changes/archive/2026-11-17-add-native-agent-home-refresh/specs/dsh-headless-control/spec.md` (14 scenarios).
 
 | ID | Scenario | Named Evidence | Assessment and Limits |
 | --- | --- | --- | --- |
@@ -159,7 +159,7 @@ Source: `openspec/changes/add-native-agent-home-refresh/specs/dsh-headless-contr
 
 ## Passive Server Gateway Proxy
 
-Source: `openspec/changes/add-native-agent-home-refresh/specs/passive-server-gateway-proxy/spec.md` (16 scenarios).
+Source: `openspec/changes/archive/2026-11-17-add-native-agent-home-refresh/specs/passive-server-gateway-proxy/spec.md` (16 scenarios).
 
 | ID | Scenario | Named Evidence | Assessment and Limits |
 | --- | --- | --- | --- |

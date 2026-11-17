@@ -34,4 +34,4 @@ Implementation affects `src/houmao/agents/`, its packaged assets and runtime sch
 
 DSH remains an external, explicitly installed executable. Qualify the source reference `39163dd30f703a79079e2d2446545cff3c453738` and record the corresponding installed version/build identity; the protocol handshake's placeholder version is insufficient. No general backend plugin framework, DSH SDK transport, terminal parser, coordinated live refresh (#82), or remote execution/authentication boundary (#81/#84) is introduced.
 
-This is change **01**, followed by [dsh-02-add-interactive-web-backend](../dsh-02-add-interactive-web-backend/proposal.md). Implement and validate this change before starting 02. The second change owns the user-selected `tui` posture and its Web surface; this first change makes no interactive support claim.
+This is change **01**, followed by [dsh-02-add-interactive-web-backend](../2026-11-17-dsh-02-add-interactive-web-backend/proposal.md). Implement and validate this change before starting 02. The second change owns the user-selected `tui` posture and its Web surface; this first change makes no interactive support claim.
