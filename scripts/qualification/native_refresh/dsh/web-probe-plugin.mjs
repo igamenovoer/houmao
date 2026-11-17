@@ -1,0 +1,9 @@
+/** Isolated qualification route for configuration-only reload, never a product API. */
+import {createRequire} from 'node:module';import{pathToFileURL}from'node:url';
+export const name='native-refresh-probe';export const inject=['agents','skills','tools','mcpManager','webServer','connection'];
+export async function apply(ctx,config){
+ const req=createRequire(process.argv[1]);const{readProfilePatches,reconcileProfilePatches}=await import(pathToFileURL(req.resolve('@deepseek-ai/dsh-app-boot')).href);let agent;
+ ctx.on('agent/created',event=>{agent??=event.agent;});
+ const snapshot=async()=>({pid:process.pid,id:agent.id,scope:agent.id,status:agent.status,cursor:agent.session.seq,skills:(await ctx.skills.list({cwd:config.cwd,scope:agent})).map(x=>({name:x.name,description:x.description})),tools:ctx.tools.schemas(agent).map(x=>x.name).filter(x=>x.startsWith('mcp__')),config:ctx.get('probeNativeConfig')});
+ ctx.effect(()=>ctx.webServer.register({kind:'prefix',path:'/qualification-refresh',auth:'required',async handler(request,response){const admitted=ctx.connection.admit(request);if('rejection'in admitted){response.writeHead(admitted.rejection);response.end();return;}try{let value;if(request.method==='POST'){value=await agent.runMaintenance(async()=>{const profile=ctx.get('profileContext');const outcome=await reconcileProfilePatches(ctx.root,readProfilePatches('probe',profile),'probe');const entry=[...ctx.loader.entries()].find(x=>x.options.id==='probe-skill-filesystem');await entry.fiber.restart();await ctx.loader.await();return{outcome,after:await snapshot()};});}else value=await snapshot();response.writeHead(200,{'content-type':'application/json'});response.end(JSON.stringify(value));}catch(error){response.writeHead(500);response.end(JSON.stringify({error:error.message}));}}}));
+}
