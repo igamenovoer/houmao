@@ -139,4 +139,4 @@ def test_create_session_with_window_cleans_up_and_guides_when_injection_fails(
             working_directory=tmp_path,
         )
 
-    assert calls[-1] == ["tmux", "kill-session", "-t", "cao-gpu"]
+    assert calls[-1] == ["tmux", "kill-session", "-t", "=cao-gpu"]

@@ -1,0 +1,220 @@
+{
+  "$defs": {
+    "ControllerScopeV1": {
+      "additionalProperties": false,
+      "description": "Record controller scope admitted by provisioned OS transport policy.",
+      "properties": {
+        "authority": {
+          "enum": [
+            "local_uid",
+            "sudo_policy",
+            "ssh_account",
+            "container_exec"
+          ],
+          "title": "Authority",
+          "type": "string"
+        },
+        "controller_id": {
+          "title": "Controller Id",
+          "type": "string"
+        },
+        "operations": {
+          "items": {
+            "enum": [
+              "describe",
+              "launch",
+              "state",
+              "inspect",
+              "capture",
+              "resume",
+              "prompt",
+              "interrupt",
+              "stop",
+              "relaunch",
+              "home",
+              "status",
+              "refresh_check",
+              "refresh",
+              "gateway_status",
+              "gateway_attach",
+              "gateway_detach",
+              "cleanup"
+            ],
+            "type": "string"
+          },
+          "title": "Operations",
+          "type": "array"
+        },
+        "project_roots": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Project Roots",
+          "type": "array"
+        }
+      },
+      "required": [
+        "controller_id",
+        "authority",
+        "operations"
+      ],
+      "title": "ControllerScopeV1",
+      "type": "object"
+    },
+    "ExecutionBindingV1": {
+      "additionalProperties": false,
+      "description": "Separate observed owner identity and controller scope from logical agent identity.",
+      "properties": {
+        "account": {
+          "title": "Account",
+          "type": "string"
+        },
+        "container_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Container Id"
+        },
+        "context_id": {
+          "title": "Context Id",
+          "type": "string"
+        },
+        "controller": {
+          "$ref": "#/$defs/ControllerScopeV1"
+        },
+        "gid": {
+          "minimum": 0,
+          "title": "Gid",
+          "type": "integer"
+        },
+        "groups": {
+          "default": [],
+          "items": {
+            "type": "integer"
+          },
+          "title": "Groups",
+          "type": "array"
+        },
+        "host_id": {
+          "title": "Host Id",
+          "type": "string"
+        },
+        "profile_name": {
+          "title": "Profile Name",
+          "type": "string"
+        },
+        "project_root": {
+          "title": "Project Root",
+          "type": "string"
+        },
+        "registry_root": {
+          "title": "Registry Root",
+          "type": "string"
+        },
+        "route_fingerprint": {
+          "title": "Route Fingerprint",
+          "type": "string"
+        },
+        "runtime_root": {
+          "title": "Runtime Root",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "tmux_socket": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tmux Socket"
+        },
+        "transport": {
+          "enum": [
+            "local",
+            "sudo",
+            "ssh",
+            "docker"
+          ],
+          "title": "Transport",
+          "type": "string"
+        },
+        "uid": {
+          "minimum": 0,
+          "title": "Uid",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "context_id",
+        "host_id",
+        "account",
+        "uid",
+        "gid",
+        "registry_root",
+        "runtime_root",
+        "project_root",
+        "profile_name",
+        "transport",
+        "controller",
+        "route_fingerprint"
+      ],
+      "title": "ExecutionBindingV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Point to owner authority without copying manifests, endpoints, or mutable runtime state.",
+  "properties": {
+    "agent_id": {
+      "title": "Agent Id",
+      "type": "string"
+    },
+    "agent_name": {
+      "title": "Agent Name",
+      "type": "string"
+    },
+    "binding": {
+      "$ref": "#/$defs/ExecutionBindingV1"
+    },
+    "kind": {
+      "const": "executor_managed",
+      "default": "executor_managed",
+      "title": "Kind",
+      "type": "string"
+    },
+    "profile_name": {
+      "title": "Profile Name",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "agent_id",
+    "agent_name",
+    "profile_name",
+    "binding"
+  ],
+  "title": "ExecutorAgentLocatorV1",
+  "type": "object"
+}

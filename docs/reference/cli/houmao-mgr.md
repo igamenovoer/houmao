@@ -94,6 +94,8 @@ For dedicated coverage of complex nested command families, see:
 
 Managed-agent birth is source-scoped. Public project-backed launch is `houmao-mgr project [--project-dir <dir>] agents launch --specialist <name>` or `houmao-mgr project [--project-dir <dir>] agents launch --profile <name>`. Root/global/single `agents launch` paths are not maintained public commands.
 
+Project launch can select an already-provisioned execution owner with `--executor <name>`. Later selected-agent controls follow the saved owner route. See [agent execution contexts](../run-phase/execution-contexts.md) for trusted profile configuration, UID/credential separation, finite transport limits, and locator recovery.
+
 #### Common Scoped Paths
 
 | Intent | Maintained path |

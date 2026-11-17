@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from houmao.execution.context import execution_is_read_only
+
 from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
 from houmao.agents.model_mapping_policy import temporary_project_model_config
 from houmao.agents.model_selection import ModelConfig
@@ -136,7 +138,16 @@ class HeadlessInteractiveSession:
             executable=self._plan.executable,
             flow=f"{self.backend} runtime execution",
         )
-        self._ensure_tmux_container(requested_tmux_session_name=tmux_session_name)
+        if not execution_is_read_only():
+            self._ensure_tmux_container(requested_tmux_session_name=tmux_session_name)
+
+    def prepare_stopped_revival(self, *, tmux_session_name: str) -> None:
+        """Create a stopped envelope only at an explicit mutating revival boundary."""
+
+        if execution_is_read_only():
+            raise BackendExecutionError("Read-only reconstruction cannot prepare a revival surface")
+        if self._state.tmux_session_name is None:
+            self._ensure_tmux_container(requested_tmux_session_name=tmux_session_name)
 
     @property
     def state(self) -> HeadlessSessionState:
@@ -503,6 +514,7 @@ class HeadlessInteractiveSession:
         self._state.session_id = None
         self._state.resume_selection_value = None
         if selection.mode == "new":
+            self._state.turn_index = 0
             self._state.resume_selection_kind = "none"
             self._state.role_bootstrap_applied = False
             return

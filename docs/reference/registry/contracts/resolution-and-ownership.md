@@ -43,12 +43,15 @@ Timezone matters:
 Rules:
 
 - a new tmux-backed live session gets one `generation_id`,
+- a successful relaunch rotates the live generation even when it reuses the tmux envelope,
 - refreshes keep the same `generation_id`,
 - resume reuses the persisted `generation_id` when the same live session is being reclaimed,
 - a replacement publisher must use a different `generation_id`,
 - ownership conflicts are enforced on `agent_id`, not on canonical name alone.
 
 Fresh duplicate ownership is not allowed.
+
+An explicit relaunch can replace its captured old generation only when logical identity, backend identity, runtime pointers, execution binding, and tmux socket still match. Atomic publication runs under the logical owner's lock. Execution-bound controllers check the saved generation before control, and manifest writes compare the captured generation while holding the manifest lock. Manifest generation checks also block stale registry publication or teardown during the interval between committing the new manifest and replacing the registry projection.
 
 If a fresh record already exists for the same canonical `agent_name` with a different `generation_id`:
 
@@ -92,6 +95,10 @@ That split is intentional:
 
 ## Known-Name Resolution Flow
 
+Owner-local lifecycle records and `executor_agents/` locators form the managed discovery tier. A selector matching an execution locator enters its saved owner route before any local tmux probe or manifest reconstruction. Equivalent IDs/bindings deduplicate; different IDs sharing a friendly name, or different bindings claiming one ID, require explicit disambiguation or conflict repair. Existing local tmux aliases do not select a foreign owner. Communication-only imports remain a later tier, and explicit `--port` continues to bypass registry discovery.
+
+A known execution route is a control boundary even when its owner is unavailable. Authorization failure, context mismatch, or lost transport does not authorize caller-local/default-server fallback. Listing queries owner state through the route; lifecycle-inclusive output preserves unreachable identities as unavailable with unknown transport/lifecycle, rather than claiming stopped state. The execution context qualifies returned native homes, runtime pointers, and gateway-loopback coordinates.
+
 At the registry-storage layer, two lookup modes exist:
 
 1. direct lookup by authoritative `agent_id` using `live_agents/<agent-id>/record.json`,
@@ -100,6 +107,10 @@ At the registry-storage layer, two lookup modes exist:
 Name-based lookup can therefore report ambiguity when multiple live `agent_id`s share one canonical name.
 
 ## Remove And Cleanup Ownership Boundaries
+
+`admin executors forget --agent-id <id>` removes only a lexical operator execution locator. It does not stop the agent, remove owner files, or revoke independent communication imports. Local stale-presence cleanup does not apply local leases or tmux liveness to execution locators. Use owner-routed lifecycle operations for the agent itself.
+
+When owner birth succeeds but operator locator publication fails, retain the admitted identity and inspect/reconcile that owner explicitly. `admin executors reconcile --executor <name> --agent-id <id>` verifies owner admission and binding before publishing the locator; it does not repeat birth or retarget an existing locator. See [execution context recovery](../../run-phase/execution-contexts.md#locators-and-recovery).
 
 Two cleanup paths exist:
 
@@ -120,7 +131,7 @@ are removal candidates regardless of who originally created them.
 
 ## Current Implementation Notes
 
-- Publication is lock-free and uses compare-then-replace semantics, so the design tolerates a narrow race window while still requiring the losing generation to stand down later.
+- Publication serializes competing logical owners through a stable lock file and atomically replaces the registry projection. External systems and nonparticipating writers can still change independently, so every later control operation must revalidate its captured authority.
 - Storage-level resolution returning `None` does not mean name-based runtime control will always succeed when a record exists; manifest and agent-definition validation still happens after record lookup.
 - Explicit `--agent-def-dir` overrides beat registry-published `runtime.agent_def_dir`.
 

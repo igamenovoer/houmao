@@ -11,6 +11,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal, Mapping, MutableMapping
 
+from houmao.execution.tmux import (
+    current_tmux_socket_path,
+    tmux_argv,
+    tmux_subprocess_environment,
+)
+
 from ..agent_identity import (
     derive_auto_agent_name_base,
     derive_tmux_session_name,
@@ -473,7 +479,7 @@ def cleanup_tmux_session(*, session_name: str) -> None:
 def kill_tmux_session(*, session_name: str) -> None:
     """Terminate a tmux session and fail if tmux reports an error."""
 
-    result = run_tmux(["kill-session", "-t", session_name])
+    result = run_tmux(["kill-session", "-t", f"={session_name}"])
     if result.returncode == 0:
         return
     detail = tmux_error_detail(result)
@@ -485,7 +491,7 @@ def kill_tmux_session(*, session_name: str) -> None:
 def has_tmux_session(*, session_name: str) -> subprocess.CompletedProcess[str]:
     """Return raw tmux `has-session` command output."""
 
-    return run_tmux(["has-session", "-t", session_name])
+    return run_tmux(["has-session", "-t", f"={session_name}"])
 
 
 def tmux_session_exists(*, session_name: str) -> bool:
@@ -845,12 +851,15 @@ def load_tmux_buffer(*, buffer_name: str, text: str) -> None:
     """Load literal text into one named tmux buffer."""
 
     try:
+        environment = tmux_subprocess_environment()
+        extra: dict[str, Any] = {"env": environment} if environment is not None else {}
         result = subprocess.run(
-            ["tmux", "load-buffer", "-b", buffer_name, "-"],
+            tmux_argv(["load-buffer", "-b", buffer_name, "-"]),
             check=False,
             capture_output=True,
             text=True,
             input=text,
+            **extra,
         )
     except OSError as exc:
         raise TmuxCommandError(
@@ -1015,12 +1024,15 @@ def run_tmux(
     """Run a tmux command with normalized invocation behavior."""
 
     try:
+        environment = tmux_subprocess_environment()
+        extra: dict[str, Any] = {"env": environment} if environment is not None else {}
         return subprocess.run(
-            ["tmux", *args],
+            tmux_argv(args),
             check=False,
             capture_output=True,
             text=True,
             timeout=timeout_seconds,
+            **extra,
         )
     except OSError as exc:
         raise TmuxCommandError(f"Failed to run tmux command `{args}`: {exc}") from exc
@@ -1042,7 +1054,10 @@ def _libtmux_server() -> "libtmux.Server":
     except ImportError as exc:
         raise TmuxCommandError("`libtmux` is required for repo-owned tmux integration.") from exc
     try:
-        return libtmux.Server()
+        socket_path = current_tmux_socket_path()
+        return (
+            libtmux.Server(socket_path=socket_path) if socket_path is not None else libtmux.Server()
+        )
     except Exception as exc:  # noqa: BLE001
         raise TmuxCommandError(
             f"Failed to initialize libtmux server: {str(exc).strip() or 'unknown tmux error'}"

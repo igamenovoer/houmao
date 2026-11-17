@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from houmao.execution.tmux import tmux_server_scope
+
 from houmao.mailbox.online_models import (
     OnlineAttachRequest,
     OnlineControlRequest,
@@ -1289,7 +1291,8 @@ class PassiveServerService:
         tmux_session = resolved.record.terminal.session_name if resolved.record.terminal else None
         if tmux_session:
             try:
-                kill_tmux_session(session_name=tmux_session)
+                with tmux_server_scope(resolved.record.terminal.socket_path):
+                    kill_tmux_session(session_name=tmux_session)
             except Exception as exc:
                 log.warning("Error killing tmux session %s: %s", tmux_session, exc)
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -31,6 +32,9 @@ from houmao.agents.realm_controller.registry_storage import (
     resolve_live_agent_record,
 )
 from houmao.agents.realm_controller import runtime as runtime_module
+from houmao.execution.context import current_execution_binding, execution_read_only_scope
+from houmao.execution.models import ExecutionBindingV1
+from houmao.execution.tmux import current_tmux_socket_path, tmux_server_scope
 from houmao.mailbox.registry_config import associate_registry_store
 from houmao.agents.realm_controller.runtime import (
     resume_runtime_session,
@@ -131,6 +135,7 @@ class _FakeHeadlessSession:
         )
         self.m_force_cleanup = False
         self.m_relaunch_chat_sessions: list[RelaunchChatSessionSelection | None] = []
+        self.m_execution_scopes: list[tuple[str | None, ExecutionBindingV1 | None]] = []
 
     @property
     def state(self) -> HeadlessSessionState:
@@ -142,8 +147,15 @@ class _FakeHeadlessSession:
     def configure_stop_force_cleanup(self, *, force_cleanup: bool) -> None:
         self.m_force_cleanup = force_cleanup
 
+    def prepare_stopped_revival(self, *, tmux_session_name: str) -> None:
+        """Model the explicit lifecycle boundary without touching tmux."""
+
+        if self.m_state.tmux_session_name is None:
+            self.m_state.tmux_session_name = tmux_session_name
+
     def send_prompt(self, prompt: str, **kwargs: object) -> list[object]:
         del prompt, kwargs
+        self.m_execution_scopes.append((current_tmux_socket_path(), current_execution_binding()))
         self.m_state = replace(self.m_state, turn_index=self.m_state.turn_index + 1)
         return []
 
@@ -151,6 +163,7 @@ class _FakeHeadlessSession:
         return SessionControlResult(status="ok", action="interrupt", detail="interrupted")
 
     def terminate(self) -> SessionControlResult:
+        self.m_execution_scopes.append((current_tmux_socket_path(), current_execution_binding()))
         self.m_state = replace(self.m_state, tmux_session_name=None)
         return SessionControlResult(status="ok", action="terminate", detail="stopped")
 
@@ -241,6 +254,15 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     assert started_record.lifecycle.relaunchable is True
     assert started_record.terminal.current_session_name is not None
     assert started_record.gateway is None
+    binding = controller.execution_binding
+    assert binding is not None
+    assert binding.uid == os.geteuid()
+    assert binding.gid == os.getegid()
+    assert binding.transport == "local"
+    assert binding.runtime_root == str(runtime_root)
+    assert binding.registry_root == str(registry_root)
+    assert started_record.execution_binding == binding
+    assert started_record.terminal.socket_path == controller.tmux_socket_path
     started_published_at = datetime.fromisoformat(started_record.published_at)
     started_lease_expires_at = datetime.fromisoformat(started_record.lease_expires_at)
     assert (
@@ -250,11 +272,62 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
     assert persisted["registry_generation_id"] == controller.registry_generation_id
     assert persisted["registry_launch_authority"] == "runtime"
+    assert persisted["runtime"]["execution_binding"] == binding.model_dump(mode="json")
+    assert persisted["launch_plan"]["execution_binding"] == binding.model_dump(mode="json")
+    assert persisted["tmux"]["socket_path"] == binding.tmux_socket
 
-    controller.send_prompt("hello")
+    before_read = {
+        str(path.relative_to(tmp_path)): path.read_bytes()
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    }
+    with monkeypatch.context() as read_patch:
+
+        def forbid_setup(*_args: object, **_kwargs: object) -> None:
+            """Fail if passive reconstruction tries to prepare owned materials."""
+
+            pytest.fail("Read-only reconstruction attempted runtime setup")
+
+        read_patch.setattr(runtime_module, "ensure_agent_memory", forbid_setup)
+        read_patch.setattr(runtime_module, "ensure_hook_observation_on_resume", forbid_setup)
+        read_patch.setattr(runtime_module, "build_launch_plan", forbid_setup)
+        with execution_read_only_scope():
+            snapshot = resume_runtime_session(
+                agent_def_dir=agent_def_dir,
+                session_manifest_path=controller.manifest_path,
+                read_only=True,
+            )
+            assert snapshot.execution_binding == binding
+            assert snapshot.launch_plan.args == controller.launch_plan.args
+            with pytest.raises(SessionManifestError, match="Read-only"):
+                snapshot.interrupt()
+    assert before_read == {
+        str(path.relative_to(tmp_path)): path.read_bytes()
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    }
+
+    with tmux_server_scope("/unrelated/operator.sock"):
+        controller.send_prompt("hello")
+        assert current_tmux_socket_path() == "/unrelated/operator.sock"
+    assert controller.backend_session.m_execution_scopes[-1] == (binding.tmux_socket, binding)
     refreshed_record = resolve_live_agent_record("gpu")
     assert refreshed_record is not None
     assert refreshed_record.generation_id == controller.registry_generation_id
+
+    before_relaunch = controller.registry_generation_id
+    assert controller.relaunch().status == "ok"
+    assert controller.registry_generation_id != before_relaunch
+    assert controller.execution_binding == binding
+    relaunched_record = resolve_live_agent_record("gpu")
+    assert relaunched_record is not None
+    assert relaunched_record.generation_id == controller.registry_generation_id
+    manifest_after_relaunch = controller.manifest_path.read_bytes()
+    with pytest.raises(SessionManifestError, match="generation changed"):
+        snapshot.interrupt()
+    with pytest.raises(SessionManifestError, match="generation changed"):
+        snapshot.persist_manifest()
+    assert controller.manifest_path.read_bytes() == manifest_after_relaunch
 
     resumed = resume_runtime_session(
         agent_def_dir=agent_def_dir,
@@ -264,6 +337,8 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     assert resumed_record is not None
     assert resumed.registry_generation_id == controller.registry_generation_id
     assert resumed_record.generation_id == controller.registry_generation_id
+    assert resumed.execution_binding == binding
+    assert resumed_record.execution_binding == binding
 
     stop_result = resumed.stop(force_cleanup=True)
     assert stop_result.status == "ok"
@@ -277,6 +352,9 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     assert stopped_record.gateway is None
     assert stopped_record.terminal.current_session_name is None
     assert stopped_record.terminal.last_session_name == started_record.terminal.current_session_name
+    assert stopped_record.execution_binding == binding
+    assert stopped_record.terminal.socket_path == binding.tmux_socket
+    assert resumed.backend_session.m_execution_scopes[-1] == (binding.tmux_socket, binding)
     stopped_payload = json.loads(resumed.manifest_path.read_text(encoding="utf-8"))
     assert stopped_payload["tmux_session_name"] == started_record.terminal.current_session_name
 

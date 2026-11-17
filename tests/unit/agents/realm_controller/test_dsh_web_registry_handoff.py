@@ -12,21 +12,38 @@ from houmao.agents.realm_controller.native_surface import WebNativeSurfaceV1
 from houmao.agents.realm_controller.registry_models import RegistryIdentityV1, RegistryRuntimeV1
 from houmao.agents.realm_controller import registry_storage as storage
 from tests.unit.agents.realm_controller.test_registry_storage import _sample_record
+from houmao.execution.context import observed_local_binding
 
 
-def test_web_generation_handoff_has_no_gap_and_excludes_stale_writer_and_remover(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("backend", ["dsh_web", "claude_headless"])
+def test_runtime_generation_handoff_has_no_gap_and_excludes_stale_writer_and_remover(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
 ) -> None:
     """Concurrent stale work cannot restore or delete the new generation across atomic replacement."""
 
     monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(tmp_path / "registry"))
     manifest = tmp_path / "manifest.json"
+    binding = (
+        observed_local_binding(
+            working_directory=tmp_path,
+            runtime_root=tmp_path,
+            registry_root=tmp_path / "registry",
+            tmux_socket=None,
+        )
+        if backend == "claude_headless"
+        else None
+    )
     old = _sample_record().model_copy(
         update={
-            "identity": RegistryIdentityV1(backend="dsh_web", tool="dsh"),
+            "identity": RegistryIdentityV1(
+                backend=backend, tool="dsh" if backend == "dsh_web" else "claude"
+            ),
             "native_surface": WebNativeSurfaceV1(
                 origin="http://127.0.0.1:45231", native_session_id="native"
-            ),
+            )
+            if backend == "dsh_web"
+            else None,
+            "execution_binding": binding,
             "runtime": RegistryRuntimeV1(manifest_path=str(manifest)),
         }
     )
@@ -37,9 +54,14 @@ def test_web_generation_handoff_has_no_gap_and_excludes_stale_writer_and_remover
         manifest.write_text(
             json.dumps(
                 {
-                    "backend": "dsh_web",
+                    "backend": backend,
                     "agent_id": old.agent_id,
                     "registry_generation_id": generation,
+                    "runtime": {
+                        "execution_binding": binding.model_dump(mode="json")
+                        if binding is not None
+                        else None
+                    },
                     "backend_state": {
                         "web_identity": {"generation": generation, "agent_id": old.agent_id}
                     },

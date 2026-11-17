@@ -50,6 +50,7 @@ from houmao.agents.realm_controller.runtime import (
     resume_runtime_session,
     start_runtime_session,
 )
+from houmao.execution.tmux import tmux_server_scope
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.models import (
     PassiveAgentActionResponse,
@@ -68,6 +69,14 @@ from houmao.server.managed_agents import (
 from houmao.server.models import HoumaoHeadlessTurnEvent
 
 log = logging.getLogger(__name__)
+
+
+def _authority_tmux_session_exists(authority: ManagedHeadlessAuthorityRecord) -> bool:
+    """Probe only the concrete server selected by the persisted owner authority."""
+
+    with tmux_server_scope(authority.tmux_socket_path):
+        return tmux_session_exists(session_name=authority.tmux_session_name)
+
 
 _HEADLESS_BACKENDS = frozenset({"claude_headless", "codex_headless", "kimi_headless", "dsh_acp"})
 
@@ -303,6 +312,7 @@ class HeadlessAgentService:
             manifest_path=str(controller_manifest_path),
             session_root=session_root,
             tmux_session_name=controller.tmux_session_name or tracked_agent_id,
+            tmux_socket_path=controller.launch_plan.metadata.get("tmux_socket_path"),
             tmux_window_id=_controller_primary_tmux_window_id(controller),
             tmux_pane_id=_controller_primary_tmux_pane_id(controller),
             agent_def_dir=str(agent_def_dir),
@@ -558,7 +568,8 @@ class HeadlessAgentService:
                     )
 
         try:
-            result = backend_session.interrupt()
+            with tmux_server_scope(handle.authority.tmux_socket_path):
+                result = backend_session.interrupt()
             detail = f"Interrupt sent: {result.detail}" if result.detail else "Interrupt sent"
         except Exception as exc:
             detail = f"Interrupt attempted with error: {exc}"
@@ -586,13 +597,15 @@ class HeadlessAgentService:
         # Stop the runtime controller
         if handle.controller is not None:
             try:
-                handle.controller.backend_session.close()
+                with tmux_server_scope(authority.tmux_socket_path):
+                    handle.controller.backend_session.close()
             except Exception as exc:
                 log.warning("Error closing backend session for %s: %s", tracked_agent_id, exc)
 
         # Kill tmux session
         try:
-            kill_tmux_session(session_name=authority.tmux_session_name)
+            with tmux_server_scope(authority.tmux_socket_path):
+                kill_tmux_session(session_name=authority.tmux_session_name)
         except Exception as exc:
             log.warning("Error killing tmux session for %s: %s", tracked_agent_id, exc)
 
@@ -749,7 +762,7 @@ class HeadlessAgentService:
         active_turn = self.m_store.read_active_turn(tracked_agent_id=tracked_agent_id)
         latest_turn = self._latest_turn_record(tracked_agent_id=tracked_agent_id)
         runtime_resumable = handle is not None and handle.controller is not None
-        tmux_session_live = tmux_session_exists(session_name=authority.tmux_session_name)
+        tmux_session_live = _authority_tmux_session_exists(authority)
         return PassiveManagedHeadlessControlState(
             authority=authority,
             controller=handle.controller if handle is not None else None,
@@ -795,7 +808,7 @@ class HeadlessAgentService:
             preserve_history = usage_path.is_file() or bool(
                 self.m_store.list_turn_records(tracked_agent_id=tracked_agent_id)
             )
-            if not tmux_session_exists(session_name=authority.tmux_session_name):
+            if not _authority_tmux_session_exists(authority):
                 if preserve_history:
                     rebuilt[tracked_agent_id] = _ManagedHeadlessHandle(
                         authority=authority, controller=None

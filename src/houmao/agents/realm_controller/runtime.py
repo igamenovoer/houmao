@@ -12,9 +12,27 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field, replace
+from contextlib import contextmanager
+from functools import wraps
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Literal, cast
+from typing import Any, Callable, Concatenate, Iterator, Literal, ParamSpec, TypeVar, cast
+
+from houmao.execution.context import (
+    current_execution_binding,
+    execution_binding_scope,
+    execution_is_read_only,
+    execution_read_only_scope,
+    observed_local_binding,
+    validate_execution_owner,
+)
+from houmao.execution.models import ExecutionBindingV1
+from houmao.execution.tmux import (
+    capture_tmux_socket_path,
+    current_tmux_socket_path,
+    tmux_server_scope,
+    validate_tmux_socket_path,
+)
 
 from houmao.gateway.plugins import GatewayPluginConfiguration
 
@@ -29,6 +47,7 @@ from houmao.agents.agent_workspace import (
 )
 from houmao.owned_paths import (
     HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR,
+    resolve_registry_root,
     resolve_runtime_root,
 )
 from houmao.project.overlay import (
@@ -41,6 +60,7 @@ from houmao.agents.managed_prompt_header import (
     resolve_managed_prompt_header_decision,
 )
 from houmao.agents.managed_launch_force import ManagedLaunchForceMode
+from houmao.agents.launch_policy.models import LaunchPolicyProvenance
 from houmao.agents.kimi_system_prompt import (
     KimiSystemPromptError,
     validate_kimi_v2_engine_env,
@@ -182,6 +202,7 @@ from .launch_plan import (
     LaunchPlanRequest,
     backend_for_tool,
     build_launch_plan,
+    read_launch_environment,
     configured_cao_parsing_mode,
     resolve_cao_parsing_mode,
 )
@@ -248,7 +269,6 @@ from .registry_storage import (
     resolve_live_agent_record_by_agent_id,
     resolve_live_agent_records_by_name,
 )
-from houmao.owned_paths import resolve_registry_root
 from houmao.mailbox import bootstrap_filesystem_mailbox, resolve_filesystem_mailbox_paths
 from houmao.mailbox.managed import (
     DeregisterMailboxRequest,
@@ -378,6 +398,136 @@ class ResolvedRuntimeIdentity:
     warnings: tuple[str, ...] = ()
 
 
+_ExecutionParams = ParamSpec("_ExecutionParams")
+_ExecutionResult = TypeVar("_ExecutionResult")
+
+
+def _validate_saved_execution_binding(binding: ExecutionBindingV1 | None) -> None:
+    """Reject a saved runtime whose admitted owner differs from this operation."""
+
+    try:
+        validate_execution_owner(binding)
+    except ValueError as exc:
+        raise SessionManifestError(str(exc)) from exc
+
+
+@contextmanager
+def _runtime_execution_scope(plan: LaunchPlan) -> Iterator[None]:
+    """Restore this runtime's owner and concrete socket for one operation."""
+
+    _validate_saved_execution_binding(plan.execution_binding)
+    socket_path = plan.metadata.get("tmux_socket_path")
+    binding = plan.execution_binding
+    if binding is not None and binding.tmux_socket is not None:
+        if socket_path is not None and str(socket_path) != binding.tmux_socket:
+            raise SessionManifestError("Saved tmux socket differs from execution binding")
+        socket_path = binding.tmux_socket
+    with (
+        execution_binding_scope(binding),
+        tmux_server_scope(str(socket_path) if socket_path is not None else None),
+    ):
+        yield
+
+
+def _validate_controller_generation(controller: RuntimeSessionController) -> None:
+    """Reject an old controller before it acts on a replacement runtime generation."""
+
+    if (
+        controller.execution_binding is None
+        or controller.registry_generation_id is None
+        or not controller.manifest_path.is_file()
+    ):
+        return
+    payload = load_session_manifest(controller.manifest_path).payload
+    expected = {controller.registry_generation_id, controller.m_registry_handoff_generation}
+    if (
+        payload["registry_generation_id"] not in expected
+        or payload["agent_id"] != controller.agent_id
+        or payload["runtime"].get("execution_binding")
+        != controller.execution_binding.model_dump(mode="json")
+    ):
+        raise SessionManifestError(
+            "Runtime execution generation changed; resolve the current manifest again"
+        )
+
+
+def _execution_bound_controller(
+    operation: Callable[Concatenate[RuntimeSessionController, _ExecutionParams], _ExecutionResult],
+) -> Callable[Concatenate[RuntimeSessionController, _ExecutionParams], _ExecutionResult]:
+    """Keep every controller operation bound when called by independent workers."""
+
+    @wraps(operation)
+    def bound(
+        controller: RuntimeSessionController,
+        /,
+        *args: _ExecutionParams.args,
+        **kwargs: _ExecutionParams.kwargs,
+    ) -> _ExecutionResult:
+        """Run under the controller's saved authority and restore caller scope."""
+
+        if execution_is_read_only() and operation.__name__ not in {
+            "gateway_status",
+            "build_shared_registry_record",
+        }:
+            raise SessionManifestError("Read-only execution scope cannot mutate runtime state")
+        with _runtime_execution_scope(controller.launch_plan):
+            _validate_controller_generation(controller)
+            return operation(controller, *args, **kwargs)
+
+    return bound
+
+
+def _execution_scoped_start(
+    operation: Callable[_ExecutionParams, _ExecutionResult],
+) -> Callable[_ExecutionParams, _ExecutionResult]:
+    """Capture birth-time socket authority before a backend can touch tmux."""
+
+    @wraps(operation)
+    def bound(*args: _ExecutionParams.args, **kwargs: _ExecutionParams.kwargs) -> _ExecutionResult:
+        """Pin the owner-selected or enclosing socket for the complete birth."""
+
+        if execution_is_read_only():
+            raise SessionManifestError("Read-only execution scope cannot launch an agent")
+        binding = current_execution_binding()
+        selected = binding.tmux_socket if binding is not None else None
+        socket_path = selected or capture_tmux_socket_path()
+        with tmux_server_scope(socket_path):
+            return operation(*args, **kwargs)
+
+    return bound
+
+
+def _execution_scoped_resume(
+    operation: Callable[_ExecutionParams, _ExecutionResult],
+) -> Callable[_ExecutionParams, _ExecutionResult]:
+    """Load saved socket and owner before backend reconstruction or local probes."""
+
+    @wraps(operation)
+    def bound(*args: _ExecutionParams.args, **kwargs: _ExecutionParams.kwargs) -> _ExecutionResult:
+        """Read authority without interpreting another runtime's paths as local."""
+
+        path = kwargs.get("session_manifest_path")
+        if not isinstance(path, Path):
+            raise SessionManifestError("Runtime resume requires an explicit manifest Path")
+        handle = load_session_manifest(path)
+        payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+        binding = payload.runtime.execution_binding
+        _validate_saved_execution_binding(binding)
+        selected_socket = payload.tmux.socket_path if payload.tmux is not None else None
+        if binding is not None and binding.tmux_socket is not None:
+            if selected_socket != binding.tmux_socket:
+                raise SessionManifestError("Persisted tmux socket differs from execution binding")
+        read_only = kwargs.get("read_only", False)
+        with (
+            execution_binding_scope(binding),
+            tmux_server_scope(selected_socket),
+            execution_read_only_scope(bool(read_only)),
+        ):
+            return operation(*args, **kwargs)
+
+    return bound
+
+
 @dataclass
 class RuntimeSessionController:
     """Controller that binds a backend session to persisted manifest state."""
@@ -407,22 +557,53 @@ class RuntimeSessionController:
     agent_launch_authority: SessionManifestAgentLaunchAuthorityV1 | None = None
     operation_warnings: tuple[str, ...] = ()
     m_web_manifest_identity: dict[str, Any] | None = field(default=None, init=False, repr=False)
-    m_web_registry_handoff_generation: str | None = field(default=None, init=False, repr=False)
+    m_registry_handoff_generation: str | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         """Strip retired mailbox-live metadata from persisted launch plans."""
 
         self.launch_plan = _without_retired_mailbox_metadata(self.launch_plan)
+        binding = self.launch_plan.execution_binding or current_execution_binding()
+        metadata = dict(self.launch_plan.metadata)
+        if self.launch_plan.backend in _TMUX_BACKED_BACKENDS:
+            selected = metadata.get("tmux_socket_path")
+            metadata["tmux_socket_path"] = validate_tmux_socket_path(
+                str(selected) if selected is not None else capture_tmux_socket_path()
+            )
+        self.launch_plan = replace(self.launch_plan, execution_binding=binding, metadata=metadata)
         if isinstance(self.backend_session, DshWebSession):
             self.m_web_manifest_identity = dict(self.backend_session.state.web_identity)
             self.backend_session.set_binding_changed_callback(self._persist_web_binding_change)
 
+    @property
+    def execution_binding(self) -> ExecutionBindingV1 | None:
+        """Return the immutable owner authority associated with this runtime."""
+
+        return self.launch_plan.execution_binding
+
+    @property
+    def tmux_socket_path(self) -> str | None:
+        """Return the captured concrete owner-side tmux socket selector."""
+
+        selected = self.launch_plan.metadata.get("tmux_socket_path")
+        return str(selected) if selected is not None else None
+
+    @contextmanager
+    def execution_scope(self) -> Iterator[None]:
+        """Restore this controller's authority for services calling its backend directly."""
+
+        with _runtime_execution_scope(self.launch_plan):
+            _validate_controller_generation(self)
+            yield
+
+    @_execution_bound_controller
     def _persist_web_binding_change(self) -> None:
         """Publish an intentional Web reset before its next native input handoff."""
 
         self.persist_manifest(refresh_registry=True)
         self.ensure_gateway_capability()
 
+    @_execution_bound_controller
     def send_web_prompt(
         self,
         prompt: str,
@@ -454,6 +635,7 @@ class RuntimeSessionController:
         self.persist_manifest(refresh_registry=refresh_registry)
         return events
 
+    @_execution_bound_controller
     def send_prompt(
         self,
         prompt: str,
@@ -531,6 +713,7 @@ class RuntimeSessionController:
             request_override=execution_model,
         ).config
 
+    @_execution_bound_controller
     def send_mail_prompt(self, prompt_request: MailPromptRequest) -> list[SessionEvent]:
         """Send one runtime-owned mailbox prompt and persist updated session state."""
 
@@ -561,6 +744,7 @@ class RuntimeSessionController:
         self.persist_manifest()
         return events
 
+    @_execution_bound_controller
     def interrupt(self) -> SessionControlResult:
         """Interrupt in-flight backend work and persist state."""
 
@@ -569,6 +753,7 @@ class RuntimeSessionController:
         self.persist_manifest()
         return result
 
+    @_execution_bound_controller
     def send_input_ex(
         self, sequence: str, *, escape_special_keys: bool = False
     ) -> SessionControlResult:
@@ -615,6 +800,7 @@ class RuntimeSessionController:
         self.persist_manifest()
         return result
 
+    @_execution_bound_controller
     def stop(self, *, force_cleanup: bool = False) -> SessionControlResult:
         """Terminate backend resources and persist state."""
 
@@ -658,6 +844,7 @@ class RuntimeSessionController:
             self.persist_manifest()
         return result
 
+    @_execution_bound_controller
     def close(self) -> None:
         """Close the backend session."""
 
@@ -668,6 +855,7 @@ class RuntimeSessionController:
             _stop_hook_observation_for_controller(self)
         self.persist_manifest()
 
+    @_execution_bound_controller
     def refresh_mailbox_bindings(
         self,
         *,
@@ -727,6 +915,7 @@ class RuntimeSessionController:
             return None
         return "active"
 
+    @_execution_bound_controller
     def register_filesystem_mailbox(
         self,
         *,
@@ -817,6 +1006,7 @@ class RuntimeSessionController:
             ),
         )
 
+    @_execution_bound_controller
     def register_remote_offline_mailbox(
         self,
         *,
@@ -873,6 +1063,7 @@ class RuntimeSessionController:
             activation_state="active",
         )
 
+    @_execution_bound_controller
     def unregister_filesystem_mailbox(
         self,
         *,
@@ -936,6 +1127,7 @@ class RuntimeSessionController:
             ),
         )
 
+    @_execution_bound_controller
     def _commit_offline_mailbox_binding(self, binding: MailboxResolvedConfig | None) -> None:
         """Commit a prepared registration without overwriting the online slot."""
 
@@ -985,6 +1177,7 @@ class RuntimeSessionController:
                 exc,
             )
 
+    @_execution_bound_controller
     def relaunch(
         self,
         *,
@@ -1060,6 +1253,12 @@ class RuntimeSessionController:
             self.persist_manifest()
             return result
 
+        if not isinstance(self.backend_session, DshWebSession):
+            previous_generation = self.registry_generation_id
+            self.registry_generation_id = new_registry_generation_id()
+            if previous_generation is not None:
+                self.m_registry_handoff_generation = previous_generation
+
         try:
             _refresh_pair_launch_registration(self)
         except SessionManifestError as exc:
@@ -1081,6 +1280,7 @@ class RuntimeSessionController:
             self.persist_manifest()
         return result
 
+    @_execution_bound_controller
     def revive_stopped_session(
         self,
         *,
@@ -1111,6 +1311,14 @@ class RuntimeSessionController:
                 action="relaunch",
                 detail=str(exc),
             )
+
+        if isinstance(self.backend_session, HeadlessInteractiveSession):
+            try:
+                self.backend_session.prepare_stopped_revival(
+                    tmux_session_name=self._require_tmux_session_name()
+                )
+            except (BackendExecutionError, TmuxCommandError) as exc:
+                return SessionControlResult(status="error", action="relaunch", detail=str(exc))
 
         if _backend_requires_provider_start_relaunch(self.launch_plan.backend):
             try:
@@ -1146,7 +1354,10 @@ class RuntimeSessionController:
             return result
 
         if not isinstance(self.backend_session, DshWebSession):
+            previous_generation = self.registry_generation_id
             self.registry_generation_id = new_registry_generation_id()
+            if previous_generation is not None:
+                self.m_registry_handoff_generation = previous_generation
         try:
             self.persist_manifest(refresh_registry=False)
             if isinstance(self.backend_session, DshWebSession):
@@ -1164,6 +1375,7 @@ class RuntimeSessionController:
         self.persist_manifest()
         return result
 
+    @_execution_bound_controller
     def persist_manifest(self, *, refresh_registry: bool = True) -> None:
         """Persist current backend state to session manifest."""
 
@@ -1193,7 +1405,15 @@ class RuntimeSessionController:
             )
         )
         committed = write_session_manifest(
-            self.manifest_path, payload, expected_web_identity=self.m_web_manifest_identity
+            self.manifest_path,
+            payload,
+            expected_web_identity=self.m_web_manifest_identity,
+            expected_registry_generation_id=self.m_registry_handoff_generation
+            or (
+                self.m_web_manifest_identity.get("generation")
+                if self.m_web_manifest_identity is not None
+                else self.registry_generation_id
+            ),
         )
         if isinstance(self.backend_session, DshWebSession):
             self.m_web_manifest_identity = dict(committed.payload["backend_state"]["web_identity"])
@@ -1222,6 +1442,7 @@ class RuntimeSessionController:
         self.operation_warnings = ()
         return warnings
 
+    @_execution_bound_controller
     def ensure_gateway_capability(
         self,
         *,
@@ -1294,6 +1515,7 @@ class RuntimeSessionController:
         self.gateway_attach_path = paths.attach_path
         self.refresh_shared_registry_record()
 
+    @_execution_bound_controller
     def attach_gateway(
         self,
         *,
@@ -1317,6 +1539,7 @@ class RuntimeSessionController:
             self.refresh_shared_registry_record()
         return result
 
+    @_execution_bound_controller
     def detach_gateway(self) -> GatewayControlResult:
         """Stop a live gateway instance while preserving attachability metadata."""
 
@@ -1325,11 +1548,13 @@ class RuntimeSessionController:
             self.refresh_shared_registry_record()
         return result
 
+    @_execution_bound_controller
     def gateway_status(self) -> GatewayStatusV1:
         """Return current gateway status from the live gateway or stable state file."""
 
         return _gateway_status_for_controller(self)
 
+    @_execution_bound_controller
     def send_prompt_via_gateway(self, prompt: str) -> GatewayAcceptedRequestV1:
         """Submit a prompt through the live gateway queue."""
 
@@ -1341,6 +1566,7 @@ class RuntimeSessionController:
             ),
         )
 
+    @_execution_bound_controller
     def control_prompt_via_gateway(
         self,
         prompt: str,
@@ -1357,6 +1583,7 @@ class RuntimeSessionController:
             ),
         )
 
+    @_execution_bound_controller
     def interrupt_via_gateway(self) -> GatewayAcceptedRequestV1:
         """Submit an interrupt through the live gateway queue."""
 
@@ -1383,6 +1610,7 @@ class RuntimeSessionController:
             )
         return session_name
 
+    @_execution_bound_controller
     def refresh_shared_registry_record(self) -> ManagedAgentRegistryRecordV3 | None:
         """Publish or refresh the shared-registry record for this live session."""
 
@@ -1402,11 +1630,11 @@ class RuntimeSessionController:
                     f"`{existing_record.agent_name}`"
                 ),
             )
-        if self.m_web_registry_handoff_generation is not None:
+        if self.m_registry_handoff_generation is not None:
             published = publish_live_agent_record(
-                record, expected_generation_id=self.m_web_registry_handoff_generation
+                record, expected_generation_id=self.m_registry_handoff_generation
             )
-            self.m_web_registry_handoff_generation = None
+            self.m_registry_handoff_generation = None
             return published
         return publish_live_agent_record(record)
 
@@ -1415,11 +1643,13 @@ class RuntimeSessionController:
 
         return self.registry_launch_authority == "runtime"
 
+    @_execution_bound_controller
     def build_shared_registry_record(self) -> ManagedAgentRegistryRecordV3 | None:
         """Build the current pointer-oriented shared-registry record for this session."""
 
         return _build_shared_registry_record_for_controller(self)
 
+    @_execution_bound_controller
     def publish_stopped_shared_registry_record(
         self,
         *,
@@ -1435,6 +1665,7 @@ class RuntimeSessionController:
             return None
         return publish_live_agent_record(record)
 
+    @_execution_bound_controller
     def clear_shared_registry_record(self) -> bool:
         """Remove this session's shared-registry record during authoritative teardown."""
 
@@ -1517,6 +1748,7 @@ def _managed_prompt_header_enabled_from_brain_manifest(manifest: dict[str, Any])
     return raw_enabled
 
 
+@_execution_scoped_start
 def start_runtime_session(
     *,
     agent_def_dir: Path,
@@ -1749,6 +1981,24 @@ def start_runtime_session(
             session_root=manifest_path.parent,
         )
     )
+    launch_plan = replace(
+        launch_plan,
+        execution_binding=current_execution_binding()
+        or observed_local_binding(
+            working_directory=selected_workdir,
+            runtime_root=effective_runtime_root,
+            registry_root=resolve_registry_root(),
+            tmux_socket=current_tmux_socket_path()
+            if selected_backend in _TMUX_BACKED_BACKENDS
+            else None,
+        ),
+        metadata={
+            **launch_plan.metadata,
+            "tmux_socket_path": current_tmux_socket_path(),
+        }
+        if selected_backend in _TMUX_BACKED_BACKENDS
+        else launch_plan.metadata,
+    )
     launch_plan = _launch_plan_with_memory(
         launch_plan,
         memory=resolved_memory,
@@ -1940,6 +2190,7 @@ def resume_runtime_session(
     session_manifest_path: Path,
     cao_profile_store_dir: Path | None = None,
     cao_parsing_mode: CaoParsingMode | None = None,
+    read_only: bool = False,
 ) -> RuntimeSessionController:
     """Resume a runtime session from a persisted manifest."""
 
@@ -1949,6 +2200,7 @@ def resume_runtime_session(
         cao_profile_store_dir=cao_profile_store_dir,
         cao_parsing_mode=cao_parsing_mode,
         stopped_revival=False,
+        read_only=read_only,
     )
 
 
@@ -1970,6 +2222,7 @@ def resume_stopped_runtime_session(
     )
 
 
+@_execution_scoped_resume
 def _resume_runtime_session_controller(
     *,
     agent_def_dir: Path,
@@ -1977,6 +2230,7 @@ def _resume_runtime_session_controller(
     cao_profile_store_dir: Path | None,
     cao_parsing_mode: CaoParsingMode | None,
     stopped_revival: bool,
+    read_only: bool = False,
 ) -> RuntimeSessionController:
     """Build one runtime controller from a persisted manifest with optional stopped revival."""
 
@@ -1985,6 +2239,8 @@ def _resume_runtime_session_controller(
         handle.payload,
         source=str(handle.path),
     )
+    _validate_saved_execution_binding(manifest_payload.runtime.execution_binding)
+    read_only = execution_is_read_only()
 
     backend = manifest_payload.backend
     if backend in _TMUX_BACKED_BACKENDS and manifest_payload.agent_id is None:
@@ -1998,7 +2254,7 @@ def _resume_runtime_session_controller(
         )
     role_package = load_role_package(agent_def_dir, role_name)
     memory = _memory_from_manifest_payload(payload=manifest_payload)
-    if memory is not None:
+    if memory is not None and not read_only:
         ensure_agent_memory(memory)
 
     resolved_mailboxes = _resolved_mailbox_from_manifest_payload(
@@ -2021,15 +2277,24 @@ def _resume_runtime_session_controller(
                 fallback=role_package.system_prompt,
             ),
         )
-        launch_plan = build_launch_plan(
-            LaunchPlanRequest(
+        launch_plan = (
+            _read_only_launch_plan_from_manifest(
+                payload=manifest_payload,
                 brain_manifest=brain_manifest,
                 role_package=role_package,
-                backend=backend,
-                working_directory=Path(manifest_payload.working_directory),
                 mailboxes=resolved_mailboxes,
-                intent="resume_control",
-                session_root=session_manifest_path.resolve().parent,
+            )
+            if read_only
+            else build_launch_plan(
+                LaunchPlanRequest(
+                    brain_manifest=brain_manifest,
+                    role_package=role_package,
+                    backend=backend,
+                    working_directory=Path(manifest_payload.working_directory),
+                    mailboxes=resolved_mailboxes,
+                    intent="resume_control",
+                    session_root=session_manifest_path.resolve().parent,
+                )
             )
         )
         launch_plan = replace(
@@ -2039,8 +2304,18 @@ def _resume_runtime_session_controller(
                 **dict(manifest_payload.launch_plan.metadata),
             },
         )
+    launch_plan = replace(
+        launch_plan,
+        execution_binding=manifest_payload.runtime.execution_binding,
+        metadata={
+            **launch_plan.metadata,
+            "tmux_socket_path": manifest_payload.tmux.socket_path,
+        }
+        if manifest_payload.tmux is not None and manifest_payload.tmux.socket_path is not None
+        else launch_plan.metadata,
+    )
     launch_plan = _launch_plan_with_memory(launch_plan, memory=memory)
-    if not stopped_revival:
+    if not stopped_revival and not read_only:
         launch_plan = ensure_hook_observation_on_resume(
             launch_plan,
             session_root=session_manifest_path.resolve().parent,
@@ -2060,7 +2335,7 @@ def _resume_runtime_session_controller(
         ).tmux_session_name
 
     registry_generation_id = manifest_payload.registry_generation_id
-    if backend in _TMUX_BACKED_BACKENDS and (registry_generation_id is None or stopped_revival):
+    if backend in _TMUX_BACKED_BACKENDS and registry_generation_id is None and not read_only:
         registry_generation_id = new_registry_generation_id()
     if backend == "dsh_web":
         launch_plan = replace(
@@ -2118,7 +2393,7 @@ def _resume_runtime_session_controller(
         registry_launch_authority=manifest_payload.registry_launch_authority,
         agent_launch_authority=manifest_payload.agent_launch_authority,
     )
-    if not stopped_revival:
+    if not stopped_revival and not read_only:
         controller.ensure_gateway_capability()
     return controller
 
@@ -2343,7 +2618,11 @@ def _resume_headless_state(
 
     session_id = headless.session_id
     turn_index = headless.turn_index
-    if (session_id is None or not session_id.strip()) and turn_index > 0:
+    if (
+        (session_id is None or not session_id.strip())
+        and turn_index > 0
+        and headless.resume_selection_kind == "none"
+    ):
         raise SessionManifestError(
             "Headless resume requires a non-empty headless.session_id after turn 0"
         )
@@ -2602,6 +2881,62 @@ def _is_joined_tmux_manifest(
     return (
         payload.agent_launch_authority is not None
         and payload.agent_launch_authority.session_origin == _JOINED_SESSION_ORIGIN
+    )
+
+
+def _read_only_launch_plan_from_manifest(
+    *,
+    payload: SessionManifestPayloadV4,
+    brain_manifest: dict[str, Any],
+    role_package: RolePackage,
+    mailboxes: MailboxesResolvedConfig,
+) -> LaunchPlan:
+    """Restore existing launch intent without version probes, native setup, or projection."""
+
+    saved = payload.launch_plan
+    environment, names, _source, _selected = read_launch_environment(
+        brain_manifest, backend=saved.backend
+    )
+    if saved.tool == "dsh":
+        metadata = saved.metadata.get("dsh")
+        environment["DSH_HOME"] = saved.home_selector.home_path
+        agents_home = metadata.get("agents_home") if isinstance(metadata, dict) else None
+        environment["DSH_AGENTS_HOME"] = (
+            agents_home
+            if isinstance(agents_home, str)
+            else str(Path(saved.home_selector.home_path) / "shared-agents")
+        )
+    prompt = (
+        payload.system_prompt.text
+        if payload.system_prompt is not None
+        else role_package.system_prompt
+    )
+    provenance = saved.launch_policy_provenance
+    return LaunchPlan(
+        backend=saved.backend,
+        native_surface_kind=saved.native_surface_kind,
+        tool=saved.tool,
+        executable=saved.executable,
+        args=list(saved.args),
+        working_directory=Path(saved.working_directory),
+        home_env_var=saved.home_selector.env_var,
+        home_path=Path(saved.home_selector.home_path),
+        env=environment,
+        env_var_names=names,
+        role_injection=RoleInjectionPlan(
+            method=saved.role_injection.method,
+            role_name=saved.role_injection.role_name,
+            prompt=prompt,
+            bootstrap_message=prompt
+            if saved.role_injection.method == "bootstrap_message"
+            else None,
+        ),
+        metadata=dict(saved.metadata),
+        mailboxes=mailboxes,
+        execution_binding=payload.runtime.execution_binding,
+        launch_policy_provenance=LaunchPolicyProvenance(**provenance.model_dump())
+        if provenance is not None
+        else None,
     )
 
 
@@ -2873,7 +3208,7 @@ def _relaunch_backend_session(
             controller.launch_plan = launch_plan
             controller.registry_generation_id = generation
             if existing_record is not None:
-                controller.m_web_registry_handoff_generation = previous_generation
+                controller.m_registry_handoff_generation = previous_generation
         else:
             backend_session.update_launch_plan(previous_plan)
         return result
@@ -3383,7 +3718,7 @@ def _build_provider_start_launch_plan_for_relaunch(
                 updated_launch_plan,
                 memory=_memory_from_controller(controller),
             )
-            return updated_launch_plan
+            return _preserve_controller_execution_authority(controller, updated_launch_plan)
 
     if controller.agent_def_dir is None:
         raise SessionManifestError(
@@ -3452,7 +3787,7 @@ def _build_provider_start_launch_plan_for_relaunch(
         updated_launch_plan,
         memory=controller_memory,
     )
-    return _launch_plan_with_headless_display_controls(
+    updated_launch_plan = _launch_plan_with_headless_display_controls(
         updated_launch_plan,
         style=resolve_headless_display_style(
             controller.launch_plan.metadata.get("headless_display_style")
@@ -3460,6 +3795,22 @@ def _build_provider_start_launch_plan_for_relaunch(
         detail=resolve_headless_display_detail(
             controller.launch_plan.metadata.get("headless_display_detail")
         ),
+    )
+    return _preserve_controller_execution_authority(controller, updated_launch_plan)
+
+
+def _preserve_controller_execution_authority(
+    controller: RuntimeSessionController, launch_plan: LaunchPlan
+) -> LaunchPlan:
+    """Keep relaunch plan reconstruction within the original owner and server."""
+
+    return replace(
+        launch_plan,
+        execution_binding=controller.launch_plan.execution_binding,
+        metadata={
+            **launch_plan.metadata,
+            "tmux_socket_path": controller.launch_plan.metadata.get("tmux_socket_path"),
+        },
     )
 
 
@@ -4154,6 +4505,7 @@ def _build_shared_registry_record_for_controller(
     session_root = runtime_owned_session_root_from_manifest_path(controller.manifest_path)
     return ManagedAgentRegistryRecordV3(
         agent_name=canonicalize_registry_agent_name(canonical_agent_name),
+        execution_binding=controller.launch_plan.execution_binding,
         agent_id=agent_id,
         generation_id=generation_id,
         lifecycle=RegistryLifecycleV1(
@@ -4174,6 +4526,7 @@ def _build_shared_registry_record_for_controller(
         ),
         terminal=RegistryTerminalV2(
             kind="tmux",
+            socket_path=controller.launch_plan.metadata.get("tmux_socket_path"),
             current_session_name=tmux_session_name,
             last_session_name=tmux_session_name,
         ),
@@ -4218,6 +4571,7 @@ def _build_stopped_shared_registry_record_for_controller(
     )
     return ManagedAgentRegistryRecordV3(
         agent_name=canonicalize_registry_agent_name(canonical_agent_name),
+        execution_binding=controller.launch_plan.execution_binding,
         agent_id=agent_id,
         generation_id=generation_id,
         lifecycle=RegistryLifecycleV1(
@@ -4240,6 +4594,7 @@ def _build_stopped_shared_registry_record_for_controller(
         ),
         terminal=RegistryTerminalV2(
             kind="tmux",
+            socket_path=controller.launch_plan.metadata.get("tmux_socket_path"),
             current_session_name=None,
             last_session_name=last_session_name,
         ),

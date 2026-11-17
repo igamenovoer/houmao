@@ -19,6 +19,7 @@ from houmao.cao.no_proxy import (
     inject_loopback_no_proxy_env_for_cao_base_url,
 )
 from houmao.cao.rest_client import CaoApiError, CaoRestClient
+from houmao.execution.context import execution_is_read_only
 from houmao.terminal_record.runtime_bridge import (
     append_managed_control_input_for_tmux_session,
 )
@@ -495,7 +496,8 @@ class CaoRestSession:
             self._terminal_id = existing_state.terminal_id
             self._tmux_window_name = existing_state.tmux_window_name
             self._turn_index = existing_state.turn_index
-            self._publish_tmux_session_environment()
+            if not execution_is_read_only():
+                self._publish_tmux_session_environment()
             return
 
         if self._session_manifest_path is None:

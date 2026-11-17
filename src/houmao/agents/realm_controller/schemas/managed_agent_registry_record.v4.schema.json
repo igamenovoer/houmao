@@ -1,5 +1,182 @@
 {
   "$defs": {
+    "ControllerScopeV1": {
+      "additionalProperties": false,
+      "description": "Record controller scope admitted by provisioned OS transport policy.",
+      "properties": {
+        "controller_id": {
+          "title": "Controller Id",
+          "type": "string"
+        },
+        "authority": {
+          "enum": [
+            "local_uid",
+            "sudo_policy",
+            "ssh_account",
+            "container_exec"
+          ],
+          "title": "Authority",
+          "type": "string"
+        },
+        "operations": {
+          "items": {
+            "enum": [
+              "describe",
+              "launch",
+              "state",
+              "inspect",
+              "capture",
+              "resume",
+              "prompt",
+              "interrupt",
+              "stop",
+              "relaunch",
+              "home",
+              "status",
+              "refresh_check",
+              "refresh",
+              "gateway_status",
+              "gateway_attach",
+              "gateway_detach",
+              "cleanup"
+            ],
+            "type": "string"
+          },
+          "title": "Operations",
+          "type": "array"
+        },
+        "project_roots": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Project Roots",
+          "type": "array"
+        }
+      },
+      "required": [
+        "controller_id",
+        "authority",
+        "operations"
+      ],
+      "title": "ControllerScopeV1",
+      "type": "object"
+    },
+    "ExecutionBindingV1": {
+      "additionalProperties": false,
+      "description": "Separate observed owner identity and controller scope from logical agent identity.",
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "context_id": {
+          "title": "Context Id",
+          "type": "string"
+        },
+        "host_id": {
+          "title": "Host Id",
+          "type": "string"
+        },
+        "account": {
+          "title": "Account",
+          "type": "string"
+        },
+        "uid": {
+          "minimum": 0,
+          "title": "Uid",
+          "type": "integer"
+        },
+        "gid": {
+          "minimum": 0,
+          "title": "Gid",
+          "type": "integer"
+        },
+        "groups": {
+          "default": [],
+          "items": {
+            "type": "integer"
+          },
+          "title": "Groups",
+          "type": "array"
+        },
+        "registry_root": {
+          "title": "Registry Root",
+          "type": "string"
+        },
+        "runtime_root": {
+          "title": "Runtime Root",
+          "type": "string"
+        },
+        "project_root": {
+          "title": "Project Root",
+          "type": "string"
+        },
+        "profile_name": {
+          "title": "Profile Name",
+          "type": "string"
+        },
+        "transport": {
+          "enum": [
+            "local",
+            "sudo",
+            "ssh",
+            "docker"
+          ],
+          "title": "Transport",
+          "type": "string"
+        },
+        "controller": {
+          "$ref": "#/$defs/ControllerScopeV1"
+        },
+        "route_fingerprint": {
+          "title": "Route Fingerprint",
+          "type": "string"
+        },
+        "container_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Container Id"
+        },
+        "tmux_socket": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tmux Socket"
+        }
+      },
+      "required": [
+        "context_id",
+        "host_id",
+        "account",
+        "uid",
+        "gid",
+        "registry_root",
+        "runtime_root",
+        "project_root",
+        "profile_name",
+        "transport",
+        "controller",
+        "route_fingerprint"
+      ],
+      "title": "ExecutionBindingV1",
+      "type": "object"
+    },
     "RegistryGatewayV1": {
       "additionalProperties": false,
       "description": "Optional live gateway connect metadata published into the registry.",
@@ -315,6 +492,18 @@
           ],
           "default": null,
           "title": "Last Session Name"
+        },
+        "socket_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Socket Path"
         }
       },
       "title": "RegistryTerminalV2",
@@ -390,6 +579,17 @@
       "default": 4,
       "title": "Schema Version",
       "type": "integer"
+    },
+    "execution_binding": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ExecutionBindingV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "agent_name": {
       "title": "Agent Name",

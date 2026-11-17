@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+from dataclasses import replace
 import hashlib
 import json
 from pathlib import Path
@@ -21,6 +23,7 @@ from houmao.agents.realm_controller.models import (
     RoleInjectionPlan,
 )
 from houmao.agents.realm_controller.session_authority import resolve_manifest_session_authority
+from houmao.execution.context import observed_local_binding
 
 
 def _identity_fields(session_name: str) -> dict[str, str]:
@@ -186,6 +189,77 @@ def test_session_manifest_write_and_load_round_trip(tmp_path: Path) -> None:
         "source": "launch_plan.role_injection.prompt",
     }
     assert "secret" not in path.read_text(encoding="utf-8")
+
+
+def test_bound_manifest_generation_change_requires_captured_handoff(tmp_path: Path) -> None:
+    """A stale writer cannot revert a committed relaunch even after its admission check."""
+
+    binding = observed_local_binding(
+        working_directory=tmp_path,
+        runtime_root=tmp_path / "runtime",
+        registry_root=tmp_path / "registry",
+        tmux_socket=str(tmp_path / "tmux.sock"),
+    )
+    plan = replace(
+        _sample_plan(tmp_path),
+        execution_binding=binding,
+        metadata={"tmux_socket_path": binding.tmux_socket},
+    )
+    original = build_session_manifest_payload(
+        SessionManifestRequest(
+            launch_plan=plan,
+            role_name="gpu-kernel-coder",
+            brain_manifest_path=tmp_path / "brain.yaml",
+            **_identity_fields("HOUMAO-claude"),
+            registry_generation_id="previous-generation",
+            backend_state={
+                "session_id": "sess-1",
+                "turn_index": 0,
+                "role_bootstrap_applied": False,
+                "working_directory": str(tmp_path),
+                "tmux_session_name": "HOUMAO-claude",
+            },
+        )
+    )
+    path = tmp_path / "session.json"
+    write_session_manifest(path, original)
+    replacement = deepcopy(original)
+    replacement["registry_generation_id"] = "next-generation"
+    replacement["runtime"]["registry_generation_id"] = "next-generation"
+    with pytest.raises(SessionManifestError, match="generation changed"):
+        write_session_manifest(path, replacement)
+    write_session_manifest(path, replacement, expected_registry_generation_id="previous-generation")
+    committed = path.read_bytes()
+
+    with pytest.raises(SessionManifestError, match="generation changed"):
+        write_session_manifest(path, original)
+    assert path.read_bytes() == committed
+
+
+def test_manifest_preserves_saved_socket_over_current_operation(tmp_path: Path) -> None:
+    """Updating a saved runtime cannot move it onto the caller's current server."""
+
+    from houmao.execution.tmux import tmux_server_scope
+
+    request = SessionManifestRequest(
+        launch_plan=_sample_plan(tmp_path),
+        role_name="gpu-kernel-coder",
+        brain_manifest_path=tmp_path / "brain.yaml",
+        **_identity_fields("HOUMAO-claude"),
+        backend_state={
+            "session_id": "sess-1",
+            "turn_index": 0,
+            "role_bootstrap_applied": False,
+            "tmux_session_name": "HOUMAO-claude",
+            "tmux_socket_path": "/owner/saved.sock",
+        },
+    )
+    with tmux_server_scope("/caller/current.sock"):
+        payload = build_session_manifest_payload(request)
+    assert payload["tmux"]["socket_path"] == "/owner/saved.sock"
+    path = tmp_path / "manifest.json"
+    write_session_manifest(path, payload)
+    assert load_session_manifest(path).payload["tmux"]["socket_path"] == "/owner/saved.sock"
 
 
 def test_manifest_write_validation_fails_with_field_path(tmp_path: Path) -> None:

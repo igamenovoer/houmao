@@ -213,6 +213,8 @@ sequenceDiagram
 
 ## Current Implementation Notes
 
+Executor-managed routing locators are separate from the `live_agents/` cleanup scan. Missing caller-local tmux sessions or a failed owner connection do not make an `executor_agents/` entry stale. To remove only a routing entry, use `houmao-mgr admin executors forget --agent-id <id>`. To recover failed operator publication after admitted owner birth, use `houmao-mgr admin executors reconcile --executor <name> --agent-id <id>`. Both preserve owner runtime state; reconciliation verifies the captured execution authority before publication. See [execution contexts](../../run-phase/execution-contexts.md).
+
 - `houmao-mgr admin cleanup registry` probes tmux-backed records locally by default; use `--no-tmux-check` when you intentionally want lease-only cleanup.
 - A malformed record is treated as stale for lookup and as removable for cleanup.
 - The cleanup command uses the same effective root-resolution logic as publication and lookup, so `HOUMAO_GLOBAL_REGISTRY_DIR` changes all three paths together.

@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from houmao.execution.tmux import tmux_argv, tmux_subprocess_environment
+
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TMUX_COLOR_ENV_UNSET_NAMES,
     TMUX_CONFIG_INJECTION_ENV_VAR,
@@ -44,7 +46,7 @@ class CompatibilityTmuxController:
     def session_exists(self, *, session_name: str) -> bool:
         """Return whether one tmux session currently exists."""
 
-        result = self._run_tmux(["has-session", "-t", session_name])
+        result = self._run_tmux(["has-session", "-t", f"={session_name}"])
         return result.returncode == 0
 
     def create_session_with_window(
@@ -118,7 +120,7 @@ class CompatibilityTmuxController:
     def kill_session(self, *, session_name: str) -> None:
         """Terminate one tmux session."""
 
-        result = self._run_tmux(["kill-session", "-t", session_name])
+        result = self._run_tmux(["kill-session", "-t", f"={session_name}"])
         if result.returncode != 0:
             detail = self._tmux_detail(result).lower()
             if "can't find session" in detail or "no server running" in detail:
@@ -240,11 +242,14 @@ class CompatibilityTmuxController:
 
         buffer_name = f"houmao_cao_{uuid.uuid4().hex[:8]}"
         try:
+            environment = tmux_subprocess_environment()
+            extra: dict[str, Any] = {"env": environment} if environment is not None else {}
             load_result = subprocess.run(
-                ["tmux", "load-buffer", "-b", buffer_name, "-"],
+                tmux_argv(["load-buffer", "-b", buffer_name, "-"]),
                 check=False,
                 input=text.encode("utf-8"),
                 capture_output=True,
+                **extra,
             )
             if load_result.returncode != 0:
                 raise CompatibilityTmuxError(
@@ -284,11 +289,14 @@ class CompatibilityTmuxController:
         """Run one tmux command with normalized error handling."""
 
         try:
+            environment = tmux_subprocess_environment()
+            extra: dict[str, Any] = {"env": environment} if environment is not None else {}
             return subprocess.run(
-                ["tmux", *args],
+                tmux_argv(args),
                 check=False,
                 capture_output=True,
                 text=True,
+                **extra,
             )
         except OSError as exc:
             raise CompatibilityTmuxError(f"Failed to run tmux command `{args}`: {exc}") from exc

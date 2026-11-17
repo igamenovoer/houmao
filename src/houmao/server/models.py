@@ -18,6 +18,7 @@ from pydantic import (
     StringConstraints,
     field_validator,
     model_serializer,
+    model_validator,
 )
 
 from houmao.agents.mailbox_runtime_models import MailboxTransport
@@ -57,6 +58,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayWebHistoryV1,
 )
 from houmao.cao.models import CaoHealthResponse, CaoSuccessResponse
+from houmao.execution.models import ExecutionBindingV1
 from houmao.hook_observation.health import HookChannelState
 from houmao.hook_observation.models import HookWorkState
 from houmao.shared_tui_tracking.models import (
@@ -74,10 +76,12 @@ from houmao.shared_tui_tracking.models import (
 )
 
 TerminalId = Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{8}$")]
-ManagedAgentTransportKind = Literal["tui", "headless", "web"]
+ManagedAgentTransportKind = Literal["tui", "headless", "web", "unknown"]
 ManagedAgentLifecycleState = Literal["active", "stopped", "relaunching", "retired"]
-ManagedAgentManagementKind = Literal["local_lifecycle", "external_communication_only"]
-ManagedAgentLifecycleOwner = Literal["local", "remote"]
+ManagedAgentManagementKind = Literal[
+    "local_lifecycle", "external_communication_only", "executor_managed"
+]
+ManagedAgentLifecycleOwner = Literal["local", "remote", "executor"]
 ManagedAgentAvailability = Literal["available", "unavailable", "error"]
 ManagedAgentLastTurnResult = Literal["success", "interrupted", "known_failure", "none", "unknown"]
 ManagedAgentTurnStatus = Literal["active", "completed", "failed", "interrupted", "unknown"]
@@ -534,6 +538,23 @@ class HoumaoManagedAgentIdentity(_HoumaoModel):
     external_agent_id: str | None = None
     remote_pair_api_base_url: str | None = None
     remote_agent_ref: str | None = None
+    execution_context: ExecutionBindingV1 | None = None
+    execution_status: Literal["available", "unavailable", "unverified", "conflict"] | None = None
+
+    @model_validator(mode="after")
+    def _unknown_transport_is_unverified(self) -> HoumaoManagedAgentIdentity:
+        """Reserve unknown transport for unavailable executor-locator listing rows."""
+
+        if self.transport == "unknown" and (
+            self.management_kind != "executor_managed"
+            or self.execution_context is None
+            or self.execution_status not in {"unavailable", "unverified", "conflict"}
+            or self.lifecycle_state is not None
+        ):
+            raise ValueError(
+                "unknown transport requires an unverified executor identity without live-state claims"
+            )
+        return self
 
     @field_validator(
         "tracked_agent_id",
@@ -564,6 +585,20 @@ class HoumaoManagedAgentIdentity(_HoumaoModel):
         if not stripped:
             raise ValueError("must not be empty")
         return stripped
+
+    @model_serializer(mode="wrap")
+    def _serialize_execution_context(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, Any]:
+        """Qualify delegated identity while preserving absent-field local output."""
+
+        payload = handler(self)
+        assert isinstance(payload, dict)
+        if self.execution_context is None:
+            payload.pop("execution_context", None)
+        if self.execution_status is None:
+            payload.pop("execution_status", None)
+        return payload
 
 
 class HoumaoManagedAgentListResponse(_HoumaoModel):
@@ -1097,6 +1132,7 @@ class HoumaoManagedAgentActionResponse(CaoSuccessResponse):
     turn_id: str | None = None
     manifest_path: str | None = None
     session_root: str | None = None
+    execution_context: ExecutionBindingV1 | None = None
 
     @field_validator("tracked_agent_id", "detail", "turn_id", "manifest_path", "session_root")
     @classmethod
@@ -1123,6 +1159,8 @@ class HoumaoManagedAgentActionResponse(CaoSuccessResponse):
             payload.pop("manifest_path", None)
         if self.session_root is None:
             payload.pop("session_root", None)
+        if self.execution_context is None:
+            payload.pop("execution_context", None)
         return payload
 
 

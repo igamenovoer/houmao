@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from houmao.mailbox.models import GatewayMailSyncStatusV1
+from houmao.execution.context import persisted_execution_scope
 
 if TYPE_CHECKING:
     from houmao.mailbox.notifier_admission import ReminderOrigin
@@ -925,7 +926,8 @@ class _RestBackedGatewayAdapter:
         session_name = self.m_attach_contract.tmux_session_name
         if not session_name.strip():
             return False
-        return tmux_session_exists(session_name=session_name)
+        with persisted_execution_scope(self.m_manifest_path):
+            return tmux_session_exists(session_name=session_name)
 
     def _attempt_relaunch_recovery(self) -> bool:
         """Try one shared relaunch recovery for the runtime-owned tmux surface."""
@@ -949,6 +951,7 @@ class _RestBackedGatewayAdapter:
             self.m_controller = resume_runtime_session(
                 agent_def_dir=self.m_agent_def_dir,
                 session_manifest_path=self.m_manifest_path,
+                read_only=True,
             )
         except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
             raise GatewayError(
@@ -1023,7 +1026,9 @@ class _DshWebGatewayAdapter:
         if self.m_controller is None or changed:
             self.close()
             self.m_controller = resume_runtime_session(
-                agent_def_dir=self.m_agent_def_dir, session_manifest_path=self.m_manifest_path
+                agent_def_dir=self.m_agent_def_dir,
+                session_manifest_path=self.m_manifest_path,
+                read_only=True,
             )
             backend = cast(_WebBackend, self.m_controller.backend_session)
             self.m_observation = WebObservation(
@@ -1292,7 +1297,8 @@ class _LocalHeadlessGatewayAdapter:
     def inspect_target(self) -> _GatewayTargetState:
         """Return current execution posture for the local tmux-backed target."""
 
-        connected = tmux_session_exists(session_name=self.m_attach_contract.tmux_session_name)
+        with persisted_execution_scope(self.m_manifest_path):
+            connected = tmux_session_exists(session_name=self.m_attach_contract.tmux_session_name)
         native_active = False
         if connected:
             try:
@@ -1349,10 +1355,12 @@ class _LocalHeadlessGatewayAdapter:
         """Capture native execution evidence for an immediate plugin attempt."""
 
         self._require_live_tmux_session()
-        backend = self._resume_controller().backend_session
+        controller = self._resume_controller()
+        backend = controller.backend_session
         if not isinstance(backend, HeadlessInteractiveSession):
             raise GatewayError("Native dispatch confirmation is unavailable")
-        return backend.plugin_execution_identity()
+        with controller.execution_scope():
+            return backend.plugin_execution_identity()
 
     def submit_plugin_event(
         self,
@@ -1387,7 +1395,8 @@ class _LocalHeadlessGatewayAdapter:
         if self.m_controller is not None:
             backend = self.m_controller.backend_session
             if isinstance(backend, HeadlessInteractiveSession):
-                backend.cancel_request_dispatch(control)
+                with self.m_controller.execution_scope():
+                    backend.cancel_request_dispatch(control)
 
     def send_control_input(self, *, sequence: str, escape_special_keys: bool = False) -> str:
         """Deliver raw control input through resumed local runtime control."""
@@ -1422,6 +1431,7 @@ class _LocalHeadlessGatewayAdapter:
             self.m_controller = resume_runtime_session(
                 agent_def_dir=self.m_agent_def_dir,
                 session_manifest_path=self.m_manifest_path,
+                read_only=True,
             )
         except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
             raise GatewayError(
@@ -1432,10 +1442,11 @@ class _LocalHeadlessGatewayAdapter:
     def _require_live_tmux_session(self) -> None:
         """Require the tmux session to still be live."""
 
-        if not tmux_session_exists(session_name=self.m_attach_contract.tmux_session_name):
-            raise GatewayError(
-                f"Tmux session `{self.m_attach_contract.tmux_session_name}` is unavailable."
-            )
+        with persisted_execution_scope(self.m_manifest_path):
+            if not tmux_session_exists(session_name=self.m_attach_contract.tmux_session_name):
+                raise GatewayError(
+                    f"Tmux session `{self.m_attach_contract.tmux_session_name}` is unavailable."
+                )
 
 
 class _ServerManagedHeadlessGatewayAdapter:
@@ -1567,12 +1578,13 @@ class _ServerManagedHeadlessGatewayAdapter:
         if manifest_value is None or self.inspect_target().connectivity != "connected":
             raise GatewayError("Managed execution identity is unavailable")
         try:
-            payload = json.loads(Path(manifest_value).read_text(encoding="utf-8"))
-            generation = payload.get("registry_generation_id")
-            surface = resolve_primary_tmux_surface(
-                session_name=self.m_attach_contract.tmux_session_name,
-                window_name=HEADLESS_AGENT_WINDOW_NAME,
-            )
+            with persisted_execution_scope(Path(manifest_value)):
+                payload = json.loads(Path(manifest_value).read_text(encoding="utf-8"))
+                generation = payload.get("registry_generation_id")
+                surface = resolve_primary_tmux_surface(
+                    session_name=self.m_attach_contract.tmux_session_name,
+                    window_name=HEADLESS_AGENT_WINDOW_NAME,
+                )
         except (OSError, ValueError, RuntimeError) as exc:
             raise GatewayError("Managed execution identity is unavailable") from exc
         if not isinstance(generation, str) or not generation:
@@ -1989,7 +2001,9 @@ class GatewayServiceRuntime:
             if manifest_path is None:
                 raise GatewayError("Native home authority is unavailable")
             return inspect_native_home_from_manifest(manifest_path)
-        return inspect_native_home(self._native_refresh_controller())
+        controller = self._native_refresh_controller()
+        with controller.execution_scope():
+            return inspect_native_home(controller)
 
     def observe_common_plugins(self) -> CommonPluginObservationV1:
         """Passively observe common freshness and reconcile settled native readiness."""
@@ -2006,7 +2020,8 @@ class GatewayServiceRuntime:
         with self.m_lock:
             operation_id = getattr(self, "m_native_refresh_operation_id", 0)
             active_at_read = getattr(self, "m_native_refresh_active", False)
-        observation = observe_common_plugins(controller)
+        with controller.execution_scope():
+            observation = observe_common_plugins(controller)
         with self.m_lock:
             if (
                 not active_at_read
@@ -2108,12 +2123,13 @@ class GatewayServiceRuntime:
             """Keep reservation ownership after caller timeout until actual settlement."""
 
             try:
-                result = perform_native_refresh(
-                    controller,
-                    payload,
-                    deadline_monotonic=deadline,
-                    observation=before,
-                )
+                with controller.execution_scope():
+                    result = perform_native_refresh(
+                        controller,
+                        payload,
+                        deadline_monotonic=deadline,
+                        observation=before,
+                    )
             except Exception:
                 result = self._unconfirmed_native_refresh_result(before)
             with self.m_lock:

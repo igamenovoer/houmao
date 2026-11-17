@@ -13,6 +13,9 @@ from pydantic import (
     model_validator,
 )
 
+from houmao.execution.context import parse_execution_binding
+from houmao.execution.models import ExecutionBindingV1
+
 from .agent_identity import normalize_managed_agent_id, normalize_managed_agent_name
 from .errors import SessionManifestError
 from .models import BackendKind, CaoParsingMode, RoleInjectionMethod
@@ -251,6 +254,11 @@ class LaunchPlanPayloadV1(_StrictBoundaryModel):
 
     backend: BackendKind
     native_surface_kind: NativeSurfaceKind | None = None
+    execution_binding: ExecutionBindingV1 | None = None
+
+    _execution_binding = field_validator("execution_binding", mode="before")(
+        parse_execution_binding
+    )
     tool: str
     executable: str
     args: list[str]
@@ -403,6 +411,11 @@ class SessionManifestRuntimeSectionV1(_StrictBoundaryModel):
     """Normalized runtime-owned manifest authority for one tmux-backed session."""
 
     session_id: str | None = None
+    execution_binding: ExecutionBindingV1 | None = None
+
+    _execution_binding = field_validator("execution_binding", mode="before")(
+        parse_execution_binding
+    )
     memory_root: str | None = None
     memo_file: str | None = None
     pages_dir: str | None = None
@@ -454,6 +467,7 @@ class SessionManifestTmuxSectionV1(_StrictBoundaryModel):
     """Normalized tmux session authority for one managed surface."""
 
     session_name: str
+    socket_path: str | None = None
     primary_window_index: str = "0"
     primary_window_role: Literal["managed_agent_surface", "supervisor_logs"] = (
         "managed_agent_surface"
@@ -461,6 +475,17 @@ class SessionManifestTmuxSectionV1(_StrictBoundaryModel):
     primary_window_name: str | None = None
     primary_window_id: str | None = None
     primary_pane_id: str | None = None
+
+    @field_validator("socket_path")
+    @classmethod
+    def _socket_path_absolute(cls, value: str | None) -> str | None:
+        """Validate an owner-local selector without resolving a foreign path."""
+
+        if value is None:
+            return None
+        from houmao.execution.tmux import validate_tmux_socket_path
+
+        return validate_tmux_socket_path(value)
 
     @field_validator(
         "session_name",
@@ -818,6 +843,16 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
             raise ValueError(
                 "runtime.registry_launch_authority must match top-level registry_launch_authority"
             )
+        if self.runtime.execution_binding != self.launch_plan.execution_binding:
+            raise ValueError("runtime.execution_binding must match launch_plan.execution_binding")
+        binding = self.runtime.execution_binding
+        if (
+            binding is not None
+            and binding.tmux_socket is not None
+            and self.backend in _TMUX_BACKED_BACKENDS
+        ):
+            if self.tmux is None or self.tmux.socket_path != binding.tmux_socket:
+                raise ValueError("tmux.socket_path must match the admitted execution binding")
 
         if self.backend == "dsh_web":
             if any(

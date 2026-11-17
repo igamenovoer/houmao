@@ -9,6 +9,10 @@ import subprocess
 import time
 from typing import TYPE_CHECKING, Any, cast
 
+from houmao.execution.context import execution_binding_scope, validate_execution_owner
+from houmao.execution.tmux import tmux_server_scope
+from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
+
 from houmao.agents.realm_controller.errors import GatewayError
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_ID_ENV_VAR,
@@ -43,6 +47,22 @@ def inspect_native_home_from_manifest(path: Path) -> NativeHomeV1:
 
     handle = load_session_manifest(path)
     payload = parse_session_manifest_payload(handle.payload, source=str(path))
+    binding = getattr(payload.runtime, "execution_binding", None)
+    socket_path = getattr(payload.tmux, "socket_path", None)
+    try:
+        validate_execution_owner(binding)
+    except ValueError as exc:
+        raise GatewayError(str(exc)) from exc
+    if binding is not None and binding.tmux_socket is not None:
+        if socket_path != binding.tmux_socket:
+            raise GatewayError("Native tmux socket differs from execution binding")
+    with execution_binding_scope(binding), tmux_server_scope(socket_path):
+        return _inspect_native_home_payload(path, payload)
+
+
+def _inspect_native_home_payload(path: Path, payload: SessionManifestPayloadV4) -> NativeHomeV1:
+    """Inspect a validated manifest while its exact owner socket is selected."""
+
     name = payload.tmux_session_name
     if (
         not name

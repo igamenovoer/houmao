@@ -23,6 +23,8 @@ from houmao.agents.realm_controller.registry_storage import (
 )
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.models import DiscoveredAgentSummary
+from houmao.execution.tmux import tmux_server_scope
+from houmao.agents.realm_controller.backends.tmux_runtime import list_tmux_sessions
 
 logger = logging.getLogger(__name__)
 
@@ -115,14 +117,12 @@ def _summary_from_record(record: ManagedAgentRegistryRecordV3) -> DiscoveredAgen
     )
 
 
-def _get_live_tmux_session_names() -> set[str] | None:
+def _get_live_tmux_session_names(socket_path: str | None = None) -> set[str] | None:
     """Return the set of live tmux session names, or ``None`` if tmux is unavailable."""
 
     try:
-        import libtmux
-
-        server = libtmux.Server()
-        return {session.name for session in server.sessions if session.name is not None}
+        with tmux_server_scope(socket_path):
+            return list_tmux_sessions()
     except Exception:
         return None
 
@@ -192,11 +192,9 @@ class RegistryDiscoveryService:
     def _run_scan(self) -> None:
         """Scan the registry, verify tmux liveness, and rebuild the index."""
 
-        live_sessions = _get_live_tmux_session_names()
-        if live_sessions is None:
-            logger.warning("Tmux server unreachable — discovery index will be empty this cycle")
-            self.m_index.replace({})
-            return
+        live_sessions_by_socket: dict[str | None, set[str] | None] = {
+            None: _get_live_tmux_session_names()
+        }
 
         paths = global_registry_paths(env=self.m_config.registry_helper_env())
         if not paths.live_agents_dir.exists():
@@ -216,7 +214,11 @@ class RegistryDiscoveryService:
                 continue
             if not is_live_agent_record_fresh(record):
                 continue
-            if record.terminal.session_name not in live_sessions:
+            socket_path = record.terminal.socket_path
+            if socket_path not in live_sessions_by_socket:
+                live_sessions_by_socket[socket_path] = _get_live_tmux_session_names(socket_path)
+            live_sessions = live_sessions_by_socket[socket_path]
+            if live_sessions is None or record.terminal.session_name not in live_sessions:
                 continue
 
             summary = _summary_from_record(record)

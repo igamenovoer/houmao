@@ -342,7 +342,9 @@ def test_joined_tui_relaunch_respects_unavailable_vs_launchable_posture(
     monkeypatch.setattr(
         runtime_module, "_refresh_pair_launch_registration", lambda controller: None
     )
-    monkeypatch.setattr(runtime_module, "publish_live_agent_record", lambda record: record)
+    monkeypatch.setattr(
+        runtime_module, "publish_live_agent_record", lambda record, **_kwargs: record
+    )
     monkeypatch.setattr(
         runtime_module, "resolve_live_agent_record_by_agent_id", lambda agent_id: None
     )

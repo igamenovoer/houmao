@@ -16,6 +16,8 @@ from typing import Any, Iterator
 
 from pydantic import ValidationError
 
+from houmao.execution.tmux import capture_tmux_socket_path, validate_tmux_socket_path
+
 from .boundary_models import (
     LaunchPlanPayloadV1,
     RegistryLaunchAuthorityV1,
@@ -288,6 +290,7 @@ def write_session_manifest(
     payload: dict[str, Any],
     *,
     expected_web_identity: dict[str, Any] | None = None,
+    expected_registry_generation_id: str | None = None,
 ) -> SessionManifestHandle:
     """Validate and persist a session manifest.
 
@@ -299,6 +302,8 @@ def write_session_manifest(
         Manifest payload.
     expected_web_identity:
         Exact previously published Web execution for an intentional lifecycle change.
+    expected_registry_generation_id:
+        Captured generation authorizing a deliberate execution-bound replacement.
 
     Returns
     -------
@@ -311,6 +316,19 @@ def write_session_manifest(
         if path.exists():
             current = load_session_manifest(path).payload
             _require_same_manifest_owner(current, proposed)
+            current_binding = current["runtime"].get("execution_binding")
+            if current_binding is not None:
+                accepted_generations = {
+                    proposed.get("registry_generation_id"),
+                    expected_registry_generation_id,
+                }
+                if (
+                    proposed["runtime"].get("execution_binding") != current_binding
+                    or current.get("registry_generation_id") not in accepted_generations
+                ):
+                    raise SessionManifestError(
+                        "Runtime execution generation changed; resolve the current manifest again"
+                    )
             if current.get("backend") == "dsh_web":
                 current_identity = current["backend_state"].get("web_identity")
                 proposed_identity = proposed["backend_state"].get("web_identity")
@@ -637,6 +655,11 @@ def _build_manifest_runtime_section(
         agent_pid = raw_agent_pid if isinstance(raw_agent_pid, int) and raw_agent_pid > 0 else None
     return {
         "session_id": session_id,
+        "execution_binding": (
+            request.launch_plan.execution_binding.model_dump(mode="json")
+            if request.launch_plan.execution_binding is not None
+            else None
+        ),
         "memory_root": (
             str(request.memory_root.resolve()) if request.memory_root is not None else None
         ),
@@ -660,8 +683,17 @@ def _build_manifest_tmux_section(
 
     if tmux_session_name is None:
         return None
+    selected_socket = request.backend_state.get(
+        "tmux_socket_path"
+    ) or request.launch_plan.metadata.get("tmux_socket_path")
+    socket_path = (
+        validate_tmux_socket_path(str(selected_socket))
+        if selected_socket is not None
+        else capture_tmux_socket_path()
+    )
     return {
         "session_name": tmux_session_name,
+        "socket_path": socket_path,
         "primary_window_index": "0",
         "primary_window_role": "supervisor_logs"
         if request.launch_plan.backend == "dsh_web"

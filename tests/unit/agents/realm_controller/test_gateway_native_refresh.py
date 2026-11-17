@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 import json
 from io import BytesIO
 from pathlib import Path
@@ -34,6 +36,7 @@ from houmao.agents.realm_controller.native_refresh_models import (
 )
 from houmao.gateway.plugins import PluginDispatchError
 from tests.unit.agents.realm_controller.test_dsh_web_gateway import _event, _runtime
+from houmao.execution.tmux import current_tmux_socket_path, tmux_server_scope
 
 
 def _observation(freshness: str = "pending", **updates: object) -> CommonPluginObservationV1:
@@ -68,9 +71,46 @@ def _bind_native(
     """Bind controlled live native authority without external sessions or files."""
 
     controller = Mock()
+    controller.execution_scope.return_value = nullcontext()
     monkeypatch.setattr(runtime, "_native_refresh_controller", lambda: controller)
     monkeypatch.setattr(service, "observe_common_plugins", lambda _: observation)
     return controller
+
+
+def test_native_refresh_workers_restore_controller_execution_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Read-only and mutating worker threads each restore the selected owner socket."""
+
+    runtime, _, _ = _runtime(tmp_path, monkeypatch)
+    before = _observation()
+    controller = _bind_native(runtime, monkeypatch, before)
+    controller.execution_scope.side_effect = lambda: tmux_server_scope("/owner/worker.sock")
+    entered: list[str] = []
+
+    def observe(_: object) -> CommonPluginObservationV1:
+        """Verify passive worker selection before returning controlled evidence."""
+
+        assert current_tmux_socket_path() == "/owner/worker.sock"
+        entered.append("observe")
+        return before
+
+    def refresh(*_args: object, **_kwargs: object) -> NativeRefreshResultV1:
+        """Verify mutating handoff independently of the caller's thread context."""
+
+        assert current_tmux_socket_path() == "/owner/worker.sock"
+        entered.append("refresh")
+        return NativeRefreshResultV1(
+            method="native_reload", outcome="refreshed", observation=_observation("current")
+        )
+
+    monkeypatch.setattr(service, "observe_common_plugins", observe)
+    monkeypatch.setattr(service, "perform_native_refresh", refresh)
+    with tmux_server_scope("/operator/enclosing.sock"):
+        result = runtime.refresh_native(NativeRefreshRequestV1())
+        assert current_tmux_socket_path() == "/operator/enclosing.sock"
+    assert result.outcome == "refreshed"
+    assert entered == ["observe", "refresh"]
 
 
 def _http_client(

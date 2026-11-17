@@ -14,6 +14,7 @@ from houmao.agents.realm_controller.agent_identity import (
 )
 from houmao.agents.realm_controller.backends.tmux_runtime import TmuxCommandError
 from houmao.agents.realm_controller.errors import GatewayError
+from houmao.execution.tmux import current_tmux_socket_path, tmux_server_scope
 
 
 def _payload(tmp_path: Path, *, backend: str = "dsh_acp") -> SimpleNamespace:
@@ -327,3 +328,27 @@ def test_stale_controller_tmux_name_cannot_claim_current_authority(
     controller.tmux_session_name = "HOUMAO-replacement"
     with pytest.raises(GatewayError):
         native_refresh.inspect_native_home(controller)
+
+
+def test_read_only_home_inspection_restores_saved_socket_before_probing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Inspection cannot borrow an unrelated current server's same-named session."""
+
+    payload = _payload(tmp_path)
+    payload.tmux.socket_path = "/owner/recorded.sock"
+    manifest, _environment, _surface = _install(tmp_path, monkeypatch, payload)
+    probes: list[str | None] = []
+
+    def exists(**_: object) -> bool:
+        """Capture authority before the first native liveness probe."""
+
+        probes.append(current_tmux_socket_path())
+        return True
+
+    monkeypatch.setattr(native_refresh, "tmux_session_exists", exists)
+    with tmux_server_scope("/operator/enclosing.sock"):
+        result = native_refresh.inspect_native_home_from_manifest(manifest)
+        assert current_tmux_socket_path() == "/operator/enclosing.sock"
+    assert result.agent_id == "selected"
+    assert probes == ["/owner/recorded.sock"]

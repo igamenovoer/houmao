@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
 from collections.abc import Callable, Sequence
+from collections.abc import Iterator
 from typing import Any, Literal
 
 import click
@@ -22,6 +25,19 @@ PRINT_STYLE_ENV_VAR = "HOUMAO_CLI_PRINT_STYLE"
 """Environment variable for persistent print-style preference."""
 
 _VALID_STYLES: frozenset[str] = frozenset({"plain", "json", "fancy"})
+_PAYLOAD_COLLECTOR: ContextVar[list[object] | None] = ContextVar("output_payloads", default=None)
+
+
+@contextmanager
+def collect_output_payloads() -> Iterator[list[object]]:
+    """Collect structured application results without rendering CLI output."""
+
+    payloads: list[object] = []
+    token = _PAYLOAD_COLLECTOR.set(payloads)
+    try:
+        yield payloads
+    finally:
+        _PAYLOAD_COLLECTOR.reset(token)
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +144,10 @@ def emit(
     to the matching renderer.  Falls back to ``plain`` when called outside
     a click context (e.g. in tests).
     """
+    collector = _PAYLOAD_COLLECTOR.get()
+    if collector is not None:
+        collector.append(_normalize_payload(payload))
+        return
     ctx = click.get_current_context(silent=True)
     if ctx is not None and isinstance(ctx.obj, dict) and "output" in ctx.obj:
         output_ctx: OutputContext = ctx.obj["output"]

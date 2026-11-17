@@ -310,7 +310,7 @@ def test_resolve_agent_identity_name_reads_tmux_manifest_pointer(
     ) -> subprocess.CompletedProcess[str]:
         assert cmd[0] == "tmux"
         if cmd[1:3] == ["has-session", "-t"]:
-            assert cmd[3] == "HOUMAO-gpu"
+            assert cmd[3] == "=HOUMAO-gpu"
             return _completed(cmd)
         if cmd[1:3] == ["show-environment", "-t"]:
             assert cmd[3] == "HOUMAO-gpu"
@@ -450,7 +450,7 @@ def test_resolve_agent_identity_name_scans_metadata_for_suffixed_tmux_session(
     ) -> subprocess.CompletedProcess[str]:
         del check, capture_output, text, timeout
         if cmd[1:3] == ["has-session", "-t"]:
-            assert cmd[3] == "HOUMAO-gpu"
+            assert cmd[3] == "=HOUMAO-gpu"
             return _completed(cmd, returncode=1, stderr="can't find session: HOUMAO-gpu")
         if cmd[1:3] == ["list-sessions", "-F"]:
             return _completed(cmd, stdout="HOUMAO-gpu-270b87\n")

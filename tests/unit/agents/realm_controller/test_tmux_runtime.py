@@ -163,7 +163,7 @@ def test_has_tmux_session_builds_expected_command(
     monkeypatch.setattr("subprocess.run", _fake_run)
     result = has_tmux_session(session_name="HOUMAO-gpu")
     assert result.returncode == 0
-    assert captured == ["tmux", "has-session", "-t", "HOUMAO-gpu"]
+    assert captured == ["tmux", "has-session", "-t", "=HOUMAO-gpu"]
 
 
 def test_show_tmux_environment_builds_expected_command(
@@ -333,7 +333,7 @@ def test_create_tmux_session_cleans_up_and_guides_when_injection_fails(
     ):
         create_tmux_session(session_name="HOUMAO-gpu", working_directory=tmp_path)
 
-    assert calls[-1] == ["tmux", "kill-session", "-t", "HOUMAO-gpu"]
+    assert calls[-1] == ["tmux", "kill-session", "-t", "=HOUMAO-gpu"]
 
 
 def test_overlay_tmux_rich_color_environment_removes_color_suppression(

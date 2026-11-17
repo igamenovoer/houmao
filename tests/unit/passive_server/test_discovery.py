@@ -398,3 +398,34 @@ class TestRegistryDiscoveryScan:
 
         assert svc.index.get_by_id("configured1") is not None
         assert svc.index.get_by_id("ambient1") is None
+
+    def test_each_record_uses_its_saved_socket_when_default_is_unavailable(
+        self, tmp_path: Path
+    ) -> None:
+        """A default-server failure cannot hide an agent on its explicit server."""
+
+        registry_root = tmp_path / "registry"
+        live = _make_record(agent_id="owner1", session_name="same-name")
+        live.terminal.socket_path = "/owner/first.sock"
+        absent = _make_record(agent_id="owner2", session_name="same-name")
+        absent.terminal.socket_path = "/owner/second.sock"
+        _write_record(registry_root, live)
+        _write_record(registry_root, absent)
+        calls: list[str | None] = []
+
+        def sessions(socket_path: str | None = None) -> set[str] | None:
+            """Return independent native liveness for each server."""
+
+            calls.append(socket_path)
+            if socket_path is None:
+                return None
+            return {"same-name"} if socket_path == "/owner/first.sock" else set()
+
+        svc = self._make_service(tmp_path)
+        with patch(
+            "houmao.passive_server.discovery._get_live_tmux_session_names", side_effect=sessions
+        ):
+            svc.scan_once()
+        assert svc.index.get_by_id("owner1") is not None
+        assert svc.index.get_by_id("owner2") is None
+        assert calls == [None, "/owner/first.sock", "/owner/second.sock"]

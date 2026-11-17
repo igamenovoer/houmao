@@ -16,6 +16,8 @@ from pydantic import ValidationError
 
 from houmao.owned_mutation import remove_tree_or_path
 from houmao.owned_paths import resolve_registry_root
+from houmao.execution.tmux import tmux_server_scope
+from houmao.execution.locators import ExecutorLocatorError, load_executor_locator
 
 from houmao.agents.realm_controller.agent_identity import (
     normalize_agent_identity_name,
@@ -42,6 +44,16 @@ DEFAULT_REGISTRY_CLEANUP_GRACE_PERIOD = timedelta(minutes=5)
 MANAGED_AGENT_REGISTRY_SCHEMA = "managed_agent_registry_record.v4.schema.json"
 LIVE_AGENT_REGISTRY_SCHEMA = MANAGED_AGENT_REGISTRY_SCHEMA
 EXTERNAL_MANAGED_AGENT_REGISTRY_SCHEMA = "external_managed_agent_registry_record.v1.schema.json"
+
+
+def _record_tmux_session_exists(record: ManagedAgentRegistryRecordV3) -> bool:
+    """Probe a local runtime only on the server recorded by its owner."""
+
+    session_name = record.terminal.current_session_name
+    if session_name is None:
+        return False
+    with tmux_server_scope(record.terminal.socket_path):
+        return tmux_session_exists(session_name=session_name)
 
 
 @dataclass(frozen=True)
@@ -482,6 +494,19 @@ def _publish_managed_agent_record_locked(
                 exc,
             )
         ) from exc
+    try:
+        execution_locator = load_executor_locator(publish_record.agent_id, env=env)
+    except ExecutorLocatorError:
+        raise SessionManifestError(
+            "Known execution locator is invalid; local publication cannot replace its authority"
+        ) from None
+    if (
+        execution_locator is not None
+        and execution_locator.binding != publish_record.execution_binding
+    ):
+        raise SessionManifestError(
+            "Authoritative agent ID already belongs to a different executor owner"
+        )
     if publish_record.lifecycle.state in {
         "active",
         "relaunching",
@@ -493,14 +518,14 @@ def _publish_managed_agent_record_locked(
 
     existing = load_managed_agent_record_by_agent_id(publish_record.agent_id, env=env)
     if expected_generation_id is not None:
-        _require_web_generation_handoff(existing, publish_record, expected_generation_id)
+        _require_runtime_generation_handoff(existing, publish_record, expected_generation_id)
     else:
         _raise_if_conflicting_active_generation(
             existing=existing,
             desired=publish_record,
             now=current_time,
         )
-    _require_current_web_manifest_generation(publish_record)
+    _require_current_runtime_manifest_generation(publish_record)
 
     payload = publish_record.model_dump(mode="json")
     try:
@@ -666,9 +691,11 @@ def _remove_managed_agent_record_locked(
             and record.generation_id != generation_id
         ):
             return False
-        if record is not None and record.identity.backend == "dsh_web":
+        if record is not None and (
+            record.identity.backend == "dsh_web" or record.execution_binding is not None
+        ):
             try:
-                _require_current_web_manifest_generation(record)
+                _require_current_runtime_manifest_generation(record)
             except SessionManifestError:
                 return False
 
@@ -775,9 +802,7 @@ def cleanup_stale_managed_agent_records(
                             elif (
                                 probe_local_tmux
                                 and record.terminal.current_session_name is not None
-                                and not tmux_session_exists(
-                                    session_name=record.terminal.current_session_name,
-                                )
+                                and not _record_tmux_session_exists(record)
                             ):
                                 should_remove = True
                                 remove_reason = "local tmux liveness probe found no owning session"
@@ -983,45 +1008,54 @@ def _managed_agent_record_lock(agent_id: str, *, env: Mapping[str, str] | None) 
         os.close(descriptor)
 
 
-def _require_web_generation_handoff(
+def _require_runtime_generation_handoff(
     existing: ManagedAgentRegistryRecordV3 | None,
     desired: ManagedAgentRegistryRecordV3,
     expected_generation_id: str,
 ) -> None:
-    """Authorize explicit Web replacement only from the captured same runtime owner."""
+    """Authorize a captured same-runtime replacement without weakening ID ownership."""
 
     if (
         existing is None
         or existing.generation_id != expected_generation_id
-        or existing.identity.backend != "dsh_web"
-        or desired.identity.backend != "dsh_web"
+        or existing.identity != desired.identity
         or existing.agent_id != desired.agent_id
         or existing.agent_name != desired.agent_name
         or existing.runtime != desired.runtime
+        or existing.execution_binding != desired.execution_binding
+        or existing.terminal.socket_path != desired.terminal.socket_path
     ):
-        raise SessionManifestError("DSH Web registry generation handoff lost its captured owner")
+        raise SessionManifestError("Runtime registry generation handoff lost its captured owner")
 
 
-def _require_current_web_manifest_generation(record: ManagedAgentRegistryRecordV3) -> None:
-    """Prevent a stale Web controller from publishing after a newer manifest commit."""
+def _require_current_runtime_manifest_generation(record: ManagedAgentRegistryRecordV3) -> None:
+    """Fence publication and teardown after an execution-bound generation changes."""
 
-    if record.identity.backend != "dsh_web":
+    if record.identity.backend != "dsh_web" and (
+        record.execution_binding is None or record.lifecycle.state not in {"active", "relaunching"}
+    ):
         return
     try:
         payload = json.loads(Path(record.runtime.manifest_path).read_text(encoding="utf-8"))
-        identity = payload["backend_state"]["web_identity"]
         if (
-            payload["backend"] != "dsh_web"
+            payload["backend"] != record.identity.backend
             or payload["agent_id"] != record.agent_id
             or payload["registry_generation_id"] != record.generation_id
-            or identity["generation"] != record.generation_id
-            or identity["agent_id"] != record.agent_id
         ):
-            raise ValueError("Web manifest owner changed")
+            raise ValueError("Runtime manifest owner changed")
+        if record.execution_binding is not None and payload["runtime"].get("execution_binding") != (
+            record.execution_binding.model_dump(mode="json")
+        ):
+            raise ValueError("Runtime execution owner changed")
+        if record.identity.backend == "dsh_web":
+            identity = payload["backend_state"]["web_identity"]
+            if (
+                identity["generation"] != record.generation_id
+                or identity["agent_id"] != record.agent_id
+            ):
+                raise ValueError("Web manifest owner changed")
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        raise SessionManifestError(
-            "DSH Web registry publication has stale manifest authority"
-        ) from exc
+        raise SessionManifestError("Registry publication has stale manifest authority") from exc
 
 
 def _raise_if_external_name_conflicts_with_different_record(

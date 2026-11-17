@@ -11,6 +11,7 @@ The registry layout is deliberately small.
 - one per-user root,
 - one directory per authoritative local lifecycle `agent_id`,
 - one directory per local external communication-only `external_agent_id`,
+- one operator routing directory per executor-managed `agent_id`,
 - one authoritative `record.json` file per directory.
 
 These lifecycle records remain projections. Offline mail membership has a separate durable authority in the selected registry host's filesystem mail store. Its SQLite ownership index survives lifecycle cleanup and stopped bodies; no cluster identifier is introduced.
@@ -40,12 +41,16 @@ Representative layout:
   external_agents/
     <external-agent-id>/
       record.json
+  executor_agents/
+    <agent-id>/
+      record.json
 ```
 
 Rules:
 
 - `live_agents/` holds the set of lifecycle-record directories keyed by authoritative logical `agent_id`,
 - `external_agents/` holds communication-only imports for remotely owned agents, keyed by local `external_agent_id`,
+- `executor_agents/` holds secret-free operator routing locators keyed by the owner's authoritative `agent_id`,
 - `<agent-id>` is the authoritative runtime-wide agent identifier,
 - the only durable file the runtime expects inside that directory is `record.json`,
 - temporary files may appear briefly during atomic writes but are cleaned on replace failure.
@@ -53,6 +58,10 @@ Rules:
 The runtime session root itself can live anywhere else on disk. The registry stores pointers to that runtime-owned state rather than moving it under the registry root.
 
 External records are different: they do not point to local runtime session roots. They store local locator metadata for a remote `houmao-passive-server` plus a cached identity snapshot for offline listing.
+
+Execution locators use strict `schema_version: 1` and `kind: executor_managed` with `agent_id`, `agent_name`, `profile_name`, and `binding`. The packaged schema is `src/houmao/execution/schemas/executor_agent_locator.v1.schema.json`. The binding qualifies observed owner/context identity, controller scope, and owner-side roots. Its foreign paths remain metadata; the operator does not open them locally or reinterpret an owner-loopback endpoint on its own host. Locators contain no manifest copies, queues, credentials, or mutable runtime presence.
+
+Owner lifecycle records can carry top-level `execution_binding`; their manifests retain the same binding under `runtime.execution_binding`. Stopping clears live presence while preserving execution ownership. Relaunch preserves the binding and logical ID while replacing live generation and handles. An equivalent owner-local record and operator locator can coexist for a shared account/registry, but conflicting bindings for one ID are rejected in either publication order. See [agent execution contexts](../../run-phase/execution-contexts.md).
 
 ## Record Shape
 
@@ -88,7 +97,8 @@ Representative active record with optional gateway and mailbox metadata present:
   "terminal": {
     "kind": "tmux",
     "current_session_name": "HOUMAO-gpu-1741867200000",
-    "last_session_name": "HOUMAO-gpu-1741867200000"
+    "last_session_name": "HOUMAO-gpu-1741867200000",
+    "socket_path": "/run/user/1000/houmao/tmux/owner.sock"
   },
   "liveness": {
     "published_at": "2026-03-13T12:00:00+00:00",
@@ -130,6 +140,8 @@ Representative active record with optional gateway and mailbox metadata present:
 - `backend`: runtime backend kind such as `cao_rest` or `claude_headless`
 - `tool`: non-empty tool identifier string
 
+The optional top-level `execution_binding` projects the runtime's observed execution owner independently of logical agent identity. New managed launches populate it with the durable context/host identity, actual account UID/GID, owner state roots, execution-profile reference, and admitted controller scope. Transport credentials and agent private-key material are excluded. Active and stopped publication preserve the binding; a configured tmux socket must agree with `terminal.socket_path`.
+
 ### Lifecycle
 
 `lifecycle` describes whether the record is actively routable, stopped but still relaunchable or cleanable, transiently relaunching, or retired after destructive cleanup.
@@ -157,7 +169,10 @@ Current implementation scope:
 - `kind` is `tmux`,
 - `terminal.current_session_name` is present only for active or relaunching records,
 - `terminal.last_session_name` is always preserved and remains the durable last-known tmux handle even after stop,
+- `terminal.socket_path` identifies the absolute owner-local tmux socket and remains available after stop,
 - the convenience view `terminal.session_name` resolves to `current_session_name` first and `last_session_name` second.
+
+Passive discovery and stale-presence cleanup probe the socket recorded on each local lifecycle record. An unavailable default server does not hide an agent on another recorded socket. Two servers may have identical session names; liveness on one server does not establish liveness on the other. Socket paths are interpreted only in their owning execution context.
 
 ### Liveness
 

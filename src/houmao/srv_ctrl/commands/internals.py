@@ -41,6 +41,7 @@ from houmao.agents.loop_graph.packets import (
 
 from .ag_ui_authoring import ag_ui_authoring_group
 from .native_agent import native_agent_group
+from .executor import executor_group
 from .output import OutputContext, emit
 
 _GRAPH_INPUT_HELP = "NetworkX node-link JSON graph file; use `-` to read stdin."
@@ -74,6 +75,7 @@ def config_drafts_group() -> None:
 
 
 internals_group.add_command(native_agent_group)
+internals_group.add_command(executor_group)
 internals_group.add_command(ag_ui_authoring_group)
 
 

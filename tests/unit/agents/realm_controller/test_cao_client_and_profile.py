@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from urllib import error
 
 import pytest
+from houmao.execution.context import execution_read_only_scope
 
 from houmao.agents.realm_controller.backends import cao_rest as cao_rest_backend
 from houmao.agents.realm_controller.agent_identity import (
@@ -1418,7 +1419,14 @@ def test_houmao_server_control_input_targets_reserved_window_zero(
     assert resolved.window_index == "0"
 
 
-def test_cao_backend_resume_uses_existing_state(tmp_path: Path) -> None:
+@pytest.mark.parametrize("read_only", [False, True])
+def test_cao_backend_resume_uses_existing_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, read_only: bool
+) -> None:
+    published: list[None] = []
+    monkeypatch.setattr(
+        CaoRestSession, "_publish_tmux_session_environment", lambda self: published.append(None)
+    )
     state = CaoSessionState(
         api_base_url="http://localhost:9889",
         session_name="cao-s1",
@@ -1430,16 +1438,18 @@ def test_cao_backend_resume_uses_existing_state(tmp_path: Path) -> None:
     )
 
     plan = _sample_launch_plan(tmp_path, tool="codex")
-    session = CaoRestSession(
-        launch_plan=plan,
-        api_base_url="http://localhost:9889",
-        role_name="gpu-kernel-coder",
-        role_prompt="role prompt",
-        parsing_mode="cao_only",
-        existing_state=state,
-    )
+    with execution_read_only_scope(read_only):
+        session = CaoRestSession(
+            launch_plan=plan,
+            api_base_url="http://localhost:9889",
+            role_name="gpu-kernel-coder",
+            role_prompt="role prompt",
+            parsing_mode="cao_only",
+            existing_state=state,
+        )
     assert session.state.turn_index == 3
     assert session.state.terminal_id == "a1b2c3d4"
+    assert len(published) == (0 if read_only else 1)
 
 
 def test_cao_claude_backend_uses_shadow_parsing_with_mode_full_only(

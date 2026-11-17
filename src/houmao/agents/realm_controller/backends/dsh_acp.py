@@ -67,8 +67,13 @@ class DshAcpSession(HeadlessInteractiveSession):
             payload = json.loads(native.read_text(encoding="utf-8"))
             if payload.get("working_directory") != str(launch_plan.working_directory.resolve()):
                 raise BackendExecutionError("DSH continuation requires its recorded workspace")
-            if state is not None:
-                state.session_id = payload["native_session_id"]
+            if state is not None and session_manifest_path.is_file():
+                persisted = json.loads(session_manifest_path.read_text(encoding="utf-8"))
+                runtime = persisted.get("runtime", {})
+                if payload.get("generation") == persisted.get(
+                    "registry_generation_id"
+                ) and payload.get("runtime_session_id") == runtime.get("session_id"):
+                    state.session_id = payload["native_session_id"]
         super().__init__(
             backend="dsh_acp",
             launch_plan=launch_plan,

@@ -7,7 +7,13 @@ import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from functools import wraps
 from pathlib import Path
+from typing import Callable, ParamSpec, TypeVar
+
+from houmao.execution.context import current_execution_binding, observed_local_binding
+from houmao.execution.tmux import capture_tmux_socket_path, tmux_server_scope
+from houmao.owned_paths import resolve_registry_root
 
 from houmao.agents.brain_builder import BuildRequest, build_brain_home
 from houmao.agents.mailbox_runtime_support import safe_registry_mailboxes_projection
@@ -127,6 +133,26 @@ class JoinedSessionArtifacts:
     overlay_bootstrap_detail: str
 
 
+_JoinParams = ParamSpec("_JoinParams")
+_JoinResult = TypeVar("_JoinResult")
+
+
+def _captured_join_socket(
+    operation: Callable[_JoinParams, _JoinResult],
+) -> Callable[_JoinParams, _JoinResult]:
+    """Keep a joined session on the enclosing server throughout materialization."""
+
+    @wraps(operation)
+    def bound(*args: _JoinParams.args, **kwargs: _JoinParams.kwargs) -> _JoinResult:
+        """Capture once before resolving native home or publishing join metadata."""
+
+        with tmux_server_scope(capture_tmux_socket_path()):
+            return operation(*args, **kwargs)
+
+    return bound
+
+
+@_captured_join_socket
 def materialize_joined_launch(
     *,
     runtime_root: Path | None,
@@ -215,6 +241,17 @@ def materialize_joined_launch(
             home_path=resolved_home_path,
             headless=headless,
             tmux_window_name=tmux_window_name,
+        )
+        launch_plan = replace(
+            launch_plan,
+            execution_binding=current_execution_binding()
+            or observed_local_binding(
+                working_directory=working_directory,
+                runtime_root=resolved_runtime_root,
+                registry_root=resolve_registry_root(),
+                tmux_socket=capture_tmux_socket_path(),
+            ),
+            metadata={**launch_plan.metadata, "tmux_socket_path": capture_tmux_socket_path()},
         )
         memory = resolve_agent_memory(
             overlay_root=project_roots.overlay_root,
@@ -324,6 +361,7 @@ def materialize_joined_launch(
         publish_live_agent_record(
             ManagedAgentRegistryRecordV3(
                 agent_name=canonicalize_registry_agent_name(normalized_agent_name),
+                execution_binding=launch_plan.execution_binding,
                 agent_id=resolved_agent_id,
                 generation_id=manifest_payload["registry_generation_id"],
                 lifecycle=RegistryLifecycleV1(
@@ -348,6 +386,7 @@ def materialize_joined_launch(
                 ),
                 terminal=RegistryTerminalV2(
                     kind="tmux",
+                    socket_path=launch_plan.metadata.get("tmux_socket_path"),
                     current_session_name=tmux_session_name,
                     last_session_name=tmux_session_name,
                 ),

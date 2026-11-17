@@ -10,17 +10,32 @@ from houmao.mailbox.online_models import (
 from houmao.mailbox.online_models import OnlineAuthorityContext
 from houmao.mailbox.errors import GatewayMailboxMutationError
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import json
 from pathlib import Path
 import shlex
-from typing import Any, Literal, TypedDict, cast
+from typing import Any, Literal, TypeVar, TypedDict, cast
 import uuid
 
 import click
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
+
+from houmao.execution.locators import (
+    ExecutorAgentLocatorV1,
+    ExecutorLocatorError,
+    list_executor_locators,
+    resolve_executor_locator,
+)
+from houmao.execution.models import (
+    ExecutionBindingV1,
+    ExecutionOperation,
+    ExecutionResponseV1,
+    JsonObject,
+)
 
 from houmao.ag_ui.models import AgUiEventPublishRequest, AgUiEventPublishResponse
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig, MailboxChannel
@@ -227,6 +242,8 @@ _SUPPORTED_LOCAL_TUI_PROCESSES: dict[str, tuple[str, ...]] = {
     "kimi": ("kimi-code", "kimi"),
 }
 ManagedAgentListState = Literal["active", "stopped", "relaunching", "retired", "all"]
+_OWNER_LOCAL_TARGET_SCOPE: ContextVar[bool] = ContextVar("houmao_owner_local_target", default=False)
+_ExecutorModel = TypeVar("_ExecutorModel", bound=BaseModel)
 
 
 @dataclass(frozen=True)
@@ -240,6 +257,197 @@ class ManagedAgentTarget:
     controller: RuntimeSessionController | None = None
     record: ManagedAgentRegistryRecordV3 | None = None
     external_record: ExternalManagedAgentRegistryRecordV1 | None = None
+    executor_locator: ExecutorAgentLocatorV1 | None = None
+
+
+class ExecutorGatewayStatusV1(GatewayStatusV1):
+    """Qualify owner-loopback gateway coordinates in an operator-facing status view."""
+
+    execution_context: ExecutionBindingV1
+
+
+@contextmanager
+def owner_local_target_scope() -> Iterator[None]:
+    """Keep admitted owner dispatch on owner-local records without recursive delegation."""
+
+    token = _OWNER_LOCAL_TARGET_SCOPE.set(True)
+    try:
+        yield
+    finally:
+        _OWNER_LOCAL_TARGET_SCOPE.reset(token)
+
+
+def _execute_executor_operation(
+    locator: ExecutorAgentLocatorV1,
+    operation: ExecutionOperation,
+    arguments: JsonObject | None = None,
+) -> ExecutionResponseV1:
+    """Enter a saved owner route without exposing its private endpoint on this host."""
+
+    from houmao.execution.router import execute_bound_operation
+
+    return execute_bound_operation(locator, operation, arguments)
+
+
+def _executor_result(
+    locator: ExecutorAgentLocatorV1,
+    operation: ExecutionOperation,
+    arguments: JsonObject | None = None,
+) -> JsonObject:
+    """Return only confirmed owner results and preserve transport uncertainty as an error."""
+
+    try:
+        response = _execute_executor_operation(locator, operation, arguments)
+    except (ValueError, OSError):
+        raise click.ClickException(
+            f"Execution owner {locator.binding.context_id} is unavailable for agent {locator.agent_id}; no local fallback was attempted."
+        ) from None
+    if response.outcome != "completed":
+        raise click.ClickException(
+            f"Execution operation {operation} for agent {locator.agent_id} in context {locator.binding.context_id}: "
+            f"{response.error_code or response.outcome}; request={response.request_id}. "
+            + (
+                "Inspect the owner before any deliberate retry."
+                if response.outcome == "indeterminate"
+                else "The owner did not admit this operation."
+            )
+        )
+    if response.binding != locator.binding:
+        raise click.ClickException(
+            "Execution owner returned a mismatched binding; no local fallback was attempted."
+        )
+    return response.result
+
+
+def _executor_payload(
+    target: ManagedAgentTarget, operation: ExecutionOperation, arguments: JsonObject | None = None
+) -> JsonObject:
+    """Invoke one finite operation through a resolved executor target."""
+
+    assert target.executor_locator is not None
+    return _executor_result(target.executor_locator, operation, arguments)
+
+
+def _executor_model(
+    target: ManagedAgentTarget,
+    operation: ExecutionOperation,
+    model: type[_ExecutorModel],
+    arguments: JsonObject | None = None,
+) -> _ExecutorModel:
+    """Validate owner data through the maintained response model without coercing authority."""
+
+    payload = _executor_payload(target, operation, arguments)
+    try:
+        return model.model_validate_json(json.dumps(payload))
+    except (ValidationError, ValueError):
+        raise click.ClickException(
+            "Execution owner returned an incompatible operation result."
+        ) from None
+
+
+def _executor_gateway_status(
+    target: ManagedAgentTarget, operation: ExecutionOperation, arguments: JsonObject | None = None
+) -> GatewayStatusV1:
+    """Keep a foreign gateway's loopback endpoint qualified by its execution owner."""
+
+    status = _executor_model(target, operation, GatewayStatusV1, arguments)
+    assert target.executor_locator is not None
+    return ExecutorGatewayStatusV1.model_validate_json(
+        json.dumps(
+            {
+                **status.model_dump(mode="json"),
+                "execution_context": target.executor_locator.binding.model_dump(mode="json"),
+            }
+        )
+    )
+
+
+def _qualify_executor_identity(
+    identity: HoumaoManagedAgentIdentity, locator: ExecutorAgentLocatorV1
+) -> HoumaoManagedAgentIdentity:
+    """Mark foreign paths/endpoints as owner-context data rather than local authority."""
+
+    if identity.agent_id != locator.agent_id:
+        raise click.ClickException("Execution owner returned a different logical agent identity.")
+    return identity.model_copy(
+        update={
+            "management_kind": "executor_managed",
+            "lifecycle_owner": "executor",
+            "execution_context": locator.binding,
+            "execution_status": "available",
+        }
+    )
+
+
+def _executor_identity(locator: ExecutorAgentLocatorV1) -> HoumaoManagedAgentIdentity:
+    """Read current owner identity without reconstructing its manifest on the caller host."""
+
+    payload = _executor_result(locator, "describe")
+    try:
+        identity = HoumaoManagedAgentIdentity.model_validate_json(
+            json.dumps(payload.get("identity"))
+        )
+    except (ValueError, ValidationError):
+        raise click.ClickException(
+            "Execution owner did not return a valid managed-agent identity."
+        ) from None
+    return _qualify_executor_identity(identity, locator)
+
+
+def _resolve_executor_target_for_selector(
+    *, agent_id: str | None, agent_name: str | None
+) -> ManagedAgentTarget | None:
+    """Resolve delegated locators before local probes and reject cross-context ambiguity."""
+
+    if _OWNER_LOCAL_TARGET_SCOPE.get():
+        return None
+    try:
+        locator = resolve_executor_locator(agent_id=agent_id, agent_name=agent_name)
+    except (ExecutorLocatorError, OSError) as exc:
+        raise click.ClickException(str(exc)) from None
+    if locator is None:
+        return None
+    local_matches = (
+        (
+            (record,)
+            if (record := load_managed_agent_record_by_agent_id(locator.agent_id)) is not None
+            else ()
+        )
+        if agent_id is not None
+        else resolve_managed_agent_records_by_name(cast(str, agent_name))
+    )
+    for record in local_matches:
+        if record.agent_id != locator.agent_id or record.execution_binding != locator.binding:
+            raise click.ClickException(
+                f"Managed-agent selector is ambiguous or has conflicting execution owners: {record.agent_id}, {locator.agent_id}. Select a non-conflicting authoritative agent ID."
+            )
+    return ManagedAgentTarget(
+        mode="executor",
+        agent_ref=locator.agent_id,
+        identity=_executor_identity(locator),
+        executor_locator=locator,
+    )
+
+
+def _qualify_executor_home(home: NativeHomeV1, target: ManagedAgentTarget) -> NativeHomeV1:
+    """Add owner context to an existing native-home contract without changing native authority."""
+
+    assert target.executor_locator is not None
+    binding = target.executor_locator.binding
+    if home.agent_id != target.executor_locator.agent_id:
+        raise click.ClickException("Execution owner returned a different agent's native home.")
+    return home.model_copy(
+        update={
+            "identity": {
+                **home.identity,
+                "execution_context_id": binding.context_id,
+                "execution_host_id": binding.host_id,
+                "execution_owner": binding.account,
+                "execution_uid": str(binding.uid),
+                "execution_gid": str(binding.gid),
+            }
+        }
+    )
 
 
 class GatewayPromptControlCliError(RuntimeError):
@@ -353,6 +561,10 @@ def _require_live_local_controller(
 ) -> RuntimeSessionController:
     """Return the local runtime controller or raise one operator-facing diagnostic."""
 
+    if target.mode == "executor":
+        raise click.ClickException(
+            f"Operation {operation!r} is unsupported through the finite execution transport; no local fallback was attempted."
+        )
     if target.controller is not None:
         return target.controller
     raise click.ClickException(
@@ -571,6 +783,32 @@ def list_managed_agents(
     )
     for identity in registry_identities:
         merged[_identity_merge_key(identity)] = identity
+    if not _OWNER_LOCAL_TARGET_SCOPE.get():
+        for locator in list_executor_locators():
+            local_record = load_managed_agent_record_by_agent_id(locator.agent_id)
+            if local_record is not None and local_record.execution_binding != locator.binding:
+                raise click.ClickException(
+                    f"Agent ID {locator.agent_id} has conflicting local and executor ownership."
+                )
+            try:
+                identity = _executor_identity(locator)
+            except click.ClickException:
+                if lifecycle_state != "all":
+                    continue
+                identity = HoumaoManagedAgentIdentity(
+                    tracked_agent_id=locator.agent_id,
+                    agent_id=locator.agent_id,
+                    agent_name=locator.agent_name,
+                    transport="unknown",
+                    tool="unknown",
+                    management_kind="executor_managed",
+                    lifecycle_owner="executor",
+                    execution_context=locator.binding,
+                    execution_status="unavailable",
+                )
+            if lifecycle_state != "all" and identity.lifecycle_state != lifecycle_state:
+                continue
+            merged[_identity_merge_key(identity)] = identity
     if lifecycle_state in {"active", "all"}:
         for record in list_external_managed_agent_records():
             identity = _external_identity_from_record(record)
@@ -583,6 +821,12 @@ def list_managed_agents(
     )
     if pair_client is not None:
         for identity in pair_request(pair_client.list_managed_agents).agents:
+            existing_identity = merged.get(_identity_merge_key(identity))
+            if (
+                existing_identity is not None
+                and existing_identity.management_kind == "executor_managed"
+            ):
+                continue
             merged[_identity_merge_key(identity)] = identity
 
     identities = sorted(merged.values(), key=lambda item: (item.transport, item.tracked_agent_id))
@@ -925,6 +1169,12 @@ def resolve_managed_agent_target(
             client=client,
         )
 
+    executor_target = _resolve_executor_target_for_selector(
+        agent_id=normalized_agent_id, agent_name=normalized_agent_name
+    )
+    if executor_target is not None:
+        return executor_target
+
     record, miss_context = _resolve_local_managed_agent_record_with_miss_context(
         agent_id=normalized_agent_id,
         agent_name=normalized_agent_name,
@@ -1024,6 +1274,12 @@ def resolve_relaunch_managed_agent_target(
             identity=identity,
             client=client,
         )
+
+    executor_target = _resolve_executor_target_for_selector(
+        agent_id=normalized_agent_id, agent_name=normalized_agent_name
+    )
+    if executor_target is not None:
+        return executor_target
 
     record, miss_context = _resolve_local_relaunch_record_with_miss_context(
         agent_id=normalized_agent_id,
@@ -1850,6 +2106,14 @@ def managed_agent_identity_payload(target: ManagedAgentTarget) -> HoumaoManagedA
 def managed_agent_state_payload(target: ManagedAgentTarget) -> HoumaoManagedAgentStateResponse:
     """Return a managed-agent state payload for one resolved target."""
 
+    if target.mode == "executor":
+        response = _executor_model(target, "state", HoumaoManagedAgentStateResponse)
+        assert target.executor_locator is not None
+        return response.model_copy(
+            update={
+                "identity": _qualify_executor_identity(response.identity, target.executor_locator)
+            }
+        )
     if _target_uses_pair_api(target):
         assert target.client is not None
         response = pair_request(target.client.get_managed_agent_state, target.agent_ref)
@@ -1874,6 +2138,16 @@ def managed_agent_state_payload(target: ManagedAgentTarget) -> HoumaoManagedAgen
 def managed_agent_detail_payload(target: ManagedAgentTarget) -> HoumaoManagedAgentDetailResponse:
     """Return a managed-agent detail payload for one resolved target."""
 
+    if target.mode == "executor":
+        response = _executor_model(target, "inspect", HoumaoManagedAgentDetailResponse)
+        assert target.executor_locator is not None
+        identity = _qualify_executor_identity(response.identity, target.executor_locator)
+        return response.model_copy(
+            update={
+                "identity": identity,
+                "summary_state": response.summary_state.model_copy(update={"identity": identity}),
+            }
+        )
     if _target_uses_pair_api(target):
         assert target.client is not None
         response = pair_request(target.client.get_managed_agent_state_detail, target.agent_ref)
@@ -1931,7 +2205,7 @@ def _require_native_common_target(target: ManagedAgentTarget) -> None:
         raise click.ClickException("Native home and refresh require a locally managed agent.")
     if target.identity.lifecycle_state not in {None, "active"}:
         raise click.ClickException("Native home and refresh require an active managed agent.")
-    if target.mode not in {"local", "server"}:
+    if target.mode not in {"local", "server", "executor"}:
         raise click.ClickException("Native home and refresh require healthy active authority.")
     if target.mode == "server" and (
         target.client is None or target.client.pair_authority_kind != "houmao-passive-server"
@@ -1972,6 +2246,8 @@ def managed_agent_native_home(target: ManagedAgentTarget) -> NativeHomeV1:
     """Read authoritative native-home selection without materializing inputs."""
 
     _require_native_common_target(target)
+    if target.mode == "executor":
+        return _qualify_executor_home(_executor_model(target, "home", NativeHomeV1), target)
     if target.mode == "server":
         assert target.client is not None
         return pair_request(target.client.get_managed_agent_gateway_native_home, target.agent_ref)
@@ -1984,6 +2260,11 @@ def managed_agent_common_plugin_state(target: ManagedAgentTarget) -> CommonPlugi
     """Read common evidence without forcing discovery or attaching a gateway."""
 
     _require_native_common_target(target)
+    if target.mode == "executor":
+        observation = _executor_model(target, "refresh_check", CommonPluginObservationV1)
+        return observation.model_copy(
+            update={"home": _qualify_executor_home(observation.home, target)}
+        )
     if target.mode == "server":
         assert target.client is not None
         return pair_request(
@@ -2005,6 +2286,21 @@ def refresh_managed_agent(
 
     request = NativeRefreshRequestV1(timeout_seconds=timeout_seconds)
     _require_native_common_target(target)
+    if target.mode == "executor":
+        result = _executor_model(
+            target, "refresh", NativeRefreshResultV1, {"timeout_seconds": timeout_seconds}
+        )
+        observation = result.observation.model_copy(
+            update={"home": _qualify_executor_home(result.observation.home, target)}
+        )
+        before = (
+            result.before.model_copy(
+                update={"home": _qualify_executor_home(result.before.home, target)}
+            )
+            if result.before is not None
+            else None
+        )
+        return result.model_copy(update={"observation": observation, "before": before})
     if target.mode == "server":
         assert target.client is not None
         return pair_request(
@@ -2035,6 +2331,15 @@ def prompt_managed_agent(
 ) -> object:
     """Submit the default prompt path for one managed agent."""
 
+    if target.mode == "executor":
+        result = _executor_payload(
+            target, "prompt", {"prompt": prompt, "model": model, "reasoning_level": reasoning_level}
+        )
+        assert target.executor_locator is not None
+        return {
+            **result,
+            "execution_context": target.executor_locator.binding.model_dump(mode="json"),
+        }
     execution_model = _resolve_execution_model_override(
         model=model,
         reasoning_level=reasoning_level,
@@ -2074,6 +2379,13 @@ def prompt_managed_agent(
 def interrupt_managed_agent(target: ManagedAgentTarget) -> object:
     """Interrupt one managed agent through the resolved control path."""
 
+    if target.mode == "executor":
+        executor_result = _executor_payload(target, "interrupt")
+        assert target.executor_locator is not None
+        return {
+            **executor_result,
+            "execution_context": target.executor_locator.binding.model_dump(mode="json"),
+        }
     if _target_uses_pair_api(target):
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentInterruptRequest
@@ -2097,6 +2409,11 @@ def stop_managed_agent(target: ManagedAgentTarget) -> HoumaoManagedAgentActionRe
     """Stop one managed agent through the resolved control path."""
 
     _raise_external_unsupported(target, operation="agents single ... stop")
+
+    if target.mode == "executor":
+        response = _executor_model(target, "stop", HoumaoManagedAgentActionResponse)
+        assert target.executor_locator is not None
+        return response.model_copy(update={"execution_context": target.executor_locator.binding})
 
     if target.mode == "server":
         assert target.client is not None
@@ -2320,6 +2637,17 @@ def relaunch_managed_agent(
 
     _raise_external_unsupported(target, operation="agents single ... relaunch")
 
+    if target.mode == "executor":
+        arguments: JsonObject = {}
+        if relaunch_chat_session is not None:
+            arguments["chat_session"] = {
+                "mode": relaunch_chat_session.mode,
+                "session_id": relaunch_chat_session.session_id,
+            }
+        response = _executor_model(target, "relaunch", HoumaoManagedAgentActionResponse, arguments)
+        assert target.executor_locator is not None
+        return response.model_copy(update={"execution_context": target.executor_locator.binding})
+
     if target.mode in {"local_degraded", "local_stale"}:
         assert target.record is not None
         return _relaunch_degraded_or_stale_local_managed_agent(
@@ -2417,6 +2745,8 @@ def _relaunch_degraded_or_stale_local_managed_agent(
 def gateway_status(target: ManagedAgentTarget) -> GatewayStatusV1:
     """Return gateway status for one managed agent."""
 
+    if target.mode == "executor":
+        return _executor_gateway_status(target, "gateway_status")
     if _target_uses_pair_api(target):
         assert target.client is not None
         return pair_request(target.client.get_managed_agent_gateway_status, target.agent_ref)
@@ -2435,6 +2765,18 @@ def attach_gateway(
     """Attach or reuse a live gateway for one managed agent."""
 
     _raise_external_unsupported(target, operation="agents single ... gateway attach")
+    if target.mode == "executor":
+        if plugin_config is not None:
+            raise click.ClickException(
+                "Gateway plugin configuration is unsupported through the finite execution transport."
+            )
+        arguments: JsonObject = {
+            "background": background,
+            "tui_tracking_timing_overrides": tui_tracking_timing_overrides.model_dump(mode="json")
+            if tui_tracking_timing_overrides is not None
+            else None,
+        }
+        return _executor_gateway_status(target, "gateway_attach", arguments)
     if (
         target.identity.transport == "web"
         and tui_tracking_timing_overrides is not None
@@ -2484,6 +2826,8 @@ def detach_gateway(target: ManagedAgentTarget) -> GatewayStatusV1:
     """Detach one live gateway for the resolved managed agent."""
 
     _raise_external_unsupported(target, operation="agents single ... gateway detach")
+    if target.mode == "executor":
+        return _executor_gateway_status(target, "gateway_detach")
 
     target = _local_gateway_target_for_passive_pair(target, operation="detach")
     if target.mode == "server":
@@ -3503,8 +3847,8 @@ def online_mailbox_status(target: ManagedAgentTarget) -> OnlineBindingStatus:
     if _target_uses_pair_api(target):
         assert target.client is not None
         return pair_request(target.client.get_managed_agent_online_binding, target.agent_ref)
-    assert target.controller is not None
-    client = _require_live_gateway_client_for_controller(target.controller)
+    controller = _require_live_local_controller(target, operation="inspect online mailbox status")
+    client = _require_live_gateway_client_for_controller(controller)
     try:
         return client.online_binding_status()
     except GatewayHttpError as exc:
@@ -3523,8 +3867,8 @@ def control_online_mailbox(
         method = getattr(target.client, f"{operation}_managed_agent_online_binding")
         result = pair_request(method, target.agent_ref, request)
         return OnlineBindingStatus.model_validate(result.model_dump(mode="json"))
-    assert target.controller is not None
-    client = _require_live_gateway_client_for_controller(target.controller)
+    controller = _require_live_local_controller(target, operation="control online mailbox binding")
+    client = _require_live_gateway_client_for_controller(controller)
     try:
         result = getattr(client, f"{operation}_online_binding")(request)
         return OnlineBindingStatus.model_validate(result.model_dump(mode="json"))
@@ -4765,6 +5109,8 @@ def _identity_from_record(record: ManagedAgentRegistryRecordV3) -> HoumaoManaged
         lifecycle_state=_record_lifecycle_state(record),
         management_kind="local_lifecycle",
         lifecycle_owner="local",
+        execution_context=record.execution_binding,
+        execution_status="available" if record.execution_binding is not None else None,
     )
 
 
@@ -4805,7 +5151,10 @@ def _probe_local_tmux_authority_for_record(
     """
 
     session_name = record.terminal.session_name
-    return probe_tmux_backed_authority(session_name=session_name)
+    from houmao.execution.tmux import tmux_server_scope
+
+    with tmux_server_scope(record.terminal.socket_path):
+        return probe_tmux_backed_authority(session_name=session_name)
 
 
 def _record_has_readable_manifest_authority(
@@ -4914,6 +5263,10 @@ def _identity_from_controller(controller: RuntimeSessionController) -> HoumaoMan
         agent_id=controller.agent_id,
         management_kind="local_lifecycle",
         lifecycle_owner="local",
+        execution_context=manifest.runtime.execution_binding if manifest is not None else None,
+        execution_status="available"
+        if manifest is not None and manifest.runtime.execution_binding is not None
+        else None,
     )
 
 
@@ -5413,11 +5766,12 @@ def _local_headless_detail_response(
     """Build one local headless detail payload."""
 
     tmux_session_name = controller.tmux_session_name
-    tmux_session_live = (
-        tmux_session_exists(session_name=tmux_session_name)
-        if tmux_session_name is not None
-        else False
-    )
+    with controller.execution_scope():
+        tmux_session_live = (
+            tmux_session_exists(session_name=tmux_session_name)
+            if tmux_session_name is not None
+            else False
+        )
     active = latest_turn is not None and latest_turn.status == "active"
     return HoumaoManagedAgentHeadlessDetailView(
         runtime_resumable=True,

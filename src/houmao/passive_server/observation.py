@@ -16,6 +16,8 @@ from collections import deque
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from houmao.execution.tmux import tmux_server_scope
+
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     tmux_session_exists,
@@ -130,6 +132,7 @@ class AgentTuiObserver:
         observed_version: str | None = None,
         backend: str | None = None,
         session_root: str | None = None,
+        tmux_socket_path: str | None = None,
     ) -> None:
         """Initialize one observer for a discovered agent."""
 
@@ -141,6 +144,7 @@ class AgentTuiObserver:
         self.m_observed_version: str | None = observed_version
         self.m_backend: str | None = backend
         self.m_session_root: str | None = session_root
+        self.m_tmux_socket_path: str | None = tmux_socket_path
 
         self.m_hook_lock: threading.Lock = threading.Lock()
         self.m_hook_channel: HookObservationChannel | None = None
@@ -193,6 +197,12 @@ class AgentTuiObserver:
 
     def poll_cycle(self) -> None:
         """Execute the full observation pipeline for one cycle."""
+
+        with tmux_server_scope(self.m_tmux_socket_path):
+            self._poll_cycle_in_scope()
+
+    def _poll_cycle_in_scope(self) -> None:
+        """Read panes and native tracking state on this observer's owner server."""
 
         if self.m_tracker_session is None:
             # Unsupported tool version: keep the errored posture pinned and
@@ -730,6 +740,7 @@ class TuiObservationService:
                 session_name=agent.record.terminal.session_name,
                 backend=agent.record.identity.backend,
                 session_root=agent.record.runtime.session_root,
+                tmux_socket_path=agent.record.terminal.socket_path,
             )
 
     def _poll_all_observers(self) -> None:

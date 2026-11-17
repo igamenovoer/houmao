@@ -1015,3 +1015,32 @@ def test_stale_local_cleanup_preserves_external_registry_records(
 
     assert record.external_agent_id not in result.removed_agent_ids
     assert load_external_managed_agent_record_by_agent_id(record.external_agent_id) == record
+
+
+def test_cleanup_probes_the_recorded_tmux_socket(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A live owner record is classified only against its captured server."""
+
+    from houmao.execution.tmux import current_tmux_socket_path
+
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
+    record = _sample_record()
+    record.terminal.socket_path = "/owner/private.sock"
+    published = publish_live_agent_record(record)
+    probes: list[str | None] = []
+
+    def exists(*, session_name: str) -> bool:
+        """Observe the server selected by the cleanup operation."""
+
+        assert session_name == published.terminal.current_session_name
+        probes.append(current_tmux_socket_path())
+        return True
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.registry_storage.tmux_session_exists", exists
+    )
+    result = cleanup_stale_live_agent_records()
+    assert published.agent_id in result.preserved_agent_ids
+    assert probes == ["/owner/private.sock"]
+    assert current_tmux_socket_path() is None

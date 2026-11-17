@@ -64,6 +64,11 @@ def cleanup_session_command(
 ) -> None:
     """Clean one stopped managed-session envelope."""
 
+    if _route_executor_cleanup(
+        "session", agent_id, agent_name, manifest_path, session_root, dry_run, purge_registry
+    ):
+        return
+
     _run_and_emit_cleanup(
         lambda: cleanup_managed_session(
             agent_id=agent_id,
@@ -92,6 +97,9 @@ def cleanup_logs_command(
 ) -> None:
     """Clean session-local runtime log artifacts for one managed session."""
 
+    if _route_executor_cleanup("logs", agent_id, agent_name, manifest_path, session_root, dry_run):
+        return
+
     _run_and_emit_cleanup(
         lambda: cleanup_managed_session_logs(
             agent_id=agent_id,
@@ -119,6 +127,11 @@ def cleanup_mailbox_command(
 ) -> None:
     """Clean session-local mailbox secret material for one managed session."""
 
+    if _route_executor_cleanup(
+        "mailbox", agent_id, agent_name, manifest_path, session_root, dry_run
+    ):
+        return
+
     _run_and_emit_cleanup(
         lambda: cleanup_managed_session_mailbox(
             agent_id=agent_id,
@@ -137,3 +150,42 @@ def _run_and_emit_cleanup(build_payload: Callable[[], dict[str, object]]) -> Non
         emit_cleanup_payload(build_payload())
     except (CleanupResolutionError, SessionManifestError) as exc:
         raise click.ClickException(str(exc)) from exc
+
+
+def _route_executor_cleanup(
+    kind: str,
+    agent_id: str | None,
+    agent_name: str | None,
+    manifest_path: Path | None,
+    session_root: Path | None,
+    dry_run: bool,
+    purge_registry: bool = False,
+) -> bool:
+    """Delegate selected-agent cleanup before interpreting any owner-local paths."""
+
+    from houmao.execution.router import execute_bound_operation, require_execution_result
+    from houmao.srv_ctrl.commands.managed_agents import _resolve_executor_target_for_selector
+    from houmao.srv_ctrl.commands.output import emit
+
+    if agent_id is None and agent_name is None:
+        return False
+    target = _resolve_executor_target_for_selector(agent_id=agent_id, agent_name=agent_name)
+    if target is None:
+        return False
+    if manifest_path is not None or session_root is not None:
+        raise click.ClickException(
+            "Executor cleanup uses its saved agent authority; omit path overrides."
+        )
+    assert target.executor_locator is not None
+    response = execute_bound_operation(
+        target.executor_locator,
+        "cleanup",
+        {
+            "kind": kind,
+            "dry_run": dry_run,
+            "purge_registry": purge_registry,
+        },
+    )
+    result = require_execution_result(response)
+    emit({**result, "execution_context": target.executor_locator.binding.model_dump(mode="json")})
+    return True

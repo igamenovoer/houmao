@@ -35,6 +35,17 @@ class ManagedHeadlessAuthorityRecord(_ManagedAgentStoreModel):
     manifest_path: str
     session_root: str
     tmux_session_name: str
+    tmux_socket_path: str | None = None
+
+    @field_validator("tmux_socket_path")
+    @classmethod
+    def _socket_path(cls, value: str | None) -> str | None:
+        """Preserve the concrete owner-side server without resolving foreign paths."""
+
+        from houmao.execution.tmux import validate_tmux_socket_path
+
+        return validate_tmux_socket_path(value) if value is not None else None
+
     tmux_window_id: str | None = None
     tmux_pane_id: str | None = None
     agent_def_dir: str

@@ -284,6 +284,50 @@ def test_wrong_workspace_refuses_before_any_tmux_or_native_activation(
     initialize.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    ("cache_generation", "cache_runtime", "expected_native_id"),
+    [
+        ("previous-generation", "runtime", None),
+        ("generation", "previous-runtime", None),
+        ("generation", "runtime", "exact-native"),
+    ],
+)
+def test_native_cache_restoration_requires_current_generation_and_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cache_generation: str,
+    cache_runtime: str,
+    expected_native_id: str | None,
+) -> None:
+    """A new-chat relaunch cannot recover the preceding native conversation."""
+
+    plan = replace(_sample_headless_plan(tmp_path), backend="dsh_acp", tool="dsh")
+    plan.home_path.mkdir()
+    native = plan.home_path / "houmao-native-session.json"
+    native.write_text(
+        json.dumps(
+            {
+                "native_session_id": "exact-native",
+                "working_directory": str(plan.working_directory.resolve()),
+                "generation": cache_generation,
+                "runtime_session_id": cache_runtime,
+            }
+        )
+    )
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps({"registry_generation_id": "generation", "runtime": {"session_id": "runtime"}})
+    )
+    original = native.read_bytes()
+    monkeypatch.setattr(HeadlessInteractiveSession, "__init__", lambda self, **_kwargs: None)
+    state = HeadlessSessionState()
+
+    DshAcpSession(launch_plan=plan, role_name="role", session_manifest_path=manifest, state=state)
+
+    assert state.session_id == expected_native_id
+    assert native.read_bytes() == original
+
+
 def test_latest_session_selection_cannot_fall_back_to_a_new_conversation(tmp_path: Path) -> None:
     """Unsupported selection fails before reading a manifest or creating native input."""
 

@@ -13,6 +13,8 @@ import subprocess
 import sys
 from typing import Any, Literal, cast
 
+from houmao.execution.tmux import tmux_argv, tmux_subprocess_environment
+
 import click
 
 from houmao.agents.definition_parser import resolve_explicit_or_named_preset_path
@@ -1944,8 +1946,17 @@ def native_home_agent_command(
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
     emit(
         managed_agent_native_home(target),
-        plain_renderer=lambda payload: click.echo(cast(dict[str, object], payload)["home_dir"]),
+        plain_renderer=_render_native_home_plain,
     )
+
+
+def _render_native_home_plain(payload: object) -> None:
+    """Qualify foreign native homes in plain output as well as structured output."""
+
+    home = cast(dict[str, Any], payload)
+    context_id = home.get("identity", {}).get("execution_context_id")
+    prefix = f"{context_id}:" if context_id else ""
+    click.echo(f"{prefix}{home['home_dir']}")
 
 
 @agents_group.command(name="refresh")
@@ -2310,11 +2321,14 @@ def _require_join_primary_pane(session_name: str) -> TmuxPaneRecord:
 
 def _resolve_join_pane_current_path(session_name: str, pane_id: str) -> Path:
     try:
+        environment = tmux_subprocess_environment()
+        extra: dict[str, Any] = {"env": environment} if environment is not None else {}
         result = subprocess.run(
-            ["tmux", "display-message", "-p", "-t", pane_id, "#{pane_current_path}"],
+            tmux_argv(["display-message", "-p", "-t", pane_id, "#{pane_current_path}"]),
             check=True,
             capture_output=True,
             text=True,
+            **extra,
         )
     except (FileNotFoundError, subprocess.CalledProcessError) as exc:
         raise click.ClickException(

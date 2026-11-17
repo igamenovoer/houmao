@@ -352,6 +352,7 @@ def test_main_recovers_stale_local_managed_agent_stop_without_traceback(
         agent_name="gpu",
         agent_id="agent-1234",
         generation_id="gen-1",
+        execution_binding=None,
         lifecycle=SimpleNamespace(state="active"),
         identity=SimpleNamespace(backend="codex_headless", tool="codex"),
         native_surface=None,
@@ -360,7 +361,7 @@ def test_main_recovers_stale_local_managed_agent_stop_without_traceback(
             manifest_path=str((tmp_path / "missing-manifest.json").resolve()),
             session_root=str((tmp_path / "session-root").resolve()),
         ),
-        terminal=SimpleNamespace(session_name="gpu-session"),
+        terminal=SimpleNamespace(session_name="gpu-session", socket_path=None),
     )
 
     monkeypatch.setattr(

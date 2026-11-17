@@ -1824,7 +1824,7 @@ def easy_instance_group() -> None:
 )
 @click.option(
     "--workdir",
-    type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
+    type=click.Path(path_type=Path, exists=False, file_okay=False, dir_okay=True),
     default=None,
     help="Optional runtime working directory override; defaults to the invocation cwd.",
 )
@@ -1877,8 +1877,53 @@ def easy_instance_group() -> None:
     is_flag=True,
     help="Restart on one compatible stopped preserved home for the resolved managed identity.",
 )
+@click.option("--executor", default=None, help="Trusted execution profile for the target context.")
 @managed_launch_force_option
 def launch_easy_instance_command(
+    specialist: str | None,
+    profile: str | None,
+    name: str | None,
+    agent_id: str | None,
+    agent_id_mode: AgentIdMode | None,
+    auth: str | None,
+    model: str | None,
+    reasoning_level: int | None,
+    session_name: str | None,
+    headless: bool | None,
+    no_gateway: bool,
+    gateway_port: int | None,
+    gateway_background: bool,
+    gateway_tui_watch_poll_interval_seconds: float | None,
+    gateway_tui_stability_threshold_seconds: float | None,
+    gateway_tui_completion_stability_seconds: float | None,
+    gateway_tui_unknown_to_stalled_timeout_seconds: float | None,
+    gateway_tui_stale_active_recovery_seconds: float | None,
+    gateway_tui_final_stable_active_recovery_seconds: float | None,
+    workdir: Path | None,
+    env_set: tuple[str, ...],
+    runtime_set: tuple[str, ...],
+    mail_transport: str | None,
+    mail_root: Path | None,
+    mail_account_dir: Path | None,
+    managed_header: bool | None,
+    managed_header_section: tuple[str, ...],
+    reuse_home: bool,
+    force_mode: str | None,
+    executor: str | None,
+) -> None:
+    """Launch one managed-agent instance from a compiled specialist definition."""
+
+    parameters = dict(locals())
+    parameters.pop("executor")
+    if executor is not None:
+        from houmao.execution.router import launch_with_executor
+
+        launch_with_executor(executor, parameters)
+        return
+    launch_project_agent(**parameters)
+
+
+def launch_project_agent(
     specialist: str | None,
     profile: str | None,
     name: str | None,

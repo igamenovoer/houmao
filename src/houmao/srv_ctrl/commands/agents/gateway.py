@@ -9,6 +9,8 @@ import subprocess
 import time
 from typing import Any, Callable, Literal, TypeVar
 
+from houmao.execution.tmux import tmux_argv, tmux_subprocess_environment
+
 import click
 
 from houmao.agents.mailbox_runtime_models import MailboxChannel
@@ -1799,17 +1801,20 @@ def _require_current_tmux_session_name() -> str:
     """Return the current tmux session name or fail clearly."""
 
     try:
+        environment = tmux_subprocess_environment()
+        extra: dict[str, Any] = {"env": environment} if environment is not None else {}
         result = subprocess.run(
-            ["tmux", "display-message", "-p", "#S"],
+            tmux_argv(["display-message", "-p", "#S"]),
             capture_output=True,
             check=True,
             text=True,
+            **extra,
         )
     except (subprocess.CalledProcessError, FileNotFoundError) as exc:
         raise click.ClickException(
             "Current-session attach must be run from inside the target tmux session."
         ) from exc
-    session_name = result.stdout.strip()
+    session_name: str = result.stdout.strip()
     if not session_name:
         raise click.ClickException(
             "Current-session attach could not determine the current tmux session name."
@@ -1821,15 +1826,18 @@ def _try_current_tmux_session_name() -> str | None:
     """Return the current tmux session name, or `None` when not in tmux."""
 
     try:
+        environment = tmux_subprocess_environment()
+        extra: dict[str, Any] = {"env": environment} if environment is not None else {}
         result = subprocess.run(
-            ["tmux", "display-message", "-p", "#S"],
+            tmux_argv(["display-message", "-p", "#S"]),
             capture_output=True,
             check=True,
             text=True,
+            **extra,
         )
     except (subprocess.CalledProcessError, FileNotFoundError):
         return None
-    session_name = result.stdout.strip()
+    session_name: str = result.stdout.strip()
     return session_name or None
 
 

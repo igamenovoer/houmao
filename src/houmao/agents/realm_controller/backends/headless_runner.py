@@ -16,6 +16,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from houmao.execution.tmux import tmux_argv
+
 from houmao.agents.realm_controller.backends.dispatch_control import (
     HeadlessDispatchControl,
     _dispatch_origin_birth_token,
@@ -586,7 +588,7 @@ class HeadlessCliRunner:
                     "set +e",
                     f"cd {shlex.quote(str(cwd))}",
                     bridge_command_text,
-                    f"tmux wait-for -S {shlex.quote(wait_signal)} >/dev/null 2>&1 || true",
+                    f"{shlex.join(tmux_argv(['wait-for', '-S', wait_signal]))} >/dev/null 2>&1 || true",
                     'idle_shell="${SHELL:-/bin/sh}"',
                     'exec "$idle_shell" -l',
                 ]
@@ -833,7 +835,7 @@ class HeadlessCliRunner:
                 'wait "$stderr_tee_pid" || true',
                 f"printf '%s\\n' \"$status\" > {shlex.quote(str(status_tmp_path))}",
                 (f"mv {shlex.quote(str(status_tmp_path))} {shlex.quote(str(status_path))}"),
-                f"tmux wait-for -S {shlex.quote(wait_signal)} >/dev/null 2>&1 || true",
+                f"{shlex.join(tmux_argv(['wait-for', '-S', wait_signal]))} >/dev/null 2>&1 || true",
                 'idle_shell="${SHELL:-/bin/sh}"',
                 'exec "$idle_shell" -l',
             ]

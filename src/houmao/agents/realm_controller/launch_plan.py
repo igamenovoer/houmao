@@ -118,8 +118,6 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
 
     inputs = _require_mapping(manifest, "inputs")
     runtime = _require_mapping(manifest, "runtime")
-    credentials = _require_mapping(manifest, "credentials")
-    env_contract = _require_mapping(credentials, "env_contract")
     home_selector = _require_mapping(runtime, "launch_home_selector")
     launch_contract = _require_mapping(runtime, "launch_contract")
 
@@ -132,22 +130,9 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     home_env_var = _require_str(home_selector, "env_var")
     home_path = Path(_require_str(home_selector, "value")).resolve()
 
-    env_source = Path(_require_str(env_contract, "source_file")).resolve()
-    allowlist = _require_str_list(env_contract, "allowlisted_env_vars")
-    env_values, selected_env_names = parse_allowlisted_env(env_source, allowlist)
-    env_var_names = list(selected_env_names)
-    persistent_env_records = _persistent_launch_env_records(launch_contract)
-    env_values.update(persistent_env_records)
-    env_var_names = sorted({*env_var_names, *persistent_env_records.keys()})
-    if tool == "kimi":
-        try:
-            env_values = force_kimi_v2_engine_env(env_values)
-        except KimiSystemPromptError as exc:
-            raise LaunchPlanError(str(exc)) from exc
-        env_var_names = sorted({*env_var_names, "KIMI_CODE_LEGACY_FLAG"})
-    if request.backend == "local_interactive" and tool == "kimi":
-        env_values[_KIMI_TUI_NO_AUTO_UPDATE_ENV_VAR] = "1"
-        env_var_names = sorted({*env_var_names, _KIMI_TUI_NO_AUTO_UPDATE_ENV_VAR})
+    env_values, env_var_names, env_source, selected_env_names = read_launch_environment(
+        manifest, backend=request.backend
+    )
 
     metadata: dict[str, Any] = {
         "env_source_file": str(env_source),
@@ -360,6 +345,36 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
             else None
         ),
     )
+
+
+def read_launch_environment(
+    manifest: dict[str, Any], *, backend: BackendKind
+) -> tuple[dict[str, str], list[str], Path, list[str]]:
+    """Read selected launch credentials and env records without preparing a native home."""
+
+    inputs = _require_mapping(manifest, "inputs")
+    runtime = _require_mapping(manifest, "runtime")
+    credentials = _require_mapping(manifest, "credentials")
+    env_contract = _require_mapping(credentials, "env_contract")
+    launch_contract = _require_mapping(runtime, "launch_contract")
+    tool = _require_str(inputs, "tool")
+    source = Path(_require_str(env_contract, "source_file")).resolve()
+    selected, selected_names = parse_allowlisted_env(
+        source, _require_str_list(env_contract, "allowlisted_env_vars")
+    )
+    records = _persistent_launch_env_records(launch_contract)
+    selected.update(records)
+    names = sorted({*selected_names, *records})
+    if tool == "kimi":
+        try:
+            selected = force_kimi_v2_engine_env(selected)
+        except KimiSystemPromptError as exc:
+            raise LaunchPlanError(str(exc)) from exc
+        names = sorted({*names, "KIMI_CODE_LEGACY_FLAG"})
+        if backend == "local_interactive":
+            selected[_KIMI_TUI_NO_AUTO_UPDATE_ENV_VAR] = "1"
+            names = sorted({*names, _KIMI_TUI_NO_AUTO_UPDATE_ENV_VAR})
+    return selected, names, source, selected_names
 
 
 def _prepare_dsh_launch(

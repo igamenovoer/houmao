@@ -60,6 +60,12 @@ Live manual reload requires immediate native admission. Busy agents, pending inp
 
 A lost response can leave a native operation active. Report uncertainty and inspect state; do not automatically replay it. Managed ordinary work stays blocked while native settlement/readiness is uncertain. Unknown freshness alone does not keep an otherwise settled valid runtime blocked. Status, interruption, and explicit relaunch remain available.
 
+## Execution Owner Routing
+
+For an executor-managed agent, `home`, `refresh --check`, and refresh enter the recorded owner context before reading manifests or contacting native/gateway endpoints. The returned home descriptor's `identity` includes `execution_context_id`, `execution_host_id`, and owner UID/GID/account metadata. The path belongs to that context. Check/inspection creates no caller-local home or repaired runtime state.
+
+Owner routing retains the refresh/relaunch boundary described above. It does not restart the harness, regenerate launch-profile-derived material, or alter another same-user agent's credential selection. An unavailable owner or a failed binding/generation check produces an explicit result without trying a caller-local manifest, similarly named tmux session, or loopback port. A lost refresh response remains indeterminate until owner inspection establishes current state; it is not replayed automatically. See [execution contexts](execution-contexts.md).
+
 ## Qualification
 
 DSH headless and Web are the primary targets. The current Web path qualifies configuration/resource reconciliation, not arbitrary hot-code HMR. ACP loads current materialized inputs on the next ordinary invocation without a refresh-created worker. Kimi Code, Codex, and Claude Code are best effort; native capabilities outside maintained owned transports remain explicit limitations.

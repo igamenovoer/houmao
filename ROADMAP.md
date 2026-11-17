@@ -4,7 +4,7 @@
 
 This roadmap sequences the eleven feature requests filed on 2026-11-13 as GitHub issues [#74 through #84](https://github.com/igamenovoer/houmao/issues). It uses commit `1675029c` (`v2.4.0`) as its code baseline. All eleven issues were open when this roadmap was written.
 
-Status as of 2026-11-16: **7 of 11 work packages are done**. Usage records (#83), the gateway plugin API (#76), bounded Stalwart queries and incremental sync (#80), live Stalwart attachment (#79), CCCC chat (#77), CCCC deferred Mail (#78), and DSH (#74) are implemented and validated. **Pi integration (#75) is postponed**, with no scheduled start date; its GitHub issue remains open. The three active pending work packages are existing-provider refresh (#82), execution ownership (#81), and authenticated remote access (#84), in that order. Completion evidence appears in their respective work packages below.
+Status as of 2026-11-17: **8 of 11 work packages are done**. Usage records (#83), the gateway plugin API (#76), bounded Stalwart queries and incremental sync (#80), live Stalwart attachment (#79), CCCC chat (#77), CCCC deferred Mail (#78), DSH (#74), and native-home/common-plugin refresh (#82) are implemented and validated. **Pi integration (#75) is postponed**, with no scheduled start date; its GitHub issue remains open. The two active pending work packages are execution ownership (#81), followed by authenticated remote access (#84). Completion evidence appears in their respective work packages below.
 
 The common goal is to let an external hub provision identities, capabilities, budgets, and execution contexts while Houmao remains the per-agent runtime, gateway, and mailbox layer. Houmao should not become the hub's account provisioner, budget-policy engine, central task planner, or combined chat/mail service.
 
@@ -12,7 +12,7 @@ The common goal is to let an external hub provision identities, capabilities, bu
 
 - Publish shared usage and gateway-extension contracts before building their consumers.
 - Make Stalwart access efficient before adding live attachment, another mailbox backend, and remote mailbox access.
-- Build runtime refresh against the existing backend capability matrix, including the accepted DSH integration. Qualify Pi-specific refresh behavior when Pi integration is reprioritized.
+- Preserve the delivered native-home/common-plugin refresh contract and its qualified backend capability matrix. Qualify Pi-specific refresh behavior when Pi integration is reprioritized.
 - Schedule execution ownership and remote authentication after the launch, gateway, plugin, and mailbox surfaces stabilize. These changes cut across all of them.
 - Treat each issue as a separately reviewable OpenSpec change with its own tests and documentation. Do not combine the entire roadmap into one change.
 
@@ -29,14 +29,14 @@ The order column shows the active sequence. Work-package headings below retain t
 | 5 | Done | [#77](https://github.com/igamenovoer/houmao/issues/77): CCCC chat gateway plugin | Live CCCC Group/Actor attachment and chat through the per-agent gateway | First real plugin consumer; validates #76 before CCCC Mail is added |
 | 6 | Done | [#78](https://github.com/igamenovoer/houmao/issues/78): CCCC deferred Mail backend | Explicit secondary mailbox backend with non-consuming status and ordered cursors | Reuses CCCC identity binding plus the mailbox attachment and cursor patterns |
 | 7 | Done | [#74](https://github.com/igamenovoer/houmao/issues/74): DeepSeek Harness backend | Headless ACP and owned interactive Web control, exact resume, interruption, events, and usage | Delivered the primary new body after the shared usage contract |
-| 8 | Pending | [#82](https://github.com/igamenovoer/houmao/issues/82): Live skill and tool refresh | Per-backend capability reporting and coordinated activation at safe execution boundaries | Builds on gateway admission and existing backends; Pi qualification joins after its integration resumes |
+| 8 | Done | [#82](https://github.com/igamenovoer/houmao/issues/82): Native-home and common-plugin refresh | Authoritative home, read-only skills/MCP freshness, and non-restarting native refresh through CLI, gateway, and passive server | Delivered qualified DSH ACP/Web support and explicit best-effort secondary-tool limits; Pi qualification remains postponed |
 | 9 | Pending | [#81](https://github.com/igamenovoer/houmao/issues/81): Execution-owner-aware launch and control | Execution profiles, ownership records, delegated launch, and target-context control routing | Touches every lifecycle path; landing it earlier would cause repeated rebasing |
 | 10 | Pending | [#84](https://github.com/igamenovoer/houmao/issues/84): Authenticated remote gateway access | Authenticated exposure, peer/operator authorization, endpoint advertisement, and remote mailbox access | Must cover the final core, plugin, mailbox, and ownership surfaces |
 | Deferred | Postponed | [#75](https://github.com/igamenovoer/houmao/issues/75): Pi backend | Managed Pi launch, JSONL RPC control, resume, events, usage, and idle-only reload | Retains its acceptance scope for future reprioritization; no start date is scheduled |
 
 ## Dependency Map
 
-Solid arrows show explicit or structural dependencies. Dotted arrows show recommended sequencing that reduces rework but is not an absolute code dependency. Pi is postponed; existing-provider refresh proceeds using the implemented backend set.
+Solid arrows show explicit or structural dependencies. Dotted arrows show recommended sequencing that reduces rework but is not an absolute code dependency. DSH and native-home/common-plugin refresh are complete. Execution ownership is next, followed by authenticated remote access; Pi remains postponed.
 
 ```mermaid
 flowchart TD
@@ -44,15 +44,16 @@ flowchart TD
     I76["#76 Gateway plugin API"] --> I77["#77 CCCC chat plugin"]
     I77 --> I78["#78 CCCC deferred Mail"]
     I74 -.-> I75["#75 Pi backend (postponed)"]
-    I74 --> I82["#82 Live skill/tool refresh"]
+    I74 --> I82["#82 Native home/common-plugin refresh (done)"]
     I76 -.-> I82
+    I82 -.-> I81["#81 Execution ownership"]
     I80["#80 Stalwart queries and sync"] -.-> I79["#79 Live Stalwart attachment"]
     I76 -.-> I79
     I79 -.-> I78
     I76 -.-> I84["#84 Authenticated remote gateway"]
     I80 -.-> I84
     I79 -.-> I84
-    I81["#81 Execution ownership"] -.-> I84
+    I81 -.-> I84
     classDef postponed fill:#eee,stroke:#888,stroke-dasharray:5 5
     class I75 postponed
 ```
@@ -133,7 +134,7 @@ Verification on 2026-11-15: **3,798 unit tests passed** (14 existing skips), **2
 
 #### 7. #74: Add DeepSeek Harness As A Managed Agent Backend
 
-**Done (2026-11-16).** Implemented in [commit `07e74da4`](https://github.com/igamenovoer/houmao/commit/07e74da419d04f716454cce343530abf19d32322). The ordered changes completed [29 headless tasks](openspec/changes/dsh-01-add-acp-headless-backend/tasks.md) and [35 interactive Web tasks](openspec/changes/dsh-02-add-interactive-web-backend/tasks.md). Both changes have synchronized main specifications, and [issue #74 is closed](https://github.com/igamenovoer/houmao/issues/74#issuecomment-6918449890).
+**Done (2026-11-16).** Implemented in [commit `07e74da4`](https://github.com/igamenovoer/houmao/commit/07e74da419d04f716454cce343530abf19d32322). The ordered changes completed [29 headless tasks](openspec/changes/archive/2026-11-17-dsh-01-add-acp-headless-backend/tasks.md) and [35 interactive Web tasks](openspec/changes/archive/2026-11-17-dsh-02-add-interactive-web-backend/tasks.md). Both changes have synchronized main specifications and were archived on 2026-11-17 in [commit `5f12c09d`](https://github.com/igamenovoer/houmao/commit/5f12c09dbf520b21a52f8c8fb1c42205d2e999e1). [Issue #74 is closed](https://github.com/igamenovoer/houmao/issues/74#issuecomment-6918449890).
 
 - [x] Add `dsh_acp` for headless launches and `dsh_web` for the existing interactive posture, with isolated homes, explicit provider/model configuration, literal role injection, selected skill roots, and distinct native Web/supervisor metadata.
 - [x] Map native admission receipts, progress, tool activity, terminal outcomes, scoped interruption, exact continuation, and explicit relaunch into the runtime and gateway. Preserve independent browser/API credentials, execution-incarnation guards, and recovery without input replay.
@@ -141,23 +142,31 @@ Verification on 2026-11-15: **3,798 unit tests passed** (14 existing skips), **2
 
 Verification on 2026-11-16: **4,150 unit tests passed** (14 skipped), **84 native tests passed**, and real DeepSeek ACP and browser/API Web qualification passed. Formatting, lint, strict typing, docs, builds, resource inventories, and secret/path audits passed. The [implementation record](context/plans/dsh-provider-integration/roadmap.md) records the qualified source/build, lifecycle and isolation evidence, and remaining boundaries.
 
-The self-hosted live lane was unconfigured. Historical change 01 passes its captured predecessor baseline; current-store validation has one historical full-block mismatch after the successor Web scenario was added. The [Web acceptance record](docs/reference/run-phase/dsh-web-acceptance.md#acceptance-state) documents that boundary. OpenSpec review/archive and coordinated live refresh remain separate follow-ups.
+The self-hosted live lane was unconfigured. The archive merge preserved the accepted headless scenarios and applied the successor Web contract in order. All 242 main specifications pass standard validation; existing strict-validation warnings are unchanged. Native-home/common-plugin refresh is now delivered under #82 below.
 
 #### 8. #75: Add Pi As A Managed Agent Backend With Structured RPC Control
 
-**Postponed (2026-11-16).** Pi is outside the current implementation sequence, with no scheduled start date. Issue #75 remains open for explicit reprioritization. The requirements below are retained for that future integration; existing-provider refresh, execution ownership, and remote-access work can proceed independently.
+**Postponed (2026-11-16).** Pi is outside the current implementation sequence, with no scheduled start date. Issue #75 remains open for explicit reprioritization. The requirements below are retained for that future integration; existing-provider refresh is complete, and execution ownership and remote-access work can proceed independently.
 
 - Add Pi selection and isolated configuration, then implement JSONL RPC request/response correlation, continuous event consumption, prompt, abort, progress, completion, failure, and resume.
-- Preserve provider-reported usage and expose idle-only resource reload as a backend capability for #82. Report unsupported session operations instead of silently starting a new session.
+- Preserve provider-reported usage and qualify idle-only resource reload against the established native-refresh contract. Report unsupported session operations instead of silently starting a new session.
 - Complete the issue with startup-failure, unexpected-exit, completion, cancellation, resume, and idle/reload-boundary tests. Record the validated Pi revision and RPC limitations.
 
 ### Phase 5: Coordinate Capability Refresh
 
 #### 9. #82: Coordinate Live Skill And Tool Refresh With Gateway Admission And Backend Capabilities
 
-- Report each implemented backend's supported refresh operations, including rediscovery, external CLI update, plugin reload, DSH HMR configuration, and restart/resume requirements. Qualify Pi idle-only reload after its postponed backend integration resumes.
-- Refresh only the selected agent's isolated roots, record revisions, coordinate idle or cooperative-cancellation boundaries, notify the agent of revised instructions, and distinguish installation from activation.
-- Complete the issue with add/update/remove, active-turn, failed-reload, unsupported-backend, retry/recovery, and agent-isolation tests.
+**Done (2026-11-17).** Implemented in [commit `08a2c9d6`](https://github.com/igamenovoer/houmao/commit/08a2c9d621bf7245e6551f45b29d4eb1927f13bf). The [archived change](openspec/changes/archive/2026-11-17-add-native-agent-home-refresh/proposal.md) has [33 completed tasks](openspec/changes/archive/2026-11-17-add-native-agent-home-refresh/tasks.md) and an [acceptance map covering all 112 scenarios](docs/reference/run-phase/native-refresh-acceptance.md). Its contracts are synchronized into the [main native-refresh specification](openspec/specs/native-agent-home-refresh/spec.md); archival and sync are recorded in [commit `5f12c09d`](https://github.com/igamenovoer/houmao/commit/5f12c09dbf520b21a52f8c8fb1c42205d2e999e1). [Issue #82 is closed with the accepted scope and qualification limits](https://github.com/igamenovoer/houmao/issues/82#issuecomment-6944745455).
+
+- [x] Expose authoritative native-home inspection, read-only `refresh --check`, and observe-first `refresh` in single/self CLI scope, gateway HTTP, and passive-server projections. Report common-plugin (skills/MCP) coverage, freshness, health, and native boundaries independently of the writer or a Houmao update receipt. Confirmed current state produces a no-op; qualified automatic discovery retains its future boundary.
+- [x] Preserve external installation ownership and current native material. DSH ACP consumes current home inputs on later ordinary invocations; owned DSH Web performs qualified configuration/resource reconciliation under immediate native admission. Preserve process/conversation identity, partial effects, responsive operator controls, one absolute deadline, and captured target authority without retrying lost confirmation.
+- [x] Exercise add/update/remove, autonomous watchers, active-turn and child/browser races, failed replacement, response loss, MCP health/freshness differences, loaded-skill history, distinct-home isolation, and refresh-versus-relaunch behavior. Verify that refresh creates no model requests and never regenerates launch-derived material.
+
+Refresh never restarts the harness or selects a replacement conversation. Restart and manifest-backed regeneration remain separate explicit `relaunch` operations. The common view covers skills and MCP; users inspect native-special-plugin state through native facilities, while native refresh may have broader, nontransactional effects. Existing skill tool results remain in conversation history; changed bodies become available at their qualified future load boundary.
+
+Verification on 2026-11-17: **4,467 unit tests passed** (14 skipped), **28 native Web/public cases passed**, **10 ACP current-home/managed/fixture cases passed**, and **2 separate relaunch cases passed**. Formatting, lint, strict typing (472 source files), strict documentation, distribution builds, resource inventory, and metadata checks passed. The archive batch validated all 242 main specs with no new validation warnings.
+
+DSH 0.2.2-rc.3 headless and Web are primary. The [compatibility matrix](docs/reference/run-phase/native-refresh-compatibility.md) records Kimi Code, Codex, and Claude Code native capabilities separately from their maintained Houmao transports, which currently report explicit unknown/unsupported refresh coverage. Arbitrary hot-code HMR is unqualified, and unavailable MCP implementation revisions remain unknown. Pi integration and its refresh qualification stay postponed under #75.
 
 ### Phase 6: Add Execution And Remote Security Boundaries
 
@@ -177,8 +186,8 @@ The self-hosted live lane was unconfigured. Historical change 01 passes its capt
 
 - #83, #76, and #80 are mutually independent and may proceed in parallel. Avoid concurrent edits to `gateway_service.py` unless the work packages explicitly coordinate ownership.
 - The CCCC order is fixed: #76 before #77, and #77 before #78.
-- DSH (#74) is complete. Start #82 against the implemented backend set and qualify each provider's refresh capabilities explicitly.
-- Keep #75 postponed until explicit reprioritization. When it resumes, reuse the DSH adapter patterns and add Pi-specific refresh qualification to #82.
+- DSH (#74) and native-home/common-plugin refresh (#82) are complete. Execution ownership (#81) is the next active work package, followed by authenticated remote access (#84).
+- Keep #75 postponed until explicit reprioritization. When it resumes, reuse the DSH adapter patterns and qualify Pi against the established native-refresh contract.
 - #80 should precede #79 to avoid implementing the notifier twice. If live attachment is more urgent, #79 may go first only with an explicit task to migrate its notifier state in #80.
 - #81 may move earlier for an urgent multi-user launch requirement, but later backend and gateway work will then need to preserve its execution-context contract.
 - Keep #84 after #76, #80, and #79 so authentication covers plugin routes and remote mailbox behavior. Keep it after #81 unless the authorization design explicitly accounts for execution ownership another way.

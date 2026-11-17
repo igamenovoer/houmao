@@ -8,6 +8,8 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from houmao.cao.no_proxy import normalize_cao_base_url
+from houmao.execution.context import parse_execution_binding
+from houmao.execution.models import ExecutionBindingV1
 from houmao.server.models import HoumaoManagedAgentIdentity
 
 from houmao.agents.realm_controller.agent_identity import (
@@ -96,6 +98,18 @@ class RegistryTerminalV2(_StrictRegistryModel):
     kind: Literal["tmux"] = Field(default=TERMINAL_KIND_TMUX)
     current_session_name: str | None = None
     last_session_name: str | None = None
+    socket_path: str | None = None
+
+    @field_validator("socket_path")
+    @classmethod
+    def _socket_path_absolute(cls, value: str | None) -> str | None:
+        """Validate the runtime's concrete owner-side tmux server selector."""
+
+        if value is None:
+            return None
+        from houmao.execution.tmux import validate_tmux_socket_path
+
+        return validate_tmux_socket_path(value)
 
     @field_validator("current_session_name", "last_session_name")
     @classmethod
@@ -374,6 +388,11 @@ class ManagedAgentRegistryRecordV3(_StrictRegistryModel):
     """Lifecycle-aware shared-registry ``record.json`` contract."""
 
     schema_version: Literal[4] = 4
+    execution_binding: ExecutionBindingV1 | None = None
+
+    _execution_binding = field_validator("execution_binding", mode="before")(
+        parse_execution_binding
+    )
     agent_name: str
     agent_id: str
     generation_id: str
@@ -426,6 +445,9 @@ class ManagedAgentRegistryRecordV3(_StrictRegistryModel):
 
         if self.terminal.last_session_name is None:
             raise ValueError("terminal.last_session_name is required")
+        if self.execution_binding is not None and self.execution_binding.tmux_socket is not None:
+            if self.terminal.socket_path != self.execution_binding.tmux_socket:
+                raise ValueError("terminal.socket_path must match execution binding tmux_socket")
 
         if self.lifecycle.state in {"active", "relaunching"}:
             if self.liveness is None:

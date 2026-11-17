@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 import click
 import json
 from datetime import UTC, datetime, timedelta
@@ -140,7 +142,7 @@ def test_resolve_managed_agent_target_prefers_shared_registry_for_local_records(
             manifest_path=str((tmp_path / "manifest.json").resolve()),
             session_root=str((tmp_path / "session-root").resolve()),
         ),
-        terminal=SimpleNamespace(session_name="gpu-session"),
+        terminal=SimpleNamespace(session_name="gpu-session", socket_path=None),
     )
     controller = SimpleNamespace(
         agent_id="agent-1234",
@@ -244,7 +246,7 @@ def test_resolve_managed_agent_target_wraps_unusable_local_runtime_authority(
             manifest_path="/tmp/missing-manifest.json",
             session_root=str((tmp_path / "session-root").resolve()),
         ),
-        terminal=SimpleNamespace(session_name="gpu-session"),
+        terminal=SimpleNamespace(session_name="gpu-session", socket_path=None),
     )
 
     monkeypatch.setattr(
@@ -342,7 +344,7 @@ def test_local_registry_resolution_does_not_fall_back_to_tmux_session_alias(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     record = SimpleNamespace(
-        terminal=SimpleNamespace(session_name="gpu-session"),
+        terminal=SimpleNamespace(session_name="gpu-session", socket_path=None),
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.resolve_live_agent_records_by_name",
@@ -2952,6 +2954,7 @@ def test_identity_from_record_uses_persisted_tmux_window_name(
     record = SimpleNamespace(
         agent_name="joined-agent",
         agent_id="agent-joined",
+        execution_binding=None,
         identity=SimpleNamespace(backend="local_interactive", tool="codex"),
         runtime=SimpleNamespace(
             agent_def_dir=str((tmp_path / "agent-def").resolve()),
@@ -2990,6 +2993,7 @@ def test_identity_from_record_falls_back_to_join_launch_metadata_tmux_window_nam
         agent_name="joined-agent",
         agent_id="agent-joined",
         identity=SimpleNamespace(backend="local_interactive", tool="codex"),
+        execution_binding=None,
         runtime=SimpleNamespace(
             agent_def_dir=str((tmp_path / "agent-def").resolve()),
             manifest_path=str(manifest_path),
@@ -3216,11 +3220,13 @@ def test_headless_detail_uses_exit_artifact_even_when_tmux_session_is_live(
     turn_dir.mkdir(parents=True)
     (turn_dir / "exitcode").write_text("0\n", encoding="utf-8")
     controller = SimpleNamespace(
+        execution_scope=nullcontext,
         manifest_path=manifest_path,
         tmux_session_name="join-sess",
         launch_plan=launch_plan,
         agent_identity="joined-agent",
         agent_id="agent-joined",
+        execution_scope=nullcontext,
     )
     target = ManagedAgentTarget(
         mode="local",

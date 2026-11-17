@@ -14,6 +14,7 @@ from typing import Any, Literal, Protocol
 from houmao.agents.launch_policy.models import LaunchPolicyProvenance
 from houmao.agents.mailbox_runtime_models import MailboxesResolvedConfig
 from houmao.agents.realm_controller.native_surface import NativeSurfaceKind
+from houmao.execution.models import ExecutionBindingV1
 
 BackendKind = Literal[
     "local_interactive",
@@ -176,6 +177,7 @@ class LaunchPlan:
     launch_policy_provenance: LaunchPolicyProvenance | None = None
     transient_env_var_names: frozenset[str] = field(default_factory=frozenset)
     native_surface_kind: NativeSurfaceKind | None = None
+    execution_binding: ExecutionBindingV1 | None = None
 
     @classmethod
     def for_joined_session(
@@ -231,6 +233,11 @@ class LaunchPlan:
         return {
             "backend": self.backend,
             "native_surface_kind": self.native_surface_kind,
+            "execution_binding": (
+                self.execution_binding.model_dump(mode="json")
+                if self.execution_binding is not None
+                else None
+            ),
             "tool": self.tool,
             "executable": self.executable,
             "args": list(self.args),

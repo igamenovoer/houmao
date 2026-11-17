@@ -84,6 +84,7 @@ Starts a new runtime session by:
 def resume_runtime_session(
     agent_def_dir: Path,
     session_manifest_path: Path,
+    read_only: bool = False,
 ) -> RuntimeSessionController
 ```
 
@@ -95,6 +96,9 @@ Resumes a previously started session from its persisted session manifest. The ma
 |---|---|
 | `agent_def_dir` | Path to the agent definition directory |
 | `session_manifest_path` | Path to the persisted session manifest written during `start_runtime_session` |
+| `read_only` | Restore saved launch intent without memory, hook, native-home, tmux, or gateway preparation |
+
+Read-only reconstruction reads the selected credential references and persisted launch intent. It does not run provider version probes, synthesize launch policy, normalize tmux surfaces, publish session environment, or repair missing materials. Owner-side query commands use this mode. An enclosing `execution_read_only_scope()` also suppresses implicit reconstruction effects and rejects controller mutations until that scope exits; a reconstructed controller can still service a later explicit mutation under its saved owner binding.
 
 ### Session manifest persistence
 
@@ -106,6 +110,20 @@ Each session writes a manifest to its session root (`<runtime-root>/sessions/<ba
 - Runtime artifacts and metadata.
 
 The session root serves as the persistent root for all session-related state, including the session manifest, gateway state files, and any runtime artifacts produced during the session. The session root is distinct from the brain runtime home (which holds projected configs and skills) and from the per-agent memory root under `<active-overlay>/memory/agents/<agent-id>/`.
+
+### Execution Owner Authority
+
+New runtime launches record an observed execution binding independently of `agent_id`. The binding identifies the actual owner UID/GID, host and durable context ID, state roots, execution profile, and admitted controller scope. Current-account launch records existing local-user authority without changing the caller's launch environment or requiring an executor configuration file. It initializes `execution-context.json` under the resolved runtime root when the launch prepares its runtime authority.
+
+The manifest stores the binding in `runtime.execution_binding` and the persisted launch plan. Strict validation requires those copies to agree. Resume restores the saved binding before backend reconstruction; controller operations restore it independently in each worker thread. A mismatched admitted context or actual UID/GID fails before control. Relaunch keeps this binding while updating live generation and surface handles. The owner lifecycle registry record publishes the same secret-free binding; discovery does not itself grant delegation rights.
+
+### Tmux Server Authority
+
+The manifest's `tmux.socket_path` records the absolute socket path in the execution owner's filesystem. Session, window, and pane identifiers are meaningful only on that server. Launch captures the selected socket once; resume and later controls restore that selector rather than choosing a server from a matching session name. A current-session join captures the enclosing socket before recording its primary handles.
+
+Command-based tmux calls, libtmux pane/session access, generated headless completion signals, passive discovery, and registry cleanup use the same recorded selector. Explicit execution scopes remove inherited `TMUX` and `TMUX_PANE` from tmux subprocess environments without changing the enclosing operator's environment. Nested and concurrent runtime scopes retain independent selectors.
+
+Stop and cleanup address the selected agent's resources. They do not kill or restart a shared tmux server or terminate unrelated sessions. Tests create unique explicit `-S` sockets, clear both inherited tmux variables before setup, and clean up only those isolated servers. `TMUX_TMPDIR` alone does not establish isolation.
 
 ## InteractiveSession protocol
 
@@ -157,6 +175,8 @@ def relaunch(
 ```
 
 Relaunches a tmux-backed managed session without rebuilding the brain home. Relaunch reuses the runtime-owned session root, existing built home, persisted launch authority, and tmux window `0`. It is the runtime primitive behind `houmao-mgr agents single ... relaunch`, the narrower `houmao-mgr agents self relaunch`, and gateway-managed relaunch recovery.
+
+A successful relaunch rotates the live registry generation while retaining logical identity and execution ownership. Registry publication replaces the captured previous generation under the same runtime owner lock. Stale writers and teardown requests cannot publish or remove the replacement generation. Starting a new headless conversation also resets its native conversation turn counter; persisted native-session caches from a prior runtime generation do not select that conversation again.
 
 Fresh project launch can also intentionally target a preserved home through `houmao-mgr project agents launch --reuse-home`, but that is a different lifecycle shape. Reuse-home launch rebuilds current Houmao-managed launch inputs onto one compatible preserved home, creates a new live session root and new registry authority, and does not automatically consume relaunch-only chat-session policy. Relaunch remains the supported path when the operator wants to restart the same built session/home posture rather than request a fresh launch over preserved provider-local state.
 
@@ -301,7 +321,17 @@ Qualified TUI agents use their bound native JSONL logs and structured lifecycle 
 
 Use gateway `GET /v1/usage` or maintained `GET /houmao/agents/{agent_ref}/usage` to read finalized history. These reads remain available during active work and retain a resumable cursor after an empty page. See [Usage Records](usage-records.md) for provider-specific scopes, collection boundaries, record examples, and recovery limits.
 
-## See also
+## Execution-Bound Lifecycle
+
+Project launch can select a provisioned execution context with `--executor <name>`. Delegation occurs before project projection, credential/native-home preparation, runtime directories, or tmux creation. Later selected-agent controls enter the saved owner route rather than reconstructing a foreign manifest in the operator process. Logical agent identity, OS ownership, admitted controller scope, and live generation remain distinct.
+
+Resume/inspect, interrupt, stop, and relaunch preserve the owner binding. Relaunch changes live generation and handles within that context; it does not migrate the agent when an execution profile changes. Stop returns owner-qualified cleanup pointers and retains the locator for later recovery. Concurrent generation replacement produces a conflict; route loss or an indeterminate result never triggers automatic replay or caller-local fallback.
+
+Every tmux operation uses the captured socket and exact agent handles. Delegated entry clears both TMUX and TMUX_PANE, while current-session adoption captures the enclosing socket explicitly. Teardown affects only the selected agent and never restarts or kills the shared localhost tmux server. Owner-side control retains its existing backend/gateway contracts; interactive terminal forwarding and unbounded streaming are outside the finite execution transport.
+
+See [agent execution contexts](execution-contexts.md) for trusted profile configuration, independent same-user credential bindings, transport limits, and failed-publication reconciliation.
+
+## See Also
 
 - [Launch Plan](launch-plan.md) — how launch plans are composed from brain manifests and roles
 - [Backends](backends.md) — backend implementations that execute launch plans

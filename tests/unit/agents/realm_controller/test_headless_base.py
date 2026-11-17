@@ -324,6 +324,7 @@ def test_headless_relaunch_selector_sets_next_prompt_resume_policy(tmp_path: Pat
     session = object.__new__(ClaudeHeadlessSession)
     session._state = HeadlessSessionState(  # type: ignore[attr-defined]
         session_id="old-session",
+        turn_index=5,
         role_bootstrap_applied=False,
         working_directory=str(tmp_path),
         tmux_session_name="HOUMAO-claude",
@@ -343,6 +344,7 @@ def test_headless_relaunch_selector_sets_next_prompt_resume_policy(tmp_path: Pat
     assert session._state.resume_selection_kind == "none"  # noqa: SLF001
     assert session._state.resume_selection_value is None  # noqa: SLF001
     assert session._state.role_bootstrap_applied is False  # noqa: SLF001
+    assert session._state.turn_index == 0  # noqa: SLF001
 
 
 def test_claude_headless_uses_launch_plan_environment(
@@ -870,6 +872,42 @@ def test_headless_preflight_fails_when_tool_executable_missing(
                 tmux_session_name="HOUMAO-kimi",
             ),
         )
+
+
+def test_read_only_backend_resume_does_not_prepare_or_publish_tmux(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Passive reconstruction retains saved state without creating or repairing surfaces."""
+
+    from houmao.agents.realm_controller.backends import headless_base
+    from houmao.execution.context import execution_read_only_scope
+
+    def forbidden(**_kwargs: object) -> None:
+        """Reject even an attempted runtime preparation during passive reconstruction."""
+
+        pytest.fail("Read-only backend reconstruction attempted preparation")
+
+    monkeypatch.setattr(headless_base, "_ensure_required_executable", lambda **_: None)
+    monkeypatch.setattr(
+        headless_base.HeadlessInteractiveSession, "_ensure_tmux_container", forbidden
+    )
+    state = HeadlessSessionState(
+        session_id="persisted-native",
+        turn_index=4,
+        tmux_session_name="persisted-envelope",
+        working_directory=str(tmp_path),
+    )
+    before = set(tmp_path.rglob("*"))
+    with execution_read_only_scope():
+        session = ClaudeHeadlessSession(
+            launch_plan=_sample_claude_launch_plan(tmp_path),
+            role_name="r",
+            session_manifest_path=tmp_path / "manifest.json",
+            state=state,
+        )
+    assert session.state.session_id == "persisted-native"
+    assert session.state.turn_index == 4
+    assert set(tmp_path.rglob("*")) == before
 
 
 @pytest.fixture(autouse=True)
