@@ -1,59 +1,64 @@
 # Tasks
 
-## 1. Private Access Policy and Retained Owner Protection
+## 1. Owner State and Admin Enrollment
 
-- [ ] 1.1 Add strict access-selection, owner-bound verification-policy, principal/grant, and explicit client-binding models under supported product code; verify valid peer/operator policies and rejection of unknown roles, duplicate keys/IDs, malformed verifiers, and mismatched agent/context identities through boundary-level unit tests.
-- [ ] 1.2 Implement bounded descriptor-based private-file loading and constant-time credential verification with live atomic policy replacement; verify unsafe paths/owners/permissions, absent selected sources, rotation overlap, revoked credentials, role reduction, malformed replacement, recovery, and absence of ambient fallback in focused access tests.
-- [ ] 1.3 Persist private access selection through stable owner runtime authority and update affected strict manifest/gateway schema producers and readers together; verify detach, stopped-state lookup, and relaunch retain protection without exporting credential references or accepting incompatible persisted state.
-- [ ] 1.4 Document policy/client binding formats, external provisioning, the 1 MiB bound, rotation, and same-UID limits in the gateway access reference; verify examples match the strict models and contain only placeholder secret material.
+- [ ] 1.1 Add strict launch seed, retained key list, current self, and client binding models. Verify zero and multiple initial keys, malformed OpenSSH keys, duplicate keys and fields, and mismatched owner bindings.
+- [ ] 1.2 Persist owner-bound admin state and its revision through bounded private storage. Verify first launch with an empty list, startup with preloaded keys, restart, stopped-state lookup, and relaunch with live membership retained. Verify missing or corrupt initialized state fails closed.
+- [ ] 1.3 Provision a distinct Ed25519 self key pair per launch or join generation. Check private-key storage and current owner binding in tmux and headless paths. Test same-generation gateway restart, stale or foreign keys, and secret-free runtime exports.
+- [ ] 1.4 Declare `cryptography` as a runtime dependency and add in-process SSHSIG signing and verification with bounded framing. Check stock `ssh-keygen -Y sign` interoperability and rejection of malformed envelopes, wrong namespaces or keys, and unsupported algorithms. Verify admission with SSH executables absent.
+- [ ] 1.5 Issue bounded single-use challenges for self, admin, and first registration. Test wrong purpose, revision, generation, target, origin, method, path, query, or body digest, and expiry and replay. Verify admission before body parsing or effects.
+- [ ] 1.6 Add post-start first-key registration and live admin addition and removal. Verify proof of the proposed first key, atomic competing registrations, multiple admins, stale grants at mutation commit, key revocation, and reopening after final removal.
+- [ ] 1.7 Document manifest seeding, self key lifetime, signer selection, enrollment, and final removal. Verify safe examples and explain same-UID authority and reachability for an empty list.
 
-## 2. Gateway Authentication and Operation Admission
+## 2. Route Admission and Listener Policy
 
-- [ ] 2.1 Add outer HTTP authentication before body parsing and plugin lifecycle handling, with minimal anonymous health and safe 401/403/503 outcomes; verify unauthenticated malformed bodies and failed-plugin probes cause no handler or backend effects.
-- [ ] 2.2 Classify every core/AG-UI route using the fixed peer/operator matrix and disable unclassified automatic documentation routes in authenticated mode; verify route-inventory completeness and denial of queued prompt/interrupt, raw keys, session/model selection, reminders, memory, notifier controls, and native refresh for peers.
-- [ ] 2.3 Replace mailbox, plugin-activation, and ordinary-event loopback restrictions with the shared deployment policy; verify safe local defaults, authenticated loopback enforcement, rejection of unauthenticated broader binds before publication/imports, and authorized broader-listener availability.
-- [ ] 2.4 Update gateway HTTP/status and diagnostic references for access classifications, challenges, and redaction; verify recognizable credentials, verifiers, private paths, headers, and malformed policy values do not appear in public outputs or enabled diagnostics.
+- [ ] 2.1 Apply route admission before protected body parsing, plugin lifecycle handling, or effects. Verify applicable HTTP 401 challenges, 403 for insufficient proof, safe policy-unavailable 503, and minimal public health.
+- [ ] 2.2 Classify core and AG-UI routes and block unclassified publication. Test private status, usage, and memory with current self and verified admin proof, and admin controls in both valid empty and key-required states.
+- [ ] 2.3 Replace mailbox, plugin-activation, and ordinary-event loopback checks with the shared deployment policy. Verify explicit validated broader binds, protected loopback admission, and startup refusal before publication or plugin imports when required state is invalid.
+- [ ] 2.4 Update API and diagnostic references for route classes, challenge errors, and caller provenance. Check responses and logs for signatures, replayable challenges, secrets, roster details, raw headers, private paths, and privileged content.
 
-## 3. Ordinary Messages and Remote Mailbox Operations
+## 3. Public Input and Private Mailbox
 
-- [ ] 3.1 Extract the shared ordinary-dispatch operation from existing plugin delivery without adding a queue or synthetic plugin identity; verify existing plugin admission, confirmed handoff, body-incarnation, hook, and failure regressions still pass.
-- [ ] 3.2 Add strict bounded POST /v1/messages input/results and authenticated source provenance; verify literal native-looking text, rejection of privileged fields, busy refusal, revocation observed before handoff, oversized input, response-loss uncertainty, and absence of replay after recovery.
-- [ ] 3.3 Enforce operator authority for mail post/binding controls and every owner-local attachment-path form before file/provider access; verify peers can use ordinary offline/online mail with expected binding IDs, while stale references and unauthorized owner-file reads fail without side effects.
-- [ ] 3.4 Document ordinary-message requests, sender-owned retry, remote channel-selected mail, and the owner-path attachment limitation; verify documented examples against the route models and focused gateway mailbox workflows.
+- [ ] 3.1 Extract shared immediate dispatch from plugin delivery and verify existing plugin lifecycle, current-body, readiness, hook, and confirmed-handoff behavior.
+- [ ] 3.2 Implement bounded `POST /v1/messages` and `POST /v1/public/prompt` with gateway-authored public provenance. Test anonymous and signed callers, native-looking text, forged labels, control fields, size bounds, and preservation of pending admin overrides.
+- [ ] 3.3 Enforce public-input enablement, finite admission, and one-way outcomes independently of admin list state. Verify disabled and rate-limited calls, busy refusal, body replacement, uncertain handoff, and handoff-only responses when a separate reply is requested.
+- [ ] 3.4 Require private proof for routine mail. Apply live admin access to post and binding controls and require verified admin proof for owner-file forms on private routes. Test both mail channels and stale bindings. Verify denial before provider or filesystem effects.
+- [ ] 3.5 Wire routine mailbox skills through managed self signing or an explicit admin signer. Verify the normal CLI handles challenges and channel selection, resolver and command output omit proof material, and admission failures end the call. Exercise the separately authorized gateway-absent path independently.
+- [ ] 3.6 Document and exercise public input examples and handoff and retry semantics, separate reply channels, private mailbox operations, and owner-file attachment handling.
 
-## 4. Endpoint Publication, Clients, and Owner-Side Configuration
+## 4. Endpoint Publication and Client Proof
 
-- [ ] 4.1 Extend shared gateway clients with explicit base URLs, endpoint-bound file or explicit in-memory credentials, common header application, verified HTTPS, and redirect refusal; verify typed and JSON/plugin calls, proxy-prefix preservation, retargeting rejection, certificate failure, per-request secret rotation, no mutation replay, and existing proxy-env behavior.
-- [ ] 4.2 Add separate resolved bind/local-connect/advertised fields and secret-free remote descriptor projections to gateway state and registry schemas; verify bind-time ephemeral ports, owner-qualified wildcard handling, explicit advertisement, no Host-header inference, clearing live availability, and exclusion of owner paths and credential references from exports.
-- [ ] 4.3 Wire explicit owner client bindings into runtime control, status, live-plugin attach reuse, and scoped manager calls; verify protected local operations succeed with their selected binding, anonymous health readiness still works, and missing credentials never trigger direct or ambient fallback.
-- [ ] 4.4 Add typed Python launch/attach access inputs and maintained scoped gateway attach --access-config; extend both closed executor gateway-attach validators and owner dispatch so configuration paths are opened only in the saved owner context; verify target-only paths, rejected unsupported arguments, preserved execution identity, equivalent reuse, and restart-required conflicts without partial persistence.
-- [ ] 4.5 Update gateway lifecycle/CLI, registry layout, and execution-context references with the new configuration and descriptor contracts; verify supported command help and examples use houmao-mgr and clearly separate owner-local coordinates from remote endpoints.
+- [ ] 4.1 Extend shared clients with exact target and URL binding, self and admin signing, verified HTTPS with deployment trust, and redirect refusal. Test typed and plugin calls, challenge validation before signing, prefix and proxy behavior, retargeting, and certificate failure.
+- [ ] 4.2 Publish distinct bind, owner-local, and advertised endpoints plus a minimal descriptor. Verify ephemeral ports, owner wildcard handling, open and key-required publication, stale discovery after registration, clearing on detach, and secret-free exports.
+- [ ] 4.3 Wire automatic signing through `houmao-mgr agents self ...` and explicit admin signing into runtime status, control, and live-plugin reuse. Verify current self key selection, unsigned public readiness, and terminal failure when challenge or proof checks fail.
+- [ ] 4.4 Add launch manifest admin seed inputs and scoped gateway attach `--access-config` for deployment settings. Verify finite executor validators, owner-side path resolution, equivalent reuse, and restart-required conflicts without resetting live membership.
+- [ ] 4.5 Update scoped CLI help, registry layout, execution references, and deployment examples. Verify distinct addresses, verified deployment trust, and the challenge and enrollment examples.
 
-## 5. Plugin and CCCC Access Declarations
+## 5. Plugins and CCCC Access
 
-- [ ] 5.1 Publish the small SDK route-access declaration and enforce it during existing route staging; verify peer/operator declarations, operator defaults, invalid-declaration instance failure before activation, namespace conflicts, and authentication before plugin lifecycle errors.
-- [ ] 5.2 Classify maintained CCCC chat and deferred-Mail routes as ordinary where appropriate and connection/credential controls as operator operations; verify peer send/read/reply behavior and privileged denial through the independent package's existing provider fixtures.
-- [ ] 5.3 Preserve authenticated broader-listener plugin activation and background ordinary dispatch without passing caller credentials into plugin contexts; verify lifecycle cleanup, current-body guards, credential-source separation, and core availability during plugin failure in both gateway execution modes.
-- [ ] 5.4 Update the plugin author guide and independent example with explicit access declarations and remote deployment assumptions; verify the external package still imports only the supported SDK and its installed-wheel route classifications work.
+- [ ] 5.1 Publish SDK route declarations and enforce them during staging. Verify private and admin classification, admin defaults in both key states, invalid public declarations, namespace checks, and admission before private plugin errors.
+- [ ] 5.2 Classify CCCC routine chat and deferred Mail as private and connection and credential controls as admin. Verify self and verified admin ordinary access and the empty or key-required control rule using independent provider fixtures.
+- [ ] 5.3 Preserve broader-listener activation and background dispatch with configured service authority. Verify worker cleanup, current-body guards, separation of caller and provider proof, and core availability during plugin failure.
+- [ ] 5.4 Update the plugin guide and independent example and verify installed-wheel imports, route classification, and behavior under both admin states.
 
-## 6. Passive Target Guards and Managed Backing Calls
+## 6. Passive Target Guards and Backing Authority
 
-- [ ] 6.1 Add shared protected-target admission to maintained passive selected-agent routes, including direct managed-headless matches, private state/history/artifacts, turn submission, interrupt, stop, and gateway lifecycle controls; verify missing live registry/gateway records and detachment do not restore anonymous access or reach tmux/headless/cleanup effects.
-- [ ] 6.2 Preserve 401/403 and bearer challenges across gateway proxies, forwarding only an explicitly admitted caller bearer to the validated owner-local endpoint; verify no stored operator substitution, credential persistence, role upgrade, mutation retry, or direct-control fallback after rejection.
-- [ ] 6.3 Wire explicitly provisioned owner-service credentials through maintained pair/passive backing clients used by server-managed gateway adapters; verify legitimate inspection/dispatch and operator operations pass target admission while source-address and gateway-header impersonation fail.
-- [ ] 6.4 Document protected-target passive compatibility and the requirement to isolate independently privileged global services; verify the supported recipe exposes only secured gateway access and makes no remote passive-server launch/discovery/admin claim.
+- [ ] 6.1 Apply retained policy to direct headless matches, private reads, raw artifacts, turns, interrupt, stop, and gateway lifecycle. Verify both admin states through detach and absent discovery, missing policy refusal, and existing admitted 501 outcomes.
+- [ ] 6.2 Verify self and admin signatures at passive ingress and relay only the admitted caller's scope. Test path and body translations, one-use relay, stale self generation, admin revocation and first-enrollment races, and challenge and status translation without credential substitution.
+- [ ] 6.3 Provision separate owner-service bindings for necessary maintained backing operations. Verify current target binding, continued backing through first enrollment, and denial of caller-supplied source claims or service proof on unrelated operations.
+- [ ] 6.4 Document retained passive access, proxy challenges, the backing boundary, and admitted lifecycle outcomes. Verify remote deployment exposes the per-agent gateway and isolates global passive administration.
 
-## 7. AG-UI Stream Admission and Revocation
+## 7. Admin AG-UI Streams
 
-- [ ] 7.1 Require operator grants for all AG-UI capabilities, connect, runs, events, detach, and destination-state routes; verify anonymous/peer denial before stream or run effects and preserve existing sanitized connect behavior.
-- [ ] 7.2 Revalidate admitted stream grants at emission/heartbeat boundaries with a maximum five-second authenticated idle interval; verify revoked credentials, role reduction, and unavailable policy close streams and release bookkeeping without interrupting or replaying agent work.
-- [ ] 7.3 Update AG-UI transport documentation with explicit bearer-header usage, reconnect authentication, and the revocation bound; verify examples contain no tokens in stream URLs, event payloads, browser links, or diagnostic records.
+- [ ] 7.1 Apply both admin access states to AG-UI capabilities, connect, runs, events, detach, and destination state. Verify anonymous open admission, signed admission, and refusal when listed-key proof is required.
+- [ ] 7.2 Revalidate on events and at most every five seconds while idle. Verify first enrollment closes open streams, key removal and re-enrollment close affected verified streams, and target or policy failure closes both. Check bookkeeping and continued handed-off work.
+- [ ] 7.3 Update AG-UI transport examples for header-carried proof, open admission, and reconnect. Verify challenge and proof material stay out of browser URLs, events, and diagnostics.
 
 ## 8. Deployment and Cross-Surface Qualification
 
-- [ ] 8.1 Add a reproducible HTTPS reverse-proxy reference deployment and process-level integration fixture with generated credentials/certificates outside the checkout; verify real TLS verification, path-prefix forwarding, anonymous/peer/operator outcomes, protected backend access, and live rotation without body restart.
-- [ ] 8.2 Exercise separate-user owner-local and remote gateway access using the existing execution fixtures and explicitly isolated tmux selectors; verify owner identity, forbidden cross-target credentials, owner-only configuration paths, and an explicitly selected unattended managed-agent fixture without ambient authentication.
-- [ ] 8.3 Qualify remote offline/online mailbox workflows and independently installed CCCC ordinary/control routes using their existing service/process fixtures in foreground and detached gateway modes; record actual-service evidence and distinguish unconfigured host/container lanes from passed tests.
-- [ ] 8.4 Publish the #84 acceptance map linking requirements/scenarios to the completed tests, deployment recipe, qualification evidence, and real limits; update ROADMAP.md completion only after required evidence is satisfied or the user explicitly accepts a documented deferral.
-- [ ] 8.5 Run pixi run format, pixi run lint, pixi run typecheck, pixi run test, affected integration/installed-wheel checks, pixi run docs-build, pixi run build-dist, pixi run check-dist, and strict OpenSpec validation; verify required checks pass and review the final scoped diff for secret material and unrelated changes.
+- [ ] 8.1 Qualify a real HTTPS reverse proxy with generated keys and certificates outside the checkout. Exercise zero-key startup, post-start enrollment, multiple admins, final removal, one-way public input, signed self CLI access, protected backend traffic, and path prefixes.
+- [ ] 8.2 Exercise separate-user access using existing execution fixtures and isolated tmux selectors. Verify owner-only launch inputs, distinct signers and targets, stale self keys, and an explicitly selected unattended agent fixture.
+- [ ] 8.3 Qualify remote offline and online mail and installed CCCC ordinary and control routes in foreground and detached modes. Record actual-service evidence and identify deferred or unconfigured host and container lanes.
+- [ ] 8.4 Publish the #84 acceptance map linking public input, private proof, open admin access, key enrollment and revocation, and verified transport to evidence. Update the roadmap after required checks pass or a deferral is accepted.
+- [ ] 8.5 Run the required Pixi format, lint, typecheck, unit, affected integration, docs, distribution, and installed-wheel checks. Run strict OpenSpec validation and inspect the scoped diff for unrelated changes and credential material.
 

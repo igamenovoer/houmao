@@ -2,33 +2,38 @@
 
 ## Why
 
-[Issue #84](https://github.com/igamenovoer/houmao/issues/84), active roadmap item 10, requires an external hub to reach an agent across Linux-user, container, and host boundaries without shared files or trusted-localhost assumptions. Execution ownership is established by #81; the remaining boundary is authenticated, operation-authorized access to that owner's gateway, mailbox, and plugins.
+[Issue #84](https://github.com/igamenovoer/houmao/issues/84) calls for a hub to reach an agent across Linux-user, container, and host boundaries. With execution ownership established by #81, the gateway needs explicit public contact, private access for the agent, and owner-bound admin access.
 
 ## What Changes
 
-- Add explicit authenticated gateway deployment with externally provisioned opaque bearer credentials, owner-bound private verification policy, fixed `peer` and `operator` authority, and live credential rotation. Keep the default gateway on loopback and document a supported HTTPS reverse-proxy deployment.
-- Add `POST /v1/messages` for ordinary literal notifications through the existing immediate event-dispatch machinery. Reserve queued requests, direct prompt control, interruption, raw keys, session selection, scheduling, native refresh, memory, and AG-UI for operators in authenticated mode.
-- Separate listener binding, owner-local connection, and advertised remote endpoint metadata. Extend the shared HTTP client with explicit endpoint-bound private credentials, HTTPS verification, and redirect refusal; preserve direct-by-default proxy handling.
-- Enable remote offline/online mailbox and ordinary plugin operations only behind the authenticated boundary. Replace the mailbox, plugin-activation, and event-dispatch loopback checks with one access policy, retaining owner, binding, readiness, and incarnation checks.
-- Close alternate HTTP paths to protected agents, including passive-server proxies and direct headless, observation, interrupt, and stop paths. Authorize necessary owner-side backing calls explicitly. Remote passive-server deployment and its global launch, discovery, and administration APIs remain outside this change.
-- **BREAKING:** Reject unauthenticated broader gateway binds. Tokenless consumers of an explicitly protected agent receive authentication failures and must use a configured client binding; they cannot fall back to another transport. Update affected strict metadata schemas and repository consumers together without legacy migration shims.
+- Classify routes as `public`, `private`, or `admin`. Private routes require a signature from the current `self` key or a listed admin key. Admin routes are open while the valid admin key list is empty, and require a listed key once it contains entries.
+- Accept zero or more initial admin public keys in the owner-authorized launch manifest. Admit admin claims using one-time SSH-key signature challenges over HTTP. A caller can enroll the first key after startup by proving possession, and current admins can add or remove keys live. The final removal reopens admin routes.
+- Add public `POST /v1/messages` notifications and `POST /v1/public/prompt` requests. The gateway wraps the input with public provenance and instructions to follow existing agent policy. HTTP reports handoff only. A caller who wants an answer specifies a separate delivery channel for the agent to use if permitted.
+- Retain the live admin list with the agent and execution context. Give each managed generation its own self signing key. Normal `houmao-mgr agents self ...` commands handle challenge and signing automatically, and gateways verify SSHSIG proofs in process with Python. Publish a secret-free endpoint descriptor with current access requirements.
+- Keep loopback as the default bind and make remote and public-input exposure explicit. Separate bind, owner-local connect, and advertised addresses. Support verified HTTPS through a reverse proxy, including deployment-provisioned certificate trust, and explicit encrypted tunnels.
+- Classify ordinary offline and online mailbox operations, memory, detailed status, usage, and ordinary plugin operations as private. Classify queued and direct control, interruption, raw keys, scheduling, native refresh, key management, and AG-UI as admin.
+- Enforce target policy on passive-server proxies and direct selected-agent paths, including after detach. Authorize server-managed backing calls with their own configured credentials. Remote publication covers the per-agent gateway.
+- **BREAKING** Private routes require caller proof on every listener. Admin routes use the recorded key list even on loopback. Broader binds require explicit validated access settings. Update strict schemas and callers together so admission refusal ends the request.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `authenticated-gateway-access`: Explicit deployment, owner-bound caller authentication and authorization, private credentials and rotation, remote client safety, and protection against alternate-ingress bypasses.
+- `authenticated-gateway-access` defines route access, generation-bound self proof, admin key enrollment and signed challenges, retained policy, and secure transport.
 
 ### Modified Capabilities
 
-- `agent-gateway`: Authenticated listener policy, ordinary message delivery, remote mailbox availability, and explicit connect/advertised endpoint behavior.
-- `gateway-plugin-api`: Host-enforced route access declarations and authenticated remote plugin operations with preserved owner-bound ordinary dispatch.
-- `agent-discovery-registry`: Secret-free, context-qualified advertised gateway descriptors that remain locators rather than credentials or lifecycle grants.
-- `per-agent-ag-ui-attachment`: Operator authorization and bounded stream revocation without agent lifecycle effects.
-- `passive-server-gateway-proxy`: Preserve authentication failures and prevent credential substitution or direct-control bypass for protected targets.
+- `agent-gateway` defines public one-way input, protected mailbox and control routes, and distinct listener and advertised endpoints.
+- `gateway-plugin-api` adds host-enforced route access and preserves owner-bound service event delivery.
+- `agent-discovery-registry` publishes secret-free, context-qualified endpoint descriptors with access requirements.
+- `per-agent-ag-ui-attachment` applies the current admin access state and bounds stream revocation.
+- `passive-server-gateway-proxy` preserves caller authority and protects alternate selected-agent ingress.
+- `passive-server-request-submission` requires target admission before prompt, interrupt, stop, or gateway lifecycle handling.
+- `agent-mailbox-system-skills` uses bound caller credentials for routine gateway mail operations.
+- `agent-gateway-reference-docs` explains the three access classes, public input, and authenticated remote mailbox availability.
 
 ## Impact
 
-Product work touches `src/houmao/gateway/`, realm-controller gateway models/service/client/storage/runtime, registry schema producers and readers, the scoped gateway CLI, owner-side executor attach dispatch, selected-agent passive-server boundaries, and the maintained backing HTTP client. CCCC and the independent plugin example gain explicit route classifications. Reuse FastAPI, Pydantic, standard-library cryptographic primitives, existing private-file conventions, and immediate dispatch; add no authentication framework, identity database, or retry queue.
+Product work touches gateway access, service, client, storage, and runtime code. It also affects managed launch and join, scoped CLI and mailbox helpers, executor attach dispatch, registry schemas, and passive-server and backing clients. CCCC and the independent plugin example gain explicit route classifications. Declare `cryptography` as a runtime dependency for in-process key handling and SSHSIG verification.
 
-CI belongs in existing gateway, plugin, passive-server, and execution test trees. Update gateway protocol, deployment, plugin, mailbox, registry, and CLI references, provide a reproducible TLS qualification procedure, and record #84 acceptance evidence before marking the roadmap complete.
+Extend existing gateway, plugin, passive-server, and execution suites. Update the affected references and qualify the HTTPS deployment and two-user access before recording #84 completion.

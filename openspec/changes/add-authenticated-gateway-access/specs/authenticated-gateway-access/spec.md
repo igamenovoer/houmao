@@ -2,288 +2,394 @@
 
 ## Purpose
 
-Define authenticated access to one execution-bound agent gateway across user and network boundaries, including caller authority, private credentials, safe client connections, and protection against alternate HTTP ingress.
+Define public, private, and admin access to a managed agent gateway, including launch enrollment, live admin keys, request-bound signatures, and secure endpoint connections.
 
 ## ADDED Requirements
 
-### Requirement: Gateway access mode is explicit and safe by default
+### Requirement: Gateway deployment is explicit and loopback by default
 
-A gateway SHALL default to trusted-local access on loopback. Authenticated access SHALL require an explicitly selected owner-side policy and SHALL apply equally to loopback and broader listeners. A broader listener without authenticated access SHALL fail startup before publication or plugin activation. Trusted-local access SHALL be documented as trusting callers that can reach host loopback.
+A gateway SHALL default to loopback. A broader listener SHALL require explicitly selected valid settings and initialized owner access state before publication or plugin activation. Every listener SHALL apply the same route access policy.
 
-#### Scenario: Unconfigured gateway retains a local default
+#### Scenario: Unconfigured gateway starts on loopback
 
-- **WHEN** an operator starts a gateway without access configuration
-- **THEN** it listens on loopback with trusted-local semantics
-- **AND** it does not publish a remote-access endpoint or require newly provisioned credentials for existing local operations
+- **WHEN** the owner first launches a gateway-capable agent without explicit access settings or admin keys
+- **THEN** its gateway starts on loopback with a valid empty admin list and current self access
+- **AND** public input and remote endpoint advertisement require explicit configuration
 
-#### Scenario: Broad listener lacks authentication
+#### Scenario: Broader bind lacks validated settings
 
-- **WHEN** startup selects a non-loopback listener without a valid authenticated deployment configuration
-- **THEN** startup fails before publishing a live endpoint or activating plugin resources
+- **WHEN** startup selects a broader listener without valid explicit settings and owner access state
+- **THEN** startup fails before publishing an endpoint or activating plugins
 
-#### Scenario: Another local user reaches an authenticated loopback gateway
+#### Scenario: Local protected access has the same proof requirement
 
-- **WHEN** a caller reaches an authenticated gateway through loopback without a credential
-- **THEN** protected operations return HTTP 401
-- **AND** source address does not confer operator authority
+- **WHEN** a caller reaches a private route or a key-required admin route through loopback without proof
+- **THEN** the gateway returns HTTP 401 with applicable challenge information
 
-### Requirement: Provisioned credentials authenticate a bound principal
+### Requirement: The matched route determines caller access
 
-Authenticated access SHALL use explicitly provisioned opaque bearer credentials. Verification SHALL resolve a caller principal and fixed peer or operator role within the expected agent ID and execution context. The hub SHALL retain provisioning ownership. Request-supplied identities, roles, executor names, and forwarded identity headers SHALL NOT grant authority.
+The gateway SHALL admit anyone to enabled public routes. Private routes SHALL require signed proof of the current self key or a listed admin key. Admin routes SHALL admit anyone when the valid admin list is empty and require a listed-key proof when it contains entries. Check required proof before body parsing, lifecycle handling, or effects. Missing core classifications SHALL prevent publication.
 
-#### Scenario: Peer credential identifies its provisioned principal
+#### Scenario: Anonymous admin uses a valid empty list
 
-- **WHEN** a valid peer credential is presented to its configured agent and execution context
-- **THEN** authorization uses that credential's provisioned principal and peer role
+- **WHEN** a caller invokes an admin control route without signing proof and the initialized list is empty
+- **THEN** the gateway admits the request with anonymous provenance
+- **AND** a private call from that caller still requires current self or admin proof
 
-#### Scenario: Client claims an operator role
+#### Scenario: A private route is used by self and by admin
 
-- **WHEN** a peer supplies an operator role or another identity in its request or forwarded headers
-- **THEN** the claim does not increase its authority
+- **WHEN** the current agent and a listed admin separately call a private mailbox or memory route with valid proof
+- **THEN** both can use the operation subject to its normal binding and input checks
 
-#### Scenario: Policy belongs to another owner binding
+#### Scenario: Self attempts key-required admin control
 
-- **WHEN** the selected policy's expected agent ID or execution-context ID differs from runtime authority
-- **THEN** the policy cannot authorize protected access to that runtime
+- **WHEN** the admin list contains entries and the agent presents only valid self proof on an admin route
+- **THEN** the gateway returns HTTP 403 before the operation reaches its handler or backend
 
-### Requirement: Credential sources are explicit private files
+#### Scenario: Unauthenticated caller supplies a malformed protected body
 
-Server policy and file-based client credential bindings SHALL use explicit, bounded, regular private files outside project checkouts. Unsafe ownership, permissions, symlinks, malformed documents, and duplicate credential IDs SHALL be rejected without exposing contents. Credential lookup SHALL NOT scan homes or use ambient login, mailbox, plugin, provider, or delegation credentials.
+- **WHEN** a caller sends invalid JSON to a private or key-required admin operation without proof and policy is available
+- **THEN** it receives HTTP 401 with applicable challenge information before request-body validation
 
-#### Scenario: Unsafe policy is selected
+#### Scenario: Request fields claim another role
 
-- **WHEN** a policy source is shared with other users, follows a symlink, belongs to an unexpected owner, or resides in the checkout
-- **THEN** it is rejected before authenticated service startup
-- **AND** diagnostics disclose no credential values or credential-file contents
+- **WHEN** a caller supplies a role, principal, or source identity in its body or forwarded headers
+- **THEN** the gateway uses the matched operation and proof established by owner policy
 
-#### Scenario: Duplicate verifier identity is supplied
+#### Scenario: New core route lacks classification
 
-- **WHEN** a policy repeats a credential ID or contains duplicate document keys
-- **THEN** policy loading fails without selecting an order-dependent entry
+- **WHEN** startup finds an application route without a core classification
+- **THEN** it refuses to publish the application
 
-#### Scenario: Selected client credential disappears
+### Requirement: Private routes cover routine operations owned by the agent
 
-- **WHEN** a configured client credential file is missing while another credential is available in the environment
-- **THEN** the request fails locally without trying that ambient credential
+Detailed gateway status, usage, memory, and routine operations on the bound mailbox SHALL require private access. Mail and plugin operations SHALL retain the configured service identity. Caller proof SHALL identify the initiating principal separately from that service identity.
 
-### Requirement: Authentication precedes protected request processing
+#### Scenario: Self inspects usage and reads memory
 
-A protected HTTP operation SHALL authenticate before parsing its body or invoking application handlers, plugins, backing services, or mutations. Missing or invalid credentials SHALL return HTTP 401 with a bearer challenge. An authenticated principal lacking operation authority SHALL receive HTTP 403 before side effects. Authorization SHALL use the operation's declared authority rather than its HTTP method alone.
+- **WHEN** the current agent selects its bound gateway and signs with its current self key
+- **THEN** it can use its usage and memory routes subject to each operation's normal bounds
 
-#### Scenario: Unauthenticated caller supplies a malformed body
+#### Scenario: Admin sends mail through the owner's mailbox
 
-- **WHEN** an unauthenticated caller sends invalid JSON to a protected operation
-- **THEN** the response is HTTP 401
-- **AND** no request-body validation result or operation side effect is produced
+- **WHEN** a verified admin sends ordinary mail with a current mailbox binding
+- **THEN** the bound mailbox determines the service identity
+- **AND** the caller remains the initiating admin principal
 
-#### Scenario: Peer invokes a privileged operation
+### Requirement: Privileged operations use the admin route class
 
-- **WHEN** an authenticated peer invokes an operator operation with a valid body
-- **THEN** it receives HTTP 403 before that operation or its backend runs
+Queued requests, direct prompt control, interruption, raw input, session and model selection, reminders, notifier controls, native inspection and refresh, AG-UI, operator-origin post, mailbox binding changes, plugin controls, and admin key management SHALL use the admin class. Key registration SHALL also enforce its enrollment contract.
 
-### Requirement: Peer authority covers ordinary delegated operations
+#### Scenario: An admitted admin selects a native conversation
 
-Peer authority SHALL allow safe status, endpoint and usage inspection, ordinary message delivery, and ordinary owner-mailbox list, peek, read, send, reply, mark, move, and archive. Explicitly classified ordinary plugin routes SHALL accept peers. This grant SHALL preserve the gateway owner's sender and mailbox identity and SHALL NOT permit caller-selected replacement credentials or service accounts.
+- **WHEN** a caller admitted by the admin route policy submits supported session or execution selection
+- **THEN** the gateway uses the existing control contract for the bound agent
 
-#### Scenario: Peer queries usage during active work
+### Requirement: The launch manifest seeds a durable admin key list
 
-- **WHEN** a valid peer requests bounded usage from its gateway
-- **THEN** the request uses the existing read-only usage contract without acquiring execution-control authority
+An owner-authorized first launch SHALL accept zero or more admin public keys and persist their seed in the launch manifest. It SHALL initialize a valid live list for the agent and execution context. Subsequent gateway startup, reattach, and ordinary relaunch of that binding SHALL use the retained live list.
 
-#### Scenario: Peer sends owner-bound mail
+#### Scenario: Launch pre-registers administrators
 
-- **WHEN** a peer sends mail through the configured channel and expected binding
-- **THEN** existing mailbox authority determines the sender and delivery scope
-- **AND** the authenticated caller remains separate initiating provenance
+- **WHEN** an authorized launcher supplies admin public keys
+- **THEN** each selected key and principal becomes part of the initial admin list
+- **AND** admin operations require proof from the first published instance
 
-#### Scenario: Peer attempts sender replacement
+#### Scenario: Launch omits admin keys
 
-- **WHEN** a peer attempts to replace the configured sender, account, or credential selection
-- **THEN** the request fails before using the replacement identity
+- **WHEN** an authorized first launch supplies no admin keys
+- **THEN** it persists a valid empty list and allows the gateway to start and accept first-key registration
 
-### Requirement: Operator authority protects control and private state
+#### Scenario: A previously seeded key was removed
 
-Authenticated queued requests, direct prompts, interrupts, raw input, session and model selection, reminders, notifier configuration, native-home inspection and refresh, memory, AG-UI, operator-origin mail post, mailbox attachment controls, and plugin connection controls SHALL require operator authority. Unclassified core routes SHALL block authenticated startup; undeclared plugin routes SHALL require operator authority.
+- **WHEN** a gateway restarts or the same agent binding relaunches after an admin removes a seeded key
+- **THEN** startup uses the retained list without restoring the removed key from the manifest
 
-#### Scenario: Peer uses the queued request route as a prompt shortcut
+### Requirement: A listed admin proves possession of its registered SSH key
 
-- **WHEN** a peer submits either submit_prompt or interrupt through POST /v1/requests
-- **THEN** it receives HTTP 403
-- **AND** no request is persisted or executed
+Admin proof SHALL use an SSH signature checked against a public key in the live list for the expected agent and execution context. The registered entry SHALL identify the principal. Verified admin authority SHALL cover private and admin operations of that bound agent.
 
-#### Scenario: Peer schedules raw input
+#### Scenario: A listed admin requests a controlled operation
 
-- **WHEN** a peer creates or updates a reminder containing raw keys or semantic prompt delivery
-- **THEN** it receives HTTP 403 before reminder state changes
+- **WHEN** a listed caller proves possession of its private key for the request
+- **THEN** the gateway admits it as the registered principal
+- **AND** that proof can authorize the selected private or admin operation
 
-#### Scenario: Newly registered core route lacks classification
+#### Scenario: A valid signature targets a different owner binding
 
-- **WHEN** authenticated startup finds a core, documentation, or extension route without an access classification
-- **THEN** startup refuses to publish the authenticated application
+- **WHEN** a signature proves possession for a different agent or execution context
+- **THEN** the target denies admission
 
-### Requirement: Anonymous health exposes only process liveness
+### Requirement: Signed challenges bind one proof to the intended request
 
-GET /health SHALL remain usable without credentials for launch readiness and SHALL expose only process-health and protocol information. Anonymous health SHALL NOT expose agent identity, owner paths, listener advertisements, active work, plugin configuration, mailbox state, or credentials.
+The public challenge operation SHALL issue bounded, expiring, single-use challenges for self, admin, and first registration. Bind each to its purpose, issuer, target and incarnation, and HTTP method, path, query, and body digest. Self challenges SHALL bind the current generation and self key. Admin and registration challenges SHALL bind the admin list revision. Admission SHALL consume verified proof before effects.
 
-#### Scenario: Anonymous readiness probe succeeds
+#### Scenario: Expired or used proof is presented
 
-- **WHEN** a caller requests health from a healthy authenticated gateway
-- **THEN** the response reports process health and gateway protocol information
-- **AND** it contains no target-specific or private state
+- **WHEN** a caller presents an expired challenge or repeats a proof consumed earlier
+- **THEN** the requested operation is refused before effects
 
-### Requirement: Credential rotation is live and admission-bound
+#### Scenario: Signed request is altered or retargeted
 
-Atomic replacement of the selected policy SHALL affect subsequent admissions without restarting the gateway or agent. Overlapping credential IDs SHALL support explicit rotation. Revoked credentials SHALL receive HTTP 401, and changed roles SHALL affect later authorization. Already admitted work SHALL retain its existing execution contract; a prepared ordinary dispatch SHALL stop when revocation is observed before handoff.
+- **WHEN** the method, path, query, body, admitting endpoint, or target differs from the issued challenge
+- **THEN** the proof is refused before operation handling
 
-#### Scenario: New and old credentials overlap
+#### Scenario: A bound generation or policy revision changes during proof
 
-- **WHEN** a replacement policy admits both rotation credentials for the same principal
-- **THEN** either credential can authenticate within its granted role
-- **AND** removing the old entry denies later admissions using that credential
+- **WHEN** the challenge's bound target incarnation, self generation, or admin list revision changes before admission commits
+- **THEN** the earlier proof cannot authorize the new state
 
-#### Scenario: Role is reduced
+#### Scenario: Caller attempts to use a proof for a different purpose
 
-- **WHEN** an operator credential is changed to peer authority
-- **THEN** later privileged requests return HTTP 403 without a process restart
+- **WHEN** a proof signed for a self request is presented as listed admin or first-key proof
+- **THEN** the purpose check refuses it before effects
 
-#### Scenario: Revocation is observed during message preparation
+#### Scenario: Earlier signed proof follows the final key removal
 
-- **WHEN** an ordinary message is still awaiting native handoff and its request observes credential revocation
-- **THEN** the remaining dispatch permission is withdrawn
-- **AND** the gateway does not retain the message for later delivery
+- **WHEN** a caller presents stale signed proof after the final admin key is removed
+- **THEN** the signed attempt fails before effects
+- **AND** a separate unsigned request can use the current open admin access
 
-#### Scenario: Rotation follows confirmed admission
+### Requirement: Ingress verifies standard signatures in process
 
-- **WHEN** a credential is revoked after work has been admitted and handed off
-- **THEN** revocation does not replay, roll back, or implicitly interrupt that work
+Gateway and passive ingress SHALL verify SSHSIG proofs inside their Python processes using a cryptographic library. They SHALL use the expected namespace and the public key selected by owner authority or first registration. Malformed, unsupported, or mismatched proofs SHALL be rejected before effects.
 
-### Requirement: Policy failures never restore anonymous or stale authority
+#### Scenario: Verifier runs with external SSH tools absent
 
-An invalid or unavailable initial policy SHALL prevent authenticated startup. If the selected policy becomes unreadable, unsafe, oversized, or malformed during operation, protected admissions SHALL return a safe HTTP 503 until a valid policy is available. The gateway SHALL NOT revert to trusted-local mode or continue admitting through a cached previous grant.
+- **WHEN** an ingress receives a valid SSHSIG proof using a supported key and external SSH commands are unavailable
+- **THEN** its in-process verifier admits the proof subject to route policy
 
-#### Scenario: Malformed replacement follows revocation
+#### Scenario: The envelope supplies a different key or namespace
 
-- **WHEN** a running gateway observes a malformed replacement policy
-- **THEN** protected operations return HTTP 503
-- **AND** neither earlier credentials nor loopback source address restore admission
+- **WHEN** the submitted SSHSIG envelope identifies a key or namespace different from the expected proof binding
+- **THEN** admission fails even if that signature could verify under the supplied key and namespace
 
-#### Scenario: Valid policy is restored
+### Requirement: The first admin key can be registered after startup
 
-- **WHEN** a valid policy for the same selected owner binding replaces an invalid policy
-- **THEN** subsequent requests are evaluated against the restored policy without restarting the agent
+With a valid empty admin list, anyone SHALL be able to submit a public key and prove possession through a bootstrap challenge bound to that key and principal. Registration SHALL atomically add the first key only while the list is still empty. Later admin admissions SHALL require a listed key.
 
-### Requirement: Remote deployment protects credential transport
+#### Scenario: First registration closes open admin access
 
-The supported remote deployment SHALL use HTTPS through a documented TLS proxy and a protected backend connection. Gateway-side credential verification SHALL remain authoritative. Non-loopback plaintext client URLs SHALL be rejected. Explicit loopback HTTP connections SHALL be supported for owner-local access and configured encrypted tunnels. Proxy headers SHALL NOT establish authentication or advertised endpoint identity.
+- **WHEN** a running gateway with an empty list admits a valid first-key registration
+- **THEN** it persists the public key as an admin and begins requiring listed-key proof for later admin operations
 
-#### Scenario: TLS proxy forwards an authorized request
+#### Scenario: Registrant supplies a key without matching proof
 
-- **WHEN** a caller uses the configured HTTPS endpoint and the proxy forwards its bearer credential over the protected backend
-- **THEN** the gateway authorizes the request using its own selected policy
+- **WHEN** a caller attempts the first registration without a valid signature from the proposed key
+- **THEN** the gateway refuses registration and leaves the empty list intact
+
+#### Scenario: Two callers compete to register first
+
+- **WHEN** two distinct callers both obtain bootstrap challenges for the same empty revision
+- **THEN** only the first successful registration commits
+- **AND** the other caller receives HTTP 409 without adding its key
+
+### Requirement: Current admins can add and remove keys live
+
+A verified current admin SHALL be able to add another public key or remove a listed key, including its own. The service SHALL check current admin authority at mutation commit and update membership and its revision atomically. Admin lists SHALL support multiple keys. Removing the final key SHALL commit a valid empty list.
+
+#### Scenario: Multiple admins use their own keys
+
+- **WHEN** a listed admin adds another public key
+- **THEN** both holders can prove their own admin identity on later calls without restarting the gateway
+
+#### Scenario: An admin key is revoked
+
+- **WHEN** a verified admin removes a key and another key remains
+- **THEN** later admissions reject proof from the removed key while accepting valid remaining keys
+- **AND** work already handed off follows its existing execution contract
+
+#### Scenario: The last admin key is removed
+
+- **WHEN** a verified admin removes the final key
+- **THEN** later admin operations admit anonymous callers
+- **AND** the gateway can accept a new first-key registration
+
+### Requirement: Self access follows the current managed generation
+
+The runtime SHALL provision an Ed25519 self key pair per managed generation. It SHALL bind the public key to the agent ID, execution context, and generation. The private key SHALL remain in owner-private state. Managed-self clients SHALL select it through verified runtime authority. Gateway restart or reattach in the same generation SHALL use that generation's key.
+
+#### Scenario: A managed agent uses its own gateway
+
+- **WHEN** the owner runtime establishes a generation through launch or supported join
+- **THEN** its current self client can sign a challenge for private operations with that generation's key
+
+#### Scenario: An agent presents its key to a different gateway
+
+- **WHEN** a caller signs self proof with a key from another agent or execution context
+- **THEN** the target denies the protected operation
+
+#### Scenario: Old body tries to use a retired credential
+
+- **WHEN** an ended or replaced generation signs with its previous self key
+- **THEN** the target denies it even if its logical agent ID remains known
+
+#### Scenario: The gateway restarts while the agent stays live
+
+- **WHEN** the gateway reattaches to the same managed generation and access selection
+- **THEN** a fresh signature from the current self key can authorize that agent's private operations
+
+#### Scenario: First admin registration races a self challenge
+
+- **WHEN** an admin registers the first key after a self challenge was issued for the current generation
+- **THEN** a valid self proof can still authorize its bound private request
+
+### Requirement: State and client proofs use explicit sources
+
+Owner access state and file-based client secrets SHALL use explicit bounded regular files outside project checkouts. The loader SHALL reject unsafe ownership, permissions, symlinks, duplicate entries, and malformed values. Admin signers SHALL be selected explicitly. Lookup SHALL use only the selected target binding.
+
+#### Scenario: An unsafe source is selected
+
+- **WHEN** a required state or credential source is shared, symlinked, checkout-local, or owned by an unexpected account
+- **THEN** the gateway rejects the source with a safe error
+
+#### Scenario: Duplicate keys or fields are supplied
+
+- **WHEN** an admin list repeats a public key or a state document repeats a field
+- **THEN** validation fails without selecting an order-dependent entry
+
+#### Scenario: A selected signer or secret is missing
+
+- **WHEN** a client lacks its selected source while another login, provider, mailbox, plugin, or admin credential is available
+- **THEN** the client reports the unavailable binding before transmitting the protected request
+
+### Requirement: Protected errors distinguish missing proof and denied authority
+
+Operations requiring proof SHALL return HTTP 401 with applicable challenge information for missing or invalid proof. Valid proof with insufficient authority SHALL return HTTP 403. An admin-only form on a private operation SHALL require verified admin proof before its privileged effects.
+
+#### Scenario: Self requests an owner-file attachment
+
+- **WHEN** the agent supplies an owner-local attachment path through a private mail route with only self proof
+- **THEN** the response is HTTP 403 before a file is opened or a provider is called
+
+### Requirement: Unavailable access state fails closed
+
+An invalid or unavailable required state SHALL prevent startup publication. If initialized state becomes unavailable during operation, admissions that depend on it SHALL return safe HTTP 503. The open admin decision SHALL require a valid recorded empty list. Restoring valid state SHALL enable later calls without replaying earlier attempts.
+
+#### Scenario: Previously initialized state disappears after startup
+
+- **WHEN** the admin state is missing, unreadable, unsafe, or malformed while an agent or gateway is known
+- **THEN** new admin and private admissions relying on it fail with a policy error
+- **AND** public process health remains available
+
+#### Scenario: A valid policy is restored
+
+- **WHEN** valid state for the same owner binding is restored
+- **THEN** later admissions use its recorded mode and keys
+
+### Requirement: Gateway transport supports verified deployment trust
+
+Remote gateway clients SHALL use HTTPS with certificate verification. The supported deployment SHALL use an HTTPS reverse proxy with a protected backend leg and gateway-side proof checks. Clients SHALL support explicitly provisioned deployment trust and explicit loopback HTTP for owner-local access or an encrypted tunnel.
+
+#### Scenario: Private CA or explicitly trusted deployment certificate
+
+- **WHEN** the caller selects deployment trust and HTTPS verifies for the advertised host
+- **THEN** it can reach the configured gateway through the proxy
+- **AND** the gateway independently checks the selected operation's access policy
 
 #### Scenario: Client selects remote plaintext
 
-- **WHEN** a credential-bearing client is configured with a non-loopback HTTP URL
-- **THEN** client configuration fails before transmitting the credential
+- **WHEN** a client is configured with a non-loopback HTTP base URL
+- **THEN** it rejects the URL before sending a request
 
-### Requirement: Client credentials remain bound to a selected endpoint
+#### Scenario: Certificate verification fails
 
-A credential-bearing client SHALL use an explicit endpoint binding, verify HTTPS certificates, preserve any configured base-path prefix, and reject redirects. A changed discovered origin or base path SHALL NOT receive an existing credential without explicit rebinding. Credentials SHALL NOT appear in URLs, query parameters, public endpoint descriptors, exceptions, or request diagnostics.
+- **WHEN** the HTTPS certificate does not verify for the expected endpoint
+- **THEN** the client stops without retrying it over HTTP
+
+### Requirement: Client proof is bound to the expected endpoint
+
+Credential-bearing clients SHALL bind the exact origin and base path to the expected agent and execution context. They SHALL preserve the prefix, reject redirects and changed bindings, and verify a challenge's request binding before signing. Callers SHALL carry proof in headers. Changed bindings SHALL require explicit rebinding.
 
 #### Scenario: Reverse proxy uses a path prefix
 
-- **WHEN** a client is bound to an HTTPS base URL with an agent-specific prefix
-- **THEN** gateway routes are appended within that prefix and use the selected credential
+- **WHEN** a client selects a binding to an HTTPS base URL with an agent-specific prefix
+- **THEN** challenge and operation requests stay under that configured prefix
 
-#### Scenario: Endpoint metadata is retargeted
+#### Scenario: Discovery retargets the endpoint
 
-- **WHEN** discovery changes the origin or base path of a credential's bound endpoint
-- **THEN** the client reports an endpoint-binding conflict before sending that credential to the replacement
+- **WHEN** discovered identity, origin, or base path differs from a selected binding
+- **THEN** the client reports a conflict before transmitting proof
 
-#### Scenario: Upstream redirects a credential-bearing request
+#### Scenario: Endpoint redirects a call
 
-- **WHEN** the selected endpoint responds with a redirect
-- **THEN** the client returns an explicit redirect failure without following it or replaying the operation
+- **WHEN** a selected endpoint responds with a redirect
+- **THEN** the client stops with a redirect failure before following it or replaying the operation
 
-#### Scenario: Certificate cannot be verified
+### Requirement: Owner clients select proof for each protected target
 
-- **WHEN** HTTPS certificate verification fails
-- **THEN** the client fails the connection without disabling verification or retrying over HTTP
+Managed-self commands SHALL select their current self key, verify the HTTP challenge binding, and sign locally for private calls. Admin callers SHALL use an explicit signer. Owner-service backing calls SHALL use scoped bindings. Readiness health SHALL use public access. An admission refusal SHALL terminate the attempt.
 
-### Requirement: Owner-local clients receive explicit credential bindings
+#### Scenario: Scoped self command uses its private mailbox
 
-Protected owner-local gateway controls and necessary server-managed backing calls SHALL use explicitly selected private client bindings. CLI, library, and delegated attach inputs SHALL resolve access configuration in the recorded owner context. Readiness health SHALL remain anonymous. Credential references SHALL remain private and SHALL NOT enter agent homes, tmux discovery variables, public registries, or harness environments.
+- **WHEN** the current agent selects its live gateway through the maintained command surface
+- **THEN** `houmao-mgr agents self ...` obtains and signs the challenge as part of the normal mailbox command
+- **AND** projected guidance and command output omit signing material
 
-#### Scenario: Delegated attach selects an owner-only configuration path
+#### Scenario: Delegated attach uses an owner-only configuration path
 
-- **WHEN** a restricted operator attaches a gateway with an access configuration that exists only in the recorded owner context
-- **THEN** the owner validates the configuration and its private references without caller-side file reads
-- **AND** the execution binding remains unchanged
+- **WHEN** a restricted caller supplies an access configuration path that exists in the recorded owner context
+- **THEN** the owner resolves and validates it within the existing execution binding
 
-#### Scenario: Server-managed gateway needs a backing call
+#### Scenario: Signed admission fails
 
-- **WHEN** an authenticated gateway invokes its existing server-managed backing authority
-- **THEN** that call presents the explicitly configured owner-side credential and passes target authorization
-- **AND** no unauthenticated backing route or trusted-source-address exception is introduced
+- **WHEN** an owner-local self or admin call cannot prove its selected key or receives an admission refusal
+- **THEN** it fails before an unsigned retry, another transport, or use of a backing credential
 
-### Requirement: Alternate HTTP ingress preserves protected-target authority
+### Requirement: Retained owner policy protects alternate HTTP paths
 
-Every HTTP route that controls or exposes private state of a protected agent SHALL enforce its current target policy or refuse access. This includes passive-server proxies, direct headless operations, observation, artifacts, interruption, stop, and gateway lifecycle controls. Discovery or gateway detachment SHALL NOT erase protection. Global passive-server remote deployment SHALL remain outside this capability.
+Alternate HTTP paths to a configured agent SHALL apply its retained access policy before effects. Live discovery and gateway presence SHALL serve as lookup evidence. A known required policy that cannot be resolved SHALL prevent admission.
 
-#### Scenario: Caller bypasses the gateway with direct stop
+#### Scenario: Direct managed-headless target resolves before registry discovery
 
-- **WHEN** an unauthenticated caller targets a protected agent through the passive server's direct stop or interrupt route
-- **THEN** the request is rejected before runtime, headless, tmux, or registry mutation
+- **WHEN** an HTTP operation matches a configured agent through retained headless authority without a live registry or gateway record
+- **THEN** the retained admin list and private proof requirements govern the operation
 
-#### Scenario: Headless direct match bypasses discovery
+#### Scenario: Agent or gateway stops
 
-- **WHEN** a protected managed-headless target resolves without a live registry or gateway record
-- **THEN** its retained owner-side access configuration still governs HTTP control and private reads
+- **WHEN** an HTTP request selects a configured target after the live gateway disappears
+- **THEN** retained admin access applies to supported stopped-state paths
+- **AND** an ended generation cannot authorize self
 
-#### Scenario: Gateway is detached
+### Requirement: Gateway proof is scoped to an existing execution binding
 
-- **WHEN** a protected agent's gateway stops and its live endpoint is removed
-- **THEN** alternate HTTP access does not become anonymous because live gateway presence disappeared
+HTTP admission SHALL apply only to the gateway's existing agent and execution context. Existing mailbox binding, readiness, and body-incarnation checks SHALL stay authoritative. Execution delegation and lifecycle adoption SHALL require their own owner authority.
 
-### Requirement: Gateway credentials do not grant execution delegation
+#### Scenario: Caller claims a different execution owner
 
-Gateway authentication SHALL authorize only operations on the gateway's already-bound logical agent and execution context. Existing generation, mailbox binding, readiness, and native handoff checks SHALL remain authoritative. A credential or discovery descriptor SHALL NOT grant an executor route, user switch, container change, host change, or lifecycle rights to a communication-only import.
+- **WHEN** a caller supplies another executor, UID, host, or container
+- **THEN** the request gains no replacement execution binding
 
-#### Scenario: Network operator requests a different execution owner
+#### Scenario: Body changes during dispatch
 
-- **WHEN** a caller supplies another executor, UID, container, or host through a gateway request
-- **THEN** it gains no delegation authority or replacement execution binding
+- **WHEN** execution authority changes between admission and handoff
+- **THEN** the current-body guard refuses the stale operation before replay to a replacement
 
-#### Scenario: Body changes during an authorized dispatch
+### Requirement: Deployment settings change through explicit gateway reconfiguration
 
-- **WHEN** execution authority changes after authentication and before native handoff
-- **THEN** existing incarnation guards refuse the stale attempt without replaying it against a replacement body
+Changing listener, public-input enablement, advertised URL, or selected client binding SHALL require explicit gateway reconfiguration and restart. Conflicting live attach SHALL fail before persistence. Admin key operations SHALL update retained membership independently of deployment settings.
 
-### Requirement: Access selections are immutable during a live gateway instance
+#### Scenario: Conflicting attach supplies a different selection
 
-Changing deployment mode, selected policy path, listener, advertised URL, or owner-client binding SHALL require explicit gateway reconfiguration and restart. A conflicting live attach SHALL leave active and persisted selections unchanged. Policy contents and selected client credential contents SHALL rotate live within their existing binding without restarting the agent body.
-
-#### Scenario: Live attach changes policy selection
-
-- **WHEN** attach supplies a different policy path or deployment mode for a live gateway
-- **THEN** it reports restart-required conflict without partially persisting the replacement
+- **WHEN** a live attach changes its listener or public-input setting
+- **THEN** the gateway reports a restart-required conflict before persisting the candidate
 
 #### Scenario: Equivalent attach reuses the gateway
 
-- **WHEN** attach resolves the same access selections as the live gateway
-- **THEN** it can reuse that instance without interrupting the body
+- **WHEN** attach resolves the same access settings
+- **THEN** it can reuse the instance and preserve the managed generation and live list
 
-### Requirement: Access diagnostics exclude verification and secret material
+### Requirement: Access diagnostics expose safe provenance
 
-Public status, discovery, validation errors, and default diagnostics SHALL exclude bearer values, verifier values, authorization and cookie headers, credential paths, raw policy contents, and provider secrets. Safe diagnostics SHALL identify operation, result, target, and authenticated principal where available. Errors SHALL NOT echo supplied credential material.
+Public status, discovery, errors, and diagnostics SHALL omit secrets, signatures, replayable challenge material, raw auth headers, private paths, and roster contents. Safe request diagnostics SHALL identify operation, result, target, and the verified principal or anonymous provenance.
 
-#### Scenario: Invalid credential contains recognizable secret text
+#### Scenario: A recognizable invalid proof is presented
 
-- **WHEN** a request with a recognizable invalid credential is rejected
-- **THEN** neither its response nor emitted diagnostics contain that credential or a raw header dump
+- **WHEN** a caller sends a recognizable invalid signature or owner-service credential
+- **THEN** the response and diagnostics omit the proof and raw headers
 
-#### Scenario: Policy validation fails
+#### Scenario: Private source validation fails
 
-- **WHEN** a private policy or client binding fails validation
-- **THEN** diagnostics report safe field locations and error categories without input-value or credential-path dumps
+- **WHEN** policy or client selection fails validation
+- **THEN** diagnostics use safe field locations and error categories
 

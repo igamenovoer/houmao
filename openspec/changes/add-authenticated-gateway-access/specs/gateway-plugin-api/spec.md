@@ -4,37 +4,43 @@
 
 ### Requirement: Plugin route authority is declared and enforced by the host
 
-Plugin HTTP routes SHALL declare peer or operator access through the supported SDK contract. Omitted declarations SHALL require operator authority. Invalid declarations SHALL fail the affected instance before resource activation. The host SHALL enforce access on the matched route before invoking plugin code; plugin namespace membership and HTTP method SHALL NOT confer ordinary authority.
+Plugin HTTP routes SHALL use private or admin access through the supported SDK. Omitted declarations SHALL use the admin class. Invalid declarations, including public access, SHALL fail the instance before resource activation. The host SHALL apply the matched access class and current admin state before invoking plugin code.
 
-#### Scenario: Ordinary route admits a peer
+#### Scenario: Private plugin route admits self and admin
 
-- **WHEN** an authenticated peer invokes a valid plugin route explicitly classified for peers
+- **WHEN** the agent's current self or an admin invokes a plugin route classified as private
 - **THEN** the host permits normal instance and operation admission under the existing owner binding
 
-#### Scenario: Undeclared route is called by a peer
+#### Scenario: Undeclared route is called by self
 
-- **WHEN** a peer invokes a plugin route without an access declaration
+- **WHEN** a self caller invokes a plugin route without an access declaration while the admin list has entries
 - **THEN** the host returns HTTP 403 before the plugin handler runs
+
+#### Scenario: Admin plugin route follows open access
+
+- **WHEN** an anonymous caller invokes an admin plugin route while the initialized list is empty
+- **THEN** the route may admit it with anonymous provenance
+- **AND** a private plugin operation still requires verified proof
 
 #### Scenario: Plugin declares an unsupported authority
 
-- **WHEN** staged plugin routes contain an unknown access value
+- **WHEN** staged plugin routes contain an unknown or public access value
 - **THEN** the affected instance fails registration before credentials, connections, or workers activate
 - **AND** unrelated valid instances and classified core routes remain available
 
 ### Requirement: Authenticated plugin routes preserve owner and caller separation
 
-Authenticated remote plugin calls SHALL retain the configured owner, service binding, credential reference, and existing ordinary-event dispatch contract. Caller provenance SHALL remain separate from plugin sender identity. An HTTP credential SHALL NOT replace provider credentials or acquire privileged event-dispatch options.
+Admitted plugin calls SHALL retain the configured owner, service binding, provider credential, and ordinary-event dispatch contract. The initiating HTTP principal and the plugin sender SHALL have distinct provenance. The host SHALL keep caller credentials out of plugin contexts.
 
 #### Scenario: Remote CCCC caller sends ordinary chat or Mail
 
-- **WHEN** a peer invokes an explicitly classified ordinary CCCC chat or Mail route
+- **WHEN** current self or an admin invokes a private CCCC chat or Mail route
 - **THEN** the configured gateway owner's Group and Actor remain authoritative
 - **AND** backend-specific delivery, consumption, cursor, and uncertain-outcome semantics remain unchanged
 
-#### Scenario: Peer calls plugin connection management
+#### Scenario: Self calls plugin connection management
 
-- **WHEN** a peer requests connect, disconnect, reconnect, or credential refresh on an operator-classified plugin route
+- **WHEN** a self caller requests connect, disconnect, reconnect, or credential refresh on a key-required admin plugin route
 - **THEN** HTTP 403 is returned before changing connection state or refreshing a source
 
 #### Scenario: Remote request claims another plugin owner
@@ -44,26 +50,26 @@ Authenticated remote plugin calls SHALL retain the configured owner, service bin
 
 ### Requirement: Plugin background resources share the secured deployment boundary
 
-A selected plugin's activation and ordinary background dispatch SHALL use the gateway's trusted-local or authenticated deployment policy. Authenticated broader listeners SHALL support the same supervised resources as local listeners. Background workers SHALL retain their configured service authority independently of any HTTP caller and SHALL NOT obtain caller credentials through the plugin context.
+A selected plugin's activation and ordinary background dispatch SHALL use the validated gateway deployment policy. Broader listeners with valid settings SHALL support the same supervised resources as loopback listeners. Background workers SHALL use their configured service authority independently of HTTP caller admission.
 
-#### Scenario: Authenticated listener receives a service event
+#### Scenario: Broader listener receives a service event
 
-- **WHEN** a running plugin on an authenticated broader listener receives an ordinary service event
+- **WHEN** a running plugin on a validated broader listener receives an ordinary service event
 - **THEN** existing readiness, current-body, and confirmed-handoff checks determine delivery
-- **AND** there is no unconditional loopback rejection or HTTP-credential requirement for that background worker
+- **AND** the background worker uses its service authority
 
 #### Scenario: Invalid deployment is rejected before plugin import
 
-- **WHEN** a broader listener lacks valid authenticated deployment
+- **WHEN** a broader listener lacks validated access configuration
 - **THEN** selected plugin code is not imported and service resources do not activate
 
-### Requirement: Authentication precedes plugin lifecycle error handling
+### Requirement: Route admission precedes plugin lifecycle error handling
 
-An authenticated gateway SHALL verify callers before exposing plugin lifecycle, registration, or connection failures through custom routes. Sanitized host-owned plugin status SHALL remain available to authorized callers without invoking external service code.
+The gateway SHALL apply the route's current admission policy before exposing plugin lifecycle, registration, or connection failures. Sanitized host-owned plugin status SHALL remain available to admitted callers without invoking external service code.
 
 #### Scenario: Unauthenticated caller probes a failed instance
 
-- **WHEN** a caller without valid credentials requests a failed plugin's status or custom route
+- **WHEN** an uncredentialed caller requests a failed plugin's private or key-required admin route
 - **THEN** the response is HTTP 401 without exposing its failure details
 
 #### Scenario: Authorized caller inspects a failed instance

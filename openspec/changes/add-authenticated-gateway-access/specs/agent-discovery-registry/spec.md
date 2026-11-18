@@ -4,13 +4,13 @@
 
 ### Requirement: Live gateway advertisements expose a non-secret remote descriptor
 
-Live gateway presence SHALL support an explicit advertised base URL, gateway protocol, authentication requirement, logical agent identity, execution-context identity, and current presence identity. Remote descriptor export SHALL omit credentials, verifier values, credential paths, owner-local state paths, copied manifests, and private connection configuration. Listener coordinates SHALL remain separately qualified local metadata.
+Live gateway presence SHALL support an advertised URL, protocol, target and presence identity, admin access state, signed self and admin proof requirements, and enabled public operations. The descriptor SHALL omit key membership, signatures, challenge material, credentials, and private runtime state. Listener coordinates SHALL remain separately qualified local metadata.
 
 #### Scenario: Owner exports a remote endpoint without sharing runtime files
 
-- **WHEN** an owner publishes or exports a live authenticated gateway descriptor
-- **THEN** an external hub can obtain its advertised URL and authentication requirement without opening a manifest, state path, or owner filesystem
-- **AND** credential distribution remains separate from that descriptor
+- **WHEN** an owner publishes a bound gateway with public input enabled
+- **THEN** an external hub can discover its advertised URL, available public notification and prompt operations, and whether admin calls are open or key-required
+- **AND** the descriptor identifies private proof requirements separately
 
 #### Scenario: Proxy endpoint differs from local listener
 
@@ -24,7 +24,7 @@ Advertised gateway availability SHALL be ephemeral presence metadata. Gateway st
 
 #### Scenario: Gateway detaches while its agent remains known
 
-- **WHEN** an authenticated gateway detaches from a known agent
+- **WHEN** a protected gateway detaches from a known agent
 - **THEN** live discovery ceases advertising a reachable gateway instance
 - **AND** retained owner-side protection and execution ownership remain unchanged
 
@@ -34,14 +34,20 @@ Advertised gateway availability SHALL be ephemeral presence metadata. Gateway st
 - **THEN** clients treat it as possibly unavailable locator metadata
 - **AND** it cannot override the gateway's actual access policy or establish current execution authority
 
+#### Scenario: Discovery still advertises open access after first enrollment
+
+- **WHEN** discovery's last publication predates first-key registration
+- **THEN** using that descriptor cannot bypass the target's current listed-key requirement
+
 ### Requirement: Remote descriptors grant no credentials or lifecycle rights
 
-Discovery SHALL NOT turn endpoint metadata into credential selection, execution delegation, or lifecycle adoption. Communication-only imports SHALL retain their existing restrictions. Foreign paths and loopback addresses SHALL remain owner-context metadata. A changed advertised origin or base path SHALL require explicit client credential rebinding before credential-bearing access.
+Discovery SHALL treat endpoint metadata as a locator. Protected credential selection, execution delegation, and lifecycle adoption SHALL require their own authority. Communication-only imports SHALL retain their existing scope. Foreign paths and loopback addresses SHALL remain owner-context metadata. Changed advertised target or endpoint bindings SHALL require explicit client rebinding before credential-bearing access.
 
 #### Scenario: Communication import contains an authenticated gateway URL
 
-- **WHEN** a communication-only import references a protected gateway endpoint
-- **THEN** that locator alone grants no raw input, stop, relaunch, refresh, or execution-owner routing authority
+- **WHEN** a communication-only import references a gateway with public input enabled
+- **THEN** it can locate and call the available public operations
+- **AND** admin admission uses the live key list, private calls require verified proof, and execution delegation follows its existing authority
 
 #### Scenario: Registry descriptor is replaced with another origin
 
