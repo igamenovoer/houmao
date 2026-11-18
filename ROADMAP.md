@@ -4,7 +4,7 @@
 
 This roadmap sequences the eleven feature requests filed on 2026-11-13 as GitHub issues [#74 through #84](https://github.com/igamenovoer/houmao/issues). It uses commit `1675029c` (`v2.4.0`) as its code baseline. All eleven issues were open when this roadmap was written.
 
-Status as of 2026-11-17: **8 of 11 work packages are done**. Usage records (#83), the gateway plugin API (#76), bounded Stalwart queries and incremental sync (#80), live Stalwart attachment (#79), CCCC chat (#77), CCCC deferred Mail (#78), DSH (#74), and native-home/common-plugin refresh (#82) are implemented and validated. **Pi integration (#75) is postponed**, with no scheduled start date; its GitHub issue remains open. The two active pending work packages are execution ownership (#81), followed by authenticated remote access (#84). Completion evidence appears in their respective work packages below.
+Status as of 2026-11-17: **9 of 11 work packages are done**. Usage records (#83), the gateway plugin API (#76), bounded Stalwart queries and incremental sync (#80), live Stalwart attachment (#79), CCCC chat (#77), CCCC deferred Mail (#78), DSH (#74), native-home/common-plugin refresh (#82), and execution-owner-aware launch and control (#81) are implemented and validated. **Pi integration (#75) is postponed**, with no scheduled start date; its GitHub issue remains open. The remaining active pending work package is authenticated remote access (#84). Completion evidence appears in their respective work packages below.
 
 The common goal is to let an external hub provision identities, capabilities, budgets, and execution contexts while Houmao remains the per-agent runtime, gateway, and mailbox layer. Houmao should not become the hub's account provisioner, budget-policy engine, central task planner, or combined chat/mail service.
 
@@ -30,13 +30,13 @@ The order column shows the active sequence. Work-package headings below retain t
 | 6 | Done | [#78](https://github.com/igamenovoer/houmao/issues/78): CCCC deferred Mail backend | Explicit secondary mailbox backend with non-consuming status and ordered cursors | Reuses CCCC identity binding plus the mailbox attachment and cursor patterns |
 | 7 | Done | [#74](https://github.com/igamenovoer/houmao/issues/74): DeepSeek Harness backend | Headless ACP and owned interactive Web control, exact resume, interruption, events, and usage | Delivered the primary new body after the shared usage contract |
 | 8 | Done | [#82](https://github.com/igamenovoer/houmao/issues/82): Native-home and common-plugin refresh | Authoritative home, read-only skills/MCP freshness, and non-restarting native refresh through CLI, gateway, and passive server | Delivered qualified DSH ACP/Web support and explicit best-effort secondary-tool limits; Pi qualification remains postponed |
-| 9 | Pending | [#81](https://github.com/igamenovoer/houmao/issues/81): Execution-owner-aware launch and control | Execution profiles, ownership records, delegated launch, and target-context control routing | Touches every lifecycle path; landing it earlier would cause repeated rebasing |
+| 9 | Done | [#81](https://github.com/igamenovoer/houmao/issues/81): Execution-owner-aware launch and control | Execution profiles, ownership records, delegated launch, and target-context control routing | Delivered qualified Linux-account and SSH execution routing plus component-verified Docker transport; live Docker qualification remains deferred |
 | 10 | Pending | [#84](https://github.com/igamenovoer/houmao/issues/84): Authenticated remote gateway access | Authenticated exposure, peer/operator authorization, endpoint advertisement, and remote mailbox access | Must cover the final core, plugin, mailbox, and ownership surfaces |
 | Deferred | Postponed | [#75](https://github.com/igamenovoer/houmao/issues/75): Pi backend | Managed Pi launch, JSONL RPC control, resume, events, usage, and idle-only reload | Retains its acceptance scope for future reprioritization; no start date is scheduled |
 
 ## Dependency Map
 
-Solid arrows show explicit or structural dependencies. Dotted arrows show recommended sequencing that reduces rework but is not an absolute code dependency. DSH and native-home/common-plugin refresh are complete. Execution ownership is next, followed by authenticated remote access; Pi remains postponed.
+Solid arrows show explicit or structural dependencies. Dotted arrows show recommended sequencing that reduces rework but is not an absolute code dependency. DSH, native-home/common-plugin refresh, and execution ownership are complete. Authenticated remote access is next; Pi remains postponed.
 
 ```mermaid
 flowchart TD
@@ -46,7 +46,7 @@ flowchart TD
     I74 -.-> I75["#75 Pi backend (postponed)"]
     I74 --> I82["#82 Native home/common-plugin refresh (done)"]
     I76 -.-> I82
-    I82 -.-> I81["#81 Execution ownership"]
+    I82 -.-> I81["#81 Execution ownership (done)"]
     I80["#80 Stalwart queries and sync"] -.-> I79["#79 Live Stalwart attachment"]
     I76 -.-> I79
     I79 -.-> I78
@@ -172,9 +172,13 @@ DSH 0.2.2-rc.3 headless and Web are primary. The [compatibility matrix](docs/ref
 
 #### 10. #81: Support Execution-Owner-Aware Launch And Control Across Users, Containers, And Hosts
 
-- Separate logical agent identity from execution owner, UID/GID, host/container reference, and authorized lifecycle controller in launch and session records.
-- Define execution adapters that resolve working directory, home, credentials, session files, tmux endpoints, and subprocess context in the target environment. Keep communication-only imports free of lifecycle rights.
-- Complete the issue with differing-UID, ownership, target-environment, control-routing, restricted-delegation, and unconfigured-target tests plus documented container and remote limits.
+**Done (2026-11-17).** Implemented in [commit `b77e8123`](https://github.com/igamenovoer/houmao/commit/b77e812320d96c538fb3f9d2136bfa810c9a4dae), with cleanup-routing and pre-admission validation hardening in [commit `99a63f54`](https://github.com/igamenovoer/houmao/commit/99a63f54b20685367d034873449ffe98e3021884) and [commit `20550412`](https://github.com/igamenovoer/houmao/commit/20550412c38e4fbe356474d450f9a1c52ff35c1c). The [archived change](openspec/changes/archive/2026-11-17-add-execution-owner-aware-control/proposal.md) has [32 completed tasks](openspec/changes/archive/2026-11-17-add-execution-owner-aware-control/tasks.md) and an [acceptance map covering all 23 requirements and 51 scenarios](docs/reference/run-phase/execution-contexts-acceptance.md). Its contracts are synchronized into the [main execution-context specification](openspec/specs/agent-execution-contexts/spec.md), [registry specification](openspec/specs/agent-discovery-registry/spec.md), [launch specification](openspec/specs/houmao-mgr-agents-launch/spec.md), and [registry-discovery specification](openspec/specs/houmao-mgr-registry-discovery/spec.md). [Issue #81 is closed with the accepted scope and qualification limits](https://github.com/igamenovoer/houmao/issues/81#issuecomment-6952529421).
+
+- [x] Separate logical agent identity from execution owner, observed UID/GID, host/container reference, owner state roots, route fingerprint, and authorized controller scope in launch plans, session manifests, owner lifecycle records, and operator `executor_agents/` locators.
+- [x] Enter configured `local`, `sudo`, `ssh`, and `docker` execution profiles through `houmao-mgr internals executor serve-stdio --policy <path>` before resolving project definitions, working directories, native homes, credentials, runtime files, or explicit tmux sockets. Keep communication-only imports free of lifecycle rights and preserve independent native homes and private keys when multiple agents share one OS account.
+- [x] Verify differing-UID delegation, owner file permissions, target-only project and environment resolution, exact tmux server scoping, post-admission uncertainty without mutation replay, and locator reconciliation/forget workflows. Publish the [execution-context reference](docs/reference/run-phase/execution-contexts.md) and document container and remote transport boundaries.
+
+Verification on 2026-11-17: **4,634 unit tests passed** (14 skipped), including **138 execution unit tests**, and **11 opt-in host integration tests passed** across restricted non-root sudo delegation, isolated tmux servers with matching session names, fixture-owned OpenSSH execution, native DSH 0.2.2-rc.3 ACP (`sudo`) and Web (`ssh`) two-agent lifecycles with distinct Ed25519 keys, and native Codex 0.162.1 headless (`sudo`) routing. Formatting, lint, strict typing (484 source files), strict documentation, distribution builds, Twine metadata checks, and standard validation of all 243 main specs passed. Docker transport argv construction and pinned 64-character container ID validation are covered by unit tests; live Docker container qualification remains deferred by user instruction.
 
 #### 11. #84: Support Authenticated Remote Gateway Access, Including Mailbox Operations
 
@@ -186,8 +190,8 @@ DSH 0.2.2-rc.3 headless and Web are primary. The [compatibility matrix](docs/ref
 
 - #83, #76, and #80 are mutually independent and may proceed in parallel. Avoid concurrent edits to `gateway_service.py` unless the work packages explicitly coordinate ownership.
 - The CCCC order is fixed: #76 before #77, and #77 before #78.
-- DSH (#74) and native-home/common-plugin refresh (#82) are complete. Execution ownership (#81) is the next active work package, followed by authenticated remote access (#84).
-- Keep #75 postponed until explicit reprioritization. When it resumes, reuse the DSH adapter patterns and qualify Pi against the established native-refresh contract.
+- DSH (#74), native-home/common-plugin refresh (#82), and execution ownership (#81) are complete. Authenticated remote access (#84) is the remaining active work package.
+- Keep #75 postponed until explicit reprioritization. When it resumes, reuse the DSH adapter patterns and qualify Pi against the established native-refresh and execution-context contracts.
 - #80 should precede #79 to avoid implementing the notifier twice. If live attachment is more urgent, #79 may go first only with an explicit task to migrate its notifier state in #80.
 - #81 may move earlier for an urgent multi-user launch requirement, but later backend and gateway work will then need to preserve its execution-context contract.
 - Keep #84 after #76, #80, and #79 so authentication covers plugin routes and remote mailbox behavior. Keep it after #81 unless the authorization design explicitly accounts for execution ownership another way.
