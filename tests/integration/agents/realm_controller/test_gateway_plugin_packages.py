@@ -80,3 +80,6 @@ def test_external_plugin_wheels_in_normal_gateway_process_modes(tmp_path: Path) 
     assert report["owner_isolation"] is True
     assert report["selected_only_imports"] is True
     assert report["cleanup"] == "completed"
+    for mode in report["modes"]:
+        assert mode["open_and_key_required_controls"] is True
+        assert mode["verified_private_callers"] is True

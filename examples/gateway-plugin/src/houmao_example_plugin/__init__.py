@@ -16,6 +16,7 @@ from houmao.gateway.plugins import (
     PluginDispatchError,
     PluginDispatchResult,
     PluginEvent,
+    plugin_route_access,
 )
 
 
@@ -59,7 +60,7 @@ class NotificationPlugin:
         plugin.m_context = context
         plugin.m_configuration = configuration
 
-        @plugin.m_router.get("/owner")
+        @plugin.m_router.get("/owner", openapi_extra=plugin_route_access("private"))
         async def owner() -> dict[str, str]:
             """Return fixed public identities rather than caller-selected senders."""
 
@@ -71,7 +72,11 @@ class NotificationPlugin:
                 "account": configuration.account,
             }
 
-        @plugin.m_router.post("/notify", response_model=PluginDispatchResult)
+        @plugin.m_router.post(
+            "/notify",
+            response_model=PluginDispatchResult,
+            openapi_extra=plugin_route_access("private"),
+        )
         async def notify(event: PluginEvent) -> PluginDispatchResult:
             """Dispatch now or propagate the failure to the sender."""
 
@@ -85,7 +90,7 @@ class NotificationPlugin:
             )
             return result
 
-        @plugin.m_router.post("/refresh-credentials")
+        @plugin.m_router.post("/refresh-credentials", openapi_extra=plugin_route_access("admin"))
         async def refresh_credentials(_request: RefreshRequest) -> dict[str, bool]:
             """Reopen only the already selected credential source."""
 

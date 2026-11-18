@@ -4,14 +4,21 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import re
 import sys
 from typing import cast
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import httpx
 from pydantic import JsonValue, ValidationError
+from houmao.gateway.client import (
+    GatewayClient,
+    GatewayHttpError,
+    load_gateway_client_binding,
+    managed_self_gateway_client,
+)
 
 from houmao_cccc.client import _SAFE_CODES
 from houmao_cccc.configuration import (
@@ -72,6 +79,7 @@ def _parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(prog="houmao-cccc")
     parser.add_argument("--gateway-url", required=True)
+    parser.add_argument("--signer-binding", type=Path, help="Private gateway signer binding JSON")
     parser.add_argument("--instance", default="cccc")
     parser.add_argument("--timeout", type=float, default=30.0)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -245,59 +253,40 @@ def run(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None 
     method = "GET"
     request_started = False
     try:
-        endpoint = normalize_endpoint(arguments.gateway_url, loopback_only=True)
         if not re.fullmatch(r"[a-z][a-z0-9-]{0,62}", arguments.instance):
             raise ValueError("Invalid plugin instance")
         if not 0 < arguments.timeout <= 300:
             raise ValueError("Invalid request timeout")
         method, route, body = _request(arguments)
-        url = endpoint + "/v1/plugins/" + arguments.instance + route
-        with httpx.Client(
-            timeout=arguments.timeout, trust_env=False, follow_redirects=False, transport=transport
-        ) as client:
+        path = "/v1/plugins/" + arguments.instance + route
+        if transport is None:
+            client = _bound_client(arguments)
             request_started = True
-            with client.stream(
-                method,
-                url,
-                params=cast(dict[str, str], body) if method == "GET" else None,
-                json=body if method != "GET" else None,
-            ) as response:
-                result_bytes = bytearray()
-                for chunk in response.iter_bytes():
-                    if len(result_bytes) + len(chunk) > 1048576:
-                        raise ValueError("Gateway response exceeds the supported limit")
-                    result_bytes.extend(chunk)
-                if response.is_redirect:
-                    raise ValueError("Gateway redirect refused")
-                if not response.is_success:
-                    try:
-                        raw = JSON_OBJECT.validate_python(json.loads(result_bytes), strict=True)
-                    except (ValueError, ValidationError):
-                        raw = {}
-                    failure = _failure_detail(
-                        raw,
-                        response.status_code,
-                        body.get("operation_id", getattr(arguments, "operation_id", None)),
-                    )
-                    if method == "POST":
-                        if isinstance(body.get("expected_binding_id"), str):
-                            failure["expected_binding_id"] = body["expected_binding_id"]
-                        if (
-                            response.status_code >= 500 or response.status_code == 408
-                        ) and "dispatch_outcome" not in failure:
-                            failure["dispatch_outcome"] = "unknown"
-                    if arguments.command == "mail" and arguments.action == "read":
-                        failure["expected_binding_id"] = body["expected_binding_id"]
-                        if failure.get("dispatch_outcome") == "unknown":
-                            failure["outcome"] = "unknown"
-                    if arguments.command == "mail" and arguments.action == "reads":
-                        failure["outcome"] = "unknown"
-                    print(json.dumps(failure))
-                    return 1
-                result = JSON_OBJECT.validate_python(json.loads(result_bytes), strict=True)
+            status, raw = _shared_request(client, method, path, body)
+        else:
+            request_started = True
+            status, raw = _injected_request(transport, arguments, method, path, body)
+        if not 200 <= status < 300:
+            failure = _failure_detail(
+                raw, status, body.get("operation_id", getattr(arguments, "operation_id", None))
+            )
+            if method == "POST":
+                if isinstance(body.get("expected_binding_id"), str):
+                    failure["expected_binding_id"] = body["expected_binding_id"]
+                if (status >= 500 or status == 408) and "dispatch_outcome" not in failure:
+                    failure["dispatch_outcome"] = "unknown"
+            if arguments.command == "mail" and arguments.action == "read":
+                failure["expected_binding_id"] = body["expected_binding_id"]
+                if failure.get("dispatch_outcome") == "unknown":
+                    failure["outcome"] = "unknown"
+            if arguments.command == "mail" and arguments.action == "reads":
+                failure["outcome"] = "unknown"
+            print(json.dumps(failure))
+            return 1
+        result = JSON_OBJECT.validate_python(raw, strict=True)
         print(json.dumps(result, ensure_ascii=True, allow_nan=False))
         return 0
-    except httpx.HTTPError:
+    except (httpx.HTTPError, GatewayHttpError):
         connection_failure: dict[str, JsonValue] = {
             "error_code": "gateway_unavailable",
             "retryable": True,
@@ -332,6 +321,80 @@ def run(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None 
             invalid.update(operation_id=arguments.operation_id, outcome="unknown")
         print(json.dumps(invalid), file=sys.stderr)
         return 1
+
+
+def _bound_client(arguments: argparse.Namespace) -> GatewayClient:
+    """Select an explicit signer, managed self, or the current open admin path."""
+
+    options = {
+        "base_url": arguments.gateway_url,
+        "timeout_seconds": arguments.timeout,
+    }
+    if arguments.signer_binding is not None:
+        return GatewayClient(
+            **options,
+            binding=load_gateway_client_binding(Path.cwd() / arguments.signer_binding),
+        )
+    if arguments.command != "connection" and os.environ.get("HOUMAO_MANIFEST_PATH"):
+        return managed_self_gateway_client(**options)
+    return GatewayClient(**options)
+
+
+def _shared_request(
+    client: GatewayClient, method: str, path: str, body: dict[str, JsonValue]
+) -> tuple[int, dict[str, JsonValue]]:
+    """Send exact bound plugin input and retain typed provider outcomes."""
+
+    if method == "GET" and body:
+        path += "?" + urlencode(cast(dict[str, str], body))
+    try:
+        result = client.request_plugin_json(method, path, body=body if method != "GET" else None)
+    except GatewayHttpError as exc:
+        if exc.status_code is None:
+            raise
+        if 300 <= exc.status_code < 400:
+            raise ValueError("Gateway redirect refused.") from None
+        try:
+            detail = json.loads(exc.detail)
+        except ValueError:
+            detail = {}
+        return exc.status_code, {"detail": detail}
+    return 200, JSON_OBJECT.validate_python(result, strict=True)
+
+
+def _injected_request(
+    transport: httpx.BaseTransport,
+    arguments: argparse.Namespace,
+    method: str,
+    path: str,
+    body: dict[str, JsonValue],
+) -> tuple[int, dict[str, JsonValue]]:
+    """Use an explicitly injected transport for isolated CLI contract tests."""
+
+    endpoint = normalize_endpoint(arguments.gateway_url, loopback_only=True)
+    with httpx.Client(
+        timeout=arguments.timeout, trust_env=False, follow_redirects=False, transport=transport
+    ) as client:
+        with client.stream(
+            method,
+            endpoint + path,
+            params=cast(dict[str, str], body) if method == "GET" else None,
+            json=body if method != "GET" else None,
+        ) as response:
+            result_bytes = bytearray()
+            for chunk in response.iter_bytes():
+                if len(result_bytes) + len(chunk) > 1048576:
+                    raise ValueError("Gateway response exceeds the supported limit")
+                result_bytes.extend(chunk)
+            if response.is_redirect:
+                raise ValueError("Gateway redirect refused")
+            try:
+                raw = JSON_OBJECT.validate_python(json.loads(result_bytes), strict=True)
+            except (ValueError, ValidationError):
+                if response.is_success:
+                    raise
+                raw = {}
+            return response.status_code, raw
 
 
 def main() -> None:

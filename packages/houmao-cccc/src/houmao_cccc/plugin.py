@@ -14,7 +14,12 @@ from typing import Literal, cast
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
-from houmao.gateway.plugins import PluginContext, PluginDispatchError, PluginEvent
+from houmao.gateway.plugins import (
+    PluginContext,
+    PluginDispatchError,
+    PluginEvent,
+    plugin_route_access,
+)
 from houmao_cccc.client import ProviderClient, ProviderError
 from houmao_cccc.configuration import CcccConfiguration, validate_credentials
 from houmao_cccc.mail import MAIL_OPERATIONS, MailService
@@ -641,20 +646,69 @@ class CcccPlugin:
     def _register_routes(self) -> None:
         """Stage namespace-relative HTTP operations for host validation."""
 
-        self.m_router.add_api_route("/binding", self.binding, methods=["GET"])
-        self.m_router.add_api_route("/capabilities", self.capabilities, methods=["GET"])
-        self.m_router.add_api_route("/members", self.members, methods=["GET"])
-        self.m_router.add_api_route("/connection/connect", self.connect, methods=["POST"])
-        self.m_router.add_api_route("/connection/disconnect", self.disconnect, methods=["POST"])
-        self.m_router.add_api_route("/connection/reconnect", self.reconnect, methods=["POST"])
         self.m_router.add_api_route(
-            "/connection/refresh-credentials", self.refresh_credentials, methods=["POST"]
+            "/binding", self.binding, methods=["GET"], openapi_extra=plugin_route_access("private")
         )
-        self.m_router.add_api_route("/chat/send", self.send, methods=["POST"])
-        self.m_router.add_api_route("/chat/reply", self.reply, methods=["POST"])
-        self.m_router.add_api_route("/chat/retry", self.retry, methods=["POST"])
-        self.m_router.add_api_route("/chat/history", self.history, methods=["GET"])
-        self.m_router.add_api_route("/chat/deliveries", self.deliveries, methods=["GET"])
+        self.m_router.add_api_route(
+            "/capabilities",
+            self.capabilities,
+            methods=["GET"],
+            openapi_extra=plugin_route_access("private"),
+        )
+        self.m_router.add_api_route(
+            "/members", self.members, methods=["GET"], openapi_extra=plugin_route_access("private")
+        )
+        self.m_router.add_api_route(
+            "/connection/connect",
+            self.connect,
+            methods=["POST"],
+            openapi_extra=plugin_route_access("admin"),
+        )
+        self.m_router.add_api_route(
+            "/connection/disconnect",
+            self.disconnect,
+            methods=["POST"],
+            openapi_extra=plugin_route_access("admin"),
+        )
+        self.m_router.add_api_route(
+            "/connection/reconnect",
+            self.reconnect,
+            methods=["POST"],
+            openapi_extra=plugin_route_access("admin"),
+        )
+        self.m_router.add_api_route(
+            "/connection/refresh-credentials",
+            self.refresh_credentials,
+            methods=["POST"],
+            openapi_extra=plugin_route_access("admin"),
+        )
+        self.m_router.add_api_route(
+            "/chat/send", self.send, methods=["POST"], openapi_extra=plugin_route_access("private")
+        )
+        self.m_router.add_api_route(
+            "/chat/reply",
+            self.reply,
+            methods=["POST"],
+            openapi_extra=plugin_route_access("private"),
+        )
+        self.m_router.add_api_route(
+            "/chat/retry",
+            self.retry,
+            methods=["POST"],
+            openapi_extra=plugin_route_access("private"),
+        )
+        self.m_router.add_api_route(
+            "/chat/history",
+            self.history,
+            methods=["GET"],
+            openapi_extra=plugin_route_access("private"),
+        )
+        self.m_router.add_api_route(
+            "/chat/deliveries",
+            self.deliveries,
+            methods=["GET"],
+            openapi_extra=plugin_route_access("private"),
+        )
         assert self.m_mail is not None
         self.m_router.include_router(self.m_mail.router)
 

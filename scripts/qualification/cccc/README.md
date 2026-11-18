@@ -39,6 +39,8 @@ pixi run python scripts/qualification/cccc/installed.py run \
 
 Each run requires a fresh work root. Its retained `venv/bin/python` and `venv/bin/houmao-cccc` can run the real-agent smoke. Stand-in fixtures exercise both supported gateway process modes and deterministic failures. They do not satisfy the separate real-agent acceptance gate.
 
+The current-wheel run connects to the selected CCCC service with distinct Actor grants. It verifies ordinary Chat and Mail using signed self and admin calls, verifies the connection control before and after first-key registration, and dispatches to a broader receiver with explicit settings and a seeded admin. The installed Mail CLI uses `--signer-binding` with an owner-private fixture file.
+
 ## Run Two Real Coding Agents
 
 Use the supported [local agent fixture configuration](../../agents/test-fixtures/README.md) and choose a real client/profile explicitly. For the cloud-api DeepSeek example, keep `DEEPSEEK_API_KEY` and the matching client base URL in the selected private `.env`; the driver delegates credential loading to the fixture helper.

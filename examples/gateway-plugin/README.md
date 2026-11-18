@@ -19,15 +19,19 @@ The example advertises `example-notifications` through package entry-point metad
 
 ## Exercise the Routes
 
-Resolve the actual live gateway endpoint through managed-agent gateway discovery. Substitute its base URL below; do not assume the gateway uses a fixed port.
+Resolve the live endpoint through managed-agent discovery and bind a current self or admin signer. The owner and notify routes declare private access. Use the same configured client to query host status and send a notification. [Gateway Access and Remote Deployment](../../docs/reference/gateway/operations/access.md)
 
-```bash
-curl --fail http://127.0.0.1:PORT/v1/plugins
-curl --fail http://127.0.0.1:PORT/v1/plugins/team-chat/_status
-curl --fail http://127.0.0.1:PORT/v1/plugins/team-chat/owner
-curl --fail-with-body -X POST http://127.0.0.1:PORT/v1/plugins/team-chat/notify \
-  -H 'Content-Type: application/json' \
-  --data '{"source_event_id":"example-001","text":"Read the latest team update.","metadata":{}}'
+```python
+from houmao.gateway.client import GatewayClient
+
+client = GatewayClient(binding=selected_binding)
+status = client.get_plugin_status("team-chat")
+owner = client.request_plugin_json("GET", "/v1/plugins/team-chat/owner")
+result = client.request_plugin_json(
+    "POST",
+    "/v1/plugins/team-chat/notify",
+    body={"source_event_id": "example-001", "text": "Read the latest team update."},
+)
 ```
 
 The sender keeps its message until dispatch succeeds. A busy body produces a retryable error; making the body ready later does not deliver the old message. A body that dies or changes during dispatch also causes an error. The sender chooses whether and when to make a new attempt. A lost reply after actual dispatch can make that retry a duplicate.
@@ -51,11 +55,12 @@ gateway:
         require_credentials: true
 ```
 
-Keep actual keys outside tracked files and command arguments. After replacing the contents of that selected file, request refresh with an empty object:
+Keep actual keys outside tracked files and command arguments. After replacing the contents of that selected file, request refresh with an empty object. Use a listed admin signer when the list contains entries. A client with no selected signer can make this control call while the list is empty.
 
-```bash
-curl --fail-with-body -X POST http://127.0.0.1:PORT/v1/plugins/team-chat/refresh-credentials \
-  -H 'Content-Type: application/json' --data '{}'
+```python
+admin_client.request_plugin_json(
+    "POST", "/v1/plugins/team-chat/refresh-credentials", body={}
+)
 ```
 
 The request cannot select another file or account. Startup and refresh reject a selected document with a different account. The no-auth example never reads ambient credentials.

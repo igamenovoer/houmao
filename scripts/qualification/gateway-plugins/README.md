@@ -29,6 +29,8 @@ The work root must be outside the checkout and must not contain an existing `ven
 
 Both detached-process and same-session auxiliary tmux-window gateways run against an installed deterministic headless executable. Synthetic instances cover selected-only imports, duplicate entry points, missing implementations, unsupported SDK versions, import/startup/worker failures, route conflicts, reserved status routes, owner/account isolation, and safe diagnostics.
 
+The installed notification plugin uses the current managed self key for ordinary routes. Each execution mode enrolls a generated admin key, checks private access under both caller roles, verifies who can use the credential control, and removes the final key to reopen administration. Generated keys and the isolated tmux socket stay under private external fixture roots.
+
 The execution fixture counts actual client invocations. Immediate busy errors leave that count unchanged until a fresh sender request arrives. A transparent tmux wrapper can pause a native launch before handoff. The driver changes the existing body generation while paused, then verifies an error and no late delivery. The wrapper delegates all other commands to the selected real tmux binary.
 
 Each process mode also restarts the gateway while preserving its owner binding and successful source cursor. The sender deliberately discards one completed reply, then retries the same source ID and observes a second dispatch. A separate paused request loses its gateway to `SIGKILL`; releasing the orphaned launch immediately must not invoke the provider. Restarting the gateway must keep that failed payload undelivered until a fresh sender request arrives.

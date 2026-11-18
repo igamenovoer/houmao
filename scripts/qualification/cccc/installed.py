@@ -171,8 +171,10 @@ def qualify(
     environment["PATH"] = str(work / "venv/bin") + os.pathsep + environment.get("PATH", "")
     environment["HOUMAO_PLUGIN_FIXTURE_REAL_TMUX"] = str(real_tmux)
     environment["HOUMAO_GLOBAL_REGISTRY_DIR"] = str(work / "registry")
+    environment["XDG_CONFIG_HOME"] = str(work / "config")
     with tempfile.TemporaryDirectory(prefix="hcc-", dir="/tmp") as socket_root:
         environment["TMUX_TMPDIR"] = socket_root
+        support._prepare_isolated_socket(socket_root)
         try:
             support._run(
                 [
@@ -203,7 +205,7 @@ def qualify(
             )
         finally:
             subprocess.run(
-                [str(real_tmux), "kill-server"],
+                [str(real_tmux), "-S", support._isolated_socket(socket_root), "kill-server"],
                 cwd=work,
                 env=environment,
                 stdout=subprocess.DEVNULL,
@@ -235,20 +237,13 @@ def _provider_result(response: Any) -> dict[str, Any]:
     return dict(document["result"])
 
 
-def _body_snapshot(controller: Any) -> tuple[str, object]:
+def _body_snapshot(support: ModuleType, controller: Any) -> tuple[str, object]:
     """Read the live owned pane PID and persisted native conversation identifier."""
 
     document = json.loads(controller.manifest_path.read_text())
     pane = document["agent_launch_authority"]["primary_pane_id"]
     process = subprocess.run(
-        [
-            os.environ["HOUMAO_PLUGIN_FIXTURE_REAL_TMUX"],
-            "display-message",
-            "-p",
-            "-t",
-            pane,
-            "#{pane_pid}",
-        ],
+        support._tmux_command("display-message", "-p", "-t", pane, "#{pane_pid}"),
         capture_output=True,
         text=True,
         check=True,
@@ -276,9 +271,8 @@ def _cleanup_runtime(support: ModuleType, controller: Any) -> None:
         controller.stop(force_cleanup=True)
     except Exception:
         pass
-    real_tmux = os.environ["HOUMAO_PLUGIN_FIXTURE_REAL_TMUX"]
     subprocess.run(
-        [real_tmux, "kill-session", "-t", controller.tmux_session_name],
+        support._tmux_command("kill-session", "-t", controller.tmux_session_name),
         capture_output=True,
         check=False,
     )
@@ -306,11 +300,30 @@ def _cleanup_runtime(support: ModuleType, controller: Any) -> None:
             os.kill(pid, signal.SIGKILL)
         support._wait(lambda: not support._process_alive(pid), "Owned gateway survived cleanup")
     remaining = subprocess.run(
-        [real_tmux, "has-session", "-t", controller.tmux_session_name],
+        support._tmux_command("has-session", "-t", controller.tmux_session_name),
         capture_output=True,
         check=False,
     )
     _require(remaining.returncode != 0, "Owned body session survived cleanup")
+
+
+def _record_live_gateway(
+    support: ModuleType,
+    controller: Any,
+    gateway: dict[str, Any],
+) -> None:
+    """Bind fresh clients to the live listener and its current owner generation."""
+
+    state = controller.gateway_status()
+    _require(
+        state.gateway_host == ("0.0.0.0" if gateway.get("seeded_admin") else "127.0.0.1")
+        and state.gateway_port is not None,
+        "Gateway did not publish the expected resolved listener",
+    )
+    gateway["url"] = f"http://127.0.0.1:{state.gateway_port}"
+    support._bind_self(gateway["url"], controller, save=gateway["root"] / "self-binding.json")
+    if gateway.get("seeded_admin"):
+        support._bind_admin(gateway["url"], controller)
 
 
 def _send(support: ModuleType, sender: dict[str, Any]) -> dict[str, Any]:
@@ -432,8 +445,7 @@ def _failure_cases(
     absent = _send(support, sender)
     _receipt(support, sender, absent["event"]["event_ref"], {"refused", "failed"})
     _require(controller.attach_gateway().status == "ok", "Absent gateway did not restart")
-    status = controller.gateway_status()
-    receiver["url"] = f"http://{status.gateway_host}:{status.gateway_port}"
+    _record_live_gateway(support, controller, receiver)
     support._wait(
         lambda: (
             support._request(receiver["url"], prefix + "/binding")[1].get("connection")
@@ -460,12 +472,7 @@ def _failure_cases(
             controller.manifest_path.write_text(json.dumps(manifest))
         else:
             subprocess.run(
-                [
-                    os.environ["HOUMAO_PLUGIN_FIXTURE_REAL_TMUX"],
-                    "kill-window",
-                    "-t",
-                    f"{controller.tmux_session_name}:0",
-                ],
+                support._tmux_command("kill-window", "-t", f"{controller.tmux_session_name}:0"),
                 check=True,
                 capture_output=True,
             )
@@ -487,8 +494,7 @@ def _failure_cases(
             _require(
                 controller.attach_gateway().status == "ok", "Replacement gateway recovery failed"
             )
-            status = controller.gateway_status()
-            receiver["url"] = f"http://{status.gateway_host}:{status.gateway_port}"
+            _record_live_gateway(support, controller, receiver)
             support._wait(
                 lambda: (
                     support._request(receiver["url"], prefix + "/binding")[1].get("connection")
@@ -521,7 +527,14 @@ def _mail_cli(
     """Call the independently installed CLI and retain no message bodies in evidence."""
 
     result = subprocess.run(
-        [str(work / "venv/bin/houmao-cccc"), "--gateway-url", gateway["url"], *arguments],
+        [
+            str(work / "venv/bin/houmao-cccc"),
+            "--gateway-url",
+            gateway["url"],
+            "--signer-binding",
+            str(gateway["root"] / "self-binding.json"),
+            *arguments,
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -537,6 +550,71 @@ def _mail_cli(
         )
         raise QualificationError("Installed Mail CLI operation failed: " + code[:128])
     return document
+
+
+def _qualify_current_mail(
+    support: ModuleType,
+    work: Path,
+    sender: dict[str, Any],
+    receiver: dict[str, Any],
+) -> None:
+    """Use the installed signed CLI for actual deferred Mail and scoped inspection."""
+
+    sender_binding = sender["binding"]["binding_id"]
+    receiver_binding = receiver["binding"]["binding_id"]
+    prefix = "/v1/plugins/cccc"
+    sent = _mail_cli(
+        work,
+        sender,
+        [
+            "mail",
+            "send",
+            "--binding-id",
+            sender_binding,
+            "--operation-id",
+            uuid.uuid4().hex,
+            "--to",
+            "receiver",
+            "--text",
+            "Synthetic signed deferred Mail",
+        ],
+    )
+    _require(sent.get("stored") is True, "Signed Mail was not stored by CCCC")
+    _require(
+        support._request(receiver["url"], prefix + "/mail/peek?limit=1", signed=False)[0] == 401,
+        "Unsigned Mail inspection passed",
+    )
+
+    def pending() -> bool:
+        """Wait for the actual provider to expose this Actor's deferred Mail."""
+
+        code, result = support._request(receiver["url"], prefix + "/mail/peek?limit=1")
+        return code == 200 and any(
+            item.get("id") == sent["event"]["id"] for item in result.get("messages", [])
+        )
+
+    support._wait(pending, "Signed recipient did not see the CCCC Mail")
+    _, cursor = support._request(receiver["url"], prefix + "/mail/cursor")
+    consumed = _mail_cli(
+        work,
+        receiver,
+        [
+            "mail",
+            "read",
+            "--binding-id",
+            receiver_binding,
+            "--operation-id",
+            uuid.uuid4().hex,
+            "--expected-cursor",
+            cursor["cursor_ref"],
+            "--limit",
+            "1",
+        ],
+    )
+    _require(
+        consumed.get("consumed") is True and consumed["messages"][0]["id"] == sent["event"]["id"],
+        "Signed bounded Mail read did not return the provider's deferred event",
+    )
 
 
 def _mail_upgrade_cases(
@@ -555,7 +633,7 @@ def _mail_upgrade_cases(
         support._wait(
             lambda: support._ready(gateway["url"]), "Body was not ready before package upgrade"
         )
-    snapshots = [_body_snapshot(controller) for controller in controllers]
+    snapshots = [_body_snapshot(support, controller) for controller in controllers]
     _require(
         any(
             getattr(controller.backend_session.state, "session_id", None) != snapshot[1]
@@ -594,8 +672,7 @@ def _mail_upgrade_cases(
             == "ok",
             "Mail upgrade gateway restart failed",
         )
-        status = controller.gateway_status()
-        gateway["url"] = f"http://{status.gateway_host}:{status.gateway_port}"
+        _record_live_gateway(support, controller, gateway)
         support._wait(
             lambda: (
                 support._request(gateway["url"], "/v1/plugins/cccc/binding")[1].get("connection")
@@ -610,7 +687,7 @@ def _mail_upgrade_cases(
             "Upgrade changed the owner binding",
         )
         _require(
-            _body_snapshot(controller) == snapshot,
+            _body_snapshot(support, controller) == snapshot,
             "Package upgrade changed body PID or conversation",
         )
         code, _ = support._request(
@@ -628,7 +705,7 @@ def _mail_upgrade_cases(
             seconds=65,
         )
         _require(
-            _body_snapshot(controller) == snapshot,
+            _body_snapshot(support, controller) == snapshot,
             "Credential refresh changed the body or conversation",
         )
     sender, receiver = gateways
@@ -808,19 +885,22 @@ def _mail_upgrade_cases(
     listener = urlsplit(receiver["url"])
     connection = http.client.HTTPConnection(listener.hostname, listener.port, timeout=25)
     try:
-        connection.request(
-            "POST",
+        request = support._prepare_request(
+            receiver["url"],
             "/v1/plugins/cccc/mail/read",
-            body=json.dumps(
-                {
-                    "expected_binding_id": receiver["binding"]["binding_id"],
-                    "operation_id": lost_operation,
-                    "expected_cursor": following["cursor_ref"],
-                    "limit": 1,
-                    "max_bytes": 262144,
-                }
-            ),
-            headers={"Content-Type": "application/json"},
+            {
+                "expected_binding_id": receiver["binding"]["binding_id"],
+                "operation_id": lost_operation,
+                "expected_cursor": following["cursor_ref"],
+                "limit": 1,
+                "max_bytes": 262144,
+            },
+        )
+        connection.request(
+            request.get_method(),
+            urlsplit(request.full_url).path,
+            body=request.data,
+            headers=dict(request.header_items()),
         )
         saved: dict[str, Any] = {}
 
@@ -928,6 +1008,8 @@ def _installed(
     import houmao_cccc
     import houmao_gateway_fixtures
     from houmao.agents.realm_controller.runtime import start_runtime_session
+    from houmao.gateway.access import GatewayLaunchSeed
+    from houmao.gateway.deployment import GatewayDeployment
     from houmao.gateway.plugins import GatewayPluginConfiguration
 
     support = _support(work / "gateway_support.py")
@@ -1016,8 +1098,9 @@ def _installed(
                     )
                     owner = uuid.uuid4().hex
                     credentials = root / "actor-credential.json"
-                    credentials.write_text(
-                        json.dumps(
+                    descriptor = os.open(credentials, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                    with os.fdopen(descriptor, "w", encoding="utf-8") as credential_file:
+                        json.dump(
                             {
                                 "agent_id": owner,
                                 "endpoint": endpoint,
@@ -1025,10 +1108,9 @@ def _installed(
                                 "actor_id": actor_id,
                                 "actor_generation": grant["actor_generation"],
                                 "token": grant["token"],
-                            }
+                            },
+                            credential_file,
                         )
-                    )
-                    credentials.chmod(0o600)
                     control = root / "control.json"
                     control.write_text(
                         json.dumps(
@@ -1042,6 +1124,13 @@ def _installed(
                     )
                     os.environ["HOUMAO_PLUGIN_FIXTURE_CONTROL"] = str(control)
                     brain = support._seed_brain(root, work / "venv/bin/houmao-fixture-codex")
+                    broader_receiver = actor_id == "receiver" and previous_plugin_wheel is None
+                    signer = root / "broad-fixture-admin.key"
+                    seed = (
+                        GatewayLaunchSeed(admin_keys=(support._fixture_admin(signer),))
+                        if broader_receiver
+                        else GatewayLaunchSeed()
+                    )
                     controller = start_runtime_session(
                         agent_def_dir=root / "agent-def",
                         brain_manifest_path=brain,
@@ -1051,10 +1140,11 @@ def _installed(
                         working_directory=workspace,
                         agent_name="cccc-installed-" + uuid.uuid4().hex[:10],
                         agent_id=owner,
+                        gateway_admin_seed=seed,
                     )
                     controllers.append(controller)
                     controller.send_prompt("Synthetic conversation before plugin attachment")
-                    before_attach = _body_snapshot(controller)
+                    before_attach = _body_snapshot(support, controller)
                     _require(bool(before_attach[1]), "Fixture did not seed its native conversation")
                     selection = GatewayPluginConfiguration.model_validate(
                         {
@@ -1072,31 +1162,36 @@ def _installed(
                             }
                         }
                     )
-                    if actor_id == "sender":
+                    if broader_receiver:
                         broad = controller.attach_gateway(
                             host_override="0.0.0.0",
                             port_override=0,
                             execution_mode_override=mode,
                             plugin_config=selection,
                         )
-                        _require(broad.status == "ok", "Broad-listener core gateway did not start")
-                        broad_status = controller.gateway_status()
-                        broad_url = f"http://127.0.0.1:{broad_status.gateway_port}"
-                        code, _ = support._request(broad_url, "/v1/plugins/cccc/binding")
-                        _require(code == 503, "Broad listener activated CCCC credentials or routes")
                         _require(
-                            controller.detach_gateway().status == "ok",
-                            "Broad gateway cleanup failed",
+                            broad.status == "error",
+                            "Broad-listener gateway started without an explicit access deployment",
                         )
                     attached = controller.attach_gateway(
-                        host_override="127.0.0.1",
-                        port_override=0,
+                        host_override=None if broader_receiver else "127.0.0.1",
+                        port_override=None if broader_receiver else 0,
                         execution_mode_override=mode,
                         plugin_config=selection,
+                        access_config=(
+                            GatewayDeployment(bind_host="0.0.0.0", admin_signer_path=str(signer))
+                            if broader_receiver
+                            else None
+                        ),
                     )
                     _require(attached.status == "ok", "Normal installed gateway attach failed")
-                    status = controller.gateway_status()
-                    url = f"http://{status.gateway_host}:{status.gateway_port}"
+                    observation = {
+                        "root": root,
+                        "selection": selection,
+                        "seeded_admin": broader_receiver,
+                    }
+                    _record_live_gateway(support, controller, observation)
+                    url = observation["url"]
                     support._wait(
                         lambda: (
                             support._request(url, "/v1/plugins/cccc/binding")[1].get("connection")
@@ -1107,14 +1202,30 @@ def _installed(
                     )
                     binding = support._request(url, "/v1/plugins/cccc/binding")[1]
                     _require(
-                        _body_snapshot(controller) == before_attach,
+                        _body_snapshot(support, controller) == before_attach,
                         "Plugin attachment changed the live body PID or native conversation",
                     )
-                    gateways.append(
-                        {"url": url, "binding": binding, "root": root, "selection": selection}
-                    )
+                    observation["binding"] = binding
+                    gateways.append(observation)
                 sender, receiver = gateways
                 prefix = "/v1/plugins/cccc"
+                if previous_plugin_wheel is None:
+                    print(
+                        json.dumps({"qualification_stage": "authenticated-chat-and-mail"}),
+                        flush=True,
+                    )
+                    support._verify_plugin_access(
+                        sender["url"],
+                        root=sender["root"],
+                        private_paths=(
+                            prefix + "/binding",
+                            prefix + "/chat/history?limit=1",
+                            prefix + "/mail/peek?limit=1",
+                        ),
+                        admin_path=prefix + "/connection/connect",
+                        admin_payload={"expected_binding_id": sender["binding"]["binding_id"]},
+                    )
+                    _qualify_current_mail(support, work, sender, receiver)
                 status, stored = support._request(
                     sender["url"],
                     prefix + "/chat/send",
@@ -1190,8 +1301,8 @@ def _installed(
                     controllers[1].attach_gateway().status == "ok",
                     "Installed gateway restart failed",
                 )
-                gateway_status = controllers[1].gateway_status()
-                new_url = f"http://{gateway_status.gateway_host}:{gateway_status.gateway_port}"
+                _record_live_gateway(support, controllers[1], receiver)
+                new_url = receiver["url"]
                 support._wait(
                     lambda: (
                         support._request(new_url, prefix + "/binding")[1].get("connection")
@@ -1216,7 +1327,6 @@ def _installed(
                     (receiver["root"] / "invocations").read_text() == count,
                     "Gateway restart replayed delivered chat",
                 )
-                receiver["url"] = new_url
                 if upgrade_plugin_wheel is not None:
                     sender.update(existing_chat_ref=event_ref, existing_chat_id=event_id)
                     failures = _mail_upgrade_cases(
@@ -1234,7 +1344,10 @@ def _installed(
                         "reference_continuity": True,
                         "restart_no_replay": True,
                         "attach_preserved_body": True,
-                        "broad_listener_disabled": True,
+                        "validated_broad_listener": previous_plugin_wheel is None,
+                        "open_and_key_required_controls": previous_plugin_wheel is None,
+                        "verified_private_callers": previous_plugin_wheel is None,
+                        "signed_deferred_mail": previous_plugin_wheel is None,
                         **failures,
                     }
                 )

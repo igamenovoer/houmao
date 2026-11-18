@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Literal, cast
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, field_validator
 
+from houmao.gateway.plugins import plugin_route_access
 from houmao_cccc.client import ProviderError
 from houmao_cccc.references import ReferenceError
 
@@ -196,12 +197,15 @@ class MailService:
             ("/mail/read", service.read, ["POST"]),
             ("/mail/reads/{operation_id}", service.receipt, ["GET"]),
         ):
-            service.m_router.add_api_route(path, endpoint, methods=methods)
+            service.m_router.add_api_route(
+                path, endpoint, methods=methods, openapi_extra=plugin_route_access("private")
+            )
         for operation in ("archive", "move", "mark", "attachments", "submission", "mark-unread"):
             service.m_router.add_api_route(
                 "/mail/" + operation,
                 service._unsupported_handler(operation),
                 methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+                openapi_extra=plugin_route_access("private"),
             )
         return service
 

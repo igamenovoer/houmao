@@ -29,6 +29,9 @@ import urllib.request
 from urllib.parse import urlsplit
 import uuid
 
+_SELF_CLIENTS: dict[str, Any] = {}
+_ADMIN_CLIENTS: dict[str, Any] = {}
+
 
 class QualificationError(RuntimeError):
     """Report an explicit prerequisite or behavioral qualification failure."""
@@ -169,11 +172,13 @@ def _qualify(source_root: Path, wheelhouse: Path, work_root: Path) -> dict[str, 
     env["PATH"] = str(work_root / "venv/bin") + os.pathsep + env.get("PATH", "")
     env["HOUMAO_PLUGIN_FIXTURE_REAL_TMUX"] = real_tmux
     env["HOUMAO_GLOBAL_REGISTRY_DIR"] = str(work_root / "registry")
+    env["XDG_CONFIG_HOME"] = str(work_root / "config")
     env["HOUMAO_PLUGIN_UNSELECTED_IMPORT_MARKER"] = str(work_root / "unselected-imported")
     # Unix-domain socket limits also apply when pytest supplies a long work
     # root. This private namespace is short and belongs only to this run.
     with tempfile.TemporaryDirectory(prefix="hgp-", dir="/tmp") as socket_root:
         env["TMUX_TMPDIR"] = socket_root
+        _prepare_isolated_socket(socket_root)
         try:
             _run(
                 [
@@ -192,7 +197,7 @@ def _qualify(source_root: Path, wheelhouse: Path, work_root: Path) -> dict[str, 
             )
         finally:
             subprocess.run(
-                [real_tmux, "kill-server"],
+                [real_tmux, "-S", _isolated_socket(socket_root), "kill-server"],
                 cwd=work_root,
                 env=env,
                 stdout=subprocess.DEVNULL,
@@ -207,21 +212,232 @@ def _qualify(source_root: Path, wheelhouse: Path, work_root: Path) -> dict[str, 
     return report
 
 
-def _request(base_url: str, path: str, payload: dict[str, Any] | None = None) -> tuple[int, Any]:
-    """Call the real local gateway, returning structured errors for assertions."""
+def _isolated_socket(socket_root: str) -> str:
+    """Select the runtime's default socket inside this run's private tmux root."""
+
+    return str(Path(socket_root) / f"tmux-{os.getuid()}" / "default")
+
+
+def _prepare_isolated_socket(socket_root: str) -> None:
+    """Provide the parent required by tmux's explicit socket option."""
+
+    Path(_isolated_socket(socket_root)).parent.mkdir(mode=0o700)
+
+
+def _tmux_command(*arguments: str) -> list[str]:
+    """Select only the installed runner's private tmux server."""
+
+    return [
+        os.environ["HOUMAO_PLUGIN_FIXTURE_REAL_TMUX"],
+        "-S",
+        _isolated_socket(os.environ["TMUX_TMPDIR"]),
+        *arguments,
+    ]
+
+
+def _bind_self(base_url: str, controller: Any, *, save: Path | None = None) -> None:
+    """Use the current fixture generation's explicit owner-local proof binding."""
+
+    from houmao.agents.realm_controller.gateway_access_runtime import owner_gateway_client_binding
+    from houmao.agents.realm_controller.gateway_client import GatewayClient
+
+    port = urlsplit(base_url).port
+    _require(port is not None, "Qualification gateway did not publish a resolved port")
+    assert port is not None
+    binding, incarnation = owner_gateway_client_binding(
+        controller.manifest_path,
+        port=port,
+        private=True,
+        prefer_self=True,
+    )
+    _require(
+        binding is not None and binding.base_url == base_url, "Fixture self binding unavailable"
+    )
+    _SELF_CLIENTS[base_url] = GatewayClient(
+        base_url=base_url,
+        binding=binding,
+        target_incarnation=incarnation,
+        timeout_seconds=25,
+    )
+    if save is not None:
+        assert binding is not None
+        descriptor = os.open(save, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, "wb") as output:
+            output.write(binding.model_dump_json().encode())
+
+
+def _bind_admin(base_url: str, controller: Any) -> None:
+    """Select the seeded and explicitly configured admin for an installed gateway."""
+
+    from houmao.agents.realm_controller.gateway_access_runtime import owner_gateway_client_binding
+    from houmao.agents.realm_controller.gateway_client import GatewayClient
+
+    port = urlsplit(base_url).port
+    assert port is not None
+    binding, incarnation = owner_gateway_client_binding(
+        controller.manifest_path,
+        port=port,
+        private=False,
+    )
+    _require(
+        binding is not None and binding.base_url == base_url and binding.purpose == "admin",
+        "Fixture admin binding unavailable",
+    )
+    _ADMIN_CLIENTS[base_url] = GatewayClient(
+        binding=binding,
+        target_incarnation=incarnation,
+        timeout_seconds=25,
+    )
+
+
+def _prepare_request(
+    base_url: str,
+    path: str,
+    payload: dict[str, Any] | None,
+    *,
+    signed: bool = True,
+    client: Any = None,
+) -> urllib.request.Request:
+    """Prepare the exact gateway request, including proof for plugin operations."""
 
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
-    request = urllib.request.Request(
-        base_url + path,
-        data=data,
-        headers={"Content-Type": "application/json"} if data else {},
-    )
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    method = "POST" if data is not None else "GET"
+    headers = {"Content-Type": "application/json"} if data else {}
+    if signed and (path.startswith("/v1/plugins") or client is not None):
+        binding = client if client is not None else _SELF_CLIENTS.get(base_url)
+        _require(binding is not None, "Qualification selected no explicit gateway caller binding")
+        return binding._prepare_request(method, path, data, headers)
+    return urllib.request.Request(base_url + path, data=data, method=method, headers=headers)
+
+
+def _request(
+    base_url: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+    *,
+    signed: bool = True,
+    client: Any = None,
+) -> tuple[int, Any]:
+    """Call the real gateway, returning structured errors for assertions."""
+
+    from houmao.agents.realm_controller.errors import GatewayHttpError
+    from houmao.agents.realm_controller.gateway_client import _build_gateway_client_opener
+
+    try:
+        request = _prepare_request(base_url, path, payload, signed=signed, client=client)
+    except GatewayHttpError as error:
+        if error.status_code is None:
+            raise
+        return error.status_code, {"detail": error.detail}
+    opener = _build_gateway_client_opener(respect_proxy_env=False, ssl_context=None)
     try:
         with opener.open(request, timeout=25) as response:
             return response.status, json.load(response)
     except urllib.error.HTTPError as exc:
         return exc.code, json.load(exc)
+
+
+def _fixture_admin(file_path: Path) -> Any:
+    """Generate an explicit fixture admin key in owner-only private storage."""
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from houmao.gateway.access import GatewayAdminKey, public_key_text
+
+    signer = Ed25519PrivateKey.generate()
+    descriptor = os.open(file_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "wb") as target:
+        target.write(
+            signer.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.OpenSSH,
+                serialization.NoEncryption(),
+            )
+        )
+    return GatewayAdminKey(
+        principal="fixture-admin", public_key=public_key_text(signer.public_key())
+    )
+
+
+def _verify_plugin_access(
+    base_url: str,
+    *,
+    root: Path,
+    private_paths: tuple[str, ...],
+    admin_path: str,
+    admin_payload: dict[str, Any],
+) -> None:
+    """Verify the installed plugin against both admin states and both signing roles."""
+
+    from houmao.agents.realm_controller.gateway_client import GatewayClient
+    from houmao.gateway.access import GatewayClientBinding
+
+    unsigned = GatewayClient(base_url=base_url)
+    discovery = unsigned.describe_endpoint()
+    _require(
+        discovery.admin_access == "open", "Fresh fixture did not start with open administration"
+    )
+    for path in private_paths:
+        _require(
+            _request(base_url, path, signed=False)[0] == 401, "An unsigned private probe passed"
+        )
+        _require(
+            _request(base_url, path)[0] == 200, "Current self proof did not admit ordinary access"
+        )
+    _require(
+        _request(base_url, admin_path, admin_payload, signed=False)[0] == 200,
+        "Open policy did not admit an anonymous plugin control",
+    )
+
+    file_path = root / "fixture-admin.key"
+    key = _fixture_admin(file_path)
+    registration = GatewayClientBinding(
+        base_url=base_url,
+        owner=discovery.target.owner,
+        purpose="register",
+        private_key_path=str(file_path),
+    )
+    GatewayClient(
+        binding=registration,
+        target_incarnation=discovery.target.incarnation,
+        registration_key=key,
+    ).add_admin_key(key)
+    admin = GatewayClient(
+        binding=registration.model_copy(update={"purpose": "admin"}),
+        target_incarnation=discovery.target.incarnation,
+    )
+    try:
+        _require(
+            unsigned.describe_endpoint().admin_access == "key_required",
+            "First enrollment failed to close open administration",
+        )
+        _require(
+            _request(base_url, admin_path, admin_payload, signed=False)[0] == 401,
+            "A key-required unsigned plugin control passed",
+        )
+        _require(
+            _request(base_url, admin_path, admin_payload)[0] == 403,
+            "Self proof authorized a key-required plugin control",
+        )
+        _require(
+            _request(base_url, admin_path, admin_payload, client=admin)[0] == 200,
+            "Listed admin proof did not admit the plugin control",
+        )
+        for path in private_paths:
+            _require(
+                _request(base_url, path)[0] == 200,
+                "Current self proof did not retain ordinary access after enrollment",
+            )
+            _require(
+                _request(base_url, path, client=admin)[0] == 200,
+                "Listed admin proof did not admit ordinary plugin access",
+            )
+    finally:
+        admin.remove_admin_key(key.key_id)
+    _require(
+        unsigned.describe_endpoint().admin_access == "open",
+        "Final removal did not reopen plugin administration",
+    )
 
 
 def _event(source_id: str) -> dict[str, object]:
@@ -255,7 +471,8 @@ def _require(condition: bool, message: str) -> None:
 def _ready(base_url: str) -> bool:
     """Read normal headless readiness from the actual gateway."""
 
-    return _request(base_url, "/v1/control/headless/state")[1].get("can_accept_prompt_now") is True
+    _, state = _request(base_url, "/v1/control/headless/state", client=_ADMIN_CLIENTS.get(base_url))
+    return state.get("can_accept_prompt_now") is True
 
 
 def _attach_running(controller: Any) -> str:
@@ -265,6 +482,7 @@ def _attach_running(controller: Any) -> str:
     _require(attached.status == "ok", "Normal gateway restart failed")
     status = controller.gateway_status()
     base_url = f"http://{status.gateway_host}:{status.gateway_port}"
+    _bind_self(base_url, controller)
     _wait(
         lambda: (
             _request(base_url, "/v1/plugins/notifications/_status")[1].get("lifecycle") == "running"
@@ -303,11 +521,14 @@ def _drop_success_reply(base_url: str, cursor: Path, count_file: Path) -> None:
     listener = urlsplit(base_url)
     connection = http.client.HTTPConnection(listener.hostname, listener.port, timeout=25)
     try:
+        request = _prepare_request(
+            base_url, "/v1/plugins/notifications/notify", _event("lost-reply")
+        )
         connection.request(
-            "POST",
-            "/v1/plugins/notifications/notify",
-            body=json.dumps(_event("lost-reply")),
-            headers={"Content-Type": "application/json"},
+            request.get_method(),
+            urlsplit(request.full_url).path,
+            body=request.data,
+            headers=dict(request.header_items()),
         )
         _wait(
             lambda: (
@@ -528,6 +749,7 @@ def _installed_run(source_root: Path, work_root: Path) -> dict[str, object]:
             _require(attach.status == "ok", "Normal gateway attach failed")
             status = controller.gateway_status()
             base_url = f"http://{status.gateway_host}:{status.gateway_port}"
+            _bind_self(base_url, controller)
             _wait(
                 lambda: (
                     _request(base_url, "/v1/plugins/notifications/_status")[1].get("lifecycle")
@@ -541,6 +763,13 @@ def _installed_run(source_root: Path, work_root: Path) -> dict[str, object]:
             _require(
                 owner["account"] == "shared-fixture-account",
                 "An instance selected another service account",
+            )
+            _verify_plugin_access(
+                base_url,
+                root=root,
+                private_paths=("/v1/plugins/notifications/owner",),
+                admin_path="/v1/plugins/notifications/refresh-credentials",
+                admin_payload={},
             )
             _run(
                 [
@@ -719,25 +948,25 @@ def _installed_run(source_root: Path, work_root: Path) -> dict[str, object]:
                     lambda: (root / "paused").exists(),
                     "Native execution did not reach the controlled handoff barrier",
                 )
-                if mode == "detached_process":
-                    manifest_path = controller.manifest_path
-                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                    manifest["registry_generation_id"] = uuid.uuid4().hex
-                    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-                else:
-                    subprocess.run(
-                        [
-                            os.environ["HOUMAO_PLUGIN_FIXTURE_REAL_TMUX"],
-                            "kill-window",
-                            "-t",
-                            f"{controller.tmux_session_name}:0",
-                        ],
-                        check=True,
-                        capture_output=True,
-                        text=True,
-                    )
-                (root / "released").touch()
-                lost = pending.result(timeout=10)
+                manifest_path = controller.manifest_path
+                original = manifest_path.read_text(encoding="utf-8")
+                try:
+                    if mode == "detached_process":
+                        manifest = json.loads(original)
+                        manifest["registry_generation_id"] = uuid.uuid4().hex
+                        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+                    else:
+                        subprocess.run(
+                            _tmux_command("kill-window", "-t", f"{controller.tmux_session_name}:0"),
+                            check=True,
+                            capture_output=True,
+                            text=True,
+                        )
+                    (root / "released").touch()
+                    lost = pending.result(timeout=10)
+                finally:
+                    if mode == "detached_process":
+                        manifest_path.write_text(original, encoding="utf-8")
             _require(lost[0] == 503, "Replacement during handoff did not fail the original request")
             time.sleep(0.4)
             _require(
@@ -750,6 +979,8 @@ def _installed_run(source_root: Path, work_root: Path) -> dict[str, object]:
                     "result": "passed",
                     "healthy_route": True,
                     "operator_access": True,
+                    "open_and_key_required_controls": True,
+                    "verified_private_callers": True,
                     "cursor_continuity": True,
                     "gateway_process_loss": True,
                     "gateway_restart_no_replay": True,
@@ -769,12 +1000,7 @@ def _installed_run(source_root: Path, work_root: Path) -> dict[str, object]:
             stopped = controller.stop(force_cleanup=True)
             _require(stopped.status == "ok", "Qualification could not stop its runtime session")
             remaining = subprocess.run(
-                [
-                    os.environ["HOUMAO_PLUGIN_FIXTURE_REAL_TMUX"],
-                    "has-session",
-                    "-t",
-                    str(controller.tmux_session_name),
-                ],
+                _tmux_command("has-session", "-t", str(controller.tmux_session_name)),
                 capture_output=True,
                 text=True,
                 check=False,
