@@ -5,7 +5,7 @@ description = "Owner-bound CCCC chat and deferred Mail integration for Houmao ga
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
-dependencies = ["houmao>=2.4,<3", "httpx>=0.28,<0.29"]
+dependencies = ["houmao>=3.0.0rc1,<4", "httpx>=0.28,<0.29"]
 
 [project.entry-points."houmao.gateway_plugins"]
 cccc = "houmao_cccc:definition"

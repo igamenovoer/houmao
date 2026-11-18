@@ -4,6 +4,27 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [3.0.0rc1] - 2026-11-18
+
+### Changed
+
+- **Authenticated gateway access.** Private routes require signed proof from the current managed session or an enrolled admin, including on loopback. Admin routes require enrolled admin proof once the roster contains a key. A reachable gateway with an empty admin roster still permits anonymous admin operations. Provision admin keys before exposing a listener and configure remote clients to verify HTTPS. Public notifications and enabled public prompts accept one-way submissions.
+- **Explicit mailbox bindings.** Offline registry and online Stalwart bindings are managed independently. Gateway mailbox callers select a channel and supply the current binding ID. Listing returns metadata, with message bodies retrieved through the read operation. Stalwart synchronization uses bounded metadata pagination.
+- **Execution owner metadata.** Managed runtime manifests use schema v5 and registry records use schema v4. Stop existing sessions with the previous version, retain their runtime data for reference, and launch fresh sessions with 3.0 before using the new owner routing and gateway access features.
+
+### Added
+
+- **Owner-aware launch and control.** Execution profiles route supported lifecycle, inspection, and gateway operations to the account or context that owns the session through sudo, SSH, or Docker exec.
+- **DSH backends.** Managed launch supports headless DSH over ACP and interactive DSH through its web interface.
+- **Native-home inspection and refresh.** Operators can inspect a managed agent's native home and refresh supported state without restarting its session.
+- **Durable usage records.** Finalized usage records are available through the runtime and the gateway.
+- **Gateway plugins and CCCC.** A supported Python SDK lets plugins declare routes and capabilities. The optional `houmao-cccc` distribution adds CCCC chat and deferred mail for managed agents.
+
+### Notes
+
+- Install the candidate explicitly with `python -m pip install houmao==3.0.0rc1`. Use `npx skills add https://github.com/igamenovoer/houmao-skills#v3.0.0rc1` for the matching public skills.
+- See the [Gateway Access Guide](https://igamenovoer.github.io/houmao/reference/gateway/operations/access/) for enrollment and deployment, and the [release comparison](https://github.com/igamenovoer/houmao/compare/v2.4.0...v3.0.0rc1) for the full change range.
+
 ## [2.4.0] - 2026-10-22
 
 ### Added

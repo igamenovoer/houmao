@@ -3,7 +3,7 @@ name = "houmao-example-notifications"
 version = "0.1.0"
 description = "An independently installed owner-bound Houmao gateway plugin"
 requires-python = ">=3.11"
-dependencies = ["houmao>=2.4,<3"]
+dependencies = ["houmao>=3.0.0rc1,<4"]
 
 [project.entry-points."houmao.gateway_plugins"]
 example-notifications = "houmao_example_plugin:definition"
