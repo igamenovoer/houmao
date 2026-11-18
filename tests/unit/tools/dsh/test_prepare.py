@@ -136,15 +136,19 @@ def test_runtime_inventory_is_isolated_and_detects_code_changes(
     assert "synthetic-private-value" not in json.dumps(first)
 
 
-def test_runtime_version_mismatch_is_explicit(
+def test_runtime_version_floor_rejects_older_and_non_rc_prereleases(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Do not qualify an older executable from a matching tool name alone."""
+    """Reject versions below the floor or alpha/dev prereleases while allowing newer releases."""
 
     module = _module()
     source = _source(tmp_path, module, monkeypatch)
-    with pytest.raises(ValueError, match="differs from pinned source"):
-        module.inspect_runtime(source, _runtime(tmp_path, version="0.9.0"))
+    with pytest.raises(ValueError, match="does not satisfy >=0.2.2rc1"):
+        module.inspect_runtime(source, _runtime(tmp_path / "old", version="0.2.1"))
+    with pytest.raises(ValueError, match="does not satisfy >=0.2.2rc1"):
+        module.inspect_runtime(source, _runtime(tmp_path / "alpha", version="0.2.2-alpha.3"))
+    newer = module.inspect_runtime(source, _runtime(tmp_path / "newer", version="2.0.0"))
+    assert newer["reported_version"] == "2.0.0"
 
 
 def test_foreign_runtime_directory_is_not_modified(

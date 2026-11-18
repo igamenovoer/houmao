@@ -1,12 +1,12 @@
 schema_version: 1
 tool: dsh
 strategies:
-  - strategy_id: dsh-acp-unattended-0.2.2-rc.3
+  - strategy_id: dsh-acp-unattended-0.2.2-plus
     operator_prompt_mode: unattended
     backends:
       - dsh_acp
       - raw_launch
-    supported_versions: "==0.2.2rc3"
+    supported_versions: ">=0.2.2rc1"
     minimal_inputs:
       credential_forms:
         - Explicit API key and endpoint references selected by dsh-setup.yaml
@@ -41,11 +41,11 @@ strategies:
           - isolated persistence and selected skill roots
           - startup permissions and disabled autonomous root work
     actions: []
-  - strategy_id: dsh-web-unattended-0.2.2-rc.3
+  - strategy_id: dsh-web-unattended-0.2.2-plus
     operator_prompt_mode: unattended
     backends:
       - dsh_web
-    supported_versions: "==0.2.2rc3"
+    supported_versions: ">=0.2.2rc1"
     minimal_inputs:
       credential_forms:
         - Explicit API key and endpoint references selected by dsh-setup.yaml

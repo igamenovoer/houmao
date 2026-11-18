@@ -2,6 +2,7 @@
 
 from houmao.agents.launch_policy.engine import apply_launch_policy, detect_tool_version
 from houmao.agents.launch_policy.models import (
+    DSH_SUPPORTED_VERSIONS,
     LaunchPolicyError,
     LaunchPolicyProvenance,
     LaunchPolicyRequest,
@@ -9,9 +10,11 @@ from houmao.agents.launch_policy.models import (
     LaunchPolicyStrategy,
     NativeSystemPromptContract,
     OperatorPromptMode,
+    is_supported_dsh_version,
 )
 
 __all__ = [
+    "DSH_SUPPORTED_VERSIONS",
     "LaunchPolicyError",
     "LaunchPolicyProvenance",
     "LaunchPolicyRequest",
@@ -21,4 +24,5 @@ __all__ = [
     "OperatorPromptMode",
     "apply_launch_policy",
     "detect_tool_version",
+    "is_supported_dsh_version",
 ]

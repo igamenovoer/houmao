@@ -109,7 +109,7 @@ class SupportedVersionSpec:
         return cls(raw=value)
 
     def contains(self, version: ToolVersion) -> bool:
-        """Return whether one tool version matches the declaration."""
+        """Return whether one tool version matches the declaration (release or rc only)."""
 
         try:
             parsed_version = Version(version.raw)
@@ -117,12 +117,30 @@ class SupportedVersionSpec:
             raise LaunchPolicyError(
                 f"Could not convert tool version `{version.raw}` into a dependency-style version."
             ) from exc
-        return parsed_version in self._specifier_set
+        if parsed_version.is_devrelease:
+            return False
+        if parsed_version.pre is not None and parsed_version.pre[0] != "rc":
+            return False
+        return self._specifier_set.contains(parsed_version, prereleases=True)
 
     def to_payload(self) -> str:
         """Return a JSON-serializable payload."""
 
         return self.raw
+
+
+DSH_SUPPORTED_VERSIONS = ">=0.2.2rc1"
+
+
+def is_supported_dsh_version(value: str | None) -> bool:
+    """Return whether one reported DSH version satisfies the lower-bounded release/rc floor."""
+
+    if not isinstance(value, str) or not value.strip():
+        return False
+    try:
+        return SupportedVersionSpec.parse(DSH_SUPPORTED_VERSIONS).contains(ToolVersion.parse(value))
+    except LaunchPolicyError:
+        return False
 
 
 @dataclass(frozen=True)

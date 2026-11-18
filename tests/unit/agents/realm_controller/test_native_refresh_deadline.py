@@ -272,7 +272,7 @@ def test_service_reobservation_cannot_retarget_captured_native_home(
     mutate.assert_not_called()
 
 
-@pytest.mark.parametrize("selected", ["0.2.2-rc.3", "0.2.2-rc.1", None])
+@pytest.mark.parametrize("selected", ["0.2.2", "0.2.2-rc.1", "0.2.2-alpha.3", None])
 def test_headless_automatic_observation_rechecks_authority_after_version_probe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, selected: str | None
 ) -> None:

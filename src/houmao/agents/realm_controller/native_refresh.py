@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from houmao.execution.context import execution_binding_scope, validate_execution_owner
 from houmao.execution.tmux import tmux_server_scope
+from houmao.agents.launch_policy import is_supported_dsh_version
 from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
 
 from houmao.agents.realm_controller.errors import GatewayError
@@ -333,7 +334,7 @@ def observe_common_plugins(controller: RuntimeSessionController) -> CommonPlugin
         except (OSError, subprocess.SubprocessError):
             selected = None
         observation.native_version = selected
-        if selected == "0.2.2-rc.3":
+        if is_supported_dsh_version(selected):
             observation.automatic = True
             observation.resources = [
                 CommonPluginResourceV1(

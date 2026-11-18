@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import Any, Self
 
+from houmao.agents.launch_policy import is_supported_dsh_version
 from houmao.agents.realm_controller.usage_adapters.claude import parse_claude
 from houmao.agents.realm_controller.usage_adapters.codex import parse_codex
 from houmao.agents.realm_controller.usage_adapters.common import (
@@ -26,7 +27,6 @@ _QUALIFIED_VERSIONS = {
     "claude": {"2.1.323"},
     "codex": {"0.167.2"},
     "kimi": {"2.6.0"},
-    "dsh": {"0.2.2-rc.3"},
 }
 
 
@@ -146,7 +146,10 @@ class UsageAdapter:
             self.m_state.previous_totals.clear()
             self.m_state.previous_total_source_ids.clear()
         self.m_state.provider_version = version
-        self.m_state.qualified_version = version in _QUALIFIED_VERSIONS[self.m_state.provider]
+        if self.m_state.provider == "dsh":
+            self.m_state.qualified_version = is_supported_dsh_version(version)
+        else:
+            self.m_state.qualified_version = version in _QUALIFIED_VERSIONS[self.m_state.provider]
 
 
 def parse_usage_payload(

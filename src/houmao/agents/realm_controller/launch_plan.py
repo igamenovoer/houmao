@@ -20,7 +20,11 @@ from houmao.agents.kimi_workspace_trust import (
     KimiWorkspaceTrustError,
     ensure_kimi_workspace_trust,
 )
-from houmao.agents.launch_policy import apply_launch_policy, detect_tool_version
+from houmao.agents.launch_policy import (
+    apply_launch_policy,
+    detect_tool_version,
+    is_supported_dsh_version,
+)
 from houmao.agents.launch_policy.models import (
     LaunchPolicyApplicationKind,
     LaunchPolicyCompatibilityError,
@@ -389,8 +393,11 @@ def _prepare_dsh_launch(
     """Project DSH at explicit provider start and keep control restoration read-only."""
 
     version = detected_version or detect_tool_version(executable=executable).raw
-    if not SupportedVersionSpec.parse("==0.2.2rc3").contains(ToolVersion.parse(version)):
-        raise LaunchPlanError("DSH requires the qualified 0.2.2-rc.3 executable build.")
+    if not is_supported_dsh_version(version):
+        raise LaunchPlanError(
+            "DSH requires version >=0.2.2-rc.1 with no upper version limit (release or rc only; "
+            f"detected {version!r})."
+        )
     setup_path = home_path / "dsh-setup.yaml"
     try:
         setup = DshSetup.from_file(setup_path)

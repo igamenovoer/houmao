@@ -375,13 +375,25 @@ def test_dsh_launch_plan_rejects_an_incompatible_backend(tmp_path: Path, backend
         )
 
 
-def test_dsh_prerelease_version_is_qualified_exactly() -> None:
-    """Do not strip a prerelease suffix into a falsely qualified stable version."""
+def test_dsh_version_floor_is_lower_bounded_for_release_and_rc_only() -> None:
+    """Accept lower-bounded release and rc builds without an upper cap; reject alpha/beta/dev."""
 
-    spec = SupportedVersionSpec.parse("==0.2.2rc3")
-    assert spec.contains(ToolVersion.parse("0.2.2-rc.3"))
-    assert not spec.contains(ToolVersion.parse("0.2.2-rc.1"))
-    assert not spec.contains(ToolVersion.parse("0.2.2"))
+    from houmao.agents.launch_policy import DSH_SUPPORTED_VERSIONS, is_supported_dsh_version
+
+    spec = SupportedVersionSpec.parse(DSH_SUPPORTED_VERSIONS)
+    for supported in ("0.2.2-rc.1", "0.2.2-rc.3", "0.2.2", "0.2.3-rc.1", "0.2.3", "1.0.0"):
+        assert spec.contains(ToolVersion.parse(supported)), supported
+        assert is_supported_dsh_version(supported), supported
+    for unsupported in (
+        "0.2.1",
+        "0.2.1-rc.5",
+        "0.2.2-alpha.3",
+        "0.2.2-beta.1",
+        "0.2.2.dev1",
+        "0.2.3-alpha.1",
+    ):
+        assert not spec.contains(ToolVersion.parse(unsupported)), unsupported
+        assert not is_supported_dsh_version(unsupported), unsupported
 
 
 @pytest.mark.parametrize(

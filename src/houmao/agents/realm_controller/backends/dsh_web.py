@@ -19,6 +19,7 @@ from typing import Any, cast
 from uuid import uuid4
 
 from houmao.agents.dsh_configuration import DshSetup, prepare_dsh_home
+from houmao.agents.launch_policy import is_supported_dsh_version
 from houmao.agents.model_mapping_policy import resolve_reasoning_mapping
 from houmao.agents.model_selection import ModelConfig
 from houmao.agents.realm_controller.backends.dispatch_control import (
@@ -334,8 +335,10 @@ class DshWebSession:
             check=True,
             timeout=15,
         ).stdout.strip()
-        if version != "0.2.2-rc.3":
-            raise BackendExecutionError("DSH Web requires the qualified 0.2.2-rc.3 executable")
+        if not is_supported_dsh_version(version):
+            raise BackendExecutionError(
+                f"DSH Web requires version >=0.2.2-rc.1 (release or rc only; detected {version!r})"
+            )
         root = self.plan.home_path / "houmao-web" / uuid4().hex
         root.mkdir(parents=True, mode=0o700)
         bootstrap = root / "bootstrap.json"
@@ -358,6 +361,7 @@ class DshWebSession:
                 "roleFile": str(prepared.role_path),
                 "provider": prepared.provider,
                 "model": prepared.model,
+                "native_version": version,
             },
         )
         patch = [

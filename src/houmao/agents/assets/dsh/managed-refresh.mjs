@@ -58,6 +58,14 @@ export function createCommonRefresh(ctx, callbacks) {
   const connected = new Map();
   const liveFibers = new Set();
   const nativeRequire = createRequire(process.argv[1]);
+  const resolveVersion = () => {
+    if (typeof callbacks.nativeVersion === 'string' && callbacks.nativeVersion) return callbacks.nativeVersion;
+    try {
+      return JSON.parse(readFileSync(nativeRequire.resolve('@deepseek-ai/dsh/package.json'), 'utf8')).version ?? null;
+    } catch {
+      return null;
+    }
+  };
   const native = name => import(pathToFileURL(nativeRequire.resolve(`@deepseek-ai/${name}`)).href);
   const api = () => imports ??= Promise.all([native('dsh-app-boot'), native('cordis-plugin-include'), native('dsh-skill-filesystem'), native('dsh-scope'), native('cordis'), native('dsh-skill-office'), native('dsh-tool-skill')]);
   ctx.on('internal/plugin', fiber => { if (fiber.uid === null) liveFibers.delete(fiber); else liveFibers.add(fiber); }, {global: true});
@@ -249,7 +257,7 @@ export function createCommonRefresh(ctx, callbacks) {
     if (resources.length) resources[0].evidence = [...resources[0].evidence, 'refresh_configuration_and_resources_only', 'hot_code_hmr_not_supported'];
     const complete = required.every(value => value.complete);
     const freshness = required.some(value => value.freshness === 'pending') ? 'pending' : complete && required.every(value => value.freshness === 'current') ? 'current' : 'unknown';
-    return {schema_version: 1, protocol_version: 1, identity: captured, observed_at_utc: new Date().toISOString(), native_version: '0.2.2-rc.3', profile: 'web', coverage_complete: complete, freshness, resources, native_reload: true, native_settled: !operation || operation.settled, native_ready: callbacks.live() && (!operation || operation.ready), effects: operation?.effects ?? 'absent'};
+    return {schema_version: 1, protocol_version: 1, identity: captured, observed_at_utc: new Date().toISOString(), native_version: resolveVersion(), profile: 'web', coverage_complete: complete, freshness, resources, native_reload: true, native_settled: !operation || operation.settled, native_ready: callbacks.live() && (!operation || operation.ready), effects: operation?.effects ?? 'absent'};
   };
 
   /** Refuse a new managed mutation after the original operation deadline. */

@@ -14,6 +14,8 @@ from typing import Any
 
 import pytest
 
+from houmao.agents.launch_policy import is_supported_dsh_version
+
 
 @pytest.fixture
 def isolated_tmux(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
@@ -55,16 +57,16 @@ def isolated_tmux(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[P
 
 @pytest.fixture
 def dsh_executable() -> Path:
-    """Require explicit opt-in and the pinned native package version."""
+    """Require explicit opt-in and a supported native DSH release/rc version."""
 
     configured = os.environ.get("HOUMAO_DSH_EXECUTABLE")
     if configured is None:
-        pytest.skip("Set HOUMAO_DSH_EXECUTABLE to the qualified DSH rc.3 executable")
+        pytest.skip("Set HOUMAO_DSH_EXECUTABLE to a supported DSH >=0.2.2-rc.1 executable")
     executable = Path(configured).resolve()
     version = subprocess.run(
         [str(executable), "--version"], check=True, capture_output=True, text=True
     ).stdout.strip()
-    assert version == "0.2.2-rc.3", f"unqualified native DSH version: {version}"
+    assert is_supported_dsh_version(version), f"unsupported native DSH version: {version}"
     return executable
 
 

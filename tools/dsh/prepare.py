@@ -16,11 +16,29 @@ import subprocess
 import tempfile
 from typing import Any
 
+from packaging.specifiers import SpecifierSet
+from packaging.version import InvalidVersion, Version
+
 
 PROJECT = Path(__file__).resolve().parents[2]
 SOURCE_REVISION = "39163dd30f703a79079e2d2446545cff3c453738"
 SOURCE_URL = "https://github.com/deepseek-ai/deepseek-harness.git"
 PREPARATION_OWNER = "houmao-dsh-development-v1"
+SUPPORTED_VERSION_SPEC = ">=0.2.2rc1"
+
+
+def _is_supported_dsh_version(raw: object) -> bool:
+    """Return whether a version string meets the lower-bounded release/rc floor."""
+
+    if not isinstance(raw, str) or not raw.strip():
+        return False
+    try:
+        parsed = Version(raw.strip())
+    except InvalidVersion:
+        return False
+    if parsed.is_devrelease or (parsed.pre is not None and parsed.pre[0] != "rc"):
+        return False
+    return SpecifierSet(SUPPORTED_VERSION_SPEC).contains(parsed, prereleases=True)
 
 
 def _development_output(path: Path, permitted: Path) -> Path:
@@ -102,10 +120,11 @@ def inspect_runtime(source: Path, executable: Path) -> dict[str, Any]:
     executable = executable.expanduser().resolve(strict=True)
     package_root = _package_root(executable)
     package = json.loads((package_root / "package.json").read_text())
-    if package.get("version") != reference["version"]:
+    package_version = package.get("version")
+    if not _is_supported_dsh_version(package_version):
         raise ValueError(
-            f"Installed DSH {package.get('version')} differs from pinned source "
-            f"{reference['version']}; select an isolated matching runtime"
+            f"Installed DSH {package_version} does not satisfy {SUPPORTED_VERSION_SPEC} "
+            "(release or rc only; alpha/beta/dev unsupported)"
         )
     with tempfile.TemporaryDirectory(prefix="houmao-dsh-version-") as temporary:
         private = Path(temporary)
@@ -123,7 +142,7 @@ def inspect_runtime(source: Path, executable: Path) -> dict[str, Any]:
             check=True,
             timeout=30,
         ).stdout.strip()
-    if version != reference["version"]:
+    if version != package_version:
         raise ValueError("DSH executable version differs from its package metadata")
     inventory: list[dict[str, str]] = []
     digest = hashlib.sha256()
