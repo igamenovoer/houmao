@@ -11,12 +11,12 @@ houmao-mgr internals native-agent tools <tool> get
 houmao-mgr internals native-agent tools <tool> setups <verb>
 ```
 
-At minimum, `internals native-agent tools` SHALL expose Houmao-owned tool families for:
+At minimum, `internals native-agent tools` and `project agents tools` SHALL expose Houmao-owned tool families for:
 
 - `claude`
 - `codex`
-- `gemini`
 - `kimi`
+- `dsh`
 
 At minimum, each supported tool family SHALL expose:
 
@@ -41,6 +41,10 @@ This subtree SHALL NOT own credential CRUD, which SHALL route through `houmao-mg
 - **WHEN** an operator runs `houmao-mgr internals native-agent tools kimi --help`
 - **THEN** the help output presents `get` and `setups`
 - **AND THEN** those commands are described as operations on `.houmao/agents/tools/kimi/`
+
+#### Scenario: Operator inspects and clones DSH setups
+- **WHEN** an operator runs `houmao-mgr project agents tools dsh setups list` or `setups add --name custom --from default`
+- **THEN** the command lists or clones project-local DSH setup bundles under `.houmao/agents/tools/dsh/setups/`
 
 ### Requirement: Starter Kimi adapter defines managed home, launch, skills, and auth projection
 The starter agent definition SHALL include a Kimi tool adapter and default setup bundle suitable for managed headless launches.
@@ -109,3 +113,12 @@ The starter adapter SHALL remove obsolete `KIMI_MODEL_DEFAULT_THINKING` and `KIM
 #### Scenario: Obsolete Kimi thinking variables are not advertised
 - **WHEN** a maintainer inspects the starter Kimi adapter
 - **THEN** it does not list `KIMI_MODEL_DEFAULT_THINKING` or `KIMI_MODEL_THINKING_MODE`
+
+### Requirement: Tool setup bundles support optional per-tool parameter seed files
+
+A setup directory under `tools/<tool>/setups/<name>/` MAY include an optional `tool-params.yaml` file containing secret-free partial `tool_params` for `<tool>`. During brain construction, `<setup>/tool-params.yaml` SHALL be validated against `<tool>`'s partial schema, applied above `adapter.yaml` `launch.default_tool_params` and below specialist or preset `tool_params`, and excluded from raw native setup file copying into the runtime home.
+
+#### Scenario: Setup tool-params.yaml seeds defaults without copying Houmao metadata as a native tool file
+- **WHEN** `tools/dsh/setups/openai-compatible/tool-params.yaml` defines baseline DSH `provider` settings and a specialist supplies `tool_params.models`
+- **THEN** brain construction merges the setup `provider` defaults with the specialist `models` catalog
+- **AND THEN** `tool-params.yaml` is consumed by Houmao's tool-params pipeline rather than copied verbatim as an unvalidated native config file
