@@ -18,6 +18,7 @@ from houmao.ag_ui.mapper import AgUiEventMapper
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import mailboxes_resolved_config_from_payload
 from houmao.agents.realm_controller.backends.dsh_web import DshWebSession, DshWebSessionState
+from houmao.agents.realm_controller.gateway_access_runtime import save_gateway_deployment
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAttachBackendMetadataWebV1,
     GatewayMailNotifierPutV1,
@@ -33,9 +34,12 @@ from houmao.agents.realm_controller.registry_storage import load_managed_agent_r
 from houmao.agents.realm_controller.runtime import RuntimeSessionController
 from houmao.agents.realm_controller.models import RelaunchChatSessionSelection
 from houmao.gateway.plugins import PluginEvent
+from houmao.gateway.deployment import GatewayDeployment
 from houmao.passive_server.discovery import DiscoveredAgent, _summary_from_record
 from houmao.passive_server.web_observation import AgentWebObserver
 from tests.integration.agents.dsh.test_managed_acp import _launch_plan
+from tests.integration.agents.dsh.test_gateway_passive import bind_fixture_gateway_owner
+from tests.fixtures.gateway_access import FixtureProofAuth, self_fixture_auth
 from tests.unit.agents.realm_controller.test_gateway_support import _deliver_unread_mailbox_message
 from tests.unit.gateway_plugins.test_cccc_plugin import harness, offer
 
@@ -45,6 +49,7 @@ def _runtime(
     executable: Path,
     endpoint: str,
     monkeypatch: pytest.MonkeyPatch,
+    tmux_socket: Path,
     *,
     agent_id: str = "owner1",
     session_name: str = "HOUMAO-web-integration",
@@ -54,6 +59,13 @@ def _runtime(
     monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(root / "registry"))
     plan, provisional = _launch_plan(root, executable, endpoint)
     provisional.unlink()
+    plan = bind_fixture_gateway_owner(
+        plan,
+        root=root,
+        tmux_socket=tmux_socket,
+        agent_id=agent_id,
+        generation="web-integration-generation",
+    )
     plan = replace(
         plan,
         backend="dsh_web",
@@ -80,7 +92,9 @@ def _runtime(
         tmux_session_name=name,
     )
 
-    def controller_for(selected: DshWebSession, selected_plan=plan) -> RuntimeSessionController:
+    def controller_for(
+        selected: DshWebSession, selected_plan=plan, generation: str = "web-integration-generation"
+    ) -> RuntimeSessionController:
         """Use the actual semantic controller and its manifest-preserving Web helper."""
 
         return RuntimeSessionController(
@@ -93,7 +107,7 @@ def _runtime(
             agent_identity=name,
             agent_id=agent_id,
             tmux_session_name=name,
-            registry_generation_id="web-integration-generation",
+            registry_generation_id=generation,
         )
 
     controller = controller_for(backend)
@@ -106,8 +120,18 @@ def _runtime(
         current = parse_session_manifest_payload(
             load_session_manifest(manifest).payload, source=str(manifest)
         )
+        generation = current.registry_generation_id
+        assert generation is not None
         current_plan = replace(
             plan,
+            metadata={
+                **plan.metadata,
+                "managed_web_identity": {
+                    "agent_id": agent_id,
+                    "runtime_session_id": "runtime1",
+                    "generation": generation,
+                },
+            },
             mailboxes=mailboxes_resolved_config_from_payload(
                 current.launch_plan.mailboxes.model_dump(mode="json"),
                 manifest_path=manifest,
@@ -120,7 +144,7 @@ def _runtime(
             state=DshWebSessionState.from_payload(current.backend_state),
             provider_start=False,
         )
-        return controller_for(restored, current_plan)
+        return controller_for(restored, current_plan, generation)
 
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.resume_runtime_session", reconstruct
@@ -164,11 +188,13 @@ def test_owned_web_gateway_plugin_and_public_requests_share_native_state_without
 
     assert isolated_tmux.is_absolute()
     endpoint, requests = controlled_messages_server
-    runtime, backend = _runtime(tmp_path, dsh_executable, endpoint, monkeypatch)
+    runtime, backend = _runtime(tmp_path, dsh_executable, endpoint, monkeypatch, isolated_tmux)
     native_id = backend.state.web_identity["native_session_id"]
+    assert runtime.m_manifest_path is not None
+    save_gateway_deployment(runtime.m_manifest_path, GatewayDeployment(public_input_enabled=True))
     runtime.start()
     try:
-        client = TestClient(create_app(runtime=runtime))
+        client = TestClient(create_app(runtime=runtime), base_url=runtime.owner_connect_url)
         assert (
             client.get("/v1/control/web/state").json()["identity"]["native_session_id"] == native_id
         )
@@ -229,6 +255,16 @@ def test_owned_web_gateway_plugin_and_public_requests_share_native_state_without
             observer.close()
         assert runtime.m_manifest_path.read_bytes() == manifest_before_observation
         assert client.get("/v1/control/web/history").status_code == 200
+        handoff = client.post(
+            "/v1/public/prompt",
+            json={"source_event_id": "web-public", "prompt": "public Web contact"},
+        )
+        assert handoff.json() == {"disposition": "dispatched", "source_event_id": "web-public"}
+        _wait(runtime)
+        assert len(requests) == 3
+        assert "This request came through the public gateway" in json.dumps(requests[-1])
+        with sqlite3.connect(runtime.m_paths.queue_path) as connection:
+            assert connection.execute("SELECT COUNT(*) FROM gateway_requests").fetchone()[0] == 1
         public = runtime.status().model_dump_json() + runtime.get_web_history().model_dump_json()
         assert "ordinary Web public request" not in public
         assert "launch_token" not in public and "parsed_surface" not in public
@@ -247,7 +283,7 @@ def test_owned_web_exact_relaunch_atomically_hands_registry_and_gateway_to_new_g
 
     assert isolated_tmux.is_absolute()
     endpoint, requests = controlled_messages_server
-    runtime, backend = _runtime(tmp_path, dsh_executable, endpoint, monkeypatch)
+    runtime, backend = _runtime(tmp_path, dsh_executable, endpoint, monkeypatch, isolated_tmux)
     runtime.start()
     controller = runtime.m_adapter._resume_controller()
     selected_backend = controller.backend_session
@@ -261,6 +297,9 @@ def test_owned_web_exact_relaunch_atomically_hands_registry_and_gateway_to_new_g
         lambda **kwargs: kwargs["launch_plan"],
     )
     try:
+        client = TestClient(create_app(runtime=runtime), base_url=runtime.owner_connect_url)
+        stale_self = self_fixture_auth(runtime)
+        assert client.get("/v1/status", auth=stale_self).status_code == 200
         original = dict(backend.state.web_identity)
         runtime.create_request(
             GatewayRequestCreateV1(
@@ -283,6 +322,11 @@ def test_owned_web_exact_relaunch_atomically_hands_registry_and_gateway_to_new_g
         assert changed.identity.generation != original["generation"]
         assert record.generation_id == changed.identity.generation
         assert runtime.status().request_admission == "open"
+        current = runtime._current_access()
+        assert client.get("/v1/endpoint").json()["target"]["incarnation"] == record.generation_id
+        assert client.get("/v1/status", auth=stale_self).status_code == 401
+        fresh_self = FixtureProofAuth(current.store.self_signer_path(current.target.incarnation))
+        assert client.get("/v1/status", auth=fresh_self).status_code == 200
         runtime.create_request(
             GatewayRequestCreateV1(
                 kind="submit_prompt", payload={"prompt": "after gateway relaunch"}
@@ -306,7 +350,7 @@ def test_owned_web_cccc_offer_uses_the_same_owner_bound_native_conversation(
 
     assert isolated_tmux.is_absolute()
     endpoint, requests = controlled_messages_server
-    runtime, backend = _runtime(tmp_path, dsh_executable, endpoint, monkeypatch)
+    runtime, backend = _runtime(tmp_path, dsh_executable, endpoint, monkeypatch, isolated_tmux)
     native_id = backend.state.web_identity["native_session_id"]
     monkeypatch.syspath_prepend(
         str(Path(__file__).resolve().parents[5] / "packages/houmao-cccc/src")
@@ -367,7 +411,7 @@ def test_owned_web_mailbox_reminders_repeat_without_executable_gateway_queue_or_
 
     assert isolated_tmux.is_absolute()
     endpoint, requests = controlled_messages_server
-    runtime, backend = _runtime(tmp_path, dsh_executable, endpoint, monkeypatch)
+    runtime, backend = _runtime(tmp_path, dsh_executable, endpoint, monkeypatch, isolated_tmux)
     address = "controlled-web@agents.localhost"
     _deliver_unread_mailbox_message(
         tmp_path, recipient_principal_id="owner1", recipient_address=address

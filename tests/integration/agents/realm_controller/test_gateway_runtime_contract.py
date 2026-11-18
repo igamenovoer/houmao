@@ -14,6 +14,8 @@ from typing import Any, Callable, cast
 from urllib import request
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from houmao.agents.realm_controller import cli
 from houmao.agents.realm_controller.backends.headless_base import (
@@ -48,6 +50,7 @@ from houmao.mailbox.registry_config import associate_registry_store
 from houmao.mailbox.scope import MailScope
 from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
 from houmao.gateway.plugins import GatewayPluginConfiguration, PluginInstanceConfiguration
+from houmao.gateway.access import GatewayAdminKey, GatewayClientBinding, public_key_text
 from houmao.agents.realm_controller.runtime import start_runtime_session
 from houmao.agents.realm_controller.gateway_storage import load_gateway_desired_config
 
@@ -1300,12 +1303,29 @@ def test_gateway_http_mail_read_route_marks_message_read_through_live_gateway(
             ),
             recipient_address=str(start_payload["mailboxes"]["offline"]["binding"]["address"]),
         )
-        client = GatewayClient(
-            endpoint=GatewayEndpoint(
-                host="127.0.0.1",
-                port=int(attach_payload["gateway_port"]),
+        endpoint = f"http://127.0.0.1:{int(attach_payload['gateway_port'])}"
+        descriptor = GatewayClient(base_url=endpoint).describe_endpoint()
+        signer = Ed25519PrivateKey.generate()
+        signer_path = tmp_path / "gateway-mail-admin"
+        signer_path.touch(mode=0o600)
+        signer_path.write_bytes(
+            signer.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.OpenSSH,
+                serialization.NoEncryption(),
             )
         )
+        key = GatewayAdminKey(
+            principal="mail-fixture", public_key=public_key_text(signer.public_key())
+        )
+        binding = GatewayClientBinding(
+            base_url=endpoint,
+            owner=descriptor.target.owner,
+            purpose="register",
+            private_key_path=str(signer_path),
+        )
+        GatewayClient(binding=binding, registration_key=key).add_admin_key(key)
+        client = GatewayClient(binding=binding.model_copy(update={"purpose": "admin"}))
 
         state_response = client.read_mail(
             GatewayMailMessageRequestV1(

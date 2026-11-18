@@ -205,9 +205,8 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
         "pixi run houmao-mgr agents self mail resolve-live"
         not in visible_processing_skill.read_text(encoding="utf-8")
     )
-    assert (
-        "current prompt or recent mailbox context already provides the exact current gateway base URL"
-        in visible_gateway_skill.read_text(encoding="utf-8")
+    assert "Run `houmao-mgr agents self mail resolve-live`" in visible_gateway_skill.read_text(
+        encoding="utf-8"
     )
     assert not (build_result.home_path / "skills/.system/mailbox").exists()
     assert not (build_result.home_path / "skills/houmao-agent-email-comms").exists()

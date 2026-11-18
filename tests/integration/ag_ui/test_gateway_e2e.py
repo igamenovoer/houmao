@@ -20,6 +20,7 @@ from houmao.agents.realm_controller.backends.headless_output import (
     canonical_headless_event_artifact_path,
 )
 from houmao.agents.realm_controller.gateway_models import GatewayAttachContractV1
+from houmao.agents.realm_controller.gateway_access_runtime import provision_gateway_generation
 from houmao.agents.realm_controller.gateway_service import GatewayServiceRuntime, create_app
 from houmao.agents.realm_controller.gateway_storage import (
     GatewayCapabilityPublication,
@@ -36,6 +37,9 @@ from houmao.agents.realm_controller.models import (
     LaunchPlan,
     RoleInjectionPlan,
 )
+from houmao.execution.context import observed_local_binding
+from houmao.gateway.access import GatewayLaunchSeed
+from tests.fixtures.gateway_access import FixtureProofAuth, fixture_admin_key
 
 
 ArtifactFactory = Callable[[str, str], Sequence[CanonicalHeadlessEvent]]
@@ -176,6 +180,7 @@ def _start_gateway_harness(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     artifact_factory: ArtifactFactory,
+    admin_required: bool = False,
 ) -> _GatewayHarness:
     """Start a real gateway runtime and route surface with a fake headless adapter."""
 
@@ -193,15 +198,26 @@ def _start_gateway_harness(
         return adapter
 
     monkeypatch.setattr(gateway_service, "_build_gateway_execution_adapter", _build_fake_adapter)
-    manifest_path = _seed_gateway_manifest(tmp_path)
+    seed = GatewayLaunchSeed()
+    signer: Path | None = None
+    if admin_required:
+        key, signer = fixture_admin_key(tmp_path, "ag-ui-admin")
+        seed = GatewayLaunchSeed(admin_keys=(key,))
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_access_runtime.resolve_houmao_home_root",
+        lambda: tmp_path / "owner-home",
+    )
+    manifest_path = _seed_gateway_manifest(tmp_path, seed=seed)
     gateway_root = (manifest_path.parent / "gateway").resolve()
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
         host="127.0.0.1",
         port=43123,
     )
+    client = TestClient(create_app(runtime=runtime), base_url=runtime.owner_connect_url)
+    if signer is not None:
+        client.auth = FixtureProofAuth(signer, purpose="admin")
     runtime.start()
-    client = TestClient(create_app(runtime=runtime))
     return _GatewayHarness(
         client=client,
         runtime=runtime,
@@ -210,12 +226,14 @@ def _start_gateway_harness(
     )
 
 
-def _seed_gateway_manifest(tmp_path: Path) -> Path:
+def _seed_gateway_manifest(tmp_path: Path, *, seed: GatewayLaunchSeed) -> Path:
     """Create a runtime-owned headless manifest and gateway capability."""
 
     runtime_root = tmp_path / "runtime"
     session_id = "ag-ui-e2e-session"
     backend = "codex_headless"
+    agent_id = "ag-ui-e2e-agent"
+    generation = "ag-ui-e2e-generation"
     manifest_path = default_manifest_path(runtime_root, backend, session_id)
     agent_def_dir = tmp_path / "agent-def"
     agent_def_dir.mkdir(parents=True, exist_ok=True)
@@ -223,6 +241,15 @@ def _seed_gateway_manifest(tmp_path: Path) -> Path:
     brain_manifest_path.write_text("schema_version: 3\n", encoding="utf-8")
     home_path = tmp_path / "codex-home"
     home_path.mkdir(parents=True, exist_ok=True)
+    binding = observed_local_binding(
+        working_directory=tmp_path,
+        runtime_root=runtime_root,
+        registry_root=tmp_path / "registry",
+        tmux_socket=None,
+    )
+    provision_gateway_generation(
+        binding=binding, agent_id=agent_id, generation_id=generation, seed=seed
+    )
     launch_plan = LaunchPlan(
         backend=backend,
         tool="codex",
@@ -239,6 +266,7 @@ def _seed_gateway_manifest(tmp_path: Path) -> Path:
             prompt="AG-UI E2E role prompt",
         ),
         metadata={"headless_output_format": "jsonl"},
+        execution_binding=binding,
     )
     backend_state: dict[str, Any] = {
         "session_id": "provider-session-1",
@@ -255,6 +283,8 @@ def _seed_gateway_manifest(tmp_path: Path) -> Path:
             brain_manifest_path=brain_manifest_path,
             backend_state=backend_state,
             agent_name="ag-ui-e2e-agent",
+            agent_id=agent_id,
+            registry_generation_id=generation,
             tmux_session_name="HOUMAO-ag-ui-e2e",
             session_id=session_id,
             agent_def_dir=agent_def_dir,
@@ -431,9 +461,11 @@ def _request_payload_for_turn(*, gateway_root: Path, turn_id: str) -> dict[str, 
     return payload
 
 
+@pytest.mark.parametrize("admin_required", [False, True])
 def test_gateway_e2e_run_stream_preserves_run_id_and_lifecycle(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    admin_required: bool,
 ) -> None:
     """Assert `/v1/ag-ui/runs` exercises gateway queue, artifacts, and SSE."""
 
@@ -444,6 +476,7 @@ def test_gateway_e2e_run_stream_preserves_run_id_and_lifecycle(
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
         artifact_factory=_artifact_factory,
+        admin_required=admin_required,
     )
     try:
         other_run_id = "agui-other-run"
@@ -453,6 +486,12 @@ def test_gateway_e2e_run_stream_preserves_run_id_and_lifecycle(
             events=[_assistant_event(text="other run output must not leak")],
         )
 
+        if admin_required:
+            denied = harness.client.post(
+                "/v1/ag-ui/runs", json=_run_payload(run_id="unadmitted"), auth=None
+            )
+            assert denied.status_code == 401
+            assert harness.adapter.m_submitted_prompts == []
         response = harness.client.post(
             "/v1/ag-ui/runs",
             json=_run_payload(run_id="agui-smoke-run-1"),

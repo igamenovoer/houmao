@@ -17,6 +17,7 @@ import pytest
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.realm_controller.backends.dsh_acp import DshAcpSession
 from houmao.agents.realm_controller.errors import GatewayError
+from houmao.agents.realm_controller.gateway_access_runtime import provision_gateway_generation
 from houmao.agents.realm_controller.gateway_service import GatewayServiceRuntime
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAttachBackendMetadataHeadlessV1,
@@ -30,6 +31,9 @@ from houmao.agents.realm_controller.manifest import (
     write_session_manifest,
 )
 from houmao.agents.realm_controller.runtime import RuntimeSessionController
+from houmao.agents.realm_controller.models import LaunchPlan
+from houmao.execution.context import observed_local_binding
+from houmao.gateway.access import GatewayLaunchSeed
 from houmao.gateway.plugins import PluginDispatchError, PluginEvent
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.headless import HeadlessAgentService
@@ -43,13 +47,53 @@ from tests.unit.gateway_plugins.test_cccc_plugin import harness, offer
 from tests.unit.agents.realm_controller.test_gateway_support import _deliver_unread_mailbox_message
 
 
+def bind_fixture_gateway_owner(
+    plan: LaunchPlan,
+    *,
+    root: Path,
+    tmux_socket: Path,
+    agent_id: str,
+    generation: str,
+) -> LaunchPlan:
+    """Provision isolated owner access for an actual controlled native fixture."""
+
+    binding = observed_local_binding(
+        working_directory=root,
+        runtime_root=root,
+        registry_root=root / "registry",
+        tmux_socket=str(tmux_socket),
+    )
+    provision_gateway_generation(
+        binding=binding,
+        agent_id=agent_id,
+        generation_id=generation,
+        seed=GatewayLaunchSeed(),
+    )
+    return replace(
+        plan,
+        execution_binding=binding,
+        metadata={**plan.metadata, "tmux_socket_path": str(tmux_socket)},
+    )
+
+
 def _gateway_runtime(
-    root: Path, executable: Path, endpoint: str, monkeypatch: pytest.MonkeyPatch
+    root: Path,
+    executable: Path,
+    endpoint: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmux_socket: Path,
 ) -> tuple[GatewayServiceRuntime, DshAcpSession]:
     """Bind real native execution to the ordinary gateway using synthetic credentials."""
 
     plan, manifest = _launch_plan(root, executable, endpoint)
     plan = replace(plan, metadata={**plan.metadata, "headless_output_format": "dsh-acp"})
+    plan = bind_fixture_gateway_owner(
+        plan,
+        root=root,
+        tmux_socket=tmux_socket,
+        agent_id="owner1",
+        generation="native-integration-generation",
+    )
     definitions = root / "agent-defs"
     definitions.mkdir()
     name = "HOUMAO-dsh-integration"
@@ -125,7 +169,9 @@ def test_native_dsh_gateway_continues_exact_session_and_keeps_debug_frames(
 
     assert isolated_tmux.is_absolute()
     endpoint, requests = controlled_messages_server
-    runtime, backend = _gateway_runtime(tmp_path, dsh_executable, endpoint, monkeypatch)
+    runtime, backend = _gateway_runtime(
+        tmp_path, dsh_executable, endpoint, monkeypatch, isolated_tmux
+    )
     runtime.start()
     try:
         assert runtime.status().managed_agent_connectivity == "connected"
@@ -134,7 +180,7 @@ def test_native_dsh_gateway_continues_exact_session_and_keeps_debug_frames(
         assert metadata.native_capabilities is not None
         assert "exact_resume" in metadata.native_capabilities.supported_operations
         assert "raw_keys" in metadata.native_capabilities.unsupported_operations
-        assert metadata.native_capabilities.resource_activation == "startup-only"
+        assert metadata.native_capabilities.resource_activation == "next-invocation"
         assert metadata.native_capabilities.accounting_source == "dsh-journal-v4"
         with pytest.raises(GatewayError, match="unsupported"):
             runtime.m_adapter.send_control_input(sequence="C-c")
@@ -265,7 +311,9 @@ def test_cccc_owner_bound_offer_reaches_the_same_native_dsh_agent(
 
     assert isolated_tmux.is_absolute()
     endpoint, requests = controlled_messages_server
-    runtime, backend = _gateway_runtime(tmp_path, dsh_executable, endpoint, monkeypatch)
+    runtime, backend = _gateway_runtime(
+        tmp_path, dsh_executable, endpoint, monkeypatch, isolated_tmux
+    )
     source = Path(__file__).resolve().parents[4] / "packages/houmao-cccc/src"
     monkeypatch.syspath_prepend(str(source))
     implementation = importlib.import_module("houmao_cccc.plugin")
@@ -331,7 +379,9 @@ def test_native_dsh_mailbox_reminders_repeat_without_changing_mail_transport(
 
     assert isolated_tmux.is_absolute()
     endpoint, requests = controlled_messages_server
-    runtime, backend = _gateway_runtime(tmp_path, dsh_executable, endpoint, monkeypatch)
+    runtime, backend = _gateway_runtime(
+        tmp_path, dsh_executable, endpoint, monkeypatch, isolated_tmux
+    )
     address = "controlled-dsh@agents.localhost"
     _deliver_unread_mailbox_message(
         tmp_path, recipient_principal_id="owner1", recipient_address=address

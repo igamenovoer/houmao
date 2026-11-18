@@ -16,9 +16,8 @@ import sys
 import threading
 import time
 from typing import Any
-from urllib.error import HTTPError
-from urllib.request import Request, urlopen
 
+import httpx
 import pytest
 import uvicorn
 
@@ -31,6 +30,7 @@ from houmao.agents.realm_controller.manifest import (
 from houmao.mailbox.notifier_admission import ReminderOrigin, admit_mail_reminder
 from houmao.mailbox.observation import observe_online, read_online_sync_status
 from houmao.mailbox.online_models import OnlineAuthorityContext
+from tests.fixtures.gateway_access import configure_fixture_gateway_access, self_fixture_auth
 from tests.unit.agents.realm_controller.test_gateway_dual_mail import _runtime
 from tests.unit.agents.realm_controller.test_gateway_support import _sample_cao_plan_with_mailbox
 from tests.unit.mailbox.test_stalwart_jmap import _WireState, wire as wire
@@ -90,25 +90,23 @@ def _gateway(runtime: GatewayServiceRuntime) -> Iterator[Any]:
             time.sleep(0.01)
         assert server.started
 
-        def request(
-            method: str, path: str, payload: dict[str, Any] | None = None
-        ) -> tuple[int, dict[str, Any]]:
-            """Use actual HTTP and preserve structured non-success responses."""
-            body = json.dumps(payload).encode() if payload is not None else None
-            query = Request(
-                f"http://127.0.0.1:{port}" + path,
-                data=body,
-                method=method,
-                headers={"Content-Type": "application/json"},
-            )
-            try:
-                with urlopen(query, timeout=15) as response:
-                    return response.status, json.loads(response.read())
-            except HTTPError as exc:
-                return exc.code, json.loads(exc.read())
+        with httpx.Client(
+            base_url=runtime.owner_connect_url,
+            auth=self_fixture_auth(runtime),
+            timeout=15,
+            trust_env=False,
+        ) as client:
 
-        assert request("GET", "/health")[0] == 200
-        yield request
+            def request(
+                method: str, path: str, payload: dict[str, Any] | None = None
+            ) -> tuple[int, dict[str, Any]]:
+                """Use actual HTTP and preserve structured non-success responses."""
+
+                response = client.request(method, path, json=payload)
+                return response.status_code, response.json()
+
+            assert request("GET", "/health")[0] == 200
+            yield request
     finally:
         server.should_exit = True
         thread.join(timeout=5)
@@ -124,6 +122,13 @@ def _context(runtime: GatewayServiceRuntime) -> OnlineAuthorityContext:
     return OnlineAuthorityContext(
         runtime.m_manifest_path, payload["agent_id"], payload["runtime"]["session_id"]
     )
+
+
+def _authorized_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> GatewayServiceRuntime:
+    """Give the synthetic body its real, independently stored fixture credentials."""
+
+    configure_fixture_gateway_access(tmp_path, monkeypatch)
+    return _runtime(tmp_path, monkeypatch, dual=False, enabled=False)
 
 
 def _attach(
@@ -164,7 +169,7 @@ def test_disabled_running_body_attaches_refreshes_restarts_and_detaches(
         "updated": [],
         "destroyed": [],
     }
-    runtime = _runtime(tmp_path, monkeypatch, dual=False, enabled=False)
+    runtime = _authorized_runtime(tmp_path, monkeypatch)
     with _body(tmp_path) as (process, marker, body):
         context = _context(runtime)
         payload = load_session_manifest(context.manifest_path).payload
@@ -330,7 +335,7 @@ def test_replacement_cancels_pending_and_discards_late_provider_poll(
         "updated": [],
         "destroyed": [],
     }
-    runtime = _runtime(tmp_path, monkeypatch, dual=False, enabled=False)
+    runtime = _authorized_runtime(tmp_path, monkeypatch)
     with _body(tmp_path) as (process, marker, body), _gateway(runtime) as request:
         revision = request("GET", "/v1/mail/online/binding")[1]["revision"]
         code, old = _attach(request, state, source, revision)
@@ -422,7 +427,7 @@ def test_started_prompt_effect_prevents_false_replacement_activation(
 ) -> None:
     """A real worker handoff drains before replacement, and old queued effects fail."""
     state, source = wire
-    runtime = _runtime(tmp_path, monkeypatch, dual=False, enabled=False)
+    runtime = _authorized_runtime(tmp_path, monkeypatch)
     entered, release = threading.Event(), threading.Event()
     effects: list[str] = []
 
@@ -519,7 +524,7 @@ def test_replacement_between_origin_check_and_effect_cannot_dispatch_old_prompt(
 ) -> None:
     """Reproduce the origin-check TOCTOU exactly, then reject at effect admission."""
     state, source = wire
-    runtime = _runtime(tmp_path, monkeypatch, dual=False, enabled=False)
+    runtime = _authorized_runtime(tmp_path, monkeypatch)
     checked, release = threading.Event(), threading.Event()
     submissions: list[str] = []
     check = runtime._mail_reminder_origin_is_current

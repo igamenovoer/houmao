@@ -24,6 +24,7 @@ def isolated_tmux(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[P
         pytest.skip("tmux is required for managed DSH integration")
     monkeypatch.delenv("TMUX", raising=False)
     monkeypatch.delenv("TMUX_PANE", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "owner-config"))
     with tempfile.TemporaryDirectory(prefix="houmao-dsh-tmux-") as directory:
         socket = Path(directory) / "server.sock"
         commands = tmp_path / "isolated-bin"

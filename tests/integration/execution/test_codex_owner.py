@@ -187,6 +187,67 @@ def test_actual_codex_headless_owner_routing(
     )
     agent_id = str(uuid4())
     scope = ["agents", "single", "--agent-id", agent_id]
+    admin_key = sandbox.operator.home / "gateway-signing"
+    sandbox.run_as(
+        sandbox.operator,
+        ["/usr/bin/ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(admin_key)],
+    )
+    public_key = sandbox.run_as(
+        sandbox.operator, ["/usr/bin/cat", str(admin_key) + ".pub"]
+    ).stdout.strip()
+    seed = sandbox.owner.home / "gateway-seed.json"
+    sandbox.write_root_file(
+        seed,
+        json.dumps({"admin_keys": [{"principal": "test-operator", "public_key": public_key}]}),
+        mode="0600",
+    )
+    sandbox.root_command(["/usr/bin/chown", sandbox.owner.name, str(seed)])
+    assert (
+        sandbox.run_as(sandbox.operator, ["/usr/bin/test", "-r", str(seed)], check=False).returncode
+        != 0
+    )
+    assert (
+        sandbox.run_as(
+            sandbox.owner, ["/usr/bin/test", "-r", str(admin_key)], check=False
+        ).returncode
+        != 0
+    )
+
+    deployment_path = sandbox.owner.home / "gateway-access.json"
+    sandbox.write_root_file(deployment_path, '{"public_input_enabled":true}', mode="0600")
+    sandbox.root_command(["/usr/bin/chown", sandbox.owner.name, str(deployment_path)])
+    probe_path = sandbox.root / "gateway-probe.py"
+    sandbox.write_root_file(
+        probe_path,
+        """import json, sys
+from pathlib import Path
+from houmao.agents.realm_controller.gateway_access_runtime import gateway_access_for_manifest
+from houmao.gateway.access import GatewayClientBinding, GatewayOwner
+from houmao.gateway.client import GatewayClient, GatewayHttpError
+mode, endpoint, agent_id, context_id, selector = sys.argv[1:]
+if mode == "remember-self":
+    access = gateway_access_for_manifest(Path(selector))
+    anchor = Path.home() / 'previous-self'
+    anchor.touch(mode=0o600)
+    anchor.write_text(str(access.store.self_signer_path(access.target.incarnation)))
+    sys.exit(0)
+if mode == "old-self":
+    selector = (Path.home() / 'previous-self').read_text()
+binding = None
+if mode != "unsigned":
+    binding = GatewayClientBinding(
+        base_url=endpoint, owner=GatewayOwner(agent_id=agent_id, context_id=context_id),
+        purpose="self" if mode == "old-self" else "admin", private_key_path=selector,
+    )
+gateway = GatewayClient(base_url=endpoint, binding=binding)
+try:
+    gateway.status()
+except GatewayHttpError as error:
+    print(json.dumps({"status": error.status_code, "detail": error.detail}))
+else:
+    print(json.dumps({"status": 200}))
+""",
+    )
     try:
         launched = _manager(
             sandbox,
@@ -204,7 +265,9 @@ def test_actual_codex_headless_owner_routing(
                 "--name",
                 "owner-codex",
                 "--headless",
-                "--gateway-background",
+                "--no-gateway",
+                "--gateway-admin-seed",
+                str(seed),
             ],
         )
         assert launched["execution_context"]["uid"] == sandbox.owner.uid
@@ -217,6 +280,35 @@ def test_actual_codex_headless_owner_routing(
             sandbox.owner, ["/usr/bin/stat", "-c", "%u:%g", launched["manifest_path"]]
         ).stdout.strip()
         assert mode == f"{sandbox.owner.uid}:{sandbox.owner.gid}"
+        context_id = launched["execution_context"]["context_id"]
+        gateway_status = _manager(
+            sandbox, execution_entrypoint, [*scope, "gateway", "attach", "--background"]
+        )
+        endpoint = f"http://127.0.0.1:{gateway_status['gateway_port']}"
+
+        def _probe(
+            account: Any, mode: str, selector: Path, *, target: str = agent_id
+        ) -> dict[str, Any]:
+            """Run the bound client on the selected Linux account."""
+
+            result = sandbox.run_as(
+                account,
+                [
+                    sys.executable,
+                    str(probe_path),
+                    mode,
+                    endpoint,
+                    target,
+                    context_id,
+                    str(selector),
+                ],
+            )
+            return json.loads(result.stdout) if result.stdout else {}
+
+        assert _probe(sandbox.operator, "unsigned", admin_key)["status"] == 401
+        assert _probe(sandbox.operator, "admin", admin_key)["status"] == 200
+        assert _probe(sandbox.operator, "admin", admin_key, target=str(uuid4()))["status"] is None
+        _probe(sandbox.owner, "remember-self", Path(launched["manifest_path"]))
         _manager(
             sandbox, execution_entrypoint, [*scope, "prompt", "--prompt", "codex owner marker"]
         )
@@ -224,5 +316,15 @@ def test_actual_codex_headless_owner_routing(
         state = _manager(sandbox, execution_entrypoint, [*scope, "state"])
         assert state["last_turn"]["result"] == "success"
         assert state["identity"]["execution_context"]["uid"] == sandbox.owner.uid
+        _manager(sandbox, execution_entrypoint, [*scope, "gateway", "detach"])
+        _manager(sandbox, execution_entrypoint, [*scope, "relaunch"])
+        reattached = _manager(
+            sandbox,
+            execution_entrypoint,
+            [*scope, "gateway", "attach", "--background", "--access-config", str(deployment_path)],
+        )
+        endpoint = f"http://127.0.0.1:{reattached['gateway_port']}"
+        assert _probe(sandbox.operator, "admin", admin_key)["status"] == 200
+        assert _probe(sandbox.owner, "old-self", seed)["status"] is None
     finally:
         _manager(sandbox, execution_entrypoint, [*scope, "stop"], check=False)

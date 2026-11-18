@@ -66,7 +66,7 @@ def test_public_gateway_native_refresh_preserves_real_common_evidence(
 
     assert isolated_tmux.is_absolute()
     endpoint, requests = controlled_messages_server
-    runtime, backend = _runtime(tmp_path, dsh_executable, endpoint, monkeypatch)
+    runtime, backend = _runtime(tmp_path, dsh_executable, endpoint, monkeypatch, isolated_tmux)
     identity = dict(backend.state.web_identity)
     runtime.start()
     try:
@@ -182,6 +182,7 @@ def test_two_native_agents_share_cli_gateway_and_passive_refresh_contract(
             dsh_executable,
             endpoint,
             monkeypatch,
+            isolated_tmux,
             agent_id=f"owner{number}",
             session_name=f"HOUMAO-refresh-{number}",
         )
