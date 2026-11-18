@@ -217,6 +217,11 @@ def _gateway_tui_tracking_timing_overrides_or_none(
 
 @gateway_group.command(name="attach")
 @click.option(
+    "--access-config",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Private owner-side JSON file selecting the bind, public input, advertisement, and signer.",
+)
+@click.option(
     "--plugins-config",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     help="Versioned YAML/JSON plugin selection; omission preserves existing selections.",
@@ -238,6 +243,7 @@ def _gateway_tui_tracking_timing_overrides_or_none(
 def attach_gateway_command(
     background: bool,
     plugins_config: Path | None,
+    access_config: Path | None,
     gateway_tui_watch_poll_interval_seconds: float | None,
     gateway_tui_stability_threshold_seconds: float | None,
     gateway_tui_completion_stability_seconds: float | None,
@@ -273,7 +279,8 @@ def attach_gateway_command(
         attach_gateway(
             target,
             background=background,
-            **({"plugin_config": plugin_config} if plugin_config is not None else {}),
+            access_config_path=access_config,
+            plugin_config=plugin_config,
             tui_tracking_timing_overrides=_gateway_tui_tracking_timing_overrides_or_none(
                 gateway_tui_watch_poll_interval_seconds=(gateway_tui_watch_poll_interval_seconds),
                 gateway_tui_stability_threshold_seconds=gateway_tui_stability_threshold_seconds,

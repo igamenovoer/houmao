@@ -8,8 +8,11 @@ startup rebuild.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import logging
+import re
 import threading
+import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,6 +20,10 @@ from typing import Any, Literal, cast
 
 from houmao.agents.realm_controller.backends.headless_base import (
     HeadlessInteractiveSession,
+)
+from houmao.agents.realm_controller.backends.dispatch_control import (
+    HeadlessDispatchControl,
+    headless_dispatch_permission_allowed,
 )
 from houmao.agents.realm_controller.backends.headless_output import (
     HeadlessProvider,
@@ -30,10 +37,19 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     kill_tmux_session,
     tmux_session_exists,
 )
-from houmao.agents.realm_controller.errors import LaunchPlanError, SessionManifestError
+from houmao.agents.realm_controller.errors import (
+    BackendExecutionError,
+    LaunchPlanError,
+    SessionManifestError,
+)
+from houmao.agents.realm_controller.gateway_access_runtime import gateway_access_for_manifest
 from houmao.agents.realm_controller.launch_plan import backend_for_tool
 from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
-from houmao.agents.realm_controller.models import SessionEvent
+from houmao.agents.realm_controller.manifest import (
+    load_session_manifest,
+    parse_session_manifest_payload,
+)
+from houmao.agents.realm_controller.models import HeadlessTurnSessionSelection, SessionEvent
 from houmao.agents.realm_controller.usage_models import UsagePage
 from houmao.agents.realm_controller.usage_store import UsageStoreError
 from houmao.agents.realm_controller.usage_support import (
@@ -50,7 +66,12 @@ from houmao.agents.realm_controller.runtime import (
     resume_runtime_session,
     start_runtime_session,
 )
-from houmao.execution.tmux import tmux_server_scope
+from houmao.execution.context import execution_binding_scope, observed_local_binding
+from houmao.execution.tmux import capture_tmux_socket_path, tmux_server_scope
+from houmao.cao.models import CaoSuccessResponse
+from houmao.gateway.access import GatewayAccessError
+from houmao.gateway.owner_authority import PassiveBackingBinding, provision_passive_backing
+from houmao.agents.model_selection import ModelConfig
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.models import (
     PassiveAgentActionResponse,
@@ -66,7 +87,10 @@ from houmao.server.managed_agents import (
     ManagedHeadlessStore,
     ManagedHeadlessTurnRecord,
 )
-from houmao.server.models import HoumaoHeadlessTurnEvent
+from houmao.server.models import (
+    HoumaoHeadlessTurnEvent,
+    HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
+)
 
 log = logging.getLogger(__name__)
 
@@ -79,6 +103,33 @@ def _authority_tmux_session_exists(authority: ManagedHeadlessAuthorityRecord) ->
 
 
 _HEADLESS_BACKENDS = frozenset({"claude_headless", "codex_headless", "kimi_headless", "dsh_acp"})
+_BACKING_HANDOFF_SECONDS = 5.0
+_TURN_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
+
+
+class _RelayedDispatchControl(HeadlessDispatchControl):
+    """Use the gateway's selected fence without renewing or reactivating it."""
+
+    def prepare_bridge_permission(self, turn_dir: Path) -> Path:
+        """Pass the current gateway permission through to the headless bridge."""
+
+        del turn_dir
+        self.require_allowed()
+        if self.m_permission_path is None:
+            raise BackendExecutionError("Immediate dispatch permission is unavailable")
+        return self.m_permission_path
+
+
+@dataclass(frozen=True)
+class _BackingDispatch:
+    """Current generation, launch options, and handoff signal for a backing call."""
+
+    turn_id: str
+    control: HeadlessDispatchControl
+    settled: threading.Event
+    deadline: float
+    selection: HeadlessTurnSessionSelection | None
+    execution: ModelConfig | None
 
 
 def _controller_primary_tmux_window_id(controller: RuntimeSessionController) -> str | None:
@@ -262,30 +313,49 @@ class HeadlessAgentService:
         now_utc = datetime.now(UTC).isoformat(timespec="seconds")
 
         try:
-            controller = start_runtime_session(
-                agent_def_dir=agent_def_dir,
-                brain_manifest_path=manifest_path,
-                role_name=resolved_role_name,
-                backend=backend,
+            execution = observed_local_binding(
                 working_directory=working_dir,
-                api_base_url=self.m_config.api_base_url,
-                agent_name=request.agent_name,
-                agent_id=request.agent_id,
-                agent_id_mode=request.agent_id_mode,
-                mailboxes=declared_mailboxes,
-                headless_display_style=request.headless_display_style,
-                headless_display_detail=request.headless_display_detail,
-                registry_launch_authority="external",
+                runtime_root=self.m_config.runtime_root,
+                registry_root=self.m_config.registry_root,
+                tmux_socket=capture_tmux_socket_path(),
             )
+            with execution_binding_scope(execution), tmux_server_scope(execution.tmux_socket):
+                controller = start_runtime_session(
+                    agent_def_dir=agent_def_dir,
+                    brain_manifest_path=manifest_path,
+                    role_name=resolved_role_name,
+                    backend=backend,
+                    runtime_root=self.m_config.runtime_root,
+                    working_directory=working_dir,
+                    api_base_url=self.m_config.api_base_url,
+                    agent_name=request.agent_name,
+                    agent_id=request.agent_id,
+                    agent_id_mode=request.agent_id_mode,
+                    mailboxes=declared_mailboxes,
+                    headless_display_style=request.headless_display_style,
+                    headless_display_detail=request.headless_display_detail,
+                    registry_launch_authority="external",
+                    gateway_admin_seed=request.gateway_admin_seed,
+                )
         except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
             return (422, {"detail": str(exc)})
         except Exception as exc:
             log.error("Failed to start runtime session for headless agent: %s", exc)
             return (500, {"detail": f"Failed to start headless agent: {exc}"})
 
+        controller_manifest_path = controller.manifest_path.resolve()
         try:
+            access = gateway_access_for_manifest(controller_manifest_path)
+            provision_passive_backing(
+                access.private_root,
+                PassiveBackingBinding(
+                    target=access.target,
+                    api_base_url=self.m_config.api_base_url,
+                    tracked_agent_id=tracked_agent_id,
+                ),
+            )
             self._publish_controller_registry_record(controller)
-        except (OSError, SessionManifestError) as exc:
+        except (OSError, SessionManifestError, GatewayAccessError, ValueError):
             try:
                 controller.stop(force_cleanup=True)
             except Exception:
@@ -295,14 +365,9 @@ class HeadlessAgentService:
                 )
             return (
                 503,
-                {
-                    "detail": (
-                        f"Managed headless launch could not publish shared-registry state: {exc}"
-                    )
-                },
+                {"detail": "Managed headless launch could not establish current owner authority"},
             )
 
-        controller_manifest_path = controller.manifest_path.resolve()
         session_root = str(controller_manifest_path.parent)
 
         authority = ManagedHeadlessAuthorityRecord(
@@ -354,7 +419,7 @@ class HeadlessAgentService:
             return self._submit_turn_locked(tracked_agent_id, prompt)
 
     def _submit_turn_locked(
-        self, tracked_agent_id: str, prompt: str
+        self, tracked_agent_id: str, prompt: str, *, backing: _BackingDispatch | None = None
     ) -> PassiveHeadlessTurnAcceptedResponse | tuple[int, dict[str, Any]]:
         """Reserve durable admission before another caller can start a worker."""
 
@@ -387,7 +452,9 @@ class HeadlessAgentService:
 
         existing_turns = self.m_store.list_turn_records(tracked_agent_id=tracked_agent_id)
         turn_index = len(existing_turns) + 1
-        turn_id = uuid.uuid4().hex[:12]
+        turn_id = backing.turn_id if backing is not None else uuid.uuid4().hex[:12]
+        if any(record.turn_id == turn_id for record in existing_turns):
+            return (409, {"detail": "The selected turn has already been admitted"})
         now_utc = datetime.now(UTC).isoformat(timespec="seconds")
 
         manifest_path = Path(handle.authority.manifest_path)
@@ -421,9 +488,11 @@ class HeadlessAgentService:
         )
         self.m_store.write_turn_record(turn_record)
 
+        worker_arguments = (tracked_agent_id, turn_id, prompt, handle.controller)
         worker = threading.Thread(
             target=self._run_turn_worker,
-            args=(tracked_agent_id, turn_id, prompt, handle.controller),
+            args=worker_arguments,
+            kwargs={"backing": backing} if backing is not None else None,
             name=f"houmao-headless-turn-{tracked_agent_id}-{turn_id}",
             daemon=True,
         )
@@ -437,6 +506,107 @@ class HeadlessAgentService:
             turn_index=turn_index,
             turn_status="active",
             detail=f"Turn {turn_id} submitted (index={turn_index})",
+        )
+
+    def dispatch_backing(
+        self, tracked_agent_id: str, payload: HoumaoManagedAgentGatewayInternalHeadlessPromptRequest
+    ) -> CaoSuccessResponse | tuple[int, dict[str, Any]]:
+        """Accept a fenced turn and wait only for confirmed process handoff."""
+
+        turn_id = payload.turn_id or uuid.uuid4().hex[:12]
+        if not _TURN_ID.fullmatch(turn_id):
+            return (422, {"detail": "Invalid backing turn identifier"})
+        with self.m_lock:
+            handle = self._require_handle(tracked_agent_id)
+            if handle is None or handle.controller is None:
+                return (503, {"detail": "Managed backing controller is unavailable"})
+            try:
+                dispatch = self._backing_dispatch(handle.authority, payload, turn_id=turn_id)
+            except (OSError, RuntimeError, ValueError):
+                return (503, {"detail": "Managed backing dispatch permission is unavailable"})
+            result = self._submit_turn_locked(tracked_agent_id, payload.prompt, backing=dispatch)
+        if isinstance(result, tuple):
+            return result
+        dispatch.settled.wait(timeout=max(0.0, dispatch.deadline - time.monotonic()))
+        if not dispatch.control.m_handoff_confirmed.is_set():
+            dispatch.control.cancel()
+            return (503, {"detail": "Managed backing handoff could not be confirmed"})
+        return CaoSuccessResponse(success=True)
+
+    def _backing_dispatch(
+        self,
+        authority: ManagedHeadlessAuthorityRecord,
+        payload: HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
+        *,
+        turn_id: str,
+    ) -> _BackingDispatch:
+        """Capture owner scope and the original gateway launch fence, when present."""
+
+        manifest_path = Path(authority.manifest_path)
+        access = gateway_access_for_manifest(manifest_path)
+        settled = threading.Event()
+        deadline = time.monotonic() + _BACKING_HANDOFF_SECONDS
+        guard: Path | None = None
+        if payload.dispatch_guard_file is not None:
+            turn_root = manifest_path.parent / f"{manifest_path.stem}.turn-artifacts"
+            guard = turn_root / turn_id / ".dispatch-permission.json"
+            if (
+                Path(payload.dispatch_guard_file) != guard
+                or any(path.is_symlink() for path in (turn_root, guard.parent, guard))
+                or guard.stat().st_size > 4096
+            ):
+                raise ValueError("invalid backing dispatch permission")
+            raw_guard = json.loads(guard.read_text(encoding="utf-8"))
+            if (
+                not isinstance(raw_guard, dict)
+                or raw_guard.get("manifest_path") != str(manifest_path)
+                or raw_guard.get("registry_generation_id") != access.target.incarnation
+                or not headless_dispatch_permission_allowed(guard)
+            ):
+                raise ValueError("invalid backing dispatch permission")
+            deadline = min(
+                deadline, time.monotonic() + float(raw_guard["expires_at"]) - time.time()
+            )
+
+        def allowed() -> bool:
+            """Recheck the current managed body before input or handoff."""
+
+            access.require_current()
+            return self.access_body_is_live(
+                authority.tracked_agent_id, manifest_path=manifest_path
+            ) and (guard is None or headless_dispatch_permission_allowed(guard))
+
+        control_type = _RelayedDispatchControl if guard is not None else HeadlessDispatchControl
+        control = control_type.from_callbacks(
+            allowed=allowed,
+            confirmed=settled.set,
+            deadline=deadline,
+            manifest_path=manifest_path,
+            generation_id=access.target.incarnation,
+        )
+        if guard is not None:
+            control.m_permission_path = guard
+        control.require_allowed()
+        chat = payload.chat_session
+        selection = None
+        if chat is not None and chat.mode != "auto":
+            mode = chat.mode
+            session_id = chat.id
+            if mode == "current":
+                handle = load_session_manifest(manifest_path)
+                manifest = parse_session_manifest_payload(handle.payload, source="runtime manifest")
+                if manifest.headless is None or not manifest.headless.session_id:
+                    raise ValueError("current session is unavailable")
+                mode = "exact"
+                session_id = manifest.headless.session_id
+            selection = HeadlessTurnSessionSelection(mode=mode, session_id=session_id)
+        return _BackingDispatch(
+            turn_id,
+            control,
+            settled,
+            deadline,
+            selection,
+            payload.execution.to_model_config() if payload.execution else None,
         )
 
     def turn_status(
@@ -527,7 +697,7 @@ class HeadlessAgentService:
 
         artifact_path = Path(path_str)
         if not artifact_path.is_file():
-            return (404, {"detail": f"Artifact file not found: {path_str}"})
+            return (404, {"detail": "The selected artifact file is unavailable"})
 
         return artifact_path.read_text(encoding="utf-8", errors="replace")
 
@@ -693,6 +863,25 @@ class HeadlessAgentService:
                 for tracked_id, authority in authorities.items()
                 if candidate in {tracked_id, authority.agent_id, authority.agent_name}
             )
+        )
+
+    def access_authority(self, tracked_agent_id: str) -> ManagedHeadlessAuthorityRecord | None:
+        """Return retained authority without probing or resuming a body."""
+
+        handle = self._require_handle(tracked_agent_id)
+        if handle is not None:
+            return handle.authority
+        return self.m_store.read_authority(tracked_agent_id=tracked_agent_id)
+
+    def access_body_is_live(self, tracked_agent_id: str, *, manifest_path: Path) -> bool:
+        """Check the matched controller and its specific tmux session."""
+
+        handle = self._require_handle(tracked_agent_id)
+        return (
+            handle is not None
+            and handle.controller is not None
+            and Path(handle.authority.manifest_path) == manifest_path
+            and _authority_tmux_session_exists(handle.authority)
         )
 
     def get_usage(
@@ -913,13 +1102,32 @@ class HeadlessAgentService:
         turn_id: str,
         prompt: str,
         controller: RuntimeSessionController,
+        *,
+        backing: _BackingDispatch | None = None,
     ) -> None:
         """Worker thread: send prompt and finalize turn record."""
 
+        backend = controller.backend_session if backing is not None else None
         try:
-            events = controller.send_prompt(
-                prompt=prompt, turn_artifact_dir_name=turn_id, refresh_registry=False
-            )
+            if backing is None:
+                events = controller.send_prompt(
+                    prompt=prompt, turn_artifact_dir_name=turn_id, refresh_registry=False
+                )
+            else:
+                if (
+                    not isinstance(backend, HeadlessInteractiveSession)
+                    or backend.m_dispatch_control is not None
+                ):
+                    raise BackendExecutionError("Managed backing controller is busy or unavailable")
+                backing.control.require_allowed()
+                backend.configure_request_dispatch(backing.control)
+                events = controller.send_prompt(
+                    prompt=prompt,
+                    turn_artifact_dir_name=turn_id,
+                    refresh_registry=False,
+                    session_selection=backing.selection,
+                    execution_model=backing.execution,
+                )
             self._refresh_turn_record(
                 tracked_agent_id=tracked_agent_id,
                 turn_id=turn_id,
@@ -936,6 +1144,13 @@ class HeadlessAgentService:
                 error_detail=str(exc),
             )
         finally:
+            if backing is not None:
+                if (
+                    isinstance(backend, HeadlessInteractiveSession)
+                    and backend.m_dispatch_control is backing.control
+                ):
+                    backend.configure_request_dispatch(None)
+                backing.settled.set()
             authority = self.m_store.read_authority(tracked_agent_id=tracked_agent_id)
             if authority is not None:
                 self._reconcile_usage(authority)

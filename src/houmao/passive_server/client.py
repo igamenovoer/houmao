@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import TypeVar
-from urllib import parse
+from urllib import error, parse, request
 import uuid
 
 from pydantic import BaseModel, ValidationError
 
 from houmao.mailbox.models import MailChannel
+from houmao.agents.realm_controller.errors import GatewayHttpError
+from houmao.agents.realm_controller.gateway_client import GatewayClient
 from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputRequestV1,
     GatewayControlInputResultV1,
@@ -32,7 +36,18 @@ from houmao.agents.realm_controller.native_refresh_models import (
     NativeRefreshResultV1,
 )
 from houmao.cao.models import CaoSuccessResponse
-from houmao.cao.rest_client import CaoApiError
+from houmao.cao.rest_client import (
+    CaoApiError,
+    DEFAULT_CAO_CREATE_TIMEOUT_SECONDS,
+    DEFAULT_CAO_REQUEST_TIMEOUT_SECONDS,
+)
+from houmao.gateway.access import GatewayAccessError, GatewayClientBinding, GatewayRequestBinding
+from houmao.gateway.owner_authority import (
+    BACKING_HEADER,
+    PassiveBackingBinding,
+    issue_passive_backing,
+)
+from houmao.passive_server.admission import passive_client_challenge_path
 from houmao.passive_server.compatibility import managed_identity_from_discovered_summary
 from houmao.passive_server.models import (
     DiscoveredAgentListResponse,
@@ -58,6 +73,7 @@ from houmao.server.models import (
     HoumaoManagedAgentActionResponse,
     HoumaoManagedAgentDetailResponse,
     HoumaoManagedAgentGatewayNextPromptSessionRequest,
+    HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
     HoumaoManagedAgentGatewayPromptControlRequest,
     HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentGatewayRequestAcceptedResponse,
@@ -79,10 +95,167 @@ from houmao.server.models import (
 )
 
 _NativeRefreshModelT = TypeVar("_NativeRefreshModelT", bound=BaseModel)
+_SIGNED_RESPONSE_LIMIT = 16 * 1024 * 1024
+
+
+class PassiveBackingClient:
+    """Owner-local client for one gateway's scoped backing operations."""
+
+    def __init__(self, *, private_root: Path, binding: PassiveBackingBinding) -> None:
+        """Capture explicit service authority independently of caller admission."""
+
+        def request_proof(method: str, path: str, body: bytes) -> dict[str, str]:
+            """Issue one service token for the exact transmitted request."""
+
+            endpoint = parse.urlsplit(path)
+            try:
+                binding_request = GatewayRequestBinding.from_request(
+                    method, endpoint.path, endpoint.query, body
+                )
+                token = issue_passive_backing(
+                    private_root, binding=binding, request=binding_request
+                )
+            except (GatewayAccessError, ValueError):
+                raise GatewayHttpError(
+                    method=method, url="", detail="Backing service proof is unavailable"
+                ) from None
+            return {BACKING_HEADER: token}
+
+        self.m_client: GatewayClient = GatewayClient(
+            base_url=binding.api_base_url, request_proof=request_proof, respect_proxy_env=False
+        )
+        self.m_base_route: str = f"/houmao/agents/{binding.tracked_agent_id}/gateway/internal"
+
+    def inspect(self) -> HoumaoManagedAgentDetailResponse:
+        """Read current backing posture through the service-only operation."""
+
+        return self.m_client._request_model(
+            "GET", f"{self.m_base_route}/inspect", HoumaoManagedAgentDetailResponse
+        )
+
+    def dispatch(
+        self, payload: HoumaoManagedAgentGatewayInternalHeadlessPromptRequest
+    ) -> CaoSuccessResponse:
+        """Deliver one prompt through the bound owner-controlled backing path."""
+
+        return self.m_client._request_model(
+            "POST",
+            f"{self.m_base_route}/headless-prompt",
+            CaoSuccessResponse,
+            body=payload.model_dump(mode="json"),
+            timeout_seconds=8.0,
+        )
+
+    def interrupt(self) -> PassiveAgentActionResponse:
+        """Interrupt only the selected backing controller."""
+
+        return self.m_client._request_model(
+            "POST", f"{self.m_base_route}/interrupt", PassiveAgentActionResponse
+        )
 
 
 class PassiveServerClient(HoumaoServerClient):
     """Typed client adapter that normalizes passive-server routes for pair consumers."""
+
+    def __init__(
+        self,
+        base_url: str,
+        timeout_seconds: float = DEFAULT_CAO_REQUEST_TIMEOUT_SECONDS,
+        create_timeout_seconds: float = DEFAULT_CAO_CREATE_TIMEOUT_SECONDS,
+        *,
+        binding: GatewayClientBinding | None = None,
+        target_incarnation: str | None = None,
+    ) -> None:
+        """Select an explicitly bound signer for protected selected-agent calls."""
+
+        super().__init__(base_url, timeout_seconds, create_timeout_seconds)
+        if binding is not None and binding.purpose == "register":
+            raise ValueError("First enrollment is available at the agent gateway.")
+        self.m_signed_transport: GatewayClient | None = (
+            GatewayClient(
+                base_url=self.base_url,
+                binding=binding,
+                target_incarnation=target_incarnation,
+                timeout_seconds=timeout_seconds,
+            )
+            if binding is not None
+            else None
+        )
+
+    def _request_root_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, str] | None = None,
+        json_body: object | None = None,
+        raw_text_ok: bool = False,
+        timeout_seconds: float | None = None,
+    ) -> tuple[object, int, str]:
+        """Use exact request proof on a selected-agent operation when configured."""
+
+        transport = self.m_signed_transport
+        if transport is None:
+            return super()._request_root_json(
+                method,
+                path,
+                params=params,
+                json_body=json_body,
+                raw_text_ok=raw_text_ok,
+                timeout_seconds=timeout_seconds,
+            )
+        route, _, existing_query = path.partition("?")
+        query = "&".join(part for part in (existing_query, parse.urlencode(params or {})) if part)
+        url = transport._build_url(route if not query else f"{route}?{query}")
+        challenge_path = passive_client_challenge_path(method, route)
+        data = json.dumps(json_body).encode("utf-8") if json_body is not None else None
+        headers = {"Accept": "application/json"}
+        if data is not None:
+            headers["Content-Type"] = "application/json"
+        if method in {"POST", "PUT", "PATCH"} and data is None:
+            data = b""
+        try:
+            if challenge_path is not None:
+                headers.update(
+                    transport._signed_headers(
+                        method,
+                        route,
+                        query,
+                        data or b"",
+                        challenge_path=challenge_path,
+                    )
+                )
+            outgoing = request.Request(url, data=data, method=method, headers=headers)
+            with transport.m_opener.open(
+                outgoing, timeout=timeout_seconds or self.timeout_seconds
+            ) as response:
+                raw = response.read(_SIGNED_RESPONSE_LIMIT + 1)
+                if len(raw) > _SIGNED_RESPONSE_LIMIT:
+                    raise ValueError("Passive response exceeds its limit.")
+                decoded = raw.decode("utf-8")
+                payload: object
+                try:
+                    payload = json.loads(decoded)
+                except json.JSONDecodeError:
+                    if not raw_text_ok:
+                        raise
+                    payload = decoded
+                return payload, int(response.status), url
+        except GatewayHttpError as exc:
+            challenge = {"challenge_path": challenge_path} if exc.status_code == 401 else None
+            raise CaoApiError(
+                method=method,
+                url=url,
+                status_code=exc.status_code,
+                detail=exc.detail,
+                payload=challenge,
+            ) from None
+        except error.HTTPError as exc:
+            raise _signed_passive_refusal(method, url, exc, challenge_path) from None
+        except (OSError, ValueError):
+            raise CaoApiError(
+                method=method, url=url, detail="Passive transport or response failed."
+            ) from None
 
     @property
     def pair_authority_kind(self) -> str:
@@ -119,6 +292,9 @@ class PassiveServerClient(HoumaoServerClient):
         )
         agents: list[HoumaoManagedAgentIdentity] = []
         for summary in response.agents:
+            if self.m_signed_transport is not None:
+                agents.append(managed_identity_from_discovered_summary(summary))
+                continue
             try:
                 agents.append(self.get_managed_agent(summary.agent_id))
             except CaoApiError:
@@ -138,7 +314,9 @@ class PassiveServerClient(HoumaoServerClient):
         fallback = managed_identity_from_discovered_summary(summary)
         try:
             return self.get_managed_agent_state(agent_ref).identity
-        except CaoApiError:
+        except CaoApiError as exc:
+            if self.m_signed_transport is not None and exc.status_code in {401, 403, 503}:
+                raise
             return fallback
 
     def get_managed_agent_state(self, agent_ref: str) -> HoumaoManagedAgentStateResponse:
@@ -738,3 +916,26 @@ class PassiveServerClient(HoumaoServerClient):
         """Return one client-generated managed request id."""
 
         return f"passive-{prefix}-{uuid.uuid4().hex[:12]}"
+
+
+def _signed_passive_refusal(
+    method: str, url: str, exc: error.HTTPError, challenge_path: str | None
+) -> CaoApiError:
+    """Preserve typed passive outcomes while omitting untrusted access diagnostics."""
+
+    status = exc.code
+    payload = None
+    if 300 <= status < 400:
+        detail = "Passive redirects are refused."
+    elif status in {401, 403}:
+        detail = "Passive selected-agent proof was refused."
+        if status == 401 and challenge_path is not None:
+            payload = {"challenge_path": challenge_path}
+    else:
+        raw = exc.read(65_537)
+        try:
+            payload = json.loads(raw) if len(raw) <= 65_536 else None
+        except (UnicodeError, ValueError, RecursionError):
+            payload = None
+        detail = "Passive operation failed."
+    return CaoApiError(method=method, url=url, status_code=status, detail=detail, payload=payload)

@@ -1699,7 +1699,12 @@ def test_register_mailbox_binding_uses_exclusive_claim_without_overwrite_options
     assert payload["shared_registration"] == {"ok": True}
 
 
-def test_mail_status_uses_live_mailbox_ready_path_for_joined_session() -> None:
+def test_mail_status_uses_live_mailbox_ready_path_for_joined_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        managed_agents_module, "_live_gateway_client_for_controller", lambda *args, **kwargs: None
+    )
     controller = SimpleNamespace(
         launch_plan=SimpleNamespace(mailbox=object()),
         tmux_session_name="test-agent-join",
@@ -1728,6 +1733,37 @@ def test_mail_status_uses_live_mailbox_ready_path_for_joined_session() -> None:
     }
 
 
+def test_live_mail_proof_refusal_ends_the_scoped_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Do not reach manager-owned mail after a live gateway refuses proof."""
+
+    def denied() -> object:
+        raise managed_agents_module.GatewayHttpError(
+            method="GET",
+            url="http://127.0.0.1:43123/v1/mail/status",
+            status_code=401,
+            detail="Gateway proof was refused.",
+        )
+
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_live_gateway_client_for_controller",
+        lambda *args, **kwargs: SimpleNamespace(mail_status=denied),
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_local_manager_mail_status",
+        lambda *args: pytest.fail("direct mail attempted after proof refusal"),
+    )
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="local",
+        identity=_managed_identity(transport="headless"),
+        controller=SimpleNamespace(),
+    )
+    with pytest.raises(click.ClickException, match="proof was refused"):
+        mail_status(target)
+
+
 def test_mail_send_local_tui_without_gateway_returns_submission_only_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1752,7 +1788,7 @@ def test_mail_send_local_tui_without_gateway_returns_submission_only_result(
     monkeypatch.setattr(
         managed_agents_module,
         "_live_gateway_client_for_controller",
-        lambda _controller: None,
+        lambda _controller, **kwargs: None,
     )
     monkeypatch.setattr(
         managed_agents_module,
@@ -1776,6 +1812,9 @@ def test_mail_send_local_tui_without_gateway_returns_submission_only_result(
 def test_mail_send_local_headless_uses_verified_manager_direct_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        managed_agents_module, "_live_gateway_client_for_controller", lambda *args, **kwargs: None
+    )
     monkeypatch.setattr(
         managed_agents_module, "_resolve_mail_expected_binding", lambda *args: "binding-test"
     )
@@ -1824,6 +1863,9 @@ def test_mail_send_local_headless_uses_verified_manager_direct_result(
 def test_mail_archive_local_headless_uses_verified_manager_direct_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        managed_agents_module, "_live_gateway_client_for_controller", lambda *args, **kwargs: None
+    )
     monkeypatch.setattr(
         managed_agents_module, "_resolve_mail_expected_binding", lambda *args: "binding-test"
     )
@@ -1877,6 +1919,9 @@ def test_mail_archive_local_headless_uses_verified_manager_direct_result(
 def test_mail_archive_local_tui_uses_manager_direct_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        managed_agents_module, "_live_gateway_client_for_controller", lambda *args, **kwargs: None
+    )
     monkeypatch.setattr(
         managed_agents_module, "_resolve_mail_expected_binding", lambda *args: "binding-test"
     )
@@ -2517,6 +2562,8 @@ class _FakeGatewayController:
         *,
         execution_mode_override: str | None = None,
         tui_tracking_timing_overrides: object | None = None,
+        plugin_config: object | None = None,
+        access_config: object | None = None,
     ) -> SimpleNamespace:
         self.attach_calls.append((execution_mode_override, tui_tracking_timing_overrides))
         return SimpleNamespace(status="ok", detail="attached")

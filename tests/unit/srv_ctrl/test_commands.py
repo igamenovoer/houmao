@@ -865,7 +865,7 @@ def test_agents_gateway_attach_defaults_to_foreground_execution(
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.attach_gateway",
-        lambda target, *, background=False, tui_tracking_timing_overrides=None: (
+        lambda target, *, background=False, tui_tracking_timing_overrides=None, **kwargs: (
             captured.update(
                 {
                     "target": target,
@@ -904,7 +904,7 @@ def test_agents_gateway_attach_forwards_background_flag(
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.attach_gateway",
-        lambda target, *, background=False, tui_tracking_timing_overrides=None: (
+        lambda target, *, background=False, tui_tracking_timing_overrides=None, **kwargs: (
             captured.update(
                 {
                     "target": target,
@@ -1111,7 +1111,7 @@ def test_agents_gateway_attach_current_session_falls_back_to_registry_agent_id(
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.attach_gateway",
-        lambda target, *, background=False, tui_tracking_timing_overrides=None: (
+        lambda target, *, background=False, tui_tracking_timing_overrides=None, **kwargs: (
             captured.update(
                 {
                     "target": target,

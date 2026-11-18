@@ -56,6 +56,8 @@ from houmao.agents.realm_controller.gateway_storage import (
     publish_stable_gateway_env,
 )
 from houmao.agents.realm_controller.gateway_models import GatewayJsonObject
+from houmao.agents.realm_controller.gateway_access_runtime import provision_gateway_generation
+from houmao.gateway.access import GatewayLaunchSeed
 from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
     build_session_manifest_payload,
@@ -269,6 +271,15 @@ def materialize_joined_launch(
                 memory=memory,
             ),
         )
+        generation_id = new_registry_generation_id()
+        seed = GatewayLaunchSeed()
+        assert launch_plan.execution_binding is not None
+        provision_gateway_generation(
+            binding=launch_plan.execution_binding,
+            agent_id=resolved_agent_id,
+            generation_id=generation_id,
+            seed=seed,
+        )
         manifest_payload = build_session_manifest_payload(
             SessionManifestRequest(
                 launch_plan=launch_plan,
@@ -291,7 +302,8 @@ def materialize_joined_launch(
                 memo_file=memory.memo_file,
                 pages_dir=memory.pages_dir,
                 agent_def_dir=agent_def_dir,
-                registry_generation_id=new_registry_generation_id(),
+                registry_generation_id=generation_id,
+                gateway_admin_seed=seed,
                 registry_launch_authority="runtime",
                 agent_launch_authority=_joined_launch_authority(
                     backend=backend,

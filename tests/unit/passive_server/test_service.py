@@ -381,7 +381,7 @@ class TestGatewayStatus:
             result = svc.gateway_status("abc123")
         assert isinstance(result, tuple)
         assert result[0] == 502
-        assert "Connection refused" in result[1]["detail"]
+        assert result[1]["detail"] == "Agent gateway request failed"
 
     def test_ambiguous_returns_409(self, tmp_path: Path) -> None:
         svc = _make_service(tmp_path)
@@ -449,7 +449,7 @@ class TestGatewayControlInput:
             )
         assert isinstance(result, tuple)
         assert result[0] == 502
-        assert "Connection refused" in result[1]["detail"]
+        assert result[1]["detail"] == "Agent gateway request failed"
 
 
 class TestGatewayPromptControl:
@@ -486,7 +486,7 @@ class TestGatewayPromptControl:
         assert result[0] == 502
         assert "No gateway" in result[1]["detail"]
 
-    def test_gateway_error_preserves_status_and_structured_detail(self, tmp_path: Path) -> None:
+    def test_gateway_error_returns_safe_bad_gateway(self, tmp_path: Path) -> None:
         svc = _make_service(tmp_path)
         _populate_index(svc, [_agent_with_gateway()])
         with patch.object(
@@ -514,9 +514,7 @@ class TestGatewayPromptControl:
                 HoumaoManagedAgentGatewayPromptControlRequest(prompt="hello"),
             )
         assert isinstance(result, tuple)
-        assert result[0] == 409
-        assert isinstance(result[1]["detail"], dict)
-        assert result[1]["detail"]["error_code"] == "not_ready"
+        assert result == (502, {"detail": "Agent gateway request failed"})
 
 
 class TestGatewayMailNotifier:

@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from unittest.mock import Mock
 
-from fastapi.testclient import TestClient
+from tests.unit.passive_server.contract_client import AdmittedPassiveClient
 import pytest
 
 from houmao.agents.realm_controller.errors import GatewayHttpError
@@ -324,10 +324,10 @@ def test_usage_proxy_preserves_tui_capability_records_health_and_cursor(
 
 
 @pytest.mark.parametrize("status", [422, 503, None])
-def test_usage_proxy_preserves_upstream_errors(
+def test_usage_proxy_sanitizes_upstream_errors(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: int | None
 ) -> None:
-    """Gateway validation/storage status remains distinct from connectivity failure."""
+    """The proxy omits upstream failure details from the public response."""
 
     service = _service(tmp_path)
     _discover(service)
@@ -336,7 +336,7 @@ def test_usage_proxy_preserves_upstream_errors(
         method="GET", url="http://127.0.0.1:1/v1/usage", detail="safe error", status_code=status
     )
     monkeypatch.setattr(service, "_gateway_client_for_agent", lambda _: gateway)
-    assert service.get_usage("gateway-a") == (status or 502, {"detail": "safe error"})
+    assert service.get_usage("gateway-a") == (502, {"detail": "Agent gateway request failed"})
 
 
 def test_usage_resolution_unknown_ambiguous_and_missing_gateway(
@@ -375,7 +375,9 @@ def test_passive_usage_http_page_and_query_validation(
     service = _service(tmp_path)
     query = Mock(return_value=_page(records=False))
     monkeypatch.setattr(service, "get_usage", query)
-    client = TestClient(create_app(config=service.m_config, service=service))
+    client = AdmittedPassiveClient(
+        create_app(config=service.m_config, service=service), extra_refs=["agent-a"]
+    )
     response = client.get("/houmao/agents/agent-a/usage", params={"after": "position", "limit": 2})
     assert response.status_code == 200
     assert response.json() == _page(records=False).model_dump(mode="json")
@@ -394,7 +396,9 @@ def test_passive_usage_http_preserves_service_error(
     monkeypatch.setattr(
         service, "get_usage", Mock(return_value=(503, {"detail": "Usage history is unavailable"}))
     )
-    response = TestClient(create_app(service=service)).get("/houmao/agents/agent-a/usage")
+    response = AdmittedPassiveClient(create_app(service=service), extra_refs=["agent-a"]).get(
+        "/houmao/agents/agent-a/usage"
+    )
     assert response.status_code == 503
     assert response.json() == {"detail": "Usage history is unavailable"}
 
@@ -438,7 +442,7 @@ def test_passive_usage_reads_real_ledger_and_polls_after_empty_page(
         "houmao.passive_server.headless.UsageService.reconcile",
         Mock(side_effect=AssertionError("GET reconciled provider artifacts")),
     )
-    client = TestClient(create_app(service=service))
+    client = AdmittedPassiveClient(create_app(service=service))
     response = client.get("/houmao/agents/agent-a/usage", params={"limit": 1})
     assert response.status_code == 200
     first_page = response.json()

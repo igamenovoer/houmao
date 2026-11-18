@@ -13,14 +13,19 @@ from houmao.mailbox.online_models import (
 import json
 import logging
 import os
+import threading
+from collections import OrderedDict
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Literal, TypeVar
+from urllib.parse import urlsplit
 
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     kill_tmux_session,
 )
 from houmao.agents.realm_controller.errors import GatewayHttpError
+from houmao.agents.realm_controller.gateway_access_runtime import gateway_access_for_manifest
 from houmao.agents.realm_controller.gateway_client import (
     GatewayClient,
     GatewayEndpoint,
@@ -80,6 +85,19 @@ from houmao.agents.realm_controller.registry_storage import (
     resolve_known_managed_agent_records,
 )
 from houmao.agents.realm_controller.usage_models import UsagePage
+from houmao.cao.models import CaoSuccessResponse
+from houmao.gateway.access import (
+    GatewayAccessError,
+    GatewayAccessPolicy,
+    GatewayRequestBinding,
+    GatewaySelfKey,
+    GatewayTarget,
+)
+from houmao.gateway.owner_authority import RELAY_HEADER, issue_gateway_relay
+from houmao.passive_server.admission import (
+    CURRENT_ADMISSION,
+    PassiveAccessTarget,
+)
 from houmao.agents.realm_controller.registry_models import (
     LiveAgentRegistryRecordV2,
     ManagedAgentRegistryRecordV3,
@@ -128,6 +146,7 @@ from houmao.passive_server.models import (
 )
 from houmao.passive_server.observation import TuiObservationService
 from houmao.server.models import (
+    HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
     HoumaoManagedAgentDetailResponse,
     HoumaoManagedAgentGatewayNextPromptSessionRequest,
     HoumaoManagedAgentGatewayPromptControlRequest,
@@ -196,6 +215,10 @@ class PassiveServerService:
         self.m_discovery = RegistryDiscoveryService(config)
         self.m_observation = TuiObservationService(discovery=self.m_discovery, config=config)
         self.m_headless = HeadlessAgentService(config)
+        self.m_access_lock: threading.Lock = threading.Lock()
+        self.m_access_policies: OrderedDict[
+            tuple[str, str, str, Path, str | None], GatewayAccessPolicy
+        ] = OrderedDict()
 
     # -- lifecycle ------------------------------------------------------------
 
@@ -347,6 +370,118 @@ class PassiveServerService:
             gateway=gateway,
         )
 
+    def resolve_access_target(
+        self, agent_ref: str
+    ) -> PassiveAccessTarget | tuple[int, dict[str, Any]]:
+        """Resolve an owner-local policy independently of current gateway presence."""
+
+        tracked = self.m_headless.resolve_usage_matches(agent_ref)
+        discovered = self._resolve_agent_or_error(agent_ref)
+        if isinstance(discovered, tuple) and discovered[0] == 409:
+            return discovered
+        if len(tracked) > 1:
+            return (409, {"detail": "Ambiguous managed agent reference"})
+        if not tracked and not isinstance(discovered, tuple):
+            tracked = self.m_headless.resolve_usage_matches(discovered.record.agent_id)
+            if len(tracked) > 1:
+                return (409, {"detail": "Ambiguous managed agent reference"})
+        tracked_id = tracked[0] if tracked else None
+        tracked_authority = (
+            self.m_headless.access_authority(tracked_id) if tracked_id is not None else None
+        )
+        if tracked_id is not None and tracked_authority is None:
+            return (503, {"detail": "Target access policy is unavailable"})
+
+        record = discovered.record if not isinstance(discovered, tuple) else None
+        canonical = tracked_authority.agent_id if tracked_authority is not None else None
+        if record is not None and canonical is not None and record.agent_id != canonical:
+            return (409, {"detail": "Ambiguous managed agent reference"})
+        known_records = resolve_known_managed_agent_records(
+            canonical or (record.agent_id if record is not None else agent_ref),
+            env=self.m_config.registry_helper_env(),
+        )
+        if len(known_records) > 1:
+            return (409, {"detail": "Ambiguous managed agent reference"})
+        if known_records:
+            record = known_records[0]
+
+        if tracked_authority is not None:
+            manifest_path = Path(tracked_authority.manifest_path)
+        elif record is not None:
+            manifest_path = Path(record.runtime.manifest_path)
+        else:
+            return (404, {"detail": "Agent not found"})
+
+        try:
+            runtime = gateway_access_for_manifest(manifest_path)
+            runtime.require_current()
+            target = runtime.target
+            if canonical is not None and canonical != target.owner.agent_id:
+                raise GatewayAccessError(503, "policy_unavailable")
+            if record is not None and (
+                record.agent_id != target.owner.agent_id
+                or record.execution_binding is None
+                or record.execution_binding.context_id != target.owner.context_id
+                or record.generation_id != target.incarnation
+                or Path(record.runtime.manifest_path) != manifest_path
+            ):
+                raise GatewayAccessError(503, "policy_unavailable")
+
+            def current_target() -> GatewayTarget:
+                """Verify that the selected manifest still owns this incarnation."""
+
+                runtime.require_current()
+                return runtime.target
+
+            def current_self() -> GatewaySelfKey | None:
+                """Use registry self authority or the live managed-headless controller."""
+
+                if tracked_id is not None and self.m_headless.access_body_is_live(
+                    tracked_id, manifest_path=manifest_path
+                ):
+                    runtime.require_current()
+                    return runtime.store.load_self(target.incarnation)
+                return runtime.current_self()
+
+            cache_key = (
+                target.owner.agent_id,
+                target.owner.context_id,
+                target.incarnation,
+                manifest_path,
+                tracked_id,
+            )
+            with self.m_access_lock:
+                policy = self.m_access_policies.get(cache_key)
+                if policy is None:
+                    policy = GatewayAccessPolicy(
+                        store=runtime.store, target=current_target, current_self=current_self
+                    )
+                    self.m_access_policies[cache_key] = policy
+                    if len(self.m_access_policies) > 256:
+                        self.m_access_policies.popitem(last=False)
+                else:
+                    self.m_access_policies.move_to_end(cache_key)
+        except (GatewayAccessError, RuntimeError, OSError, ValueError):
+            return (503, {"detail": "Target access policy is unavailable"})
+        return PassiveAccessTarget(runtime, policy, tracked_id, manifest_path)
+
+    def require_access_target_current(self, selected: PassiveAccessTarget) -> None:
+        """Reject a generation replacement that occurred during request admission."""
+
+        selected.runtime.require_current()
+        target = selected.runtime.target
+        current = resolve_known_managed_agent_records(
+            target.owner.agent_id, env=self.m_config.registry_helper_env()
+        )
+        if current and (
+            len(current) != 1
+            or current[0].agent_id != target.owner.agent_id
+            or current[0].generation_id != target.incarnation
+            or current[0].execution_binding != selected.runtime.execution_binding
+            or Path(current[0].runtime.manifest_path) != selected.manifest_path
+        ):
+            raise GatewayAccessError(503, "policy_unavailable")
+
     def get_usage(
         self, agent_ref: str, *, after: str | None = None, limit: int = 100
     ) -> UsagePage | tuple[int, dict[str, Any]]:
@@ -390,6 +525,24 @@ class PassiveServerService:
     ) -> DiscoveredAgent | tuple[int, dict[str, Any]]:
         """Resolve an agent by id or name, returning an error tuple on failure."""
 
+        admitted = CURRENT_ADMISSION.get()
+        if admitted is not None:
+            target = admitted.target.runtime.target
+            by_id = self.m_discovery.index.get_by_id(target.owner.agent_id)
+            if by_id is None:
+                return (502, {"detail": "No gateway attached to agent"})
+            if by_id.record.generation_id != target.incarnation:
+                return (503, {"detail": "Target access policy is unavailable"})
+            known = resolve_known_managed_agent_records(
+                target.owner.agent_id, env=self.m_config.registry_helper_env()
+            )
+            if known:
+                self.require_access_target_current(admitted.target)
+                if known[0].lifecycle.state != "active":
+                    return (502, {"detail": "No active gateway attached to agent"})
+                return DiscoveredAgent(record=known[0], summary=by_id.summary)
+            return by_id
+
         by_id = self.m_discovery.index.get_by_id(agent_ref)
         if by_id is not None:
             return by_id
@@ -415,7 +568,50 @@ class PassiveServerService:
         gw = agent.record.gateway
         if gw is None or gw.host is None or gw.port is None:
             return None
-        return GatewayClient(endpoint=GatewayEndpoint(host=gw.host, port=gw.port))
+        endpoint = GatewayEndpoint(host="127.0.0.1", port=gw.port)
+        admitted = CURRENT_ADMISSION.get()
+        if admitted is None or admitted.grant is None or admitted.grant.role == "anonymous":
+            return GatewayClient(endpoint=endpoint)
+
+        grant = admitted.grant
+
+        def request_proof(method: str, path: str, body: bytes) -> dict[str, str]:
+            """Mint exact downstream authority from the admitted caller only."""
+
+            parts = urlsplit(path)
+            target = admitted.target.runtime.target
+            record = agent.record
+            if (
+                (method, parts.path) not in admitted.relay_operations
+                or record.agent_id != target.owner.agent_id
+                or record.execution_binding is None
+                or record.execution_binding.context_id != target.owner.context_id
+                or record.generation_id != target.incarnation
+            ):
+                raise GatewayHttpError(
+                    method=method, url="", status_code=403, detail="Gateway relay scope denied"
+                )
+            try:
+                if not admitted.target.policy.revalidate(grant):
+                    raise GatewayAccessError(401, "invalid_proof")
+                request_binding = GatewayRequestBinding.from_request(
+                    method, parts.path, parts.query, body
+                )
+                token = issue_gateway_relay(
+                    admitted.target.runtime.private_root, grant=grant, request=request_binding
+                )
+            except GatewayAccessError as exc:
+                raise GatewayHttpError(
+                    method=method,
+                    url="",
+                    status_code=exc.status_code,
+                    detail=json.dumps({"error_code": exc.code}),
+                ) from None
+            return {RELAY_HEADER: token}
+
+        return GatewayClient(
+            endpoint=endpoint, request_proof=request_proof, respect_proxy_env=False
+        )
 
     def gateway_status(self, agent_ref: str) -> GatewayStatusV1 | tuple[int, dict[str, Any]]:
         """Proxy ``GET /v1/status`` to the agent's gateway."""
@@ -429,7 +625,7 @@ class PassiveServerService:
         try:
             return client.status()
         except GatewayHttpError as exc:
-            return (502, {"detail": exc.detail})
+            return self._gateway_http_error_tuple(exc)
 
     def gateway_native_home(self, agent_ref: str) -> NativeHomeV1 | tuple[int, dict[str, Any]]:
         """Proxy authoritative native-home inspection without reading local home material."""
@@ -501,6 +697,8 @@ class PassiveServerService:
                 return (502, {"detail": "Agent gateway native authority changed during request"})
             return result
         except GatewayHttpError as exc:
+            if exc.status_code in {401, 403}:
+                return self._gateway_http_error_tuple(exc)
             return (
                 exc.status_code or 502,
                 {"detail": "Agent gateway native refresh response is unavailable"},
@@ -633,7 +831,7 @@ class PassiveServerService:
         try:
             return client.get_tui_state()
         except GatewayHttpError as exc:
-            return (502, {"detail": exc.detail})
+            return self._gateway_http_error_tuple(exc)
 
     def gateway_web_state(
         self, agent_ref: str
@@ -666,7 +864,7 @@ class PassiveServerService:
         try:
             return client.get_tui_history(limit=limit)
         except GatewayHttpError as exc:
-            return (502, {"detail": exc.detail})
+            return self._gateway_http_error_tuple(exc)
 
     def gateway_tui_note_prompt(
         self,
@@ -685,7 +883,7 @@ class PassiveServerService:
         try:
             return client.note_tui_prompt_submission(prompt=prompt)
         except GatewayHttpError as exc:
-            return (502, {"detail": exc.detail})
+            return self._gateway_http_error_tuple(exc)
 
     def gateway_headless_control_state(
         self,
@@ -736,7 +934,7 @@ class PassiveServerService:
         try:
             return client.create_request(payload)
         except GatewayHttpError as exc:
-            return (502, {"detail": exc.detail})
+            return self._gateway_http_error_tuple(exc)
 
     def gateway_control_prompt(
         self,
@@ -775,7 +973,7 @@ class PassiveServerService:
         try:
             return client.send_control_input(payload)
         except GatewayHttpError as exc:
-            return (502, {"detail": exc.detail})
+            return self._gateway_http_error_tuple(exc)
 
     def gateway_mail_notifier_status(
         self,
@@ -1230,7 +1428,7 @@ class PassiveServerService:
                 detail="Request forwarded to gateway",
             )
         except GatewayHttpError as exc:
-            return (502, {"detail": exc.detail})
+            return self._gateway_http_error_tuple(exc)
 
     def interrupt_agent(
         self, agent_ref: str
@@ -1267,7 +1465,7 @@ class PassiveServerService:
                 detail="Interrupt forwarded to gateway",
             )
         except GatewayHttpError as exc:
-            return (502, {"detail": exc.detail})
+            return self._gateway_http_error_tuple(exc)
 
     def stop_agent(self, agent_ref: str) -> PassiveAgentActionResponse | tuple[int, dict[str, Any]]:
         """Stop an agent by killing its tmux session and cleaning up.
@@ -1333,6 +1531,51 @@ class PassiveServerService:
             return (400, {"detail": f"Agent {agent_ref} is not a managed headless agent"})
 
         return self.m_headless.submit_turn(managed_tracked_agent_id, payload.prompt)
+
+    def inspect_backing(
+        self, agent_ref: str
+    ) -> HoumaoManagedAgentDetailResponse | tuple[int, dict[str, Any]]:
+        """Inspect the admitted backing controller without a gateway round-trip."""
+
+        tracked_id = self._backing_tracked_id(agent_ref)
+        if tracked_id is None:
+            return (403, {"detail": "Backing service authority is required"})
+        return self._managed_headless_detail_response(
+            managed_tracked_agent_id=tracked_id, resolved=None
+        )
+
+    def dispatch_backing(
+        self, agent_ref: str, payload: HoumaoManagedAgentGatewayInternalHeadlessPromptRequest
+    ) -> CaoSuccessResponse | tuple[int, dict[str, Any]]:
+        """Dispatch one operation through separate admitted backing authority."""
+
+        tracked_id = self._backing_tracked_id(agent_ref)
+        if tracked_id is None:
+            return (403, {"detail": "Backing service authority is required"})
+        return self.m_headless.dispatch_backing(tracked_id, payload)
+
+    def interrupt_backing(
+        self, agent_ref: str
+    ) -> PassiveAgentActionResponse | tuple[int, dict[str, Any]]:
+        """Interrupt through the exact controller admitted for backing service."""
+
+        tracked_id = self._backing_tracked_id(agent_ref)
+        if tracked_id is None:
+            return (403, {"detail": "Backing service authority is required"})
+        return self.m_headless.interrupt_managed(tracked_id)
+
+    @staticmethod
+    def _backing_tracked_id(agent_ref: str) -> str | None:
+        """Select the managed id established by the service credential."""
+
+        admission = CURRENT_ADMISSION.get()
+        if (
+            admission is not None
+            and admission.grant is None
+            and admission.target.tracked_agent_id == agent_ref
+        ):
+            return agent_ref
+        return None
 
     def turn_status(
         self, agent_ref: str, turn_id: str
@@ -1502,6 +1745,15 @@ class PassiveServerService:
         self, agent_ref: str
     ) -> tuple[str | None, DiscoveredAgent | None, tuple[int, dict[str, Any]] | None]:
         """Resolve one agent reference onto the authoritative managed headless id."""
+
+        admitted = CURRENT_ADMISSION.get()
+        if admitted is not None and admitted.target.tracked_agent_id is not None:
+            resolved = self._resolve_agent_or_error(agent_ref)
+            return (
+                admitted.target.tracked_agent_id,
+                resolved if isinstance(resolved, DiscoveredAgent) else None,
+                None,
+            )
 
         direct_matches = self.m_headless.resolve_managed_matches(agent_ref)
         if len(direct_matches) > 1:
@@ -1736,12 +1988,18 @@ class PassiveServerService:
     def _gateway_http_error_tuple(self, exc: GatewayHttpError) -> tuple[int, dict[str, Any]]:
         """Project one gateway HTTP error into a passive proxy response tuple."""
 
-        detail: Any
-        try:
-            detail = json.loads(exc.detail)
-        except json.JSONDecodeError:
-            detail = exc.detail
-        return (exc.status_code or 502, {"detail": detail})
+        if exc.status_code == 401:
+            return (401, {"detail": "Caller proof is required or invalid"})
+        if exc.status_code == 403:
+            return (403, {"detail": "Caller has insufficient authority"})
+        if exc.status_code == 503:
+            try:
+                detail = json.loads(exc.detail)
+            except json.JSONDecodeError:
+                detail = None
+            if isinstance(detail, dict) and detail.get("error_code") == "policy_unavailable":
+                return (503, {"detail": "Target access policy is unavailable"})
+        return (502, {"detail": "Agent gateway request failed"})
 
     def _gateway_proxy(
         self,

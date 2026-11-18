@@ -69,6 +69,12 @@ from houmao.agents.realm_controller.native_refresh_models import (
     native_refresh_status_code,
 )
 from houmao.version import get_version
+from houmao.cao.models import CaoSuccessResponse
+from houmao.passive_server.admission import (
+    PassiveTargetRoute,
+    issue_passive_challenge,
+    passive_route_access,
+)
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.models import (
     AgentTuiDetailResponse,
@@ -98,6 +104,7 @@ from houmao.passive_server.service import PassiveServerService
 from houmao.server.models import (
     HoumaoManagedAgentDetailResponse,
     HoumaoManagedAgentGatewayNextPromptSessionRequest,
+    HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
     HoumaoManagedAgentGatewayPromptControlRequest,
     HoumaoManagedAgentGatewayPromptControlResponse,
     HoumaoManagedAgentHistoryResponse,
@@ -132,18 +139,21 @@ def create_app(
         version=get_version(),
         lifespan=_lifespan,
     )
+    app.state.passive_service = resolved_service
+    app.router.route_class = PassiveTargetRoute
 
     @app.exception_handler(RequestValidationError)
-    async def _native_refresh_validation_error(
+    async def _protected_validation_error(
         request: Request, exc: RequestValidationError
     ) -> Response:
-        """Keep rejected refresh content out of the public validation response."""
+        """Keep protected request content out of validation diagnostics."""
 
         route = request.scope.get("route")
-        if getattr(route, "path", None) == "/houmao/agents/{agent_ref}/gateway/control/refresh":
-            return JSONResponse(
-                status_code=422, content={"detail": "Invalid native refresh request"}
-            )
+        if (
+            isinstance(route, PassiveTargetRoute)
+            and passive_route_access(request.method, route.path) != "public"
+        ):
+            return JSONResponse(status_code=422, content={"detail": "Invalid protected request"})
         return await request_validation_exception_handler(request, exc)
 
     @app.get("/health")
@@ -181,6 +191,12 @@ def create_app(
     @app.get("/houmao/agents/{agent_ref}/resolve")
     def resolve_agent_address(agent_ref: str) -> PassiveAgentAddressResolveResponse:
         return resolved_service.resolve_agent_address(agent_ref)
+
+    @app.post("/houmao/agents/{agent_ref}/auth/challenge")
+    async def auth_challenge(agent_ref: str, request: Request) -> Response:
+        """Issue request-bound proof for this ingress and selected owner."""
+
+        return await issue_passive_challenge(resolved_service, request, agent_ref)
 
     @app.get("/houmao/agents/{agent_ref}/usage", response_model=UsagePage)
     def agent_usage(
@@ -801,5 +817,43 @@ def create_app(
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])
         return Response(content=result, media_type="text/plain")
+
+    @app.get(
+        "/houmao/agents/{agent_ref}/gateway/internal/inspect",
+        response_model=HoumaoManagedAgentDetailResponse,
+    )
+    def inspect_backing(agent_ref: str) -> HoumaoManagedAgentDetailResponse | Response:
+        """Read only the owner-side state needed by the backing gateway."""
+
+        result = resolved_service.inspect_backing(agent_ref)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])
+        return result
+
+    @app.post(
+        "/houmao/agents/{agent_ref}/gateway/internal/headless-prompt",
+        response_model=CaoSuccessResponse,
+    )
+    def dispatch_backing(
+        agent_ref: str, payload: HoumaoManagedAgentGatewayInternalHeadlessPromptRequest
+    ) -> CaoSuccessResponse | Response:
+        """Dispatch through the current configured backing controller."""
+
+        result = resolved_service.dispatch_backing(agent_ref, payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])
+        return result
+
+    @app.post(
+        "/houmao/agents/{agent_ref}/gateway/internal/interrupt",
+        response_model=PassiveAgentActionResponse,
+    )
+    def interrupt_backing(agent_ref: str) -> PassiveAgentActionResponse | Response:
+        """Interrupt through the current configured backing controller."""
+
+        result = resolved_service.interrupt_backing(agent_ref)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])
+        return result
 
     return app

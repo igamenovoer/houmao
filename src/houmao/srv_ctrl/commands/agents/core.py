@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from houmao.agents.realm_controller.gateway_access_runtime import load_gateway_admin_seed
+from houmao.gateway.access import GatewayLaunchSeed
+
 from collections.abc import Mapping
 from dataclasses import dataclass
 import os
@@ -771,6 +774,7 @@ def launch_managed_agent_locally(
     headless_display_detail: HeadlessDisplayDetail,
     launch_env_overrides: dict[str, str] | None = None,
     gateway_auto_attach: bool = False,
+    gateway_admin_seed: GatewayLaunchSeed | None = None,
     gateway_host: str | None = None,
     gateway_port: int | None = None,
     gateway_execution_mode: GatewayCurrentExecutionMode | None = None,
@@ -1067,6 +1071,7 @@ def launch_managed_agent_locally(
             default_tmux_session_name=default_tmux_session_name,
             launch_env_overrides=effective_launch_env_overrides,
             gateway_auto_attach=gateway_auto_attach,
+            gateway_admin_seed=gateway_admin_seed,
             gateway_host=gateway_host,
             gateway_port=gateway_port,
             gateway_execution_mode_override=(
@@ -1429,6 +1434,12 @@ def self_relaunch_agent_command(
 @click.option("--session-name", help="Optional tmux session name.")
 @click.option("--headless", is_flag=True, help="Launch in detached mode.")
 @click.option(
+    "--gateway-admin-seed",
+    "gateway_admin_seed_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Private owner-side JSON file with initial gateway admin public keys.",
+)
+@click.option(
     "--managed-header/--no-managed-header",
     "managed_header",
     default=None,
@@ -1494,10 +1505,19 @@ def launch_agents_command(
     provider: str | None,
     reuse_home: bool,
     force_mode: str | None,
+    gateway_admin_seed_path: Path | None = None,
 ) -> None:
     """Build and launch one managed agent locally without `houmao-server`."""
 
     source_working_directory = Path.cwd().resolve()
+    gateway_admin_seed = None
+    if gateway_admin_seed_path is not None:
+        try:
+            gateway_admin_seed = load_gateway_admin_seed(
+                source_working_directory / gateway_admin_seed_path
+            )
+        except SessionManifestError as exc:
+            raise click.ClickException(str(exc)) from None
     if agents is not None and launch_profile is not None:
         raise click.ClickException("`--launch-profile` and `--agents` cannot be combined.")
     if agents is None and launch_profile is None:
@@ -1693,6 +1713,7 @@ def launch_agents_command(
         headless_display_style=headless_display_style,
         headless_display_detail=headless_display_detail,
         gateway_auto_attach=gateway_auto_attach,
+        gateway_admin_seed=gateway_admin_seed,
         gateway_host=gateway_host,
         gateway_port=gateway_port,
         declared_mailboxes=declared_mailboxes,

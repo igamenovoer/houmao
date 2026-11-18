@@ -8,7 +8,7 @@ from pathlib import Path
 import threading
 from unittest.mock import Mock
 
-from fastapi.testclient import TestClient
+from tests.unit.passive_server.contract_client import AdmittedPassiveClient
 import pytest
 
 from houmao.agents.realm_controller.errors import GatewayHttpError
@@ -114,7 +114,7 @@ def test_passive_home_projects_authoritative_descriptor_without_refresh(
     mutate = Mock()
     monkeypatch.setattr(GatewayClient, "get_native_home", read)
     monkeypatch.setattr(GatewayClient, "refresh_native", mutate)
-    client = TestClient(create_app(service=service))
+    client = AdmittedPassiveClient(create_app(service=service))
     response = client.get(f"/houmao/agents/{reference}/gateway/native-home")
     assert response.status_code == 200
     assert response.json() == home.model_dump(mode="json")
@@ -135,7 +135,7 @@ def test_passive_common_get_preserves_200_and_does_not_evaluate_freshness(
     monkeypatch.setattr(GatewayClient, "get_common_plugin_state", read)
     monkeypatch.setattr(GatewayClient, "get_native_home", Mock(return_value=observation.home))
     monkeypatch.setattr(GatewayClient, "refresh_native", mutate)
-    client = TestClient(create_app(service=service))
+    client = AdmittedPassiveClient(create_app(service=service))
     response = client.get("/houmao/agents/owner/gateway/control/refresh")
     assert response.status_code == 200
     assert response.json() == observation.model_dump(mode="json")
@@ -183,7 +183,7 @@ def test_passive_refresh_preserves_typed_outcomes_effects_and_native_only_pendin
     monkeypatch.setattr(GatewayClient, "refresh_native", native)
     monkeypatch.setattr(GatewayClient, "get_native_home", Mock(return_value=observation.home))
     monkeypatch.setattr(GatewayClient, "get_common_plugin_state", read)
-    client = TestClient(create_app(service=service))
+    client = AdmittedPassiveClient(create_app(service=service))
     response = client.post(
         "/houmao/agents/owner/gateway/control/refresh", json={"timeout_seconds": 0.05}
     )
@@ -212,7 +212,7 @@ def test_passive_refresh_preserves_scoped_resolution_errors_without_gateway_work
     service = _service(tmp_path, agents)
     factory = Mock(side_effect=AssertionError("no gateway operation expected"))
     monkeypatch.setattr("houmao.passive_server.service.GatewayClient", factory)
-    client = TestClient(create_app(service=service))
+    client = AdmittedPassiveClient(create_app(service=service))
     path = f"/houmao/agents/alpha/gateway/{'control/refresh' if route == 'post-refresh' else route}"
     response = client.post(path, json={}) if route == "post-refresh" else client.get(path)
     assert response.status_code == status
@@ -242,7 +242,7 @@ def test_passive_refresh_rejects_strict_invalid_requests_before_proxying(
     service = _service(tmp_path, [_agent()])
     native = Mock()
     monkeypatch.setattr(GatewayClient, "refresh_native", native)
-    client = TestClient(create_app(service=service))
+    client = AdmittedPassiveClient(create_app(service=service))
     response = client.post(
         "/houmao/agents/owner/gateway/control/refresh",
         content=json.dumps(payload),
@@ -286,7 +286,7 @@ def test_passive_refresh_transport_errors_are_safe_and_never_retried(
         monkeypatch.setattr(
             GatewayClient, "get_native_home", Mock(return_value=_observation().home)
         )
-    client = TestClient(create_app(service=service))
+    client = AdmittedPassiveClient(create_app(service=service))
     path = f"/houmao/agents/owner/gateway/{'control/refresh' if route == 'post-refresh' else route}"
     response = client.post(path, json={}) if route == "post-refresh" else client.get(path)
     assert response.status_code == (upstream_status or 502)
@@ -404,7 +404,7 @@ def test_passive_http_projects_actual_typed_gateway_refusal_without_retry(tmp_pa
     thread.start()
     try:
         service = _service(tmp_path, [_agent(port=server.server_port)])
-        client = TestClient(create_app(service=service))
+        client = AdmittedPassiveClient(create_app(service=service))
         response = client.post(
             "/houmao/agents/owner/gateway/control/refresh", json={"timeout_seconds": 0.1}
         )
@@ -438,7 +438,7 @@ def test_passive_native_home_selection_keeps_distinct_gateway_authority(
         )
     factory = Mock(side_effect=lambda *, endpoint: clients[endpoint.port])
     monkeypatch.setattr("houmao.passive_server.service.GatewayClient", factory)
-    client = TestClient(create_app(service=service))
+    client = AdmittedPassiveClient(create_app(service=service))
     for identity in ("owner", "other"):
         response = client.get(f"/houmao/agents/{identity}/gateway/native-home")
         assert response.status_code == 200
@@ -528,7 +528,7 @@ def test_passive_native_proxy_refuses_wrong_gateway_before_any_body_control(
     monkeypatch.setattr(GatewayClient, "get_common_plugin_state", common)
     monkeypatch.setattr(GatewayClient, "refresh_native", refresh)
     monkeypatch.setattr(GatewayClient, "bind_native_home", bind)
-    client = TestClient(create_app(service=service))
+    client = AdmittedPassiveClient(create_app(service=service))
     path = f"/houmao/agents/owner/gateway/{'control/refresh' if route == 'post-refresh' else route}"
     response = client.post(path, json={}) if route == "post-refresh" else client.get(path)
     assert response.status_code == 502
@@ -568,7 +568,7 @@ def test_passive_native_proxy_checks_returned_execution_against_captured_home(
     monkeypatch.setattr(GatewayClient, "get_common_plugin_state", Mock(return_value=observation))
     mutate = Mock(return_value=result)
     monkeypatch.setattr(GatewayClient, "refresh_native", mutate)
-    client = TestClient(create_app(service=service))
+    client = AdmittedPassiveClient(create_app(service=service))
     response = (
         client.get("/houmao/agents/owner/gateway/control/refresh")
         if route == "control/refresh"
@@ -594,7 +594,7 @@ def test_passive_headless_scope_does_not_require_a_nonexistent_live_native_sessi
     monkeypatch.setattr(GatewayClient, "get_common_plugin_state", Mock(return_value=observation))
     bind = Mock()
     monkeypatch.setattr(GatewayClient, "bind_native_home", bind)
-    response = TestClient(create_app(service=service)).get(
+    response = AdmittedPassiveClient(create_app(service=service)).get(
         "/houmao/agents/owner/gateway/control/refresh"
     )
     assert response.status_code == 200
@@ -641,7 +641,7 @@ def test_passive_conditional_refresh_refuses_replacement_after_prefetch(tmp_path
     thread.start()
     try:
         service = _service(tmp_path, [_agent(port=server.server_port)])
-        response = TestClient(create_app(service=service)).post(
+        response = AdmittedPassiveClient(create_app(service=service)).post(
             "/houmao/agents/owner/gateway/control/refresh", json={"timeout_seconds": 0.1}
         )
         assert response.status_code == 412

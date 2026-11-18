@@ -9,6 +9,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from tests.unit.passive_server.contract_client import arrange_passive_launch_access
 from houmao.agents.realm_controller.backends.headless_output import CanonicalHeadlessEvent
 from houmao.passive_server.models import PassiveHeadlessTurnAcceptedResponse
 from houmao.server.managed_agents import ManagedHeadlessActiveTurnRecord, ManagedHeadlessTurnRecord
@@ -26,6 +27,7 @@ def test_dsh_launch_persists_supported_authority(
 ) -> None:
     """Resolve DSH through the public launch service and preserve follow-up authority."""
 
+    arrange_passive_launch_access(monkeypatch, tmp_path)
     service = _make_service(tmp_path)
     request = _launch_request(tmp_path, tool="dsh")
     manifest = tmp_path / "runtime/manifest.json"
@@ -59,6 +61,7 @@ def test_kimi_launch_preserves_authority_and_accepts_managed_follow_up(
 ) -> None:
     """The expanded DSH selector retains the maintained Kimi launch and turn path."""
 
+    arrange_passive_launch_access(monkeypatch, tmp_path)
     service = _make_service(tmp_path)
     request = _launch_request(tmp_path, tool="kimi")
     manifest = tmp_path / "runtime/manifest.json"

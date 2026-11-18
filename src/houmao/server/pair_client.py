@@ -565,7 +565,11 @@ def resolve_pair_authority_client(
         from houmao.passive_server.client import PassiveServerClient
 
         return PairAuthorityClientResolution(
-            client=PassiveServerClient(base_url, **client_kwargs),
+            client=PassiveServerClient(
+                base_url,
+                timeout_seconds=probe_client.timeout_seconds,
+                create_timeout_seconds=probe_client.create_timeout_seconds,
+            ),
             health=health,
         )
     raise UnsupportedPairAuthorityError(base_url=base_url, houmao_service=health.houmao_service)

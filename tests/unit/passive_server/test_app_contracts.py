@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from tests.unit.passive_server.contract_client import AdmittedPassiveClient
 import pytest
 
 from houmao.agents.realm_controller.errors import GatewayHttpError
@@ -95,7 +96,7 @@ def _make_client(tmp_path: object) -> TestClient:
                 yield val
 
     app.router.lifespan_context = _patched_lifespan  # type: ignore[assignment]
-    return TestClient(app)
+    return AdmittedPassiveClient(app)
 
 
 def test_passive_gateway_memory_routes_expose_resolve_without_reindex(tmp_path: object) -> None:
@@ -231,7 +232,7 @@ def _make_agent_client(tmp_path: object, agents: list[DiscoveredAgent]) -> TestC
                 yield val
 
     app.router.lifespan_context = _patched_lifespan  # type: ignore[assignment]
-    return TestClient(app)
+    return AdmittedPassiveClient(app)
 
 
 def _agent(
@@ -926,7 +927,7 @@ class TestGatewayPromptControlEndpoint:
             )
         assert resp.status_code == 502
 
-    def test_gateway_error_preserves_status_and_structured_detail(self, tmp_path: object) -> None:
+    def test_gateway_error_returns_safe_bad_gateway(self, tmp_path: object) -> None:
         agent = _agent_with_gateway()
         client = _make_agent_client(tmp_path, [agent])
         with (
@@ -946,10 +947,10 @@ class TestGatewayPromptControlEndpoint:
                 "/houmao/agents/abc123/gateway/control/prompt",
                 json={"schema_version": 2, "prompt": "hello"},
             )
-        assert resp.status_code == 409
-        assert resp.json()["detail"]["error_code"] == "not_ready"
+        assert resp.status_code == 502
+        assert resp.json() == {"detail": "Agent gateway request failed"}
 
-    def test_pending_refusal_is_forwarded_unchanged(self, tmp_path: object) -> None:
+    def test_pending_refusal_omits_provider_details(self, tmp_path: object) -> None:
         client = _make_agent_client(tmp_path, [_agent_with_gateway()])
         detail = {
             "action": "submit_prompt",
@@ -981,8 +982,8 @@ class TestGatewayPromptControlEndpoint:
                 },
             )
 
-        assert resp.status_code == 409
-        assert resp.json()["detail"] == detail
+        assert resp.status_code == 502
+        assert resp.json() == {"detail": "Agent gateway request failed"}
 
 
 # ---------------------------------------------------------------------------
@@ -1251,7 +1252,7 @@ class TestGatewayReminderEndpoints:
             resp = client.get("/houmao/agents/abc123/gateway/reminders")
         assert resp.status_code == 502
 
-    def test_gateway_error_status_is_preserved(self, tmp_path: object) -> None:
+    def test_gateway_error_returns_bad_gateway(self, tmp_path: object) -> None:
         agent = _agent_with_gateway()
         client = _make_agent_client(tmp_path, [agent])
         with (
@@ -1278,7 +1279,7 @@ class TestGatewayReminderEndpoints:
                     "deliver_at_utc": "2026-04-09T12:00:00+00:00",
                 },
             )
-        assert resp.status_code == 409
+        assert resp.status_code == 502
 
 
 # ---------------------------------------------------------------------------
@@ -1437,7 +1438,7 @@ class TestGatewayMailPostEndpoint:
             )
         assert resp.status_code == 200
 
-    def test_gateway_http_status_is_preserved(self, tmp_path: object) -> None:
+    def test_gateway_http_failure_returns_bad_gateway(self, tmp_path: object) -> None:
         agent = _agent_with_gateway()
         client = _make_agent_client(tmp_path, [agent])
         with (
@@ -1462,7 +1463,7 @@ class TestGatewayMailPostEndpoint:
                     "body_content": "Hello",
                 },
             )
-        assert resp.status_code == 422
+        assert resp.status_code == 502
 
     def test_no_gateway_returns_502(self, tmp_path: object) -> None:
         client = _make_agent_client(tmp_path, [_agent()])
@@ -1579,7 +1580,7 @@ def _make_agent_client_with_observer(
                 yield val
 
     app.router.lifespan_context = _patched_lifespan  # type: ignore[assignment]
-    return TestClient(app)
+    return AdmittedPassiveClient(app)
 
 
 def _make_managed_headless_client(tmp_path: object) -> tuple[TestClient, str]:
@@ -1656,7 +1657,7 @@ def _make_managed_headless_client(tmp_path: object) -> tuple[TestClient, str]:
                 yield val
 
     app.router.lifespan_context = _patched_lifespan  # type: ignore[assignment]
-    return TestClient(app), accepted.turn_id
+    return AdmittedPassiveClient(app), accepted.turn_id
 
 
 # ---------------------------------------------------------------------------
@@ -2285,7 +2286,7 @@ class TestHeadlessTurnEndpoints:
         assert resp.status_code == 404
 
 
-def test_mail_proxy_preserves_structured_scope_conflict_without_channel_retry(
+def test_mail_proxy_refuses_scope_conflict_without_channel_retry(
     tmp_path: Path,
 ) -> None:
     """A wrong-channel handle stays a 409 with the original structured gateway detail."""
@@ -2313,8 +2314,8 @@ def test_mail_proxy_preserves_structured_scope_conflict_without_channel_retry(
                 "message_ref": "houmao-mail:foreign-reference",
             },
         )
-    assert response.status_code == 409
-    assert response.json() == {"detail": detail}
+    assert response.status_code == 502
+    assert response.json() == {"detail": "Agent gateway request failed"}
     assert forwarded.call_count == 1
     assert forwarded.call_args.kwargs["channel"] == "offline"
     assert forwarded.call_args.args[0].expected_binding_id == "offline-binding"
@@ -2370,7 +2371,7 @@ def test_complete_channel_mail_proxy_preserves_online_targeting(
     assert response.json()["transport"] == "stalwart"
 
 
-def test_mail_proxy_preserves_structured_stale_cursor_conflict(tmp_path: Path) -> None:
+def test_mail_proxy_refuses_stale_cursor_without_retry(tmp_path: Path) -> None:
     """Return the gateway's stale-page status and payload without recasting it as an outage."""
     detail = {"code": "stale_mail_cursor", "message": "Query state changed; start a fresh page"}
     client = _make_agent_client(tmp_path, [_agent_with_gateway()])
@@ -2396,7 +2397,7 @@ def test_mail_proxy_preserves_structured_stale_cursor_conflict(tmp_path: Path) -
                 "cursor": "opaque-cursor",
             },
         )
-    assert response.status_code == 409
-    assert response.json() == {"detail": detail}
+    assert response.status_code == 502
+    assert response.json() == {"detail": "Agent gateway request failed"}
     assert forwarded.call_args.args[0].cursor == "opaque-cursor"
     assert forwarded.call_args.kwargs["channel"] == "online"

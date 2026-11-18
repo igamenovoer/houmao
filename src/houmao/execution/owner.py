@@ -7,6 +7,8 @@ only by an admitted mutation; read-only discovery never initializes state.
 
 from __future__ import annotations
 
+from houmao.gateway.deployment import validate_gateway_access_config_path
+
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, redirect_stdout
 import hashlib
@@ -534,7 +536,7 @@ def _validate_request_shape(request: ExecutionRequestV1) -> None:
         "prompt": {"prompt", "model", "reasoning_level"},
         "refresh": {"timeout_seconds"},
         "relaunch": {"chat_session"},
-        "gateway_attach": {"background", "tui_tracking_timing_overrides"},
+        "gateway_attach": {"background", "tui_tracking_timing_overrides", "access_config_path"},
         "cleanup": {"kind", "dry_run", "purge_registry"},
     }
     fields = allowed.get(request.operation)
@@ -574,6 +576,11 @@ def _validate_request_shape(request: ExecutionRequestV1) -> None:
         )
     elif request.operation == "gateway_attach":
         invalid = not isinstance(arguments.get("background", False), bool)
+        if "access_config_path" in arguments:
+            try:
+                validate_gateway_access_config_path(arguments["access_config_path"])
+            except ValueError:
+                invalid = True
         timing = arguments.get("tui_tracking_timing_overrides")
         if timing is not None:
             from houmao.agents.realm_controller.gateway_models import (

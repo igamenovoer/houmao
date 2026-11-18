@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from houmao.agents.realm_controller.gateway_access_runtime import load_gateway_access_config
+from houmao.gateway.access import GatewayAccessError
+from houmao.gateway.deployment import validate_gateway_access_config_path
+
 from houmao.mailbox.online_models import (
     OnlineAttachRequest,
     OnlineControlRequest,
@@ -101,8 +105,10 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailAttachmentUploadV1,
     GatewayMailLifecycleResponseV1,
     GatewayMailListResponseV1,
+    GatewayMailListRequestV1,
     GatewayMailMarkRequestV1,
     GatewayMailMessageResponseV1,
+    GatewayMailMessageRequestV1,
     GatewayMailMoveRequestV1,
     GatewayExecutionOverrideV1,
     GatewayMailAnsweredFilter,
@@ -168,6 +174,7 @@ from houmao.agents.realm_controller.registry_storage import (
 )
 from houmao.agents.realm_controller.runtime import (
     RuntimeSessionController,
+    owner_gateway_client_for_controller,
     resume_runtime_session,
     resume_stopped_runtime_session,
 )
@@ -2752,6 +2759,12 @@ def gateway_status(target: ManagedAgentTarget) -> GatewayStatusV1:
         return pair_request(target.client.get_managed_agent_gateway_status, target.agent_ref)
 
     controller = _require_live_local_controller(target, operation="show gateway status")
+    client = _live_gateway_client_for_controller(controller, private=True, require_available=True)
+    if client is not None:
+        try:
+            return client.status()
+        except GatewayHttpError as exc:
+            raise click.ClickException(exc.detail) from None
     return _gateway_status_for_controller(controller)
 
 
@@ -2761,6 +2774,7 @@ def attach_gateway(
     background: bool = False,
     tui_tracking_timing_overrides: GatewayTuiTrackingTimingOverridesV1 | None = None,
     plugin_config: GatewayPluginConfiguration | None = None,
+    access_config_path: Path | None = None,
 ) -> GatewayStatusV1:
     """Attach or reuse a live gateway for one managed agent."""
 
@@ -2776,6 +2790,13 @@ def attach_gateway(
             if tui_tracking_timing_overrides is not None
             else None,
         }
+        if access_config_path is not None:
+            try:
+                arguments["access_config_path"] = validate_gateway_access_config_path(
+                    str(access_config_path)
+                )
+            except ValueError as exc:
+                raise click.ClickException(str(exc)) from None
         return _executor_gateway_status(target, "gateway_attach", arguments)
     if (
         target.identity.transport == "web"
@@ -2791,6 +2812,8 @@ def attach_gateway(
         "detached_process" if background else "tmux_auxiliary_window"
     )
     if target.mode == "server":
+        if access_config_path is not None:
+            raise click.ClickException("Gateway access configuration requires owner-side attach.")
         if plugin_config is not None:
             raise click.ClickException(
                 "Gateway plugin configuration requires local runtime authority on the owning host."
@@ -2806,17 +2829,21 @@ def attach_gateway(
         )
 
     controller = _require_live_local_controller(target, operation="attach gateway")
-    if plugin_config is None:
-        result = controller.attach_gateway(
-            execution_mode_override=execution_mode_override,
-            tui_tracking_timing_overrides=tui_tracking_timing_overrides,
-        )
-    else:
-        result = controller.attach_gateway(
-            execution_mode_override=execution_mode_override,
-            tui_tracking_timing_overrides=tui_tracking_timing_overrides,
-            plugin_config=plugin_config,
-        )
+    deployment = None
+    if access_config_path is not None:
+        try:
+            validate_gateway_access_config_path(str(access_config_path))
+            deployment = load_gateway_access_config(
+                controller.launch_plan.working_directory / access_config_path
+            )
+        except (ValueError, SessionManifestError) as exc:
+            raise click.ClickException(str(exc)) from None
+    result = controller.attach_gateway(
+        execution_mode_override=execution_mode_override,
+        tui_tracking_timing_overrides=tui_tracking_timing_overrides,
+        plugin_config=plugin_config,
+        access_config=deployment,
+    )
     if result.status != "ok":
         raise click.ClickException(result.detail)
     return _gateway_status_for_controller(controller)
@@ -4112,6 +4139,15 @@ def mail_status(target: ManagedAgentTarget) -> object:
         )
 
     controller = _require_live_local_controller(target, operation="show managed-agent mail status")
+    client = _live_gateway_client_for_controller(controller, private=True, require_available=True)
+    if client is not None:
+        try:
+            result = client.mail_status()
+        except GatewayHttpError as exc:
+            raise click.ClickException(exc.detail) from None
+        return build_verified_mail_command_result(
+            operation="status", execution_path="gateway_backed", payload=result
+        )
     return build_verified_mail_command_result(
         operation="status",
         execution_path="manager_direct",
@@ -4161,6 +4197,27 @@ def mail_list(
         )
 
     controller = _require_live_local_controller(target, operation="list managed-agent mail")
+    client = _live_gateway_client_for_controller(controller, private=True, require_available=True)
+    if client is not None:
+        try:
+            result = client.list_mail(
+                GatewayMailListRequestV1(
+                    box=box,
+                    read_state=cast(GatewayMailReadFilter, read_state),
+                    answered_state=cast(GatewayMailAnsweredFilter, answered_state),
+                    archived=archived,
+                    limit=limit,
+                    since=since,
+                    cursor=cursor,
+                    expected_binding_id=expected_binding_id,
+                ),
+                channel=channel,
+            )
+        except GatewayHttpError as exc:
+            raise click.ClickException(exc.detail) from None
+        return build_verified_mail_command_result(
+            operation="list", execution_path="gateway_backed", payload=result
+        )
     return build_verified_mail_command_result(
         operation="list",
         execution_path="manager_direct",
@@ -4211,6 +4268,22 @@ def mail_peek(
         )
 
     controller = _require_live_local_controller(target, operation="peek managed-agent mail")
+    client = _live_gateway_client_for_controller(controller, private=True, require_available=True)
+    if client is not None:
+        try:
+            result = client.peek_mail(
+                GatewayMailMessageRequestV1(
+                    message_ref=message_ref,
+                    box=box,
+                    expected_binding_id=expected_binding_id,
+                ),
+                channel=channel,
+            )
+        except GatewayHttpError as exc:
+            raise click.ClickException(exc.detail) from None
+        return build_verified_mail_command_result(
+            operation="peek", execution_path="gateway_backed", payload=result
+        )
     return build_verified_mail_command_result(
         operation="peek",
         execution_path="manager_direct",
@@ -4256,6 +4329,22 @@ def mail_read(
         )
 
     controller = _require_live_local_controller(target, operation="read managed-agent mail")
+    client = _live_gateway_client_for_controller(controller, private=True, require_available=True)
+    if client is not None:
+        try:
+            result = client.read_mail(
+                GatewayMailMessageRequestV1(
+                    message_ref=message_ref,
+                    box=box,
+                    expected_binding_id=expected_binding_id,
+                ),
+                channel=channel,
+            )
+        except GatewayHttpError as exc:
+            raise click.ClickException(exc.detail) from None
+        return build_verified_mail_command_result(
+            operation="read", execution_path="gateway_backed", payload=result
+        )
     return build_verified_mail_command_result(
         operation="read",
         execution_path="manager_direct",
@@ -4311,6 +4400,27 @@ def mail_send(
         )
 
     controller = _require_live_local_controller(target, operation="send managed-agent mail")
+    gateway_client = _live_gateway_client_for_controller(
+        controller, private=True, require_available=True
+    )
+    if gateway_client is not None:
+        return build_verified_mail_command_result(
+            operation="send",
+            execution_path="gateway_backed",
+            payload=_gateway_mail_send(
+                gateway_client,
+                to_recipients=to_recipients,
+                cc_recipients=cc_recipients,
+                subject=subject,
+                body_content=body_content,
+                attachments=attachments,
+                notify_block=notify_block,
+                notify_auth=notify_auth,
+                channel=channel,
+                expected_binding_id=expected_binding_id,
+            ),
+        )
+
     if target.identity.transport != "tui":
         return build_verified_mail_command_result(
             operation="send",
@@ -4352,24 +4462,6 @@ def mail_send(
             ),
         )
 
-    gateway_client = _live_gateway_client_for_controller(controller)
-    if gateway_client is not None:
-        return build_verified_mail_command_result(
-            operation="send",
-            execution_path="gateway_backed",
-            payload=_gateway_mail_send(
-                gateway_client,
-                to_recipients=to_recipients,
-                cc_recipients=cc_recipients,
-                subject=subject,
-                body_content=body_content,
-                attachments=attachments,
-                notify_block=notify_block,
-                notify_auth=notify_auth,
-                channel=channel,
-                expected_binding_id=expected_binding_id,
-            ),
-        )
     # Preserve the submission-only fallback when verified direct or gateway-backed
     # execution is unavailable for a live TUI-managed session. The TUI submission
     # path cannot deliver the typed `notify_block`/`notify_auth` envelope fields
@@ -4434,6 +4526,26 @@ def mail_post(
         target,
         operation="post operator-origin managed-agent mail",
     )
+    gateway_client = _live_gateway_client_for_controller(
+        controller, private=False, require_available=True
+    )
+    if gateway_client is not None:
+        return build_verified_mail_command_result(
+            operation="post",
+            execution_path="gateway_backed",
+            payload=_gateway_mail_post(
+                gateway_client,
+                subject=subject,
+                body_content=body_content,
+                reply_policy=reply_policy,
+                attachments=attachments,
+                notify_block=notify_block,
+                notify_auth=notify_auth,
+                channel=channel,
+                expected_binding_id=expected_binding_id,
+            ),
+        )
+
     if target.identity.transport != "tui":
         return build_verified_mail_command_result(
             operation="post",
@@ -4473,23 +4585,6 @@ def mail_post(
             ),
         )
 
-    gateway_client = _live_gateway_client_for_controller(controller)
-    if gateway_client is not None:
-        return build_verified_mail_command_result(
-            operation="post",
-            execution_path="gateway_backed",
-            payload=_gateway_mail_post(
-                gateway_client,
-                subject=subject,
-                body_content=body_content,
-                reply_policy=reply_policy,
-                attachments=attachments,
-                notify_block=notify_block,
-                notify_auth=notify_auth,
-                channel=channel,
-                expected_binding_id=expected_binding_id,
-            ),
-        )
     raise click.ClickException(
         "operator-origin mailbox post requires authoritative manager or gateway mail authority; "
         "live TUI submission fallback is intentionally unsupported"
@@ -4534,6 +4629,25 @@ def mail_reply(
         )
 
     controller = _require_live_local_controller(target, operation="reply to managed-agent mail")
+    gateway_client = _live_gateway_client_for_controller(
+        controller, private=True, require_available=True
+    )
+    if gateway_client is not None:
+        return build_verified_mail_command_result(
+            operation="reply",
+            execution_path="gateway_backed",
+            payload=_gateway_mail_reply(
+                gateway_client,
+                message_ref=message_ref,
+                body_content=body_content,
+                attachments=attachments,
+                notify_block=notify_block,
+                notify_auth=notify_auth,
+                channel=channel,
+                expected_binding_id=expected_binding_id,
+            ),
+        )
+
     if target.identity.transport != "tui":
         return build_verified_mail_command_result(
             operation="reply",
@@ -4571,22 +4685,6 @@ def mail_reply(
             ),
         )
 
-    gateway_client = _live_gateway_client_for_controller(controller)
-    if gateway_client is not None:
-        return build_verified_mail_command_result(
-            operation="reply",
-            execution_path="gateway_backed",
-            payload=_gateway_mail_reply(
-                gateway_client,
-                message_ref=message_ref,
-                body_content=body_content,
-                attachments=attachments,
-                notify_block=notify_block,
-                notify_auth=notify_auth,
-                channel=channel,
-                expected_binding_id=expected_binding_id,
-            ),
-        )
     return _run_local_mail_prompt(
         controller=controller,
         operation="reply",
@@ -4636,6 +4734,24 @@ def mail_mark(
         )
 
     controller = _require_live_local_controller(target, operation="mark managed-agent mail")
+    gateway_client = _live_gateway_client_for_controller(
+        controller, private=True, require_available=True
+    )
+    if gateway_client is not None:
+        return build_verified_mail_command_result(
+            operation="mark",
+            execution_path="gateway_backed",
+            payload=_gateway_mail_mark(
+                gateway_client,
+                message_refs=message_refs,
+                read=read,
+                answered=answered,
+                archived=archived,
+                channel=channel,
+                expected_binding_id=expected_binding_id,
+            ),
+        )
+
     if target.identity.transport != "tui":
         return build_verified_mail_command_result(
             operation="mark",
@@ -4671,21 +4787,6 @@ def mail_mark(
             ),
         )
 
-    gateway_client = _live_gateway_client_for_controller(controller)
-    if gateway_client is not None:
-        return build_verified_mail_command_result(
-            operation="mark",
-            execution_path="gateway_backed",
-            payload=_gateway_mail_mark(
-                gateway_client,
-                message_refs=message_refs,
-                read=read,
-                answered=answered,
-                archived=archived,
-                channel=channel,
-                expected_binding_id=expected_binding_id,
-            ),
-        )
     return _run_local_mail_prompt(
         controller=controller,
         operation="mark",
@@ -4732,6 +4833,21 @@ def mail_move(
         )
 
     controller = _require_live_local_controller(target, operation="move managed-agent mail")
+    client = _live_gateway_client_for_controller(controller, private=True, require_available=True)
+    if client is not None:
+        try:
+            result = _gateway_mail_move(
+                client,
+                message_refs=message_refs,
+                destination_box=destination_box,
+                channel=channel,
+                expected_binding_id=expected_binding_id,
+            )
+        except GatewayHttpError as exc:
+            raise click.ClickException(exc.detail) from None
+        return build_verified_mail_command_result(
+            operation="move", execution_path="gateway_backed", payload=result
+        )
     return build_verified_mail_command_result(
         operation="move",
         execution_path="manager_direct",
@@ -4775,6 +4891,20 @@ def mail_archive(
         )
 
     controller = _require_live_local_controller(target, operation="archive managed-agent mail")
+    client = _live_gateway_client_for_controller(controller, private=True, require_available=True)
+    if client is not None:
+        try:
+            result = _gateway_mail_archive(
+                client,
+                message_refs=message_refs,
+                channel=channel,
+                expected_binding_id=expected_binding_id,
+            )
+        except GatewayHttpError as exc:
+            raise click.ClickException(exc.detail) from None
+        return build_verified_mail_command_result(
+            operation="archive", execution_path="gateway_backed", payload=result
+        )
     return build_verified_mail_command_result(
         operation="archive",
         execution_path="manager_direct",
@@ -5372,6 +5502,9 @@ def _gateway_status_for_controller(controller: RuntimeSessionController) -> Gate
 
 def _live_gateway_client_for_controller(
     controller: RuntimeSessionController,
+    *,
+    private: bool = False,
+    require_available: bool = False,
 ) -> GatewayClient | None:
     """Return a live gateway client when the controller has one attached."""
 
@@ -5382,14 +5515,23 @@ def _live_gateway_client_for_controller(
         or status.gateway_port is None
     ):
         return None
-    client = GatewayClient(
-        endpoint=GatewayEndpoint(host=status.gateway_host, port=status.gateway_port)
-    )
+    endpoint = GatewayEndpoint(host=status.gateway_host, port=status.gateway_port)
     try:
-        client.health()
-    except GatewayHttpError:
+        GatewayClient(endpoint=endpoint).health()
+    except GatewayHttpError as exc:
+        if require_available:
+            raise click.ClickException(exc.detail) from None
         return None
-    return client
+    scope = get_managed_agent_scope_context()
+    try:
+        return owner_gateway_client_for_controller(
+            controller,
+            endpoint=endpoint,
+            private=private,
+            prefer_self=scope is not None and scope.scope == "self",
+        )
+    except (GatewayAccessError, SessionManifestError, ValueError):
+        raise click.ClickException("Gateway caller binding is unavailable.") from None
 
 
 def _local_gateway_summary(

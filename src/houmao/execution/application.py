@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from houmao.gateway.deployment import validate_gateway_access_config_path
+
 import json
 from pathlib import Path
 from time import monotonic
@@ -175,7 +177,7 @@ def _control(request: ExecutionRequestV1, binding: ExecutionBindingV1) -> JsonOb
         "prompt": {"prompt", "model", "reasoning_level"},
         "refresh": {"timeout_seconds"},
         "relaunch": {"chat_session"},
-        "gateway_attach": {"background", "tui_tracking_timing_overrides"},
+        "gateway_attach": {"background", "tui_tracking_timing_overrides", "access_config_path"},
         "cleanup": {"kind", "dry_run", "purge_registry"},
     }
     if operation not in allowed or set(arguments) - allowed[operation]:
@@ -221,6 +223,14 @@ def _control(request: ExecutionRequestV1, binding: ExecutionBindingV1) -> JsonOb
     if operation == "gateway_attach":
         if not isinstance(arguments.get("background", False), bool):
             raise OwnerAdmissionError("invalid_arguments", "Invalid gateway posture.")
+        access_path = arguments.get("access_config_path")
+        if "access_config_path" in arguments:
+            try:
+                access_path = validate_gateway_access_config_path(access_path)
+            except ValueError:
+                raise OwnerAdmissionError(
+                    "invalid_arguments", "Invalid gateway access configuration path."
+                ) from None
         timing = arguments.get("tui_tracking_timing_overrides")
         try:
             timings = (
@@ -298,6 +308,7 @@ def _control(request: ExecutionRequestV1, binding: ExecutionBindingV1) -> JsonOb
                 target,
                 background=cast(bool, arguments.get("background", False)),
                 tui_tracking_timing_overrides=timings,
+                access_config_path=Path(access_path) if isinstance(access_path, str) else None,
             )
         )
     raise OwnerAdmissionError("unsupported_operation", "Unsupported finite owner operation.")

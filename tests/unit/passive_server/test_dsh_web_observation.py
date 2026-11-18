@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from fastapi.testclient import TestClient
+from tests.unit.passive_server.contract_client import AdmittedPassiveClient
 import pytest
 
 from houmao.agents.realm_controller.native_surface import WebNativeSurfaceV1
@@ -221,7 +221,7 @@ def test_web_passive_routes_share_native_detail_without_terminal_fields(
     service.m_observation.m_web_observers["owner"] = observer
     monkeypatch.setattr(service, "_managed_gateway_summary", lambda _: None)
     monkeypatch.setattr(service.m_headless, "resolve_managed_matches", lambda _: [])
-    client = TestClient(create_app(service=service, config=config))
+    client = AdmittedPassiveClient(create_app(service=service, config=config))
     compact = client.get("/houmao/agents/owner/state")
     assert compact.status_code == 200 and compact.json()["transport"] == "web"
     detail = client.get("/houmao/agents/owner/state/detail")

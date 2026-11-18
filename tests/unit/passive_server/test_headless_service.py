@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.unit.passive_server.contract_client import arrange_passive_launch_access
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.backends.headless_output import (
     CanonicalHeadlessEvent,
@@ -225,6 +226,7 @@ class TestHeadlessLaunch:
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
     ) -> None:
+        arrange_passive_launch_access(monkeypatch, tmp_path)
         svc = _make_service(tmp_path)
         request = _launch_request(tmp_path)
         runtime_manifest_path = tmp_path / "runtime" / "tracked-alpha" / "manifest.json"
@@ -277,6 +279,7 @@ class TestHeadlessLaunch:
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
     ) -> None:
+        arrange_passive_launch_access(monkeypatch, tmp_path)
         svc = _make_service(tmp_path)
         request = _launch_request(tmp_path)
         runtime_manifest_path = tmp_path / "runtime" / "tracked-alpha" / "manifest.json"
@@ -304,12 +307,7 @@ class TestHeadlessLaunch:
 
         assert response == (
             503,
-            {
-                "detail": (
-                    "Managed headless launch could not publish shared-registry state: "
-                    "publish failed"
-                )
-            },
+            {"detail": ("Managed headless launch could not establish current owner authority")},
         )
         assert controller.stop_calls == [True]
         assert svc.m_headless.m_store.list_authority_records() == []
@@ -384,6 +382,7 @@ class TestHeadlessLaunch:
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
     ) -> None:
+        arrange_passive_launch_access(monkeypatch, tmp_path)
         svc = _make_service(tmp_path)
         mailbox_root = tmp_path / "mailbox-root"
         request = _launch_request(

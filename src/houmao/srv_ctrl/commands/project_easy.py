@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.agents.realm_controller.gateway_access_runtime import load_gateway_admin_seed
+
 import json
 from houmao.agents.realm_controller.agent_identity import AgentIdMode
 
@@ -1787,6 +1790,12 @@ def easy_instance_group() -> None:
     help="Run the auto-attached gateway as a detached background process for this launch.",
 )
 @click.option(
+    "--gateway-admin-seed",
+    "gateway_admin_seed_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Owner-side private JSON file with initial gateway admin public keys.",
+)
+@click.option(
     "--gateway-tui-watch-poll-interval-seconds",
     type=click.FloatRange(min=0.0, min_open=True),
     default=None,
@@ -1910,6 +1919,7 @@ def launch_easy_instance_command(
     reuse_home: bool,
     force_mode: str | None,
     executor: str | None,
+    gateway_admin_seed_path: Path | None = None,
 ) -> None:
     """Launch one managed-agent instance from a compiled specialist definition."""
 
@@ -1953,6 +1963,7 @@ def launch_project_agent(
     managed_header_section: tuple[str, ...],
     reuse_home: bool,
     force_mode: str | None,
+    gateway_admin_seed_path: Path | None = None,
 ) -> None:
     """Launch one managed-agent instance from a compiled specialist definition."""
 
@@ -1961,6 +1972,14 @@ def launch_project_agent(
         raise click.ClickException("`--specialist` and `--profile` cannot be combined.")
     if specialist is None and profile is None:
         raise click.ClickException("Provide exactly one of `--specialist` or `--profile`.")
+    gateway_admin_seed = None
+    if gateway_admin_seed_path is not None:
+        try:
+            gateway_admin_seed = load_gateway_admin_seed(
+                overlay.project_root / gateway_admin_seed_path
+            )
+        except SessionManifestError as exc:
+            raise click.ClickException(str(exc)) from None
 
     resolved_profile = None
     declared_mailbox = None
@@ -2197,6 +2216,7 @@ def launch_project_agent(
         headless_display_detail="concise",
         launch_env_overrides=launch_env_overrides,
         gateway_auto_attach=gateway_auto_attach,
+        gateway_admin_seed=gateway_admin_seed,
         gateway_host=gateway_host,
         gateway_port=requested_gateway_port,
         gateway_execution_mode=gateway_execution_mode,

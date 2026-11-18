@@ -13,6 +13,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayWebHistoryV1,
 )
 from houmao.agents.realm_controller.native_surface import NativeSurfaceV1
+from houmao.gateway.access import GatewayLaunchSeed
 from houmao.server.models import (
     HoumaoHeadlessLaunchMailboxesOptions,
     HoumaoHeadlessTurnEvent,
@@ -251,6 +252,7 @@ class PassiveHeadlessLaunchRequest(_PassiveModel):
     headless_display_style: Literal["plain", "json", "fancy"] | None = None
     headless_display_detail: Literal["concise", "detail"] | None = None
     mailboxes: HoumaoHeadlessLaunchMailboxesOptions | None = None
+    gateway_admin_seed: GatewayLaunchSeed | None = None
 
     @model_validator(mode="after")
     def _identity_selection(self) -> PassiveHeadlessLaunchRequest:
