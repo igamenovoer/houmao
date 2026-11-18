@@ -185,9 +185,12 @@ Passive discovery and stale-presence cleanup probe the socket recorded on each l
 
 `gateway` appears only when live gateway connect metadata exists on an active or relaunching record.
 
-- `host`, `port`, `state_path`, and `protocol_version` appear together as one complete live-binding group when a live gateway is attached.
+- `host`, `port`, `state_path`, and `protocol_version` describe the live binding in the owner context. `owner_connect_url` is the owner-local HTTP URL. `endpoint_descriptor.advertised_url` is the explicitly selected external URL.
+- `endpoint_descriptor` identifies the live presence and its target, current admin access, private proof requirement, and enabled public operations. The descriptor contains no key roster or credentials. Callers can refresh access requirements at `GET /v1/endpoint`.
 - detached or stopped sessions omit `gateway` entirely.
 - This field group is locator metadata for fresh discovery and diagnostics. It does not replace the durable manifest authority, and once the session root is known the authoritative local live-gateway record is `<session-root>/gateway/run/current-instance.json`.
+
+Owner-loopback addresses from another execution context stay in that context. An endpoint change requires explicit rebinding before reusing a signer. Owner policy survives detached presence and continues to govern protected routes. [Gateway Access and Remote Deployment](../../gateway/operations/access.md)
 
 ### Mailboxes
 

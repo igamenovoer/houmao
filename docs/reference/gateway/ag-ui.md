@@ -16,6 +16,25 @@ For skill-driven work, a human operator uses `$houmao-admin-entrypoint interop-a
 
 `POST /v1/ag-ui/runs` is the task-run endpoint. It accepts AG-UI `RunAgentInput` JSON and returns `text/event-stream` AG-UI frames. `POST /v1/ag-ui/connect` attaches a GUI stream to the existing agent state without submitting work. `POST /v1/ag-ui/events` accepts already-standard AG-UI event batches and fans them out to matching active connect or run streams without creating a Houmao prompt request. `DELETE /v1/ag-ui/connections/{connection_id}` removes only AG-UI connection bookkeeping.
 
+All AG-UI operations use the admin rule. The curl examples below use anonymous admission while the admin list is empty. A key-required client carries a fresh admin proof in the `Houmao-Challenge` and `Houmao-Signature` headers, bound to its exact request. [Gateway Access and Remote Deployment](operations/access.md)
+
+```ts
+const body = JSON.stringify(runAgentInput);
+const headers = await adminSigner.headersFor({
+  method: "POST",
+  path: "/v1/ag-ui/runs",
+  body,
+});
+const stream = await fetch(`${gatewayUrl}/v1/ag-ui/runs`, {
+  method: "POST",
+  body,
+  headers: { ...headers, "Content-Type": "application/json" },
+  redirect: "error",
+});
+```
+
+Here `adminSigner` represents the caller's endpoint-bound signing integration. It obtains a challenge and signs the exact bytes passed to `fetch`. Keep proof and challenge material in request handling and out of URLs, events, and diagnostics. Streams revalidate authority before events and at most every five seconds while idle. First enrollment closes open streams. Revocation, re-enrollment of the same key, target replacement, or unavailable policy closes affected signed streams. Reconnect with fresh admission. Work already handed off continues under its existing execution contract.
+
 ## Minimal Run Request
 
 ```bash
@@ -92,7 +111,7 @@ Capabilities report `transport.resumable: false` and Houmao `replaySupport: "cur
 
 ## HttpAgent Setup
 
-The direct AG-UI client points at the per-agent gateway run URL:
+The direct AG-UI client points at the per-agent gateway run URL. This example assumes open admin access. With key-required access, use a transport that can obtain fresh proof and set headers for each exact request.
 
 ```ts
 import { HttpAgent } from "@ag-ui/client";

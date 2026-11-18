@@ -125,9 +125,17 @@ This gateway-specific switch is separate from the CAO loopback behavior that inj
 
 ## HTTP Surface
 
+The matched operation determines access. Health and endpoint discovery are public. Detailed status, usage, memory, ordinary mail, and plugin inventory are private. Control, native inspection, mailbox binding, operator post, and AG-UI follow the live admin policy. See the access guide for the full policy and challenge handling. [Gateway Access and Remote Deployment](../operations/access.md)
+
 Current v1 routes:
 
 - `GET /health`
+- `GET /v1/endpoint`
+- `POST /v1/auth/challenge`
+- `POST /v1/admin/keys`
+- `DELETE /v1/admin/keys/{key_id}`
+- `POST /v1/messages`
+- `POST /v1/public/prompt`
 - `GET /v1/status`
 - `GET /v1/usage`
 - `GET /v1/native-home`

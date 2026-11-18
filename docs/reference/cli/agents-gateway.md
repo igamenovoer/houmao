@@ -37,6 +37,7 @@ If attach times out waiting for gateway health readiness, the command now report
 |---|---|
 | `--background` | Run the gateway as a detached background process instead of the default same-session auxiliary tmux window. |
 | `--plugins-config PATH` | Read a complete versioned YAML/JSON plugin selection. Omit to reuse the persisted selection; an explicit empty set clears it on the next start. |
+| `--access-config PATH` | Read private owner-side deployment JSON. Relative paths start from the selected agent's owner-side working directory. Changed live settings require detach and attach. |
 | `--gateway-tui-watch-poll-interval-seconds FLOAT` | Override the gateway-owned TUI watch poll interval for this attach. |
 | `--gateway-tui-stability-threshold-seconds FLOAT` | Override the gateway-owned TUI stability threshold for this attach. |
 | `--gateway-tui-completion-stability-seconds FLOAT` | Override the gateway-owned TUI completion stability guard time for this attach. |

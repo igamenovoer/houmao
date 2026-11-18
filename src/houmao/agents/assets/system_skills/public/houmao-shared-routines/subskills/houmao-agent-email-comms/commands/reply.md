@@ -9,18 +9,11 @@
 
 If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from this command procedure, its owning skill constraints, available references, and the user request, then execute the plan.
 
-Use `POST /v1/mail/{channel}/reply` with the opaque `message_ref` of the message you are replying to.
+Reply using the opaque message reference and the current channel and binding.
 
 ```bash
-curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/$MAIL_CHANNEL/reply" \
-  -H 'content-type: application/json' \
-  --data '{"schema_version":3,"expected_binding_id":"<selected binding_id>","message_ref":"<opaque message_ref>","body_content":"...","attachments":[]}'
+houmao-mgr agents self mail reply --channel "$MAIL_CHANNEL" --expected-binding-id "$BINDING_ID" \
+  --message-ref "$MESSAGE_REF" --body-content "$BODY"
 ```
 
-Do not reconstruct transport-local threading identifiers yourself.
-
-When no live gateway facade is available, run the direct fallback command:
-
-```bash
-<chosen houmao-mgr launcher> agents self mail reply --channel <channel> --expected-binding-id <binding_id> --message-ref <message_ref> --body-content <body>
-```
+The gateway requires verified admin proof for owner-file attachments on this private route. Keep transport-local threading identifiers opaque.

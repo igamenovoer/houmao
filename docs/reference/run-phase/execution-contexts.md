@@ -151,6 +151,8 @@ Initial transport operations are finite launch, describe/state, inspect/capture,
 
 Owner-side launch, reconstruction, gateway access, discovery, and teardown use a saved concrete tmux socket and exact agent handles. Delegated entry clears both inherited TMUX and TMUX_PANE. Current-account/join workflows capture their selected socket explicitly rather than guessing from a session name. Stop and cleanup affect only the selected agent; they never kill or restart the shared localhost tmux server or an unrelated session.
 
+Delegated `agents single ... gateway attach --access-config PATH` sends the lexical path through the saved owner route. The owner opens the private configuration file after target admission. Relative paths are interpreted from that agent's owner-side working directory. Gateway HTTP proof grants access to the selected operation and conveys no execution delegation. [Gateway Access and Remote Deployment](../gateway/operations/access.md)
+
 Tests use unique isolated sockets and fixture-owned sessions. `TMUX_TMPDIR` alone is insufficient because inherited TMUX/TMUX_PANE can still select an enclosing server. Never use a libtmux server context manager for a user-owned server: exiting that context can destroy the server.
 
 ## Verification Status

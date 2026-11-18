@@ -794,10 +794,7 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     assert "pixi run houmao-mgr agents self mail resolve-live" not in processing_skill
     assert "houmao-agent-email-comms" in gateway_skill
     assert "houmao-shared-routines->houmao-process-emails-via-gateway" in gateway_skill
-    assert (
-        "current prompt or recent mailbox context already provides the exact current gateway base URL"
-        in gateway_skill
-    )
+    assert "Run `houmao-mgr agents self mail resolve-live`" in gateway_skill
     assert "houmao-mgr agents self mail resolve-live" in gateway_skill
     assert "pixi run houmao-mgr agents self mail resolve-live" not in gateway_skill
     assert "self-notification.md" in advanced_skill
@@ -854,7 +851,7 @@ def test_build_brain_home_projects_claude_mailbox_skills_top_level(
     mailbox_mgr_skill = (mailbox_mgr_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
     filesystem_skill = filesystem_path.read_text(encoding="utf-8")
     stalwart_skill = stalwart_path.read_text(encoding="utf-8")
-    curl_reference = (gateway_root / "references/curl-examples.md").read_text(encoding="utf-8")
+    cli_reference = (gateway_root / "references/scoped-cli.md").read_text(encoding="utf-8")
 
     assert (skills_root / f"{SYSTEM_SKILL_AGENT_ENTRYPOINT}/SKILL.md").is_file()
     assert (processing_root / "SKILL-MAIN.md").is_file()
@@ -873,17 +870,14 @@ def test_build_brain_home_projects_claude_mailbox_skills_top_level(
         "installed Houmao skill "
         "`houmao-shared-routines->houmao-agent-email-comms`" in processing_skill
     )
-    assert (
-        "current prompt or recent mailbox context already provides the exact current gateway base URL"
-        in (gateway_skill)
-    )
+    assert "Run `houmao-mgr agents self mail resolve-live`" in (gateway_skill)
     assert "references/root-selection.md" in mailbox_mgr_skill
     assert "/v1/mail/offline/..." in filesystem_skill
     assert "--channel offline --expected-binding-id <binding_id>" in filesystem_skill
-    assert "$GATEWAY_BASE_URL/v1/mail/status" in curl_reference
-    assert "exact `GATEWAY_BASE_URL`" in curl_reference
-    assert "pixi run houmao-mgr agents self mail resolve-live" not in curl_reference
-    assert "schema_version:3,expected_binding_id:$binding,message_refs:[$ref]" in curl_reference
+    assert "houmao-mgr agents self mail status" in cli_reference
+    assert "current managed generation" in cli_reference
+    assert "houmao-mgr agents self mail resolve-live" in cli_reference
+    assert "--expected-binding-id" in cli_reference
 
     assert "The selected offline sender address remains the offline address" in filesystem_skill
     assert "houmao-agent-email-comms" not in filesystem_skill

@@ -1,5 +1,7 @@
 # CCCC Deferred Mail
 
+Deferred Mail operations use private gateway access. Use current managed self or a verified admin with the exact endpoint binding. The configured CCCC Actor supplies the provider identity. [CCCC Gateway Plugin](cccc.md)
+
 `houmao-cccc` version 0.2 adds explicit deferred Mail to the same owner-bound Actor connection used for [CCCC chat](cccc.md). Mail stays outside both Houmao email slots. It does not determine canonical email identity, use Stalwart credentials, or become an automatic fallback after an email error.
 
 ## Enable the Qualified Provider

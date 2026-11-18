@@ -89,20 +89,21 @@ The mailbox facade is deliberately narrower than generic gateway availability.
 | Condition | Result |
 | --- | --- |
 | session is gateway-capable but no live gateway is attached | no `/v1/mail/*` routes are available |
-| live gateway is attached on `127.0.0.1` and the manifest has a usable mailbox binding | shared mailbox routes are available |
-| live gateway is attached on `0.0.0.0` | shared mailbox routes return `503` |
+| live gateway is attached with a usable mailbox binding | routine mail accepts current self or verified admin proof on either listener |
+| live gateway has a valid empty admin list | operator post and mailbox binding controls admit anonymous callers |
+| live gateway has a nonempty admin list | operator post and mailbox binding controls require verified admin proof |
 | readable manifest with neither channel configured | summary status reports both channels absent |
 | a lifecycle request selects an absent channel, stale binding, or wrong-scope reference | explicit failure with no other-channel fallback |
 | manifest is unreadable | mailbox operations fail explicitly |
 
-Current scope rule: mailbox routes remain loopback-only because the gateway does not yet define an authenticated remote exposure model for these routes.
+Private send and reply forms that include owner-file attachment paths require verified admin proof before the gateway opens a file or calls the provider. The configured mailbox supplies the sender identity. The gateway tracks the initiating caller separately. [Gateway Access and Remote Deployment](access.md)
 
 ## Direct Versus Gateway Mailbox Paths
 
 The mailbox facade does not eliminate direct transport-specific mailbox behavior.
 
 - If no gateway is attached, use the maintained scoped manager mail command with explicit channel and expected binding ID. The manager owns provider access; ordinary discovery supplies no credential file or private store path.
-- If a live loopback gateway is attached, runtime-owned mailbox guidance prefers the shared `/v1/mail/*` facade for operations that both transports support.
+- With a live gateway, run `houmao-mgr agents self mail ...` for current self proof. An operator selects an explicit admin signer for protected HTTP calls. Admission refusal ends the call.
 - `message_ref` stays opaque in both paths.
 
 That split is why the mailbox docs and gateway docs stay adjacent but separate. Use [Stalwart Setup And First Session](../../mailbox/operations/stalwart-setup-and-first-session.md) for the operator path and [Mailbox Runtime Contracts](../../mailbox/contracts/runtime-contracts.md) for the slot, resolver, and prompt contract.

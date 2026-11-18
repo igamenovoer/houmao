@@ -67,7 +67,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 
 1. Confirm the current prompt provides the exact gateway base URL, selected channel, and expected binding ID for this round. Keep these values unchanged through every operation.
 2. If any of these three values is missing, stop and report a notifier contract error. Do not rediscover a missing value or infer the channel from the canonical mail address.
-3. Use `GET /v1/mail/status` when needed to confirm the selected channel still has the expected binding. Stop on a mismatch, including replacement after gateway acceptance. Never continue this round against a replacement mailbox.
+3. Use `houmao-mgr agents self mail status` when needed to confirm the selected channel still has the expected binding. Stop on a mismatch, including replacement after gateway acceptance. Never continue this round against a replacement mailbox.
 4. Read the prompt-provided notifier mode when present. In `any_inbox` mode, list open inbox mail including read or answered unarchived mail; in `unread_only` mode, start from unread unarchived inbox mail.
 5. Use `POST /v1/mail/{channel}/list` with schema version 3, `expected_binding_id`, the mode-derived read filter, and finite `limit` 50 (maximum 200). Without an explicit paging budget, inspect one page. Continue with the opaque `next_cursor` only within the prompt's page/message budget, preserving filters and binding. `has_more` and page counts describe a sample; they are not a full inbox total. Stop the page chain on a stale cursor instead of silently mixing snapshots. Every lifecycle call carries the same expected binding ID, including a fresh send.
 6. Start from mail metadata such as sender identity, subject, timestamps, `message_ref`, `thread_ref`, read state, and answered state.
@@ -93,7 +93,7 @@ If the request does not map cleanly to this workflow, use the native planning to
 - It is acceptable to continue multiple interrupted email-driven tasks in the same round when they are all still relevant and feasible.
 - It is acceptable to defer unrelated open emails for a later round.
 - Track reply-required emails separately from archive updates so required replies are sent after work completion and before archive.
-- The notifier prompt tells you open inbox work exists; use the shared gateway mailbox API to list the actual open set for this round.
+- The notifier prompt tells you open inbox work exists; use the scoped `houmao-mgr agents self mail list` command to list the actual open set for this round. The CLI signs privately for the current generation.
 - If you need the exact gateway route contract for `status`, `list`, `peek`, `read`, `send`, `reply`, `mark`, `move`, or `archive`, use the installed Houmao skill `houmao-shared-routines->houmao-agent-email-comms`.
 - Use the transport-local guidance inside `houmao-shared-routines->houmao-agent-email-comms` only for transport-specific context or no-gateway fallback.
 

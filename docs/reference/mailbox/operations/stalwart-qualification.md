@@ -39,6 +39,19 @@ Use [the development launcher](../../../../skillset/dev/houmao-dev-launch-agents
 
 Exercise metadata pages, one selected peek/read, send/reply/mark/archive, same-account credential refresh, gateway restart, and expired-state recovery. Test the body both ready and busy. Count due reminder cycles, accepted gateway reminders, and actual dispatched prompts separately. An unchanged eligible message should permit later periodic reminders; same-cycle retries must not duplicate admission. Reconnect, cache eviction, and rebase must not repeat compaction for continuously eligible work. Record provider-side delivery outcomes before retrying any uncertain mutation.
 
+## Authenticated Gateway Checks
+
+The HTTPS integration tests run a gateway in the foreground and in a separate detached process. Both modes use a verified TLS proxy with a path prefix, independent caller signers, and a separate mailbox service. The offline checks start `houmao-passive-server offline-registry` in its own process. The online checks provision two disposable normal accounts in a selected Stalwart binary. [Authenticated gateway mailbox integration tests](../../../../tests/integration/mailbox/test_authenticated_gateway_mail.py)
+
+The 2026-11-18 run passed against Stalwart 0.15.5 on Linux aarch64. It verified delivery, reply, explicit read, archive, stale binding refusal, and authenticated attach, refresh, reconnect, and detach. The offline registry run verified signed delivery, owner-file attachment access, reply, and stale membership binding refusal. The proxy, gateways, and mailbox services ran on one host with separate process and state roots. Cross-host and container deployment remain separate qualification lanes. [Stalwart 0.15.5 release assets](https://github.com/stalwartlabs/stalwart/releases/expanded_assets/v0.15.5)
+
+Select a local executable to include the disposable Stalwart cases in a run.
+
+```bash
+env -u TMUX -u TMUX_PANE HOUMAO_TEST_STALWART_BIN=/external/stalwart \
+  pixi run pytest tests/integration/mailbox/test_authenticated_gateway_mail.py
+```
+
 ## Target-Scale Workload Plan
 
 The target is approximately 100 independently scoped agents and millions of retained messages. This is a plan until executed. Begin with one account, then a small multi-account run, before the target deployment. Use isolated provisioned accounts and an explicitly approved corpus generator; never seed a personal mailbox or mix the model API key with mail credentials.

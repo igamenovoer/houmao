@@ -11,16 +11,10 @@ If the request does not map cleanly to these steps, use the native planning tool
 
 Use mailbox status when you need to confirm mailbox identity, current transport, or live gateway availability before taking action.
 
-When a live shared gateway mailbox facade is already available, use:
+Use the scoped mail command. In an attached session it signs through the current managed generation.
 
 ```bash
-curl -sS "$GATEWAY_BASE_URL/v1/mail/status"
-```
-
-When no live gateway facade is available for this turn, run the direct fallback command:
-
-```bash
-<chosen houmao-mgr launcher> agents self mail status
+houmao-mgr agents self mail status
 ```
 
 Treat the returned mailbox identity and transport fields as the current supported state for this turn.

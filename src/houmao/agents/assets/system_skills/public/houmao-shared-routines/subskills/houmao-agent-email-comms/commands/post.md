@@ -11,21 +11,14 @@ If the request does not map cleanly to these steps, use the native planning tool
 
 Use this action when the caller is acting as operator and needs to deliver one operator-origin note into a managed agent mailbox.
 
-When the caller is outside the Houmao managed-agent runtime, or current discovery shows there is no usable live gateway for the current session, run the direct fallback command:
+Select the agent and current binding explicitly.
 
 ```bash
-<chosen houmao-mgr launcher> agents single --agent-id <agent-id> mail post --channel <channel> --expected-binding-id <binding_id> --subject <subject> --body-content <body>
+houmao-mgr agents single --agent-id "$AGENT_ID" mail post --channel "$MAIL_CHANNEL" \
+  --expected-binding-id "$BINDING_ID" --subject "$SUBJECT" --body-content "$BODY"
 ```
 
-When the exact target managed-agent `gateway.base_url` is already known for this turn, `POST /v1/mail/{channel}/post` is also supported:
-
-```bash
-curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/$MAIL_CHANNEL/post" \
-  -H 'content-type: application/json' \
-  --data '{"schema_version":3,"expected_binding_id":"<selected binding_id>","subject":"...","body_content":"...","attachments":[]}'
-```
-
-Use the exact `gateway.base_url` resolved for the selected managed agent when taking the gateway route.
+With a live gateway, post follows the admin rule. Configure an explicit owner-side admin signer for a key-required gateway. A detached gateway uses the separately authorized manager path.
 
 This action is filesystem-only in v1. It delivers from the reserved sender `HOUMAO-operator@houmao.localhost`, refuses Stalwart-backed execution, and does not allow live TUI submission fallback.
 

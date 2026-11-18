@@ -87,6 +87,24 @@ Agents are discoverable only when their launching authority and passive-server u
 
 Agent routes use `{agent_ref}` for either an exact agent id or an unambiguous agent name. Missing agents return `404`; ambiguous names return `409`.
 
+## Selected-Agent Access
+
+The passive server resolves the agent's retained owner policy before it reads a protected operation's body or uses the runtime. This applies to managed headless agents with no discovery entry and to known agents after gateway detach. An unavailable owner policy returns `503`. Discovery shows whether a gateway is available and can lag behind policy changes.
+
+| Access | Operations | Caller requirement |
+|---|---|---|
+| Public | Discovery and challenge issuance | Network access to the passive service |
+| Private | Detailed gateway status, usage, managed state summary, memory, and routine mail | Current self or listed admin proof |
+| Admin | Native observation, direct turns and artifacts, prompt control, interrupt, stop, gateway lifecycle, reminders, notifier control, operator mail post, and mailbox binding | Anonymous access while the stored admin list is empty, followed by listed admin proof after first enrollment |
+
+For signed requests, send `POST /houmao/agents/{agent_ref}/auth/challenge` with `purpose` set to `self` or `admin` and `request` containing the intended HTTP `method`, escaped `path`, raw `query` without the leading `?`, and `body_sha256` of the exact body bytes. For `admin` include `key_id`. Use the same agent reference in both paths. Check the returned issuer, agent and execution context, incarnation, purpose, key, and request binding before signing. Send the challenge ID in `Houmao-Challenge` and the encoded signature in `Houmao-Signature`. The per-agent gateway reference specifies the signing encoding and namespace. [Gateway access and enrollment](../gateway/operations/access.md)
+
+Python callers can pass a `GatewayClientBinding` to `PassiveServerClient` to handle this exchange. Bind it to the passive server's base URL and the expected agent and execution context. The client signs selected protected routes and uses unsigned discovery and readiness calls.
+
+The passive server consumes the signature and relays the admitted principal only through the owner-local path. The receiving gateway verifies the translated method, path, query, and body and checks whether the grant still applies. An unsigned admin request remains anonymous, so first enrollment can close access between the passive ingress and gateway. A `401` response includes the passive challenge location. A `403` response means the caller lacks authority. Either response ends the operation. After admission, gateway attach and detach return `501` and point to the scoped manager commands. Operations that require an attached gateway return `502` when it is unavailable.
+
+For a server-managed gateway, passive launch provisions owner service authority for the current target's backing inspection, prompt handoff, and interrupt. This authority survives admin enrollment and is restricted to those backing operations on the selected managed controller. Keep the global passive listener on an owner-only interface or network, including its launch and shutdown routes. Publish the per-agent gateway through a verified HTTPS proxy for remote access. [Gateway deployment and trust](../gateway/operations/access.md)
+
 ## API Route Families
 
 All maintained agent routes live under `/houmao/`. Root health is available at `/health` and identifies the service as `houmao-passive-server`.
@@ -174,7 +192,7 @@ Native-home and refresh projections use the shared [native refresh contracts](..
 
 ### Mail Proxy
 
-Mail lifecycle routes preserve the explicit channel and schema version 2 `expected_binding_id` while proxying through the agent gateway. Summary status reports both configured slots and canonical identity. Binding/scope conflicts are forwarded unchanged; the proxy never retries another channel or account. Remote offline membership and storage access use the separate registry-only service rather than requiring a recipient gateway.
+Mail lifecycle routes preserve the explicit channel and `expected_binding_id` while proxying through the agent gateway. Summary status reports both configured slots and canonical identity. An upstream binding or scope conflict ends the request with a safe `502` response. Remote offline membership and storage access use the separate registry-only service.
 
 | Method | Path | Description |
 |---|---|---|

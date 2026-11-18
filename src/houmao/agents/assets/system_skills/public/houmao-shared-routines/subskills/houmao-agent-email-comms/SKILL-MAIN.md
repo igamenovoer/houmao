@@ -69,12 +69,12 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 
 1. Decide the caller posture up front.
 2. Preserve the validated actor frame. Admin posting requires an explicit target; a verified agent remains an agent even when its gateway or mailbox is unavailable.
-3. For Houmao-managed agent mailbox work, if the current prompt or recent mailbox context already provides the exact current gateway base URL, use that value directly for shared `/v1/mail/*` operations.
-4. Otherwise run `agents self mail resolve-live` for the current managed session, or `agents single ... mail resolve-live` when the user explicitly selected another managed agent.
-5. Read `mailboxes.offline` and `mailboxes.online` separately. Select the channel explicitly from the request or established round context. Pin that slot's `binding.binding_id` for this turn; an absent slot is an error. `canonical_mail_identity` identifies the preferred external address and never selects delivery.
-6. When the resolver returns a `gateway` object, use the action page that matches the mailbox task you need and use that exact `gateway.base_url` for shared `/v1/mail/*` work.
-7. When the resolver returns `gateway: null`, use the selected binding's transport page and run `agents self mail <verb> --channel <channel> --expected-binding-id <binding_id>`. This preserves the selected backend; it is not fallback to another channel.
-8. Send schema version 3 and `expected_binding_id` on every lifecycle request, including fresh send/post. Keep `message_ref` and `thread_ref` opaque and scoped to their owner, channel, and binding. Stop on a binding conflict; never retry against a replacement.
+3. Run `houmao-mgr agents self mail resolve-live` to resolve the current managed session. An operator selects an explicit target with `agents single ... mail resolve-live`.
+4. Read `mailboxes.offline` and `mailboxes.online` separately. Select the channel explicitly from the request or established round context. Pin that slot's `binding.binding_id`. Canonical mail identity describes the preferred address.
+5. Use `houmao-mgr agents self mail <verb> --channel <channel> --expected-binding-id <binding_id>` for routine work. The command signs attached-gateway calls internally with the current managed generation. Scoped operators use their explicitly configured admin signer.
+6. End the operation on an admission refusal, unavailable policy, or a binding change. Keep proof and credentials out of commands and result summaries.
+7. If the gateway is detached, the scoped command uses the established owner-authorized manager path for the selected channel. An `authoritative: false` result means the action was submitted and requires verification.
+8. Keep message and thread references opaque and scoped to their owner, channel, and binding.
 9. Begin triage with one metadata page of 50 messages (maximum 200). Preserve filters and the opaque cursor when continuing within an explicit page/message budget. `has_more` describes unseen work; returned counts describe this page. Stop the page chain on a stale cursor or binding conflict. Fetch selected content with peek/read and check its completeness before acting.
 10. Archive processed messages only after the corresponding mailbox action and any required reply succeed.
 11. Include only fields the user explicitly supplied or that were recovered from explicit recent context in fallback commands.
@@ -113,7 +113,7 @@ If the request does not map cleanly to this workflow, use the native planning to
 ## References
 
 - Read [references/endpoint-contract.md](references/endpoint-contract.md) for the shared `/v1/mail/*` route summary.
-- Read [references/curl-examples.md](references/curl-examples.md) for copy-paste curl forms against the exact current `gateway.base_url`.
+- Read [references/scoped-cli.md](references/scoped-cli.md) for signed mailbox commands and binding selection.
 - Read [references/managed-agent-fallback.md](references/managed-agent-fallback.md) for the supported `houmao-mgr agents self mail ...` and `houmao-mgr agents single ... mail ...` fallback surfaces when no live gateway facade exists.
 - Read [references/filesystem-resolver-fields.md](references/filesystem-resolver-fields.md) or [references/stalwart-resolver-fields.md](references/stalwart-resolver-fields.md) when transport-local resolver fields matter.
 - Read [references/filesystem-layout.md](references/filesystem-layout.md) only when filesystem mailbox layout details are relevant.

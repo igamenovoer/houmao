@@ -475,19 +475,16 @@ def test_install_runtime_mailbox_system_skills_for_tool_projects_gateway_and_tra
     assert (advanced_root / "commands/relay-loop-via-gateway-and-mailbox.md").is_file()
     assert (gateway_root / "commands/list.md").is_file()
     assert (gateway_root / "commands/reply.md").is_file()
-    assert (gateway_root / "references/curl-examples.md").is_file()
+    assert (gateway_root / "references/scoped-cli.md").is_file()
     assert (gateway_root / "references/self-notification-via-gateway.md").is_file()
     assert (gateway_root / "references/transports/filesystem.md").is_file()
     assert (gateway_root / "references/transports/stalwart.md").is_file()
     processing_skill = (processing_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
     gateway_skill = (gateway_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
     advanced_skill = (advanced_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
-    assert "shared gateway mailbox API" in processing_skill
+    assert "houmao-mgr agents self mail list" in processing_skill
     assert "pixi run houmao-mgr agents self mail resolve-live" not in processing_skill
-    assert (
-        "current prompt or recent mailbox context already provides the exact current gateway base URL"
-        in gateway_skill
-    )
+    assert "Run `houmao-mgr agents self mail resolve-live`" in gateway_skill
     assert "houmao-shared-routines->houmao-adv-usage-pattern" in gateway_skill
     assert "pairwise-edge-loop-via-gateway-and-mailbox.md" in advanced_skill
     assert "relay-loop-via-gateway-and-mailbox.md" in advanced_skill

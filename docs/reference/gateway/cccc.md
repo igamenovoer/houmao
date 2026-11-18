@@ -1,6 +1,6 @@
 # CCCC Chat Integration
 
-The optional `houmao-cccc` distribution connects a running Houmao agent to one external CCCC Actor through gateway SDK version `1`. The gateway authenticates as that Actor; the body uses its local loopback gateway. CCCC chat is independent of both Houmao email slots and the agent's canonical email identity.
+The optional `houmao-cccc` distribution connects a running Houmao agent to one external CCCC Actor through gateway SDK version `1`. The gateway authenticates as that Actor. Callers prove their gateway identity separately. CCCC chat is independent of both Houmao email slots and the agent's canonical email identity.
 
 ## Install and Provision
 
@@ -23,7 +23,9 @@ houmao-mgr agents single --agent-id AGENT_UUID gateway attach \
 
 Detach and reattach the gateway when changing that selection or upgrading code. The agent body can keep running. A live connection operation cannot change the owner, Group, Actor, generation, or credential path. Creating a new Actor generation requires a new selection and grant. Rotating a grant for the same registration replaces the selected private file, followed by `connection refresh-credentials --binding-id BINDING_ID`.
 
-Use `--instance NAME` when selecting a different instance. All routes are relative to `/v1/plugins/NAME`. The CLI requires `--gateway-url` with a loopback HTTP(S) URL and never opens CCCC credentials. Plugin activation also requires a loopback gateway listener.
+Use `--instance NAME` when selecting a different instance. All routes are relative to `/v1/plugins/NAME`. The CLI requires `--gateway-url` and accepts verified HTTPS or numeric loopback HTTP. It selects the current managed self key for ordinary operations when invoked from a managed generation. An external caller supplies `--signer-binding PATH` with private client binding JSON containing the exact `base_url`, `owner` (agent and context IDs), `purpose`, `private_key_path`, and optional `ca_bundle_path`. The configured Actor credentials stay with the gateway worker.
+
+Binding, capabilities, members, chat, and deferred Mail require private access. Connection and credential controls use the admin rule. An empty list permits anonymous control, and a nonempty list requires verified admin proof. Plugin activation and worker delivery use the validated gateway deployment on either listener. [Gateway Access and Remote Deployment](operations/access.md)
 
 ## Inspect Connection State
 

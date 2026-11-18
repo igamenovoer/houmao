@@ -13,18 +13,11 @@ Use `POST /v1/mail/{channel}/list` to inspect the current mailbox state through 
 
 Listing returns metadata only and does not mark read. Start with 50 results; the hard maximum is 200 and the provider may return fewer. Never add the removed `include_body` field or `--include-body` flag. Use peek/read for selected content.
 
-Typical unread page:
+Use the current channel and binding for an unread page.
 
 ```bash
-curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/$MAIL_CHANNEL/list" \
-  -H 'content-type: application/json' \
-  --data '{"schema_version":3,"expected_binding_id":"<selected binding_id>","box":"inbox","read_state":"unread","answered_state":"any","archived":false,"limit":50}'
-```
-
-When no live gateway facade is available, run the direct fallback command:
-
-```bash
-<chosen houmao-mgr launcher> agents self mail list --channel <channel> --expected-binding-id <binding_id> --box inbox --limit 50
+houmao-mgr agents self mail list --channel "$MAIL_CHANNEL" --expected-binding-id "$BINDING_ID" \
+  --box inbox --read-state unread --not-archived --limit 50
 ```
 
 Read `messages` as the returned metadata page. `message_count`, `open_count`, and `unread_count` apply only to that page; an exact `total_count` is optional. `has_more=true` and `next_cursor` mean more matching work exists. `complete=true` means this page exhausted that query, not that the agent completed the work.

@@ -182,6 +182,12 @@ The dedicated `POST /houmao/agents/{agent_ref}/interrupt` route still exists for
 
 ## Gateway Lifecycle, Gateway-Mediated Requests, And Notifier Control
 
+Selected-agent HTTP operations resolve retained owner policy independently of gateway discovery. Private reads such as detailed gateway status, usage, routine mail, and memory require current self or listed admin proof. Direct control, native artifacts, interrupt, stop, and gateway lifecycle use the live admin rule. Detach leaves that rule in force. Admitted gateway attach and detach requests continue to return HTTP 501 and direct the operator to owner-side `houmao-mgr`.
+
+For a signed call, request proof at `POST /houmao/agents/{agent_ref}/auth/challenge`. Bind it to the exact passive-server method, path, query, and body. A gateway proxy translates the admitted caller into a one-use owner-local grant scoped to the downstream operation and rechecks current authority there. HTTP 401 includes passive ingress challenge information, HTTP 403 indicates insufficient authority, and HTTP 503 indicates unavailable policy. A refused call ends before fallback.
+
+Server-managed backing calls use a separate owner-service binding scoped to the current target and required operations. Client requests and forwarding headers cannot claim that role. Keep the global passive-server administration surface isolated from remote publication and expose the per-agent gateway through verified transport. [Gateway Access and Remote Deployment](gateway/operations/access.md)
+
 Managed-agent gateway routes project the same gateway status, raw TUI tracking state, prompt-note provenance hook, and notifier state used by the live sidecar.
 
 `GET /houmao/agents/{agent_ref}/gateway` returns the same `GatewayStatusV1` shape used by the direct gateway status surface. It can therefore report a seeded offline `not_attached` status even when no live sidecar exists yet.

@@ -159,17 +159,13 @@ Adapters that cannot confirm actual handoff fail with `503`. Native headless exe
 
 ## Inspect and Operate the Host
 
-Read the resolved listener from gateway status, then inspect:
-
-```bash
-curl "$GATEWAY_URL/v1/plugins"
-curl "$GATEWAY_URL/v1/plugins/team-chat/_status"
-curl "$GATEWAY_URL/v1/plugins/team-chat/owner"
-```
+Select a bound gateway client using current self or verified admin proof for the inventory and instance status. Call `GatewayClient.get_plugins()` and `GatewayClient.get_plugin_status("team-chat")` with that binding. Plugin JSON calls use the same binding through `GatewayClient.request_plugin_json()`. [Gateway Access and Remote Deployment](operations/access.md)
 
 Status exposes implementation/distribution versions, SDK version, lifecycle, connection state, binding identity, worker names, and safe failure/conflict details. It excludes configuration contents, selected credential paths, and event bodies.
 
-Plugins activate only on loopback listeners. Binding the gateway to `0.0.0.0` disables plugin activation before implementation import, credential access, or worker startup. Sanitized host status remains readable; custom plugin routes remain unavailable.
+Declare a private route with `openapi_extra=plugin_route_access("private")` using the helper exported by `houmao.gateway.plugins`. Declare `"admin"` for controls. Omitted declarations use admin access, including anonymous operation with a valid empty list. The host reserves public routes and rejects incompatible declarations and paths outside the instance namespace before activating the instance. A route's access check precedes plugin lifecycle errors. The plugin handler uses its configured service identity independently of HTTP caller proof.
+
+Validated access settings enable plugin activation and ordinary background event delivery on broader listeners. Invalid required policy prevents startup before imports or worker activation. Workers use their configured service authority and preserve the existing readiness, current-body, and confirmed handoff checks.
 
 For package upgrades or changed selection, detach the live gateway, install the package or update the configuration, and attach again. This restarts the sidecar without relaunching the managed agent. Detaching a gateway does not imply that the agent body has stopped.
 

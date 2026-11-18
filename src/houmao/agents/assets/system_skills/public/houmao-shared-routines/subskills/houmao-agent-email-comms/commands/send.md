@@ -13,18 +13,11 @@ Use this action for ordinary managed-agent outbound shared mailbox messages.
 
 If the caller is acting as operator and needs to leave an operator-origin note in a managed agent mailbox, use `commands/post.md` instead of ordinary `send`.
 
-Use `POST /v1/mail/{channel}/send` to create one new outbound shared mailbox message.
+Run the scoped command for the selected channel and binding.
 
 ```bash
-curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/$MAIL_CHANNEL/send" \
-  -H 'content-type: application/json' \
-  --data '{"schema_version":3,"expected_binding_id":"<selected binding_id>","to":["recipient@houmao.localhost"],"subject":"...","body_content":"...","attachments":[]}'
+houmao-mgr agents self mail send --channel "$MAIL_CHANNEL" --expected-binding-id "$BINDING_ID" \
+  --to "$RECIPIENT" --subject "$SUBJECT" --body-content "$BODY"
 ```
 
-Use the exact `gateway.base_url` resolved for this turn.
-
-When no live gateway facade is available, run the direct fallback command:
-
-```bash
-<chosen houmao-mgr launcher> agents self mail send --channel <channel> --expected-binding-id <binding_id> --to <recipient> --subject <subject> --body-content <body>
-```
+The gateway requires verified admin proof for owner-file attachments on this private route.

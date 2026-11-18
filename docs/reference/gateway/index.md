@@ -41,7 +41,9 @@ The gateway is a session-owned FastAPI companion process attached to one runtime
 - [CCCC Chat Integration](cccc.md): Attach an existing agent to an external CCCC Actor, send ordinary chat, inspect provider receipts, and explicitly retry failed handoffs.
 - [CCCC Deferred Mail](cccc-mail.md): Select ordered correspondence explicitly, consume bounded batches, and recover read outcomes through authoritative receipts.
 - [Gateway Reminders](operations/reminders.md): Understand `/v1/reminders`, ranking and pause semantics, prompt versus send-keys reminder delivery, and the direct live HTTP boundary.
-- [Gateway Mailbox Facade](operations/mailbox-facade.md): Understand `/v1/mail/*`, adapter selection from the session manifest, loopback-only availability, and notifier behavior through the shared mailbox abstraction.
+- [Gateway Access and Remote Deployment](operations/access.md) covers route admission, SSHSIG enrollment, HTTPS publication, and public handoff.
+- [Authenticated Gateway Access Qualification](authenticated-access-acceptance.md) maps the tested access and transport requirements to evidence.
+- [Gateway Mailbox Facade](operations/mailbox-facade.md) covers signed `/v1/mail/*` access, channel selection, and notifier behavior through the shared mailbox abstraction.
 - [Gateway Mail-Notifier](operations/mail-notifier.md): Background polling loop that checks for open inbox work or unread inbox mail, depending on notifier mode, and submits notification prompts through the gateway request queue with optional runtime appendix guidance, degraded-context policy, and pre-notification compaction.
 - [Notifier-Prompt-Driven Loop Runtime](operations/notifier-prompt-driven-loops.md): Conceptual runtime model for mail-driven loops: notifier prompts wake agents, generated on-event skills process mail, optional on-tick skills run once from the prompt turn, and agents must not wait in-chat.
 

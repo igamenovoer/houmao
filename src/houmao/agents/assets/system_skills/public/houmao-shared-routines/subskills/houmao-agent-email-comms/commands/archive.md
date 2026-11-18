@@ -11,18 +11,10 @@ If the request does not map cleanly to these steps, use the native planning tool
 
 Archive a message only after the corresponding mailbox action succeeds and any required reply has been sent successfully.
 
-Use `POST /v1/mail/{channel}/archive` when a live gateway facade is available:
+Run the scoped command after the processing and any required reply succeed.
 
 ```bash
-curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/$MAIL_CHANNEL/archive" \
-  -H 'content-type: application/json' \
-  --data '{"schema_version":3,"expected_binding_id":"<selected binding_id>","message_refs":["<opaque message_ref>"]}'
+houmao-mgr agents self mail archive --channel "$MAIL_CHANNEL" --expected-binding-id "$BINDING_ID" --message-ref "$MESSAGE_REF"
 ```
 
-When no live gateway facade is available, run the direct fallback command:
-
-```bash
-<chosen houmao-mgr launcher> agents self mail archive --channel <channel> --expected-binding-id <binding_id> --message-ref <message_ref>
-```
-
-Do not treat detection, peeking, reading, or replying as an implicit archive operation. Reply marks the parent message answered; archive closes the processed inbox work.
+Reply marks the parent message answered. Archive closes the processed inbox work.

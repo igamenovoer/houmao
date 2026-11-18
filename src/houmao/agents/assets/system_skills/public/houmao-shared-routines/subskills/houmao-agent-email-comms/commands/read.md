@@ -17,20 +17,11 @@ Treat `message_ref` and `thread_ref` as opaque identifiers.
 
 Check `content_complete`, `content_limit_bytes`, and `content_limit_reason` on selected content. A false completeness flag or explicit provider limit means the returned text is partial. Use an authorized retrieval path only when the response supplies one; otherwise report the missing content instead of inventing a blob URL or claiming full inspection.
 
-Peek example:
+Use the scoped commands with the current channel and binding.
 
 ```bash
-curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/$MAIL_CHANNEL/peek" \
-  -H 'content-type: application/json' \
-  --data '{"schema_version":3,"expected_binding_id":"<selected binding_id>","message_ref":"<opaque message_ref>"}'
-```
-
-Read example:
-
-```bash
-curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/$MAIL_CHANNEL/read" \
-  -H 'content-type: application/json' \
-  --data '{"schema_version":3,"expected_binding_id":"<selected binding_id>","message_ref":"<opaque message_ref>"}'
+houmao-mgr agents self mail peek --channel "$MAIL_CHANNEL" --expected-binding-id "$BINDING_ID" --message-ref "$MESSAGE_REF"
+houmao-mgr agents self mail read --channel "$MAIL_CHANNEL" --expected-binding-id "$BINDING_ID" --message-ref "$MESSAGE_REF"
 ```
 
 When multiple open messages exist:
@@ -38,10 +29,3 @@ When multiple open messages exist:
 - use the metadata returned by `list`,
 - choose the message or messages to inspect,
 - stop the current page chain if its cursor becomes stale, and preserve the same channel/binding for any separately requested fresh triage.
-
-When no live gateway facade is available, run the direct fallback command for the selected message:
-
-```bash
-<chosen houmao-mgr launcher> agents self mail peek --channel <channel> --expected-binding-id <binding_id> --message-ref <message_ref>
-<chosen houmao-mgr launcher> agents self mail read --channel <channel> --expected-binding-id <binding_id> --message-ref <message_ref>
-```
