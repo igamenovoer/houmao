@@ -4,6 +4,24 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [3.0.0rc2] - 2026-11-18
+
+### Changed
+
+- **Per-tool launch parameters.** Houmao merges tool defaults, setup files, presets or specialists, launch profiles, and one-shot overrides. Managed launches validate the selected model, backend, and credential binding before a force takeover.
+- **DSH configuration migration.** Move `dsh-setup.yaml` settings to `tool-params.yaml` or a higher `tool_params` layer. Select the model with `model.name`, replace numbered model reasoning maps with `reasoning_efforts`, and configure endpoint and API-key roles through `project credentials dsh`. Declare MCP credential values as `env_ref` references.
+- **DSH version support.** Houmao accepts DeepSeek Harness releases and release candidates from `0.2.2-rc.1` onward. Native qualification used `0.2.2-rc.3`.
+
+### Added
+
+- **Native DSH provider options.** DSH supports four pi-ai wire protocols, route and model compatibility settings, retry policy, and named reasoning slots. Self-hosted OpenAI Chat Completions can use endpoint-only credentials.
+- **DSH startup and failure diagnostics.** ACP and Web use one unattended permission preset. Provider and startup errors report sanitized details.
+
+### Notes
+
+- Install with `python -m pip install houmao==3.0.0rc2`. For the matching public skills, use `npx skills add https://github.com/igamenovoer/houmao-skills#v3.0.0rc2`.
+- See the [DSH Headless Reference](https://igamenovoer.github.io/houmao/reference/run-phase/dsh-headless/) for provider and migration details and the [release comparison](https://github.com/igamenovoer/houmao/compare/v3.0.0rc1...v3.0.0rc2) for the full change range.
+
 ## [3.0.0rc1] - 2026-11-18
 
 ### Changed
