@@ -173,48 +173,56 @@ The skill guidance SHALL NOT require the agent to:
 - **AND THEN** the skill does not instruct the agent to enumerate unrelated tmux environment state or invoke a direct Python-module resolver entrypoint
 
 ### Requirement: Projected mailbox system skills keep routine attached-session actions on the shared gateway facade
-When a live loopback gateway exposes the shared `/v1/mail/*` mailbox surface for a mailbox-enabled session, the projected mailbox system skills SHALL treat that shared gateway facade as the default routine action surface for ordinary mailbox work.
 
-Projected mailbox system skills for both filesystem and `stalwart` transports SHALL present that default structurally: resolve current mailbox state through `houmao-mgr agents self mail resolve-live`, use gateway HTTP when it is available, and fall back to `houmao-mgr agents self mail ...` or explicitly targeted `agents single` commands when it is not. Lifecycle actions SHALL retain the selected channel and expected binding; manager lifecycle commands SHALL include `--channel offline|online`.
+When a live gateway exposes the shared `/v1/mail/*` mailbox surface for a mailbox-enabled session, the projected mailbox system skills SHALL use the shared gateway facade for ordinary mailbox work.
 
-For this change, ordinary mailbox work includes:
+Projected mailbox system skills for filesystem and `stalwart` SHALL resolve current mailbox state through `houmao-mgr agents self mail resolve-live` and use a runtime-owned client for live calls. Managed self commands SHALL sign the challenge with the current generation's key. Scoped admins SHALL use an explicit signing key. Skill text, resolver output, and shell examples SHALL omit keys, proof material, and private credential references.
 
-- checking unread mail,
-- sending one new message,
-- replying to one existing message,
-- marking one processed message read.
+The skills SHALL use the existing separately authorized manager path when the live gateway is absent. An admission refusal or unavailable policy from a protected gateway SHALL end the request. Lifecycle actions SHALL retain the selected channel and expected binding. Manager lifecycle commands SHALL include `--channel offline|online`.
 
-When projected mailbox skills use the `houmao-mgr agents self mail ...` fallback path, they SHALL preserve the manager command's authority-aware result contract:
+Ordinary mailbox work includes:
 
-- `authoritative: true` means Houmao verified the mailbox outcome through manager-owned or gateway-backed execution,
-- `authoritative: false` means Houmao only submitted the mailbox request through a TUI-mediated fallback path and separate verification is required.
+- checking unread mail
+- sending one new message
+- replying to one existing message
+- marking one processed message read
 
-When projected mailbox skills expose thin tmux-session-local shell helpers, those helpers SHALL delegate only to gateway HTTP or `houmao-mgr agents self mail ...` rather than to direct Python-module entrypoints or mailbox-owned scripts.
+When projected mailbox skills use `houmao-mgr agents self mail ...` without a live gateway, they SHALL preserve the manager command's authority-aware result:
 
-For attached filesystem sessions, projected mailbox system skills SHALL NOT present direct mailbox-owned Python scripts as the ordinary no-gateway fallback path for those routine actions.
+- `authoritative: true` means Houmao verified the mailbox outcome through manager-owned or gateway-backed execution
+- `authoritative: false` means Houmao submitted the request through a TUI-mediated path and separate verification is required
 
-For attached `stalwart` sessions, projected mailbox system skills SHALL NOT present direct Python-module mailbox discovery as the ordinary no-gateway fallback path for those routine actions.
+Thin session-local helpers SHALL delegate to the runtime-owned gateway client or maintained `houmao-mgr` mailbox commands. For attached filesystem and `stalwart` sessions, the routine fallback SHALL be manager-owned and transport-neutral.
 
 #### Scenario: Attached mailbox session uses the shared gateway facade when available
+
 - **WHEN** a mailbox-enabled session has a live attached gateway exposing `/v1/mail/*`
-- **THEN** the projected mailbox system skill resolves the current gateway endpoint through `houmao-mgr agents self mail resolve-live`
-- **AND THEN** the skill directs the agent to use gateway HTTP for the shared mailbox operation instead of reasoning about transport details directly
+- **THEN** the skill resolves the current endpoint through `houmao-mgr agents self mail resolve-live`
+- **AND THEN** its runtime-owned client signs the request challenge with the current generation's self key
 
 #### Scenario: Mailbox session without gateway falls back to `houmao-mgr agents mail`
-- **WHEN** a mailbox-enabled session has no live shared gateway mailbox facade
-- **THEN** the projected mailbox system skill directs the agent to use `houmao-mgr agents self mail ...` for routine mailbox work
-- **AND THEN** the fallback remains manager-owned and transport-neutral from the agent's perspective
+
+- **WHEN** a mailbox-enabled session has no live shared gateway mailbox facade and the caller has existing manager authority
+- **THEN** the skill directs the agent to use `houmao-mgr agents self mail ...` for routine mailbox work
+- **AND THEN** the manager uses the established transport-neutral path
+
+#### Scenario: Protected gateway refuses mailbox access
+
+- **WHEN** the runtime-owned client receives an authentication or authorization failure for a protected mailbox operation
+- **THEN** it surfaces the refusal as the request outcome
+- **AND THEN** neither a local transport nor an admin binding is used as fallback
 
 #### Scenario: Non-authoritative manager fallback result triggers explicit verification
-- **WHEN** a projected mailbox system skill uses `houmao-mgr agents self mail send ...` or `reply ...`
-- **AND WHEN** that command returns `authoritative: false`
-- **THEN** the skill treats the result as submission-only rather than verified mailbox success
-- **AND THEN** the skill uses `houmao-mgr agents self mail list`, `status`, or transport-owned mailbox state to verify the requested outcome before assuming the mailbox mutation completed
+
+- **WHEN** the manager returns `authoritative: false` for routine send or reply
+- **THEN** the skill treats the result as submission-only
+- **AND THEN** it verifies the result through supported mailbox state before treating delivery as complete
 
 #### Scenario: Thin shell helpers stay wrappers over supported surfaces
-- **WHEN** a projected mailbox skill provides a shell helper for tmux-session-local mailbox work
-- **THEN** that helper wraps `houmao-mgr agents self mail resolve-live`, gateway HTTP, or `houmao-mgr agents self mail ...`
-- **AND THEN** it does not become a second canonical mailbox contract with independent transport logic
+
+- **WHEN** a projected mailbox skill provides a shell helper for local gateway work
+- **THEN** that helper delegates to the runtime-owned client or maintained scoped mailbox commands
+- **AND THEN** the same target and credential selection governs the operation
 
 ### Requirement: Filesystem mailbox system skills instruct agents to consult shared mailbox rules first
 The system SHALL require the projected filesystem mailbox system skill to present shared mailbox `rules/` as mailbox-local policy guidance for agents rather than as an executable mutation contract.
