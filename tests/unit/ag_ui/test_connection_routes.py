@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
+import pytest
 
 import houmao.ag_ui.routes as ag_ui_routes
 from houmao.ag_ui.authoring import parse_ag_ui_event_payloads, render_component_events
@@ -290,6 +291,39 @@ def test_connect_stream_initial_snapshot_and_client_close_detaches_only_connecti
 
         await stream.aclose()
         assert registry.get("agui-1") is None
+        runtime.assert_no_work_or_lifecycle_calls()
+
+    asyncio.run(_run())
+
+
+def test_connect_stream_revalidates_idle_access_and_detaches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An idle connection closes after its grant is withdrawn, before another event."""
+
+    monkeypatch.setattr(ag_ui_routes, "_ACCESS_REVALIDATION_SECONDS", 0.01)
+
+    async def _run() -> None:
+        runtime = _SpyRuntime()
+        diagnostics = AgUiDiagnostics(runtime=runtime)
+        registry = AgUiConnectionRegistry(id_factory=lambda: "agui-1")
+        access_revoked = asyncio.Event()
+        stream = connect_event_stream(
+            runtime=runtime,
+            registry=registry,
+            connect_input=AgUiConnectInput.model_validate(_connect_payload()),
+            request=_DisconnectProbe(),
+            event_hub=AgUiEventHub(),
+            diagnostics=diagnostics,
+            heartbeat_interval_seconds=60.0,
+            access_current=lambda: not access_revoked.is_set(),
+        )
+        assert _sse_frame_payload(await anext(stream))["type"] == "STATE_SNAPSHOT"
+        access_revoked.set()
+        with pytest.raises(StopAsyncIteration):
+            await asyncio.wait_for(anext(stream), timeout=0.5)
+        assert registry.active_connections() == ()
+        assert diagnostics.active_counts()["activeAgUiConnections"] == 0
         runtime.assert_no_work_or_lifecycle_calls()
 
     asyncio.run(_run())
@@ -993,6 +1027,42 @@ def test_run_stream_receives_published_events_from_matching_hub() -> None:
         payload = _sse_frame_payload(next_frame)
         assert payload["type"] == "TOOL_CALL_START"
         assert payload["toolCallName"] == "houmao.table"
+        assert runtime.queued_requests == 1
+        runtime.assert_no_lifecycle_calls()
+
+    asyncio.run(_run())
+
+
+def test_run_stream_revocation_releases_observer_without_canceling_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Periodically recheck an idle run and leave its accepted request in force."""
+
+    from houmao.ag_ui.service import AgUiRunService
+
+    monkeypatch.setattr(ag_ui_routes, "_ACCESS_REVALIDATION_SECONDS", 0.01)
+
+    async def _run() -> None:
+        runtime = _SpyRuntime(status_payload=_status(backend="codex_headless"))
+        diagnostics = AgUiDiagnostics(runtime=runtime)
+        access_revoked = asyncio.Event()
+        service = AgUiRunService(runtime=runtime, poll_interval_seconds=60.0)  # type: ignore[arg-type]
+        admitted = service.admit_run(AgUiConnectInput.model_validate(_connect_payload()))
+        stream = run_event_stream(
+            service=service,
+            admitted_run=admitted,
+            request=_DisconnectProbe(),
+            diagnostics=diagnostics,
+            event_hub=AgUiEventHub(),
+            access_current=lambda: not access_revoked.is_set(),
+        )
+        assert _sse_frame_payload(await anext(stream))["type"] == "RUN_STARTED"
+        pending = asyncio.ensure_future(anext(stream))
+        await asyncio.sleep(0.005)
+        access_revoked.set()
+        with pytest.raises(StopAsyncIteration):
+            await asyncio.wait_for(pending, timeout=0.5)
+        assert diagnostics.active_counts()["activeAgUiRuns"] == 0
         assert runtime.queued_requests == 1
         runtime.assert_no_lifecycle_calls()
 

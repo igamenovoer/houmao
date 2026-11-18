@@ -201,6 +201,29 @@
           "const": "v1",
           "title": "Protocol Version",
           "type": "string"
+        },
+        "owner_connect_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner Connect Url"
+        },
+        "endpoint_descriptor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GatewayEndpointDescriptor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -568,6 +591,112 @@
         "native_session_id"
       ],
       "title": "WebNativeSurfaceV1",
+      "type": "object"
+    },
+    "GatewayEndpointDescriptor": {
+      "additionalProperties": false,
+      "description": "Publish a live endpoint and its access requirements without credentials.",
+      "properties": {
+        "protocol": {
+          "title": "Protocol",
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/GatewayTarget"
+        },
+        "presence_id": {
+          "title": "Presence Id",
+          "type": "string"
+        },
+        "advertised_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Advertised Url"
+        },
+        "admin_access": {
+          "enum": [
+            "open",
+            "key_required",
+            "unavailable"
+          ],
+          "title": "Admin Access",
+          "type": "string"
+        },
+        "private_proof": {
+          "const": "self_or_admin",
+          "default": "self_or_admin",
+          "title": "Private Proof",
+          "type": "string"
+        },
+        "public_operations": {
+          "default": [],
+          "items": {
+            "enum": [
+              "messages",
+              "public_prompt"
+            ],
+            "type": "string"
+          },
+          "title": "Public Operations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "protocol",
+        "target",
+        "presence_id",
+        "advertised_url",
+        "admin_access"
+      ],
+      "title": "GatewayEndpointDescriptor",
+      "type": "object"
+    },
+    "GatewayOwner": {
+      "additionalProperties": false,
+      "description": "Pin a logical agent to its observed execution context.",
+      "properties": {
+        "agent_id": {
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "context_id": {
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Context Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id",
+        "context_id"
+      ],
+      "title": "GatewayOwner",
+      "type": "object"
+    },
+    "GatewayTarget": {
+      "additionalProperties": false,
+      "description": "Identify the current incarnation reachable through an ingress.",
+      "properties": {
+        "owner": {
+          "$ref": "#/$defs/GatewayOwner"
+        },
+        "incarnation": {
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Incarnation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "owner",
+        "incarnation"
+      ],
+      "title": "GatewayTarget",
       "type": "object"
     }
   },

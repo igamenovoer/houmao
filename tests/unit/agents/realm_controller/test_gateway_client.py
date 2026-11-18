@@ -7,13 +7,17 @@ import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import threading
 
+import pytest
+
 from houmao.ag_ui.models import AgUiEventPublishRequest
+from houmao.agents.realm_controller.errors import GatewayHttpError
 from houmao.agents.realm_controller.gateway_client import (
     GATEWAY_RESPECT_PROXY_ENV_VAR,
     GatewayClient,
     GatewayEndpoint,
     gateway_client_respects_proxy_env,
 )
+from houmao.gateway.access import GatewayClientBinding, GatewayOwner
 
 _PROXY_ENV_KEYS = (
     "HTTP_PROXY",
@@ -42,6 +46,44 @@ class _HealthHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: object) -> None:
         """Suppress noisy test-server logs."""
+
+
+def test_gateway_client_refuses_redirects_and_retargeting() -> None:
+    """Keep requests and signers on their original endpoints."""
+
+    class Redirect(_HealthHandler):
+        """Advertise a different valid route under the same test origin."""
+
+        paths: list[str] = []
+
+        def do_GET(self) -> None:
+            self.paths.append(self.path)
+            self.send_response(307)
+            self.send_header("Location", "/redirected")
+            self.end_headers()
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), Redirect) as server:
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            base = f"http://127.0.0.1:{server.server_port}"
+            with pytest.raises(GatewayHttpError, match="redirects are refused") as caught:
+                GatewayClient(base_url=f"{base}/selected").health()
+            assert caught.value.status_code == 307
+            assert Redirect.paths == ["/selected/health"]
+            binding = GatewayClientBinding(
+                base_url=f"{base}/selected",
+                owner=GatewayOwner(agent_id="agent", context_id="context"),
+                purpose="admin",
+                private_key_path="/unused-private-signer",
+            )
+            with pytest.raises(ValueError, match="binding differs"):
+                GatewayClient(base_url=f"{base}/replacement", binding=binding)
+        finally:
+            server.shutdown()
+            worker.join(timeout=2)
+    with pytest.raises(ValueError, match="literal loopback"):
+        GatewayClient(base_url="http://gateway.example.org")
 
 
 class _ProxyHealthHandler(BaseHTTPRequestHandler):

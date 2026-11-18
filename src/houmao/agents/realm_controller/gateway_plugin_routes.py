@@ -10,6 +10,8 @@ from typing import cast
 from fastapi import APIRouter
 from starlette.routing import BaseRoute, Route
 
+from houmao.gateway.plugins.routes import PLUGIN_ROUTE_ACCESS_FIELD, PluginRouteAccess
+
 
 _PARAMETER = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)(?::(str|path))?\}")
 
@@ -44,6 +46,21 @@ class PluginRouteDeclaration:
     owner: str | None
     path: str
     methods: frozenset[str]
+    access: PluginRouteAccess = "admin"
+
+
+def declared_plugin_access(route: Route) -> PluginRouteAccess:
+    """Resolve explicit access or the admin default from one plugin route."""
+
+    metadata = getattr(route, "openapi_extra", None) or {}
+    if not isinstance(metadata, dict):
+        raise PluginRouteError("invalid_route_access", "Plugin route metadata is invalid")
+    access = metadata.get(PLUGIN_ROUTE_ACCESS_FIELD, "admin")
+    if access == "private":
+        return "private"
+    if access == "admin":
+        return "admin"
+    raise PluginRouteError("invalid_route_access", "Plugin route access must be private or admin")
 
 
 def plugin_route_declarations(
@@ -101,6 +118,7 @@ def plugin_route_declarations(
                 owner=instance_id,
                 path=prefix + route.path,
                 methods=frozenset(method.upper() for method in route.methods),
+                access=declared_plugin_access(route),
             )
         )
     return tuple(declarations)

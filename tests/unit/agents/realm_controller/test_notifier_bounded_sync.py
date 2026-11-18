@@ -5,14 +5,15 @@ from pathlib import Path
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 
-from fastapi.testclient import TestClient
 import pytest
 
-from houmao.agents.realm_controller.gateway_service import create_app
 from houmao.agents.realm_controller.manifest import mutate_session_mailbox_binding
 from houmao.mailbox.notifier_admission import ReminderOrigin, admit_mail_reminder
 from tests.unit.agents.realm_controller.test_gateway_dual_mail import _runtime
 from tests.unit.agents.realm_controller.test_gateway_support import _deliver_unread_mailbox_message
+from tests.fixtures.gateway_access import gateway_fixture_client
+
+pytestmark = pytest.mark.usefixtures("gateway_fixture_access")
 
 
 def test_cycle_and_pending_request_admission_commit_atomically(tmp_path: Path) -> None:
@@ -80,7 +81,7 @@ def test_unchanged_mail_reminds_each_due_cycle_and_old_pending_scope_is_rejected
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.now_utc_iso", lambda: now[0]
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
     assert client.put("/v1/mail-notifier/offline", json={"interval_seconds": 60}).status_code == 200
     runtime._run_notifier_cycle(channel="offline")
     runtime._run_notifier_cycle(channel="offline")
@@ -144,7 +145,7 @@ def test_online_credential_outage_preserves_enabled_notifier_and_recovers(
     runtime = _runtime(tmp_path, monkeypatch)
     install_notifier_client(monkeypatch)
     monkeypatch.setattr(runtime, "_notifier_block_detail_locked", lambda **kwargs: None)
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
     assert client.put("/v1/mail-notifier/online", json={"interval_seconds": 60}).status_code == 200
     binding = runtime._load_mailbox_config(channel="online")
     assert binding.credential_file is not None

@@ -9,10 +9,12 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from houmao.agents.realm_controller.backends.headless_base import HeadlessSessionState
 from houmao.agents.realm_controller.errors import BackendExecutionError, SessionManifestError
 from houmao.agents.realm_controller.gateway_models import GatewayCurrentInstanceV1
+from houmao.agents.realm_controller.gateway_access_runtime import gateway_access_for_manifest
 from houmao.agents.realm_controller.gateway_storage import (
     delete_gateway_current_instance,
     gateway_paths_from_manifest_path,
@@ -35,6 +37,8 @@ from houmao.agents.realm_controller import runtime as runtime_module
 from houmao.execution.context import current_execution_binding, execution_read_only_scope
 from houmao.execution.models import ExecutionBindingV1
 from houmao.execution.tmux import current_tmux_socket_path, tmux_server_scope
+from houmao.gateway.access import GatewayAdminKey, GatewayLaunchSeed, public_key_text
+from houmao.gateway.deployment import GatewayEndpointDescriptor
 from houmao.mailbox.registry_config import associate_registry_store
 from houmao.agents.realm_controller.runtime import (
     resume_runtime_session,
@@ -208,7 +212,15 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     registry_root = tmp_path / "registry"
     brain_manifest_path = _seed_brain_manifest(tmp_path)
     _seed_role(agent_def_dir)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "owner-config"))
     monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
+    admin_keys = tuple(
+        GatewayAdminKey(
+            principal=name, public_key=public_key_text(Ed25519PrivateKey.generate().public_key())
+        )
+        for name in ("first", "second")
+    )
+    seed = GatewayLaunchSeed(admin_keys=admin_keys)
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
         _FakeHeadlessSession,
@@ -244,6 +256,17 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
         backend="claude_headless",
         working_directory=tmp_path,
         agent_name="gpu",
+        gateway_admin_seed=seed,
+    )
+    first_access = gateway_access_for_manifest(controller.manifest_path)
+    first_self = first_access.store.load_self(first_access.target.incarnation)
+    assert (
+        first_access.store.self_signer_path(first_access.target.incarnation).stat().st_mode & 0o777
+        == 0o600
+    )
+    assert tuple(entry.key for entry in first_access.store.load().keys) == admin_keys
+    first_access.store.update(
+        lambda state: state.model_copy(update={"keys": state.keys[1:], "revision": 1})
     )
 
     started_record = resolve_live_agent_record("gpu")
@@ -271,6 +294,9 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
 
     persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
     assert persisted["registry_generation_id"] == controller.registry_generation_id
+    assert persisted["gateway_admin_seed"] == seed.model_dump(mode="json")
+    assert "PRIVATE KEY" not in json.dumps(persisted)
+    assert str(first_access.private_root) not in json.dumps(persisted)
     assert persisted["registry_launch_authority"] == "runtime"
     assert persisted["runtime"]["execution_binding"] == binding.model_dump(mode="json")
     assert persisted["launch_plan"]["execution_binding"] == binding.model_dump(mode="json")
@@ -318,6 +344,12 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     before_relaunch = controller.registry_generation_id
     assert controller.relaunch().status == "ok"
     assert controller.registry_generation_id != before_relaunch
+    relaunched_access = gateway_access_for_manifest(controller.manifest_path)
+    assert relaunched_access.store.load_self(relaunched_access.target.incarnation) != first_self
+    assert relaunched_access.store.load().find(admin_keys[0].key_id) is None
+    assert relaunched_access.store.load().find(admin_keys[1].key_id) is not None
+    with pytest.raises(SessionManifestError, match="authority has changed"):
+        first_access.require_current()
     assert controller.execution_binding == binding
     relaunched_record = resolve_live_agent_record("gpu")
     assert relaunched_record is not None
@@ -351,6 +383,8 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     assert stopped_record.liveness is None
     assert stopped_record.gateway is None
     assert stopped_record.terminal.current_session_name is None
+    assert relaunched_access.store.load().revision == 1
+    assert relaunched_access.current_self() is None
     assert stopped_record.terminal.last_session_name == started_record.terminal.current_session_name
     assert stopped_record.execution_binding == binding
     assert stopped_record.terminal.socket_path == binding.tmux_socket
@@ -957,6 +991,16 @@ def test_attach_and_detach_gateway_refreshes_registry_payload(
     )
     paths = gateway_paths_from_manifest_path(controller.manifest_path)
     assert paths is not None
+    access = gateway_access_for_manifest(controller.manifest_path)
+    assert access.store.load().mode == "open"
+    descriptor = GatewayEndpointDescriptor(
+        protocol="v1",
+        target=access.target,
+        presence_id="fixture-instance",
+        advertised_url="https://gateway.example.org/agents/gpu",
+        admin_access="open",
+        public_operations=("messages", "public_prompt"),
+    )
 
     def _fake_attach_gateway_for_controller(
         controller: Any,
@@ -966,6 +1010,7 @@ def test_attach_and_detach_gateway_refreshes_registry_payload(
         execution_mode_override: str | None,
         tui_tracking_timing_overrides: object | None = None,
         plugin_config: object | None = None,
+        access_config: object | None = None,
     ) -> GatewayControlResult:
         del (
             controller,
@@ -974,6 +1019,7 @@ def test_attach_and_detach_gateway_refreshes_registry_payload(
             execution_mode_override,
             tui_tracking_timing_overrides,
             plugin_config,
+            access_config,
         )
         write_gateway_current_instance(
             paths.current_instance_path,
@@ -982,6 +1028,7 @@ def test_attach_and_detach_gateway_refreshes_registry_payload(
                 host="127.0.0.1",
                 port=43123,
                 managed_agent_instance_epoch=1,
+                endpoint_descriptor=descriptor,
             ),
         )
         return GatewayControlResult(
@@ -1006,6 +1053,8 @@ def test_attach_and_detach_gateway_refreshes_registry_payload(
     assert attached_record.gateway is not None
     assert attached_record.gateway.host == "127.0.0.1"
     assert attached_record.gateway.port == 43123
+    assert attached_record.gateway.owner_connect_url == "http://127.0.0.1:43123"
+    assert attached_record.gateway.endpoint_descriptor == descriptor
 
     def _fake_detach_gateway_for_controller(controller: Any) -> GatewayControlResult:
         del controller

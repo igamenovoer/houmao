@@ -13,6 +13,7 @@ from typing import Any, Iterator, Mapping
 from uuid import uuid4
 
 from houmao.agents.realm_controller.agent_identity import AGENT_MANIFEST_PATH_ENV_VAR
+from houmao.agents.realm_controller.manifest import SESSION_MANIFEST_SCHEMA_VERSION
 from houmao.agents.realm_controller.registry_storage import (
     is_live_agent_record_fresh,
     load_managed_agent_record_by_agent_id,
@@ -96,7 +97,10 @@ def resolve_verified_self(
     if manifest_path.parent.is_symlink() or not manifest_path.is_file():
         raise ValueError("The runtime manifest pointer is stale or unsafe.")
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict) or payload.get("schema_version") != 4:
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") != SESSION_MANIFEST_SCHEMA_VERSION
+    ):
         raise ValueError("Unsupported runtime manifest schema.")
     agent_id = _required_manifest_string(payload, "agent_id")
     generation = _required_manifest_string(payload, "registry_generation_id")

@@ -1694,6 +1694,46 @@
       ],
       "title": "WebNativeSurfaceV1",
       "type": "object"
+    },
+    "GatewayAdminKey": {
+      "additionalProperties": false,
+      "description": "Bind a registered principal to a canonical OpenSSH public key.",
+      "properties": {
+        "principal": {
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Principal",
+          "type": "string"
+        },
+        "public_key": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Public Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "principal",
+        "public_key"
+      ],
+      "title": "GatewayAdminKey",
+      "type": "object"
+    },
+    "GatewayLaunchSeed": {
+      "additionalProperties": false,
+      "description": "Carry owner-authorized initial enrollment in a launch manifest.",
+      "properties": {
+        "admin_keys": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/GatewayAdminKey"
+          },
+          "maxItems": 256,
+          "title": "Admin Keys",
+          "type": "array"
+        }
+      },
+      "title": "GatewayLaunchSeed",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -1965,6 +2005,17 @@
       "anyOf": [
         {
           "$ref": "#/$defs/HoumaoServerSectionV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "gateway_admin_seed": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GatewayLaunchSeed"
         },
         {
           "type": "null"

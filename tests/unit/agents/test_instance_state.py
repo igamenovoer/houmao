@@ -189,7 +189,7 @@ def test_verified_self_supports_headless_and_rejects_stale_generation(
     memory_root.mkdir(parents=True)
     generation = "generation-1"
     manifest = {
-        "schema_version": 4,
+        "schema_version": 5,
         "backend": "claude_headless",
         "tool": "claude",
         "agent_name": "agent-a",

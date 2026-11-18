@@ -198,9 +198,9 @@ class AgUiRunService:
                     return
 
                 await asyncio.sleep(self.m_poll_interval_seconds)
-        except Exception as exc:
+        except Exception:
             yield mapper.run_error_event(
-                message=f"AG-UI run stream failed after admission: {exc}",
+                message="AG-UI run stream failed after admission.",
                 code="houmao_run_stream_failed",
             )
 

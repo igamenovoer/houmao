@@ -15,6 +15,12 @@ from typing import Callable
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from tests.fixtures.gateway_access import (
+    FixtureProofAuth,
+    enroll_fixture_admin,
+    fixture_admin_key,
+    gateway_fixture_client,
+)
 import pytest
 from pydantic import ValidationError
 
@@ -156,7 +162,6 @@ from houmao.mailbox.stalwart import (
 )
 from houmao.mailbox.stalwart_models import JmapMetadataPage, JmapMetadataQuery
 from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
-from houmao.server.pair_client import PairAuthorityHealthProbe
 from houmao.server.models import (
     HoumaoDegradedChatContextDiagnostic,
     HoumaoHookObservationCounters,
@@ -164,7 +169,6 @@ from houmao.server.models import (
     HoumaoManagedAgentHeadlessDetailView,
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentLastTurnView,
-    HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentStateResponse,
     HoumaoManagedAgentTurnView,
     HoumaoObservationChannel,
@@ -181,6 +185,8 @@ from houmao.server.models import (
     HoumaoTrackedSurface,
     HoumaoTrackedTurn,
 )
+
+pytestmark = pytest.mark.usefixtures("gateway_fixture_access")
 
 
 def test_gateway_prompt_control_models_use_schema_two_and_ready_only_by_default() -> None:
@@ -803,10 +809,24 @@ def test_legacy_tmux_session_stop_skips_gateway_teardown(tmp_path: Path) -> None
     assert result.action == "terminate"
 
 
+def _mock_bound_controller_policy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Supply an initialized policy for tests focused on attach sequencing."""
+
+    store = SimpleNamespace(load=lambda: None, load_self=lambda _generation: None)
+    access = SimpleNamespace(store=store, target=SimpleNamespace(incarnation="fixture"))
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.gateway_access_for_manifest", lambda _path: access
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.load_gateway_deployment", lambda _path: None
+    )
+
+
 def test_attach_gateway_supports_runtime_owned_headless_backend(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    _mock_bound_controller_policy(monkeypatch)
     manifest_path = default_manifest_path(tmp_path, "claude_headless", "claude-headless-1")
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     controller = RuntimeSessionController(
@@ -862,6 +882,7 @@ def test_attach_gateway_supports_runtime_owned_local_interactive_backend(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    _mock_bound_controller_policy(monkeypatch)
     manifest_path = default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     controller = RuntimeSessionController(
@@ -1279,7 +1300,7 @@ def test_gateway_service_routes_local_interactive_raw_send_keys_through_control_
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     runtime.start()
     try:
@@ -1366,7 +1387,7 @@ def test_gateway_service_exposes_local_interactive_state_and_prompt_note_routes(
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     runtime.start()
     try:
@@ -1449,7 +1470,7 @@ def test_gateway_service_routes_local_interactive_prompt_through_direct_control_
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     runtime.start()
     try:
@@ -1514,7 +1535,7 @@ def test_gateway_service_prompt_ready_generic_error_state_dispatches_without_res
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     runtime.start()
     try:
@@ -1572,7 +1593,7 @@ def test_gateway_service_degraded_local_interactive_prompt_dispatches_without_re
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     runtime.start()
     try:
@@ -1632,7 +1653,7 @@ def test_gateway_service_explicit_new_non_codex_tui_prompt_uses_clear(
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     runtime.start()
     try:
@@ -1699,7 +1720,7 @@ def test_gateway_service_rejects_local_interactive_prompt_when_tui_not_ready(
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     runtime.start()
     try:
@@ -1764,7 +1785,7 @@ def test_gateway_service_always_bypasses_local_interactive_prompt_readiness_gate
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     runtime.start()
     try:
@@ -1839,7 +1860,7 @@ def test_gateway_service_always_degraded_local_interactive_prompt_dispatches_wit
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     runtime.start()
     try:
@@ -1908,7 +1929,7 @@ def test_gateway_service_explicit_new_tui_prompt_ignores_persistent_degraded_con
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     runtime.start()
     try:
@@ -1961,7 +1982,7 @@ def test_gateway_service_rejects_unsupported_backend_for_direct_prompt_control(
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     runtime.start()
     try:
@@ -2001,7 +2022,7 @@ def test_gateway_service_rejects_overlapping_local_headless_direct_prompt_contro
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     runtime.start()
     try:
@@ -2050,7 +2071,7 @@ def test_gateway_service_explicit_new_headless_prompt_uses_new_session_selection
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     runtime.start()
     try:
@@ -2071,7 +2092,7 @@ def test_gateway_service_explicit_new_headless_prompt_uses_new_session_selection
     assert fake_session.session_selections[0].mode == "new"
 
 
-def test_gateway_service_routes_passive_server_managed_headless_prompts_through_pair_authority(
+def test_gateway_service_routes_managed_headless_prompts_through_scoped_backing(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2081,13 +2102,11 @@ def test_gateway_service_routes_passive_server_managed_headless_prompts_through_
         managed_agent_ref="claude-headless-1",
         include_local_authority=False,
     )
-    fake_client = _FakeManagedPairClient()
+    fake_client = _FakeManagedBackingClient()
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.gateway_service.resolve_pair_authority_client",
-        lambda *, base_url: SimpleNamespace(
-            client=fake_client,
-            health=PairAuthorityHealthProbe(status="ok", houmao_service="houmao-passive-server"),
-        ),
+        gateway_service_module._ServerManagedHeadlessGatewayAdapter,
+        "_resolve_client",
+        lambda _adapter: fake_client,
     )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
@@ -2142,13 +2161,11 @@ def test_gateway_service_blocks_server_managed_headless_when_prompt_admission_is
         managed_agent_ref="claude-headless-1",
         include_local_authority=False,
     )
-    fake_client = _FakeManagedPairClient(block_prompt=True)
+    fake_client = _FakeManagedBackingClient(block_prompt=True)
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.gateway_service.resolve_pair_authority_client",
-        lambda *, base_url: SimpleNamespace(
-            client=fake_client,
-            health=PairAuthorityHealthProbe(status="ok", houmao_service="houmao-passive-server"),
-        ),
+        gateway_service_module._ServerManagedHeadlessGatewayAdapter,
+        "_resolve_client",
+        lambda _adapter: fake_client,
     )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
@@ -2429,6 +2446,7 @@ def test_runtime_owned_foreground_gateway_attach_persists_tmux_execution_handle(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    _mock_bound_controller_policy(monkeypatch)
     manifest_path = default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
     _seed_local_interactive_gateway_root(tmp_path)
     paths = gateway_paths_from_manifest_path(manifest_path)
@@ -2590,6 +2608,7 @@ def test_runtime_owned_foreground_gateway_attach_tolerates_initial_tmux_pane_del
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    _mock_bound_controller_policy(monkeypatch)
     manifest_path = default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
     _seed_local_interactive_gateway_root(tmp_path)
     paths = gateway_paths_from_manifest_path(manifest_path)
@@ -2701,6 +2720,7 @@ def test_runtime_owned_foreground_gateway_attach_accepts_current_instance_before
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    _mock_bound_controller_policy(monkeypatch)
     manifest_path = default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
     _seed_local_interactive_gateway_root(tmp_path)
     paths = gateway_paths_from_manifest_path(manifest_path)
@@ -3227,7 +3247,7 @@ def test_gateway_memory_routes_round_trip_memo_and_page_operations(tmp_path: Pat
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     summary = client.get("/v1/memory")
     assert summary.status_code == 200
@@ -3407,21 +3427,22 @@ class _FakeGatewayHeadlessController:
         )
 
 
-class _FakeManagedPairClient:
+class _FakeManagedBackingClient:
     def __init__(
         self,
         *,
         block_prompt: bool = False,
-        pair_authority_kind: str = "houmao-passive-server",
     ) -> None:
-        self.pair_authority_kind = pair_authority_kind
         self.block_prompt = block_prompt
         self.prompt_calls: list[str] = []
         self.request_models: list[object] = []
         self.started_event = threading.Event()
         self.release_event = threading.Event()
 
-    def get_managed_agent_state_detail(self, agent_ref: str) -> HoumaoManagedAgentDetailResponse:
+    def inspect(self) -> HoumaoManagedAgentDetailResponse:
+        """Report synthetic posture through the scoped backing seam."""
+
+        agent_ref = "claude-headless-1"
         identity = HoumaoManagedAgentIdentity(
             tracked_agent_id=agent_ref,
             transport="headless",
@@ -3463,27 +3484,17 @@ class _FakeManagedPairClient:
             ),
         )
 
-    def submit_managed_agent_request(
-        self,
-        agent_ref: str,
-        request_model: object,
-    ) -> HoumaoManagedAgentRequestAcceptedResponse:
+    def dispatch(self, request_model: object) -> CaoSuccessResponse:
+        """Record the exact backed prompt and optionally hold completion."""
+
         self.request_models.append(request_model)
-        request_kind = getattr(request_model, "request_kind", "submit_prompt")
         prompt = getattr(request_model, "prompt", None)
         if isinstance(prompt, str):
             self.prompt_calls.append(prompt)
             self.started_event.set()
             if self.block_prompt:
                 self.release_event.wait(timeout=5.0)
-        return HoumaoManagedAgentRequestAcceptedResponse(
-            success=True,
-            tracked_agent_id=agent_ref,
-            request_id=f"req-{request_kind}",
-            request_kind=request_kind,
-            disposition="accepted",
-            detail="accepted",
-        )
+        return CaoSuccessResponse(success=True)
 
 
 def _tracked_terminal_id(identity: HoumaoTrackedSessionIdentity) -> str:
@@ -3753,7 +3764,7 @@ def _local_interactive_prompt_control_harness(
         host="127.0.0.1",
         port=43123,
     )
-    return runtime, TestClient(create_app(runtime=runtime)), fake_session
+    return runtime, gateway_fixture_client(runtime), fake_session
 
 
 def test_gateway_prompt_admission_policy_matrix_and_structural_checks(
@@ -4354,7 +4365,7 @@ def test_gateway_rejects_nondefault_policy_for_native_headless(
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     runtime.start()
     try:
@@ -4617,7 +4628,7 @@ def test_gateway_reminder_routes_batch_create_list_put_and_delete(
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     create_response = client.post(
         "/v1/reminders",
@@ -4721,7 +4732,7 @@ def test_gateway_rest_backed_reminder_routes_reject_send_keys_delivery(
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     create_response = client.post(
         "/v1/reminders",
@@ -5835,7 +5846,7 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     status_response = client.get("/v1/mail/status")
     assert status_response.status_code == 200
@@ -6010,7 +6021,7 @@ def test_gateway_diagnostics_capture_http_validation_without_raw_body(
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     response = client.post(
         "/v1/mail/offline/send",
@@ -6029,7 +6040,7 @@ def test_gateway_diagnostics_capture_http_validation_without_raw_body(
         entry for entry in entries if entry["event"] == "gateway.http_validation_failed"
     ]
     assert validation_entries
-    assert validation_entries[-1]["path"] == "/v1/mail/offline/send"
+    assert validation_entries[-1]["path"] == "/v1/mail/{channel}/send"
     assert validation_entries[-1]["status_code"] == 422
     assert validation_entries[-1]["validation_errors"]
     diagnostic_text = paths.diagnostic_log_path.read_text(encoding="utf-8")
@@ -6044,7 +6055,7 @@ def test_gateway_diagnostics_capture_mailbox_success_failure_and_repair_hint(
 ) -> None:
     gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
     paths = gateway_paths_from_session_root(session_root=gateway_root.parent)
-    _enable_gateway_diagnostics(paths)
+    _enable_gateway_diagnostics(paths, max_bytes=32768)
     _deliver_unread_mailbox_message(tmp_path)
     secret_attachment = tmp_path / "secret-attachment.txt"
     secret_attachment.write_text("attachment secret payload\n", encoding="utf-8")
@@ -6057,7 +6068,10 @@ def test_gateway_diagnostics_capture_mailbox_success_failure_and_repair_hint(
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
+    admin, signer = fixture_admin_key(tmp_path, "diagnostic-admin")
+    enroll_fixture_admin(client, admin, signer)
+    client.auth = FixtureProofAuth(signer, purpose="admin")
 
     success_response = client.post(
         "/v1/mail/offline/send",
@@ -6156,7 +6170,7 @@ def test_gateway_mail_send_reports_bare_agent_name_with_address_hint(
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     response = client.post(
         "/v1/mail/offline/send",
@@ -6204,7 +6218,7 @@ def test_gateway_mail_send_reports_inactive_registration_separately(
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     response = client.post(
         "/v1/mail/offline/send",
@@ -6239,7 +6253,7 @@ def test_gateway_mail_reply_enabled_operator_post_routes_reply_to_reserved_opera
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     post_response = client.post(
         "/v1/mail/offline/post",
@@ -6301,7 +6315,7 @@ def test_gateway_mail_explicit_no_reply_operator_post_rejects_reply(
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     post_response = client.post(
         "/v1/mail/offline/post",
@@ -6363,7 +6377,7 @@ def test_gateway_mail_self_send_stays_unread_until_explicit_mark_read(
         port=43123,
     )
     runtime.start()
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
     try:
         send_response = client.post(
             "/v1/mail/offline/send",
@@ -6460,7 +6474,7 @@ def test_gateway_mail_read_route_marks_filesystem_message_read_without_queue_mut
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     response = client.post(
         "/v1/mail/offline/read",
@@ -6514,7 +6528,7 @@ def test_gateway_mail_mark_route_rejects_unsupported_mailbox_state_fields(
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     response = client.post(
         "/v1/mail/offline/mark",
@@ -6530,7 +6544,7 @@ def test_gateway_mail_mark_route_rejects_unsupported_mailbox_state_fields(
     assert "extra_forbidden" in response.text
 
 
-def test_gateway_mail_routes_reject_non_loopback_listener(
+def test_gateway_refuses_unconfigured_non_loopback_listener(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -6544,12 +6558,8 @@ def test_gateway_mail_routes_reject_non_loopback_listener(
         host="0.0.0.0",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
-
-    response = client.get("/v1/mail/status")
-
-    assert response.status_code == 503
-    assert "unavailable" in response.json()["detail"]
+    with pytest.raises(gateway_service_module.GatewayError, match="valid owner access state"):
+        create_app(runtime=runtime)
 
 
 def test_gateway_mail_routes_reject_missing_mailbox_binding(
@@ -6566,7 +6576,7 @@ def test_gateway_mail_routes_reject_missing_mailbox_binding(
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     response = client.post(
         "/v1/mail/offline/list",
@@ -6765,7 +6775,7 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     status_response = client.get("/v1/mail/status")
     assert status_response.status_code == 200
@@ -6903,7 +6913,7 @@ def test_gateway_mail_mark_route_rejects_malformed_stalwart_message_normalizatio
         host="127.0.0.1",
         port=43123,
     )
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     response = client.post(
         "/v1/mail/online/mark",
@@ -8920,15 +8930,12 @@ def test_plugin_checks_active_hook_gate_after_tui_readiness(
         runtime.shutdown()
 
 
-def test_managed_plugin_adapter_rejects_upstream_queued_acknowledgement(tmp_path: Path) -> None:
-    """A managed client exposing only queued submit cannot claim dispatch success."""
+def test_managed_plugin_adapter_requires_manifest_for_backed_dispatch() -> None:
+    """Without scoped backing authority, immediate handoff cannot proceed."""
 
-    queued_calls: list[object] = []
     adapter = object.__new__(gateway_service_module._ServerManagedHeadlessGatewayAdapter)
-    adapter.m_client = SimpleNamespace(
-        submit_managed_agent_request=lambda *args: queued_calls.append(args)
-    )
-    adapter.m_attach_contract = SimpleNamespace(manifest_path=str(tmp_path / "manifest.json"))
+    adapter.m_client = None
+    adapter.m_attach_contract = SimpleNamespace(manifest_path=None)
     adapter.m_managed_agent_ref = "same-logical-agent"
     control = HeadlessDispatchControl.from_callbacks(
         allowed=lambda: True, confirmed=lambda: None, deadline=time.monotonic() + 1
@@ -8937,7 +8944,6 @@ def test_managed_plugin_adapter_rejects_upstream_queued_acknowledgement(tmp_path
         adapter.submit_plugin_event(
             prompt="event", turn_id="turn-one", session_selection=None, control=control
         )
-    assert queued_calls == []
     assert not control.m_handoff_confirmed.is_set()
 
 
@@ -8951,20 +8957,17 @@ def test_managed_plugin_adapter_confirms_only_guarded_synchronous_execution(tmp_
     adapter.m_attach_contract = SimpleNamespace(manifest_path=str(manifest))
     adapter.m_managed_agent_ref = "same-logical-agent"
 
-    def execute(agent_ref: str, request: object) -> object:
-        """Verify the caller fence reaches the real synchronous execution API."""
+    def execute(request: object) -> object:
+        """Verify the caller fence reaches the scoped synchronous execution API."""
 
         assert callbacks == []
-        assert agent_ref == "same-logical-agent"
         assert request.turn_id == "turn-one"
         path = Path(request.dispatch_guard_file)
         assert path == tmp_path / "manifest.turn-artifacts/turn-one/.dispatch-permission.json"
         assert json.loads(path.read_text(encoding="utf-8"))["active"] is True
         return SimpleNamespace(success=True)
 
-    adapter.m_client = SimpleNamespace(
-        submit_managed_agent_gateway_internal_headless_prompt=execute
-    )
+    adapter.m_client = SimpleNamespace(dispatch=execute)
     control = HeadlessDispatchControl.from_callbacks(
         allowed=lambda: True,
         confirmed=lambda: callbacks.append("confirmed"),

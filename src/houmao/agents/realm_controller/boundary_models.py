@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from houmao.gateway.access import GatewayLaunchSeed
+
 from typing import Annotated, Literal, TypeAlias
 
 from pydantic import (
@@ -697,6 +699,7 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
     interactive: SessionManifestInteractiveSectionV1 | None = None
     agent_launch_authority: SessionManifestAgentLaunchAuthorityV1 | None = None
     gateway_authority: SessionManifestGatewayAuthorityV1 | None = None
+    gateway_admin_seed: GatewayLaunchSeed | None = None
     launch_plan: LaunchPlanPayloadV1
     launch_policy_provenance: LaunchPolicyProvenanceV1 | None = None
     system_prompt: SessionManifestSystemPromptSectionV1 | None = None
@@ -706,6 +709,15 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
     local_interactive: LocalInteractiveSectionV1 | None = None
     cao: CaoSectionV2 | None = None
     houmao_server: HoumaoServerSectionV1 | None = None
+
+    @field_validator("gateway_admin_seed", mode="before")
+    @classmethod
+    def _parse_gateway_admin_seed(cls, value: object) -> object:
+        """Allow a strict seed's tuple to be read from the manifest JSON array."""
+
+        if isinstance(value, dict) and isinstance(value.get("admin_keys"), list):
+            return {**value, "admin_keys": tuple(value["admin_keys"])}
+        return value
 
     @field_validator(
         "tool",

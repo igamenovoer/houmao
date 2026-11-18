@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import logging
 import os
 import shlex
@@ -143,6 +144,15 @@ from .errors import (
     SessionManifestError,
 )
 from .gateway_client import GatewayClient, GatewayEndpoint
+from houmao.agents.realm_controller.gateway_access_runtime import (
+    gateway_access_for_manifest,
+    load_gateway_deployment,
+    owner_gateway_client_binding,
+    provision_gateway_generation,
+    save_gateway_deployment,
+)
+from houmao.gateway.access import GatewayAccessError, GatewayLaunchSeed
+from houmao.gateway.deployment import GatewayDeployment, owner_gateway_base_url
 from .gateway_models import (
     GATEWAY_PROTOCOL_VERSION,
     BlueprintGatewayDefaults,
@@ -553,6 +563,7 @@ class RuntimeSessionController:
     gateway_host: str | None = None
     gateway_port: int | None = None
     registry_generation_id: str | None = None
+    gateway_admin_seed: GatewayLaunchSeed | None = None
     registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime"
     agent_launch_authority: SessionManifestAgentLaunchAuthorityV1 | None = None
     operation_warnings: tuple[str, ...] = ()
@@ -1247,17 +1258,17 @@ class RuntimeSessionController:
                 )
             self.launch_plan = updated_launch_plan
 
-        result = _relaunch_backend_session(self, chat_session=effective_chat_session)
+        try:
+            result = _relaunch_backend_session(self, chat_session=effective_chat_session)
+        except (OSError, ValueError, SessionManifestError, GatewayAccessError):
+            _stop_hook_observation_for_controller(self)
+            return SessionControlResult(
+                status="error", action="relaunch", detail="Gateway generation setup failed."
+            )
         if result.status != "ok":
             _stop_hook_observation_for_controller(self)
             self.persist_manifest()
             return result
-
-        if not isinstance(self.backend_session, DshWebSession):
-            previous_generation = self.registry_generation_id
-            self.registry_generation_id = new_registry_generation_id()
-            if previous_generation is not None:
-                self.m_registry_handoff_generation = previous_generation
 
         try:
             _refresh_pair_launch_registration(self)
@@ -1347,17 +1358,19 @@ class RuntimeSessionController:
                 )
             self.launch_plan = updated_launch_plan
 
-        result = _relaunch_backend_session(self, chat_session=effective_chat_session)
+        try:
+            result = _relaunch_backend_session(self, chat_session=effective_chat_session)
+        except (OSError, ValueError, SessionManifestError, GatewayAccessError):
+            _stop_hook_observation_for_controller(self)
+            _rollback_stopped_session_revival(self)
+            return SessionControlResult(
+                status="error", action="relaunch", detail="Gateway generation setup failed."
+            )
         if result.status != "ok":
             _stop_hook_observation_for_controller(self)
             _rollback_stopped_session_revival(self)
             return result
 
-        if not isinstance(self.backend_session, DshWebSession):
-            previous_generation = self.registry_generation_id
-            self.registry_generation_id = new_registry_generation_id()
-            if previous_generation is not None:
-                self.m_registry_handoff_generation = previous_generation
         try:
             self.persist_manifest(refresh_registry=False)
             if isinstance(self.backend_session, DshWebSession):
@@ -1400,6 +1413,7 @@ class RuntimeSessionController:
                 pages_dir=self.pages_dir,
                 agent_def_dir=self.agent_def_dir,
                 registry_generation_id=self.registry_generation_id,
+                gateway_admin_seed=self.gateway_admin_seed,
                 registry_launch_authority=self.registry_launch_authority,
                 agent_launch_authority=self.agent_launch_authority,
             )
@@ -1524,29 +1538,35 @@ class RuntimeSessionController:
         execution_mode_override: GatewayCurrentExecutionMode | None = None,
         tui_tracking_timing_overrides: GatewayTuiTrackingTimingOverridesV1 | None = None,
         plugin_config: GatewayPluginConfiguration | None = None,
+        access_config: GatewayDeployment | None = None,
     ) -> GatewayControlResult:
         """Start a live gateway instance for the addressed session."""
 
-        result = _attach_gateway_for_controller(
-            self,
-            host_override=host_override,
-            port_override=port_override,
-            execution_mode_override=execution_mode_override,
-            tui_tracking_timing_overrides=tui_tracking_timing_overrides,
-            plugin_config=plugin_config,
-        )
-        if result.status == "ok":
-            self.refresh_shared_registry_record()
-        return result
+        with _gateway_lifecycle_lock(self.manifest_path):
+            _validate_controller_generation(self)
+            result = _attach_gateway_for_controller(
+                self,
+                host_override=host_override,
+                port_override=port_override,
+                execution_mode_override=execution_mode_override,
+                tui_tracking_timing_overrides=tui_tracking_timing_overrides,
+                plugin_config=plugin_config,
+                access_config=access_config,
+            )
+            if result.status == "ok":
+                self.refresh_shared_registry_record()
+            return result
 
     @_execution_bound_controller
     def detach_gateway(self) -> GatewayControlResult:
         """Stop a live gateway instance while preserving attachability metadata."""
 
-        result = _detach_gateway_for_controller(self)
-        if result.status == "ok":
-            self.refresh_shared_registry_record()
-        return result
+        with _gateway_lifecycle_lock(self.manifest_path):
+            _validate_controller_generation(self)
+            result = _detach_gateway_for_controller(self)
+            if result.status == "ok":
+                self.refresh_shared_registry_record()
+            return result
 
     @_execution_bound_controller
     def gateway_status(self) -> GatewayStatusV1:
@@ -1785,6 +1805,8 @@ def start_runtime_session(
     gateway_execution_mode_override: GatewayCurrentExecutionMode | None = None,
     gateway_tui_tracking_timing_overrides: GatewayTuiTrackingTimingOverridesV1 | None = None,
     gateway_plugins: GatewayPluginConfiguration | None = None,
+    gateway_admin_seed: GatewayLaunchSeed | None = None,
+    gateway_access_config: GatewayDeployment | None = None,
     tmux_session_name: str | None = None,
     default_tmux_session_name: str | None = None,
     launch_env_overrides: dict[str, str] | None = None,
@@ -1808,6 +1830,10 @@ def start_runtime_session(
         )
     if gateway_plugins is not None and not gateway_auto_attach:
         raise SessionManifestError("Gateway plugin selections require launch-time gateway attach.")
+    if gateway_access_config is not None and not gateway_auto_attach:
+        raise SessionManifestError(
+            "Gateway deployment settings require launch-time gateway attach."
+        )
     if (
         gateway_tui_tracking_timing_overrides is not None
         and gateway_tui_tracking_timing_overrides.has_values()
@@ -2024,6 +2050,19 @@ def start_runtime_session(
     registry_generation_id = (
         new_registry_generation_id() if selected_backend in _TMUX_BACKED_BACKENDS else None
     )
+    if registry_generation_id is not None:
+        assert launch_plan.execution_binding is not None
+        gateway_admin_seed = gateway_admin_seed or GatewayLaunchSeed()
+        provision_gateway_generation(
+            binding=launch_plan.execution_binding,
+            agent_id=resolved_agent_id,
+            generation_id=registry_generation_id,
+            seed=gateway_admin_seed,
+        )
+    elif gateway_admin_seed is not None:
+        raise SessionManifestError(
+            "Gateway admin seeding requires a managed gateway-capable backend."
+        )
     if selected_backend == "dsh_web":
         launch_plan = replace(
             launch_plan,
@@ -2093,6 +2132,7 @@ def start_runtime_session(
         startup_warnings=startup_warnings,
         parsing_mode=resolved_parsing_mode,
         registry_generation_id=registry_generation_id,
+        gateway_admin_seed=gateway_admin_seed,
         registry_launch_authority=registry_launch_authority,
         agent_launch_authority=None,
     )
@@ -2106,7 +2146,8 @@ def start_runtime_session(
             port_override=gateway_port,
             execution_mode_override=gateway_execution_mode_override,
             tui_tracking_timing_overrides=gateway_tui_tracking_timing_overrides,
-            **({"plugin_config": gateway_plugins} if gateway_plugins is not None else {}),
+            plugin_config=gateway_plugins,
+            access_config=gateway_access_config,
         )
         if attach_result.status == "error":
             controller.gateway_auto_attach_error = attach_result.detail
@@ -2390,6 +2431,7 @@ def _resume_runtime_session_controller(
             else None
         ),
         registry_generation_id=registry_generation_id,
+        gateway_admin_seed=manifest_payload.gateway_admin_seed,
         registry_launch_authority=manifest_payload.registry_launch_authority,
         agent_launch_authority=manifest_payload.agent_launch_authority,
     )
@@ -3190,6 +3232,7 @@ def _relaunch_backend_session(
                 status="error", action="relaunch", detail="DSH Web registry owner changed"
             )
         generation = new_registry_generation_id()
+        _provision_relaunch_gateway_generation(controller, generation)
         previous_plan = controller.launch_plan
         launch_plan = replace(
             previous_plan,
@@ -3212,24 +3255,43 @@ def _relaunch_backend_session(
         else:
             backend_session.update_launch_plan(previous_plan)
         return result
-    if isinstance(backend_session, LocalInteractiveSession):
-        return backend_session.relaunch(chat_session=chat_session)
-    if isinstance(backend_session, HeadlessInteractiveSession):
-        return backend_session.relaunch(chat_session=chat_session)
-    if isinstance(backend_session, CaoRestSession):
-        if chat_session.mode != "new":
-            return SessionControlResult(
-                status="error",
-                action="relaunch",
-                detail="Chat-session continuation is not supported for backend='cao_rest'.",
-            )
-        return backend_session.relaunch()
-    return SessionControlResult(
-        status="error",
-        action="relaunch",
-        detail=(
-            f"backend={controller.launch_plan.backend!r} does not support tmux-backed relaunch."
-        ),
+    if not isinstance(
+        backend_session, (LocalInteractiveSession, HeadlessInteractiveSession, CaoRestSession)
+    ):
+        return SessionControlResult(
+            status="error",
+            action="relaunch",
+            detail=f"backend={controller.launch_plan.backend!r} does not support tmux-backed relaunch.",
+        )
+    if isinstance(backend_session, CaoRestSession) and chat_session.mode != "new":
+        return SessionControlResult(
+            status="error",
+            action="relaunch",
+            detail="Chat-session continuation is not supported for backend='cao_rest'.",
+        )
+    generation = new_registry_generation_id()
+    _provision_relaunch_gateway_generation(controller, generation)
+    result = (
+        backend_session.relaunch()
+        if isinstance(backend_session, CaoRestSession)
+        else backend_session.relaunch(chat_session=chat_session)
+    )
+    if result.status == "ok":
+        controller.m_registry_handoff_generation = controller.registry_generation_id
+        controller.registry_generation_id = generation
+    return result
+
+
+def _provision_relaunch_gateway_generation(
+    controller: RuntimeSessionController, generation: str
+) -> None:
+    """Prepare a new managed self key using the existing owner roster."""
+
+    binding = controller.execution_binding
+    if binding is None or controller.agent_id is None:
+        raise SessionManifestError("Gateway generation requires managed execution authority.")
+    provision_gateway_generation(
+        binding=binding, agent_id=controller.agent_id, generation_id=generation
     )
 
 
@@ -4696,6 +4758,8 @@ def _shared_registry_gateway_payload(
         port=current_instance.port,
         state_path=str(paths.state_path.resolve()),
         protocol_version=current_instance.protocol_version,
+        owner_connect_url=owner_gateway_base_url(current_instance.port),
+        endpoint_descriptor=current_instance.endpoint_descriptor,
     )
 
 
@@ -4735,6 +4799,19 @@ def _require_gateway_paths_for_controller(controller: RuntimeSessionController) 
     return paths
 
 
+@contextmanager
+def _gateway_lifecycle_lock(manifest_path: Path) -> Iterator[None]:
+    """Serialize live deployment selection with the owner's attach and detach."""
+
+    lock_path = manifest_path.parent / ".gateway-lifecycle.lock"
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(descriptor)
+
+
 def _attach_gateway_for_controller(
     controller: RuntimeSessionController,
     *,
@@ -4743,6 +4820,7 @@ def _attach_gateway_for_controller(
     execution_mode_override: GatewayCurrentExecutionMode | None,
     tui_tracking_timing_overrides: GatewayTuiTrackingTimingOverridesV1 | None,
     plugin_config: GatewayPluginConfiguration | None = None,
+    access_config: GatewayDeployment | None = None,
 ) -> GatewayControlResult:
     """Start a live gateway process for one runtime-owned controller.
 
@@ -4799,12 +4877,45 @@ def _attach_gateway_for_controller(
         )
     attach_contract = resolve_internal_gateway_attach_contract(paths)
     try:
+        access = gateway_access_for_manifest(controller.manifest_path)
+        access.store.load()
+        access.store.load_self(access.target.incarnation)
+        retained_deployment = load_gateway_deployment(controller.manifest_path)
+    except (GatewayAccessError, OSError, ValueError, SessionManifestError):
+        return GatewayControlResult(
+            status="error",
+            action="gateway_attach",
+            detail="Gateway owner access policy is unavailable.",
+            gateway_root=str(paths.gateway_root),
+        )
+    deployment = access_config if access_config is not None else retained_deployment
+    deployment_changed = deployment != retained_deployment
+    if deployment is not None and (
+        (host_override is not None and host_override != deployment.bind_host)
+        or (port_override is not None and port_override != deployment.bind_port)
+    ):
+        return GatewayControlResult(
+            status="error",
+            action="gateway_attach",
+            detail="Gateway listener overrides conflict with the selected access configuration.",
+            gateway_root=str(paths.gateway_root),
+        )
+    starting = False
+    try:
         host, requested_port = _resolve_gateway_listener(
             paths=paths,
             attach_contract=attach_contract,
-            host_override=host_override,
-            port_override=port_override,
+            host_override=deployment.bind_host if deployment is not None else host_override,
+            port_override=(
+                deployment.bind_port or (0 if deployment_changed else None)
+                if deployment is not None
+                else port_override
+            ),
         )
+        if host == "0.0.0.0" and deployment is None:
+            raise GatewayAttachError(
+                "An all-interface gateway requires explicit access configuration."
+            )
         execution_mode = _resolve_gateway_execution_mode(
             controller=controller,
             paths=paths,
@@ -4816,63 +4927,66 @@ def _attach_gateway_for_controller(
         )
         desired_config = _load_optional_desired_config(paths) or GatewayDesiredConfigV1()
         selection = plugin_config if plugin_config is not None else desired_config.desired_plugins
-        live_instance = (
-            _live_gateway_for_plugin_attach(controller=controller, paths=paths)
-            if plugin_config is not None or desired_config.desired_plugins is not None
-            else None
-        )
+        live_instance = _live_gateway_for_plugin_attach(controller=controller, paths=paths)
         if live_instance is not None:
-            effective = selection or GatewayPluginConfiguration()
-            try:
-                snapshot = GatewayClient(
-                    endpoint=GatewayEndpoint(host=live_instance.host, port=live_instance.port)
-                ).get_plugins()
-            except GatewayHttpError:
-                return GatewayControlResult(
-                    status="error",
-                    action="gateway_attach",
-                    detail="Cannot verify live gateway plugin configuration; stop the gateway before changing selections.",
-                    gateway_root=str(paths.gateway_root),
-                )
-            if snapshot.configuration_digest != effective.configuration_digest:
-                return GatewayControlResult(
-                    status="error",
-                    action="gateway_attach",
-                    detail="Live gateway plugin configuration conflicts with this selection; stop the gateway and attach again.",
-                    gateway_root=str(paths.gateway_root),
-                )
             if (
-                live_instance.host == host
-                and requested_port in {0, live_instance.port}
-                and live_instance.execution_mode == execution_mode
-                and (
+                deployment_changed
+                or live_instance.host != host
+                or requested_port not in {0, live_instance.port}
+                or live_instance.execution_mode != execution_mode
+                or (
                     desired_config.desired_tui_tracking_timings
                     or GatewayTuiTrackingTimingConfigV1()
                 )
-                == tui_tracking_timings
+                != tui_tracking_timings
             ):
-                if plugin_config is not None and desired_config.desired_plugins != plugin_config:
-                    write_gateway_desired_config(
-                        paths.desired_config_path,
-                        desired_config.model_copy(update={"desired_plugins": plugin_config}),
-                    )
-                controller.gateway_root = paths.gateway_root
-                controller.gateway_attach_path = paths.attach_path
-                controller.gateway_host = live_instance.host
-                controller.gateway_port = live_instance.port
                 return GatewayControlResult(
-                    status="ok",
+                    status="error",
                     action="gateway_attach",
-                    detail="Reused the live gateway with the equivalent plugin configuration.",
+                    detail="Gateway deployment changed. Detach and attach to apply the new settings.",
                     gateway_root=str(paths.gateway_root),
-                    gateway_host=live_instance.host,
-                    gateway_port=live_instance.port,
                 )
+            if selection is not None:
+                try:
+                    snapshot = owner_gateway_client_for_controller(
+                        controller,
+                        endpoint=GatewayEndpoint(host=live_instance.host, port=live_instance.port),
+                        private=True,
+                    ).get_plugins()
+                except (GatewayHttpError, GatewayAccessError, SessionManifestError, ValueError):
+                    return GatewayControlResult(
+                        status="error",
+                        action="gateway_attach",
+                        detail="Cannot verify the live gateway plugin configuration.",
+                        gateway_root=str(paths.gateway_root),
+                    )
+                if snapshot.configuration_digest != selection.configuration_digest:
+                    return GatewayControlResult(
+                        status="error",
+                        action="gateway_attach",
+                        detail="Gateway plugin selection changed. Detach and attach to apply it.",
+                        gateway_root=str(paths.gateway_root),
+                    )
+            controller.gateway_root = paths.gateway_root
+            controller.gateway_attach_path = paths.attach_path
+            controller.gateway_host = live_instance.host
+            controller.gateway_port = live_instance.port
+            return GatewayControlResult(
+                status="ok",
+                action="gateway_attach",
+                detail="Reused the live gateway with the equivalent configuration.",
+                gateway_root=str(paths.gateway_root),
+                gateway_host=live_instance.host,
+                gateway_port=live_instance.port,
+            )
+        if deployment_changed and deployment is not None:
+            save_gateway_deployment(controller.manifest_path, deployment)
         if plugin_config is not None:
             write_gateway_desired_config(
                 paths.desired_config_path,
                 desired_config.model_copy(update={"desired_plugins": plugin_config}),
             )
+        starting = True
         resolved_port = _start_gateway_process(
             controller=controller,
             paths=paths,
@@ -4886,13 +5000,17 @@ def _attach_gateway_for_controller(
         GatewayDiscoveryError,
         GatewayProtocolError,
         GatewayUnsupportedBackendError,
+        GatewayAccessError,
+        OSError,
+        SessionManifestError,
         TmuxCommandError,
     ) as exc:
-        _clear_stale_gateway_runtime_state(
-            controller=controller,
-            paths=paths,
-            attach_contract=attach_contract,
-        )
+        if starting:
+            _clear_stale_gateway_runtime_state(
+                controller=controller,
+                paths=paths,
+                attach_contract=attach_contract,
+            )
         return GatewayControlResult(
             status="error",
             action="gateway_attach",
@@ -5060,7 +5178,7 @@ def _gateway_status_for_controller(controller: RuntimeSessionController) -> Gate
 
     paths = _require_gateway_paths_for_controller(controller)
     try:
-        client = _validated_gateway_client_for_controller(controller, paths=paths)
+        client = _validated_gateway_client_for_controller(controller, paths=paths, private=True)
     except GatewayNoLiveInstanceError:
         return load_gateway_status(paths.state_path)
     return client.status()
@@ -5105,6 +5223,7 @@ def _validated_gateway_client_for_controller(
     controller: RuntimeSessionController,
     *,
     paths: GatewayPaths,
+    private: bool = False,
 ) -> GatewayClient:
     """Validate live gateway bindings and return a connected client.
 
@@ -5219,7 +5338,25 @@ def _validated_gateway_client_for_controller(
         raise GatewayProtocolError(
             f"Gateway health reported incompatible protocol version {health.protocol_version!r}."
         )
-    return client
+    return owner_gateway_client_for_controller(controller, endpoint=endpoint, private=private)
+
+
+def owner_gateway_client_for_controller(
+    controller: RuntimeSessionController,
+    *,
+    endpoint: GatewayEndpoint,
+    private: bool = False,
+    prefer_self: bool = False,
+) -> GatewayClient:
+    """Bind one owner-local HTTP caller to its selected execution and signer."""
+
+    binding, incarnation = owner_gateway_client_binding(
+        controller.manifest_path,
+        port=endpoint.port,
+        private=private,
+        prefer_self=prefer_self,
+    )
+    return GatewayClient(endpoint=endpoint, binding=binding, target_incarnation=incarnation)
 
 
 def _resolve_gateway_listener(

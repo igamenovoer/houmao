@@ -8,10 +8,8 @@ from typing import Any
 
 import pytest
 from click.testing import CliRunner
-from fastapi.testclient import TestClient
 
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
-from houmao.agents.realm_controller.gateway_service import create_app
 from houmao.mailbox.online_binding import OnlineBindingService
 from houmao.mailbox.online_models import (
     OnlineAttachRequest,
@@ -23,6 +21,7 @@ from houmao.server.client import HoumaoServerClient
 from houmao.srv_ctrl.commands.main import cli
 from tests.unit.agents.realm_controller.test_gateway_dual_mail import _runtime
 from tests.unit.mailbox.test_online_binding import _source
+from tests.fixtures.gateway_access import configure_fixture_gateway_access, gateway_fixture_client
 
 
 def test_gateway_live_controls_require_revision_and_preserve_body(
@@ -35,8 +34,9 @@ def test_gateway_live_controls_require_revision_and_preserve_body(
             account_id="account-a", identity_id="identity-a"
         ),
     )
+    configure_fixture_gateway_access(tmp_path, monkeypatch)
     runtime = _runtime(tmp_path, monkeypatch, dual=False, enabled=False)
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
     before = runtime._load_manifest_payload_for_mailbox_support()
     initial = client.get("/v1/mail/online/binding").json()
     assert initial["state"] == "absent"
@@ -186,8 +186,9 @@ def test_gateway_preserves_uncertain_send_receipt_in_old_binding(
             raise StalwartMutationError(operation="send", outcome="uncertain", email_id="old-draft")
 
     monkeypatch.setattr(OnlineConnectionAuthority, "_client", lambda *args: Client())
+    configure_fixture_gateway_access(tmp_path, monkeypatch)
     runtime = _runtime(tmp_path, monkeypatch, dual=False, enabled=False)
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
     initial = client.get("/v1/mail/online/binding").json()
     attached = client.put(
         "/v1/mail/online/binding",

@@ -29,6 +29,7 @@ from houmao.agents.realm_controller.gateway_storage import (
     write_gateway_desired_config,
 )
 from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
+from houmao.gateway.deployment import GatewayDeployment
 from houmao.gateway.plugins import (
     GatewayPluginConfiguration,
     GatewayPluginStatusResponse,
@@ -102,6 +103,11 @@ def paths(
         lambda _: SimpleNamespace(desired_host=None, desired_port=None),
     )
     monkeypatch.setattr(runtime, "_live_gateway_for_plugin_attach", lambda **_: None)
+    store = SimpleNamespace(load=lambda: None, load_self=lambda _generation: None)
+    access = SimpleNamespace(store=store, target=SimpleNamespace(incarnation="fixture"))
+    monkeypatch.setattr(runtime, "gateway_access_for_manifest", lambda _path: access)
+    monkeypatch.setattr(runtime, "load_gateway_deployment", lambda _path: None)
+
     return value
 
 
@@ -156,11 +162,11 @@ def test_live_equivalent_plugin_selection_reuses_gateway(
     current = GatewayCurrentInstanceV1(
         pid=4242, host="127.0.0.1", port=43123, managed_agent_instance_epoch=1
     )
-    monkeypatch.setattr(runtime, "_live_gateway_for_plugin_attach", lambda **_: current)
+    monkeypatch.setattr(runtime, "_live_gateway_for_plugin_attach", lambda *args, **_: current)
     monkeypatch.setattr(
         runtime,
-        "GatewayClient",
-        lambda **_: SimpleNamespace(
+        "owner_gateway_client_for_controller",
+        lambda *args, **_: SimpleNamespace(
             get_plugins=lambda: GatewayPluginStatusResponse(
                 configuration_digest=_selection().configuration_digest
             )
@@ -169,7 +175,7 @@ def test_live_equivalent_plugin_selection_reuses_gateway(
     monkeypatch.setattr(
         runtime,
         "_start_gateway_process",
-        lambda **_: pytest.fail("equivalent live gateway restarted"),
+        lambda *args, **_: pytest.fail("equivalent live gateway restarted"),
     )
     before = paths.desired_config_path.read_bytes()
     result = controller.attach_gateway(plugin_config=selection)
@@ -190,28 +196,28 @@ def test_live_changed_selection_conflicts_without_mutation(
     current = GatewayCurrentInstanceV1(
         pid=4242, host="127.0.0.1", port=43123, managed_agent_instance_epoch=1
     )
-    monkeypatch.setattr(runtime, "_live_gateway_for_plugin_attach", lambda **_: current)
+    monkeypatch.setattr(runtime, "_live_gateway_for_plugin_attach", lambda *args, **_: current)
     monkeypatch.setattr(
         runtime,
-        "GatewayClient",
-        lambda **_: SimpleNamespace(
+        "owner_gateway_client_for_controller",
+        lambda *args, **_: SimpleNamespace(
             get_plugins=lambda: GatewayPluginStatusResponse(
                 configuration_digest=_selection().configuration_digest
             )
         ),
     )
     monkeypatch.setattr(
-        runtime, "_start_gateway_process", lambda **_: pytest.fail("live gateway restarted")
+        runtime, "_start_gateway_process", lambda *args, **_: pytest.fail("live gateway restarted")
     )
     monkeypatch.setattr(
         runtime,
         "_clear_stale_gateway_runtime_state",
-        lambda **_: pytest.fail("live publication cleared"),
+        lambda *args, **_: pytest.fail("live publication cleared"),
     )
     before = paths.desired_config_path.read_bytes()
     result = controller.attach_gateway(plugin_config=selection)
     assert result.status == "error"
-    assert "conflicts" in result.detail
+    assert "Detach and attach" in result.detail
     assert paths.desired_config_path.read_bytes() == before
 
 
@@ -233,19 +239,59 @@ def test_live_unverifiable_selection_preserves_publication(
             method="GET", url="http://127.0.0.1/v1/plugins", detail="unavailable"
         )
 
-    monkeypatch.setattr(runtime, "_live_gateway_for_plugin_attach", lambda **_: current)
+    monkeypatch.setattr(runtime, "_live_gateway_for_plugin_attach", lambda *args, **_: current)
     monkeypatch.setattr(
-        runtime, "GatewayClient", lambda **_: SimpleNamespace(get_plugins=unavailable)
+        runtime,
+        "owner_gateway_client_for_controller",
+        lambda *args, **_: SimpleNamespace(get_plugins=unavailable),
     )
     monkeypatch.setattr(
         runtime,
         "_clear_stale_gateway_runtime_state",
-        lambda **_: pytest.fail("live publication cleared"),
+        lambda *args, **_: pytest.fail("live publication cleared"),
     )
     before = paths.desired_config_path.read_bytes()
     result = controller.attach_gateway(plugin_config=_selection("other"))
     assert result.status == "error"
     assert "Cannot verify" in result.detail
+    assert paths.desired_config_path.read_bytes() == before
+
+
+def test_live_deployment_conflict_preserves_selection_and_listener(
+    controller: runtime.RuntimeSessionController,
+    paths: GatewayPaths,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Require detach before an access setting or signer changes."""
+
+    retained = GatewayDeployment(bind_port=43123, advertised_url="https://gateway.example.org/a")
+    current = GatewayCurrentInstanceV1(
+        pid=4242, host="127.0.0.1", port=43123, managed_agent_instance_epoch=1
+    )
+    monkeypatch.setattr(runtime, "_live_gateway_for_plugin_attach", lambda **_: current)
+    monkeypatch.setattr(runtime, "load_gateway_deployment", lambda _path: retained)
+    monkeypatch.setattr(
+        runtime,
+        "owner_gateway_client_for_controller",
+        lambda *args, **kwargs: SimpleNamespace(
+            get_plugins=lambda: GatewayPluginStatusResponse(
+                configuration_digest=_selection().configuration_digest
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        runtime, "save_gateway_deployment", lambda *args: pytest.fail("live deployment rewritten")
+    )
+    monkeypatch.setattr(
+        runtime, "_start_gateway_process", lambda **_: pytest.fail("live process replaced")
+    )
+    before = paths.desired_config_path.read_bytes()
+    assert controller.attach_gateway(access_config=retained).gateway_port == 43123
+    changed = controller.attach_gateway(
+        access_config=retained.model_copy(update={"public_input_enabled": True})
+    )
+    assert changed.status == "error"
+    assert "Detach and attach" in changed.detail
     assert paths.desired_config_path.read_bytes() == before
 
 

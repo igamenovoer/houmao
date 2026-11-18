@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -68,6 +69,14 @@ def test_gateway_controls_preserve_newer_native_conversation(
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._start_gateway_process",
         lambda **_kwargs: 43123,
+    )
+    store = SimpleNamespace(load=lambda: None, load_self=lambda _generation: None)
+    access = SimpleNamespace(store=store, target=SimpleNamespace(incarnation="fixture"))
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.gateway_access_for_manifest", lambda _path: access
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.load_gateway_deployment", lambda _path: None
     )
     # A separately resumed gateway commits a later native conversation and turn.
     backend_state = {

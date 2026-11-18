@@ -112,6 +112,7 @@ def test_gateway_usage_collection_follows_gateway_lifecycle(
 
     lock = threading.Lock()
     service = Mock()
+    access = Mock()
     runtime = SimpleNamespace(
         m_lock=lock,
         m_reminder_condition=threading.Condition(lock),
@@ -120,6 +121,8 @@ def test_gateway_usage_collection_follows_gateway_lifecycle(
         m_port=19891,
         m_attach_contract=SimpleNamespace(attach_identity="agent-a"),
         m_adapter=Mock(),
+        m_access_runtime=access,
+        _current_access=lambda: access,
         m_usage_service=service,
         m_stop_event=threading.Event(),
         m_tui_tracking=None,

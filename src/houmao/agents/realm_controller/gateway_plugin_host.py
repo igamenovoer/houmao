@@ -24,6 +24,8 @@ from typing import Protocol, cast
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import JsonValue, TypeAdapter, ValidationError
 from starlette.responses import JSONResponse, Response
+from starlette.routing import Match, Route
+from starlette.types import Scope
 
 from houmao.agents.realm_controller.gateway_plugin_routes import (
     PluginRouteError,
@@ -41,6 +43,7 @@ from houmao.gateway.plugins import (
     PluginInstanceConfiguration,
     PluginListener,
     PluginOwner,
+    PluginRouteAccess,
     PluginStatus,
 )
 from houmao.gateway.plugins.discovery import PluginLoadError, load_plugin_definition
@@ -92,12 +95,14 @@ class GatewayPluginHost:
         self.m_gateway_root: Path = Path()
         self.m_project_root: Path = Path()
         self.m_listener_host: str = "127.0.0.1"
+        self.m_deployment_validated: bool = False
         self.m_listener_port: int | None = None
         self.m_dispatch: PluginDispatchCallback | None = None
         self.m_instances: dict[str, _Instance] = {}
         self.m_started: bool = False
         self.m_staged: bool = False
         self.m_lock: threading.RLock = threading.RLock()
+        self.m_admission_routes: list[tuple[Route, PluginRouteAccess]] = []
 
     @classmethod
     def from_config(
@@ -109,6 +114,7 @@ class GatewayPluginHost:
         project_root: Path,
         listener_host: str,
         dispatch: PluginDispatchCallback,
+        deployment_validated: bool = False,
     ) -> GatewayPluginHost:
         """Bind explicit configuration and the owner without loading plugin code.
 
@@ -124,6 +130,8 @@ class GatewayPluginHost:
             Actual configured listener policy, checked before code loading.
         dispatch:
             Runtime-owned immediate dispatch function.
+        deployment_validated:
+            Whether the owner runtime validated explicit access for a broader bind.
         """
 
         result = cls()
@@ -132,6 +140,7 @@ class GatewayPluginHost:
         result.m_gateway_root = gateway_root.resolve()
         result.m_project_root = _checkout_root(project_root)
         result.m_listener_host = listener_host
+        result.m_deployment_validated = deployment_validated
         result.m_dispatch = dispatch
         result.m_instances = {
             name: _Instance(
@@ -160,6 +169,28 @@ class GatewayPluginHost:
         with self.m_lock:
             entry = self.m_instances.get(instance_id)
             return entry.status.model_copy(deep=True) if entry is not None else None
+
+    def unavailable_route_access(self, scope: Scope) -> PluginRouteAccess | None:
+        """Protect lifecycle errors even when the matching plugin route was not published."""
+
+        entry = self._custom_instance(scope["path"])
+        if entry is None:
+            return None
+        for route, access in self.m_admission_routes:
+            if access == "private" and route.matches(scope)[0] is Match.FULL:
+                return access
+        return "admin"
+
+    def _custom_instance(self, path: str) -> str | None:
+        """Identify a selected custom namespace independently of its lifecycle."""
+
+        prefix = "/v1/plugins/"
+        if not path.startswith(prefix):
+            return None
+        instance_id, _, relative = path[len(prefix) :].partition("/")
+        if instance_id not in self.m_instances or relative.rstrip("/") == "_status":
+            return None
+        return instance_id
 
     def stage(self, app: FastAPI) -> None:
         """Register host status and only validated, nonconflicting plugin routers."""
@@ -197,23 +228,18 @@ class GatewayPluginHost:
         ) -> Response:
             """Gate custom namespaces independently of core/status routes."""
 
-            prefix = "/v1/plugins/"
-            path = request.url.path
-            custom_instance: str | None = None
-            if path.startswith(prefix):
-                instance_id, _, relative = path[len(prefix) :].partition("/")
-                status = self.status_for(instance_id)
-                if status is not None and relative.rstrip("/") != "_status":
-                    custom_instance = instance_id
-                    if status.lifecycle != "running":
-                        error = PluginDispatchError(
-                            error_code=status.error_code or "plugin_unavailable",
-                            status_code=503,
-                            retryable=status.lifecycle
-                            in {"configured", "starting", "stopping", "stopped"},
-                            message="Plugin instance is unavailable.",
-                        )
-                        return JSONResponse(status_code=503, content={"detail": error.to_detail()})
+            custom_instance = self._custom_instance(request.scope["path"])
+            if custom_instance is not None:
+                status = self.status_for(custom_instance)
+                if status is not None and status.lifecycle != "running":
+                    error = PluginDispatchError(
+                        error_code=status.error_code or "plugin_unavailable",
+                        status_code=503,
+                        retryable=status.lifecycle
+                        in {"configured", "starting", "stopping", "stopped"},
+                        message="Plugin instance is unavailable.",
+                    )
+                    return JSONResponse(status_code=503, content={"detail": error.to_detail()})
             try:
                 return await call_next(request)
             except Exception:
@@ -229,13 +255,13 @@ class GatewayPluginHost:
                 )
                 return JSONResponse(status_code=503, content={"detail": error.to_detail()})
 
-        if self.m_listener_host != "127.0.0.1":
+        if self.m_listener_host != "127.0.0.1" and not self.m_deployment_validated:
             for entry in self.m_instances.values():
                 self._update(
                     entry,
                     lifecycle="disabled_by_listener_policy",
                     error_code="disabled_by_listener_policy",
-                    error_detail="Plugin service operations require a loopback listener.",
+                    error_detail="Gateway deployment access is unavailable.",
                 )
             self._write_snapshot()
             return
@@ -290,7 +316,12 @@ class GatewayPluginHost:
                     raise PluginRouteError(
                         "invalid_plugin", "Plugin must supply a supervised lifespan"
                     )
-                declarations.extend(plugin_route_declarations(instance_id, plugin.router))
+                staged = plugin_route_declarations(instance_id, plugin.router)
+                declarations.extend(staged)
+                self.m_admission_routes.extend(
+                    (Route(route.path, _unpublished_route, methods=route.methods), route.access)
+                    for route in staged
+                )
                 entry.plugin = plugin
             except PluginLoadError as error:
                 detail = error.message
@@ -541,7 +572,7 @@ class _PluginContext:
         return PluginListener(
             host=host.m_listener_host,
             port=host.m_listener_port,
-            base_url=f"http://{host.m_listener_host}:{host.m_listener_port}",
+            base_url=f"http://127.0.0.1:{host.m_listener_port}",
         )
 
     @property
@@ -882,6 +913,10 @@ class _CredentialReader:
                 retryable=False,
                 message="Selected plugin credentials are unavailable.",
             ) from None
+
+
+def _unpublished_route() -> None:
+    """Inert endpoint used only to match validated unavailable routes."""
 
 
 def _checkout_root(project_root: Path) -> Path:

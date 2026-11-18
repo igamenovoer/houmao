@@ -17,6 +17,36 @@ from houmao.agents.realm_controller.gateway_plugin_routes import (
     plugin_route_declarations,
     route_conflicts,
 )
+from houmao.gateway.plugins import plugin_route_access
+
+
+def test_route_access_declaration_and_admin_default() -> None:
+    """Apply an explicit private declaration and default omitted controls to admin."""
+
+    router = APIRouter()
+    router.add_api_route(
+        "/ordinary", lambda: None, methods=["GET"], openapi_extra=plugin_route_access("private")
+    )
+    router.add_api_route("/control", lambda: None, methods=["POST"])
+    assert [route.access for route in plugin_route_declarations("fixture", router)] == [
+        "private",
+        "admin",
+    ]
+
+
+@pytest.mark.parametrize("access", ["public", "operator", None])
+def test_plugin_route_access_rejects_unsupported_declarations(access: str | None) -> None:
+    """Reject an invalid plugin route before it can register resources."""
+
+    router = APIRouter()
+    router.add_api_route(
+        "/invalid",
+        lambda: None,
+        methods=["GET"],
+        openapi_extra={"x-houmao-gateway-access": access},
+    )
+    with pytest.raises(PluginRouteError, match="private or admin"):
+        plugin_route_declarations("fixture", router)
 
 
 @pytest.mark.parametrize(

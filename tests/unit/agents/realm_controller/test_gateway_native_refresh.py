@@ -14,6 +14,7 @@ from unittest.mock import Mock
 from urllib.error import HTTPError, URLError
 
 from fastapi import HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
 
@@ -26,7 +27,8 @@ from houmao.agents.realm_controller.gateway_models import (
 from houmao.agents.realm_controller import gateway_service as service
 from houmao.agents.realm_controller.errors import GatewayHttpError
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
-from houmao.agents.realm_controller.gateway_service import GatewayServiceRuntime, create_app
+from houmao.agents.realm_controller.gateway_plugin_host import GatewayPluginHost
+from houmao.agents.realm_controller.gateway_service import GatewayServiceRuntime
 from houmao.agents.realm_controller.native_refresh_models import (
     CommonPluginObservationV1,
     CommonPluginResourceV1,
@@ -37,6 +39,7 @@ from houmao.agents.realm_controller.native_refresh_models import (
 from houmao.gateway.plugins import PluginDispatchError
 from tests.unit.agents.realm_controller.test_dsh_web_gateway import _event, _runtime
 from houmao.execution.tmux import current_tmux_socket_path, tmux_server_scope
+from tests.fixtures.gateway_access import configure_fixture_gateway_access, gateway_fixture_client
 
 
 def _observation(freshness: str = "pending", **updates: object) -> CommonPluginObservationV1:
@@ -118,10 +121,25 @@ def _http_client(
 ) -> TestClient:
     """Expose real route validation without gateway background services."""
 
+    configure_fixture_gateway_access(tmp_path, monkeypatch)
     runtime.m_paths.gateway_root = tmp_path
-    monkeypatch.setattr(runtime, "prepare_plugin_host", Mock())
+    runtime.m_manifest_path = tmp_path / "manifest.json"
+    runtime.m_access_runtime = None
+    runtime.m_access_policy = None
+    runtime.m_port = 43123
+    runtime.m_plugin_lifecycle_deferred = True
+
+    def prepare_host(app: FastAPI) -> None:
+        """Stage the default empty plugin inventory in the fixture root."""
+
+        host = GatewayPluginHost()
+        host.m_gateway_root = tmp_path
+        runtime.m_plugin_host = host
+        host.stage(app)
+
+    monkeypatch.setattr(runtime, "prepare_plugin_host", prepare_host)
     monkeypatch.setattr(runtime, "emit_diagnostic", Mock())
-    return TestClient(create_app(runtime=runtime))
+    return gateway_fixture_client(runtime)
 
 
 @pytest.mark.parametrize("uncertain", [False, True])

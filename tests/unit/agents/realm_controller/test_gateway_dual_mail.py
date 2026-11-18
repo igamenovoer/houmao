@@ -6,7 +6,9 @@ from pathlib import Path
 import sqlite3
 import threading
 
-from fastapi.testclient import TestClient
+from tests.fixtures.gateway_access import (
+    gateway_fixture_client,
+)
 import pytest
 
 from houmao.agents.mailbox_runtime_models import StalwartMailboxResolvedConfig
@@ -14,7 +16,7 @@ from houmao.mailbox.stalwart import (
     runtime_stalwart_credential_path,
     materialize_stalwart_session_credential,
 )
-from houmao.agents.realm_controller.gateway_service import GatewayServiceRuntime, create_app
+from houmao.agents.realm_controller.gateway_service import GatewayServiceRuntime
 from houmao.agents.realm_controller.gateway_storage import (
     read_gateway_mail_notifier_record,
     read_gateway_notifier_audit_records,
@@ -32,6 +34,8 @@ from tests.unit.agents.realm_controller.test_gateway_support import (
     _seed_cao_gateway_root,
     _test_binding_id,
 )
+
+pytestmark = pytest.mark.usefixtures("gateway_fixture_access")
 
 
 def _runtime(
@@ -74,7 +78,7 @@ def test_empty_summary_and_explicit_channel_binding_admission(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runtime = _runtime(tmp_path, monkeypatch, dual=False, enabled=False)
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
     response = client.get("/v1/mail/status")
     assert response.status_code == 200
     assert response.json()["offline"] is None
@@ -90,7 +94,7 @@ def test_online_outage_preserves_canonical_identity_and_offline_operations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runtime = _runtime(tmp_path, monkeypatch)
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
     binding = runtime._load_mailbox_config(channel="online")
     assert isinstance(binding, StalwartMailboxResolvedConfig)
     assert binding.credential_file is not None
@@ -117,7 +121,7 @@ def test_fresh_send_conflict_has_no_backend_side_effects(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runtime = _runtime(tmp_path, monkeypatch)
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
     before = list((tmp_path / "mailbox" / "messages").rglob("*.md"))
     response = client.post(
         "/v1/mail/offline/send",
@@ -139,7 +143,7 @@ def test_channels_keep_independent_configuration_and_periodic_reminders(
 ) -> None:
     runtime = _runtime(tmp_path, monkeypatch)
     _deliver_unread_mailbox_message(tmp_path)
-    client = TestClient(create_app(runtime=runtime))
+    client = gateway_fixture_client(runtime)
 
     from tests.unit.mailbox.fake_notifier_client import install_notifier_client
 
@@ -211,7 +215,7 @@ def test_mail_network_io_does_not_hold_terminal_control_lock(
             return super().query_metadata_page(**kwargs)
 
     install_notifier_client(monkeypatch, FakeJmap)
-    response = TestClient(create_app(runtime=runtime)).post(
+    response = gateway_fixture_client(runtime).post(
         "/v1/mail/online/list",
         json={
             "expected_binding_id": _test_binding_id(tmp_path, "online"),

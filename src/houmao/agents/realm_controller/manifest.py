@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from houmao.gateway.access import GatewayLaunchSeed
+
 import json
 import uuid
 import fcntl
@@ -57,6 +59,7 @@ class SessionManifestRequest:
     agent_pid: int | None = None
     created_at_utc: str | None = None
     registry_generation_id: str | None = None
+    gateway_admin_seed: GatewayLaunchSeed | None = None
     registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime"
     agent_launch_authority: SessionManifestAgentLaunchAuthorityV1 | dict[str, Any] | None = None
 
@@ -138,6 +141,11 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
         "agent_id": agent_id,
         "tmux_session_name": tmux_session_name,
         "registry_generation_id": request.registry_generation_id,
+        "gateway_admin_seed": (
+            request.gateway_admin_seed.model_dump(mode="json")
+            if request.gateway_admin_seed is not None
+            else None
+        ),
         "registry_launch_authority": request.registry_launch_authority,
         "launch_plan": launch_payload,
         "launch_policy_provenance": (
@@ -316,6 +324,7 @@ def write_session_manifest(
         if path.exists():
             current = load_session_manifest(path).payload
             _require_same_manifest_owner(current, proposed)
+            proposed["gateway_admin_seed"] = current.get("gateway_admin_seed")
             current_binding = current["runtime"].get("execution_binding")
             if current_binding is not None:
                 accepted_generations = {
@@ -481,13 +490,22 @@ def load_session_manifest(path: Path) -> SessionManifestHandle:
         raise SessionManifestError(f"Session manifest not found: {path}")
 
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
+        payload = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_manifest_fields)
+    except ValueError as exc:
         raise SessionManifestError(f"Invalid JSON in session manifest: {path}") from exc
 
     model = parse_session_manifest_payload(payload, source=str(path))
 
     return SessionManifestHandle(path=path, payload=model.model_dump(mode="json"))
+
+
+def _manifest_fields(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Reject duplicate fields, including those in the owner launch seed."""
+
+    result = dict(pairs)
+    if len(result) != len(pairs):
+        raise ValueError("Session manifest contains a duplicate field.")
+    return result
 
 
 def parse_session_manifest_payload(payload: object, *, source: str) -> SessionManifestPayloadV4:

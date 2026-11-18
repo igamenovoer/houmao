@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 from contextlib import suppress
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Literal, Protocol, TypeVar
 
 from ag_ui.core import BaseEvent, RunAgentInput, RunErrorEvent
 from fastapi import APIRouter, FastAPI, Query, Request
@@ -48,6 +48,7 @@ from houmao.ag_ui.state import build_houmao_state_snapshot
 
 _DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 15.0
 _DEFAULT_RUN_POLL_INTERVAL_SECONDS = 0.2
+_ACCESS_REVALIDATION_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,7 @@ async def connect_event_stream(
     diagnostics: AgUiDiagnostics | None = None,
     event_hub: AgUiEventHub | None = None,
     heartbeat_interval_seconds: float = _DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+    access_current: Callable[[], bool] | None = None,
 ) -> AsyncIterator[str]:
     """Yield the AG-UI connect stream for one GUI attachment."""
 
@@ -86,33 +88,53 @@ async def connect_event_stream(
         diagnostics.connection_started(record)
     detach_reason = "stream_closed"
     try:
+        if not await _stream_access_current(access_current):
+            detach_reason = "access_revoked"
+            return
         snapshot = build_houmao_state_snapshot(
             status=runtime.status(),
             connection=record,
         )
+        if not await _stream_access_current(access_current):
+            detach_reason = "access_revoked"
+            return
         yield encode_sse_event(AgUiStateSnapshotEvent(snapshot=snapshot))
+        interval = (
+            min(heartbeat_interval_seconds, _ACCESS_REVALIDATION_SECONDS)
+            if access_current is not None
+            else heartbeat_interval_seconds
+        )
         while True:
             if await request.is_disconnected():
                 detach_reason = "client_disconnected"
                 break
             if subscription is None:
-                await asyncio.sleep(heartbeat_interval_seconds)
+                await asyncio.sleep(interval)
                 if await request.is_disconnected():
                     detach_reason = "client_disconnected"
+                    break
+                if not await _stream_access_current(access_current):
+                    detach_reason = "access_revoked"
                     break
                 yield encode_sse_comment("houmao ag-ui heartbeat")
                 continue
             try:
                 queued_event = await asyncio.wait_for(
                     subscription.queue.get(),
-                    timeout=heartbeat_interval_seconds,
+                    timeout=interval,
                 )
             except TimeoutError:
                 if await request.is_disconnected():
                     detach_reason = "client_disconnected"
                     break
+                if not await _stream_access_current(access_current):
+                    detach_reason = "access_revoked"
+                    break
                 yield encode_sse_comment("houmao ag-ui heartbeat")
                 continue
+            if not await _stream_access_current(access_current):
+                detach_reason = "access_revoked"
+                break
             yield encode_sse_event(queued_event.event, event_id=queued_event.event_id)
     except Exception as exc:
         detach_reason = "stream_error"
@@ -138,6 +160,7 @@ async def run_event_stream(
     request: AgUiDisconnectProbe,
     diagnostics: AgUiDiagnostics | None = None,
     event_hub: AgUiEventHub | None = None,
+    access_current: Callable[[], bool] | None = None,
 ) -> AsyncIterator[str]:
     """Yield encoded AG-UI SSE frames for one admitted run."""
 
@@ -152,6 +175,7 @@ async def run_event_stream(
         if event_hub is not None
         else None
     )
+    guarded_events: AsyncGenerator[BaseEvent | AgUiQueuedEvent, None] | None = None
     try:
         event_source = (
             service.stream_run_events(admitted_run=admitted_run, request=request)
@@ -163,7 +187,8 @@ async def run_event_stream(
                 subscription=subscription,
             )
         )
-        async for stream_item in event_source:
+        guarded_events = _access_bound_events(event_source, access_current)
+        async for stream_item in guarded_events:
             event, event_id = _stream_item_event(stream_item)
             event_payload = _event_payload(event)
             event_type = _event_type_from_payload(event_payload)
@@ -188,7 +213,9 @@ async def run_event_stream(
                         error_category=type(exc).__name__,
                         admitted_run=admitted_run,
                     )
-                if await request.is_disconnected():
+                if await request.is_disconnected() or not await _stream_access_current(
+                    access_current
+                ):
                     if diagnostics is not None:
                         diagnostics.run_client_disconnected(admitted_run)
                     return
@@ -208,7 +235,7 @@ async def run_event_stream(
                 error_category=type(exc).__name__,
                 admitted_run=admitted_run,
             )
-        if not await request.is_disconnected():
+        if not await request.is_disconnected() and await _stream_access_current(access_current):
             yield _encoded_run_error_frame(
                 message="AG-UI run stream failed after admission.",
                 code="houmao_run_stream_failed",
@@ -221,6 +248,8 @@ async def run_event_stream(
             event_hub.unsubscribe(subscription.subscription_id)
         if diagnostics is not None:
             diagnostics.run_stream_completed(admitted_run, outcome=outcome)
+        if guarded_events is not None:
+            await guarded_events.aclose()
 
 
 def register_ag_ui_routes(
@@ -232,6 +261,7 @@ def register_ag_ui_routes(
     event_log_path: Path | None = None,
     heartbeat_interval_seconds: float = _DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
     run_poll_interval_seconds: float = _DEFAULT_RUN_POLL_INTERVAL_SECONDS,
+    access_current: Callable[[Request], bool] | None = None,
 ) -> AgUiConnectionRegistry:
     """Register AG-UI attachment routes on one FastAPI app.
 
@@ -300,6 +330,7 @@ def register_ag_ui_routes(
             diagnostics=diagnostics,
             event_hub=resolved_event_hub,
             heartbeat_interval_seconds=heartbeat_interval_seconds,
+            access_current=_request_access_check(request, access_current),
         )
         return StreamingResponse(
             stream,
@@ -359,6 +390,7 @@ def register_ag_ui_routes(
             request=request,
             diagnostics=diagnostics,
             event_hub=resolved_event_hub,
+            access_current=_request_access_check(request, access_current),
         )
         return StreamingResponse(
             stream,
@@ -519,6 +551,56 @@ def register_ag_ui_routes(
     return resolved_registry
 
 
+def _request_access_check(
+    request: Request, access_current: Callable[[Request], bool] | None
+) -> Callable[[], bool] | None:
+    """Bind a revalidation callback to one admitted connection."""
+
+    if access_current is None:
+        return None
+    return lambda: access_current(request)
+
+
+async def _stream_access_current(access_current: Callable[[], bool] | None) -> bool:
+    """Read current stream authority without blocking other requests."""
+
+    return access_current is None or await asyncio.to_thread(access_current)
+
+
+async def _access_bound_events(
+    source: AsyncIterator[BaseEvent | AgUiQueuedEvent],
+    access_current: Callable[[], bool] | None,
+) -> AsyncGenerator[BaseEvent | AgUiQueuedEvent, None]:
+    """Recheck before emission and periodically while an event is pending."""
+
+    pending: asyncio.Task[BaseEvent | AgUiQueuedEvent] | None = None
+    try:
+        if access_current is None:
+            async for item in source:
+                yield item
+            return
+        while await _stream_access_current(access_current):
+            if pending is None:
+                pending = asyncio.create_task(_next_stream_event(source))
+            done, _ = await asyncio.wait({pending}, timeout=_ACCESS_REVALIDATION_SECONDS)
+            if not done:
+                continue
+            if not await _stream_access_current(access_current):
+                return
+            try:
+                yield pending.result()
+            except StopAsyncIteration:
+                return
+            pending = None
+    finally:
+        if pending is not None:
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+        source_close = getattr(source, "aclose", None)
+        if callable(source_close):
+            await source_close()
+
+
 async def _merged_run_events(
     *,
     service: AgUiRunService,
@@ -549,13 +631,17 @@ async def _merged_run_events(
     finally:
         for task in (source_task, published_task):
             task.cancel()
+        await asyncio.gather(source_task, published_task, return_exceptions=True)
         source_close = getattr(source, "aclose", None)
         if callable(source_close):
             with suppress(Exception):
                 await source_close()
 
 
-async def _next_stream_event(source: AsyncIterator[BaseEvent]) -> BaseEvent:
+_StreamEventT = TypeVar("_StreamEventT", bound=BaseEvent | AgUiQueuedEvent)
+
+
+async def _next_stream_event(source: AsyncIterator[_StreamEventT]) -> _StreamEventT:
     """Return the next event from one async iterator."""
 
     return await anext(source)

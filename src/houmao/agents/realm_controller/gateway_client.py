@@ -10,8 +10,11 @@ from houmao.mailbox.online_models import (
 
 import json
 import os
+import ssl
+import time
 from dataclasses import dataclass
-from typing import Mapping, TypeVar, cast
+from pathlib import Path
+from typing import Callable, Mapping, TypeVar, cast
 from urllib import error, parse, request
 
 from pydantic import BaseModel, ValidationError
@@ -80,9 +83,36 @@ from houmao.server.models import (
     HoumaoTerminalStateResponse,
 )
 from houmao.gateway.plugins import GatewayPluginStatusResponse, PluginStatus
+from houmao.gateway.access import (
+    CHALLENGE_HEADER,
+    SIGNATURE_HEADER,
+    GatewayAdminKey,
+    GatewayChallenge,
+    GatewayChallengeRequest,
+    GatewayClientBinding,
+    GatewayRequestBinding,
+    load_gateway_signer,
+    parse_access_document,
+    public_key_text,
+    sign_sshsig,
+    sshsig_header,
+)
+from houmao.gateway.deployment import (
+    GatewayEndpointDescriptor,
+    owner_gateway_base_url,
+    validate_gateway_base_url,
+)
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 GATEWAY_RESPECT_PROXY_ENV_VAR = "HOUMAO_GATEWAY_RESPECT_PROXY_ENV"
+_UNSIGNED_ROUTES = {
+    "/health",
+    "/v1/endpoint",
+    "/v1/auth/challenge",
+    "/v1/messages",
+    "/v1/public/prompt",
+}
+_MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 
 
 def gateway_client_respects_proxy_env(env: Mapping[str, str] | None = None) -> bool:
@@ -111,7 +141,19 @@ class GatewayEndpoint:
 class GatewayClient:
     """HTTP client for a live per-agent gateway instance."""
 
-    def __init__(self, *, endpoint: GatewayEndpoint, timeout_seconds: float = 5.0) -> None:
+    def __init__(
+        self,
+        *,
+        endpoint: GatewayEndpoint | None = None,
+        base_url: str | None = None,
+        timeout_seconds: float = 5.0,
+        binding: GatewayClientBinding | None = None,
+        target_incarnation: str | None = None,
+        ca_bundle_path: Path | None = None,
+        registration_key: GatewayAdminKey | None = None,
+        request_proof: Callable[[str, str, bytes], Mapping[str, str]] | None = None,
+        respect_proxy_env: bool | None = None,
+    ) -> None:
         """Initialize a gateway HTTP client.
 
         Parameters
@@ -122,17 +164,95 @@ class GatewayClient:
             Per-request timeout used for HTTP round-trips.
         """
 
-        self.m_endpoint = endpoint
+        if endpoint is not None:
+            if base_url is not None:
+                raise ValueError("Select one gateway endpoint.")
+            if endpoint.host not in {"127.0.0.1", "0.0.0.0"}:
+                raise ValueError("A listener coordinate requires an owner-local host.")
+            base_url = owner_gateway_base_url(endpoint.port)
+        if base_url is None:
+            if binding is None:
+                raise ValueError("A gateway endpoint is required.")
+            base_url = binding.base_url
+        self.m_base_url = validate_gateway_base_url(base_url)
+        if binding is not None and (
+            binding.base_url != self.m_base_url or request_proof is not None
+        ):
+            raise ValueError(
+                "Gateway signer binding differs from the selected endpoint or proof source."
+            )
+        if (registration_key is not None) != (
+            binding is not None and binding.purpose == "register"
+        ):
+            raise ValueError(
+                "First registration requires an explicit proposed public key and signer."
+            )
+        if binding is not None and binding.ca_bundle_path is not None:
+            selected_trust = Path(binding.ca_bundle_path)
+            if ca_bundle_path is not None and ca_bundle_path != selected_trust:
+                raise ValueError("Gateway binding selects different certificate trust.")
+            ca_bundle_path = selected_trust
+        self.m_binding = binding
+        self.m_target_incarnation = target_incarnation
+        self.m_registration_key = registration_key
+        self.m_request_proof = request_proof
         self.m_timeout_seconds = timeout_seconds
         self.m_native_home_etag: str | None = None
+        try:
+            ssl_context = (
+                ssl.create_default_context(cafile=str(ca_bundle_path) if ca_bundle_path else None)
+                if self.m_base_url.startswith("https:")
+                else None
+            )
+        except (OSError, ValueError):
+            raise ValueError("Gateway certificate trust is unavailable.") from None
         self.m_opener = _build_gateway_client_opener(
-            respect_proxy_env=gateway_client_respects_proxy_env()
+            respect_proxy_env=(
+                gateway_client_respects_proxy_env()
+                if respect_proxy_env is None
+                else respect_proxy_env
+            ),
+            ssl_context=ssl_context,
         )
 
     def health(self) -> GatewayHealthResponseV1:
         """Call `GET /health`."""
 
         return self._request_model("GET", "/health", GatewayHealthResponseV1)
+
+    def describe_endpoint(self) -> GatewayEndpointDescriptor:
+        """Read public live endpoint and access metadata."""
+
+        return self._request_model("GET", "/v1/endpoint", GatewayEndpointDescriptor)
+
+    def add_admin_key(self, key: GatewayAdminKey) -> str:
+        """Enroll the proposed first key or add a key with a listed admin signer."""
+
+        result = self._request_json("POST", "/v1/admin/keys", body=key.model_dump(mode="json"))
+        if result != {"key_id": key.key_id}:
+            raise GatewayHttpError(
+                method="POST",
+                url=self._build_url("/v1/admin/keys"),
+                detail="Gateway did not confirm the selected key enrollment.",
+            )
+        return key.key_id
+
+    def remove_admin_key(self, key_id: str) -> None:
+        """Remove a key with current listed admin proof."""
+
+        path = f"/v1/admin/keys/{parse.quote(key_id, safe='')}"
+        url = self._build_url(path)
+        request_obj = self._prepare_request("DELETE", path, None, {})
+        self._open_request(request_obj=request_obj, method="DELETE", url=url)
+
+    def request_plugin_json(
+        self, method: str, path: str, *, body: GatewayJsonObject | None = None
+    ) -> GatewayJsonValue:
+        """Call one plugin operation through the same proof and transport path."""
+
+        if not path.startswith("/v1/plugins/"):
+            raise ValueError("Plugin operations must use the gateway plugin namespace.")
+        return self._request_json(method, path, body=body)
 
     def status(self) -> GatewayStatusV1:
         """Call `GET /v1/status`."""
@@ -204,11 +324,11 @@ class GatewayClient:
         """
 
         url = self._build_url("/v1/control/refresh")
-        request_obj = request.Request(
-            url=url,
-            method="POST",
-            data=payload.model_dump_json().encode("utf-8"),
-            headers={
+        request_obj = self._prepare_request(
+            "POST",
+            "/v1/control/refresh",
+            payload.model_dump_json().encode("utf-8"),
+            {
                 "Content-Type": "application/json",
                 **({"If-Match": self.m_native_home_etag} if self.m_native_home_etag else {}),
             },
@@ -217,12 +337,18 @@ class GatewayClient:
             with self.m_opener.open(
                 request_obj, timeout=(payload.timeout_seconds or 30.0) + 5.0
             ) as response:
-                encoded = response.read()
+                encoded = response.read(_MAX_RESPONSE_BYTES + 1)
         except error.HTTPError as exc:
-            encoded = exc.read()
+            if exc.code in {401, 403} or 300 <= exc.code < 400:
+                raise self._http_refusal("POST", url, exc) from None
+            encoded = exc.read(_MAX_RESPONSE_BYTES + 1)
             try:
                 result = NativeRefreshResultV1.model_validate_json(encoded)
             except ValidationError:
+                if exc.code == 503:
+                    raise GatewayHttpError(
+                        method="POST", url=url, status_code=503, detail="Gateway is unavailable."
+                    ) from None
                 raise GatewayHttpError(
                     method="POST",
                     url=url,
@@ -776,12 +902,7 @@ class GatewayClient:
             payload = json.dumps(body).encode("utf-8")
             headers["Content-Type"] = "application/json"
 
-        request_obj = request.Request(
-            url=url,
-            data=payload,
-            method=method,
-            headers=headers,
-        )
+        request_obj = self._prepare_request(method, path, payload, headers)
         decoded = self._decode_response(
             method=method,
             url=url,
@@ -796,12 +917,12 @@ class GatewayClient:
 
         try:
             return model.model_validate(decoded)
-        except ValidationError as exc:
+        except ValidationError:
             raise GatewayHttpError(
                 method=method,
                 url=url,
-                detail=f"gateway returned invalid payload: {exc}",
-            ) from exc
+                detail="Gateway returned an invalid response payload.",
+            ) from None
 
     def _request_json(
         self,
@@ -819,17 +940,98 @@ class GatewayClient:
             payload = json.dumps(body).encode("utf-8")
             headers["Content-Type"] = "application/json"
 
-        request_obj = request.Request(
-            url=url,
-            data=payload,
-            method=method,
-            headers=headers,
-        )
+        request_obj = self._prepare_request(method, path, payload, headers)
         return self._decode_response(
             method=method,
             url=url,
             response=self._open_request(request_obj=request_obj, method=method, url=url),
         )
+
+    def _prepare_request(
+        self, method: str, path: str, payload: bytes | None, headers: dict[str, str]
+    ) -> request.Request:
+        """Attach proof to the exact bytes and request path that will be sent."""
+
+        route, _, query = path.partition("?")
+        if route not in _UNSIGNED_ROUTES:
+            if self.m_binding is not None:
+                headers.update(self._signed_headers(method, route, query, payload or b""))
+            elif self.m_request_proof is not None:
+                headers.update(self.m_request_proof(method, path, payload or b""))
+        return request.Request(
+            url=self._build_url(path), data=payload, method=method, headers=headers
+        )
+
+    def _signed_headers(
+        self,
+        method: str,
+        path: str,
+        query: str,
+        payload: bytes,
+        *,
+        challenge_path: str = "/v1/auth/challenge",
+    ) -> dict[str, str]:
+        """Check server-authored challenge fields before signing once."""
+
+        binding = self.m_binding
+        assert binding is not None
+        url = self._build_url(path)
+        try:
+            signer = load_gateway_signer(Path(binding.private_key_path))
+            key = GatewayAdminKey(
+                principal="signer", public_key=public_key_text(signer.public_key())
+            )
+            intended = GatewayRequestBinding.from_request(
+                method=method, path=path, query=query, body=payload
+            )
+            proposed = self.m_registration_key
+            if proposed is not None and (key.key_id != proposed.key_id or path != "/v1/admin/keys"):
+                raise ValueError("Invalid first registration selection.")
+            challenge_request = GatewayChallengeRequest(
+                purpose=binding.purpose,
+                request=intended,
+                key_id=key.key_id if binding.purpose == "admin" else None,
+                proposed_key=proposed,
+            )
+        except (OSError, ValueError):
+            raise GatewayHttpError(
+                method=method, url=url, detail="Gateway signer binding is unavailable."
+            ) from None
+        challenge_url = self._build_url(challenge_path)
+        request_obj = request.Request(
+            url=challenge_url,
+            data=challenge_request.model_dump_json().encode(),
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        response = self._open_request(request_obj=request_obj, method="POST", url=challenge_url)
+        try:
+            challenge = parse_access_document(GatewayChallenge, response)
+            now = time.time()
+            if (
+                challenge.issuer != self.m_base_url
+                or challenge.target.owner != binding.owner
+                or (
+                    self.m_target_incarnation is not None
+                    and challenge.target.incarnation != self.m_target_incarnation
+                )
+                or challenge.purpose != binding.purpose
+                or challenge.request != intended
+                or challenge.key_id != key.key_id
+                or challenge.proposed_key != proposed
+                or not now < challenge.expires_at <= now + 120
+                or (
+                    binding.purpose == "self"
+                    and challenge.generation_id != challenge.target.incarnation
+                )
+            ):
+                raise ValueError("Challenge differs from the selected binding.")
+            signature = sshsig_header(sign_sshsig(signer, challenge.signing_bytes()))
+        except (ValueError, OSError):
+            raise GatewayHttpError(
+                method=method, url=url, detail="Gateway challenge failed binding validation."
+            ) from None
+        return {CHALLENGE_HEADER: challenge.challenge_id, SIGNATURE_HEADER: signature}
 
     def _open_request(
         self,
@@ -845,33 +1047,55 @@ class GatewayClient:
             with self.m_opener.open(
                 request_obj, timeout=timeout_seconds or self.m_timeout_seconds
             ) as response:
-                return cast(bytes, response.read())
+                payload = cast(bytes, response.read(_MAX_RESPONSE_BYTES + 1))
+                if len(payload) > _MAX_RESPONSE_BYTES:
+                    raise GatewayHttpError(
+                        method=method, url=url, detail="Gateway response exceeds its limit."
+                    )
+                return payload
         except error.HTTPError as exc:
-            detail = self._decode_error_body(exc.read())
+            raise self._http_refusal(method, url, exc) from None
+        except error.URLError:
             raise GatewayHttpError(
                 method=method,
                 url=url,
-                detail=detail,
-                status_code=exc.code,
-            ) from exc
-        except error.URLError as exc:
+                detail="Gateway connection or certificate validation failed.",
+            ) from None
+        except (TimeoutError, OSError):
             raise GatewayHttpError(
                 method=method,
                 url=url,
-                detail=str(exc.reason),
-            ) from exc
-        except (TimeoutError, OSError) as exc:
-            raise GatewayHttpError(
-                method=method,
-                url=url,
-                detail=str(exc),
-            ) from exc
+                detail="Gateway connection failed.",
+            ) from None
+
+    def _http_refusal(self, method: str, url: str, exc: error.HTTPError) -> GatewayHttpError:
+        """Preserve safe admission outcomes and refuse any redirect."""
+
+        payload = exc.read(65537)
+        if 300 <= exc.code < 400:
+            detail = "Gateway redirects are refused."
+        elif exc.code in {401, 403}:
+            detail = "Gateway proof was refused."
+        elif len(payload) > 65536:
+            detail = "Gateway error response exceeds its limit."
+        else:
+            detail = self._decode_error_body(payload)
+        return GatewayHttpError(method=method, url=url, detail=detail, status_code=exc.code)
 
     def _build_url(self, path: str) -> str:
-        """Build the concrete local URL for one gateway route."""
+        """Append an operation path without changing the selected origin or prefix."""
 
-        connect_host = "127.0.0.1" if self.m_endpoint.host == "0.0.0.0" else self.m_endpoint.host
-        return f"http://{connect_host}:{self.m_endpoint.port}{path}"
+        route = path.partition("?")[0]
+        decoded = parse.unquote(route, errors="strict")
+        if (
+            not decoded.startswith("/")
+            or any(segment in {".", "..", ""} for segment in decoded[1:].split("/"))
+            or any(c in decoded for c in "\\?#")
+            or "#" in path
+            or any(ord(c) <= 32 for c in path)
+        ):
+            raise ValueError("Invalid gateway operation path.")
+        return f"{self.m_base_url}{path}"
 
     def _decode_response(
         self,
@@ -932,9 +1156,21 @@ class GatewayClient:
         return json.dumps(decoded, sort_keys=True)
 
 
-def _build_gateway_client_opener(*, respect_proxy_env: bool) -> request.OpenerDirector:
+class _RejectGatewayRedirect(request.HTTPRedirectHandler):
+    """Disable urllib redirect handling for every gateway request."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        """Return no replacement request."""
+
+        return None
+
+
+def _build_gateway_client_opener(
+    *, respect_proxy_env: bool, ssl_context: ssl.SSLContext | None = None
+) -> request.OpenerDirector:
     """Build a gateway HTTP opener using the resolved proxy policy."""
 
-    if respect_proxy_env:
-        return request.build_opener()
-    return request.build_opener(request.ProxyHandler({}))
+    proxy = request.ProxyHandler() if respect_proxy_env else request.ProxyHandler({})
+    return request.build_opener(
+        proxy, _RejectGatewayRedirect(), request.HTTPSHandler(context=ssl_context)
+    )

@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from houmao.cao.no_proxy import normalize_cao_base_url
 from houmao.execution.context import parse_execution_binding
 from houmao.execution.models import ExecutionBindingV1
+from houmao.gateway.deployment import GatewayEndpointDescriptor
 from houmao.server.models import HoumaoManagedAgentIdentity
 
 from houmao.agents.realm_controller.agent_identity import (
@@ -216,6 +217,8 @@ class RegistryGatewayV1(_StrictRegistryModel):
     port: int
     state_path: str
     protocol_version: GatewayProtocolVersion
+    owner_connect_url: str | None = None
+    endpoint_descriptor: GatewayEndpointDescriptor | None = None
 
     @field_validator("state_path")
     @classmethod

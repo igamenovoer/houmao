@@ -26,6 +26,7 @@ from houmao.agents.realm_controller.models import BackendKind, CaoParsingMode
 from houmao.agents.realm_controller.native_surface import NativeSurfaceV1, WebNativeSurfaceV1
 from houmao.hook_observation.health import HookChannelState
 from houmao.gateway.plugins import GatewayPluginConfiguration
+from houmao.gateway.deployment import GatewayEndpointDescriptor
 from houmao.mailbox.models import (
     GatewayMailboxParticipantV1 as GatewayMailboxParticipantV1,
     GatewayMailboxAttachmentV1 as GatewayMailboxAttachmentV1,
@@ -994,6 +995,7 @@ class GatewayCurrentInstanceV1(_StrictGatewayModel):
     tmux_pane_id: str | None = None
     managed_agent_instance_epoch: int
     managed_agent_instance_id: str | None = None
+    endpoint_descriptor: GatewayEndpointDescriptor | None = None
 
     @field_validator("pid", "port", "managed_agent_instance_epoch")
     @classmethod

@@ -10,6 +10,13 @@ from typing import cast
 
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
+from tests.fixtures.gateway_access import (
+    FixtureProofAuth,
+    enroll_fixture_admin,
+    fixture_admin_key,
+    gateway_fixture_client,
+    self_fixture_auth,
+)
 import httpx
 from pydantic import BaseModel, ConfigDict
 import pytest
@@ -42,8 +49,12 @@ from houmao.gateway.plugins import (
     PluginDefinition,
     PluginInstanceConfiguration,
     PluginListener,
+    plugin_route_access,
 )
 from houmao.gateway.plugins.discovery import LoadedPluginDefinition
+from houmao.gateway.deployment import GatewayDeployment
+
+pytestmark = pytest.mark.usefixtures("gateway_fixture_access")
 
 
 class _Settings(BaseModel):
@@ -65,6 +76,18 @@ class _ObservedPlugin:
         self.m_enters: int = 0
         self.m_exits: int = 0
         self.m_listener: PluginListener | None = None
+
+        @self.m_router.get("/ordinary", openapi_extra=plugin_route_access("private"))
+        def ordinary() -> dict[str, str]:
+            """Return the plugin's owner-bound identity under its ordinary route."""
+
+            return {"instance": self.m_context.instance_id}
+
+        @self.m_router.post("/control")
+        def control() -> dict[str, bool]:
+            """Expose a control with the default admin access class."""
+
+            return {"accepted": True}
 
     @property
     def router(self) -> APIRouter:
@@ -207,6 +230,36 @@ async def _wait_running(runtime: GatewayServiceRuntime) -> None:
             await asyncio.sleep(0.001)
 
 
+def test_plugin_private_access_precedes_lifecycle_and_uses_current_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A private route checks caller proof even while the instance is starting."""
+
+    runtime, observed, _ = _runtime(tmp_path, monkeypatch, hold_start=True)
+    app = create_app(runtime=runtime)
+    ordinary_path = "/v1/plugins/one/ordinary"
+    control_path = "/v1/plugins/one/control"
+    with TestClient(app, base_url=runtime.owner_connect_url) as client:
+        self_auth = self_fixture_auth(runtime)
+        assert client.get(ordinary_path).status_code == 401
+        assert client.get(ordinary_path, auth=self_auth).status_code == 503
+        assert client.post(control_path).status_code == 503
+        assert client.portal is not None
+        client.portal.call(observed[0].m_gate.set)
+        client.portal.call(_wait_running, runtime)
+        assert client.post(control_path).status_code == 200
+        assert client.get(ordinary_path, auth=self_auth).json() == {"instance": "one"}
+
+        key, signer = fixture_admin_key(tmp_path, "plugin-admin")
+        enroll_fixture_admin(client, key, signer)
+        admin_auth = FixtureProofAuth(signer, purpose="admin")
+        assert client.post(control_path).status_code == 401
+        assert client.post(control_path, auth=self_auth).status_code == 403
+        assert client.post(control_path, auth=admin_auth).status_code == 200
+        assert client.get(ordinary_path, auth=self_auth).status_code == 200
+        assert client.get(ordinary_path, auth=admin_auth).status_code == 200
+
+
 def test_embedded_app_owns_exactly_one_core_and_plugin_lifecycle(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -215,7 +268,7 @@ def test_embedded_app_owns_exactly_one_core_and_plugin_lifecycle(
     runtime, observed, transitions = _runtime(tmp_path, monkeypatch)
     app = create_app(runtime=runtime)
     assert transitions == [] and observed[0].m_enters == 0
-    with TestClient(app) as client:
+    with gateway_fixture_client(runtime, app=app) as client:
         assert client.get("/health").status_code == 200
         for _ in range(100):
             if client.get("/v1/plugins/one/_status").json()["lifecycle"] == "running":
@@ -239,7 +292,7 @@ def test_embedded_app_preserves_external_core_ownership_when_already_started(
     runtime, observed, transitions = _runtime(tmp_path, monkeypatch)
     runtime.start()
     try:
-        with TestClient(create_app(runtime=runtime)) as client:
+        with gateway_fixture_client(runtime) as client:
             assert client.get("/health").status_code == 200
         assert transitions == ["core_start"]
         assert observed[0].m_enters == 1 and observed[0].m_exits == 1
@@ -256,7 +309,7 @@ def test_second_app_cannot_replace_the_original_live_host(
     runtime, observed, transitions = _runtime(tmp_path, monkeypatch)
     app = create_app(runtime=runtime)
     original_host = runtime.m_plugin_host
-    with TestClient(app) as client:
+    with gateway_fixture_client(runtime, app=app) as client:
         assert client.get("/health").status_code == 200
         for _ in range(100):
             if client.get("/v1/plugins/one/_status").json()["lifecycle"] == "running":
@@ -280,7 +333,7 @@ def test_no_plugin_app_keeps_existing_explicit_core_lifecycle(
 
     runtime, observed, transitions = _runtime(tmp_path, monkeypatch, plugins_enabled=False)
     try:
-        with TestClient(create_app(runtime=runtime)) as client:
+        with gateway_fixture_client(runtime) as client:
             assert client.get("/health").status_code == 200
             assert client.get("/v1/plugins").json()["plugins"] == []
         assert transitions == [] and not observed
@@ -305,22 +358,28 @@ def test_embedded_start_failure_releases_already_started_core(
 
     monkeypatch.setattr(runtime, "start_plugins", fail_after_schedule)
     with pytest.raises(RuntimeError, match="coordinator failure"):
-        with TestClient(create_app(runtime=runtime)):
+        with gateway_fixture_client(runtime):
             pytest.fail("startup unexpectedly succeeded")
     assert transitions == ["core_start", "core_stop"]
     assert not runtime.m_paths.current_instance_path.exists()
     assert not runtime.m_worker_thread.is_alive()
 
 
+@pytest.mark.parametrize("host", ["127.0.0.1", "0.0.0.0"])
 def test_production_binds_ephemeral_port_before_plugin_start_without_waiting_for_service(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, host: str
 ) -> None:
     """A pending service startup does not block the actual core listener."""
 
     runtime, observed, transitions = _runtime(tmp_path, monkeypatch, port=0, hold_start=True)
+    runtime.m_host = host
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.load_gateway_deployment",
+        lambda _path: GatewayDeployment(bind_host=host),
+    )
     app = create_app(runtime=runtime)
-    config = uvicorn.Config(app, host="127.0.0.1", port=0, log_level="error", lifespan="on")
-    server = _GatewayUvicornServer(config, runtime=runtime, requested_host="127.0.0.1")
+    config = uvicorn.Config(app, host=host, port=0, log_level="error", lifespan="on")
+    server = _GatewayUvicornServer(config, runtime=runtime, requested_host=host)
     config.load()
     server.lifespan = config.lifespan_class(config)
 
@@ -334,13 +393,16 @@ def test_production_binds_ephemeral_port_before_plugin_start_without_waiting_for
             assert runtime.m_port > 0
             assert runtime.m_worker_thread.is_alive()
             assert runtime.m_plugin_host.status()[0].lifecycle == "starting"
-            async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{runtime.m_port}") as client:
+            async with httpx.AsyncClient(
+                base_url=runtime.owner_connect_url, auth=self_fixture_auth(runtime)
+            ) as client:
                 assert (await client.get("/health")).status_code == 200
                 status = (await client.get("/v1/plugins/one/_status")).json()
                 assert status["lifecycle"] == "starting"
             assert observed[0].m_enters == 1 and observed[0].m_exits == 0
             listener = observed[0].m_listener
             assert listener is not None and listener.port == runtime.m_port
+            assert listener.host == host and listener.base_url == runtime.owner_connect_url
             assert listener.port != config.port
             observed[0].m_gate.set()
             await _wait_running(runtime)
