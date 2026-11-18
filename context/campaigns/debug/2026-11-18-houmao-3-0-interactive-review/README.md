@@ -2,7 +2,7 @@
 
 Validate and review the new features introduced in Houmao `3.0.0rc1` through live, human-watched interactive execution so an operator can observe the runtime behavior directly and decide what works as designed or needs revision.
 
-See [debug-intent.md](debug-intent.md) for the complete campaign description.
+See [debug-intent.md](debug-intent.md) for the complete campaign description, and see [houmao-3-0-interactive-review harness](../../../../scripts/explore/houmao-3-0-interactive-review/README.md) for the temporary campaign helper scripts and isolation wrappers.
 
 ## Directory Structure
 
@@ -10,5 +10,6 @@ See [debug-intent.md](debug-intent.md) for the complete campaign description.
 - **key-questions/**: Testable questions with propositions, answers, and scope declarations (`KQ-N-<slug>.md`)
 - **iterations/**: Execution plans with frozen workload, predeclared arms, gates, and checklists (`YYYY-MM-DD-plan-N-<slug>.md`)
 - **evidences/**: Raw observation logs from interactive sessions with exact commands, outputs, and environment identity (`YYYY-MM-DD-<observation>.md`)
+- **logs/**: Diagnostic session and failure logs captured during interactive review runs (`YYYY-MM-DD-<topic>.md`)
 - **discussions/**: Analysis and revision proposals distinguishing observed symptoms, root causes, and design options (`YYYY-MM-DD-<topic>.md`)
 - **reports/**: Synthesis across multiple evidences summarizing verdicts and revision recommendations (`YYYY-MM-DD-<topic>.md`)
