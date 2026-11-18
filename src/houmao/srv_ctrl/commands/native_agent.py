@@ -10,7 +10,9 @@ from typing import Any
 import click
 import yaml
 
-from houmao.agents.definition_parser import parse_agent_preset, parse_tool_adapter
+from houmao.agents.definition_parser import AgentPreset, parse_agent_preset, parse_tool_adapter
+from houmao.agents.tool_params import validate_tool_params
+from houmao.project.config_payloads import build_launch_profile_config_payload
 from houmao.terminology import (
     LAUNCH_DOSSIER_TERM,
     NATIVE_AGENT_ROOT_ENV_VAR,
@@ -23,6 +25,7 @@ from .brains import native_agent_brain_group
 from .credentials import native_agent_credentials_group
 from .common import overwrite_confirm_option
 from .output import emit
+from .project_common import _tool_params_or_click
 
 _SUPPORTED_NATIVE_TOOLS: tuple[str, ...] = ("claude", "codex", "kimi", "dsh")
 
@@ -58,7 +61,7 @@ def native_agent_launch_dossiers_group() -> None:
 
 @native_agent_group.group(name="tools")
 def native_agent_tools_group() -> None:
-    """Inspect native-agent provider tool/setup trees."""
+    """Manage native tool content under `.houmao/agents/tools/` by default."""
 
 
 native_agent_group.add_command(native_agent_credentials_group)
@@ -440,7 +443,7 @@ def _list_recipe_summaries(
     return results
 
 
-def _parse_recipe_or_click(path: Path) -> Any:
+def _parse_recipe_or_click(path: Path) -> AgentPreset:
     """Parse one native recipe file or raise a Click error."""
 
     try:
@@ -467,6 +470,7 @@ def _recipe_summary(*, root: Path, recipe_name: str) -> dict[str, object]:
         "skills": list(parsed.skills),
         "auth": parsed.auth,
         "launch": launch_payload if isinstance(launch_payload, dict) else {},
+        "tool_params": parsed.tool_params,
         "mailboxes": raw_payload.get("mailboxes"),
         "extra": raw_payload.get("extra", {}),
     }
@@ -528,6 +532,7 @@ def _write_recipe(
     prompt_mode: str | None,
     model: str | None,
     reasoning_level: int | None,
+    tool_params: dict[str, Any],
     overwrite: bool = False,
 ) -> Path:
     """Write one native recipe."""
@@ -551,6 +556,8 @@ def _write_recipe(
     }
     if auth is not None:
         payload["auth"] = auth
+    if tool_params:
+        payload["tool_params"] = tool_params
     launch_payload: dict[str, object] = {"prompt_mode": prompt_mode or "unattended"}
     model_payload = _model_payload(model=model, reasoning_level=reasoning_level)
     if model_payload is not None:
@@ -621,6 +628,7 @@ def get_native_recipe_command(name: str, native_agent_root: Path | None) -> None
     help="Optional launch prompt mode.",
 )
 @click.option("--model", default=None, help="Optional model name.")
+@click.option("--tool-params", help="Partial tool parameters as JSON or @path.")
 @click.option(
     "--reasoning-level", type=click.IntRange(min=0), default=None, help="Optional reasoning level."
 )
@@ -636,6 +644,7 @@ def add_native_recipe_command(
     model: str | None,
     reasoning_level: int | None,
     native_agent_root: Path | None,
+    tool_params: str | None = None,
 ) -> None:
     """Create one native-agent recipe."""
 
@@ -652,6 +661,9 @@ def add_native_recipe_command(
         prompt_mode=_optional_name(prompt_mode, field_name="--prompt-mode"),
         model=model,
         reasoning_level=reasoning_level,
+        tool_params=_tool_params_or_click(
+            tool_name, tool_params, source=f"Recipe {recipe_name!r} tool_params"
+        ),
     )
     emit(_base_payload(context) | {"name": recipe_name, "path": str(path), "created": True})
 
@@ -683,6 +695,8 @@ def add_native_recipe_command(
 @click.option("--clear-prompt-mode", is_flag=True, help="Clear prompt mode.")
 @click.option("--model", default=None, help="Optional model override.")
 @click.option("--clear-model", is_flag=True, help="Clear model override.")
+@click.option("--tool-params", help="Patch tool parameters with JSON or @path.")
+@click.option("--clear-tool-params", is_flag=True, help="Clear stored tool parameters.")
 @click.option(
     "--reasoning-level", type=click.IntRange(min=0), default=None, help="Optional reasoning level."
 )
@@ -705,6 +719,8 @@ def set_native_recipe_command(
     reasoning_level: int | None,
     clear_reasoning_level: bool,
     native_agent_root: Path | None,
+    tool_params: str | None = None,
+    clear_tool_params: bool = False,
 ) -> None:
     """Patch one native-agent recipe."""
 
@@ -727,6 +743,13 @@ def set_native_recipe_command(
     parsed = _parse_recipe_or_click(path)
     role_name = _require_name(role, field_name="--role") if role is not None else parsed.role_name
     resolved_tool = tool_name or parsed.tool
+    resolved_tool_params = _tool_params_or_click(
+        resolved_tool,
+        tool_params,
+        source=f"Recipe {recipe_name!r} tool_params",
+        current=parsed.tool_params,
+        clear=clear_tool_params,
+    )
     resolved_setup = (
         _require_name(setup, field_name="--setup") if setup is not None else parsed.setup
     )
@@ -754,6 +777,10 @@ def set_native_recipe_command(
     )
     raw["role"] = role_name
     raw["tool"] = resolved_tool
+    if resolved_tool_params:
+        raw["tool_params"] = resolved_tool_params
+    else:
+        raw.pop("tool_params", None)
     raw["setup"] = resolved_setup
     raw["skills"] = normalized_skills
     if resolved_auth is None:
@@ -803,36 +830,62 @@ def remove_native_recipe_command(name: str, native_agent_root: Path | None) -> N
     emit(_base_payload(context) | {"name": recipe_name, "removed": True, "path": str(path)})
 
 
-def _launch_dossier_payload(
-    *,
-    name: str,
-    recipe: str,
-    defaults: dict[str, object],
-) -> dict[str, object]:
-    """Build the retained compatibility payload for a native launch dossier."""
+def _launch_dossier_source_tool(*, root: Path, source: dict[str, Any]) -> str:
+    """Return the tool of the dossier's source recipe."""
 
-    return {
-        "profile_lane": "launch_profile",
-        "source": {"kind": "recipe", "name": recipe},
-        "defaults": defaults,
-    }
+    recipe_name = source.get("name")
+    if source.get("kind") != "recipe" or not isinstance(recipe_name, str) or not recipe_name:
+        raise click.ClickException("Tool parameters require a launch dossier with a source recipe.")
+    return _parse_recipe_or_click(_recipe_path(root=root, name=recipe_name)).tool
 
 
-def _launch_dossier_summary(*, root: Path, name: str) -> dict[str, object]:
-    """Return one native launch-dossier summary."""
+def _read_launch_dossier_tool_params(
+    *, root: Path, name: str, source: dict[str, Any], raw: dict[str, object]
+) -> dict[str, Any]:
+    """Validate stored tool parameters before reporting or patching them."""
 
-    path = _launch_dossier_path(root=root, name=name)
+    if raw.get("tool_params", {}) == {}:
+        return {}
+    tool = _launch_dossier_source_tool(root=root, source=source)
+    try:
+        return validate_tool_params(
+            tool, raw["tool_params"], source=f"Launch dossier {name!r} tool_params"
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from None
+
+
+def _read_native_launch_dossier(path: Path, *, action: str) -> dict[str, object]:
+    """Read an explicit dossier and protect project profile projections."""
+
     if not path.is_file():
         raise click.ClickException(f"Native launch dossier not found: {path}")
     raw = _read_yaml_mapping(path)
-    source = raw.get("source") if isinstance(raw.get("source"), dict) else {}
+    if raw.get("profile_lane") == "easy_profile":
+        name = path.stem
+        raise click.ClickException(
+            f"Profile `{name}` belongs to the project profile lane. "
+            f"Use `houmao-mgr project profile {action} --name {name}`."
+        )
+    return raw
+
+
+def _launch_dossier_summary(*, root: Path, path: Path, raw: dict[str, object]) -> dict[str, object]:
+    """Return one native launch-dossier summary."""
+
+    name = path.stem
+    raw_source = raw.get("source")
+    source = raw_source if isinstance(raw_source, dict) else {}
     defaults = raw.get("defaults") if isinstance(raw.get("defaults"), dict) else {}
     return {
         "name": name,
         "resource_kind": LAUNCH_DOSSIER_TERM,
         "source": source,
-        "recipe": source.get("name") if isinstance(source, dict) else None,
+        "recipe": source.get("name"),
         "defaults": defaults,
+        "tool_params": _read_launch_dossier_tool_params(
+            root=root, name=name, source=source, raw=raw
+        ),
         "path": str(path),
     }
 
@@ -842,17 +895,22 @@ def _list_launch_dossier_summaries(
     root: Path,
     recipe: str | None = None,
     tool: str | None = None,
-) -> list[dict[str, object]]:
+) -> tuple[list[dict[str, object]], bool]:
     """Return native launch-dossier summaries."""
 
     dossiers_root = (root / "launch-profiles").resolve()
     if not dossiers_root.is_dir():
-        return []
+        return [], False
     results: list[dict[str, object]] = []
+    project_profiles_exist = False
     for dossier_path in sorted(path for path in dossiers_root.iterdir() if path.is_file()):
         if dossier_path.suffix not in {".yaml", ".yml"}:
             continue
-        summary = _launch_dossier_summary(root=root, name=dossier_path.stem)
+        raw = _read_yaml_mapping(dossier_path)
+        if raw.get("profile_lane") == "easy_profile":
+            project_profiles_exist = True
+            continue
+        summary = _launch_dossier_summary(root=root, path=dossier_path, raw=raw)
         if recipe is not None and summary.get("recipe") != recipe:
             continue
         if tool is not None:
@@ -866,7 +924,7 @@ def _list_launch_dossier_summaries(
             if parsed_recipe.tool != tool:
                 continue
         results.append(summary)
-    return results
+    return results, project_profiles_exist
 
 
 def _env_records(values: tuple[str, ...]) -> dict[str, str]:
@@ -947,16 +1005,15 @@ def list_native_launch_dossiers_command(
     """List native launch dossiers."""
 
     context = _native_context(native_agent_root)
-    emit(
-        _base_payload(context)
-        | {
-            "launch_dossiers": _list_launch_dossier_summaries(
-                root=context.root,
-                recipe=_optional_name(recipe, field_name="--recipe"),
-                tool=tool_name,
-            )
-        }
+    dossiers, project_profiles_exist = _list_launch_dossier_summaries(
+        root=context.root,
+        recipe=_optional_name(recipe, field_name="--recipe"),
+        tool=tool_name,
     )
+    payload = _base_payload(context) | {"launch_dossiers": dossiers}
+    if not dossiers and project_profiles_exist:
+        payload["note"] = "Use `houmao-mgr project profile list` to list project profiles."
+    emit(payload)
 
 
 @native_agent_launch_dossiers_group.command(name="get")
@@ -967,7 +1024,9 @@ def get_native_launch_dossier_command(name: str, native_agent_root: Path | None)
 
     context = _native_context(native_agent_root)
     dossier_name = _require_name(name, field_name="--name")
-    emit(_base_payload(context) | _launch_dossier_summary(root=context.root, name=dossier_name))
+    path = _launch_dossier_path(root=context.root, name=dossier_name)
+    raw = _read_native_launch_dossier(path, action="get")
+    emit(_base_payload(context) | _launch_dossier_summary(root=context.root, path=path, raw=raw))
 
 
 @native_agent_launch_dossiers_group.command(name="add")
@@ -989,6 +1048,7 @@ def get_native_launch_dossier_command(name: str, native_agent_root: Path | None)
 )
 @click.option("--env-set", "env_set", multiple=True, help="Repeatable persistent env record.")
 @click.option("--headless", is_flag=True, help="Persist headless launch posture.")
+@click.option("--tool-params", help="Partial tool parameters as JSON or @path.")
 @click.option("--no-gateway", is_flag=True, help="Disable gateway auto-attach.")
 @click.option(
     "--gateway-port",
@@ -1014,6 +1074,7 @@ def add_native_launch_dossier_command(
     gateway_port: int | None,
     yes: bool,
     native_agent_root: Path | None,
+    tool_params: str | None = None,
 ) -> None:
     """Create one recipe-backed native launch dossier."""
 
@@ -1024,15 +1085,24 @@ def add_native_launch_dossier_command(
     if not recipe_path.is_file():
         raise click.ClickException(f"Native-agent recipe not found: {recipe_path}")
     path = _launch_dossier_path(root=context.root, name=dossier_name)
-    if path.exists() and not yes:
-        raise click.ClickException(
-            f"Native launch dossier `{dossier_name}` already exists at `{path}`. Rerun with `--yes` to replace it."
-        )
+    if path.exists():
+        _read_native_launch_dossier(path, action="create")
+        if not yes:
+            raise click.ClickException(
+                f"Native launch dossier `{dossier_name}` already exists at `{path}`. Rerun with `--yes` to replace it."
+            )
     if no_gateway and gateway_port is not None:
         raise click.ClickException("`--no-gateway` and `--gateway-port` cannot be combined.")
-    payload = _launch_dossier_payload(
-        name=dossier_name,
-        recipe=recipe_name,
+    source = {"kind": "recipe", "name": recipe_name}
+    resolved_tool_params = _tool_params_or_click(
+        _launch_dossier_source_tool(root=context.root, source=source),
+        tool_params,
+        source=f"Launch dossier {dossier_name!r} tool_params",
+    )
+    payload = build_launch_profile_config_payload(
+        profile_lane="launch_profile",
+        source_kind="recipe",
+        source_name=recipe_name,
         defaults=_build_dossier_defaults(
             agent_name=agent_name,
             agent_id=agent_id,
@@ -1046,11 +1116,12 @@ def add_native_launch_dossier_command(
             no_gateway=no_gateway,
             gateway_port=gateway_port,
         ),
+        tool_params=resolved_tool_params,
     )
     _write_yaml_mapping(path, payload)
     emit(
         _base_payload(context)
-        | _launch_dossier_summary(root=context.root, name=dossier_name)
+        | _launch_dossier_summary(root=context.root, path=path, raw=payload)
         | {"created": True}
     )
 
@@ -1075,6 +1146,8 @@ def add_native_launch_dossier_command(
     help="Optional prompt mode.",
 )
 @click.option("--clear-prompt-mode", is_flag=True, help="Clear prompt mode.")
+@click.option("--tool-params", help="Patch tool parameters with JSON or @path.")
+@click.option("--clear-tool-params", is_flag=True, help="Clear stored tool parameters.")
 @native_agent_root_option
 def set_native_launch_dossier_command(
     name: str,
@@ -1090,15 +1163,15 @@ def set_native_launch_dossier_command(
     prompt_mode: str | None,
     clear_prompt_mode: bool,
     native_agent_root: Path | None,
+    tool_params: str | None = None,
+    clear_tool_params: bool = False,
 ) -> None:
     """Patch one native launch dossier."""
 
     context = _native_context(native_agent_root)
     dossier_name = _require_name(name, field_name="--name")
     path = _launch_dossier_path(root=context.root, name=dossier_name)
-    if not path.is_file():
-        raise click.ClickException(f"Native launch dossier not found: {path}")
-    raw = _read_yaml_mapping(path)
+    raw = _read_native_launch_dossier(path, action="set")
     raw_source = raw.get("source")
     raw_defaults = raw.get("defaults")
     source = dict(raw_source) if isinstance(raw_source, dict) else {}
@@ -1109,6 +1182,23 @@ def set_native_launch_dossier_command(
         if not recipe_path.is_file():
             raise click.ClickException(f"Native-agent recipe not found: {recipe_path}")
         source = {"kind": "recipe", "name": recipe_name}
+    if clear_tool_params and tool_params is not None:
+        raise click.ClickException("`--tool-params` cannot be combined with `--clear-tool-params`.")
+    if clear_tool_params:
+        raw.pop("tool_params", None)
+    elif tool_params is not None or "tool_params" in raw:
+        resolved_tool_params = _tool_params_or_click(
+            _launch_dossier_source_tool(root=context.root, source=source),
+            tool_params,
+            source=f"Launch dossier {dossier_name!r} tool_params",
+            current=_read_launch_dossier_tool_params(
+                root=context.root, name=dossier_name, source=source, raw=raw
+            ),
+        )
+        if resolved_tool_params:
+            raw["tool_params"] = resolved_tool_params
+        else:
+            raw.pop("tool_params", None)
     if clear_auth and auth is not None:
         raise click.ClickException("`--auth` cannot be combined with `--clear-auth`.")
     if clear_auth:
@@ -1151,7 +1241,7 @@ def set_native_launch_dossier_command(
     raw["source"] = source
     raw["defaults"] = defaults
     _write_yaml_mapping(path, raw)
-    emit(_base_payload(context) | _launch_dossier_summary(root=context.root, name=dossier_name))
+    emit(_base_payload(context) | _launch_dossier_summary(root=context.root, path=path, raw=raw))
 
 
 @native_agent_launch_dossiers_group.command(name="remove")
@@ -1163,8 +1253,7 @@ def remove_native_launch_dossier_command(name: str, native_agent_root: Path | No
     context = _native_context(native_agent_root)
     dossier_name = _require_name(name, field_name="--name")
     path = _launch_dossier_path(root=context.root, name=dossier_name)
-    if not path.is_file():
-        raise click.ClickException(f"Native launch dossier not found: {path}")
+    _read_native_launch_dossier(path, action="remove")
     path.unlink()
     emit(_base_payload(context) | {"name": dossier_name, "removed": True, "path": str(path)})
 
@@ -1296,7 +1385,7 @@ def _emit_setup_remove(*, tool: str, name: str, native_agent_root: Path | None) 
 def _register_tool_commands(tool: str) -> click.Group:
     """Build one native tool command group."""
 
-    @click.group(name=tool)
+    @click.group(name=tool, help=f"Manage native content under `.houmao/agents/tools/{tool}/`.")
     def tool_group() -> None:
         """Manage one native provider tool subtree."""
 

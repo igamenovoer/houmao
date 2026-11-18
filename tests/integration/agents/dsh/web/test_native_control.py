@@ -618,7 +618,7 @@ def test_native_explicit_model_and_committed_conversation_survive_exact_restore(
     """Use native selected routes and bounded semantic reads without replaying request metadata."""
 
     models = [
-        {"id": name, "context_window": 131072, "max_output_tokens": 128, "reasoning": False}
+        {"id": name, "context_window": 131072, "max_output_tokens": 128, "reasoning_efforts": False}
         for name in ["controlled", "second"]
     ]
     host = native_web_factory(models=models)

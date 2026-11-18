@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import click
+from click.testing import CliRunner
 from pydantic import ValidationError
 import pytest
 
@@ -40,6 +41,7 @@ from houmao.execution.profiles import ExecutionProfileError
 from houmao.passive_server.models import PassiveHeadlessLaunchRequest
 from houmao.srv_ctrl.commands import managed_agents as managed
 from houmao.srv_ctrl.commands import project_easy
+from houmao.srv_ctrl.commands.main import cli
 from houmao.srv_ctrl.commands.output import collect_output_payloads, emit
 
 
@@ -272,6 +274,63 @@ def test_owner_launch_reuses_shared_service_and_output_collector(
     assert len(seen) == 1 and seen[0]["profile"] == "reviewer"
     assert seen[0]["workdir"] == Path(boundary.profile.project_root)
     assert "executor" not in seen[0]
+
+
+def test_owner_loads_tool_params_from_the_target_project(
+    boundary: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Resolve relative parameter files in the selected owner-side project."""
+
+    target = Path(boundary.profile.project_root)
+    runner = CliRunner()
+    project = ["project", "--project-dir", str(target)]
+    init = runner.invoke(cli, [*project, "init"])
+    assert init.exit_code == 0, init.output
+    result = runner.invoke(
+        cli,
+        [
+            *project,
+            "specialist",
+            "create",
+            "--name",
+            "reviewer",
+            "--tool",
+            "claude",
+            "--claude-oauth-token",
+            "synthetic-oauth-token",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    (target / "params.yaml").write_text("include_partial_messages: true\n", encoding="utf-8")
+    (tmp_path / "params.yaml").write_text("include_partial_messages: false\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    def launch(**parameters: object) -> dict[str, str]:
+        """Observe the private application call without starting a harness."""
+
+        assert parameters["direct_tool_params"] == {"include_partial_messages": True}
+        return {"agent_id": "agent-1", "agent_name": "reviewer"}
+
+    monkeypatch.setattr(project_easy, "launch_managed_agent_locally", launch)
+    monkeypatch.setattr(
+        project_easy, "emit_local_launch_completion", lambda launch_result, **_: emit(launch_result)
+    )
+    result = application.dispatch_operation(
+        ExecutionRequestV1(
+            operation="launch",
+            arguments={
+                "specialist": "reviewer",
+                "name": "reviewer",
+                "headless": True,
+                "tool_params": "@params.yaml",
+            },
+        ),
+        boundary.binding,
+        boundary.policy,
+    )
+    assert result["agent_id"] == "agent-1"
 
 
 def test_bound_route_rejects_a_different_described_identity(

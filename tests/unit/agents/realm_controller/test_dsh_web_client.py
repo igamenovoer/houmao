@@ -64,6 +64,21 @@ def _transport(
             raise httpx.ReadTimeout("private-launch private-cookie transcript")
         if method == "prompt" and failure == "revoked":
             return httpx.Response(401)
+        if method == "prompt" and failure == "structured":
+            return httpx.Response(
+                200,
+                json={
+                    "type": "server-response",
+                    "rpcId": message["rpcId"],
+                    "result": {
+                        "ok": False,
+                        "error": {
+                            "code": "not_ready",
+                            "message": "Native admission refused\nprivate-launch private-cookie api%2Fsecret",
+                        },
+                    },
+                },
+            )
         value: Any = (
             {"protocol_version": 1, "identity": {"native_session_id": None}}
             if method == "describe"
@@ -151,6 +166,26 @@ def test_incompatible_response_closes_the_new_connection(monkeypatch: pytest.Mon
         DshWebClient.from_connection("http://127.0.0.1:1234", launch_token="private-launch")
     assert failed.value.code == "protocol_mismatch"
     socket.close.assert_called_once()
+
+
+def test_native_refusal_keeps_code_and_scrubs_resolved_web_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Scrub the launch token, current API cookie and selected key before raising."""
+
+    calls, _socket = _transport(monkeypatch, "structured")
+    client = DshWebClient.from_connection(
+        "http://127.0.0.1:1234", launch_token="private-launch", secret_values=("api/secret",)
+    )
+    try:
+        with pytest.raises(DshWebError, match="not_ready: Native admission refused") as failed:
+            client.prompt({}, "prompt", operation_id="operation", deadline_epoch_ms=100)
+        assert failed.value.code == "not_ready"
+        assert str(failed.value).count("[REDACTED]") == 3
+        assert "\n" not in str(failed.value)
+        assert calls.count("/houmao/managed/v1/prompt") == 1
+    finally:
+        client.close()
 
 
 def test_prompt_forwards_only_the_optional_dispatch_permission_reference(tmp_path: Path) -> None:

@@ -97,7 +97,7 @@ def _manifest(
     runtime_extra: dict[str, Any] | None = None,
     recipe_overrides: dict[str, Any] | None = None,
     direct_overrides: dict[str, Any] | None = None,
-    tool_metadata: dict[str, Any] | None = None,
+    tool_params: dict[str, Any] | None = None,
     env_records: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     adapter_path = "/tmp/tool-adapter.yaml"
@@ -117,13 +117,11 @@ def _manifest(
         "launch_contract": {
             "adapter_defaults": {
                 "args": list(launch_args or []),
-                "tool_params": {},
             },
             "requested_overrides": {
                 "preset": recipe_overrides,
                 "direct": direct_overrides,
             },
-            "tool_metadata": tool_metadata or {"tool_params": {}},
             "construction_provenance": {
                 "adapter_path": adapter_path,
                 "preset_path": None,
@@ -132,6 +130,8 @@ def _manifest(
             },
         },
     }
+    if tool_params is not None:
+        runtime["launch_contract"]["tool_params"] = {"effective": tool_params}
     if env_records is not None:
         runtime["launch_contract"]["env_records"] = dict(env_records)
     if runtime_extra is not None:
@@ -1603,19 +1603,7 @@ def test_build_launch_plan_resolves_claude_typed_launch_param(tmp_path: Path) ->
         home_path=tmp_path / "home",
         env_file=env_file,
         allowlisted_env_vars=["ANTHROPIC_API_KEY"],
-        recipe_overrides={"tool_params": {"include_partial_messages": True}},
-        tool_metadata={
-            "tool_params": {
-                "include_partial_messages": {
-                    "type": "boolean",
-                    "backends": {
-                        "claude_headless": {
-                            "args_when_true": ["--include-partial-messages"],
-                        }
-                    },
-                }
-            }
-        },
+        tool_params={"include_partial_messages": True},
     )
 
     role = load_role_package(tmp_path / "repo", "r")
@@ -1647,19 +1635,7 @@ def test_build_launch_plan_local_interactive_uses_raw_launch_surface(tmp_path: P
         home_path=tmp_path / "home",
         env_file=env_file,
         allowlisted_env_vars=["ANTHROPIC_API_KEY"],
-        recipe_overrides={"tool_params": {"include_partial_messages": True}},
-        tool_metadata={
-            "tool_params": {
-                "include_partial_messages": {
-                    "type": "boolean",
-                    "backends": {
-                        "raw_launch": {
-                            "args_when_true": ["--include-partial-messages"],
-                        }
-                    },
-                }
-            }
-        },
+        tool_params={"include_partial_messages": False},
     )
 
     role = load_role_package(tmp_path / "repo", "r")
@@ -1673,7 +1649,7 @@ def test_build_launch_plan_local_interactive_uses_raw_launch_surface(tmp_path: P
     )
 
     assert plan.role_injection.method == "native_append_system_prompt"
-    assert "--include-partial-messages" in plan.args
+    assert "--include-partial-messages" not in plan.args
     assert plan.metadata["launch_overrides"]["backend_resolution"]["backend"] == "raw_launch"
     assert plan.metadata["launch_overrides"]["backend_resolution"]["protocol_reserved_args"] == []
 
@@ -1690,11 +1666,11 @@ def test_build_launch_plan_rejects_codex_partial_streaming_tool_param(tmp_path: 
         home_path=tmp_path / "home",
         env_file=env_file,
         allowlisted_env_vars=["OPENAI_API_KEY"],
-        direct_overrides={"tool_params": {"include_partial_messages": True}},
+        tool_params={"include_partial_messages": True},
     )
 
     role = load_role_package(tmp_path / "repo", "r")
-    with pytest.raises(LaunchPlanError, match="tool `codex` exposes no supported"):
+    with pytest.raises(LaunchPlanError, match="Extra inputs are not permitted"):
         build_launch_plan(
             LaunchPlanRequest(
                 brain_manifest=manifest,
@@ -1719,19 +1695,7 @@ def test_build_launch_plan_rejects_cao_backend_when_it_cannot_honor_overrides(
         home_path=tmp_path / "home",
         env_file=env_file,
         allowlisted_env_vars=["ANTHROPIC_API_KEY"],
-        recipe_overrides={"tool_params": {"include_partial_messages": True}},
-        tool_metadata={
-            "tool_params": {
-                "include_partial_messages": {
-                    "type": "boolean",
-                    "backends": {
-                        "claude_headless": {
-                            "args_when_true": ["--include-partial-messages"],
-                        }
-                    },
-                }
-            }
-        },
+        tool_params={"include_partial_messages": True},
     )
 
     role = load_role_package(tmp_path / "repo", "r")

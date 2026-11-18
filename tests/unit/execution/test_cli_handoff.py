@@ -37,11 +37,14 @@ def test_launch_handoff_preserves_target_only_paths(monkeypatch, tmp_path: Path)
             "alice",
             "--workdir",
             "/foreign/workdir",
+            "--tool-params",
+            "@/foreign/params.yaml",
         ],
     )
     assert result.exit_code == 0, result.output
     assert calls[0][0] == "alice"
     assert calls[0][1]["workdir"] == Path("/foreign/workdir")
+    assert calls[0][1]["tool_params"] == "@/foreign/params.yaml"
     assert not (tmp_path / "foreign-project").exists()
 
 

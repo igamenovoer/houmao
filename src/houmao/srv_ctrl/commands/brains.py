@@ -13,6 +13,7 @@ from houmao.agents.brain_builder import (
     load_launch_overrides_input,
 )
 from houmao.agents.definition_parser import resolve_explicit_or_named_preset_path
+from houmao.agents.tool_params import parse_tool_params_cli_input
 from houmao.agents.realm_controller.agent_identity import AgentIdMode
 from houmao.owned_paths import resolve_runtime_root
 from houmao.project.overlay import (
@@ -73,6 +74,7 @@ def _missing_skill_input(*, explicit_skills: tuple[str, ...], preset_selected: b
     default=None,
     help="JSON/YAML overrides file applied on top of adapter and recipe defaults.",
 )
+@click.option("--tool-params", help="Per-tool parameters as JSON or @path.")
 @click.option(
     "--agent-name",
     default=None,
@@ -103,6 +105,7 @@ def build_brain_command(
     agent_name: str | None,
     agent_id: str | None,
     agent_id_mode: AgentIdMode | None,
+    tool_params: str | None = None,
 ) -> None:
     """Build one local brain home from `BuildRequest`-aligned inputs."""
 
@@ -156,6 +159,9 @@ def build_brain_command(
     assert resolved_auth is not None
 
     try:
+        direct_tool_params = (
+            parse_tool_params_cli_input(tool_params) if tool_params is not None else None
+        )
         result = build_brain_home(
             BuildRequest(
                 agent_def_dir=resolved_agent_def_dir,
@@ -167,6 +173,13 @@ def build_brain_command(
                 preset_launch_overrides=(
                     preset_payload.launch_overrides if preset_payload is not None else None
                 ),
+                direct_tool_params=direct_tool_params,
+                preset_tool_params=preset_payload.tool_params
+                if preset_payload is not None
+                else None,
+                preset_model_config=preset_payload.launch_model_config
+                if preset_payload is not None
+                else None,
                 source_system_skill_policy=(
                     preset_payload.launch_system_skill_policy
                     if preset_payload is not None
@@ -245,6 +258,7 @@ def build_brain_command(
     default=None,
     help="JSON/YAML overrides file applied on top of adapter and recipe defaults.",
 )
+@click.option("--tool-params", help="Per-tool parameters as JSON or @path.")
 @click.option(
     "--agent-name",
     default=None,
@@ -275,6 +289,7 @@ def build_native_agent_brain_command(
     agent_name: str | None,
     agent_id: str | None,
     agent_id_mode: AgentIdMode | None,
+    tool_params: str | None = None,
 ) -> None:
     """Build one local brain home from internal native-agent material."""
 
@@ -333,6 +348,9 @@ def build_native_agent_brain_command(
     assert resolved_auth is not None
 
     try:
+        direct_tool_params = (
+            parse_tool_params_cli_input(tool_params) if tool_params is not None else None
+        )
         result = build_brain_home(
             BuildRequest(
                 agent_def_dir=resolved_agent_def_dir,
@@ -344,6 +362,13 @@ def build_native_agent_brain_command(
                 preset_launch_overrides=(
                     preset_payload.launch_overrides if preset_payload is not None else None
                 ),
+                direct_tool_params=direct_tool_params,
+                preset_tool_params=preset_payload.tool_params
+                if preset_payload is not None
+                else None,
+                preset_model_config=preset_payload.launch_model_config
+                if preset_payload is not None
+                else None,
                 source_system_skill_policy=(
                     preset_payload.launch_system_skill_policy
                     if preset_payload is not None

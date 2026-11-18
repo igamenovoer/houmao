@@ -917,8 +917,8 @@ def test_failed_managed_turn_cannot_be_reported_as_successful_qualification(
     pages = iter([{"records": []}, {"records": [{"record_id": "failed-row", "outcome": "failed"}]}])
     monkeypatch.setattr(
         fixture_launch,
-        "_http",
-        lambda _base, _path, body=None: {"status": "ok"} if body is not None else next(pages),
+        "_gateway_request",
+        lambda _run, _path, body=None: {"status": "ok"} if body is not None else next(pages),
     )
     with pytest.raises(fixture_config.FixtureError, match="did not complete"):
         fixture_launch.prompt_run(root, prompt="controlled")

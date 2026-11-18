@@ -13,7 +13,16 @@ from houmao.agents.kimi_system_prompt import (
     force_kimi_v2_engine_env,
     validate_kimi_native_prompt_launch,
 )
-from houmao.agents.dsh_configuration import DshConfigurationError, DshSetup, prepare_dsh_home
+from houmao.agents.dsh_configuration import (
+    MATERIALIZED_DSH_TOOL_PARAMS,
+    DshConfigurationError,
+    DshEffectiveToolParams,
+    dsh_native_environment,
+    prepare_dsh_home,
+    read_dsh_mcp_environment,
+)
+from houmao.agents.dsh_credentials import require_dsh_credential_roles
+from houmao.agents.launch_env import validate_persistent_env_records
 from houmao.agents.model_mapping_policy import resolve_reasoning_mapping
 from houmao.agents.model_selection import parse_model_config
 from houmao.agents.kimi_workspace_trust import (
@@ -40,10 +49,8 @@ from houmao.agents.launch_overrides import (
     LaunchDefaults,
     LaunchOverrides,
     ResolvedLaunchBehavior,
-    ToolLaunchMetadata,
     parse_launch_defaults,
     parse_launch_overrides,
-    parse_tool_launch_metadata,
     resolve_launch_behavior,
 )
 from houmao.agents.launch_overrides.models import SupportedLaunchBackend
@@ -144,7 +151,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     }
     resolved_launch_behavior = _resolve_launch_behavior_from_contract(
         tool=tool,
-        backend=_launch_surface_for_backend(request.backend),
+        backend=launch_surface_for_backend(request.backend),
         launch_contract=launch_contract,
     )
     metadata["launch_overrides"] = resolved_launch_behavior.to_payload(
@@ -155,7 +162,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
             launch_contract.get("construction_provenance"),
             key="runtime.launch_contract.construction_provenance",
         ),
-        backend=_launch_surface_for_backend(request.backend),
+        backend=launch_surface_for_backend(request.backend),
     )
     args = list(resolved_launch_behavior.args_before_policy)
     if request.backend == "dsh_web" and args:
@@ -182,7 +189,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         metadata["headless_display_detail"] = "concise"
 
     requested_operator_prompt_mode = _requested_operator_prompt_mode(manifest)
-    policy_backend = _launch_surface_for_backend(request.backend)
+    policy_backend = launch_surface_for_backend(request.backend)
     policy_env = dict(env_values)
     override_strategy = os.environ.get(_LAUNCH_POLICY_OVERRIDE_ENV_VAR, "").strip()
     if override_strategy:
@@ -257,6 +264,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
             request=request,
             home_path=home_path,
             environment=env_values,
+            credential_source=env_source,
             launch_contract=launch_contract,
             executable=executable,
             detected_version=(
@@ -362,11 +370,22 @@ def read_launch_environment(
     env_contract = _require_mapping(credentials, "env_contract")
     launch_contract = _require_mapping(runtime, "launch_contract")
     tool = _require_str(inputs, "tool")
-    source = Path(_require_str(env_contract, "source_file")).resolve()
+    source = Path(_require_str(env_contract, "source_file"))
+    if tool != "dsh":
+        source = source.resolve()
     selected, selected_names = parse_allowlisted_env(
         source, _require_str_list(env_contract, "allowlisted_env_vars")
     )
     records = _persistent_launch_env_records(launch_contract)
+    if tool == "dsh":
+        try:
+            records = validate_persistent_env_records(
+                records,
+                auth_env_allowlist=_require_str_list(env_contract, "allowlisted_env_vars"),
+                source="DSH persistent launch environment",
+            )
+        except ValueError as exc:
+            raise LaunchPlanError(str(exc)) from exc
     selected.update(records)
     names = sorted({*selected_names, *records})
     if tool == "kimi":
@@ -386,6 +405,7 @@ def _prepare_dsh_launch(
     request: LaunchPlanRequest,
     home_path: Path,
     environment: dict[str, str],
+    credential_source: Path,
     launch_contract: dict[str, Any],
     executable: str,
     detected_version: str | None,
@@ -398,9 +418,12 @@ def _prepare_dsh_launch(
             "DSH requires version >=0.2.2-rc.1 with no upper version limit (release or rc only; "
             f"detected {version!r})."
         )
-    setup_path = home_path / "dsh-setup.yaml"
+    setup_path = home_path / MATERIALIZED_DSH_TOOL_PARAMS
     try:
-        setup = DshSetup.from_file(setup_path)
+        setup = DshEffectiveToolParams.from_file(setup_path)
+        require_dsh_credential_roles(
+            credential_source, base_url_env=setup.base_url_env, api_key_env=setup.api_key_env
+        )
         selection = _optional_model_selection_contract(launch_contract) or {}
         resolved = selection.get("resolved")
         effective = resolved.get("effective") if isinstance(resolved, dict) else None
@@ -413,6 +436,7 @@ def _prepare_dsh_launch(
                 requested_level=model_config.reasoning.level,
                 model_name=model_name,
                 home_path=home_path,
+                dsh_tool_params=setup,
             )
             reasoning_key = mapping.get("profile_key")
         if request.intent == "provider_start":
@@ -421,6 +445,7 @@ def _prepare_dsh_launch(
                 setup,
                 environment,
                 request.role_package.system_prompt,
+                credential_environment=read_dsh_mcp_environment(setup, credential_source),
                 selected_model=model_name,
                 reasoning_level=reasoning_key,
                 skill_roots=(home_path / "skills",),
@@ -446,17 +471,9 @@ def _prepare_dsh_launch(
                 )
             metadata = dict(projected)
             metadata["reasoning_level"] = reasoning_key
-            private_environment = {
-                "DSH_HOME": str(home_path),
-                "DSH_AGENTS_HOME": str(home_path / "shared-agents"),
-                **{
-                    name: environment[name]
-                    for name in (setup.api_key_env, setup.base_url_env)
-                    if name in environment
-                },
-            }
+            private_environment = dsh_native_environment(home_path, setup, environment)
         metadata["detected_tool_version"] = version
-        metadata["mcp_server_names"] = [str(server["name"]) for server in setup.mcp_servers]
+        metadata["mcp_server_names"] = [server.name for server in setup.mcp_servers]
         return metadata, private_environment
     except (DshConfigurationError, ValueError) as exc:
         raise LaunchPlanError(str(exc)) from exc
@@ -1217,7 +1234,7 @@ def _reject_unmaintained_backend(*, backend: BackendKind) -> None:
     )
 
 
-def _launch_surface_for_backend(backend: BackendKind) -> SupportedLaunchBackend:
+def launch_surface_for_backend(backend: BackendKind) -> SupportedLaunchBackend:
     """Return the launch-policy / overrides surface for one runtime backend."""
 
     if backend == "local_interactive":
@@ -1488,18 +1505,6 @@ def _parse_requested_launch_overrides(
         raise LaunchPlanError(str(exc)) from exc
 
 
-def _parse_tool_launch_metadata(launch_contract: dict[str, Any]) -> ToolLaunchMetadata:
-    """Parse tool-launch metadata from the manifest."""
-
-    try:
-        return parse_tool_launch_metadata(
-            launch_contract.get("tool_metadata"),
-            source="runtime.launch_contract.tool_metadata",
-        )
-    except ValueError as exc:
-        raise LaunchPlanError(str(exc)) from exc
-
-
 def _resolve_launch_behavior_from_contract(
     *,
     tool: str,
@@ -1507,6 +1512,16 @@ def _resolve_launch_behavior_from_contract(
     launch_contract: dict[str, Any],
 ) -> ResolvedLaunchBehavior:
     """Resolve backend-aware launch behavior from the manifest contract."""
+
+    legacy = launch_contract.get("tool_metadata")
+    if legacy and legacy != {"tool_params": {}}:
+        raise LaunchPlanError("Rebuild the brain to replace the legacy tool parameter projection.")
+    raw_tool_params = launch_contract.get("tool_params")
+    if raw_tool_params is not None and not isinstance(raw_tool_params, dict):
+        raise LaunchPlanError("Manifest launch tool_params must be a mapping.")
+    effective = raw_tool_params.get("effective") if raw_tool_params is not None else None
+    if effective is not None and not isinstance(effective, dict):
+        raise LaunchPlanError("Manifest effective tool_params must be a mapping.")
 
     try:
         return resolve_launch_behavior(
@@ -1521,7 +1536,7 @@ def _resolve_launch_behavior_from_contract(
                 launch_contract,
                 layer="direct",
             ),
-            metadata=_parse_tool_launch_metadata(launch_contract),
+            tool_params=effective,
         )
     except ValueError as exc:
         raise LaunchPlanError(str(exc)) from exc

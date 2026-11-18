@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from houmao.agents.dsh_configuration import DshSetup, prepare_dsh_home
+from houmao.agents.dsh_configuration import DshEffectiveToolParams, prepare_dsh_home
 from houmao.agents.realm_controller.backends.dsh_acp import DshAcpSession
 from houmao.agents.realm_controller.models import (
     HeadlessTurnSessionSelection,
@@ -23,27 +23,25 @@ def _launch_plan(root: Path, executable: Path, endpoint: str) -> tuple[LaunchPla
     home = root / "dsh-home"
     home.mkdir()
     (home / "skills").mkdir()
-    setup_path = root / "dsh-setup.json"
+    setup_path = root / "tool-params.json"
     setup_path.write_text(
         json.dumps(
             {
-                "version": 1,
                 "provider": {
                     "adapter": "deepseek",
                     "protocol": "messages",
                     "route": "deepseek-official",
-                    "base_url_env": "HOUMAO_SYNTHETIC_ENDPOINT",
-                    "api_key_env": "HOUMAO_SYNTHETIC_KEY",
+                    "base_url_env": "DSH_SYNTHETIC_ENDPOINT",
+                    "api_key_env": "DSH_SYNTHETIC_KEY",
                 },
                 "models": [
                     {
                         "id": "controlled",
                         "context_window": 8192,
                         "max_output_tokens": 128,
-                        "reasoning": False,
+                        "reasoning_efforts": False,
                     }
                 ],
-                "selected_model": "controlled",
             }
         )
     )
@@ -58,10 +56,10 @@ def _launch_plan(root: Path, executable: Path, endpoint: str) -> tuple[LaunchPla
         env={
             "PATH": os.environ["PATH"],
             "HOME": str(root / "user-home"),
-            "HOUMAO_SYNTHETIC_KEY": "synthetic-local-only",
-            "HOUMAO_SYNTHETIC_ENDPOINT": endpoint,
+            "DSH_SYNTHETIC_KEY": "synthetic-local-only",
+            "DSH_SYNTHETIC_ENDPOINT": endpoint,
         },
-        env_var_names=["HOUMAO_SYNTHETIC_KEY", "HOUMAO_SYNTHETIC_ENDPOINT"],
+        env_var_names=["DSH_SYNTHETIC_KEY", "DSH_SYNTHETIC_ENDPOINT"],
         role_injection=RoleInjectionPlan(
             method="native_system_prompt_section",
             role_name="controlled",
@@ -71,7 +69,7 @@ def _launch_plan(root: Path, executable: Path, endpoint: str) -> tuple[LaunchPla
     )
     prepare_dsh_home(
         home,
-        DshSetup.from_file(setup_path),
+        DshEffectiveToolParams.from_file(setup_path),
         plan.env,
         plan.role_injection.prompt,
         skill_roots=(home / "skills",),

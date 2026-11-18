@@ -15,6 +15,7 @@ from fastapi import HTTPException
 import pytest
 
 from houmao.agents.realm_controller.errors import BackendExecutionError
+from houmao.agents.realm_controller.backends.dsh_web_client import DshWebError
 from houmao.ag_ui.mapper import AgUiEventMapper
 from houmao.ag_ui.runtime import ag_ui_target_transport_family_for_backend
 from houmao.agents.realm_controller.gateway_models import (
@@ -304,6 +305,27 @@ def test_web_explicit_operator_policy_is_forwarded_only_when_requested(
     assert result.admission_policy == policy
     assert dispatched.call_args.kwargs["operator"] is True
     assert dispatched.call_args.kwargs["admission_policy"] == policy
+
+
+def test_web_gateway_reports_a_redacted_native_control_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Expose only the sanitized native diagnostic alongside the gateway refusal code."""
+
+    runtime, adapter, cancelled = _runtime(tmp_path, monkeypatch)
+    submit = Mock(
+        side_effect=DshWebError("not_ready", "Human turn active. Bearer private-provider-key")
+    )
+    monkeypatch.setattr(adapter, "submit_scoped_web_prompt", submit)
+    with pytest.raises(HTTPException) as failed:
+        runtime.control_prompt(GatewayPromptControlRequestV1(prompt="operator"))
+    assert failed.value.status_code == 409
+    assert failed.value.detail["error_code"] == "dispatch_failed"
+    detail = failed.value.detail["detail"]
+    assert "not_ready: Human turn active" in detail
+    assert "[REDACTED]" in detail and "private-provider-key" not in detail
+    submit.assert_called_once()
+    cancelled.assert_called_once()
 
 
 def test_web_new_session_is_explicit_ready_only_and_uses_guarded_backend_reset(

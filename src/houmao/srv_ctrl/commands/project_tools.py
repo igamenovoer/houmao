@@ -107,154 +107,57 @@ def _emit_tool_setup_remove(*, tool: str, name: str) -> None:
     )
 
 
-@project_tools_group.group(name="claude")
-def claude_tool_group() -> None:
-    """Manage the project-local Claude tool subtree."""
+def _register_tool_commands(tool: str) -> click.Group:
+    """Build one project-local tool group."""
+
+    @click.group(
+        name=tool, help=f"Manage project-local content under `.houmao/agents/tools/{tool}/`."
+    )
+    def tool_group() -> None:
+        """Manage one project-local tool subtree."""
+
+    @tool_group.command(name="get")
+    def get_tool_command() -> None:
+        """Inspect one project-local tool subtree."""
+
+        _emit_tool_get(tool=tool)
+
+    @tool_group.group(name="setups")
+    def setups_group() -> None:
+        """Manage project-local setup bundles for this tool."""
+
+    @setups_group.command(name="list")
+    def list_setups_command() -> None:
+        """List project-local setup bundles."""
+
+        _emit_tool_setup_list(tool=tool)
+
+    @setups_group.command(name="get")
+    @click.option("--name", required=True, help="Setup bundle name.")
+    def get_setup_command(name: str) -> None:
+        """Inspect one project-local setup bundle."""
+
+        _emit_tool_setup_get(tool=tool, name=name)
+
+    @setups_group.command(name="add")
+    @click.option("--name", required=True, help="New setup bundle name.")
+    @click.option(
+        "--from", "source_name", default="default", show_default=True, help="Source setup name."
+    )
+    def add_setup_command(name: str, source_name: str) -> None:
+        """Clone one project-local setup bundle."""
+
+        _emit_tool_setup_add(tool=tool, name=name, source_name=source_name)
+
+    @setups_group.command(name="remove")
+    @click.option("--name", required=True, help="Setup bundle name to remove.")
+    def remove_setup_command(name: str) -> None:
+        """Remove one project-local setup bundle."""
+
+        _emit_tool_setup_remove(tool=tool, name=name)
+
+    return tool_group
 
 
-@claude_tool_group.command(name="get")
-def get_claude_project_tool_command() -> None:
-    """Inspect the project-local Claude tool subtree."""
-
-    _emit_tool_get(tool="claude")
-
-
-@claude_tool_group.group(name="setups")
-def claude_tool_setups_group() -> None:
-    """Manage Claude setup bundles under `.houmao/agents/tools/claude/setups/`."""
-
-
-@claude_tool_setups_group.command(name="list")
-def list_claude_project_setups_command() -> None:
-    """List project-local Claude setup bundles."""
-
-    _emit_tool_setup_list(tool="claude")
-
-
-@claude_tool_setups_group.command(name="get")
-@click.option("--name", required=True, help="Setup bundle name.")
-def get_claude_project_setup_command(name: str) -> None:
-    """Inspect one project-local Claude setup bundle."""
-
-    _emit_tool_setup_get(tool="claude", name=name)
-
-
-@claude_tool_setups_group.command(name="add")
-@click.option("--name", required=True, help="New setup bundle name.")
-@click.option(
-    "--from", "source_name", default="default", show_default=True, help="Source setup name."
-)
-def add_claude_project_setup_command(name: str, source_name: str) -> None:
-    """Clone one project-local Claude setup bundle."""
-
-    _emit_tool_setup_add(tool="claude", name=name, source_name=source_name)
-
-
-@claude_tool_setups_group.command(name="remove")
-@click.option("--name", required=True, help="Setup bundle name to remove.")
-def remove_claude_project_setup_command(name: str) -> None:
-    """Remove one project-local Claude setup bundle."""
-
-    _emit_tool_setup_remove(tool="claude", name=name)
-
-
-@project_tools_group.group(name="codex")
-def codex_tool_group() -> None:
-    """Manage the project-local Codex tool subtree."""
-
-
-@codex_tool_group.command(name="get")
-def get_codex_project_tool_command() -> None:
-    """Inspect the project-local Codex tool subtree."""
-
-    _emit_tool_get(tool="codex")
-
-
-@codex_tool_group.group(name="setups")
-def codex_tool_setups_group() -> None:
-    """Manage Codex setup bundles under `.houmao/agents/tools/codex/setups/`."""
-
-
-@codex_tool_setups_group.command(name="list")
-def list_codex_project_setups_command() -> None:
-    """List project-local Codex setup bundles."""
-
-    _emit_tool_setup_list(tool="codex")
-
-
-@codex_tool_setups_group.command(name="get")
-@click.option("--name", required=True, help="Setup bundle name.")
-def get_codex_project_setup_command(name: str) -> None:
-    """Inspect one project-local Codex setup bundle."""
-
-    _emit_tool_setup_get(tool="codex", name=name)
-
-
-@codex_tool_setups_group.command(name="add")
-@click.option("--name", required=True, help="New setup bundle name.")
-@click.option(
-    "--from", "source_name", default="default", show_default=True, help="Source setup name."
-)
-def add_codex_project_setup_command(name: str, source_name: str) -> None:
-    """Clone one project-local Codex setup bundle."""
-
-    _emit_tool_setup_add(tool="codex", name=name, source_name=source_name)
-
-
-@codex_tool_setups_group.command(name="remove")
-@click.option("--name", required=True, help="Setup bundle name to remove.")
-def remove_codex_project_setup_command(name: str) -> None:
-    """Remove one project-local Codex setup bundle."""
-
-    _emit_tool_setup_remove(tool="codex", name=name)
-
-
-@project_tools_group.group(name="kimi")
-def kimi_tool_group() -> None:
-    """Manage the project-local Kimi tool subtree."""
-
-
-@kimi_tool_group.command(name="get")
-def get_kimi_project_tool_command() -> None:
-    """Inspect the project-local Kimi tool subtree."""
-
-    _emit_tool_get(tool="kimi")
-
-
-@kimi_tool_group.group(name="setups")
-def kimi_tool_setups_group() -> None:
-    """Manage Kimi setup bundles under `.houmao/agents/tools/kimi/setups/`."""
-
-
-@kimi_tool_setups_group.command(name="list")
-def list_kimi_project_setups_command() -> None:
-    """List project-local Kimi setup bundles."""
-
-    _emit_tool_setup_list(tool="kimi")
-
-
-@kimi_tool_setups_group.command(name="get")
-@click.option("--name", required=True, help="Setup bundle name.")
-def get_kimi_project_setup_command(name: str) -> None:
-    """Inspect one project-local Kimi setup bundle."""
-
-    _emit_tool_setup_get(tool="kimi", name=name)
-
-
-@kimi_tool_setups_group.command(name="add")
-@click.option("--name", required=True, help="New setup bundle name.")
-@click.option(
-    "--from", "source_name", default="default", show_default=True, help="Source setup name."
-)
-def add_kimi_project_setup_command(name: str, source_name: str) -> None:
-    """Clone one project-local Kimi setup bundle."""
-
-    _emit_tool_setup_add(tool="kimi", name=name, source_name=source_name)
-
-
-@kimi_tool_setups_group.command(name="remove")
-@click.option("--name", required=True, help="Setup bundle name to remove.")
-def remove_kimi_project_setup_command(name: str) -> None:
-    """Remove one project-local Kimi setup bundle."""
-
-    _emit_tool_setup_remove(tool="kimi", name=name)
+for _tool in _SUPPORTED_PROJECT_TOOLS:
+    project_tools_group.add_command(_register_tool_commands(_tool))

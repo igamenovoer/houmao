@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Final
+from typing import Any, Final
 
 from houmao.agents.launch_overrides.models import (
-    JsonValue,
     LaunchArgsSection,
     LaunchDefaults,
     LaunchOverrides,
     SupportedLaunchBackend,
-    ToolLaunchMetadata,
-    clone_json_mapping,
 )
+from houmao.agents.tool_params import get_tool_params_adapter
 
 _RESERVED_ARGS_BY_BACKEND: Final[dict[SupportedLaunchBackend, tuple[str, ...]]] = {
     "raw_launch": (),
@@ -56,7 +55,6 @@ class MergedLaunchIntent:
     """Merged launch intent before backend resolution."""
 
     args: tuple[str, ...]
-    tool_params: dict[str, JsonValue]
     selected_args_section: LaunchArgsSection | None
 
     def to_payload(self) -> dict[str, object]:
@@ -64,7 +62,6 @@ class MergedLaunchIntent:
 
         payload: dict[str, object] = {
             "args": list(self.args),
-            "tool_params": clone_json_mapping(self.tool_params),
         }
         if self.selected_args_section is not None:
             payload["selected_args_section"] = self.selected_args_section.to_payload()
@@ -145,15 +142,8 @@ def merge_launch_intent(
     else:
         effective_args = selected_args_section.values
 
-    merged_tool_params = clone_json_mapping(adapter_defaults.tool_params)
-    if recipe_overrides is not None:
-        merged_tool_params.update(clone_json_mapping(recipe_overrides.tool_params))
-    if direct_overrides is not None:
-        merged_tool_params.update(clone_json_mapping(direct_overrides.tool_params))
-
     return MergedLaunchIntent(
         args=effective_args,
-        tool_params=merged_tool_params,
         selected_args_section=selected_args_section,
     )
 
@@ -165,7 +155,7 @@ def resolve_launch_behavior(
     adapter_defaults: LaunchDefaults,
     recipe_overrides: LaunchOverrides | None,
     direct_overrides: LaunchOverrides | None,
-    metadata: ToolLaunchMetadata,
+    tool_params: Mapping[str, Any] | None = None,
 ) -> ResolvedLaunchBehavior:
     """Resolve effective launch behavior for one backend."""
 
@@ -174,12 +164,19 @@ def resolve_launch_behavior(
         recipe_overrides=recipe_overrides,
         direct_overrides=direct_overrides,
     )
+    adapter = get_tool_params_adapter(tool) if tool_params is not None else None
+    effective = (
+        adapter.parse_effective(tool_params, source="effective tool_params")
+        if adapter is not None and tool_params is not None
+        else None
+    )
 
     if backend in _UNSUPPORTED_OVERRIDE_BACKENDS:
         unsupported_fields: list[str] = []
         if merged.args:
             unsupported_fields.append("args")
-        unsupported_fields.extend(f"tool_params.{key}" for key in sorted(merged.tool_params))
+        if effective is not None and effective.model_dump(exclude_defaults=True):
+            unsupported_fields.append("tool_params")
         if unsupported_fields:
             joined = ", ".join(unsupported_fields)
             raise ValueError(
@@ -192,26 +189,9 @@ def resolve_launch_behavior(
             args_before_policy=(),
         )
 
-    metadata.validate_requested_tool_params(
-        tool=tool,
-        tool_params=merged.tool_params,
-        source="merged launch_overrides.tool_params",
-    )
-
-    translated_args: list[str] = []
-    for key in sorted(merged.tool_params):
-        definition = metadata.tool_params[key]
-        projection = definition.backends.get(backend)
-        if projection is None:
-            raise ValueError(
-                f"`launch_overrides.tool_params.{key}` is unsupported for backend={backend!r}"
-            )
-        translated_args.extend(
-            projection.project(
-                merged.tool_params[key],
-                source=f"launch_overrides.tool_params.{key}",
-            )
-        )
+    translated_args: tuple[str, ...] = ()
+    if adapter is not None and effective is not None:
+        translated_args = adapter.prepare_launch(effective, backend=backend)
 
     args_before_policy = (*merged.args, *translated_args)
     conflicts = _find_reserved_arg_conflicts(
@@ -228,7 +208,7 @@ def resolve_launch_behavior(
 
     return ResolvedLaunchBehavior(
         merged=merged,
-        translated_args=tuple(translated_args),
+        translated_args=translated_args,
         args_before_policy=args_before_policy,
     )
 

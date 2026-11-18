@@ -62,6 +62,7 @@ from houmao.agents.managed_prompt_header import (
 )
 from houmao.agents.managed_launch_force import ManagedLaunchForceMode
 from houmao.agents.launch_policy.models import LaunchPolicyProvenance
+from houmao.agents.dsh_configuration import DSH_LOCAL_API_KEY_ENV
 from houmao.agents.kimi_system_prompt import (
     KimiSystemPromptError,
     validate_kimi_v2_engine_env,
@@ -3682,6 +3683,20 @@ def _launch_plan_with_transient_env_overrides(
     if not env_overrides:
         return launch_plan
 
+    if launch_plan.tool == "dsh":
+        dsh_metadata = launch_plan.metadata.get("dsh")
+        dsh = dsh_metadata if isinstance(dsh_metadata, dict) else {}
+        names = {
+            name
+            for name in (dsh.get("api_key_env"), dsh.get("base_url_env"), DSH_LOCAL_API_KEY_ENV)
+            if isinstance(name, str)
+        }
+        colliding = names.intersection(env_overrides)
+        if colliding:
+            raise SessionManifestError(
+                "One-shot launch environment overrides DSH credential binding "
+                + ", ".join(sorted(colliding))
+            )
     base_env_names = set(launch_plan.env_var_names)
     updated_env = dict(launch_plan.env)
     updated_env.update(env_overrides)

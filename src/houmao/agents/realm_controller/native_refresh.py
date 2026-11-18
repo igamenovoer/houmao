@@ -308,16 +308,28 @@ def observe_common_plugins(controller: RuntimeSessionController) -> CommonPlugin
     if home.backend == "dsh_acp":
         # The loader reads the currently materialized setup and native patch on
         # every ordinary attempt. No worker is created for this qualification.
-        from houmao.agents.dsh_configuration import DshSetup, load_dsh_home
+        from houmao.agents.dsh_configuration import (
+            MATERIALIZED_DSH_TOOL_PARAMS,
+            DshEffectiveToolParams,
+            load_dsh_home,
+            read_dsh_mcp_environment,
+        )
 
         metadata = controller.launch_plan.metadata.get("dsh", {})
         setup_path = metadata.get("setup_path") if isinstance(metadata, dict) else None
-        setup = DshSetup.from_file(
+        setup = DshEffectiveToolParams.from_file(
             Path(setup_path)
             if isinstance(setup_path, str)
-            else controller.launch_plan.home_path / "dsh-setup.yaml"
+            else controller.launch_plan.home_path / MATERIALIZED_DSH_TOOL_PARAMS
         )
-        load_dsh_home(controller.launch_plan.home_path, setup, controller.launch_plan.env)
+        load_dsh_home(
+            controller.launch_plan.home_path,
+            setup,
+            controller.launch_plan.env,
+            credential_environment=read_dsh_mcp_environment(
+                setup, controller.launch_plan.metadata.get("env_source_file")
+            ),
+        )
         try:
             selected = subprocess.run(
                 [controller.launch_plan.executable, "--version"],

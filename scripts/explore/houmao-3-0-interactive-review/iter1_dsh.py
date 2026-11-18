@@ -40,7 +40,7 @@ from common import (  # noqa: E402
     run_real_tmux,
 )
 
-from houmao.agents.dsh_configuration import DshSetup  # noqa: E402
+from houmao.agents.dsh_configuration import DshEffectiveToolParams  # noqa: E402
 from houmao.agents.launch_policy import DSH_SUPPORTED_VERSIONS, is_supported_dsh_version  # noqa: E402
 from houmao.agents.realm_controller.gateway_access_runtime import (  # noqa: E402
     load_gateway_admin_seed,
@@ -251,8 +251,8 @@ def _probe_isolated_tmux(run_root: Path) -> dict[str, Any]:
     }
 
 
-def _parse_reasoning_option(raw: str) -> Any:
-    """Parse `--reasoning` option allowing `false` or a canonical numbered JSON dict."""
+def _parse_reasoning_option(raw: str) -> bool | dict[str, str | None]:
+    """Read false or a native slot-to-wire mapping, including null for off."""
 
     stripped = raw.strip()
     if stripped.lower() == "false":
@@ -260,53 +260,41 @@ def _parse_reasoning_option(raw: str) -> Any:
     parsed = json.loads(stripped)
     if not isinstance(parsed, dict) or not parsed:
         raise ValueError("`--reasoning` must be `false` or a non-empty JSON mapping")
-    return {str(key): str(val) for key, val in parsed.items()}
+    if any(not isinstance(value, str) and value is not None for value in parsed.values()):
+        raise ValueError("`--reasoning` values must be strings or null")
+    return parsed
 
 
-def _write_dsh_setup(
-    project_dir: Path,
+def _dsh_tool_params(
     *,
     spec: ArmSpec,
     model_id: str,
     context_window: int,
     max_output_tokens: int,
-    reasoning: Any,
-) -> Path:
-    """Write explicit `dsh-setup.yaml` in the target project's setup directory."""
+    reasoning: bool | dict[str, str | None],
+    api_key_env: str | None,
+    compat: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Compose the exact DSH tool parameters for specialist authoring."""
 
-    setup_path = (
-        project_dir
-        / ".houmao"
-        / "agents"
-        / "tools"
-        / "dsh"
-        / "setups"
-        / spec.setup_name
-        / "dsh-setup.yaml"
-    )
-    payload = {
-        "version": 1,
+    model: dict[str, Any] = {
+        "id": model_id,
+        "context_window": context_window,
+        "max_output_tokens": max_output_tokens,
+        "reasoning_efforts": reasoning,
+    }
+    if compat is not None:
+        model["compat"] = compat
+    return {
         "provider": {
             "adapter": spec.adapter,
             "protocol": spec.protocol,
             "route": spec.route,
             "base_url_env": spec.base_url_env,
-            "api_key_env": spec.api_key_env,
+            "api_key_env": api_key_env,
         },
-        "models": [
-            {
-                "id": model_id,
-                "context_window": context_window,
-                "max_output_tokens": max_output_tokens,
-                "reasoning": reasoning,
-            }
-        ],
-        "selected_model": model_id,
-        "skill_roots": [],
-        "mcp_servers": [],
-        "hmr": False,
+        "models": [model],
     }
-    return private_write_text(setup_path, yaml.safe_dump(payload, sort_keys=False))
 
 
 def _print_watch_banner(
@@ -417,7 +405,7 @@ def cmd_a0(args: argparse.Namespace) -> int:
     env = _isolated_env(args, project_dir=proj)
 
     init_res = run_houmao_mgr(["project", "init"], env=env, cwd=proj)
-    setup_path = proj / ".houmao/agents/tools/dsh/setups/default/dsh-setup.yaml"
+    setup_path = proj / ".houmao/agents/tools/dsh/setups/default/tool-params.yaml"
     starter_setup = setup_path.read_text(encoding="utf-8") if setup_path.is_file() else ""
 
     spec_res = run_houmao_mgr(
@@ -475,14 +463,15 @@ def cmd_a0(args: argparse.Namespace) -> int:
         except Exception as exc:  # noqa: BLE001
             version_probes.append({"label": "host-inspect-runtime", "ok": False, "error": str(exc)})
 
-    _write_dsh_setup(
-        proj,
+    probe_params = _dsh_tool_params(
         spec=ARM_SPECS["a1"],
         model_id="deepseek-chat",
         context_window=128000,
         max_output_tokens=8192,
         reasoning=False,
+        api_key_env=ARM_SPECS["a1"].api_key_env,
     )
+    private_write_text(setup_path, yaml.safe_dump(probe_params, sort_keys=False))
     missing_cred_launch = run_houmao_mgr(
         [
             "project",
@@ -560,7 +549,7 @@ def cmd_gen_admin_keys(args: argparse.Namespace) -> int:
 
 
 def cmd_setup_arm(args: argparse.Namespace) -> int:
-    """Prepare isolated project, credentials, setup YAML, specialist, profile, and optional admin keys."""
+    """Prepare an isolated specialist, profile, credential bundle, and optional admin keys."""
 
     run_root = Path(args.run_root).resolve()
     spec = ARM_SPECS[args.arm]
@@ -569,7 +558,12 @@ def cmd_setup_arm(args: argparse.Namespace) -> int:
     env = _isolated_env(args, project_dir=proj)
 
     if args.lane_override == "cloud-api" or spec.lane == "cloud-api":
-        env_values = parse_env_file(Path(args.env_file).resolve())
+        if args.env_file is None:
+            raise ValueError("Cloud arms require an explicitly selected external --env-file")
+        credential_file = Path(args.env_file).resolve()
+        if credential_file.is_relative_to(REPO_ROOT):
+            raise ValueError("Cloud credential env files must remain outside the checkout")
+        env_values = parse_env_file(credential_file)
         api_key = env_values.get(spec.api_key_env, "")
         base_url = args.base_url or env_values.get(spec.base_url_env, "")
         if not api_key or not base_url:
@@ -578,13 +572,34 @@ def cmd_setup_arm(args: argparse.Namespace) -> int:
             )
     else:
         base_url = args.base_url or ""
-        api_key = args.api_key or "EMPTY"
+        api_key = args.api_key or ""
         if not base_url:
             raise ValueError(f"`--base-url` is required for self-hosted arm `{args.arm}`")
 
     context_window = args.context_window or spec.default_context_window
     max_output_tokens = args.max_output_tokens or spec.default_max_output_tokens
-    reasoning = _parse_reasoning_option(args.reasoning)
+    qwen_38 = spec.adapter == "pi-ai" and args.model == "Qwen/Qwen3.8-27B-FP8"
+    reasoning: bool | dict[str, str | None] = False
+    compat = None
+    if qwen_38:
+        reasoning = {"off": "none", "low": "low", "medium": "medium", "high": "high"}
+        compat = {"supports_developer_role": False}
+    if args.reasoning is not None:
+        reasoning = _parse_reasoning_option(args.reasoning)
+    if args.compat is not None:
+        compat = json.loads(args.compat)
+        if not isinstance(compat, dict):
+            raise ValueError("`--compat` must be a JSON mapping")
+    tool_params = _dsh_tool_params(
+        spec=spec,
+        model_id=args.model,
+        context_window=context_window,
+        max_output_tokens=max_output_tokens,
+        reasoning=reasoning,
+        api_key_env=spec.api_key_env if api_key else None,
+        compat=compat,
+    )
+    configured_model, _ = DshEffectiveToolParams.from_mapping(tool_params).select_model(args.model)
 
     steps: list[dict[str, Any]] = []
     init_res = run_houmao_mgr(["project", "init"], env=env, cwd=proj, print_json=True)
@@ -602,11 +617,13 @@ def cmd_setup_arm(args: argparse.Namespace) -> int:
         cred_name,
         "--adapter",
         spec.adapter,
-        "--api-key",
-        api_key,
         "--base-url",
         base_url,
+        "--base-url-env",
+        spec.base_url_env,
     ]
+    if api_key:
+        cred_args.extend(["--api-key", api_key, "--api-key-env", spec.api_key_env])
     cred_res = run_houmao_mgr(
         ["project", "credentials", "dsh", "add", *cred_args],
         env=env,
@@ -615,6 +632,8 @@ def cmd_setup_arm(args: argparse.Namespace) -> int:
     )
     if cred_res.returncode != 0 and "already exists" in cred_res.stderr:
         cred_op = "set"
+        if not api_key:
+            cred_args.append("--clear-api-key")
         cred_res = run_houmao_mgr(
             ["project", "credentials", "dsh", "set", *cred_args],
             env=env,
@@ -632,15 +651,9 @@ def cmd_setup_arm(args: argparse.Namespace) -> int:
         print(json.dumps({"steps": steps}, indent=2))
         return cred_res.returncode
 
-    setup_path = _write_dsh_setup(
-        proj,
-        spec=spec,
-        model_id=args.model,
-        context_window=context_window,
-        max_output_tokens=max_output_tokens,
-        reasoning=reasoning,
+    tool_params_path = private_write_text(
+        arm_dir / "tool-params.yaml", yaml.safe_dump(tool_params, sort_keys=False)
     )
-    validated_setup = DshSetup.from_file(setup_path)
 
     specialist_name = args.specialist_name or f"iter1-{spec.name}-dsh"
     spec_res = run_houmao_mgr(
@@ -658,6 +671,8 @@ def cmd_setup_arm(args: argparse.Namespace) -> int:
             cred_name,
             "--model",
             args.model,
+            "--tool-params",
+            f"@{tool_params_path}",
             "--system-prompt",
             ROLE_PROMPT,
             "--no-system-skills",
@@ -752,15 +767,16 @@ def cmd_setup_arm(args: argparse.Namespace) -> int:
         "lane": spec.lane,
         "headless": spec.headless,
         "project_dir": str(proj),
-        "setup_path": str(setup_path),
+        "tool_params_path": str(tool_params_path),
         "specialist_name": specialist_name,
         "agent_name": agent_name,
         "profile_name": profile_name,
         "profile": profile_get.parse_json_stdout(),
-        "model": validated_setup.selected_model,
+        "model": configured_model.id,
         "context_window": context_window,
         "max_output_tokens": max_output_tokens,
         "reasoning": reasoning,
+        "compat": compat,
         "base_url": base_url,
         "tmux_server": args.tmux_server,
         "access_root": str(Path(args.access_root).resolve()),
@@ -815,6 +831,22 @@ def cmd_launch(args: argparse.Namespace) -> int:
     res = run_houmao_mgr(cmd_args, env=env, cwd=proj, print_json=True)
     elapsed = round(time.monotonic() - t0, 3)
     payload = res.parse_json_stdout()
+    if payload is None and res.returncode == 0:
+        # Interactive launch in a captured subprocess also emits a terminal handoff record.
+        try:
+            stdout = res.stdout.lstrip()
+            completion, end = json.JSONDecoder().raw_decode(stdout)
+            handoff = json.loads(stdout[end:])
+        except ValueError:
+            pass
+        else:
+            if (
+                isinstance(completion, dict)
+                and isinstance(completion.get("agent_id"), str)
+                and isinstance(handoff, dict)
+                and handoff.get("terminal_handoff") == "skipped_non_interactive"
+            ):
+                payload = completion
     if res.returncode == 0 and isinstance(payload, dict):
         state["launched"] = True
         state["agent_id"] = payload.get("agent_id")
@@ -998,8 +1030,8 @@ def cmd_watch(args: argparse.Namespace) -> int:
     )
     gw_payload = gw_status.parse_json_stdout()
     port = state.get("gateway_port")
-    if isinstance(gw_payload, dict) and isinstance(gw_payload.get("port"), int):
-        port = gw_payload["port"]
+    if isinstance(gw_payload, dict) and isinstance(gw_payload.get("gateway_port"), int):
+        port = gw_payload["gateway_port"]
 
     gateway_probe: dict[str, Any] = {"probed": False}
     if isinstance(port, int) and port > 0:
@@ -1167,13 +1199,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_setup = sub.add_parser("setup-arm", help="Prepare an isolated Iteration 1 arm")
     p_setup.add_argument("--arm", choices=sorted(ARM_SPECS), required=True)
-    p_setup.add_argument("--model", required=True, help="Exact model ID for dsh-setup.yaml")
-    p_setup.add_argument("--env-file", default=str(REPO_ROOT / ".env"), help="Dotenv for cloud-api")
+    p_setup.add_argument("--model", required=True, help="Exact model ID for tool-params.yaml")
+    p_setup.add_argument("--env-file", help="Explicit external dotenv for cloud-api")
     p_setup.add_argument("--base-url", default=None, help="Explicit provider endpoint URL override")
     p_setup.add_argument("--api-key", default=None, help="Explicit self-hosted API key override")
     p_setup.add_argument("--context-window", type=int, default=None)
     p_setup.add_argument("--max-output-tokens", type=int, default=None)
-    p_setup.add_argument("--reasoning", default="false", help="`false` or canonical JSON dict")
+    p_setup.add_argument(
+        "--reasoning", help="DSH reasoning JSON: false or a native slot-to-wire mapping"
+    )
+    p_setup.add_argument("--compat", help="DSH model compatibility as a JSON mapping")
     p_setup.add_argument("--lane-override", choices=("cloud-api", "self-hosted"), default=None)
     p_setup.add_argument("--specialist-name", default=None, help="Custom specialist name override")
     p_setup.add_argument("--profile-name", default=None, help="Custom launch profile name override")

@@ -1,9 +1,7 @@
 # DSH Headless Setup
 
-Edit `dsh-setup.yaml` to declare the exact selected model and its context/output capacities before launching. The empty model catalog deliberately fails validation. Houmao does not inherit a shipped model or oversized capacity fallback.
+Declare exact models in `tool-params.yaml` or a higher-priority `tool_params` layer before launching. Each model entry needs `id`, `context_window`, `max_output_tokens`, and `reasoning_efforts`. Use `false` for a model without reasoning or a map of native slots to wire values. Quote the YAML key `'off'`. Set Houmao `model.name` when the effective catalog contains several models.
 
-The native `deepseek` adapter requires `messages` and resolves the explicit `DEEPSEEK_BASE_URL_ANTHROPIC` and `DEEPSEEK_API_KEY` references from the selected local auth bundle. A generic route instead uses `adapter: pi-ai`, `protocol: openai-completions`, an explicit route name, and its own endpoint/key references. Endpoints must support the declared protocol. Do not place key values in this setup file.
+The native `deepseek` route uses the Messages protocol. Match the setup's `DEEPSEEK_BASE_URL_ANTHROPIC` and `DEEPSEEK_API_KEY` references to the selected credential bundle's roles.
 
-Add model entries with `id`, `context_window`, `max_output_tokens`, and explicit `reasoning` metadata. Set `selected_model` to one declared model ID. Selected skills and MCP servers remain explicit; managed profiles disable implicit user skill roots and HMR. DSH native login and interactive Web control are outside the first headless change.
-
-The sibling `openai-compatible` setup supplies the generic pi-ai/Chat Completions route with `OPENAI_BASE_URL` and `OPENAI_API_KEY`. Its model catalog is also deliberately empty. Create the credential with the matching explicit `--adapter` selection; both setups require an endpoint that implements the selected protocol.
+The sibling `openai-compatible` setup selects endpoint-only pi-ai Chat Completions with an `OPENAI_BASE_URL` endpoint role. The endpoint must accept the public `Authorization: Bearer houmao-local-no-auth` header that DSH sends. For an authenticated compatible route, set `provider.api_key_env` to the bundle's API-key role. The `provider.compat` and `models[].compat` settings accept options supported by the selected pi-ai protocol.

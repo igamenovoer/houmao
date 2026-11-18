@@ -81,16 +81,14 @@ Current manifest-level launch-policy artifacts:
 - runtime-managed session manifests and redacted launch plans may persist typed `launch_policy_provenance` metadata describing requested mode, detected version, selected strategy, and override source,
 - current build flows resolve omitted prompt mode to unattended before manifest write; `as_is` is the explicit pass-through opt-out.
 
-Current manifest-level launch-override artifacts:
+Build manifests use `schema_version=3` and record how Houmao constructed the launch inputs.
 
-- build manifests now use `schema_version=4`,
-- `runtime.launch_contract.adapter_defaults` snapshots adapter-owned default args and typed tool-param defaults,
-- `runtime.launch_contract.requested_overrides` stores the secret-free recipe and direct-build `launch_overrides` layers separately,
-- `runtime.launch_contract.tool_metadata` persists the declarative supported optional-launch metadata needed for runtime resolution,
-- `runtime.launch_contract.construction_provenance` records builder-time source metadata without persisting secrets,
-- build manifests intentionally do not store backend-resolved effective args because backend applicability is resolved later, at launch-plan time.
+- `runtime.launch_contract.adapter_defaults` snapshots adapter-owned default arguments.
+- `runtime.launch_contract.requested_overrides` stores the secret-free preset and direct-build argument overrides.
+- `runtime.launch_contract.tool_params.layers` stores validated partial settings from the adapter, setup, preset, launch profile, and direct build. `runtime.launch_contract.tool_params.effective` stores the merged settings. Credential-bearing settings such as DSH MCP headers retain their `env_ref` references here.
+- `runtime.launch_contract.construction_provenance` records the sources used during the build.
 
-Operational note: the current runtime loader rejects any `schema_version` other than 4. Rebuild older brain homes with the current builder before starting or resuming sessions against them.
+The launch planner resolves backend-specific arguments when it selects the backend. Rebuild a brain home if its manifest uses an unsupported schema version or contains legacy tool-parameter projection rules.
 
 ## Runtime-Owned Mailbox Credential Artifacts
 

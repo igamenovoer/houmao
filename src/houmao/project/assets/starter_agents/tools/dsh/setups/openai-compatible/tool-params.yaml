@@ -1,12 +1,10 @@
-version: 1
 provider:
   adapter: pi-ai
   protocol: openai-completions
   route: houmao-compatible
   base_url_env: OPENAI_BASE_URL
-  api_key_env: OPENAI_API_KEY
+  api_key_env: null
 models: []
-selected_model: null
 skill_roots: []
 mcp_servers: []
 hmr: false

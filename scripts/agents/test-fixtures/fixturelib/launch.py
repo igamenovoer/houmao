@@ -17,6 +17,13 @@ from urllib.error import URLError
 from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
+from houmao.agents.realm_controller.gateway_access_runtime import owner_gateway_client_binding
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayControlInputRequestV1,
+    GatewayPromptControlRequestV1,
+)
+from houmao.gateway.client import GatewayClient, GatewayHttpError
+
 from fixturelib.auth import private_write, write_json
 from fixturelib.config import FixtureError
 from fixturelib.prepare import (
@@ -108,6 +115,49 @@ def _http(base: str, path: str, body: dict[str, Any] | None = None) -> dict[str,
     return result
 
 
+def manager_gateway(run: dict[str, Any]) -> GatewayClient:
+    """Bind requests to the captured gateway and current fixture self signer."""
+
+    identity = run["identity"]
+    try:
+        with command_environment(run_environment(run)):
+            binding, generation = owner_gateway_client_binding(
+                Path(identity["manifest_path"]),
+                port=identity["gateway_port"],
+                private=True,
+                prefer_self=True,
+            )
+        if binding is None:
+            raise ValueError("Missing current fixture binding")
+        return GatewayClient(binding=binding, target_incarnation=generation, timeout_seconds=20)
+    except (KeyError, OSError, RuntimeError, ValueError):
+        raise FixtureError("Current fixture gateway authority is unavailable") from None
+
+
+def _gateway_request(
+    run: dict[str, Any], path: str, body: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Call a fixture-owned gateway operation with owner-local proof."""
+
+    client = manager_gateway(run)
+    try:
+        if path == "/v1/usage":
+            return client.get_usage().model_dump(mode="json")
+        if path == "/v1/status":
+            return client.status().model_dump(mode="json")
+        if path == "/v1/control/prompt":
+            return client.control_prompt(
+                GatewayPromptControlRequestV1.model_validate(body)
+            ).model_dump(mode="json")
+        if path == "/v1/control/send-keys":
+            return client.send_control_input(
+                GatewayControlInputRequestV1.model_validate(body)
+            ).model_dump(mode="json")
+    except (GatewayHttpError, ValueError):
+        raise FixtureError("Fixture gateway request failed; inspect private run evidence") from None
+    raise FixtureError("Unsupported fixture gateway operation")
+
+
 def raw_command(run: dict[str, Any], *, prompt: str | None = None) -> list[str]:
     """Build current native argv; Kimi prompt mode deliberately omits --auto."""
 
@@ -193,7 +243,10 @@ def _raw_turn(run: dict[str, Any], prompt: str, timeout: float) -> None:
                 "executable": run["executable"],
                 "working_directory": run["workdir"],
                 "home_path": run["home_path"],
-                "setup_path": str(Path(run["home_path"]) / "dsh-setup.yaml"),
+                "setup_path": str(Path(run["home_path"]) / "houmao-tool-params.yaml"),
+                "credential_env_source": str(
+                    Path(run["assets_root"]) / "tools/dsh/auth/default/env/vars.env"
+                ),
                 "prompt": prompt,
                 "session_id": run.get("identity", {}).get("provider_session_id"),
                 "attempt_id": f"turn-{index}",
@@ -491,15 +544,16 @@ def prompt_run(path: Path, *, prompt: str, timeout: float = 300) -> dict[str, An
             _save(run)
             raise FixtureError("Managed headless turn did not complete")
     else:
-        base = f"http://{identity['gateway_host']}:{identity['gateway_port']}"
         if config["mode"] == "tui" and config["client"] != "dsh":
-            _http(base, "/v1/control/send-keys", {"sequence": prompt, "escape_special_keys": True})
+            _gateway_request(
+                run, "/v1/control/send-keys", {"sequence": prompt, "escape_special_keys": True}
+            )
             time.sleep(0.25)
-            _http(base, "/v1/control/send-keys", {"sequence": "<[Enter]>"})
+            _gateway_request(run, "/v1/control/send-keys", {"sequence": "<[Enter]>"})
         else:
-            before = _http(base, "/v1/usage")
+            before = _gateway_request(run, "/v1/usage")
             previous = {record["record_id"] for record in before["records"]}
-            accepted = _http(base, "/v1/control/prompt", {"prompt": prompt})
+            accepted = _gateway_request(run, "/v1/control/prompt", {"prompt": prompt})
             operation_id = (
                 accepted.get("operation_id")
                 if config["client"] == "dsh" and config["mode"] == "tui"
@@ -513,7 +567,7 @@ def prompt_run(path: Path, *, prompt: str, timeout: float = 300) -> dict[str, An
                 raise FixtureError("Web prompt has no exact admitted operation identity")
             deadline = time.monotonic() + timeout
             while True:
-                usage = _http(base, "/v1/usage")
+                usage = _gateway_request(run, "/v1/usage")
                 rows = [
                     record
                     for record in usage["records"]
@@ -537,7 +591,7 @@ def prompt_run(path: Path, *, prompt: str, timeout: float = 300) -> dict[str, An
             # The ledger may finalize before the current gateway worker releases
             # execution ownership. Finish observing that same successful turn;
             # this never waits on or retries a subsequent prompt mutation.
-            while _http(base, "/v1/status").get("active_execution") == "running":
+            while _gateway_request(run, "/v1/status").get("active_execution") == "running":
                 if time.monotonic() >= deadline:
                     raise FixtureError(
                         "Completed usage is available but the current execution has not settled"
@@ -680,9 +734,7 @@ def check_run(path: Path, *, live: bool = False) -> dict[str, Any]:
             ref = quote(identity["tracked_agent_id"], safe="")
             run["usage"] = _http(identity["passive_url"], f"/houmao/agents/{ref}/usage")
         elif identity.get("gateway_port"):
-            run["usage"] = _http(
-                f"http://{identity['gateway_host']}:{identity['gateway_port']}", "/v1/usage"
-            )
+            run["usage"] = _gateway_request(run, "/v1/usage")
         elif identity.get("tmux_session_name"):
             subprocess.run(
                 _tmux_command(run, "has-session", "-t", identity["tmux_session_name"]),

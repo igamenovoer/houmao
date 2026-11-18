@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import re
 import shlex
-from typing import Literal, Mapping
+from typing import Any, Literal, Mapping
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
@@ -16,7 +16,21 @@ import yaml
 Client = Literal["claude", "codex", "kimi", "dsh"]
 Mode = Literal["headless", "tui"]
 Surface = Literal["raw", "manager", "passive-server"]
-Protocol = Literal["anthropic_messages", "openai_responses", "openai_chat"]
+Protocol = Literal["anthropic_messages", "openai_responses", "openai_chat", "google_generative_ai"]
+DshProtocol = Literal[
+    "messages",
+    "anthropic-messages",
+    "openai-responses",
+    "openai-completions",
+    "google-generative-ai",
+]
+DSH_ENDPOINT_PROTOCOL: dict[DshProtocol, Protocol] = {
+    "messages": "anthropic_messages",
+    "anthropic-messages": "anthropic_messages",
+    "openai-responses": "openai_responses",
+    "openai-completions": "openai_chat",
+    "google-generative-ai": "google_generative_ai",
+}
 REPO_ROOT = Path(__file__).resolve().parents[4]
 CLIENT_PROTOCOL: dict[Client, Protocol] = {
     "claude": "anthropic_messages",
@@ -51,6 +65,7 @@ class MetadataReferences(BaseModel):
     context_window_env: str | None = None
     max_output_tokens_env: str | None = None
     dsh_reasoning_env: str | None = None
+    dsh_compat_env: str | None = None
     capabilities_env: str | None = None
     reasoning_key_env: str | None = None
     reasoning_effort_env: str | None = None
@@ -75,8 +90,20 @@ class DshRoute(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
     adapter: Literal["deepseek", "pi-ai"]
-    protocol: Literal["anthropic_messages", "openai_chat"]
+    protocol: DshProtocol
     route: str
+
+    @property
+    def base_url_env(self) -> str:
+        """Return the native endpoint role used by fixture bundles."""
+
+        return "DEEPSEEK_BASE_URL_ANTHROPIC" if self.adapter == "deepseek" else "OPENAI_BASE_URL"
+
+    @property
+    def api_key_env(self) -> str:
+        """Return the native API-key role used by authenticated fixture bundles."""
+
+        return "DEEPSEEK_API_KEY" if self.adapter == "deepseek" else "OPENAI_API_KEY"
 
 
 class ModelOptions(BaseModel):
@@ -85,7 +112,8 @@ class ModelOptions(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     context_window: int | None = Field(default=None, gt=0)
     max_output_tokens: int | None = Field(default=None, gt=0)
-    dsh_reasoning: dict[str, str] | Literal[False] | None = None
+    dsh_reasoning: dict[str, str | None] | Literal[False] | None = None
+    dsh_compat: dict[str, Any] | None = None
     capabilities: list[Literal["tool_use", "thinking", "image_in"]] = Field(
         default_factory=lambda: ["tool_use"]
     )
@@ -103,7 +131,7 @@ class ResolvedConfig(BaseModel):
     mode: Mode
     surface: Surface
     operator_prompt_mode: Literal["unattended", "as_is"] = "unattended"
-    auth_method: Literal["api-key", "native-login"] = "api-key"
+    auth_method: Literal["api-key", "endpoint-only", "native-login"] = "api-key"
     model: str | None = None
     protocol: Protocol | None = None
     base_url: str | None = None
@@ -116,6 +144,32 @@ class ResolvedConfig(BaseModel):
         """Return a serializable description without credential values or files."""
 
         return self.model_dump(mode="json", exclude={"api_key", "native_bundle"})
+
+    def dsh_tool_params(self) -> dict[str, Any]:
+        """Return the native-aligned tool parameters shared by raw and managed runs."""
+
+        if self.dsh is None:
+            raise FixtureError("DSH fixtures require an explicit adapter and protocol")
+        model = {
+            "id": self.model,
+            "context_window": self.model_options.context_window,
+            "max_output_tokens": self.model_options.max_output_tokens,
+            "reasoning_efforts": self.model_options.dsh_reasoning,
+        }
+        if self.model_options.dsh_compat is not None:
+            model["compat"] = self.model_options.dsh_compat
+        return {
+            "provider": {
+                "adapter": self.dsh.adapter,
+                "protocol": self.dsh.protocol,
+                "route": self.dsh.route,
+                "base_url_env": self.dsh.base_url_env,
+                "api_key_env": None
+                if self.auth_method == "endpoint-only"
+                else self.dsh.api_key_env,
+            },
+            "models": [model],
+        }
 
 
 def read_env_file(path: Path | None) -> dict[str, str]:
@@ -203,6 +257,8 @@ def resolve_config(
     context_window: int | None = None,
     max_output_tokens: int | None = None,
     dsh_reasoning: str | None = None,
+    dsh_compat: str | None = None,
+    dsh_protocol: DshProtocol | None = None,
     capabilities: list[str] | None = None,
     reasoning_key: str | None = None,
     reasoning_effort: str | None = None,
@@ -211,10 +267,8 @@ def resolve_config(
 
     if case not in {"self-hosted", "cloud-api"}:
         raise FixtureError("Select case self-hosted or cloud-api")
-    if client == "dsh" and (env_file is None and process_env is None):
-        raise FixtureError(
-            "DSH requires an explicitly selected --env-file; ambient auth is disabled"
-        )
+    if client == "dsh" and env_file is None and process_env is None and case == "cloud-api":
+        raise FixtureError("Cloud DSH requires an explicitly selected --env-file")
     if surface == "passive-server" and mode != "headless":
         raise FixtureError("Passive-server birth supports headless mode; use manager for TUI")
     descriptor = load_descriptor(
@@ -240,15 +294,25 @@ def resolve_config(
     dsh_route = descriptor.dsh if client == "dsh" else None
     if client == "dsh" and dsh_route is None:
         raise FixtureError("Selected case must explicitly declare its DSH adapter/protocol/route")
-    protocol = dsh_route.protocol if dsh_route is not None else CLIENT_PROTOCOL[client]
+    if dsh_route is not None and dsh_protocol is not None:
+        dsh_route = dsh_route.model_copy(update={"protocol": dsh_protocol})
+    protocol = DSH_ENDPOINT_PROTOCOL[dsh_route.protocol] if dsh_route else CLIENT_PROTOCOL[client]
     endpoint = descriptor.endpoints.get(protocol)
-    if endpoint is None:
+    if endpoint is None and base_url is None:
         raise FixtureError(f"Selected case does not declare required protocol {protocol}")
-    url = base_url if base_url is not None else env.get(endpoint.base_url_env)
+    url = base_url if base_url is not None else env.get(endpoint.base_url_env) if endpoint else None
     if not url:
+        assert endpoint is not None
         raise FixtureError(f"Supply --base-url or {endpoint.base_url_env} for {protocol}")
     key = env.get(descriptor.api_key_env, "")
-    if not key.strip() and case == "cloud-api":
+    endpoint_only = (
+        case == "self-hosted"
+        and dsh_route is not None
+        and dsh_route.adapter == "pi-ai"
+        and dsh_route.protocol == "openai-completions"
+        and not key.strip()
+    )
+    if not key.strip() and (case == "cloud-api" or (dsh_route is not None and not endpoint_only)):
         raise FixtureError(f"Supply nonempty {descriptor.api_key_env}")
     if any(char in key for char in ("\n", "\r", "\x00")):
         raise FixtureError(f"Credential reference {descriptor.api_key_env} must be single-line")
@@ -262,6 +326,7 @@ def resolve_config(
     raw_context = metadata("context_window")
     raw_output = metadata("max_output_tokens")
     raw_reasoning = dsh_reasoning if dsh_reasoning is not None else metadata("dsh_reasoning")
+    raw_compat = dsh_compat if dsh_compat is not None else metadata("dsh_compat")
     try:
         selected_context = (
             context_window
@@ -275,6 +340,7 @@ def resolve_config(
                 if max_output_tokens is not None
                 else (int(raw_output) if raw_output else None),
                 "dsh_reasoning": json.loads(raw_reasoning) if raw_reasoning is not None else None,
+                "dsh_compat": json.loads(raw_compat) if raw_compat is not None else None,
                 "capabilities": capabilities
                 if capabilities is not None
                 else (
@@ -292,14 +358,28 @@ def resolve_config(
         )
     except (ValueError, ValidationError) as exc:
         raise FixtureError(
-            "Invalid model metadata; check context, capabilities, and reasoning settings"
+            "Invalid model metadata; check capacity, capabilities, reasoning, and DSH compat"
         ) from exc
     if client == "kimi" and options.context_window is None:
         raise FixtureError(
             "Kimi requires --context-window or its configured context-window reference"
         )
+    result = ResolvedConfig(
+        case=case,
+        client=client,
+        mode=mode,
+        surface=surface,
+        operator_prompt_mode=operator_prompt_mode,
+        auth_method="endpoint-only" if endpoint_only else "api-key",
+        model=selected_model,
+        protocol=protocol,
+        base_url=_base_url(url, protocol, client),
+        api_key=SecretStr(key or ("" if endpoint_only else "EMPTY")),
+        model_options=options,
+        dsh=dsh_route,
+    )
     if client == "dsh":
-        from houmao.agents.dsh_configuration import DshSetup
+        from houmao.agents.dsh_configuration import DshEffectiveToolParams
 
         if (
             options.context_window is None
@@ -310,43 +390,8 @@ def resolve_config(
                 "DSH requires explicit --context-window, --max-output-tokens, and --dsh-reasoning "
                 "or the case's declared metadata references"
             )
-        assert dsh_route is not None
         try:
-            DshSetup.from_mapping(
-                {
-                    "version": 1,
-                    "provider": {
-                        "adapter": dsh_route.adapter,
-                        "protocol": "messages"
-                        if protocol == "anthropic_messages"
-                        else "openai-completions",
-                        "route": dsh_route.route,
-                        "base_url_env": endpoint.base_url_env,
-                        "api_key_env": descriptor.api_key_env,
-                    },
-                    "models": [
-                        {
-                            "id": selected_model,
-                            "context_window": options.context_window,
-                            "max_output_tokens": options.max_output_tokens,
-                            "reasoning": options.dsh_reasoning,
-                        }
-                    ],
-                    "selected_model": selected_model,
-                }
-            )
+            DshEffectiveToolParams.from_mapping(result.dsh_tool_params())
         except ValueError as exc:
             raise FixtureError("Invalid explicit DSH route or model metadata") from exc
-    return ResolvedConfig(
-        case=case,
-        client=client,
-        mode=mode,
-        surface=surface,
-        operator_prompt_mode=operator_prompt_mode,
-        model=selected_model,
-        protocol=protocol,
-        base_url=_base_url(url, protocol, client),
-        api_key=SecretStr(key or "EMPTY"),
-        model_options=options,
-        dsh=dsh_route,
-    )
+    return result

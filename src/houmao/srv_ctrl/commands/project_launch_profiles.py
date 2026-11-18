@@ -236,6 +236,7 @@ def get_project_launch_profile_command(name: str) -> None:
     help="Path to a memo-shaped seed directory containing `houmao-memo.md` and/or `pages/`.",
 )
 @overwrite_confirm_option
+@click.option("--tool-params", metavar="JSON-OR-@PATH", help="Per-tool parameters for this layer.")
 def add_project_launch_profile_command(
     name: str,
     recipe: str,
@@ -279,6 +280,7 @@ def add_project_launch_profile_command(
     memo_seed_file: Path | None,
     memo_seed_dir: Path | None,
     yes: bool,
+    tool_params: str | None = None,
 ) -> None:
     """Create one recipe-backed explicit launch profile."""
 
@@ -302,6 +304,7 @@ def add_project_launch_profile_command(
         auth=auth,
         model=model,
         reasoning_level=reasoning_level,
+        tool_params=tool_params,
         prompt_mode=prompt_mode,
         env_set=env_set,
         system_skill_sets=system_skill_sets,
@@ -571,6 +574,8 @@ def add_project_launch_profile_command(
     help="Path to a memo-shaped seed directory containing `houmao-memo.md` and/or `pages/`.",
 )
 @click.option("--clear-memo-seed", is_flag=True, help="Clear the stored memo seed.")
+@click.option("--tool-params", metavar="JSON-OR-@PATH", help="Per-tool parameters for this layer.")
+@click.option("--clear-tool-params", is_flag=True, help="Clear stored per-tool parameters.")
 def set_project_launch_profile_command(
     name: str,
     agent_name: str | None,
@@ -629,6 +634,8 @@ def set_project_launch_profile_command(
     memo_seed_file: Path | None,
     memo_seed_dir: Path | None,
     clear_memo_seed: bool,
+    tool_params: str | None = None,
+    clear_tool_params: bool = False,
 ) -> None:
     """Update one recipe-backed explicit launch profile."""
 
@@ -652,6 +659,8 @@ def set_project_launch_profile_command(
         auth=auth,
         model=model,
         reasoning_level=reasoning_level,
+        tool_params=tool_params,
+        clear_tool_params=clear_tool_params,
         prompt_mode=prompt_mode,
         env_set=env_set,
         system_skill_sets=system_skill_sets,

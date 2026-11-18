@@ -39,7 +39,11 @@ from houmao.passive_server.discovery import DiscoveredAgent, _summary_from_recor
 from houmao.passive_server.web_observation import AgentWebObserver
 from tests.integration.agents.dsh.test_managed_acp import _launch_plan
 from tests.integration.agents.dsh.test_gateway_passive import bind_fixture_gateway_owner
-from tests.fixtures.gateway_access import FixtureProofAuth, self_fixture_auth
+from tests.fixtures.gateway_access import (
+    FixtureProofAuth,
+    gateway_fixture_client,
+    self_fixture_auth,
+)
 from tests.unit.agents.realm_controller.test_gateway_support import _deliver_unread_mailbox_message
 from tests.unit.gateway_plugins.test_cccc_plugin import harness, offer
 
@@ -194,7 +198,7 @@ def test_owned_web_gateway_plugin_and_public_requests_share_native_state_without
     save_gateway_deployment(runtime.m_manifest_path, GatewayDeployment(public_input_enabled=True))
     runtime.start()
     try:
-        client = TestClient(create_app(runtime=runtime), base_url=runtime.owner_connect_url)
+        client = gateway_fixture_client(runtime)
         assert (
             client.get("/v1/control/web/state").json()["identity"]["native_session_id"] == native_id
         )

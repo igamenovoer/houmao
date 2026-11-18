@@ -87,12 +87,11 @@ def _manifest(
             "value": str(home_path),
         },
         "launch_contract": {
-            "adapter_defaults": {"args": [], "tool_params": {}},
+            "adapter_defaults": {"args": []},
             "requested_overrides": {
                 "preset": None,
                 "direct": backend_args,
             },
-            "tool_metadata": {"tool_params": {}},
             "construction_provenance": {
                 "adapter_path": "/tmp/tool-adapter.yaml",
                 "preset_path": None,
@@ -397,7 +396,6 @@ def test_fallback_settings_conflict_degrades_to_unavailable(
     operator_settings.write_text("{}", encoding="utf-8")
     direct_overrides = {
         "args": {"mode": "append", "values": ["--settings", str(operator_settings)]},
-        "tool_params": {},
     }
     session_root = tmp_path / "session"
 

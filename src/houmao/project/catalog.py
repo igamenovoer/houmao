@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Iterator, Literal, cast
 from uuid import uuid4
 
 from houmao.agents.model_selection import parse_reasoning_level
+from houmao.agents.tool_params import validate_tool_params
 from houmao.agents.managed_prompt_header import (
     ManagedHeaderPolicy,
     ManagedHeaderSectionName,
@@ -129,6 +130,7 @@ class SpecialistCatalogEntry:
     mailbox_payload: dict[str, Any] | None
     extra_payload: dict[str, Any]
     metadata_path: Path | None = None
+    tool_params: dict[str, Any] = field(default_factory=dict)
 
     def resolved_system_prompt_path(self, overlay: HoumaoProjectOverlay) -> Path:
         """Return the compatibility projection prompt path."""
@@ -253,6 +255,7 @@ class LaunchProfileCatalogEntry:
     registered_skill_entries: tuple[ProjectSkillCatalogEntry, ...] = ()
     private_skill_entries: tuple[LaunchProfilePrivateSkillCatalogEntry, ...] = ()
     metadata_path: Path | None = None
+    tool_params: dict[str, Any] = field(default_factory=dict)
 
     def resolved_projection_path(self, overlay: HoumaoProjectOverlay) -> Path:
         """Return the compatibility projection launch-profile path."""
@@ -1018,9 +1021,17 @@ class ProjectCatalog:
         mailbox_mapping: dict[str, Any] | None,
         extra_mapping: dict[str, Any] | None,
         allow_pending_migration: bool = False,
+        tool_params: dict[str, Any] | None = None,
     ) -> SpecialistCatalogEntry:
         """Store one specialist bound to registered project skill names."""
 
+        stored_launch = dict(launch_mapping or {})
+        if "tool_params" in stored_launch:
+            raise ValueError("Specialist tool_params belong at the top level.")
+        if tool_params:
+            stored_launch["tool_params"] = validate_tool_params(
+                tool, tool_params, source=f"specialist `{name}` tool_params"
+            )
         self.initialize(allow_pending_migration=allow_pending_migration)
         prompt_ref = self._snapshot_file(
             source_path=prompt_path,
@@ -1055,7 +1066,7 @@ class ProjectCatalog:
                 tool=tool,
                 setup_profile_id=setup_profile_id,
                 auth_profile_id=auth_profile.id,
-                launch_mapping=launch_mapping,
+                launch_mapping=stored_launch,
                 mailbox_mapping=mailbox_mapping,
                 extra_mapping=extra_mapping,
             )
@@ -1136,6 +1147,7 @@ class ProjectCatalog:
         mailbox_mapping: dict[str, Any] | None,
         extra_mapping: dict[str, Any] | None,
         allow_pending_migration: bool = False,
+        tool_params: dict[str, Any] | None = None,
     ) -> SpecialistCatalogEntry:
         """Register source-backed skills in copy mode, then store one specialist."""
 
@@ -1163,6 +1175,7 @@ class ProjectCatalog:
             mailbox_mapping=mailbox_mapping,
             extra_mapping=extra_mapping,
             allow_pending_migration=allow_pending_migration,
+            tool_params=tool_params,
         )
 
     def remove_specialist(self, name: str) -> Path:
@@ -1233,6 +1246,7 @@ class ProjectCatalog:
                     auth_profiles.bundle_ref AS auth_bundle_ref,
                     launch_profiles.model_name,
                     launch_profiles.reasoning_level,
+                    launch_profiles.tool_params_payload,
                     launch_profiles.operator_prompt_mode,
                     launch_profiles.env_payload,
                     launch_profiles.mailbox_payload,
@@ -1287,6 +1301,7 @@ class ProjectCatalog:
                     auth_profiles.bundle_ref AS auth_bundle_ref,
                     launch_profiles.model_name,
                     launch_profiles.reasoning_level,
+                    launch_profiles.tool_params_payload,
                     launch_profiles.operator_prompt_mode,
                     launch_profiles.env_payload,
                     launch_profiles.mailbox_payload,
@@ -1356,6 +1371,7 @@ class ProjectCatalog:
         reasoning_level: int | None = None,
         registered_skill_names: tuple[str, ...] = (),
         private_skill_inputs: tuple[LaunchProfilePrivateSkillInput, ...] = (),
+        tool_params: dict[str, Any] | None = None,
     ) -> LaunchProfileCatalogEntry:
         """Insert or update one shared launch-profile record."""
 
@@ -1369,6 +1385,19 @@ class ProjectCatalog:
             raise ValueError(
                 f"Unsupported launch-profile source kind {source_kind!r}; expected one of "
                 f"{sorted(_SOURCE_KIND_VALUES)}."
+            )
+        resolved_tool_params: dict[str, Any] = {}
+        if tool_params:
+            if source_kind == _SOURCE_KIND_SPECIALIST:
+                tool = self.load_specialist(source_name).tool
+            else:
+                from houmao.agents.definition_parser import parse_agent_preset
+
+                recipe_name = _require_catalog_name(source_name, field_name="source_name")
+                recipe_path = self.m_projection_root / "presets" / f"{recipe_name}.yaml"
+                tool = parse_agent_preset(recipe_path).tool
+            resolved_tool_params = validate_tool_params(
+                tool, tool_params, source=f"launch profile `{name}` tool_params"
             )
         if prompt_overlay_mode is None and prompt_overlay_text is not None:
             raise ValueError("Prompt-overlay text requires a prompt-overlay mode.")
@@ -1482,6 +1511,7 @@ class ProjectCatalog:
                     persist_disabled,
                     model_name,
                     reasoning_level,
+                    tool_params_payload,
                     operator_prompt_mode,
                     env_payload,
                     mailbox_payload,
@@ -1497,7 +1527,7 @@ class ProjectCatalog:
                     memo_seed_content_ref_id,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
                     profile_lane = excluded.profile_lane,
                     source_kind = excluded.source_kind,
@@ -1510,6 +1540,7 @@ class ProjectCatalog:
                     persist_disabled = 0,
                     model_name = excluded.model_name,
                     reasoning_level = excluded.reasoning_level,
+                    tool_params_payload = excluded.tool_params_payload,
                     operator_prompt_mode = excluded.operator_prompt_mode,
                     env_payload = excluded.env_payload,
                     mailbox_payload = excluded.mailbox_payload,
@@ -1539,6 +1570,7 @@ class ProjectCatalog:
                     0,
                     resolved_model_name,
                     resolved_reasoning_level,
+                    json.dumps(resolved_tool_params, sort_keys=True),
                     operator_prompt_mode,
                     json.dumps(env_mapping or {}, sort_keys=True),
                     json.dumps(mailbox_mapping or {}, sort_keys=True),
@@ -2631,6 +2663,7 @@ class ProjectCatalog:
         skill_names = tuple(str(skill_row["skill_name"]) for skill_row in skill_rows)
         skill_entries = tuple(self._project_skill_from_row(skill_row) for skill_row in skill_rows)
         launch_payload = _load_json_mapping(str(row["launch_payload"]))
+        tool_params = launch_payload.pop("tool_params", {})
         mailbox_payload = _load_json_mapping(str(row["mailbox_payload"]))
         extra_payload = _load_json_mapping(str(row["extra_payload"]))
         return SpecialistCatalogEntry(
@@ -2659,6 +2692,7 @@ class ProjectCatalog:
             mailbox_payload=mailbox_payload if mailbox_payload else None,
             extra_payload=extra_payload,
             metadata_path=self.m_catalog_path,
+            tool_params=tool_params,
         )
 
     def _launch_profile_from_row(
@@ -2762,6 +2796,7 @@ class ProjectCatalog:
             mailbox_payload=mailbox_payload if mailbox_payload else None,
             posture_payload=posture_payload,
             system_skills_payload=system_skills_payload,
+            tool_params=_load_json_mapping(str(row["tool_params_payload"])),
             relaunch_chat_session_payload=relaunch_chat_session_payload,
             managed_header_policy=normalize_managed_header_policy(
                 str(row["managed_header_policy"])
@@ -2967,6 +3002,7 @@ def _table_schema_sql() -> str:
         persist_disabled INTEGER NOT NULL DEFAULT 0,
         model_name TEXT,
         reasoning_level INTEGER,
+        tool_params_payload TEXT NOT NULL DEFAULT '{{}}',
         operator_prompt_mode TEXT,
         env_payload TEXT NOT NULL DEFAULT '{{}}',
         mailbox_payload TEXT NOT NULL DEFAULT '{{}}',
@@ -3102,6 +3138,7 @@ def _view_sql() -> str:
         auth_profiles.display_name AS auth_name,
         launch_profiles.model_name AS model_name,
         launch_profiles.reasoning_level AS reasoning_level,
+        launch_profiles.tool_params_payload AS tool_params_payload,
         launch_profiles.operator_prompt_mode AS operator_prompt_mode,
         launch_profiles.env_payload AS env_payload,
         launch_profiles.mailbox_payload AS mailbox_payload,
@@ -3196,6 +3233,7 @@ def _validate_current_catalog_schema(connection: sqlite3.Connection) -> None:
     storage_model = _catalog_meta_value(connection, "storage_model")
     if storage_model != "hybrid_sqlite_catalog":
         raise ValueError(_catalog_incompatibility_error("missing current storage_model metadata"))
+    _ensure_tool_params_column(connection)
     for table_name, column_names in _required_current_catalog_columns().items():
         missing_columns = tuple(
             column_name
@@ -3235,6 +3273,22 @@ def _validate_current_catalog_schema(connection: sqlite3.Connection) -> None:
             _catalog_incompatibility_error(
                 "table `content_refs` does not allow current memo_seed content references"
             )
+        )
+
+
+def _ensure_tool_params_column(connection: sqlite3.Connection) -> None:
+    """Add launch-profile parameters to existing catalogs of the current version."""
+
+    table = "launch_profiles"
+    column = "tool_params_payload"
+    if not _table_exists(connection, table) or _table_has_column(
+        connection, table_name=table, column_name=column
+    ):
+        return
+    connection.execute("BEGIN IMMEDIATE")
+    if not _table_has_column(connection, table_name=table, column_name=column):
+        connection.execute(
+            "ALTER TABLE launch_profiles ADD COLUMN tool_params_payload TEXT NOT NULL DEFAULT '{}'"
         )
 
 
@@ -3301,6 +3355,7 @@ def _required_current_catalog_columns() -> dict[str, tuple[str, ...]]:
             "persist_disabled",
             "model_name",
             "reasoning_level",
+            "tool_params_payload",
             "operator_prompt_mode",
             "env_payload",
             "mailbox_payload",
@@ -3435,6 +3490,8 @@ def _render_preset_yaml(entry: SpecialistCatalogEntry) -> str:
     payload["auth"] = entry.credential_name
     if entry.launch_payload:
         payload["launch"] = entry.launch_payload
+    if entry.tool_params:
+        payload["tool_params"] = entry.tool_params
     if entry.mailbox_payload:
         payload["mailboxes"] = entry.mailbox_payload
     if entry.extra_payload:
@@ -3535,6 +3592,7 @@ def _render_launch_profile_yaml(
         source_name=entry.source_name,
         defaults=defaults,
         relaunch=relaunch,
+        tool_params=entry.tool_params,
     )
     try:
         import yaml

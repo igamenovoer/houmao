@@ -597,6 +597,8 @@ class CompatibilityControlCore:
                     auth=resolved_target.preset.auth,
                     preset_path=resolved_target.preset_path,
                     preset_launch_overrides=resolved_target.preset.launch_overrides,
+                    preset_tool_params=resolved_target.preset.tool_params,
+                    preset_model_config=resolved_target.preset.launch_model_config,
                     source_system_skill_policy=getattr(
                         resolved_target.preset,
                         "launch_system_skill_policy",

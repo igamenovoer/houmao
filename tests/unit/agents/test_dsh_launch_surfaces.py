@@ -7,6 +7,7 @@ from importlib.resources import files
 import json
 from pathlib import Path
 import shutil
+import subprocess
 from typing import Any
 from types import SimpleNamespace
 
@@ -14,9 +15,24 @@ from click.testing import CliRunner
 import pytest
 import yaml
 
-from houmao.agents.brain_builder import BuildError, BuildRequest, build_brain_home
-from houmao.agents.dsh_configuration import DshSetup, load_dsh_home
-from houmao.agents.launch_overrides import LaunchDefaults, ToolLaunchMetadata
+from houmao.agents.brain_builder import (
+    BuildError,
+    BuildRequest,
+    build_brain_home,
+    validate_brain_inputs,
+)
+from houmao.agents.dsh_configuration import (
+    DSH_LOCAL_API_KEY_ENV,
+    DshEffectiveToolParams,
+    load_dsh_home,
+    read_dsh_mcp_environment,
+)
+from houmao.agents.dsh_credentials import (
+    DSH_CREDENTIAL_ROLES_FILENAME,
+    DshCredentialRoles,
+    write_dsh_credential_roles,
+)
+from houmao.agents.launch_overrides import LaunchDefaults
 from houmao.agents.launch_overrides.resolver import resolve_launch_behavior
 from houmao.agents.launch_policy.models import SupportedVersionSpec, ToolVersion
 from houmao.agents.model_mapping_policy import (
@@ -34,6 +50,7 @@ from houmao.agents.realm_controller.launch_plan import (
 )
 from houmao.agents.realm_controller.loaders import RolePackage
 from houmao.agents.realm_controller.runtime import RuntimeSessionController
+from houmao.project.catalog import ProjectCatalog
 from houmao.srv_ctrl.commands.main import cli
 from houmao.project.overlay import require_project_overlay
 
@@ -49,7 +66,6 @@ def _seed(tmp_path: Path) -> BuildRequest:
     shutil.copytree(source, tool)
     (definitions / "skills").mkdir(parents=True)
     setup: dict[str, Any] = {
-        "version": 1,
         "provider": {
             "adapter": "deepseek",
             "protocol": "messages",
@@ -58,18 +74,22 @@ def _seed(tmp_path: Path) -> BuildRequest:
             "api_key_env": "DEEPSEEK_API_KEY",
         },
         "models": [
-            {"id": "model-a", "context_window": 8192, "max_output_tokens": 512, "reasoning": False},
+            {
+                "id": "model-a",
+                "context_window": 8192,
+                "max_output_tokens": 512,
+                "reasoning_efforts": False,
+            },
             {
                 "id": "model-b",
                 "context_window": 16384,
                 "max_output_tokens": 1024,
-                "reasoning": {"0": "off", "1": "low", "2": "high"},
+                "reasoning_efforts": {"off": "off", "low": "low", "high": "high"},
             },
         ],
-        "selected_model": "model-a",
         "hmr": False,
     }
-    (tool / "setups/default/dsh-setup.yaml").write_text(yaml.safe_dump(setup))
+    (tool / "setups/default/tool-params.yaml").write_text(yaml.safe_dump(setup))
     auth = tool / "auth/selected/env/vars.env"
     auth.parent.mkdir(parents=True)
     auth.write_text(
@@ -77,6 +97,10 @@ def _seed(tmp_path: Path) -> BuildRequest:
         "DEEPSEEK_BASE_URL_ANTHROPIC=http://127.0.0.1:12345/anthropic\n"
         "OPENAI_API_KEY=synthetic-competing-private\n"
         "OPENAI_BASE_URL=http://127.0.0.1:54321/v1\n"
+    )
+    auth.chmod(0o600)
+    write_dsh_credential_roles(
+        auth, DshCredentialRoles("DEEPSEEK_BASE_URL_ANTHROPIC", "DEEPSEEK_API_KEY")
     )
     return BuildRequest(
         agent_def_dir=definitions,
@@ -87,6 +111,7 @@ def _seed(tmp_path: Path) -> BuildRequest:
         auth="selected",
         home_id="agent-a",
         role_prompt_override="Keep {{braces}} and $variables literally.\n",
+        preset_model_config=ModelConfig(name="model-a"),
     )
 
 
@@ -163,21 +188,21 @@ def test_dsh_reasoning_does_not_invent_capabilities(tmp_path: Path) -> None:
             None,
             ModelConfig(name="model-b", reasoning=ModelReasoningConfig(level=99)),
             "model-b",
-            "2",
+            "high",
             "high",
         ),
         (
             ModelConfig(name="model-b"),
             ModelConfig(reasoning=ModelReasoningConfig(level=99)),
             "model-b",
-            "2",
+            "high",
             "high",
         ),
         (
             None,
             ModelConfig(name="model-b", reasoning=ModelReasoningConfig(level=0)),
             "model-b",
-            "0",
+            "off",
             "off",
         ),
         (None, ModelConfig(reasoning=ModelReasoningConfig(level=0)), "model-a", None, "off"),
@@ -235,7 +260,7 @@ def test_dsh_prompt_invocation_uses_the_effective_reasoning_profile_key(
     assert private["reasoning_level"] == expected_key
     prepared = load_dsh_home(
         built.home_path,
-        DshSetup.from_file(Path(private["setup_path"])),
+        DshEffectiveToolParams.from_file(Path(private["setup_path"])),
         plan.env,
         selected_model=private["model"],
         reasoning_level=private["reasoning_level"],
@@ -253,6 +278,147 @@ def test_dsh_missing_route_and_undeclared_model_fail_before_launch(tmp_path: Pat
     env.write_text("DEEPSEEK_API_KEY=synthetic\n")
     with pytest.raises(BuildError, match="endpoint reference"):
         build_brain_home(request)
+
+
+@pytest.mark.parametrize("backend", ["dsh_acp", "dsh_web"])
+@pytest.mark.parametrize("authenticated", [False, True])
+def test_dsh_bound_roles_project_into_native_launch_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str, authenticated: bool
+) -> None:
+    """Use custom role names or the native-only public placeholder for both surfaces."""
+
+    request = _seed(tmp_path)
+    auth = request.agent_def_dir / "tools/dsh/auth/selected/env/vars.env"
+    key_name = "SGLANG_AUTH" if authenticated else None
+    endpoint_name = "SGLANG_ENDPOINT"
+    endpoint = "http://127.0.0.1:12345/v1"
+    key = "synthetic-custom-binding"
+    auth.write_text(f"{endpoint_name}={endpoint}\n" + (f"{key_name}={key}\n" if key_name else ""))
+    write_dsh_credential_roles(auth, DshCredentialRoles(endpoint_name, key_name))
+    request = replace(
+        request,
+        direct_tool_params={
+            "provider": {
+                "adapter": "pi-ai",
+                "protocol": "openai-completions",
+                "route": "local-chat",
+                "base_url_env": endpoint_name,
+                "api_key_env": key_name,
+            },
+            "models": [{"id": "model-b", "reasoning_efforts": False}],
+        },
+    )
+    built = build_brain_home(request)
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-ambient")
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.launch_plan.detect_tool_version",
+        lambda **_: ToolVersion.parse("0.2.2-rc.3"),
+    )
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=built.manifest,
+            role_package=RolePackage("role", "Literal role", tmp_path),
+            backend=backend,
+            working_directory=tmp_path,
+        )
+    )
+    native_key = key_name or DSH_LOCAL_API_KEY_ENV
+    assert plan.env[native_key] == (key if authenticated else "houmao-local-no-auth")
+    assert plan.env[endpoint_name] == endpoint
+    assert "OPENAI_API_KEY" not in plan.env
+    patch_path = Path(plan.metadata["dsh"]["patch_path"])
+    patch = json.loads(patch_path.read_text())
+    adapter = next(row for row in patch if row["id"] == "llm-pi-ai")
+    assert adapter["config"]["providers"]["local-chat"]["apiKeyEnv"] == native_key
+    assert (
+        yaml.safe_load((built.home_path / "houmao-tool-params.yaml").read_text())["provider"][
+            "api_key_env"
+        ]
+        == key_name
+    )
+    for path in (built.manifest_path, patch_path, auth, built.launch_helper_path):
+        assert "houmao-local-no-auth" not in path.read_text()
+    assert key not in json.dumps(plan.metadata)
+
+
+def test_dsh_role_mismatch_and_environment_collisions_fail_before_allocation(
+    tmp_path: Path,
+) -> None:
+    """Reject role mismatches and both override sources without exposing their values."""
+
+    request = _seed(tmp_path)
+    auth = request.agent_def_dir / "tools/dsh/auth/selected/env/vars.env"
+    with pytest.raises(BuildError, match="provider.api_key_env.*match"):
+        validate_brain_inputs(
+            replace(request, direct_tool_params={"provider": {"api_key_env": "SGLANG_AUTH"}}),
+            backend="dsh_acp",
+        )
+    with pytest.raises(BuildError, match="DEEPSEEK_BASE_URL_ANTHROPIC.*credential"):
+        validate_brain_inputs(
+            replace(
+                request,
+                persistent_env_records={"DEEPSEEK_BASE_URL_ANTHROPIC": "sensitive-override"},
+            ),
+            backend="dsh_web",
+        )
+    with pytest.raises(BuildError, match="One-shot.*DEEPSEEK_API_KEY") as captured:
+        validate_brain_inputs(
+            request,
+            backend="dsh_acp",
+            launch_env_overrides={"DEEPSEEK_API_KEY": "sensitive-override"},
+        )
+    assert "sensitive-override" not in str(captured.value)
+    auth.with_name(DSH_CREDENTIAL_ROLES_FILENAME).unlink()
+    with pytest.raises(BuildError, match="role metadata is missing"):
+        build_brain_home(request)
+    assert not list(request.runtime_root.glob("homes/*"))
+
+
+def test_generated_dsh_helper_reads_roles_at_execution_time(tmp_path: Path) -> None:
+    """Launch the helper without embedding the selected endpoint or native placeholder."""
+
+    request = _seed(tmp_path)
+    tool = request.agent_def_dir / "tools/dsh"
+    fake_dsh = tmp_path / "fake-dsh"
+    fake_dsh.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = --version ]; then echo "dsh 0.2.2-rc.3"; exit; fi\n'
+        '[ "$1" = --profile ] && [ "$2" = acp ] || exit 2\n'
+        'printf "%s %s\\n" "$HOUMAO_DSH_LOCAL_API_KEY" "$OPENAI_BASE_URL"\n'
+    )
+    fake_dsh.chmod(0o700)
+    adapter = yaml.safe_load((tool / "adapter.yaml").read_text())
+    adapter["launch"]["executable"] = str(fake_dsh)
+    (tool / "adapter.yaml").write_text(yaml.safe_dump(adapter))
+    auth = tool / "auth/selected/env/vars.env"
+    write_dsh_credential_roles(auth, DshCredentialRoles(base_url_env="OPENAI_BASE_URL"))
+    auth.write_text("OPENAI_BASE_URL=http://127.0.0.1:12345/v1\n")
+    result = build_brain_home(
+        replace(
+            request,
+            operator_prompt_mode="as_is",
+            direct_tool_params={
+                "provider": {
+                    "adapter": "pi-ai",
+                    "protocol": "openai-completions",
+                    "route": "local-chat",
+                    "base_url_env": "OPENAI_BASE_URL",
+                    "api_key_env": None,
+                },
+                "models": [{"id": "model-b", "reasoning_efforts": False}],
+            },
+        )
+    )
+    launch = subprocess.run(
+        [str(result.launch_helper_path)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    assert launch.stdout.strip() == "houmao-local-no-auth http://127.0.0.1:12345/v1"
+    assert "houmao-local-no-auth" not in result.launch_helper_path.read_text()
 
 
 def test_dsh_controller_keeps_request_fields_separate_from_frozen_launch_defaults(
@@ -303,7 +469,7 @@ def test_dsh_launch_plan_is_native_and_restore_is_read_only(
     assert plan.role_injection.bootstrap_message is None
     assert set(plan.env).isdisjoint({"OPENAI_API_KEY", "OPENAI_BASE_URL"})
     assert "synthetic-selected-private" not in json.dumps(plan.metadata)
-    assert plan.metadata["dsh"]["setup_path"] == str(built.home_path / "dsh-setup.yaml")
+    assert plan.metadata["dsh"]["setup_path"] == str(built.home_path / "houmao-tool-params.yaml")
     role_path = Path(plan.metadata["dsh"]["role_path"])
     patch_path = Path(plan.metadata["dsh"]["patch_path"])
     role_path.write_text("newer-role")
@@ -355,7 +521,6 @@ def test_dsh_operation_selection_and_owned_arguments_are_explicit() -> None:
             adapter_defaults=LaunchDefaults(args=("--profile", "web")),
             recipe_overrides=None,
             direct_overrides=None,
-            metadata=ToolLaunchMetadata(),
         )
 
 
@@ -506,7 +671,7 @@ def test_dsh_project_profile_prepares_the_selected_managed_native_surface(
     overlay = require_project_overlay(project)
     tool = overlay.agents_root / "tools" / "dsh"
     setup_source = (
-        _seed(tmp_path / "seed").agent_def_dir / "tools/dsh/setups/default/dsh-setup.yaml"
+        _seed(tmp_path / "seed").agent_def_dir / "tools/dsh/setups/default/tool-params.yaml"
     )
     credential = runner.invoke(
         cli,
@@ -536,7 +701,7 @@ def test_dsh_project_profile_prepares_the_selected_managed_native_surface(
             base_url_env="OPENAI_BASE_URL",
             api_key_env="OPENAI_API_KEY",
         )
-    (tool / "setups/default/dsh-setup.yaml").write_text(yaml.safe_dump(setup))
+    (tool / "setups/default/tool-params.yaml").write_text(yaml.safe_dump(setup))
     specialist_args = [
         "project",
         "specialist",
@@ -631,10 +796,163 @@ def test_dsh_companion_and_setup_are_product_resources() -> None:
 
     companion = files("houmao.agents").joinpath("assets/dsh/managed-companion.mjs")
     setup = files("houmao.project").joinpath(
-        "assets/starter_agents/tools/dsh/setups/default/dsh-setup.yaml"
+        "assets/starter_agents/tools/dsh/setups/default/tool-params.yaml"
     )
     assert companion.is_file()
     assert setup.is_file()
+
+
+def test_dsh_mcp_references_survive_project_authoring_and_launch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Preserve private values on credential update and expose only references in launch state."""
+
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.chdir(project)
+    monkeypatch.setenv("HOUMAO_GLOBAL_RUNTIME_DIR", str(tmp_path / "runtime"))
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(tmp_path / "registry"))
+    monkeypatch.setenv("HOUMAO_CLI_PRINT_STYLE", "json")
+    runner = CliRunner()
+
+    def invoke(*args: str) -> str:
+        """Return output from a successful project command."""
+
+        result = runner.invoke(cli, ["project", *args])
+        assert result.exit_code == 0, result.output
+        return result.output
+
+    invoke("init")
+    invoke(
+        "credentials",
+        "dsh",
+        "add",
+        "--name",
+        "bound",
+        "--adapter",
+        "deepseek",
+        "--api-key",
+        "synthetic-provider-key",
+        "--base-url",
+        "http://127.0.0.1:12345/v1",
+    )
+    overlay = require_project_overlay(project)
+    catalog = ProjectCatalog.from_overlay(overlay)
+    setup_source = (
+        _seed(tmp_path / "seed").agent_def_dir / "tools/dsh/setups/default/tool-params.yaml"
+    )
+    shutil.copyfile(setup_source, overlay.agents_root / "tools/dsh/setups/default/tool-params.yaml")
+
+    def bundle_file() -> Path:
+        """Find the current authoritative private credential file after catalog mutations."""
+
+        auth = catalog.load_auth_profile(tool="dsh", name="bound")
+        return auth.content_ref.resolve(overlay) / "env/vars.env"
+
+    private_line = "MCP_AUTH_EXAMPLE=synthetic-private-mcp-value\n"
+    env_file = bundle_file()
+    assert env_file.stat().st_mode & 0o777 == 0o600
+    env_file.write_text(env_file.read_text() + private_line)
+    invoke(
+        "credentials",
+        "dsh",
+        "set",
+        "--name",
+        "bound",
+        "--adapter",
+        "deepseek",
+        "--base-url",
+        "http://127.0.0.1:12346/v1",
+    )
+    assert private_line in bundle_file().read_text()
+    inspection = invoke("credentials", "dsh", "get", "--name", "bound")
+    assert "synthetic-private-mcp-value" not in inspection
+
+    declaration = {
+        "name": "remote",
+        "type": "http",
+        "url": "https://mcp.example.test/rpc",
+        "headers": [{"name": "Authorization", "env_ref": "MCP_AUTH_EXAMPLE"}],
+    }
+    tool_params = {"mcp_servers": [declaration]}
+    invoke(
+        "specialist",
+        "create",
+        "--name",
+        "bound",
+        "--tool",
+        "dsh",
+        "--credential",
+        "bound",
+        "--model",
+        "model-a",
+        "--tool-params",
+        json.dumps(tool_params),
+        "--no-system-skills",
+        "--system-prompt",
+        "Test the selected private credential reference.",
+    )
+    specialist = catalog.load_specialist("bound")
+    assert specialist.tool_params == tool_params
+    preset = yaml.safe_load(specialist.resolved_preset_path(overlay).read_text())
+    assert preset["tool_params"] == tool_params
+    invoke(
+        "profile",
+        "create",
+        "--name",
+        "bound",
+        "--specialist",
+        "bound",
+        "--agent-name",
+        "bound",
+        "--headless",
+    )
+    captured: dict[str, Any] = {}
+
+    def provider_boundary(**kwargs: Any) -> SimpleNamespace:
+        """Capture launch inputs without making a provider request."""
+
+        captured.update(kwargs)
+        return SimpleNamespace()
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.start_runtime_session", provider_boundary
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion", lambda **_: None
+    )
+    invoke("agents", "launch", "--profile", "bound", "--no-gateway")
+    manifest = yaml.safe_load(Path(captured["brain_manifest_path"]).read_text())
+    contract = manifest["runtime"]["launch_contract"]
+    effective = DshEffectiveToolParams.from_mapping(contract["tool_params"]["effective"])
+    assert effective.mcp_servers[0].model_dump(exclude_none=True) == declaration
+    home_file = Path(contract["construction_provenance"]["dsh"]["setup_path"])
+    assert yaml.safe_load(home_file.read_text())["mcp_servers"] == [declaration]
+    assert all(
+        "synthetic-private-mcp-value" not in value
+        for value in (
+            json.dumps(preset),
+            json.dumps(manifest),
+            home_file.read_text(),
+        )
+    )
+    binding = read_dsh_mcp_environment(effective, bundle_file())
+    loaded = load_dsh_home(
+        home_file.parent,
+        effective,
+        {
+            "DEEPSEEK_API_KEY": "synthetic-provider-key",
+            "DEEPSEEK_BASE_URL_ANTHROPIC": "http://127.0.0.1:12346/v1",
+        },
+        credential_environment=binding,
+    )
+    assert loaded.mcp_servers[0]["headers"] == [
+        {"name": "Authorization", "value": "synthetic-private-mcp-value"},
+    ]
+    env_file = bundle_file()
+    env_file.chmod(0o644)
+    with pytest.raises(ValueError, match="owner-private"):
+        read_dsh_mcp_environment(effective, env_file)
 
 
 @pytest.mark.parametrize("flag", ["--claude-oauth-token", "--codex-auth-json", "--kimi-code-home"])
@@ -695,8 +1013,3 @@ def test_removed_provider_identifiers_stay_rejected_on_maintained_surfaces(
     assert not (tmp_path / ".houmao").exists()
     with pytest.raises(LaunchPlanError, match="No default backend"):
         backend_for_tool(identifier)
-    with pytest.raises(ValueError, match="is unsupported"):
-        ToolLaunchMetadata.from_payload(
-            {"tool_params": {"unsupported": {"type": "boolean", "backends": {identifier: {}}}}},
-            source="removed-provider-regression",
-        )

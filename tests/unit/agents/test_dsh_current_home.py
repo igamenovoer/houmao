@@ -1,21 +1,23 @@
 """Verify current-home consumption preserves external edits and native precedence."""
 
-from dataclasses import replace
 import json
 from pathlib import Path
 
 import pytest
 
-from houmao.agents.dsh_configuration import DshConfigurationError, DshSetup, load_dsh_home
-from houmao.agents.dsh_configuration import prepare_dsh_home
+from houmao.agents.dsh_configuration import (
+    DshConfigurationError,
+    DshEffectiveToolParams,
+    load_dsh_home,
+    prepare_dsh_home,
+)
 
 
-def _setup(adapter: str = "deepseek") -> DshSetup:
+def _setup(adapter: str = "deepseek") -> DshEffectiveToolParams:
     """Return two deliberately different models with explicit synthetic routing."""
 
-    return DshSetup.from_mapping(
+    return DshEffectiveToolParams.from_mapping(
         {
-            "version": 1,
             "provider": {
                 "adapter": adapter,
                 "protocol": "messages" if adapter == "deepseek" else "openai-completions",
@@ -23,19 +25,18 @@ def _setup(adapter: str = "deepseek") -> DshSetup:
                 "base_url_env": "CURRENT_ENDPOINT",
                 "api_key_env": "CURRENT_API_KEY",
             },
-            "selected_model": "first",
             "models": [
                 {
                     "id": "first",
                     "context_window": 8192,
                     "max_output_tokens": 128,
-                    "reasoning": False,
+                    "reasoning_efforts": False,
                 },
                 {
                     "id": "second",
                     "context_window": 16384,
                     "max_output_tokens": 256,
-                    "reasoning": {"0": "off", "1": "high"},
+                    "reasoning_efforts": {"off": "off", "high": "high"},
                 },
             ],
         }
@@ -63,7 +64,9 @@ def _snapshot(home: Path) -> dict[str, bytes]:
 def test_load_preserves_current_material_and_does_not_reapply_setup(tmp_path: Path) -> None:
     """Current home edits survive loading even when launch defaults differ."""
 
-    prepared = prepare_dsh_home(tmp_path, _setup(), _environment(), "original launch role")
+    prepared = prepare_dsh_home(
+        tmp_path, _setup(), _environment(), "original launch role", selected_model="first"
+    )
     prepared.role_path.write_text("externally edited role")
     patch = json.loads(prepared.patch_path.read_text())
     next(row for row in patch if row.get("id") == "acp")["config"]["model"] = "second"
@@ -91,7 +94,7 @@ def test_load_preserves_current_material_and_does_not_reapply_setup(tmp_path: Pa
 def test_load_fails_instead_of_repairing_missing_material(tmp_path: Path, removed: str) -> None:
     """An invocation never turns removal into manifest-backed reconstruction."""
 
-    prepare_dsh_home(tmp_path, _setup(), _environment(), "role")
+    prepare_dsh_home(tmp_path, _setup(), _environment(), "role", selected_model="first")
     path = tmp_path / removed
     if path.is_dir():
         path.rmdir()
@@ -107,14 +110,14 @@ def test_load_fails_instead_of_repairing_missing_material(tmp_path: Path, remove
 def test_explicit_model_controls_are_detached_invocation_material(tmp_path: Path) -> None:
     """A selected model/effort changes transient controls without rewriting home."""
 
-    prepared = prepare_dsh_home(tmp_path, _setup(), _environment(), "role")
+    prepared = prepare_dsh_home(tmp_path, _setup(), _environment(), "role", selected_model="first")
     patch = json.loads(prepared.patch_path.read_text())
     adapter = next(row for row in patch if row.get("id") == "llm-deepseek")
     adapter["config"]["baseURL"] = "http://127.0.0.1:2/edited"
     prepared.patch_path.write_text(json.dumps(patch))
     before = _snapshot(tmp_path)
     loaded = load_dsh_home(
-        tmp_path, _setup(), _environment(), selected_model="second", reasoning_level="1"
+        tmp_path, _setup(), _environment(), selected_model="second", reasoning_level="high"
     )
     assert _snapshot(tmp_path) == before
     assert loaded.model == ("deepseek-official", "second")
@@ -136,16 +139,29 @@ def test_current_mcp_declarations_are_used_without_a_launch_snapshot(tmp_path: P
     """The caller supplies the setup it just read, including current ACP MCP values."""
 
     setup = _setup()
-    prepare_dsh_home(tmp_path, setup, _environment(), "role")
-    current = replace(
-        setup,
-        mcp_servers=(
-            {"name": "added-after-launch", "command": "/usr/bin/true", "args": [], "env": []},
-        ),
-    )
+    prepare_dsh_home(tmp_path, setup, _environment(), "role", selected_model="first")
+    document = setup.model_dump(mode="json")
+    document["mcp_servers"] = [
+        {
+            "name": "added-after-launch",
+            "command": "/usr/bin/true",
+            "args": [],
+            "env": [{"name": "CUSTOM", "env_ref": "CURRENT_MCP_REF"}],
+        },
+    ]
+    current = DshEffectiveToolParams.from_mapping(document)
     before = _snapshot(tmp_path)
-    loaded = load_dsh_home(tmp_path, current, _environment())
-    assert loaded.mcp_servers == current.mcp_servers
+    loaded = load_dsh_home(
+        tmp_path, current, _environment(), credential_environment={"CURRENT_MCP_REF": "synthetic"}
+    )
+    assert loaded.mcp_servers == (
+        {
+            "name": "added-after-launch",
+            "command": "/usr/bin/true",
+            "args": [],
+            "env": [{"name": "CUSTOM", "value": "synthetic"}],
+        },
+    )
     assert _snapshot(tmp_path) == before
 
 
@@ -157,10 +173,10 @@ def test_reasoning_only_override_uses_current_materialized_model(
 
     setup = _setup(adapter)
     prepared = prepare_dsh_home(
-        tmp_path, setup, _environment(), "role", selected_model="second", reasoning_level="0"
+        tmp_path, setup, _environment(), "role", selected_model="second", reasoning_level="off"
     )
     before = _snapshot(tmp_path)
-    current = load_dsh_home(tmp_path, setup, _environment(), reasoning_level="1")
+    current = load_dsh_home(tmp_path, setup, _environment(), reasoning_level="high")
     assert current.model == (setup.route, "second")
     assert current.reasoning_effort == "high"
     assert all(row["id"] != "acp" for row in current.invocation_patch)
@@ -180,7 +196,7 @@ def test_nonreasoning_override_drops_previous_native_reasoning_default(
 
     setup = _setup(adapter)
     prepare_dsh_home(
-        tmp_path, setup, _environment(), "role", selected_model="second", reasoning_level="1"
+        tmp_path, setup, _environment(), "role", selected_model="second", reasoning_level="high"
     )
     before = _snapshot(tmp_path)
     current = load_dsh_home(tmp_path, setup, _environment(), selected_model="first")

@@ -6,8 +6,6 @@ launch:
   executable: dsh
   args: []
   default_tool_params: {}
-  metadata:
-    tool_params: {}
   env_injection:
     mode: export_from_env_file
 setup_projection:

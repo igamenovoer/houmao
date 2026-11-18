@@ -84,7 +84,14 @@ def controlled_messages_server() -> Iterator[tuple[str, list[dict[str, Any]]]]:
 
             assert self.path.endswith(("/messages", "/chat/completions"))
             body = json.loads(self.rfile.read(int(self.headers["content-length"])))
-            requests.append(body)
+            requests.append(
+                {
+                    **body,
+                    "_fixture_placeholder_authorization": (
+                        self.headers.get("Authorization") == "Bearer houmao-local-no-auth"
+                    ),
+                }
+            )
             if self.path.endswith("/chat/completions"):
                 frames = [
                     {

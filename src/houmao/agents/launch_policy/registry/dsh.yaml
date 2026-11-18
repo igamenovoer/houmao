@@ -9,10 +9,11 @@ strategies:
     supported_versions: ">=0.2.2rc1"
     minimal_inputs:
       credential_forms:
-        - Explicit API key and endpoint references selected by dsh-setup.yaml
+        - Selected credential-bundle endpoint and API-key roles
+        - An endpoint-only bundle for an explicitly selected pi-ai/openai-completions route
       requires_user_prepared_state: false
       notes:
-        - DSH uses isolated managed profiles with no-question startup policy.
+        - DSH uses isolated managed profiles with the houmao-unattended permission preset.
         - Native login, implicit provider fallback, and interactive Web control are unsupported in this headless change.
         - Runtime preparation identifies the actual executable and installed package bytes independently of the ACP handshake version.
     system_prompt:
@@ -48,11 +49,12 @@ strategies:
     supported_versions: ">=0.2.2rc1"
     minimal_inputs:
       credential_forms:
-        - Explicit API key and endpoint references selected by dsh-setup.yaml
+        - Selected credential-bundle endpoint and API-key roles
+        - An endpoint-only bundle for an explicitly selected pi-ai/openai-completions route
       requires_user_prepared_state: false
       notes:
         - The owned loopback Web Host uses an isolated home and a separate API connection from the browser.
-        - Startup selects the no-question native policy; later observation and reconnection retain live human model and permission changes.
+        - Startup selects the houmao-unattended permission preset. Later observation and reconnection retain live human model and permission changes.
         - Raw keys, terminal parser controls, and external Web Host adoption are unsupported.
     system_prompt:
       method: native_system_prompt_section

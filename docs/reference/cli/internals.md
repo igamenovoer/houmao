@@ -35,7 +35,9 @@ Build one brain home directly from native-agent material.
 houmao-mgr internals native-agent brain build --native-agent-root <dir> --preset <name>
 ```
 
-The internal build command accepts the retained direct build inputs: `--preset`, `--tool`, repeatable `--skill`, `--setup`, `--auth`, `--runtime-root`, `--home-id`, `--reuse-home`, `--launch-overrides`, `--agent-name`, and `--agent-id`. The maintained flag names are `--preset`, `--setup`, and `--auth`; retired top-level brain-build examples using `--recipe`, `--config-profile`, `--cred-profile`, or `--agent-def-dir` are not current. Ordinary project launches build brain homes internally through `houmao-mgr project agents launch`.
+The internal build command accepts the retained direct build inputs: `--preset`, `--tool`, repeatable `--skill`, `--setup`, `--auth`, `--runtime-root`, `--home-id`, `--reuse-home`, `--launch-overrides`, `--tool-params`, `--agent-name`, and `--agent-id`. The maintained flag names are `--preset`, `--setup`, and `--auth`; retired top-level brain-build examples using `--recipe`, `--config-profile`, `--cred-profile`, or `--agent-def-dir` are not current. Ordinary project launches build brain homes internally through `houmao-mgr project agents launch`.
+
+Pass raw CLI arguments through `--launch-overrides`. Pass typed tool settings through `--tool-params` as an inline JSON object or as `@<path>` to a YAML or JSON mapping. The direct settings apply to this build. [Typed Tool Parameters](../build-phase/launch-overrides.md#typed-tool-parameters)
 
 ---
 

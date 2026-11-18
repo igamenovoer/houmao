@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import click
 from pathlib import Path
+import shutil
 from types import SimpleNamespace
 
 import pytest
@@ -27,6 +28,16 @@ from houmao.srv_ctrl.commands.agents.core import (
     _resolve_launch_profile_system_skill_policy_or_click,
     launch_managed_agent_locally,
 )
+
+
+@pytest.fixture
+def stub_brain_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub preflight for orchestration tests with mocked builders and source assets."""
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.validate_brain_inputs",
+        lambda request, **kwargs: None,
+    )
 
 
 def _expected_default_section_metadata(*, header_enabled: bool) -> dict[str, object]:
@@ -113,6 +124,7 @@ def _install_basic_launch_patches(
         lambda **kwargs: SimpleNamespace(
             agent_def_dir=source_agent_def_dir,
             preset=SimpleNamespace(
+                tool_params={},
                 tool="codex",
                 skills=(),
                 setup="default",
@@ -135,6 +147,7 @@ def _install_basic_launch_patches(
     )
 
 
+@pytest.mark.usefixtures("stub_brain_preflight")
 def test_launch_managed_agent_locally_merges_launch_profile_skill_overlays(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -181,6 +194,7 @@ def test_launch_managed_agent_locally_merges_launch_profile_skill_overlays(
         lambda **kwargs: SimpleNamespace(
             agent_def_dir=source_agent_def_dir,
             preset=SimpleNamespace(
+                tool_params={},
                 tool="codex",
                 skills=("notes",),
                 setup="default",
@@ -256,6 +270,7 @@ def test_launch_managed_agent_locally_merges_launch_profile_skill_overlays(
     }
 
 
+@pytest.mark.usefixtures("stub_brain_preflight")
 def test_launch_managed_agent_locally_passes_complete_kimi_prompt_to_builder(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -297,6 +312,7 @@ def test_launch_managed_agent_locally_passes_complete_kimi_prompt_to_builder(
         lambda **kwargs: SimpleNamespace(
             agent_def_dir=source_agent_def_dir,
             preset=SimpleNamespace(
+                tool_params={},
                 tool="kimi",
                 skills=(),
                 setup="default",
@@ -368,6 +384,7 @@ def test_launch_profile_policy_rejects_removed_individual_system_skill_selector(
         )
 
 
+@pytest.mark.usefixtures("stub_brain_preflight")
 def test_launch_managed_agent_locally_forwards_gateway_args_to_runtime(
     monkeypatch,
     tmp_path: Path,
@@ -411,6 +428,7 @@ def test_launch_managed_agent_locally_forwards_gateway_args_to_runtime(
         lambda **kwargs: SimpleNamespace(
             agent_def_dir=source_agent_def_dir,
             preset=SimpleNamespace(
+                tool_params={},
                 tool="codex",
                 skills=(),
                 setup="default",
@@ -492,6 +510,7 @@ def test_launch_managed_agent_locally_forwards_gateway_args_to_runtime(
     assert launch_result.controller.agent_identity == "repo-research-1"
 
 
+@pytest.mark.usefixtures("stub_brain_preflight")
 def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
     monkeypatch,
     tmp_path: Path,
@@ -535,6 +554,7 @@ def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
         lambda **kwargs: SimpleNamespace(
             agent_def_dir=source_agent_def_dir,
             preset=SimpleNamespace(
+                tool_params={},
                 tool="codex",
                 skills=(),
                 setup="default",
@@ -648,6 +668,7 @@ def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
     }
 
 
+@pytest.mark.usefixtures("stub_brain_preflight")
 def test_launch_managed_agent_locally_applies_launch_profile_memo_seed_before_build(
     monkeypatch,
     tmp_path: Path,
@@ -773,6 +794,7 @@ def test_launch_managed_agent_locally_applies_launch_profile_memo_seed_before_bu
     }
 
 
+@pytest.mark.usefixtures("stub_brain_preflight")
 def test_launch_managed_agent_locally_seeds_profile_mail_notifier_appendix(
     monkeypatch,
     tmp_path: Path,
@@ -868,6 +890,7 @@ def test_launch_managed_agent_locally_seeds_profile_mail_notifier_appendix(
     assert record.appendix_text == "Prefer urgent legal mail before routine updates."
 
 
+@pytest.mark.usefixtures("stub_brain_preflight")
 def test_launch_managed_agent_locally_memo_only_seed_preserves_pages(
     monkeypatch,
     tmp_path: Path,
@@ -972,6 +995,7 @@ def test_launch_managed_agent_locally_memo_only_seed_preserves_pages(
     }
 
 
+@pytest.mark.usefixtures("stub_brain_preflight")
 def test_launch_managed_agent_locally_can_disable_default_managed_header(
     monkeypatch,
     tmp_path: Path,
@@ -1013,6 +1037,7 @@ def test_launch_managed_agent_locally_can_disable_default_managed_header(
         lambda **kwargs: SimpleNamespace(
             agent_def_dir=source_agent_def_dir,
             preset=SimpleNamespace(
+                tool_params={},
                 tool="codex",
                 skills=(),
                 setup="default",
@@ -1147,6 +1172,7 @@ def test_launch_managed_agent_locally_fails_before_build_without_force_on_live_o
         )
 
 
+@pytest.mark.usefixtures("stub_brain_preflight")
 def test_launch_managed_agent_locally_keep_stale_reuses_predecessor_home(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1275,6 +1301,7 @@ def test_launch_managed_agent_locally_keep_stale_reuses_predecessor_home(
     assert captured["runtime_kwargs"]["managed_force_mode"] == "keep-stale"
 
 
+@pytest.mark.usefixtures("stub_brain_preflight")
 def test_launch_managed_agent_locally_reuse_home_rebuilds_stopped_predecessor_home(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1415,6 +1442,7 @@ def test_launch_managed_agent_locally_reuse_home_rebuilds_stopped_predecessor_ho
     assert "relaunch_chat_session" not in captured["runtime_kwargs"]
 
 
+@pytest.mark.usefixtures("stub_brain_preflight")
 def test_launch_managed_agent_locally_reuse_home_explicit_session_name_override_wins(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1732,6 +1760,7 @@ def test_launch_managed_agent_locally_rejects_reuse_home_with_clean_force(
         )
 
 
+@pytest.mark.usefixtures("stub_brain_preflight")
 def test_launch_managed_agent_locally_reuse_home_projects_current_specialist_inputs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1775,6 +1804,7 @@ def test_launch_managed_agent_locally_reuse_home_projects_current_specialist_inp
         lambda **kwargs: SimpleNamespace(
             agent_def_dir=source_agent_def_dir,
             preset=SimpleNamespace(
+                tool_params={},
                 tool="codex",
                 skills=("notes", "mailbox"),
                 setup="updated-default",
@@ -1876,6 +1906,7 @@ def test_launch_managed_agent_locally_reuse_home_projects_current_specialist_inp
     assert captured["build_request"].extra == {"theme": "fresh"}
 
 
+@pytest.mark.usefixtures("stub_brain_preflight")
 def test_launch_managed_agent_locally_clean_removes_replaceable_predecessor_artifacts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -2018,6 +2049,7 @@ def test_launch_managed_agent_locally_clean_removes_replaceable_predecessor_arti
     assert not private_mailbox_dir.exists()
 
 
+@pytest.mark.usefixtures("stub_brain_preflight")
 def test_launch_managed_agent_locally_force_does_not_target_unrelated_tmux_collision(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -2085,6 +2117,7 @@ def test_launch_managed_agent_locally_force_does_not_target_unrelated_tmux_colli
         )
 
 
+@pytest.mark.usefixtures("stub_brain_preflight")
 def test_launch_managed_agent_locally_reports_post_takeover_build_failure(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -2191,3 +2224,78 @@ def test_launch_managed_agent_locally_reports_post_takeover_build_failure(
             headless_display_detail="concise",
             force_mode="clean",
         )
+
+
+@pytest.mark.parametrize("force_mode", ["keep-stale", "clean"])
+def test_invalid_merged_tool_params_leave_force_predecessor_intact(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, force_mode: str
+) -> None:
+    """Reject a valid partial that makes the final configuration invalid for this backend."""
+
+    source = tmp_path / "source"
+    runtime = tmp_path / "runtime"
+    _install_basic_launch_patches(
+        monkeypatch,
+        runtime_root=runtime,
+        jobs_root=tmp_path / "jobs",
+        mailbox_root=tmp_path / "mail",
+        overlay_root=tmp_path / "overlay",
+        source_agent_def_dir=source,
+    )
+    from houmao.srv_ctrl.commands.agents import core
+
+    claude = source / "tools" / "claude"
+    setup = claude / "setups" / "default"
+    setup.mkdir(parents=True)
+    auth_env = claude / "auth" / "work" / "env"
+    auth_env.mkdir(parents=True)
+    (auth_env / "vars.env").touch()
+    shutil.copyfile(
+        Path(__file__).resolve().parents[3] / "fixtures/plain-agent-def/tools/claude/adapter.yaml",
+        claude / "adapter.yaml",
+    )
+    (setup / "tool-params.yaml").write_text("include_partial_messages: false\n", encoding="utf-8")
+    resolve_target = core.resolve_native_launch_target
+
+    def claude_target(**kwargs: object) -> SimpleNamespace:
+        target = resolve_target(**kwargs)
+        target.tool = target.preset.tool = "claude"
+        return target
+
+    monkeypatch.setattr(core, "resolve_native_launch_target", claude_target)
+    monkeypatch.setattr(core, "backend_for_tool", lambda *args, **kwargs: "local_interactive")
+    previous = runtime / "previous"
+    previous.mkdir(parents=True)
+    (previous / "manifest.json").write_text("predecessor manifest", encoding="utf-8")
+    monkeypatch.setattr(
+        core,
+        "_resolve_managed_predecessor_home_context",
+        lambda **kwargs: SimpleNamespace(
+            target=object(), home_id="previous", force_mode=force_mode
+        ),
+    )
+
+    def unexpected_mutation(*args: object, **kwargs: object) -> None:
+        pytest.fail("Invalid tool parameters reached runtime mutation")
+
+    monkeypatch.setattr(core, "_perform_managed_force_takeover", unexpected_mutation)
+    monkeypatch.setattr(core, "build_brain_home", unexpected_mutation)
+    with pytest.raises(click.ClickException, match="include_partial_messages.*unsupported"):
+        launch_managed_agent_locally(
+            agents="researcher",
+            agent_name="worker-a",
+            agent_id=None,
+            agent_id_mode="name-hash",
+            auth=None,
+            session_name=None,
+            headless=False,
+            provider="claude_code",
+            working_directory=tmp_path,
+            source_agent_def_dir=source,
+            headless_display_style="plain",
+            headless_display_detail="concise",
+            force_mode=force_mode,
+            direct_tool_params={"include_partial_messages": True},
+        )
+    assert (previous / "manifest.json").read_text(encoding="utf-8") == "predecessor manifest"
+    assert list(runtime.iterdir()) == [previous]

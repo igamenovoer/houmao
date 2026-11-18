@@ -20,6 +20,12 @@ from houmao.agents.definition_parser import (
     parse_agent_preset,
     parse_tool_adapter,
 )
+from houmao.agents.dsh_credentials import (
+    DshCredentialRoles,
+    load_dsh_credential_roles,
+    validate_dsh_env_name,
+    write_dsh_credential_roles,
+)
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
 from houmao.owned_mutation import (
     remove_tree_or_path,
@@ -73,6 +79,12 @@ _PROVIDER_HOME_ENV_VARS: dict[str, str] = {
     "codex": "CODEX_HOME",
     "kimi": "KIMI_CODE_HOME",
     "dsh": "DSH_HOME",
+}
+_DEFAULT_DSH_CREDENTIAL_ROLES: dict[str, DshCredentialRoles] = {
+    "deepseek": DshCredentialRoles(
+        base_url_env="DEEPSEEK_BASE_URL_ANTHROPIC", api_key_env="DEEPSEEK_API_KEY"
+    ),
+    "pi-ai": DshCredentialRoles(base_url_env="OPENAI_BASE_URL", api_key_env="OPENAI_API_KEY"),
 }
 _PROVIDER_AUTH_ENV_VARS: dict[str, frozenset[str]] = {
     "dsh": frozenset(
@@ -140,6 +152,55 @@ class CredentialTarget:
         return cls(kind="agent_def_dir", agent_def_dir=agent_def_dir.resolve())
 
 
+@dataclass(frozen=True)
+class _DshCredentialUpdate:
+    """Carry requested role and value changes for one DSH bundle."""
+
+    adapter: str
+    api_key: str | None = None
+    base_url: str | None = None
+    api_key_env: str | None = None
+    base_url_env: str | None = None
+    clear_api_key: bool = False
+    clear_base_url: bool = False
+
+    def __post_init__(self) -> None:
+        """Reject invalid names and conflicting writes without showing values."""
+
+        for field, name, value, clear in (
+            ("api-key", self.api_key_env, self.api_key, self.clear_api_key),
+            ("base-url", self.base_url_env, self.base_url, self.clear_base_url),
+        ):
+            if clear and (name is not None or value is not None):
+                raise click.ClickException(
+                    f"`--clear-{field}` cannot be combined with `--{field}` or `--{field}-env`."
+                )
+            if name is not None:
+                try:
+                    validate_dsh_env_name(name)
+                except ValueError as exc:
+                    raise click.ClickException(
+                        f"Invalid `--{field}-env` name {name!r}: {exc}"
+                    ) from None
+            if value is not None and any(character in value for character in "\r\n\x00"):
+                raise click.ClickException(f"`--{field}` must be a single-line value.")
+
+    @property
+    def has_changes(self) -> bool:
+        """Return whether the command supplied any DSH credential inputs."""
+
+        return any(
+            (
+                self.api_key and self.api_key.strip(),
+                self.base_url and self.base_url.strip(),
+                self.api_key_env,
+                self.base_url_env,
+                self.clear_api_key,
+                self.clear_base_url,
+            )
+        )
+
+
 @click.group(name="credentials")
 def credentials_group() -> None:
     """Manage credentials through the supported concern-oriented CLI surface."""
@@ -182,6 +243,7 @@ def ensure_specialist_credential_bundle(
         name=credential_name,
     )
     clear_file_sources: set[str] = set()
+    dsh_update = None
     if tool == "claude":
         env_values = _compact_env_values(
             {
@@ -240,15 +302,15 @@ def ensure_specialist_credential_bundle(
             raise click.ClickException(
                 "DSH supports explicit API credentials; native login import is unsupported."
             )
-        env_values = _compact_env_values(
-            {"DEEPSEEK_API_KEY": api_key, "DEEPSEEK_BASE_URL_ANTHROPIC": base_url}
-        )
+        update = _DshCredentialUpdate(adapter="deepseek", api_key=api_key, base_url=base_url)
+        dsh_update = update if update.has_changes else None
+        env_values = {}
         file_sources = {}
     else:
         raise click.ClickException(f"Unsupported specialist tool `{tool}`.")
 
     if existing_profile is not None:
-        if not env_values and not file_sources:
+        if not env_values and not file_sources and dsh_update is None:
             return {
                 "operation": "reuse",
                 "project_root": str(overlay.project_root),
@@ -267,9 +329,10 @@ def ensure_specialist_credential_bundle(
             operation="set",
             clear_env_names=set(),
             clear_file_sources=clear_file_sources,
+            dsh_update=dsh_update,
         )
 
-    if not env_values and not file_sources:
+    if not env_values and not file_sources and dsh_update is None:
         raise click.ClickException(
             f"Credential bundle `{credential_name}` does not exist under `{tool}` and no credential inputs were provided."
         )
@@ -283,6 +346,7 @@ def ensure_specialist_credential_bundle(
         operation="add",
         clear_env_names=set(),
         clear_file_sources=clear_file_sources,
+        dsh_update=dsh_update,
     )
 
 
@@ -531,17 +595,32 @@ def _build_dsh_write_command(
     @click.option("--adapter", type=click.Choice(("deepseek", "pi-ai")), required=True)
     @click.option("--api-key", default=None, help="Selected adapter's API key.")
     @click.option("--base-url", default=None, help="Selected adapter's protocol endpoint.")
+    @click.option("--api-key-env", default=None, help="Bundle environment name for the API key.")
+    @click.option("--base-url-env", default=None, help="Bundle environment name for the endpoint.")
     def write_command(
         name: str,
         adapter: str,
         api_key: str | None,
         base_url: str | None,
+        api_key_env: str | None,
+        base_url_env: str | None,
+        clear_api_key: bool = False,
+        clear_base_url: bool = False,
         use_project: bool = False,
         agent_def_dir: Path | None = None,
         native_agent_root: Path | None = None,
     ) -> None:
         """Write explicit API credentials without discovering or importing native login state."""
 
+        update = _DshCredentialUpdate(
+            adapter=adapter,
+            api_key=api_key,
+            base_url=base_url,
+            api_key_env=api_key_env,
+            base_url_env=base_url_env,
+            clear_api_key=clear_api_key,
+            clear_base_url=clear_base_url,
+        )
         target = _resolve_command_target(
             project_only=project_only,
             native_only=native_only,
@@ -550,25 +629,28 @@ def _build_dsh_write_command(
             native_agent_root=native_agent_root,
             allow_project_bootstrap=True,
         )
-        key_name, endpoint_name = (
-            ("DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL_ANTHROPIC")
-            if adapter == "deepseek"
-            else ("OPENAI_API_KEY", "OPENAI_BASE_URL")
-        )
         emit(
             _write_credential_bundle(
                 target=target,
                 tool="dsh",
                 name=name,
-                env_values=_compact_env_values({key_name: api_key, endpoint_name: base_url}),
+                env_values={},
                 file_sources={},
                 require_any_input=True,
                 operation=operation,
                 clear_env_names=set(),
                 clear_file_sources=set(),
+                dsh_update=update,
             )
         )
 
+    if operation == "set":
+        click.option("--clear-api-key", is_flag=True, help="Clear the stored API key.")(
+            write_command
+        )
+        click.option("--clear-base-url", is_flag=True, help="Clear the stored endpoint URL.")(
+            write_command
+        )
     return write_command
 
 
@@ -1953,7 +2035,6 @@ def _describe_credential_bundle(
         source_root = _project_auth_source_root(overlay=target.overlay, profile=profile)
         files_root = (source_root / adapter.auth_files_dir).resolve()
         projection_root = profile.resolved_projection_path(target.overlay)
-        env_values = _load_existing_env_values((source_root / adapter.auth_env_source).resolve())
         return {
             "target_kind": "project",
             "project_root": str(target.overlay.project_root),
@@ -1962,10 +2043,9 @@ def _describe_credential_bundle(
             "bundle_ref": profile.bundle_ref,
             "path": str(projection_root),
             "env_file": str((projection_root / adapter.auth_env_source).resolve()),
-            "env": {
-                env_name: _describe_env_value(env_name=env_name, env_values=env_values)
-                for env_name in adapter.auth_env_allowlist
-            },
+            **_describe_credential_environment(
+                tool=tool, adapter=adapter, env_file=source_root / adapter.auth_env_source
+            ),
             "files": {
                 mapping.source: _describe_file_mapping(files_root=files_root, mapping=mapping)
                 for mapping in adapter.auth_file_mappings
@@ -1981,24 +2061,45 @@ def _describe_credential_bundle(
     if not bundle_root.is_dir():
         raise click.ClickException(f"Credential bundle not found: {bundle_root}")
     files_root = (bundle_root / adapter.auth_files_dir).resolve()
-    env_file = (bundle_root / adapter.auth_env_source).resolve()
-    env_values = _load_existing_env_values(env_file)
+    env_file = bundle_root / adapter.auth_env_source
     return {
         "target_kind": "agent_def_dir",
         "agent_def_dir": str(target.agent_def_dir),
         "tool": tool,
         "name": resolved_name,
         "path": str(bundle_root),
-        "env_file": str(env_file),
-        "env": {
-            env_name: _describe_env_value(env_name=env_name, env_values=env_values)
-            for env_name in adapter.auth_env_allowlist
-        },
+        "env_file": str(env_file.resolve()),
+        **_describe_credential_environment(tool=tool, adapter=adapter, env_file=env_file),
         "files": {
             mapping.source: _describe_file_mapping(files_root=files_root, mapping=mapping)
             for mapping in adapter.auth_file_mappings
         },
     }
+
+
+def _describe_credential_environment(
+    *, tool: str, adapter: ToolAdapter, env_file: Path
+) -> dict[str, object]:
+    """Describe allowlisted variables and explicitly declared DSH roles."""
+
+    env_values = _load_existing_env_values(env_file)
+    env_names = list(adapter.auth_env_allowlist)
+    roles = _read_dsh_roles_or_click(env_file) if tool == "dsh" else None
+    if roles is not None:
+        env_names.extend(name for name in roles.to_payload().values() if name not in env_names)
+    payload: dict[str, object] = {
+        "env": {
+            name: _describe_env_value(
+                env_name=name,
+                env_values=env_values,
+                force_redact=roles is not None and name == roles.api_key_env,
+            )
+            for name in env_names
+        }
+    }
+    if roles is not None:
+        payload["roles"] = roles.to_payload()
+    return payload
 
 
 def _remove_credential_bundle(
@@ -2219,6 +2320,7 @@ def _write_credential_bundle(
     operation: CredentialWriteOperation,
     clear_env_names: set[str],
     clear_file_sources: set[str],
+    dsh_update: _DshCredentialUpdate | None = None,
 ) -> dict[str, object]:
     """Create or update one credential using the shared adapter-driven engine."""
 
@@ -2227,23 +2329,18 @@ def _write_credential_bundle(
     if operation not in {"add", "set"}:
         raise click.ClickException(f"Unsupported credential operation: {operation}")
 
-    if (
-        require_any_input
-        and not env_values
-        and not file_sources
-        and not clear_env_names
-        and not clear_file_sources
-    ):
+    has_changes = bool(
+        env_values
+        or file_sources
+        or clear_env_names
+        or clear_file_sources
+        or (dsh_update is not None and dsh_update.has_changes)
+    )
+    if require_any_input and not has_changes:
         raise click.ClickException(
             f"Provide at least one credential input for `{tool}` (env value or compatible auth file)."
         )
-    if (
-        operation == "set"
-        and not env_values
-        and not file_sources
-        and not clear_env_names
-        and not clear_file_sources
-    ):
+    if operation == "set" and not has_changes:
         raise click.ClickException(
             f"Provide at least one change to update credential `{resolved_name}` for `{tool}`."
         )
@@ -2281,6 +2378,13 @@ def _write_credential_bundle(
         env_file_path = (temp_auth_root / adapter.auth_env_source).resolve()
         files_root = (temp_auth_root / adapter.auth_files_dir).resolve()
         existing_env_values = _load_existing_env_values(env_file_path)
+        dsh_roles = None
+        if dsh_update is not None:
+            dsh_roles, env_values, clear_env_names = _patch_dsh_credential_roles(
+                update=dsh_update,
+                existing_roles=_read_dsh_roles_or_click(env_file_path),
+                existing_values=existing_env_values,
+            )
         merged_env_values = dict(existing_env_values)
         merged_env_values.update(env_values)
         for env_name in clear_env_names:
@@ -2307,14 +2411,22 @@ def _write_credential_bundle(
                     f"`{resolved_name}`."
                 )
 
+        env_names = list(adapter.auth_env_allowlist)
+        if tool == "dsh":
+            # DSH MCP declarations can refer to private entries defined outside the CLI.
+            env_names.extend(sorted(set(merged_env_values) - set(env_names)))
         replace_path_with_text(
             destination=env_file_path,
             text=_render_env_file(
                 env_values=merged_env_values,
-                allowlist=adapter.auth_env_allowlist,
+                allowlist=env_names,
             ),
             allowed_roots=(temp_auth_root,),
         )
+        if tool == "dsh":
+            env_file_path.chmod(0o600)
+        if dsh_roles is not None:
+            write_dsh_credential_roles(env_file_path, dsh_roles)
 
         return _persist_credential_bundle(
             target=target,
@@ -2327,7 +2439,61 @@ def _write_credential_bundle(
             clear_env_names=clear_env_names,
             clear_file_sources=clear_file_sources,
             operation=operation,
+            dsh_roles=dsh_roles,
         )
+
+
+def _read_dsh_roles_or_click(env_file: Path) -> DshCredentialRoles | None:
+    """Translate an invalid role file to an operator-facing diagnostic."""
+
+    try:
+        return load_dsh_credential_roles(env_file)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from None
+
+
+def _patch_dsh_credential_roles(
+    *,
+    update: _DshCredentialUpdate,
+    existing_roles: DshCredentialRoles | None,
+    existing_values: dict[str, str],
+) -> tuple[DshCredentialRoles, dict[str, str], set[str]]:
+    """Resolve a credential update without overwriting unrelated environment entries."""
+
+    defaults = _DEFAULT_DSH_CREDENTIAL_ROLES[update.adapter].to_payload()
+    current = (
+        existing_roles.to_payload()
+        if existing_roles is not None
+        else {role: name for role, name in defaults.items() if name in existing_values}
+    )
+    existing_names = set(current.values())
+    names: dict[str, str] = {}
+    values: dict[str, str] = {}
+    for role, explicit_name, explicit_value, clear in (
+        ("base_url_env", update.base_url_env, update.base_url, update.clear_base_url),
+        ("api_key_env", update.api_key_env, update.api_key, update.clear_api_key),
+    ):
+        if clear:
+            continue
+        current_name = current.get(role)
+        value = (explicit_value.strip() or None) if explicit_value is not None else None
+        name = explicit_name or current_name or (defaults[role] if value else None)
+        if name is None:
+            continue
+        if name in names.values():
+            raise click.ClickException(
+                f"DSH endpoint and API-key roles require distinct environment names. Both use `{name}`."
+            )
+        if name in existing_values and name not in existing_names:
+            raise click.ClickException(
+                f"Cannot bind DSH role to `{name}`. The bundle already uses that environment name."
+            )
+        if not value and current_name is not None:
+            value = existing_values.get(current_name)
+        names[role] = name
+        if value is not None:
+            values[name] = value
+    return DshCredentialRoles(**names), values, existing_names - set(names.values())
 
 
 def _resolve_existing_credential_source_root(
@@ -2375,9 +2541,15 @@ def _persist_credential_bundle(
     clear_env_names: set[str],
     clear_file_sources: set[str],
     operation: CredentialWriteOperation,
+    dsh_roles: DshCredentialRoles | None,
 ) -> dict[str, object]:
     """Persist one fully prepared credential bundle into the selected backend."""
 
+    written_env_names = list(adapter.auth_env_allowlist)
+    if dsh_roles is not None:
+        written_env_names.extend(
+            name for name in dsh_roles.to_payload().values() if name not in written_env_names
+        )
     if target.kind == "project":
         assert target.overlay is not None
         catalog = ProjectCatalog.from_overlay(target.overlay)
@@ -2411,7 +2583,7 @@ def _persist_credential_bundle(
             "path": str(projection_root),
             "env_file": str(projection_env_file),
             "written_env_vars": [
-                env_name for env_name in adapter.auth_env_allowlist if env_name in merged_env_values
+                env_name for env_name in written_env_names if env_name in merged_env_values
             ],
             "cleared_env_vars": sorted(clear_env_names),
             "written_files": [
@@ -2437,7 +2609,7 @@ def _persist_credential_bundle(
         "path": str(bundle_root),
         "env_file": str((bundle_root / adapter.auth_env_source).resolve()),
         "written_env_vars": [
-            env_name for env_name in adapter.auth_env_allowlist if env_name in merged_env_values
+            env_name for env_name in written_env_names if env_name in merged_env_values
         ],
         "cleared_env_vars": sorted(clear_env_names),
         "written_files": [
@@ -2613,12 +2785,14 @@ def _find_claude_vendor_global_state_path(*, config_dir: Path) -> Path | None:
     return None
 
 
-def _describe_env_value(*, env_name: str, env_values: dict[str, str]) -> dict[str, object]:
+def _describe_env_value(
+    *, env_name: str, env_values: dict[str, str], force_redact: bool = False
+) -> dict[str, object]:
     """Describe one env-backed credential value without leaking secret-like content."""
 
     if env_name not in env_values:
         return {"present": False}
-    if _is_secret_env_name(env_name):
+    if force_redact or _is_secret_env_name(env_name):
         return {"present": True, "redacted": True}
     return {"present": True, "value": env_values[env_name]}
 

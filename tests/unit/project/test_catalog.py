@@ -682,6 +682,34 @@ def test_project_catalog_rejects_invalid_memo_seed_directories(
         )
 
 
+def test_project_catalog_adds_tool_params_column_to_existing_catalog(tmp_path: Path) -> None:
+    """Upgrade a current catalog in place and preserve its launch profiles."""
+
+    overlay = bootstrap_project_overlay(tmp_path).project_overlay
+    catalog = ProjectCatalog.from_overlay(overlay)
+    with sqlite3.connect(overlay.catalog_path) as connection:
+        connection.execute("DROP VIEW v_launch_profiles")
+        connection.execute("ALTER TABLE launch_profiles DROP COLUMN tool_params_payload")
+        connection.execute(
+            """
+            INSERT INTO launch_profiles (
+                name, profile_lane, source_kind, source_name, workdir, created_at, updated_at
+            ) VALUES ('existing', 'launch_profile', 'recipe', 'example', '/example', '', '')
+            """
+        )
+
+    catalog.initialize()
+    catalog.initialize()
+    profile = catalog.load_launch_profile("existing")
+    assert profile.workdir == "/example"
+    assert profile.tool_params == {}
+    with sqlite3.connect(overlay.catalog_path) as connection:
+        assert connection.execute(
+            "SELECT tool_params_payload FROM v_launch_profiles WHERE launch_profile_name = ?",
+            ("existing",),
+        ).fetchone() == ("{}",)
+
+
 def test_project_catalog_rejects_unsupported_schema_version(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

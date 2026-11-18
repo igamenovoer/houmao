@@ -14,6 +14,7 @@ def build_launch_profile_config_payload(
     source_name: str,
     defaults: Mapping[str, Any],
     relaunch: Mapping[str, Any] | None = None,
+    tool_params: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return the shared YAML payload shape for launch-profile-like config."""
 
@@ -28,4 +29,6 @@ def build_launch_profile_config_payload(
     payload["defaults"] = dict(defaults)
     if relaunch:
         payload["relaunch"] = dict(relaunch)
+    if tool_params:
+        payload["tool_params"] = dict(tool_params)
     return payload

@@ -291,7 +291,11 @@ def test_headless_automatic_observation_rechecks_authority_after_version_probe(
     )
     inspect = Mock(side_effect=[home, home.model_copy(update={"identity": {"generation": "new"}})])
     monkeypatch.setattr(native_refresh, "inspect_native_home", inspect)
-    monkeypatch.setattr(dsh_configuration.DshSetup, "from_file", Mock(return_value=object()))
+    monkeypatch.setattr(
+        dsh_configuration.DshEffectiveToolParams,
+        "from_file",
+        Mock(return_value=SimpleNamespace(mcp_env_refs=frozenset())),
+    )
     monkeypatch.setattr(dsh_configuration, "load_dsh_home", Mock())
     probe = Mock(return_value=SimpleNamespace(stdout=selected))
     if selected is None:

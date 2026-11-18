@@ -10,6 +10,9 @@ from click.testing import CliRunner
 import pytest
 import yaml
 
+from houmao.agents.dsh_credentials import DshCredentialRoles, load_dsh_credential_roles
+from houmao.project.catalog import ProjectCatalog
+from houmao.project.overlay import require_project_overlay
 from houmao.terminology import NATIVE_AGENT_ROOT_ENV_VAR
 from houmao.srv_ctrl.commands.main import cli
 
@@ -88,6 +91,137 @@ def test_top_level_credentials_is_hidden_and_native_help_mentions_supported_tool
     )
     assert tool_result.exit_code == 0
     assert "login" in tool_result.output
+
+
+@pytest.mark.parametrize("target", ["project", "native"])
+def test_dsh_credential_roles_persist_patch_clear_and_redact(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, target: str
+) -> None:
+    """Store role names beside their values through both credential surfaces."""
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    if target == "project":
+        result = runner.invoke(cli, ["project", "init"])
+        assert result.exit_code == 0, result.output
+        prefix = ["project", "credentials", "dsh"]
+        selector: list[str] = []
+    else:
+        agent_def_dir = _copy_agent_def_fixture(tmp_path)
+        prefix = ["internals", "native-agent", "credentials", "dsh"]
+        selector = ["--native-agent-root", str(agent_def_dir)]
+
+    def invoke(verb: str, *args: str) -> dict:
+        """Run one credential command in the selected storage backend."""
+
+        result = runner.invoke(cli, [*prefix, verb, *selector, *args])
+        assert result.exit_code == 0, result.output
+        return json.loads(result.output)
+
+    endpoint_url = "http://127.0.0.1:14888/v1"
+    endpoint = invoke("add", "--name", "local", "--adapter", "pi-ai", "--base-url", endpoint_url)
+    endpoint_file = Path(endpoint["env_file"])
+    assert load_dsh_credential_roles(endpoint_file) == DshCredentialRoles(
+        base_url_env="OPENAI_BASE_URL"
+    )
+    assert endpoint_file.read_text(encoding="utf-8").splitlines() == [
+        f"OPENAI_BASE_URL={endpoint_url}"
+    ]
+
+    custom = invoke(
+        "add",
+        "--name",
+        "custom",
+        "--adapter",
+        "pi-ai",
+        "--base-url",
+        endpoint_url,
+        "--base-url-env",
+        "SGLANG_BASE_URL",
+        "--api-key",
+        "synthetic-role-key",
+        "--api-key-env",
+        "SGLANG_AUTH",
+    )
+    env_file = Path(custom["env_file"])
+    assert load_dsh_credential_roles(env_file) == DshCredentialRoles(
+        base_url_env="SGLANG_BASE_URL", api_key_env="SGLANG_AUTH"
+    )
+    description = invoke("get", "--name", "custom")
+    assert description["env"]["SGLANG_AUTH"] == {"present": True, "redacted": True}
+    assert description["env"]["SGLANG_BASE_URL"] == {"present": True, "value": endpoint_url}
+    assert "synthetic-role-key" not in json.dumps(description)
+    if target == "project":
+        overlay = require_project_overlay(tmp_path)
+        catalog = ProjectCatalog.from_overlay(overlay)
+        auth = catalog.load_auth_profile(tool="dsh", name="custom")
+        source_env = auth.content_ref.resolve(overlay) / "env/vars.env"
+    else:
+        source_env = env_file
+    with source_env.open("a", encoding="utf-8") as stream:
+        stream.write("MCP_AUTH_EXAMPLE=synthetic-private-mcp\n")
+
+    updated_url = "http://127.0.0.1:14889/v1"
+    invoke("set", "--name", "custom", "--adapter", "pi-ai", "--base-url", updated_url)
+    assert set(env_file.read_text(encoding="utf-8").splitlines()) == {
+        "SGLANG_AUTH=synthetic-role-key",
+        f"SGLANG_BASE_URL={updated_url}",
+        "MCP_AUTH_EXAMPLE=synthetic-private-mcp",
+    }
+    invoke("set", "--name", "custom", "--adapter", "pi-ai", "--api-key-env", "LOCAL_AUTH")
+    assert load_dsh_credential_roles(env_file) == DshCredentialRoles(
+        base_url_env="SGLANG_BASE_URL", api_key_env="LOCAL_AUTH"
+    )
+    assert "SGLANG_AUTH=" not in env_file.read_text(encoding="utf-8")
+    assert "LOCAL_AUTH=synthetic-role-key" in env_file.read_text(encoding="utf-8")
+    invoke("set", "--name", "custom", "--adapter", "pi-ai", "--clear-api-key")
+    assert load_dsh_credential_roles(env_file) == DshCredentialRoles(base_url_env="SGLANG_BASE_URL")
+    assert set(env_file.read_text(encoding="utf-8").splitlines()) == {
+        f"SGLANG_BASE_URL={updated_url}",
+        "MCP_AUTH_EXAMPLE=synthetic-private-mcp",
+    }
+    invoke("set", "--name", "custom", "--adapter", "pi-ai", "--clear-base-url")
+    assert load_dsh_credential_roles(env_file) == DshCredentialRoles()
+    assert env_file.read_text(encoding="utf-8").splitlines() == [
+        "MCP_AUTH_EXAMPLE=synthetic-private-mcp"
+    ]
+
+
+@pytest.mark.parametrize("name", ["PATH", "LD_PRELOAD", "XDG_RUNTIME_DIR", "a-b", "SHARED_ROLE"])
+def test_dsh_credential_roles_reject_invalid_names_before_writing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, name: str
+) -> None:
+    """Reject non-POSIX and reserved names as well as role collisions."""
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "credentials",
+            "dsh",
+            "add",
+            "--name",
+            "rejected",
+            "--adapter",
+            "pi-ai",
+            "--base-url",
+            "http://127.0.0.1:14888/v1",
+            "--base-url-env",
+            "SHARED_ROLE",
+            "--api-key",
+            "synthetic-role-key",
+            "--api-key-env",
+            name,
+        ],
+    )
+    assert result.exit_code != 0
+    assert name in result.output
+    assert "synthetic-role-key" not in result.output
+    catalog = ProjectCatalog.from_overlay(require_project_overlay(tmp_path))
+    assert catalog.list_auth_profiles(tool="dsh") == []
 
 
 def test_credentials_codex_login_imports_auth_json_and_deletes_temp_home(

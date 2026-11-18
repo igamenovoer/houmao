@@ -143,7 +143,7 @@ def test_native_web_actual_changed_model_is_retained_per_request(
     """Retain actual native routes after a browser-equivalent model selection."""
 
     models = [
-        {"id": name, "context_window": 131072, "max_output_tokens": 128, "reasoning": False}
+        {"id": name, "context_window": 131072, "max_output_tokens": 128, "reasoning_efforts": False}
         for name in ["controlled", "browser-selected"]
     ]
     host = native_web_factory(models=models)

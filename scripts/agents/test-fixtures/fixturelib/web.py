@@ -16,6 +16,7 @@ from fixturelib.config import FixtureError
 def _raw_session(run: dict[str, Any], *, provider_start: bool = False) -> Any:
     """Create or reconstruct exact raw Web authority without a second host implementation."""
 
+    from houmao.agents.dsh_configuration import MATERIALIZED_DSH_TOOL_PARAMS, DshEffectiveToolParams
     from houmao.agents.realm_controller.backends.dsh_web import (
         DshWebSession,
         DshWebSessionState,
@@ -27,6 +28,9 @@ def _raw_session(run: dict[str, Any], *, provider_start: bool = False) -> Any:
     root = Path(run["run_dir"])
     config = run["configuration"]
     role = run["role"]
+    home = Path(run["home_path"])
+    setup_path = home / MATERIALIZED_DSH_TOOL_PARAMS
+    setup = DshEffectiveToolParams.from_file(setup_path)
     plan = LaunchPlan(
         backend="dsh_web",
         tool="dsh",
@@ -34,7 +38,7 @@ def _raw_session(run: dict[str, Any], *, provider_start: bool = False) -> Any:
         args=[],
         working_directory=Path(run["workdir"]),
         home_env_var="DSH_HOME",
-        home_path=Path(run["home_path"]),
+        home_path=home,
         env=run_environment(run),
         env_var_names=sorted(json.loads((root / "private-env.json").read_text())),
         role_injection=RoleInjectionPlan(
@@ -45,11 +49,16 @@ def _raw_session(run: dict[str, Any], *, provider_start: bool = False) -> Any:
         native_surface_kind="web",
         metadata={
             "dsh": {
-                "setup_path": str(Path(run["home_path"]) / "dsh-setup.yaml"),
+                "setup_path": str(setup_path),
                 "model": config["model"],
+                "base_url_env": setup.base_url_env,
+                "api_key_env": setup.api_key_env,
                 "operator_prompt_mode": config.get("operator_prompt_mode", "unattended"),
             },
             "native_surface_kind": "web",
+            "env_source_file": str(
+                Path(run["assets_root"]) / "tools/dsh/auth/default/env/vars.env"
+            ),
         },
     )
     manifest = root / "raw-web/manifest.json"

@@ -49,6 +49,9 @@ for line in sys.stdin:
     method = frame['method']
     params = frame.get('params', {})
     if method=='initialize':
+        if os.environ.get('FAKE_STARTUP_ERROR'):
+            sys.stderr.write(os.environ['FAKE_STARTUP_ERROR'] + '\\n' + 'further stderr' * 700)
+            sys.exit(1)
         send({'id':frame['id'], 'result':{'protocolVersion':1,
             'agentInfo':{'name':'deepseek-harness-acp','version':'0.0.1'},
             'agentCapabilities':{'sessionCapabilities':{'close':{},'resume':{}}}}})
@@ -76,6 +79,11 @@ for line in sys.stdin:
         evidence('claimed', message_id='message-a', turn=1)
         if os.environ.get('FAKE_DIE_AT')=='claim':
             sys.exit(1)
+        if os.environ.get('FAKE_PROVIDER_ERROR'):
+            send({'id':frame['id'], 'error':{
+                'code':-32603, 'message':os.environ['FAKE_PROVIDER_ERROR'],
+                'data':{'private':os.environ['FAKE_PROVIDER_ERROR']}}})
+            continue
         send({'method':'session/update','params':{'sessionId':'unrelated', 'update':{'text':'unrelated'}}})
         send({'method':'session/update','params':{'sessionId':native,'update':{'sessionUpdate':'agent_message_chunk','content':{'type':'text','text':'hello'}}}})
         if os.environ.get('FAKE_WAIT_FOR_CANCEL'):
@@ -185,6 +193,56 @@ def test_worker_failure_before_admission_never_confirms_helper_launch(tmp_path: 
         )
     assert not admissions
     assert (invocation.turn_dir / "dsh-native-binding.json").exists()
+
+
+def test_worker_startup_stderr_is_summarized_and_preserved_privately(tmp_path: Path) -> None:
+    """A worker exit surfaces its cause and keeps the entire raw output in the turn directory."""
+
+    invocation = replace(_invocation(tmp_path), secret_values=("custom/startup+key",))
+    invocation.environment["FAKE_STARTUP_ERROR"] = (
+        "Plugin activation failed while using custom%2Fstartup%2Bkey and Bearer unknown-auth"
+    )
+    with pytest.raises(DshAcpProtocolError, match="Plugin activation failed") as failed:
+        run_dsh_acp_turn(
+            invocation,
+            emit=lambda _: None,
+            interrupted=threading.Event(),
+            confirmed=lambda: pytest.fail("No prompt can be admitted before initialization"),
+        )
+    detail = str(failed.value)
+    assert "Worker stderr" in detail and "[REDACTED]" in detail
+    assert "custom%2Fstartup%2Bkey" not in detail and "unknown-auth" not in detail
+    assert len(detail) < 600 and "\n" not in detail
+    artifact = invocation.turn_dir / "provider-stderr.log"
+    assert artifact.stat().st_mode & 0o777 == 0o600
+    assert artifact.read_text() == invocation.environment["FAKE_STARTUP_ERROR"] + "\n" + (
+        "further stderr" * 700
+    )
+
+
+def test_provider_http_rejection_exposes_redacted_rpc_detail(tmp_path: Path) -> None:
+    """Keep HTTP status and validation detail while scrubbing custom provider and MCP keys."""
+
+    invocation = replace(
+        _invocation(tmp_path), secret_values=("custom-provider/key", "mcp-value-unnamed")
+    )
+    invocation.environment["FAKE_PROVIDER_ERROR"] = (
+        "HTTP 400: invalid reasoning_effort\ncustom-provider%2fkey mcp-value-unnamed"
+    )
+    with pytest.raises(DshAcpRequestError, match=r"\(-32603\): HTTP 400") as failed:
+        run_dsh_acp_turn(
+            invocation,
+            emit=lambda _: None,
+            interrupted=threading.Event(),
+            confirmed=lambda: None,
+        )
+    assert failed.value.error == {
+        "code": -32603,
+        "message": "HTTP 400: invalid reasoning_effort [REDACTED] [REDACTED]",
+    }
+    artifact = invocation.turn_dir / "provider-stdout.jsonl"
+    assert artifact.stat().st_mode & 0o777 == 0o600
+    assert "custom-provider%2fkey mcp-value-unnamed" in artifact.read_text()
 
 
 @pytest.mark.parametrize("reason", ["max_tokens", "refusal", "cancelled"])

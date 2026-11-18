@@ -345,21 +345,18 @@ Project overlay notes:
 
 #### `project agents`
 
-`project agents` is the low-level maintenance surface for the compatibility projection tree under `agents/` in the active overlay root.
+`project agents` launches and controls project agents. It also exposes low-level maintenance commands for the compatibility projection tree under `agents/` in the active overlay root.
 
 | Subcommand | Description |
 |---|---|
-| `roles list|get|init|set|remove` | Inspect, create, update, or delete prompt-only role roots under `agents/roles/`. Use `roles get --include-prompt` when you explicitly need prompt text in CLI output. |
-| `recipes list|get|add|set|remove` | **Canonical** low-level recipe administration. Manages named recipe files projected under `agents/presets/<name>.yaml`, including role selection, tool lane, skills, prompt mode, and selected auth bundle reference. |
-| `presets list|get|add|set|remove` | Compatibility alias for `recipes`. Operates on the same files under `agents/presets/<name>.yaml` and accepts the same flags. |
+| `presets list|get|add|set|remove` | Manage named recipe files under `agents/presets/<name>.yaml`. The native command family is `internals native-agent recipes`. |
 | `launch-profiles list|get|add|set|remove` | Manage explicit recipe-backed reusable birth-time launch profiles projected under `agents/launch-profiles/<name>.yaml`. See the dedicated section below for the field set. |
-| `tools <tool> get` | Inspect one tool subtree, including adapter, setup, and auth bundle summaries. Supported tool families include `claude`, `codex`, and `kimi`. |
+| `tools <tool> get` | Inspect one tool subtree, including adapter, setup, and auth bundle summaries. Supported tool families are `claude`, `codex`, `kimi`, and `dsh`. |
 | `tools <tool> setups list|get|add|remove` | Inspect or clone setup bundles under `agents/tools/<tool>/setups/`. |
 
 Low-level boundary notes:
 
-- `roles ...` owns the canonical low-level role prompt.
-- `recipes ...` (canonical) and `presets ...` (compatibility alias) own named recipe structure, including role selection, tool lane, skills, prompt mode, and selected auth bundle reference. Both surfaces administer the same `.houmao/agents/presets/<name>.yaml` files.
+- Use `internals native-agent roles` to manage role prompts. `internals native-agent recipes` and `project agents presets` manage recipe fields such as role, tool, skills, prompt mode, credentials, and tool parameters.
 - `launch-profiles ...` owns reusable recipe-backed birth-time launch configuration, including managed-agent identity defaults, working directory, auth override by display name, prompt-mode override, durable env records, declarative mailbox config, launch posture, an optional prompt overlay, an optional gateway mail-notifier appendix default, and an optional memo seed. The stored auth relationship resolves through auth-profile identity, so later auth rename does not break existing launch profiles. For the shared semantic model that ties these to project profiles, see [Launch Profiles](../../getting-started/launch-profiles.md).
 - Managed launches prepend a short Houmao-owned prompt header by default. `houmao-mgr` is the canonical direct Houmao interface named by that header, and the stored launch-profile policy plus launch-time flags determine whether the header is enabled for a given launch. See [Managed Launch Prompt Header](../run-phase/managed-prompt-header.md) for what the header contains and the prompt composition order.
 - Credential CRUD is no longer part of `internals native-agent tools <tool> ...`. Use `project [--project-dir <dir>] credentials <tool> ...` for project-backed credentials, and `internals native-agent credentials <tool> ... --native-agent-root <dir>` for direct native-agent credentials. `internals native-agent tools <tool> get` and `tools <tool> setups ...` remain focused on tool subtree inspection and setup bundle maintenance.
@@ -400,6 +397,10 @@ Low-level boundary notes:
 - `add` and `set` accept env-model inputs `--api-key`, optional `--model-name`, optional `--base-url`, optional `--provider-type`, optional `--code-base-url`, optional `--code-oauth-host`, optional `--oauth-host`, and optional `--disable-telemetry`.
 - OAuth-backed Kimi Code material can be imported with `--code-home <dir>` or with direct file inputs `--config-toml <path>` and optional `--credential-json <path>`. `--code-home` cannot be combined with `--config-toml` or `--credential-json`.
 - `set` also accepts Kimi clear flags: `--clear-model-name`, `--clear-api-key`, `--clear-base-url`, `--clear-provider-type`, `--clear-code-base-url`, `--clear-code-oauth-host`, `--clear-oauth-host`, `--clear-disable-telemetry`, `--clear-config-toml`, and `--clear-credential-json`.
+
+DSH credential bundles store endpoint and API-key environment names in `credential-roles.yaml` beside private `vars.env`. Use `project credentials dsh add|set --adapter deepseek|pi-ai` to supply `--base-url` and, for authenticated routes, `--api-key`. The `--base-url-env` and `--api-key-env` flags bind custom names that must match the provider references in `tool_params`.
+
+When name flags are omitted, `set` uses the bundle's recorded names. Use `--clear-api-key` or `--clear-base-url` to remove a role and its value. `credentials dsh get` shows role names and redacts the API-key value, including keys bound to custom names. [DSH Headless](../run-phase/dsh-headless.md)
 
 #### `project`
 
@@ -501,6 +502,13 @@ Low-level boundary notes:
 - when the managed session starts but launch-time gateway attach fails afterward, the command still reports the live session identity and manifest path, includes `gateway_auto_attach_error`, and exits with degraded-success status code `2`.
 - Project-backed launch also accepts `--workdir`; the selected project stays authoritative for overlay-local defaults even if the runtime cwd points somewhere else.
 - `agents self join` uses `--workdir` instead of `--working-directory`; when omitted, the adopted cwd comes from tmux window `0`, pane `0`.
+
+#### Tool Parameter Options
+
+- `project specialist create|set`, `project profile create|set`, `internals native-agent recipes add|set`, and `internals native-agent launch-dossiers add|set` accept `--tool-params <json-or-@path>`. The project compatibility commands `project agents presets add|set` and `project agents launch-profiles add|set` accept the same input.
+- Use inline JSON or a YAML or JSON file prefixed with `@`. The `set` commands deep-merge the mapping. Use `--clear-tool-params` to drop the stored mapping. Inspection commands return the authored layer under `tool_params`.
+- `internals native-agent brain build`, `agents launch`, and `project agents launch` accept `--tool-params` for a single build or launch. With `project agents launch --executor`, relative file paths resolve against the selected project directory on the execution owner.
+- List or clone DSH setup bundles with `project agents tools dsh setups list` or `setups add --name custom --from default`.
 
 #### `project mailbox`
 

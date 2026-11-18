@@ -25,6 +25,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--working-directory", required=True)
     parser.add_argument("--home-path", required=True)
     parser.add_argument("--requested-operator-prompt-mode", default=None)
+    parser.add_argument("--dsh-credential-env-file", type=Path)
     parser.add_argument(
         "--launch-arg",
         dest="launch_args",
@@ -46,6 +47,12 @@ def main(argv: list[str] | None = None) -> int:
         else None
     )
 
+    home = Path(namespace.home_path).resolve()
+    environment = dict(os.environ)
+    if namespace.dsh_credential_env_file is not None:
+        if namespace.tool != "dsh":
+            parser.error("The DSH credential source can only be used with DSH.")
+        environment = _dsh_launch_environment(home, namespace.dsh_credential_env_file, environment)
     result = apply_launch_policy(
         LaunchPolicyRequest(
             tool=str(namespace.tool),
@@ -54,13 +61,40 @@ def main(argv: list[str] | None = None) -> int:
             base_args=tuple(str(item) for item in namespace.launch_args),
             requested_operator_prompt_mode=requested_operator_prompt_mode,
             working_directory=Path(str(namespace.working_directory)).resolve(),
-            home_path=Path(str(namespace.home_path)).resolve(),
-            env=dict(os.environ),
+            home_path=home,
+            env=environment,
         )
     )
     command = [result.executable, *result.args, *passthrough]
-    os.execvpe(result.executable, command, dict(os.environ))
+    os.execvpe(result.executable, command, environment)
     return 0
+
+
+def _dsh_launch_environment(
+    home: Path, env_file: Path, process_environment: dict[str, str]
+) -> dict[str, str]:
+    """Read the selected provider binding privately when the generated helper runs."""
+
+    from houmao.agents.dsh_configuration import (
+        MATERIALIZED_DSH_TOOL_PARAMS,
+        DshEffectiveToolParams,
+        dsh_native_environment,
+    )
+    from houmao.agents.dsh_credentials import require_dsh_credential_roles
+    from houmao.agents.realm_controller.errors import LaunchPlanError
+    from houmao.agents.realm_controller.loaders import parse_allowlisted_env
+
+    try:
+        setup = DshEffectiveToolParams.from_file(home / MATERIALIZED_DSH_TOOL_PARAMS)
+        require_dsh_credential_roles(
+            env_file, base_url_env=setup.base_url_env, api_key_env=setup.api_key_env
+        )
+        names = [name for name in (setup.base_url_env, setup.api_key_env) if name is not None]
+        selected, _ = parse_allowlisted_env(env_file, names)
+        environment = {key: value for key, value in process_environment.items() if key not in names}
+        return dsh_native_environment(home, setup, {**environment, **selected})
+    except (OSError, LaunchPlanError, ValueError) as exc:
+        raise SystemExit(str(exc)) from None
 
 
 def _parse_backend(raw_value: str) -> LaunchSurface:

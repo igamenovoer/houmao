@@ -73,6 +73,8 @@ Automation defaults to `unattended`. Select `as_is` deliberately for human appro
 
 ## Interruption, Failure, and Recovery
 
+When DSH Web fails to start, Houmao includes a short summary of the supervisor exit record or native log. A structured error from Web control includes its native error code and a short message. Houmao removes launch tokens, API cookies, and resolved provider keys before returning either kind of diagnostic. The raw native log stays in the owned Web home at `houmao-web/<launch-id>/native-private.log` with owner-only permissions.
+
 An explicit operator interruption targets the bound live incarnation and native turn. Attempt cancellation targets the turn claimed by that attempt. A late cancellation must not interrupt a later human turn. Visible queued input remains part of native state and requires its own deliberate operator decision.
 
 After a lost admission response, use read-only receipt lookup for the original operation ID. A receipt contains metadata, not executable prompt text. Reconnection never resubmits the prompt. Host death or agent replacement can leave the attempt failed or uncertain; neither condition authorizes an automatic resend or cold activation.

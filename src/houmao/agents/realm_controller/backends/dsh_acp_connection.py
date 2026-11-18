@@ -20,6 +20,10 @@ import threading
 from typing import Any
 
 from houmao.agents.realm_controller.backends.dispatch_control import _dispatch_origin_birth_token
+from houmao.agents.realm_controller.backends.dsh_diagnostics import (
+    dsh_diagnostic_secrets,
+    sanitize_dsh_diagnostic,
+)
 
 
 class DshAcpProtocolError(RuntimeError):
@@ -27,17 +31,26 @@ class DshAcpProtocolError(RuntimeError):
 
 
 class DshAcpRequestError(RuntimeError):
-    """Retain a remote JSON-RPC error without treating it as completion."""
+    """Expose a remote JSON-RPC code and safe diagnostic without treating it as completion."""
 
-    def __init__(self, error: dict[str, Any]) -> None:
-        """Store the remote error for explicit outcome mapping."""
+    def __init__(self, error: dict[str, Any], *, secret_values: Sequence[str] = ()) -> None:
+        """Capture the code and scrub message text before crossing the protocol boundary."""
 
-        super().__init__(f"ACP request failed ({error.get('code', 'unknown')})")
-        self.m_error = dict(error)
+        raw_code = error.get("code")
+        code = raw_code if type(raw_code) is int and -(2**31) <= raw_code < 2**31 else "unknown"
+        raw_message = error.get("message")
+        message = (
+            sanitize_dsh_diagnostic(raw_message, secret_values=secret_values)
+            if isinstance(raw_message, str)
+            else ""
+        )
+        suffix = f": {message}" if message else ""
+        super().__init__(f"ACP request failed ({code}){suffix}")
+        self.m_error: dict[str, Any] = {"code": code, "message": message}
 
     @property
     def error(self) -> dict[str, Any]:
-        """Return the remote error without exposing mutable internal state."""
+        """Return a copy of the redacted error fields."""
 
         return dict(self.m_error)
 
@@ -60,6 +73,8 @@ class DshAcpConnection:
         self.m_failure: DshAcpProtocolError | None = None
         self.m_request_handler: Callable[[str, dict[str, Any]], dict[str, Any]] | None = None
         self.m_frame_sink: Callable[[str], None] | None = None
+        self.m_stderr_sink: Callable[[str], None] | None = None
+        self.m_secret_values: tuple[str, ...] = ()
         self.m_reader: threading.Thread | None = None
         self.m_stderr_reader: threading.Thread | None = None
         self.m_requests: ThreadPoolExecutor | None = None
@@ -73,6 +88,8 @@ class DshAcpConnection:
         env: Mapping[str, str],
         request_handler: Callable[[str, dict[str, Any]], dict[str, Any]] | None = None,
         frame_sink: Callable[[str], None] | None = None,
+        stderr_sink: Callable[[str], None] | None = None,
+        secret_values: Sequence[str] = (),
     ) -> DshAcpConnection:
         """Start an explicitly configured worker and its independent readers.
 
@@ -86,11 +103,17 @@ class DshAcpConnection:
             Qualified permission handler. Missing handlers reject requests.
         frame_sink:
             Private raw-provider artifact writer, separate from rendered output.
+        stderr_sink:
+            Private raw stderr writer, separate from error summaries.
+        secret_values:
+            Additional resolved credentials allowed only in private native IO.
         """
 
         instance = cls()
         instance.m_request_handler = request_handler
         instance.m_frame_sink = frame_sink
+        instance.m_stderr_sink = stderr_sink
+        instance.m_secret_values = (*dsh_diagnostic_secrets(env), *secret_values)
         instance.m_process = subprocess.Popen(
             list(command),
             cwd=cwd,
@@ -348,7 +371,7 @@ class DshAcpConnection:
             if not isinstance(error, dict):
                 future.set_exception(DshAcpProtocolError("Invalid ACP error"))
             else:
-                future.set_exception(DshAcpRequestError(error))
+                future.set_exception(DshAcpRequestError(error, secret_values=self.m_secret_values))
         elif not isinstance(frame["result"], dict):
             future.set_exception(DshAcpProtocolError("Invalid ACP result"))
         else:
@@ -380,7 +403,9 @@ class DshAcpConnection:
         try:
             for line in stream:
                 self.m_diagnostics.append(line[-4096:])
-        except (OSError, UnicodeError):
+                if self.m_stderr_sink is not None:
+                    self.m_stderr_sink(line)
+        except (OSError, ValueError):
             self._fail(DshAcpProtocolError("ACP diagnostic stream failed"))
 
     def _fail(self, error: DshAcpProtocolError) -> None:

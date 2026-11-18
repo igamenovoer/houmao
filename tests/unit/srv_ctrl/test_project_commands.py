@@ -2703,6 +2703,150 @@ def test_project_specialist_create_persists_unified_model_config(
     }
 
 
+def test_project_tool_params_patch_clear_and_replace(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Keep tool parameters in their authored layer across mutations."""
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+
+    def invoke(*args: str) -> dict:
+        """Run a successful project command and return structured output."""
+
+        result = runner.invoke(cli, ["project", *args])
+        assert result.exit_code == 0, result.output
+        return json.loads(result.output)
+
+    invoke("init")
+    invoke(
+        "credentials",
+        "dsh",
+        "add",
+        "--name",
+        "local",
+        "--adapter",
+        "deepseek",
+        "--api-key",
+        "synthetic-provider-key",
+        "--base-url",
+        "https://api.example.test/v1",
+    )
+    setup_path = invoke("agents", "tools", "dsh", "setups", "add", "--name", "custom")["path"]
+    assert (Path(setup_path) / "tool-params.yaml").is_file()
+    params_file = tmp_path / "dsh-params.yaml"
+    params_file.write_text("models:\n  - id: example\n    context_window: 4096\n", encoding="utf-8")
+    created = invoke(
+        "specialist",
+        "create",
+        "--name",
+        "reviewer",
+        "--tool",
+        "dsh",
+        "--credential",
+        "local",
+        "--tool-params",
+        f"@{params_file}",
+    )
+    preset = Path(created["generated"]["preset"])
+    invoke(
+        "specialist",
+        "set",
+        "--name",
+        "reviewer",
+        "--tool-params",
+        '{"models":[{"id":"example","max_output_tokens":128}]}',
+    )
+    expected = {"models": [{"id": "example", "context_window": 4096, "max_output_tokens": 128}]}
+    assert invoke("specialist", "get", "--name", "reviewer")["tool_params"] == expected
+    assert yaml.safe_load(preset.read_text(encoding="utf-8"))["tool_params"] == expected
+
+    profile = ("profile", "create", "--name", "ci", "--specialist", "reviewer")
+    invoke(*profile, "--tool-params", '{"provider":{"route":"deepseek-official"}}')
+    invoke("profile", "set", "--name", "ci", "--tool-params", '{"mcp_servers":[]}')
+    payload = invoke("profile", "get", "--name", "ci")
+    assert payload["tool_params"] == {"provider": {"route": "deepseek-official"}, "mcp_servers": []}
+    projection = tmp_path / ".houmao/agents/launch-profiles/ci.yaml"
+    assert (
+        yaml.safe_load(projection.read_text(encoding="utf-8"))["tool_params"]
+        == payload["tool_params"]
+    )
+    dossiers = runner.invoke(cli, _native_agent_args(tmp_path, "launch-dossiers", "list"))
+    assert dossiers.exit_code == 0, dossiers.output
+    assert json.loads(dossiers.output)["launch_dossiers"] == []
+    assert "houmao-mgr project profile list" in dossiers.output
+    wrong_lane = runner.invoke(
+        cli, _native_agent_args(tmp_path, "launch-dossiers", "get", "--name", "ci")
+    )
+    assert wrong_lane.exit_code == 1
+    assert "houmao-mgr project profile get --name ci" in wrong_lane.output
+    invoke("profile", "set", "--name", "ci", "--clear-tool-params")
+    assert invoke("profile", "get", "--name", "ci")["tool_params"] == {}
+    invoke(*profile, "--tool-params", '{"mcp_servers":[]}', "--yes")
+    invoke(*profile, "--yes")
+    assert "tool_params" not in yaml.safe_load(projection.read_text(encoding="utf-8"))
+    invoke("specialist", "set", "--name", "reviewer", "--clear-tool-params")
+    assert "tool_params" not in yaml.safe_load(preset.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_recipe_and_dossier_tool_params_surfaces(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, native: bool
+) -> None:
+    """Store typed tool parameters through both explicit authoring command families."""
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    role = runner.invoke(cli, _native_agent_args(tmp_path, "roles", "init", "--name", "reviewer"))
+    assert role.exit_code == 0, role.output
+
+    def invoke(family: str, *args: str) -> dict:
+        """Run one explicit authoring command in the selected lane."""
+
+        if native:
+            command = _native_agent_args(tmp_path, family, *args)
+        else:
+            alias = {"recipes": "presets", "launch-dossiers": "launch-profiles"}[family]
+            command = ["project", "agents", alias, *args]
+        result = runner.invoke(cli, command)
+        assert result.exit_code == 0, result.output
+        return json.loads(result.output)
+
+    params = '{"include_partial_messages":true}'
+    invoke(
+        "recipes",
+        "add",
+        "--name",
+        "reviewer",
+        "--role",
+        "reviewer",
+        "--tool",
+        "claude",
+        "--tool-params",
+        params,
+    )
+    assert invoke("recipes", "get", "--name", "reviewer")["tool_params"] == json.loads(params)
+    invoke("recipes", "set", "--name", "reviewer", "--clear-tool-params")
+    assert invoke("recipes", "get", "--name", "reviewer")["tool_params"] == {}
+    invoke(
+        "launch-dossiers",
+        "add",
+        "--name",
+        "ci",
+        "--recipe",
+        "reviewer",
+        "--workdir",
+        "/repos/example",
+        "--tool-params",
+        params,
+    )
+    assert invoke("launch-dossiers", "get", "--name", "ci")["tool_params"] == json.loads(params)
+    patched = invoke("launch-dossiers", "set", "--name", "ci", "--clear-tool-params")
+    assert patched["tool_params"] == {}
+    assert patched["defaults"]["workdir"] == "/repos/example"
+
+
 def test_project_specialist_create_prompts_before_replacing_existing_specialist(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

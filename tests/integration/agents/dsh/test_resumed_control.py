@@ -85,7 +85,11 @@ def test_independent_controller_interrupts_the_bound_native_attempt(
     serving = threading.Thread(target=server.serve_forever, daemon=True)
     serving.start()
     runtime, backend = _gateway_runtime(
-        tmp_path, dsh_executable, f"http://127.0.0.1:{server.server_port}/v1", monkeypatch
+        tmp_path,
+        dsh_executable,
+        f"http://127.0.0.1:{server.server_port}/v1",
+        monkeypatch,
+        isolated_tmux,
     )
     controller = runtime.m_adapter._resume_controller()
     errors: list[BaseException] = []

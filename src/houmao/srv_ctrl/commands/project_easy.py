@@ -192,6 +192,7 @@ def easy_profile_group() -> None:
     help="Path to a memo-shaped seed directory containing `houmao-memo.md` and/or `pages/`.",
 )
 @overwrite_confirm_option
+@click.option("--tool-params", metavar="JSON-OR-@PATH", help="Per-tool parameters for this layer.")
 def create_easy_profile_command(
     name: str,
     specialist: str,
@@ -235,6 +236,7 @@ def create_easy_profile_command(
     memo_seed_file: Path | None,
     memo_seed_dir: Path | None,
     yes: bool,
+    tool_params: str | None = None,
 ) -> None:
     """Create one specialist-backed project profile."""
 
@@ -258,6 +260,7 @@ def create_easy_profile_command(
         auth=auth,
         model=model,
         reasoning_level=reasoning_level,
+        tool_params=tool_params,
         prompt_mode=prompt_mode,
         env_set=env_set,
         system_skill_sets=system_skill_sets,
@@ -527,6 +530,8 @@ def create_easy_profile_command(
     help="Path to a memo-shaped seed directory containing `houmao-memo.md` and/or `pages/`.",
 )
 @click.option("--clear-memo-seed", is_flag=True, help="Clear the stored memo seed.")
+@click.option("--tool-params", metavar="JSON-OR-@PATH", help="Per-tool parameters for this layer.")
+@click.option("--clear-tool-params", is_flag=True, help="Clear stored per-tool parameters.")
 def set_easy_profile_command(
     name: str,
     agent_name: str | None,
@@ -585,6 +590,8 @@ def set_easy_profile_command(
     memo_seed_file: Path | None,
     memo_seed_dir: Path | None,
     clear_memo_seed: bool,
+    tool_params: str | None = None,
+    clear_tool_params: bool = False,
 ) -> None:
     """Update one specialist-backed project profile."""
 
@@ -608,6 +615,8 @@ def set_easy_profile_command(
         auth=auth,
         model=model,
         reasoning_level=reasoning_level,
+        tool_params=tool_params,
+        clear_tool_params=clear_tool_params,
         prompt_mode=prompt_mode,
         env_set=env_set,
         system_skill_sets=system_skill_sets,
@@ -874,6 +883,7 @@ def easy_specialist_group() -> None:
     help="Persist `launch.prompt_mode: as_is` instead of the easy unattended default.",
 )
 @overwrite_confirm_option
+@click.option("--tool-params", metavar="JSON-OR-@PATH", help="Per-tool parameters for this layer.")
 def create_easy_specialist_command(
     name: str,
     system_prompt: str | None,
@@ -906,9 +916,13 @@ def create_easy_specialist_command(
     clear_system_skills: bool,
     no_unattended: bool,
     yes: bool,
+    tool_params: str | None = None,
 ) -> None:
     """Create one project-local specialist and compile it into the canonical tree."""
 
+    resolved_tool_params = _tool_params_or_click(
+        tool_name, tool_params, source="specialist tool_params"
+    )
     overlay = _ensure_project_overlay()
     specialist_name = _require_non_empty_name(name, field_name="--name")
     credential_name = (
@@ -1067,6 +1081,7 @@ def create_easy_specialist_command(
         env_records=persistent_env_records,
         system_skills=system_skill_policy_payload if system_skill_policy_payload else None,
         overwrite=replace_conflict is not None,
+        tool_params=resolved_tool_params,
     )
     metadata = catalog.store_specialist(
         name=specialist_name,
@@ -1080,6 +1095,7 @@ def create_easy_specialist_command(
         skill_names=resolved_skill_names,
         setup_path=setup_path,
         launch_mapping=launch_mapping,
+        tool_params=resolved_tool_params,
         mailbox_mapping=None,
         extra_mapping=None,
     )
@@ -1433,6 +1449,7 @@ def _store_specialist_patch_from_cli(
     add_skill_names: tuple[str, ...],
     remove_skill_names: tuple[str, ...],
     clear_skills: bool,
+    tool_params: dict[str, Any],
 ) -> tuple[SpecialistMetadata, Path | None]:
     """Apply one specialist patch to the catalog and return the updated metadata."""
 
@@ -1508,6 +1525,7 @@ def _store_specialist_patch_from_cli(
         skill_names=skill_names,
         setup_path=setup_path,
         launch_mapping=launch_mapping,
+        tool_params=tool_params,
         mailbox_mapping=specialist.mailbox_payload,
         extra_mapping=specialist.extra_payload,
     )
@@ -1603,6 +1621,8 @@ def _store_specialist_patch_from_cli(
     help="Remove a skill by name from this specialist.",
 )
 @click.option("--clear-skills", is_flag=True, help="Remove all skills from this specialist.")
+@click.option("--tool-params", metavar="JSON-OR-@PATH", help="Per-tool parameters for this layer.")
+@click.option("--clear-tool-params", is_flag=True, help="Clear stored per-tool parameters.")
 def set_easy_specialist_command(
     name: str,
     system_prompt: str | None,
@@ -1627,32 +1647,38 @@ def set_easy_specialist_command(
     add_skill_names: tuple[str, ...],
     remove_skill_names: tuple[str, ...],
     clear_skills: bool,
+    tool_params: str | None = None,
+    clear_tool_params: bool = False,
 ) -> None:
     """Patch one existing project-local specialist without recreating it."""
 
-    if not _has_specialist_set_updates(
-        system_prompt=system_prompt,
-        system_prompt_file=system_prompt_file,
-        clear_system_prompt=clear_system_prompt,
-        setup=setup,
-        credential=credential,
-        prompt_mode=prompt_mode,
-        clear_prompt_mode=clear_prompt_mode,
-        model=model,
-        clear_model=clear_model,
-        reasoning_level=reasoning_level,
-        clear_reasoning_level=clear_reasoning_level,
-        env_set=env_set,
-        clear_env=clear_env,
-        system_skill_sets=system_skill_sets,
-        system_skills=system_skills,
-        system_skills_mode=system_skills_mode,
-        no_system_skills=no_system_skills,
-        clear_system_skills=clear_system_skills,
-        skill_dirs=skill_dirs,
-        add_skill_names=add_skill_names,
-        remove_skill_names=remove_skill_names,
-        clear_skills=clear_skills,
+    if (
+        tool_params is None
+        and not clear_tool_params
+        and not _has_specialist_set_updates(
+            system_prompt=system_prompt,
+            system_prompt_file=system_prompt_file,
+            clear_system_prompt=clear_system_prompt,
+            setup=setup,
+            credential=credential,
+            prompt_mode=prompt_mode,
+            clear_prompt_mode=clear_prompt_mode,
+            model=model,
+            clear_model=clear_model,
+            reasoning_level=reasoning_level,
+            clear_reasoning_level=clear_reasoning_level,
+            env_set=env_set,
+            clear_env=clear_env,
+            system_skill_sets=system_skill_sets,
+            system_skills=system_skills,
+            system_skills_mode=system_skills_mode,
+            no_system_skills=no_system_skills,
+            clear_system_skills=clear_system_skills,
+            skill_dirs=skill_dirs,
+            add_skill_names=add_skill_names,
+            remove_skill_names=remove_skill_names,
+            clear_skills=clear_skills,
+        )
     ):
         raise click.ClickException("No specialist updates requested.")
 
@@ -1661,7 +1687,15 @@ def set_easy_specialist_command(
         overlay=overlay,
         name=_require_non_empty_name(name, field_name="--name"),
     )
+    resolved_tool_params = _tool_params_or_click(
+        specialist.tool,
+        tool_params,
+        current=specialist.tool_params,
+        clear=clear_tool_params,
+        source="specialist tool_params",
+    )
     metadata, removed_old_preset_path = _store_specialist_patch_from_cli(
+        tool_params=resolved_tool_params,
         overlay=overlay,
         specialist=specialist,
         system_prompt=system_prompt,
@@ -1888,6 +1922,7 @@ def easy_instance_group() -> None:
 )
 @click.option("--executor", default=None, help="Trusted execution profile for the target context.")
 @managed_launch_force_option
+@click.option("--tool-params", metavar="JSON-OR-@PATH", help="Per-tool parameters for this layer.")
 def launch_easy_instance_command(
     specialist: str | None,
     profile: str | None,
@@ -1920,6 +1955,7 @@ def launch_easy_instance_command(
     force_mode: str | None,
     executor: str | None,
     gateway_admin_seed_path: Path | None = None,
+    tool_params: str | None = None,
 ) -> None:
     """Launch one managed-agent instance from a compiled specialist definition."""
 
@@ -1964,6 +2000,7 @@ def launch_project_agent(
     reuse_home: bool,
     force_mode: str | None,
     gateway_admin_seed_path: Path | None = None,
+    tool_params: str | None = None,
 ) -> None:
     """Launch one managed-agent instance from a compiled specialist definition."""
 
@@ -2116,6 +2153,12 @@ def launch_project_agent(
                 "`--runtime-set` requires a profile created by an Agent Definition deployment."
             )
 
+    direct_tool_params = (
+        _tool_params_or_click(specialist_metadata.tool, tool_params, source="launch --tool-params")
+        if tool_params is not None
+        else None
+    )
+
     if no_gateway and gateway_port is not None:
         raise click.ClickException("`--no-gateway` and `--gateway-port` cannot be combined.")
     if no_gateway and gateway_background:
@@ -2233,6 +2276,12 @@ def launch_project_agent(
         persistent_env_records=persistent_env_records,
         launch_profile_model_config=launch_profile_model_config,
         direct_model_config=direct_model_config,
+        launch_profile_tool_params=(
+            getattr(resolved_profile.entry, "tool_params", None)
+            if resolved_profile is not None
+            else None
+        ),
+        direct_tool_params=direct_tool_params,
         prompt_overlay_mode=prompt_overlay_mode,
         prompt_overlay_text=prompt_overlay_text,
         managed_header_override=managed_header,

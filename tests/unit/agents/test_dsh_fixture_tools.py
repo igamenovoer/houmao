@@ -71,13 +71,19 @@ def test_all_dsh_surfaces_prepare_the_same_explicit_route(
     )
     run = prepare.prepare_run(config, run_root=tmp_path / "runs", executable=sys.executable)
     root = Path(run["run_dir"])
-    setup = yaml.safe_load((root / "home/dsh-setup.yaml").read_text())
-    assert setup["models"] == [
+    setup = yaml.safe_load((root / "home/houmao-tool-params.yaml").read_text())
+    assert [
+        {
+            key: model[key]
+            for key in ("id", "context_window", "max_output_tokens", "reasoning_efforts")
+        }
+        for model in setup["models"]
+    ] == [
         {
             "id": "controlled-model",
             "context_window": 8192,
             "max_output_tokens": 512,
-            "reasoning": False,
+            "reasoning_efforts": False,
         }
     ]
     assert setup["provider"]["protocol"] == (
@@ -94,10 +100,48 @@ def test_all_dsh_surfaces_prepare_the_same_explicit_route(
     assert (root / "private-env.json").stat().st_mode & 0o777 == 0o600
     if surface != "raw":
         prepared = (
-            Path(run["project_dir"]) / ".houmao/agents/tools/dsh/setups/fixture/dsh-setup.yaml"
+            Path(run["project_dir"]) / ".houmao/agents/tools/dsh/setups/fixture/tool-params.yaml"
         )
-        assert yaml.safe_load(prepared.read_text()) == setup
+        assert yaml.safe_load(prepared.read_text())["provider"] == setup["provider"]
         assert config.api_key.get_secret_value() in Path(run["credential"]["env_file"]).read_text()
+
+
+@pytest.mark.parametrize("mode", ["headless", "tui"])
+def test_self_hosted_dsh_prepares_endpoint_only_without_auth(
+    fixture_tools: tuple[ModuleType, ModuleType, ModuleType],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+) -> None:
+    """Retain an explicit null provider role and never persist the native placeholder."""
+
+    config_tools, prepare, _ = fixture_tools
+    monkeypatch.setenv("HOUMAO_TEST_SELF_HOSTED_API_KEY", "unselected-ambient")
+    config = config_tools.resolve_config(
+        case="self-hosted",
+        client="dsh",
+        mode=mode,
+        surface="raw",
+        model="controlled-model",
+        base_url="http://127.0.0.1:19092/v1",
+        context_window=8192,
+        max_output_tokens=512,
+        dsh_protocol="openai-completions",
+        dsh_reasoning='{"off":null,"low":"low"}',
+        dsh_compat='{"supports_developer_role":false}',
+    )
+    run = prepare.prepare_run(config, run_root=tmp_path / "runs", executable=sys.executable)
+    root = Path(run["run_dir"])
+    config_path = root / "home/houmao-tool-params.yaml"
+    projected = yaml.safe_load(config_path.read_text())
+    assert projected["provider"]["api_key_env"] is None
+    assert projected["models"][0]["reasoning_efforts"] == {"off": None, "low": "low"}
+    assert projected["models"][0]["compat"] == {"supports_developer_role": False}
+    env_file = root / "assets/tools/dsh/auth/default/env/vars.env"
+    assert env_file.read_text() == "OPENAI_BASE_URL=http://127.0.0.1:19092/v1\n"
+    for path in (env_file, config_path, root / "private-env.json", root / "run.json"):
+        assert "houmao-local-no-auth" not in path.read_text()
+        assert "unselected-ambient" not in path.read_text()
 
 
 def test_dsh_uses_only_the_selected_env_file(
@@ -444,7 +488,7 @@ def test_managed_fixture_observes_execution_release_after_usage_without_resendin
     prepare.write_json(root / "run.json", run)
     calls, states = [], iter(["running", "idle"])
 
-    def request(base, path, body=None):
+    def request(run, path, body=None):
         """Finalize accounting before releasing the same execution's ownership."""
         calls.append((path, body))
         if path == "/v1/control/prompt":
@@ -458,7 +502,7 @@ def test_managed_fixture_observes_execution_release_after_usage_without_resendin
             else [{"record_id": "completed-once", "outcome": "completed"}]
         }
 
-    monkeypatch.setattr(launch, "_http", request)
+    monkeypatch.setattr(launch, "_gateway_request", request)
     monkeypatch.setattr(launch.time, "sleep", lambda _: None)
     result = launch.prompt_run(root, prompt="one explicit request")
     assert result["turns"][-1]["status"] == "completed"

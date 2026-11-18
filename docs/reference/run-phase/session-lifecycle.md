@@ -178,6 +178,8 @@ Relaunches a tmux-backed managed session without rebuilding the brain home. Rela
 
 A successful relaunch rotates the live registry generation while retaining logical identity and execution ownership. Registry publication replaces the captured previous generation under the same runtime owner lock. Stale writers and teardown requests cannot publish or remove the replacement generation. Starting a new headless conversation also resets its native conversation turn counter; persisted native-session caches from a prior runtime generation do not select that conversation again.
 
+For DSH ACP, an already-attached local gateway retains the execution controller from its original generation. After relaunch, use `houmao-mgr agents single --agent-id <id> gateway detach` followed by `houmao-mgr agents single --agent-id <id> gateway attach` to submit through a gateway bound to the new generation.
+
 Fresh project launch can also intentionally target a preserved home through `houmao-mgr project agents launch --reuse-home`, but that is a different lifecycle shape. Reuse-home launch rebuilds current Houmao-managed launch inputs onto one compatible preserved home, creates a new live session root and new registry authority, and does not automatically consume relaunch-only chat-session policy. Relaunch remains the supported path when the operator wants to restart the same built session/home posture rather than request a fresh launch over preserved provider-local state.
 
 The optional relaunch chat-session selector controls provider-native startup behavior:

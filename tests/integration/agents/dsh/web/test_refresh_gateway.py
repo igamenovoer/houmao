@@ -12,7 +12,6 @@ from typing import Any
 
 from click.testing import CliRunner
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 import pytest
 import uvicorn
 
@@ -27,6 +26,7 @@ from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.discovery import DiscoveredAgent, _summary_from_record
 from houmao.passive_server.service import PassiveServerService
 from houmao.srv_ctrl.commands.main import cli
+from tests.fixtures.gateway_access import gateway_fixture_client
 from tests.integration.agents.dsh.web.test_gateway_native import _runtime, _stop
 from tests.integration.agents.dsh.web.test_refresh import MCP_SERVER, _skill
 
@@ -70,7 +70,7 @@ def test_public_gateway_native_refresh_preserves_real_common_evidence(
     identity = dict(backend.state.web_identity)
     runtime.start()
     try:
-        client = TestClient(create_app(runtime=runtime))
+        client = gateway_fixture_client(runtime)
         home = client.get("/v1/native-home")
         assert home.status_code == 200, home.text
         assert Path(home.json()["home_dir"]) == tmp_path / "dsh-home"

@@ -33,8 +33,6 @@ launch:
   executable: claude
   args: []
   default_tool_params: {}
-  metadata:
-    tool_params: {}
   env_injection:
     mode: export_from_env_file
 setup_projection:
@@ -135,8 +133,6 @@ launch:
   executable: claude
   args: []
   default_tool_params: {}
-  metadata:
-    tool_params: {}
   env_injection:
     mode: export_from_env_file
 config_projection:
@@ -156,6 +152,44 @@ credential_projection:
 
     with pytest.raises(ValueError, match="missing mapping `setup_projection`"):
         parse_tool_adapter(adapter_path)
+
+
+def test_preset_and_adapter_accept_their_typed_tool_params(tmp_path: Path) -> None:
+    """Presets and adapter defaults preserve the typed parameter layer."""
+
+    _seed_agent_defs(tmp_path)
+    adapter = tmp_path / "tools/claude/adapter.yaml"
+    preset = tmp_path / "presets/gpu-kernel-coder-claude-default.yaml"
+    adapter.write_text(
+        adapter.read_text().replace(
+            "default_tool_params: {}", "default_tool_params: {include_partial_messages: true}"
+        )
+    )
+    preset.write_text(preset.read_text() + "tool_params: {include_partial_messages: false}\n")
+
+    assert parse_tool_adapter(adapter).default_tool_params == {"include_partial_messages": True}
+    assert parse_agent_preset(preset).tool_params == {"include_partial_messages": False}
+
+
+def test_preset_and_adapter_reject_legacy_tool_params_locations(tmp_path: Path) -> None:
+    """Legacy locations direct authors to the explicit tool-owned layers."""
+
+    _seed_agent_defs(tmp_path)
+    adapter = tmp_path / "tools/claude/adapter.yaml"
+    preset = tmp_path / "presets/gpu-kernel-coder-claude-default.yaml"
+    adapter.write_text(
+        adapter.read_text().replace(
+            "default_tool_params: {}", "metadata: {tool_params: {include_partial_messages: true}}"
+        )
+    )
+    preset.write_text(
+        preset.read_text() + "  overrides: {tool_params: {include_partial_messages: true}}\n"
+    )
+
+    with pytest.raises(ValueError, match="Use launch.default_tool_params"):
+        parse_tool_adapter(adapter)
+    with pytest.raises(ValueError, match="Use separate top-level tool_params"):
+        parse_agent_preset(preset)
 
 
 def test_parse_agent_preset_accepts_gateway_defaults_under_extra(tmp_path: Path) -> None:

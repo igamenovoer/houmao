@@ -224,7 +224,7 @@ def test_manager_web_waits_for_exact_operation_usage(
     }
     reads = 0
 
-    def http(base: str, path: str, body: Any = None) -> dict[str, Any]:
+    def gateway_request(run: dict[str, Any], path: str, body: Any = None) -> dict[str, Any]:
         """Expose an unrelated completed row before the exact managed record arrives."""
 
         nonlocal reads
@@ -238,7 +238,7 @@ def test_manager_web_waits_for_exact_operation_usage(
 
     monkeypatch.setattr(launch, "load_run", lambda path: run)
     monkeypatch.setattr(launch, "_save", lambda run: None)
-    monkeypatch.setattr(launch, "_http", http)
+    monkeypatch.setattr(launch, "_gateway_request", gateway_request)
     monkeypatch.setattr(launch.time, "sleep", lambda seconds: None)
     result = launch.prompt_run(tmp_path, prompt="Explicit managed input", timeout=1)
     assert reads == 3

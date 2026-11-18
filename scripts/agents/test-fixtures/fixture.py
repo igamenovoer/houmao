@@ -34,7 +34,19 @@ def add_case_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--context-window", type=int)
     parser.add_argument("--max-output-tokens", type=int)
     parser.add_argument(
-        "--dsh-reasoning", help="Explicit DSH reasoning JSON: false or preset mapping"
+        "--dsh-reasoning", help="DSH reasoning JSON: false or a native slot-to-wire mapping"
+    )
+    parser.add_argument("--dsh-compat", help="DSH model compatibility as a JSON mapping")
+    parser.add_argument(
+        "--dsh-protocol",
+        choices=(
+            "messages",
+            "openai-completions",
+            "openai-responses",
+            "anthropic-messages",
+            "google-generative-ai",
+        ),
+        help="Choose the DSH wire protocol for the selected case adapter",
     )
     parser.add_argument("--capabilities", help="Explicit comma-separated model capabilities")
     parser.add_argument("--reasoning-key")
@@ -130,6 +142,8 @@ def selected_configuration(args: argparse.Namespace) -> ResolvedConfig:
         context_window=args.context_window,
         max_output_tokens=args.max_output_tokens,
         dsh_reasoning=args.dsh_reasoning,
+        dsh_compat=args.dsh_compat,
+        dsh_protocol=args.dsh_protocol,
         capabilities=[item.strip() for item in args.capabilities.split(",")]
         if args.capabilities is not None
         else None,

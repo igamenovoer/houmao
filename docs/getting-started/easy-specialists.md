@@ -69,7 +69,7 @@ Key options:
 | Option | Default | Description |
 |---|---|---|
 | `--name` | Required | Specialist name. Used as the role name and default auth display name. |
-| `--tool` | Required | Tool lane: `claude`, `codex`, or `kimi`. |
+| `--tool` | Required | Tool lane, one of `claude`, `codex`, `kimi`, or `dsh`. |
 | `--system-prompt` / `--system-prompt-file` | None | Inline prompt text or path to a prompt markdown file. |
 | `--credential` | `<name>-creds` | Auth display name. Defaults to `<specialist-name>-creds`. |
 | `--api-key` | None | API key for the selected tool. |
@@ -83,6 +83,9 @@ Key options:
 | `--no-unattended` | False | Use `prompt_mode: as_is` instead of the default `unattended` mode. |
 | `--model` | None | Optional launch-owned default model name. |
 | `--reasoning-level` | None | Optional launch-owned tool/model-specific reasoning preset index. |
+| `--tool-params` | None | Partial parameters for the selected tool as inline JSON or `@<yaml-or-json-file>`. |
+
+Use `specialist set --tool-params` to patch stored parameters and `specialist set --clear-tool-params` to restore inheritance from the adapter and setup. The specialist's projection stores the mapping under top-level `tool_params` in its preset YAML.
 
 Those two flags set the **launch-owned default** model selection that is written into the specialist-backed launch profile. After the agent is already running, headless prompt routes also support one-turn overrides through `houmao-mgr agents single --agent-name <name> prompt`, `houmao-mgr agents single --agent-name <name> gateway prompt`, and `houmao-mgr agents single --agent-name <name> turn submit` with the same `--model` plus optional `--reasoning-level` shape. Those runtime overrides apply only to the submitted headless turn and never rewrite the specialist, launch profile, or persisted manifest defaults.
 

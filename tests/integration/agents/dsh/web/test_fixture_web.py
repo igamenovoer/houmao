@@ -46,9 +46,8 @@ def test_native_web_fixture_keeps_one_browser_api_session(
             {"DEEPSEEK_API_KEY": "synthetic-local-key", "DEEPSEEK_BASE_URL_ANTHROPIC": endpoint}
         )
     else:
-        selected.update(
-            {prefix + "_API_KEY": "synthetic-local-key", prefix + "_OPENAI_BASE_URL": endpoint}
-        )
+        selected[prefix + "_OPENAI_BASE_URL"] = endpoint
+        monkeypatch.setenv("OPENAI_API_KEY", "synthetic-unselected-ambient-key")
     config = config_tools.resolve_config(
         case=case, client="dsh", mode="tui", surface=surface, process_env=selected
     )
@@ -91,6 +90,9 @@ def test_native_web_fixture_keeps_one_browser_api_session(
         final = launch.prompt_run(root, prompt="Fixture final API marker", timeout=45)
         assert observer.state(identity)["identity"] == identity
         assert len(requests) == 4
+        assert all(
+            row["_fixture_placeholder_authorization"] == (case == "self-hosted") for row in requests
+        )
         assert "Fixture human Web marker" in json.dumps(requests[3]["messages"])
         assert "Fixture first Web marker" in json.dumps(requests[3]["messages"])
         report = (root / "report.json").read_text()

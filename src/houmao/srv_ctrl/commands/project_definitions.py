@@ -248,6 +248,7 @@ def get_project_preset_command(name: str) -> None:
     help="Optional launch.prompt_mode value; defaults to `unattended`.",
 )
 @click.option("--model", default=None, help="Optional launch-owned model name.")
+@click.option("--tool-params", help="Partial tool parameters as JSON or @path.")
 @click.option(
     "--reasoning-level",
     type=click.IntRange(min=0),
@@ -264,11 +265,15 @@ def add_project_preset_command(
     prompt_mode: str | None,
     model: str | None,
     reasoning_level: int | None,
+    tool_params: str | None = None,
 ) -> None:
     """Create one minimal project-local named recipe."""
 
-    overlay = _ensure_project_overlay()
     preset_name = _require_non_empty_name(name, field_name="--name")
+    resolved_tool_params = _tool_params_or_click(
+        tool_name, tool_params, source=f"Recipe {preset_name!r} tool_params"
+    )
+    overlay = _ensure_project_overlay()
     role_name = _require_non_empty_name(role, field_name="--role")
     resolved_setup = _require_non_empty_name(setup, field_name="--setup")
     _ensure_role_exists(overlay=overlay, role_name=role_name)
@@ -292,6 +297,7 @@ def add_project_preset_command(
             model_name=_resolve_model_name_or_click(model),
             reasoning_level=reasoning_level,
         ),
+        tool_params=resolved_tool_params,
     )
     emit(
         {
@@ -333,6 +339,8 @@ def add_project_preset_command(
 @click.option("--clear-prompt-mode", is_flag=True, help="Clear launch.prompt_mode.")
 @click.option("--model", default=None, help="Optional launch-owned model name override.")
 @click.option("--clear-model", is_flag=True, help="Clear launch.model.name.")
+@click.option("--tool-params", help="Patch tool parameters with JSON or @path.")
+@click.option("--clear-tool-params", is_flag=True, help="Clear stored tool parameters.")
 @click.option(
     "--reasoning-level",
     type=click.IntRange(min=0),
@@ -360,6 +368,8 @@ def set_project_preset_command(
     clear_model: bool,
     reasoning_level: int | None,
     clear_reasoning_level: bool,
+    tool_params: str | None = None,
+    clear_tool_params: bool = False,
 ) -> None:
     """Update one existing project-local named recipe."""
 
@@ -393,6 +403,8 @@ def set_project_preset_command(
         and not clear_model
         and reasoning_level is None
         and not clear_reasoning_level
+        and tool_params is None
+        and not clear_tool_params
     ):
         raise click.ClickException("No recipe updates were requested.")
 
@@ -404,6 +416,13 @@ def set_project_preset_command(
         else parsed_preset.role_name
     )
     resolved_tool = tool_name or parsed_preset.tool
+    resolved_tool_params = _tool_params_or_click(
+        resolved_tool,
+        tool_params,
+        source=f"Recipe {preset_name!r} tool_params",
+        current=parsed_preset.tool_params,
+        clear=clear_tool_params,
+    )
     resolved_setup = (
         _require_non_empty_name(setup, field_name="--setup")
         if setup is not None
@@ -441,6 +460,10 @@ def set_project_preset_command(
 
     raw_payload["role"] = role_name
     raw_payload["tool"] = resolved_tool
+    if resolved_tool_params:
+        raw_payload["tool_params"] = resolved_tool_params
+    else:
+        raw_payload.pop("tool_params", None)
     raw_payload["setup"] = resolved_setup
     raw_payload["skills"] = normalized_skills
     if resolved_auth is None:

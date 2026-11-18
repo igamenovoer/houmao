@@ -205,9 +205,10 @@ def credential_values(config: ResolvedConfig) -> dict[str, str]:
     if config.client == "dsh":
         if config.dsh is None:
             raise FixtureError("DSH fixtures require an explicit adapter and protocol")
-        if config.dsh.adapter == "deepseek":
-            return {"DEEPSEEK_API_KEY": key, "DEEPSEEK_BASE_URL_ANTHROPIC": config.base_url}
-        return {"OPENAI_API_KEY": key, "OPENAI_BASE_URL": config.base_url}
+        values = {config.dsh.base_url_env: config.base_url}
+        if config.auth_method == "api-key":
+            values[config.dsh.api_key_env] = key
+        return values
     if config.client == "codex":
         return {"OPENAI_API_KEY": key, "OPENAI_BASE_URL": config.base_url}
     if config.client == "claude":
@@ -274,33 +275,11 @@ def _render_setup(config: ResolvedConfig, setup: Path, *, seed: Path) -> None:
 
     private_directory(setup)
     if config.client == "dsh":
-        if config.auth_method != "api-key" or config.dsh is None:
-            raise FixtureError("DSH fixtures require explicitly selected API credentials")
-        from houmao.agents.dsh_configuration import DshSetup
-
-        native = config.dsh.adapter == "deepseek"
-        payload = {
-            "version": 1,
-            "provider": {
-                "adapter": config.dsh.adapter,
-                "protocol": "messages" if native else "openai-completions",
-                "route": config.dsh.route,
-                "base_url_env": "DEEPSEEK_BASE_URL_ANTHROPIC" if native else "OPENAI_BASE_URL",
-                "api_key_env": "DEEPSEEK_API_KEY" if native else "OPENAI_API_KEY",
-            },
-            "models": [
-                {
-                    "id": config.model,
-                    "context_window": config.model_options.context_window,
-                    "max_output_tokens": config.model_options.max_output_tokens,
-                    "reasoning": config.model_options.dsh_reasoning,
-                }
-            ],
-            "selected_model": config.model,
-            "hmr": False,
-        }
-        DshSetup.from_mapping(payload)
-        private_write(setup / "dsh-setup.yaml", yaml.safe_dump(payload).encode())
+        if config.auth_method == "native-login":
+            raise FixtureError(
+                "DSH fixtures require selected API credentials or an endpoint-only route"
+            )
+        private_write(setup / "tool-params.yaml", yaml.safe_dump(config.dsh_tool_params()).encode())
         return
     if config.auth_method == "native-login":
         default = seed / "tools" / config.client / "setups/default"
@@ -352,12 +331,27 @@ def _render_assets(
     values = credential_values(config)
     if config.native_bundle is not None:
         _copy_files(config.native_bundle / "files", auth / "files")
-    projected = dict.fromkeys(adapter["auth_projection"]["env"]["allowlist"], "")
+    projected = (
+        {}
+        if config.dsh is not None
+        else dict.fromkeys(adapter["auth_projection"]["env"]["allowlist"], "")
+    )
     projected.update(values)
+    env_file = auth / "env/vars.env"
     private_write(
-        auth / "env/vars.env",
+        env_file,
         "".join(f"{key}={value}\n" for key, value in projected.items()).encode(),
     )
+    if config.dsh is not None:
+        from houmao.agents.dsh_credentials import DshCredentialRoles, write_dsh_credential_roles
+
+        write_dsh_credential_roles(
+            env_file,
+            DshCredentialRoles(
+                base_url_env=config.dsh.base_url_env,
+                api_key_env=config.dsh.api_key_env if config.auth_method == "api-key" else None,
+            ),
+        )
     private_directory(auth / "files")
     preset = {
         "role": role,
@@ -434,17 +428,25 @@ def _prepare_project(
         )
     elif tool == "dsh":
         assert config.dsh is not None
-        key_name = "DEEPSEEK_API_KEY" if config.dsh.adapter == "deepseek" else "OPENAI_API_KEY"
         args.extend(
             [
                 "--adapter",
                 config.dsh.adapter,
-                "--api-key",
-                values[key_name],
                 "--base-url",
                 str(config.base_url),
+                "--base-url-env",
+                config.dsh.base_url_env,
             ]
         )
+        if config.auth_method == "api-key":
+            args.extend(
+                [
+                    "--api-key",
+                    values[config.dsh.api_key_env],
+                    "--api-key-env",
+                    config.dsh.api_key_env,
+                ]
+            )
     else:
         args.extend(
             [
@@ -457,7 +459,7 @@ def _prepare_project(
         if tool == "kimi":
             args.extend(["--model-name", str(config.model), "--provider-type", "openai"])
     credential = manager_call(project, args, env=env)
-    if values:
+    if values and tool != "dsh":
         # The same adapter-driven writer owns metadata env inputs not exposed as
         # dedicated CLI flags (notably Kimi context/capability fields).
         from houmao.srv_ctrl.commands.credentials import (
@@ -515,7 +517,7 @@ def prepare_run(
 
     if not role or Path(role).name != role or role in {".", ".."}:
         raise FixtureError("Role must be one directory identifier")
-    if config.client == "dsh" and config.auth_method != "api-key":
+    if config.client == "dsh" and config.auth_method == "native-login":
         raise FixtureError("DSH fixtures require explicitly selected API credentials")
     seed = (seed_root or REPO_ROOT / "tests/fixtures/plain-agent-def").resolve()
     prompt = (prompt_file or seed / "roles" / role / "system-prompt.md").resolve()
@@ -571,7 +573,9 @@ def prepare_run(
         private_directory(home)
         if config.client == "dsh":
             private_directory(home / "skills")
-        _copy_files(assets / "tools" / config.client / "setups/fixture", home)
+        setup = assets / "tools" / config.client / "setups/fixture"
+        if config.client != "dsh":
+            _copy_files(setup, home)
         _copy_files(assets / "tools" / config.client / "auth/default/files", home)
         if config.client == "codex":
             private_write(
@@ -580,12 +584,12 @@ def prepare_run(
         selected_env = {**values, **runtime_values(config), HOME_VARIABLE[config.client]: str(home)}
         write_json(run_dir / "private-env.json", selected_env)
         env = isolated_environment(selected_env, run_dir=run_dir)
-        if config.client == "dsh" and config.surface == "raw" and config.mode == "headless":
-            from houmao.agents.dsh_configuration import DshSetup, prepare_dsh_home
+        if config.client == "dsh":
+            from houmao.agents.dsh_configuration import DshEffectiveToolParams, prepare_dsh_home
 
             prepare_dsh_home(
                 home,
-                DshSetup.from_file(home / "dsh-setup.yaml"),
+                DshEffectiveToolParams.from_file(setup / "tool-params.yaml"),
                 env,
                 (assets / "roles" / role / "system-prompt.md").read_text(),
                 selected_model=config.model,

@@ -145,7 +145,19 @@ def test_edited_launch_profile_refresh_and_separate_relaunch_keep_their_boundari
         after = json.loads(manifest_path.read_text())
         assert after["agent_id"] == manifest["agent_id"]
         assert after["runtime"]["session_id"] == runtime_id
+        assert after["registry_generation_id"] != generation
         assert len(requests) == 1, "Explicit headless relaunch must not create a model turn"
+
+        # The local headless gateway retains its original generation's controller.
+        # Explicit reattachment selects the replacement authority before dispatch.
+        prepare.manager_root_call([*scope, "gateway", "detach"], env=environment)
+        attached = prepare.manager_root_call(
+            [*scope, "gateway", "attach", "--background"], env=environment
+        )
+        assert isinstance(attached["gateway_port"], int)
+        current_run = launch.load_run(root)
+        current_run["identity"]["gateway_port"] = attached["gateway_port"]
+        launch._save(current_run)
         continued = launch.prompt_run(root, prompt="after separate relaunch", timeout=45)
         final = json.loads(Path(continued["identity"]["manifest_path"]).read_text())
         if chat_policy == "exact":

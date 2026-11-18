@@ -10,6 +10,7 @@ from time import monotonic
 from typing import Any, cast
 
 import click
+from click._utils import UNSET
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter
 
 from houmao.agents.realm_controller.gateway_models import GatewayTuiTrackingTimingOverridesV1
@@ -103,7 +104,8 @@ def _launch(request: ExecutionRequestV1, policy: OwnerPolicyV1) -> JsonObject:
                 # Click's repeatable inputs arrive as JSON arrays over stdio.
                 if parameter.multiple and isinstance(value, list):
                     value = tuple(value)
-                parameters[name] = parameter.process_value(context, value)
+                processed = parameter.process_value(context, value)
+                parameters[name] = None if processed is UNSET else processed
         except (click.BadParameter, click.MissingParameter):
             raise OwnerAdmissionError(
                 "invalid_arguments", "Invalid project launch parameter."
@@ -119,6 +121,10 @@ def _launch(request: ExecutionRequestV1, policy: OwnerPolicyV1) -> JsonObject:
             parameters["workdir"] = workdir
         else:
             parameters["workdir"] = path
+        tool_params = parameters.get("tool_params")
+        if isinstance(tool_params, str) and tool_params.startswith("@") and len(tool_params) > 1:
+            params_path = Path(tool_params[1:]).expanduser()
+            parameters["tool_params"] = f"@{path / params_path}"
         if monotonic() - started >= request.deadline_seconds:
             raise OwnerAdmissionError(
                 "deadline_exhausted", "Execution deadline expired before launch preparation."

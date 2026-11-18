@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 from pathlib import Path
 import tomllib
@@ -14,6 +15,7 @@ from houmao.agents.brain_builder import (
     _load_tool_adapter,
     build_brain_home,
     load_brain_recipe,
+    validate_brain_inputs,
 )
 from houmao.agents.kimi_system_prompt import prompt_sha256
 from houmao.agents.launch_overrides import LaunchArgsSection, LaunchOverrides
@@ -161,14 +163,6 @@ launch:
   executable: claude
   args: []
   default_tool_params: {}
-  metadata:
-    tool_params:
-      include_partial_messages:
-        type: boolean
-        backends:
-          claude_headless:
-            args_when_true:
-              - --include-partial-messages
   env_injection:
     mode: export_from_env_file
 setup_projection:
@@ -242,8 +236,6 @@ launch:
   executable: kimi
   args: []
   default_tool_params: {}
-  metadata:
-    tool_params: {}
   env_injection:
     mode: export_from_env_file
 setup_projection:
@@ -1342,7 +1334,7 @@ def test_build_brain_home_projects_kimi_oauth_model_selection_as_cli_args(
     manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
     model_selection = manifest["runtime"]["launch_contract"]["model_selection"]
 
-    assert "--launch-arg --model --launch-arg kimi-code/kimi-for-coding" in launch_script
+    assert "--launch-arg=--model --launch-arg=kimi-code/kimi-for-coding" in launch_script
     assert model_selection["provider_cli_args"] == {
         "tool": "kimi",
         "args": ["--model", "kimi-code/kimi-for-coding"],
@@ -1430,6 +1422,8 @@ def test_build_brain_home_persists_recipe_and_direct_launch_override_layers(
     agent_def_dir = tmp_path / "repo"
     agent_def_dir.mkdir(parents=True)
     _seed_claude_repo(agent_def_dir)
+    setup_seed = agent_def_dir / "tools/claude/setups/default/tool-params.yaml"
+    setup_seed.write_text("include_partial_messages: false\n", encoding="utf-8")
 
     result = build_brain_home(
         BuildRequest(
@@ -1442,8 +1436,8 @@ def test_build_brain_home_persists_recipe_and_direct_launch_override_layers(
             recipe_path=tmp_path / "recipe.yaml",
             recipe_launch_overrides=LaunchOverrides(
                 args=LaunchArgsSection(mode="append", values=("--recipe",)),
-                tool_params={"include_partial_messages": True},
             ),
+            preset_tool_params={"include_partial_messages": True},
             launch_overrides=LaunchOverrides(
                 args=LaunchArgsSection(mode="replace", values=("--direct",)),
             ),
@@ -1454,13 +1448,9 @@ def test_build_brain_home_persists_recipe_and_direct_launch_override_layers(
     manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
     launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
 
-    assert manifest["runtime"]["launch_contract"]["adapter_defaults"] == {
-        "args": [],
-        "tool_params": {},
-    }
+    assert manifest["runtime"]["launch_contract"]["adapter_defaults"] == {"args": []}
     assert manifest["runtime"]["launch_contract"]["requested_overrides"]["preset"] == {
         "args": {"mode": "append", "values": ["--recipe"]},
-        "tool_params": {"include_partial_messages": True},
     }
     assert manifest["runtime"]["launch_contract"]["requested_overrides"]["direct"] == {
         "args": {"mode": "replace", "values": ["--direct"]}
@@ -1468,9 +1458,42 @@ def test_build_brain_home_persists_recipe_and_direct_launch_override_layers(
     assert manifest["runtime"]["launch_contract"]["construction_provenance"]["preset_path"] == str(
         (tmp_path / "recipe.yaml").resolve()
     )
+    assert manifest["runtime"]["launch_contract"]["tool_params"] == {
+        "layers": {
+            "adapter": {},
+            "setup": {"include_partial_messages": False},
+            "preset": {"include_partial_messages": True},
+            "launch_profile": {},
+            "direct": {},
+        },
+        "effective": {"include_partial_messages": True},
+    }
+    assert not (result.home_path / "tool-params.yaml").exists()
     assert "houmao.agents.launch_policy.cli" in launch_script
     assert "--requested-operator-prompt-mode unattended" in launch_script
-    assert "--launch-arg --direct" in launch_script
+    assert "--launch-arg=--direct" in launch_script
+
+
+def test_build_uses_tool_params_validated_before_authoring_changes(tmp_path: Path) -> None:
+    _seed_claude_repo(tmp_path)
+    authoring = tmp_path / "tools/claude/setups/default/tool-params.yaml"
+    authoring.write_text("include_partial_messages: true\n", encoding="utf-8")
+    request = BuildRequest(
+        agent_def_dir=tmp_path,
+        runtime_root=tmp_path / "runtime",
+        tool="claude",
+        skills=[],
+        setup="default",
+        auth="personal-a",
+        home_id="claude-preflight",
+    )
+    validated = validate_brain_inputs(request, backend="claude_headless")
+    authoring.write_text("include_partial_messages: false\n", encoding="utf-8")
+    result = build_brain_home(replace(request, validated_inputs=validated))
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    params = manifest["runtime"]["launch_contract"]["tool_params"]
+    assert params["layers"]["setup"] == {"include_partial_messages": True}
+    assert params["effective"] == {"include_partial_messages": True}
 
 
 def test_build_brain_home_persists_launch_profile_provenance_and_role_prompt_override(

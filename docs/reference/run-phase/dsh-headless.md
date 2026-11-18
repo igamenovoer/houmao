@@ -43,13 +43,13 @@ After abrupt death, explicit continuation removes only proven abandoned, unclaim
 
 The companion registers the full effective Houmao prompt as an additive native section with `interpolate: false`. Literal braces, dollar expressions, quotes, and multiline content survive unchanged. DSH's built-in instructions and tool schemas remain present. An empty effective prompt registers no managed section. There is no chat-bootstrap fallback.
 
-Managed configuration isolates the DSH home, shared-agent root, persistence root, selected skills, and credentials. The native DeepSeek adapter uses Messages and the explicit `DEEPSEEK_BASE_URL_ANTHROPIC` reference. Generic compatible routes separately declare their adapter, protocol, endpoint, model capacities, and reasoning metadata. A shared hostname does not establish protocol compatibility. Keys remain in local environment inputs; public provenance stores references rather than values.
+Managed configuration isolates the DSH home, shared-agent root, persistence root, selected skills, and credentials. The native DeepSeek adapter uses Messages and the explicit `DEEPSEEK_BASE_URL_ANTHROPIC` reference. Each pi-ai route declares its protocol, endpoint, model capacities, and reasoning metadata. Private credential bundles hold key values. Public provenance records the environment references.
 
 ### Materialization and Current-Home Loading
 
-Launch and explicit relaunch materialize `houmao-profile.patch.json`, `houmao-role.txt`, the private native credentials stub, skill roots, and persistence directories. An ordinary ACP invocation reads those existing files. It does not rebuild them from the saved Houmao launch plan or repair missing material. Removing required native inputs causes an explicit failure before prompt submission.
+Launch and explicit relaunch materialize `houmao-tool-params.yaml`, `houmao-profile.patch.json`, `houmao-role.txt`, the private native credentials stub, skill roots, and persistence directories. An ordinary ACP invocation reads those existing files. Removing required native inputs causes an explicit failure before prompt submission.
 
-Each ordinary invocation rereads the selected home `dsh-setup.yaml` for current ACP MCP declarations and explicit credential references. The materialized native patch supplies the current profile, provider configuration, model defaults, and skill-provider configuration. Editing setup launch fields alone does not regenerate that patch or role text. Native profile and patch precedence still applies; a lower-priority home setting can remain masked by a materialized launch overlay.
+Each ordinary invocation rereads the selected home `houmao-tool-params.yaml` for current ACP MCP declarations and credential references. Houmao resolves MCP values from the selected private credential bundle at worker startup. The existing native patch supplies the current profile, provider configuration, model defaults, and skill-provider configuration. A lower-priority home setting can remain masked by the materialized launch overlay.
 
 Request-scoped model/reasoning controls use a private per-attempt overlay and advertised ACP selectors. The next prompt selects the current materialized native default, so a previous request override does not become the next default. The companion/control patch, evidence files, dispatch guard, and selected credential environment remain private per-attempt inputs. These operations do not rewrite persistent home material.
 
@@ -59,27 +59,30 @@ The generic Houmao refresh contract uses this qualified next-invocation boundary
 
 ### Setup Fields
 
-The selected tool setup supplies `dsh-setup.yaml`. Packaged starter and fixture adapters both project it into the private managed home. The starter intentionally has an empty model catalog, so a contributor must provide exact model metadata before building an agent.
+The selected tool setup supplies a `tool-params.yaml` layer. Houmao merges it with recipe or specialist overrides, launch-profile overrides, and direct overrides in that order. The starter has an empty model catalog, so supply exact model metadata in one of these layers before building an agent. Use the common `model.name` setting to select a model whenever the effective catalog contains several entries.
 
 | Field | Required Meaning |
 | --- | --- |
-| `version` | `1`, the current Houmao setup format. |
-| `provider.adapter` / `provider.protocol` | `deepseek` / `messages`, or `pi-ai` / `openai-completions`. These pairs are validated before native startup. |
-| `provider.route` | `deepseek-official` for the native adapter; a separate lowercase route identifier for the generic adapter. |
-| `provider.base_url_env` / `provider.api_key_env` | Distinct environment references from the selected credential bundle. The document contains names, never key values. |
-| `models` | A nonempty exact catalog. Each entry requires `id`, positive `context_window`, positive `max_output_tokens`, and explicit `reasoning`. Output capacity cannot exceed context capacity. |
-| `selected_model` | One exact declared model ID. Common launch/profile model overrides must also resolve to this catalog. |
-| `models[].reasoning` | `false` for a model without reasoning, or consecutive numbered positive presets starting at `1`. Optional preset `0` maps to `off`. Positive presets name supported native efforts; common integer reasoning overrides saturate at the highest declared positive preset. |
-| `skill_roots` | Optional absolute directories, added during launch materialization. The generated native skill-provider configuration disables user-global discovery and watching; later invocations consume its current configuration. |
-| `mcp_servers` | Optional ACP stdio or Streamable HTTP declarations. Stdio requires an absolute `command`, string `args`, and ordered `env` name/value entries. HTTP uses `type: http`, an absolute HTTP(S) `url`, and ordered `headers`. SSE is unsupported by the pinned ACP build. |
-| `hmr` | `false` for this setup format; native ACP inputs activate at each ordinary worker startup. |
+| `provider.adapter` / `provider.protocol` | `deepseek` uses `messages`. `pi-ai` supports `openai-completions`, `openai-responses`, `anthropic-messages`, and `google-generative-ai`. |
+| `provider.route` | `deepseek-official` for DeepSeek. Supply a separate lowercase route identifier for pi-ai. |
+| `provider.base_url_env` / `provider.api_key_env` | Names must match the stored roles in the selected credential bundle. Explicit `api_key_env: null` selects endpoint-only pi-ai Chat Completions. When omitted on pi-ai, the API-key reference defaults to `OPENAI_API_KEY`. |
+| `provider.compat` / `models[].compat` | Optional pi-ai compatibility options, subject to the protocol's supported fields. Model options override route defaults. |
+| `provider.retry_policy` | Optional native request retry settings. Set `mode` to `normal` or `always`. Normal mode supports `max_retries` and `retryable_codes`. Both modes accept `backoff` with `initial_delay_ms`, `max_delay_ms`, and `jitter_ratio`. |
+| `models` | Each entry requires `id`, positive `context_window`, positive `max_output_tokens`, and explicit `reasoning_efforts`. Output capacity must fit the context window. Optional `name` labels the native selector, and `input_modalities` accepts `text` and `image` with a default of `[text]`. |
+| `models[].reasoning_efforts` | `false` for a model without reasoning, or a map from DSH thinking slots to provider wire values. A reasoning-capable model requires at least one positive slot. |
+| `skill_roots` | Optional absolute directories added during launch materialization. The native skill-provider configuration disables user-global discovery and watching. Later invocations consume the current native configuration. |
+| `mcp_servers` | Optional ACP stdio or Streamable HTTP declarations. Stdio requires an absolute `command` and accepts string `args` and `env` entries. HTTP uses `type: http`, an absolute HTTP(S) `url`, and `headers` entries. Each environment or header entry uses `name` for the native key and `env_ref` for its value in the private credential bundle. |
+| `hmr` | `false` for this setup format. Native ACP inputs activate at each ordinary worker startup. |
 
-The endpoint must implement the selected protocol. Preserve the base path required by that deployment; Houmao does not rewrite a Chat Completions endpoint into Messages or add a guessed version suffix. Credential-bearing URLs and query strings are rejected for provider endpoints.
+Use a provider endpoint that implements the selected protocol, including the base path required by the deployment. The URL must omit user information, query parameters, and fragments.
 
-The following is a synthetic controlled-model setup. Replace all model metadata with values qualified for the actual selected model when preparing a live account:
+Houmao maps positive integer reasoning levels to declared slots in DSH's canonical order of `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. Requests above the declared range use the highest configured slot. Level `0` selects `'off'` when declared, and models with `reasoning_efforts: false` also accept level `0`. Quote `'off'` as a YAML key or string value. On pi-ai, `'off': null` omits the upstream effort field and `'off': none` sends the string `none`. DeepSeek accepts `'off'`, `low`, `high`, and `max`, with matching wire names and an optional null value for `'off'`.
+
+For a project credential, store MCP environment entries in the owner-private `.houmao/content/auth/dsh/<bundle-ref>/env/vars.env`. The `project credentials dsh get --name <name>` command reports `bundle_ref` and omits extra MCP values. Use an `env_ref` in `tool_params` to bind each value to its declared header or stdio environment variable.
+
+The following example uses synthetic model metadata. For a live account, supply the values qualified for the actual model.
 
 ```yaml
-version: 1
 provider:
   adapter: deepseek
   protocol: messages
@@ -90,14 +93,13 @@ models:
   - id: controlled
     context_window: 8192
     max_output_tokens: 128
-    reasoning: false
-selected_model: controlled
+    reasoning_efforts: false
 skill_roots: []
 mcp_servers: []
 hmr: false
 ```
 
-A generic compatible route instead uses the following provider block with its own explicitly declared model catalog. Its protocol is Chat Completions through the pinned pi-ai adapter:
+The packaged `openai-compatible` setup selects endpoint-only Chat Completions. Supply an exact model catalog. The following example shows a local route and a model-specific compatibility setting.
 
 ```yaml
 provider:
@@ -105,10 +107,20 @@ provider:
   protocol: openai-completions
   route: controlled-generic
   base_url_env: OPENAI_BASE_URL
-  api_key_env: OPENAI_API_KEY
+  api_key_env: null
+models:
+  - id: controlled
+    context_window: 8192
+    max_output_tokens: 128
+    compat:
+      supports_developer_role: false
+    reasoning_efforts:
+      'off': none
+      low: low
+      high: high
 ```
 
-The packaged `openai-compatible` setup and its matching fixture seed provide that generic route separately from the native `default` setup. Both require an explicit model catalog before launch.
+DSH's transport sends the fixed public header `Authorization: Bearer houmao-local-no-auth` on endpoint-only routes. Select a self-hosted endpoint that accepts this header. Houmao generates the header value at launch and leaves the credential bundle, authored settings, and launch metadata free of the placeholder value.
 
 ### Project and Profile Preparation
 
@@ -122,7 +134,7 @@ pixi run --manifest-path "$houmao_checkout/pyproject.toml" houmao-mgr project cr
   --api-key synthetic-local-only --base-url http://127.0.0.1:9000/v1
 ```
 
-Write the controlled setup above into `.houmao/agents/tools/dsh/setups/default/dsh-setup.yaml`, then create the specialist and headless profile:
+Write the controlled setup above into `.houmao/agents/tools/dsh/setups/default/tool-params.yaml`, then create the specialist and headless profile:
 
 ```bash
 pixi run --manifest-path "$houmao_checkout/pyproject.toml" houmao-mgr project specialist create \
@@ -134,11 +146,11 @@ pixi run --manifest-path "$houmao_checkout/pyproject.toml" houmao-mgr project ag
   --profile controlled --no-gateway
 ```
 
-The launch command requires the qualified DSH executable and a model server at the selected endpoint. The headless parameter of `test_dsh_project_profile_prepares_the_selected_managed_native_surface` checks the real project, credential, specialist, profile, model, and brain preparation paths with synthetic inputs, stopping at the provider-start boundary. It does not claim live-provider qualification. For the generic route, create the credential with `--adapter pi-ai` and use the corresponding generic setup. DSH adoption and native-login imports fail explicitly; managed headless launches use the `dsh_acp` backend.
+The launch command requires a qualified DSH executable and a model server at the selected endpoint. Managed headless launches use the `dsh_acp` backend. For an endpoint-only route, create the credential with `--adapter pi-ai --base-url <endpoint>` and select the `openai-compatible` setup. For an authenticated compatible route, add `--api-key` and set `provider.api_key_env` to the key role. The credential command accepts custom role names via `--base-url-env` and `--api-key-env`.
 
 ### Startup Permissions and Prompt Provenance
 
-The default `unattended` posture writes the qualified native approval policy `never` and sandbox mode `workspace-write`. Native hard denies remain enforceable. Selecting `as_is` through the specialist's `--no-unattended` option omits those permission overrides and preserves native defaults. ACP permission requests without a supported responder are rejected; headless mode does not invent an operator dialog. Launch records the selected mode with configuration provenance. Later ordinary invocations consume the materialized native permissions without reapplying that saved launch mode.
+The default `unattended` posture selects the `houmao-unattended` native permission preset with approval policy `never` and sandbox mode `workspace-write`. Native hard denies remain enforceable. Selecting `as_is` through the specialist's `--no-unattended` option preserves the native permission defaults. ACP rejects permission requests without a supported responder. Later ordinary invocations use the materialized native permissions.
 
 Prompt provenance records the SHA-256 digest of the complete effective launch prompt. The private role file retains the literal bytes, while public metadata contains no prompt or key values. Rebuilding with an empty prompt replaces the old managed role file, and the companion registers no stale section. The companion and starter setup ship as package resources; provider launch requires no JavaScript build or package installation. DSH's built-in system sections, working-directory project instructions, and tool schemas remain native inputs alongside the additive Houmao section.
 

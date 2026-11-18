@@ -6,7 +6,7 @@ from houmao.agents.realm_controller.gateway_access_runtime import load_gateway_a
 from houmao.gateway.access import GatewayLaunchSeed
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import os
 import json
 import math
@@ -21,7 +21,13 @@ from houmao.execution.tmux import tmux_argv, tmux_subprocess_environment
 import click
 
 from houmao.agents.definition_parser import resolve_explicit_or_named_preset_path
-from houmao.agents.brain_builder import BuildRequest, PrivateSkillProjection, build_brain_home
+from houmao.agents.brain_builder import (
+    BuildRequest,
+    PrivateSkillProjection,
+    build_brain_home,
+    validate_brain_inputs,
+)
+from houmao.agents.tool_params import parse_tool_params_cli_input
 from houmao.agents.launch_policy.models import OperatorPromptMode
 from houmao.agents.managed_launch_force import (
     ManagedLaunchForceMode,
@@ -97,7 +103,7 @@ from houmao.agents.realm_controller.backends.headless_output import (
     HeadlessDisplayDetail,
     HeadlessDisplayStyle,
 )
-from houmao.agents.realm_controller.launch_plan import backend_for_tool
+from houmao.agents.realm_controller.launch_plan import backend_for_tool, launch_surface_for_backend
 from houmao.agents.realm_controller.loaders import load_brain_manifest
 from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
@@ -787,6 +793,8 @@ def launch_managed_agent_locally(
     persistent_env_records: dict[str, str] | None = None,
     launch_profile_model_config: ModelConfig | None = None,
     direct_model_config: ModelConfig | None = None,
+    launch_profile_tool_params: Mapping[str, Any] | None = None,
+    direct_tool_params: Mapping[str, Any] | None = None,
     prompt_overlay_mode: str | None = None,
     prompt_overlay_text: str | None = None,
     managed_header_override: bool | None = None,
@@ -921,6 +929,58 @@ def launch_managed_agent_locally(
             force_mode=normalized_force_mode,
             reuse_home=reuse_home,
         )
+        resolved_backend = backend_for_tool(
+            target.tool,
+            prefer_local_interactive=not headless,
+        )
+        if (
+            resolved_backend == "dsh_web"
+            and gateway_tui_tracking_timing_overrides is not None
+            and gateway_tui_tracking_timing_overrides.has_values()
+        ):
+            raise click.ClickException(
+                "Gateway TUI timing overrides are unsupported for the DSH Web native surface."
+            )
+        resolved_backend_name = resolved_backend
+        build_request = BuildRequest(
+            agent_def_dir=target.agent_def_dir,
+            runtime_root=resolved_runtime_root,
+            tool=target.preset.tool,
+            skills=effective_skill_names,
+            private_skills=private_skill_projections,
+            setup=target.preset.setup,
+            auth=auth or target.preset.auth,
+            preset_path=target.preset_path,
+            preset_launch_overrides=target.preset.launch_overrides,
+            preset_tool_params=target.preset.tool_params,
+            launch_profile_tool_params=launch_profile_tool_params,
+            direct_tool_params=direct_tool_params,
+            preset_model_config=getattr(target.preset, "launch_model_config", None),
+            launch_profile_model_config=launch_profile_model_config,
+            direct_model_config=direct_model_config,
+            source_system_skill_policy=getattr(
+                target.preset,
+                "launch_system_skill_policy",
+                None,
+            ),
+            launch_profile_system_skill_policy=launch_profile_system_skill_policy,
+            operator_prompt_mode=operator_prompt_mode or target.preset.operator_prompt_mode,
+            persistent_env_records=effective_persistent_env_records,
+            mailboxes=declared_mailboxes or target.preset.mailboxes,
+            extra=target.preset.extra,
+            agent_name=managed_launch_identity.agent_name,
+            agent_id=managed_launch_identity.agent_id,
+            home_id=predecessor_context.home_id if predecessor_context is not None else None,
+            existing_home_mode=(
+                predecessor_context.force_mode if predecessor_context is not None else None
+            ),
+            reuse_home=reuse_home,
+        )
+        validated_inputs = validate_brain_inputs(
+            build_request,
+            backend=launch_surface_for_backend(resolved_backend),
+            launch_env_overrides=effective_launch_env_overrides,
+        )
         if predecessor_context is not None and predecessor_context.target is not None:
             _perform_managed_force_takeover(predecessor_context)
             takeover_completed = True
@@ -994,50 +1054,10 @@ def launch_managed_agent_locally(
             memo_file=str(memory.memo_file),
             managed_header_section_decisions=managed_header_section_decisions,
         )
-        resolved_backend = backend_for_tool(
-            target.tool,
-            prefer_local_interactive=not headless,
-        )
-        if (
-            resolved_backend == "dsh_web"
-            and gateway_tui_tracking_timing_overrides is not None
-            and gateway_tui_tracking_timing_overrides.has_values()
-        ):
-            raise click.ClickException(
-                "Gateway TUI timing overrides are unsupported for the DSH Web native surface."
-            )
-        resolved_backend_name = resolved_backend
         build_result = build_brain_home(
-            BuildRequest(
-                agent_def_dir=target.agent_def_dir,
-                runtime_root=resolved_runtime_root,
-                tool=target.preset.tool,
-                skills=effective_skill_names,
-                private_skills=private_skill_projections,
-                setup=target.preset.setup,
-                auth=auth or target.preset.auth,
-                preset_path=target.preset_path,
-                preset_launch_overrides=target.preset.launch_overrides,
-                preset_model_config=getattr(target.preset, "launch_model_config", None),
-                launch_profile_model_config=launch_profile_model_config,
-                direct_model_config=direct_model_config,
-                source_system_skill_policy=getattr(
-                    target.preset,
-                    "launch_system_skill_policy",
-                    None,
-                ),
-                launch_profile_system_skill_policy=launch_profile_system_skill_policy,
-                operator_prompt_mode=operator_prompt_mode or target.preset.operator_prompt_mode,
-                persistent_env_records=effective_persistent_env_records,
-                mailboxes=declared_mailboxes or target.preset.mailboxes,
-                extra=target.preset.extra,
-                agent_name=managed_launch_identity.agent_name,
-                agent_id=managed_launch_identity.agent_id,
-                home_id=predecessor_context.home_id if predecessor_context is not None else None,
-                existing_home_mode=(
-                    predecessor_context.force_mode if predecessor_context is not None else None
-                ),
-                reuse_home=reuse_home,
+            replace(
+                build_request,
+                validated_inputs=validated_inputs,
                 role_prompt_override=prompt_payload.prompt,
                 managed_prompt_header=managed_prompt_header_metadata(
                     decision=managed_header_decision,
@@ -1425,6 +1445,7 @@ def self_relaunch_agent_command(
 )
 @click.option("--auth", default=None, help="Optional auth override for the resolved preset.")
 @click.option("--model", default=None, help="Optional one-off launch-owned model override.")
+@click.option("--tool-params", help="One-shot tool parameters as JSON or @path.")
 @click.option(
     "--reasoning-level",
     type=click.IntRange(min=0),
@@ -1506,6 +1527,7 @@ def launch_agents_command(
     reuse_home: bool,
     force_mode: str | None,
     gateway_admin_seed_path: Path | None = None,
+    tool_params: str | None = None,
 ) -> None:
     """Build and launch one managed agent locally without `houmao-server`."""
 
@@ -1536,6 +1558,13 @@ def launch_agents_command(
     operator_prompt_mode: OperatorPromptMode | None = None
     persistent_env_records: dict[str, str] | None = None
     launch_profile_model_config: ModelConfig | None = None
+    launch_profile_tool_params: dict[str, Any] | None = None
+    try:
+        direct_tool_params = (
+            parse_tool_params_cli_input(tool_params) if tool_params is not None else None
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from None
     prompt_overlay_mode = None
     prompt_overlay_text = None
     launch_profile_managed_header_policy: ManagedHeaderPolicy | None = None
@@ -1608,6 +1637,7 @@ def launch_agents_command(
             source=f"launch dossier `{resolved_profile.entry.name}`",
         )
         persistent_env_records = dict(resolved_profile.entry.env_payload)
+        launch_profile_tool_params = resolved_profile.entry.tool_params
         launch_profile_model_config = normalize_model_config(
             name=resolved_profile.entry.model_name,
             reasoning_level=resolved_profile.entry.reasoning_level,
@@ -1721,6 +1751,8 @@ def launch_agents_command(
         persistent_env_records=persistent_env_records,
         launch_profile_model_config=launch_profile_model_config,
         direct_model_config=direct_model_config,
+        launch_profile_tool_params=launch_profile_tool_params,
+        direct_tool_params=direct_tool_params,
         prompt_overlay_mode=prompt_overlay_mode,
         prompt_overlay_text=prompt_overlay_text,
         managed_header_override=managed_header,

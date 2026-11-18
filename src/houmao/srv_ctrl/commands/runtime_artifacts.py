@@ -596,15 +596,11 @@ def materialize_delegated_launch(
                         "value": str(tool_home),
                     },
                     "launch_contract": {
-                        "adapter_defaults": {
-                            "args": [],
-                            "tool_params": {},
-                        },
+                        "adapter_defaults": {"args": []},
                         "requested_overrides": {
                             "preset": None,
                             "direct": None,
                         },
-                        "tool_metadata": {"tool_params": {}},
                         "construction_provenance": {
                             "adapter_path": None,
                             "preset_path": None,
@@ -826,6 +822,8 @@ def materialize_headless_launch_request(
             auth=target.preset.auth,
             preset_path=target.preset_path,
             preset_launch_overrides=target.preset.launch_overrides,
+            preset_tool_params=target.preset.tool_params,
+            preset_model_config=target.preset.launch_model_config,
             source_system_skill_policy=target.preset.launch_system_skill_policy,
             operator_prompt_mode=target.preset.operator_prompt_mode,
             persistent_env_records=target.preset.launch_env_records,
@@ -899,9 +897,8 @@ def _materialize_join_placeholder_files(
                         "value": str((session_root / "tool-home").resolve()),
                     },
                     "launch_contract": {
-                        "adapter_defaults": {"args": [], "tool_params": {}},
+                        "adapter_defaults": {"args": []},
                         "requested_overrides": {"preset": None, "direct": None},
-                        "tool_metadata": {"tool_params": {}},
                     },
                 },
                 "credentials": {

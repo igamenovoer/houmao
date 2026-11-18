@@ -51,6 +51,11 @@ from houmao.agents.system_skills import (
     parse_system_skill_selection_policy,
     system_skill_selection_policy_to_payload,
 )
+from houmao.agents.tool_params import (
+    merge_partial_tool_params,
+    parse_tool_params_cli_input,
+    validate_tool_params,
+)
 from houmao.project.catalog import (
     AuthProfileCatalogEntry,
     LaunchProfilePrivateSkillInput,
@@ -392,6 +397,7 @@ def _preset_summary(
         "skills": list(parsed_preset.skills),
         "auth": parsed_preset.auth,
         "launch": launch_payload if isinstance(launch_payload, dict) else {},
+        "tool_params": dict(parsed_preset.tool_params),
         "mailboxes": raw_payload.get("mailboxes"),
         "extra": raw_payload.get("extra", {}),
     }
@@ -464,6 +470,7 @@ def _write_named_preset(
     env_records: dict[str, str] | None = None,
     system_skills: dict[str, object] | None = None,
     overwrite: bool = False,
+    tool_params: dict[str, Any] | None = None,
 ) -> Path:
     """Write one canonical project-local named preset."""
 
@@ -495,6 +502,8 @@ def _write_named_preset(
         payload["launch"]["env_records"] = dict(env_records)
     if system_skills:
         payload["launch"]["system_skills"] = dict(system_skills)
+    if tool_params:
+        payload["tool_params"] = tool_params
     _write_yaml_mapping(preset_file, payload)
     return preset_file
 
@@ -820,6 +829,7 @@ def _launch_profile_payload_from_resolved(
         "profile_lane": _profile_lane_label(resolved.entry.profile_lane),
         "source": launch_profile_source_payload(resolved),
         "defaults": launch_profile_defaults_payload(resolved),
+        "tool_params": dict(resolved.entry.tool_params),
         "path": str(resolved.entry.resolved_projection_path(overlay)),
         "metadata_path": str(resolved.entry.metadata_path)
         if resolved.entry.metadata_path is not None
@@ -1480,6 +1490,8 @@ def _store_launch_profile_from_cli(
     clear_model: bool,
     clear_reasoning_level: bool,
     clear_prompt_mode: bool,
+    tool_params: str | None = None,
+    clear_tool_params: bool = False,
 ) -> dict[str, object]:
     """Create or update one catalog-backed launch profile from CLI inputs."""
 
@@ -1517,6 +1529,14 @@ def _store_launch_profile_from_cli(
     else:
         source = _load_recipe_or_click(overlay=overlay, name=source_name)
         adapter = _load_overlay_tool_adapter(overlay=overlay, tool=source.tool)
+
+    resolved_tool_params = _tool_params_or_click(
+        source.tool,
+        tool_params,
+        current=current.entry.tool_params if current is not None else None,
+        clear=clear_tool_params,
+        source=f"profile `{profile_name}` tool_params",
+    )
 
     (
         resolved_registered_skill_names,
@@ -1828,6 +1848,8 @@ def _store_launch_profile_from_cli(
             clear_model,
             reasoning_level is not None,
             clear_reasoning_level,
+            tool_params is not None,
+            clear_tool_params,
             prompt_mode is not None,
             clear_prompt_mode,
             bool(env_set),
@@ -1899,6 +1921,7 @@ def _store_launch_profile_from_cli(
         memo_seed_source_path=resolved_memo_seed_source_path,
         registered_skill_names=resolved_registered_skill_names,
         private_skill_inputs=resolved_private_skill_inputs,
+        tool_params=resolved_tool_params,
     )
     materialize_project_agent_catalog_projection(overlay)
     return _launch_profile_payload(
@@ -1994,6 +2017,7 @@ def _specialist_payload(
             for entry in metadata.skill_entries
         ],
         "launch": dict(metadata.launch_payload),
+        "tool_params": dict(metadata.tool_params),
         "metadata_path": str(metadata.metadata_path)
         if metadata.metadata_path is not None
         else None,
@@ -2294,6 +2318,33 @@ def _write_yaml_mapping(path: Path, payload: dict[str, object]) -> None:
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
 
 
+def _tool_params_or_click(
+    tool: str,
+    value: str | None,
+    *,
+    source: str,
+    current: dict[str, Any] | None = None,
+    clear: bool = False,
+) -> dict[str, Any]:
+    """Validate or patch one secret-free authoring layer."""
+
+    if clear:
+        if value is not None:
+            raise click.ClickException(
+                "`--tool-params` cannot be combined with `--clear-tool-params`."
+            )
+        return {}
+    try:
+        if value is None:
+            return validate_tool_params(tool, current, source=source) if current else {}
+        supplied = parse_tool_params_cli_input(value)
+        return merge_partial_tool_params(
+            tool, ((f"{source} (stored)", current or {}), (source, supplied))
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from None
+
+
 def _resolve_model_name_or_click(
     value: str | None,
     *,
@@ -2573,6 +2624,7 @@ __all__ = [
     "_default_role_prompt",
     "_load_yaml_mapping",
     "_write_yaml_mapping",
+    "_tool_params_or_click",
     "_resolve_model_name_or_click",
     "_build_model_config_or_click",
     "_resolve_operator_prompt_mode_or_click",

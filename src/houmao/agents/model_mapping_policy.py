@@ -20,7 +20,7 @@ from houmao.agents.launch_policy.provider_hooks import (
     set_toml_key,
 )
 from houmao.agents.model_selection import ModelConfig
-from houmao.agents.dsh_configuration import DshSetup
+from houmao.agents.tool_params.dsh import MATERIALIZED_DSH_TOOL_PARAMS, DshEffectiveToolParams
 
 _CLAUDE_SETTINGS_FILENAME = "settings.json"
 _CODEX_CONFIG_FILENAME = "config.toml"
@@ -83,6 +83,7 @@ def resolve_reasoning_mapping(
     tool_version: str | None = None,
     home_path: Path | None = None,
     env_model_values: dict[str, str] | None = None,
+    dsh_tool_params: DshEffectiveToolParams | None = None,
 ) -> dict[str, Any]:
     """Resolve one tool/model-relative reasoning preset index into native tool state."""
 
@@ -95,6 +96,7 @@ def resolve_reasoning_mapping(
         tool_version=tool_version,
         home_path=home_path,
         env_model_values=env_model_values,
+        dsh_tool_params=dsh_tool_params,
     )
     off_preset = ladder["off_preset"]
     positive_presets = ladder["positive_presets"]
@@ -140,6 +142,7 @@ def project_reasoning_level(
     model_name: str | None,
     tool_version: str | None = None,
     env_model_values: dict[str, str] | None = None,
+    dsh_tool_params: DshEffectiveToolParams | None = None,
 ) -> dict[str, Any]:
     """Project one reasoning preset index into the runtime home."""
 
@@ -150,6 +153,7 @@ def project_reasoning_level(
         tool_version=tool_version,
         home_path=home_path,
         env_model_values=env_model_values,
+        dsh_tool_params=dsh_tool_params,
     )
     if tool == "dsh":
         return mapping
@@ -209,9 +213,9 @@ def project_model_name(
 
     stripped_model_name = model_name.strip()
     if tool == "dsh":
-        model, _ = DshSetup.from_file(home_path / "dsh-setup.yaml").select_model(
-            stripped_model_name
-        )
+        model, _ = DshEffectiveToolParams.from_file(
+            home_path / MATERIALIZED_DSH_TOOL_PARAMS
+        ).select_model(stripped_model_name)
         return {"surface": "native_configuration", "value": model.id}
     if not stripped_model_name:
         raise ValueError("model_name must not be empty")
@@ -377,6 +381,7 @@ def _resolve_reasoning_ladder(
     tool_version: str | None,
     home_path: Path | None,
     env_model_values: dict[str, str] | None,
+    dsh_tool_params: DshEffectiveToolParams | None,
 ) -> dict[str, Any]:
     """Resolve one maintained reasoning ladder for the resolved tool/model."""
 
@@ -433,52 +438,57 @@ def _resolve_reasoning_ladder(
         )
 
     if tool == "dsh":
-        return _resolve_dsh_reasoning_ladder(home_path=home_path, model_name=model_name)
+        return _resolve_dsh_reasoning_ladder(
+            home_path=home_path, model_name=model_name, dsh_tool_params=dsh_tool_params
+        )
 
     raise ValueError(f"Unsupported model-mapping tool {tool!r}")
 
 
 def _resolve_dsh_reasoning_ladder(
-    *, home_path: Path | None, model_name: str | None
+    *,
+    home_path: Path | None,
+    model_name: str | None,
+    dsh_tool_params: DshEffectiveToolParams | None,
 ) -> dict[str, Any]:
-    """Resolve explicitly numbered DSH efforts without guessing model capabilities."""
+    """Resolve the model's declared DSH thinking slots in native escalation order."""
 
-    if home_path is None:
-        raise ValueError("DSH reasoning mapping requires a constructed runtime home.")
-    model, _ = DshSetup.from_file(home_path / "dsh-setup.yaml").select_model(model_name)
-    efforts = model.reasoning
-    if efforts is None:
+    if dsh_tool_params is None:
+        if home_path is None:
+            raise ValueError(
+                "DSH reasoning mapping requires effective tool_params or a runtime home."
+            )
+        dsh_tool_params = DshEffectiveToolParams.from_file(home_path / MATERIALIZED_DSH_TOOL_PARAMS)
+    model, _ = dsh_tool_params.select_model(model_name)
+    slots = model.reasoning_slots
+    if model.reasoning_efforts is False:
         return {
             "off_preset": (
                 _native_setting(
-                    "reasoning_effort", "off", surface="native_configuration", path="dsh-setup.yaml"
+                    "reasoning_effort",
+                    "off",
+                    surface="native_configuration",
+                    path=MATERIALIZED_DSH_TOOL_PARAMS,
                 ),
             ),
             "positive_presets": (),
         }
-    if any(not level.isdigit() or str(int(level)) != level for level in efforts):
-        raise ValueError("DSH common reasoning mapping requires numbered preset keys.")
-    positive = sorted(int(level) for level in efforts if int(level) > 0)
-    if positive != list(range(1, len(positive) + 1)):
-        raise ValueError("DSH positive reasoning presets must be numbered consecutively from 1.")
-    if "0" in efforts and efforts["0"] != "off":
-        raise ValueError("DSH reasoning preset 0 must explicitly disable reasoning.")
 
-    def setting(level: str) -> tuple[dict[str, Any], ...]:
-        """Retain the exact profile key and native effort for one declared preset."""
+    def setting(slot: str) -> tuple[dict[str, Any], ...]:
+        """Project the native selector slot, which DSH maps to its wire value."""
 
         value = _native_setting(
             "reasoning_effort",
-            efforts[level],
+            slot,
             surface="native_configuration",
-            path="dsh-setup.yaml",
+            path=MATERIALIZED_DSH_TOOL_PARAMS,
         )
-        value["profile_key"] = level
+        value["profile_key"] = slot
         return (value,)
 
     return {
-        "off_preset": setting("0") if "0" in efforts else None,
-        "positive_presets": tuple(setting(str(level)) for level in positive),
+        "off_preset": setting("off") if "off" in slots else None,
+        "positive_presets": tuple(setting(slot) for slot in slots if slot != "off"),
     }
 
 

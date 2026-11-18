@@ -40,9 +40,8 @@ def test_native_fixture_exact_resume(
             {"DEEPSEEK_API_KEY": "synthetic-local-key", "DEEPSEEK_BASE_URL_ANTHROPIC": endpoint}
         )
     else:
-        selected.update(
-            {prefix + "_API_KEY": "synthetic-local-key", prefix + "_OPENAI_BASE_URL": endpoint}
-        )
+        selected[prefix + "_OPENAI_BASE_URL"] = endpoint
+        monkeypatch.setenv("OPENAI_API_KEY", "synthetic-unselected-ambient-key")
     config = configuration.resolve_config(
         case=case, client="dsh", surface=surface, process_env=selected
     )
@@ -64,6 +63,9 @@ def test_native_fixture_exact_resume(
             manifest = json.loads(Path(second["identity"]["manifest_path"]).read_text())
             assert native_id == manifest["headless"]["session_id"]
         assert len(second["turns"]) == len(requests) == 2
+        assert all(
+            row["_fixture_placeholder_authorization"] == (case == "self-hosted") for row in requests
+        )
         assert "first fixture turn" in json.dumps(requests[1]["messages"])
         journals = list((home / "sessions").rglob("session.v4.jsonl"))
         assert len(journals) == 1
@@ -77,6 +79,12 @@ def test_native_fixture_exact_resume(
                 record["token_usage"]["total_tokens"]["value"] == 16
                 for record in second["usage"]["records"]
             )
+        logs = list(root.rglob("provider-stderr.log"))
+        assert logs
+        assert all(
+            "composed sandbox and approval defaults match no preset" not in path.read_text().lower()
+            for path in logs
+        )
         assert "synthetic-local-key" not in (root / "report.json").read_text()
     finally:
         launch.stop_run(root)

@@ -9,6 +9,7 @@ import shlex
 import shutil
 import sys
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,7 +22,16 @@ from houmao.agents.codex_cli_config import (
     codex_config_override_payload,
     codex_provider_cli_config_overrides,
 )
-from houmao.agents.dsh_configuration import DshConfigurationError, DshSetup, prepare_dsh_home
+from houmao.agents.dsh_configuration import (
+    DSH_LOCAL_API_KEY_ENV,
+    MATERIALIZED_DSH_TOOL_PARAMS,
+    DshConfigurationError,
+    DshEffectiveToolParams,
+    prepare_dsh_home,
+    read_dsh_mcp_environment,
+    validate_dsh_launch,
+)
+from houmao.agents.dsh_credentials import require_dsh_credential_roles
 from houmao.agents.definition_parser import (
     AgentPreset,
     ToolAdapter,
@@ -35,7 +45,9 @@ from houmao.agents.launch_overrides import (
     LaunchOverrides,
     helper_launch_args,
     parse_launch_overrides,
+    resolve_launch_behavior,
 )
+from houmao.agents.launch_overrides.models import SupportedLaunchBackend
 from houmao.agents.managed_launch_force import (
     MANAGED_LAUNCH_FORCE_MODE_CLEAN,
     MANAGED_LAUNCH_FORCE_MODE_KEEP_STALE,
@@ -55,11 +67,17 @@ from houmao.agents.mailbox_runtime_support import (
     serialize_declarative_mailboxes_config,
 )
 from houmao.agents.mailbox_runtime_models import MailboxesDeclarativeConfig
-from houmao.agents.model_mapping_policy import project_reasoning_level
+from houmao.agents.model_mapping_policy import project_reasoning_level, resolve_reasoning_mapping
 from houmao.agents.model_selection import (
     ModelConfig,
+    ResolvedModelConfig,
     model_config_to_payload,
     resolve_model_config_layers,
+)
+from houmao.agents.tool_params import (
+    parse_tool_params_cli_input,
+    resolve_tool_params,
+    validate_tool_params,
 )
 from houmao.agents.system_skills import (
     SystemSkillCatalog,
@@ -111,6 +129,10 @@ class BuildRequest:
     auth: str | None = None
     preset_path: Path | None = None
     preset_launch_overrides: LaunchOverrides | None = None
+    preset_tool_params: Mapping[str, Any] | None = None
+    launch_profile_tool_params: Mapping[str, Any] | None = None
+    direct_tool_params: Mapping[str, Any] | None = None
+    validated_inputs: ValidatedBrainInputs | None = None
     preset_model_config: ModelConfig | None = None
     runtime_root: Path | None = None
     mailboxes: MailboxesDeclarativeConfig | None = None
@@ -205,6 +227,19 @@ class BuildRequest:
         if self.reuse_home:
             return MANAGED_LAUNCH_FORCE_MODE_KEEP_STALE
         return "reject"
+
+
+@dataclass(frozen=True)
+class ValidatedBrainInputs:
+    """Resolved launch inputs reused by construction after force takeover."""
+
+    adapter: ToolAdapter
+    setup_dir: Path
+    auth_dir: Path
+    layers: dict[str, dict[str, Any]]
+    tool_params: dict[str, Any]
+    baseline_model: ModelConfig | None
+    model: ResolvedModelConfig
 
 
 @dataclass(frozen=True)
@@ -394,9 +429,12 @@ def _project_path(source: Path, target: Path, *, mode: str) -> None:
 
 
 def _copy_directory_contents(source_dir: Path, destination_dir: Path) -> None:
+    """Project native setup files, skipping Houmao's parameter seed."""
+
     destination_dir.mkdir(parents=True, exist_ok=True)
     for child in sorted(source_dir.iterdir()):
-        _project_path(child, destination_dir / child.name, mode="copy")
+        if child.name != "tool-params.yaml":
+            _project_path(child, destination_dir / child.name, mode="copy")
 
 
 def _validate_skill_names(skills_root: Path, selected_skills: list[str]) -> None:
@@ -480,6 +518,7 @@ def _build_launch_helper(
     launch_args: list[str],
     env_exports: dict[str, str],
     operator_prompt_mode: OperatorPromptMode | None,
+    dsh_credential_env_file: Path | None = None,
 ) -> str:
     """Build one runtime launch helper script.
 
@@ -496,6 +535,8 @@ def _build_launch_helper(
     env_exports:
         Parsed allowlisted environment variables that should be exported by the
         launch helper.
+    dsh_credential_env_file:
+        Private DSH bundle environment to read at execution time.
     """
 
     allowlist = adapter.auth_env_allowlist
@@ -524,7 +565,7 @@ def _build_launch_helper(
     for key in sorted(name for name in env_exports if name not in exported_names):
         script_lines.append(f"export {key}={shlex.quote(env_exports[key])}")
 
-    if operator_prompt_mode == "unattended":
+    if operator_prompt_mode == "unattended" or dsh_credential_env_file is not None:
         script_lines.extend(
             [
                 "BOOTSTRAP_PYTHON=()",
@@ -557,10 +598,14 @@ def _build_launch_helper(
             "--home-path",
             shlex.quote(str(home_path)),
             "--requested-operator-prompt-mode",
-            operator_prompt_mode,
+            shlex.quote(operator_prompt_mode or "as_is"),
         ]
+        if dsh_credential_env_file is not None:
+            launch_policy_args.extend(
+                ["--dsh-credential-env-file", shlex.quote(str(dsh_credential_env_file))]
+            )
         for arg in launch_args:
-            launch_policy_args.extend(["--launch-arg", shlex.quote(arg)])
+            launch_policy_args.append(f"--launch-arg={shlex.quote(arg)}")
         launch_policy_args.extend(["--", '"${EXTRA_ARGS[@]}"'])
         script_lines.append(f"exec {' '.join(launch_policy_args)}")
     else:
@@ -572,6 +617,162 @@ def _build_launch_helper(
     return shlex.quote(str(helper_path))
 
 
+def validate_brain_inputs(
+    request: BuildRequest,
+    *,
+    backend: SupportedLaunchBackend | None = None,
+    launch_env_overrides: Mapping[str, str] | None = None,
+) -> ValidatedBrainInputs:
+    """Resolve setup, model, credentials, and tool parameters before home mutation."""
+
+    agent_def_dir = request.agent_def_dir.resolve()
+    tool_dir = agent_def_dir / "tools" / request.tool
+    adapter_path = tool_dir / "adapter.yaml"
+    if not adapter_path.is_file():
+        raise BuildError(f"Missing adapter for tool `{request.tool}`: {adapter_path}")
+    adapter = _load_tool_adapter(adapter_path)
+    if adapter.tool != request.tool:
+        raise BuildError(
+            f"Adapter tool mismatch: requested `{request.tool}`, adapter says `{adapter.tool}`"
+        )
+    setup_dir = tool_dir / "setups" / request.effective_setup()
+    if not setup_dir.is_dir():
+        raise BuildError(f"Missing setup bundle: {setup_dir}")
+    if request.tool == "dsh" and (setup_dir / "dsh-setup.yaml").exists():
+        raise BuildError(
+            "DSH setup uses dsh-setup.yaml. Move settings to tool-params.yaml and model.name."
+        )
+
+    auth_dir = _resolve_auth_bundle_dir(
+        agent_def_dir=agent_def_dir, tool=request.tool, auth_name=request.effective_auth()
+    )
+    if auth_dir is None:
+        raise BuildError(
+            "No auth bundle was selected. Provide one in the preset or override it explicitly."
+        )
+    if not auth_dir.is_dir():
+        raise BuildError(f"Missing auth bundle: {auth_dir}")
+    _validate_relative_path(adapter.auth_env_source, field="auth_projection.env.source")
+    _validate_relative_path(adapter.auth_files_dir, field="auth_projection.files_dir")
+    for mapping in adapter.auth_file_mappings:
+        _validate_relative_path(mapping.source, field="auth_projection.file_mappings.source")
+        _validate_relative_path(
+            mapping.destination, field="auth_projection.file_mappings.destination"
+        )
+        if mapping.required and not (auth_dir / adapter.auth_files_dir / mapping.source).exists():
+            raise BuildError(
+                f"Missing auth file for mapping `{mapping.source}` in bundle {auth_dir}"
+            )
+    auth_env_file = auth_dir / adapter.auth_env_source
+    env_values = _parse_env_file(auth_env_file)
+
+    try:
+        setup_path = setup_dir / "tool-params.yaml"
+        preset_path = request.effective_preset_path()
+        preset_params = request.preset_tool_params
+        if preset_params is None and preset_path is not None and preset_path.is_file():
+            preset_params = parse_agent_preset(preset_path).tool_params
+        raw_layers = (
+            ("adapter", adapter.default_tool_params, str(adapter_path)),
+            (
+                "setup",
+                parse_tool_params_cli_input(f"@{setup_path}") if setup_path.exists() else {},
+                str(setup_path),
+            ),
+            ("preset", preset_params or {}, str(preset_path or "preset")),
+            ("launch_profile", request.launch_profile_tool_params or {}, "launch profile"),
+            ("direct", request.direct_tool_params or {}, "direct tool_params"),
+        )
+        layers = {
+            name: validate_tool_params(request.tool, payload, source=source)
+            for name, payload, source in raw_layers
+        }
+        effective = resolve_tool_params(request.tool, tuple(layers.items()))
+        dsh_config = (
+            DshEffectiveToolParams.from_mapping(effective) if request.tool == "dsh" else None
+        )
+        baseline = _extract_native_model_config_baseline(
+            tool=request.tool,
+            home_path=setup_dir,
+            auth_env_values=env_values,
+            dsh_tool_params=dsh_config,
+        )
+        model = resolve_model_config_layers(
+            (
+                ("baseline_native", baseline),
+                ("source_launch", request.preset_model_config),
+                ("launch_profile", request.launch_profile_model_config),
+                ("direct_launch", request.direct_model_config),
+            )
+        )
+        name = model.config.name if model.config is not None else None
+        reasoning = model.config.reasoning if model.config is not None else None
+        reasoning_mapping = None
+        if reasoning is not None:
+            reasoning_mapping = resolve_reasoning_mapping(
+                tool=request.tool,
+                requested_level=reasoning.level,
+                model_name=name,
+                home_path=setup_dir,
+                env_model_values=env_values,
+                dsh_tool_params=dsh_config,
+            )
+        if dsh_config is not None:
+            require_dsh_credential_roles(
+                auth_env_file,
+                base_url_env=dsh_config.base_url_env,
+                api_key_env=dsh_config.api_key_env,
+            )
+            colliding = set(launch_env_overrides or {}).intersection(
+                (*_auth_env_names(adapter, dsh_config), DSH_LOCAL_API_KEY_ENV)
+            )
+            if colliding:
+                raise BuildError(
+                    "One-shot launch environment overrides DSH credential binding "
+                    + ", ".join(sorted(colliding))
+                )
+            validate_dsh_launch(
+                dsh_config,
+                {
+                    key: env_values[key]
+                    for key in _auth_env_names(adapter, dsh_config)
+                    if key in env_values
+                },
+                selected_model=name,
+                reasoning_level=reasoning_mapping.get("profile_key") if reasoning_mapping else None,
+                credential_environment=read_dsh_mcp_environment(dsh_config, auth_env_file),
+            )
+        validate_persistent_env_records(
+            request.persistent_env_records or {},
+            auth_env_allowlist=_auth_env_names(adapter, dsh_config),
+            source="BuildRequest.persistent_env_records",
+        )
+        if backend is not None:
+            behavior = resolve_launch_behavior(
+                tool=request.tool,
+                backend=backend,
+                adapter_defaults=adapter.launch_defaults,
+                recipe_overrides=request.effective_preset_launch_overrides(),
+                direct_overrides=request.launch_overrides,
+                tool_params=effective,
+            )
+            if backend == "dsh_web" and behavior.args_before_policy:
+                raise BuildError(
+                    "DSH Web uses owned native configuration. Raw launch arguments are unsupported."
+                )
+    except (OSError, ValueError) as exc:
+        raise BuildError(str(exc)) from exc
+    return ValidatedBrainInputs(adapter, setup_dir, auth_dir, layers, effective, baseline, model)
+
+
+def _auth_env_names(adapter: ToolAdapter, dsh: DshEffectiveToolParams | None) -> list[str]:
+    """Select provider credential bindings without exporting private MCP values."""
+
+    if dsh is not None:
+        return [name for name in (dsh.api_key_env, dsh.base_url_env) if name is not None]
+    return adapter.auth_env_allowlist
+
+
 def build_brain_home(request: BuildRequest) -> BuildResult:
     """Build a reusable home, resolving any requested agent identity once."""
 
@@ -581,54 +782,19 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     resolved_auth = request.effective_auth()
     resolved_preset_path = request.effective_preset_path()
     resolved_preset_launch_overrides = request.effective_preset_launch_overrides()
-
+    inputs = request.validated_inputs or validate_brain_inputs(request)
+    adapter, setup_dir, auth_dir = inputs.adapter, inputs.setup_dir, inputs.auth_dir
     adapter_path = agent_def_dir / "tools" / request.tool / "adapter.yaml"
-    if not adapter_path.is_file():
-        raise BuildError(f"Missing adapter for tool `{request.tool}`: {adapter_path}")
-
-    adapter = _load_tool_adapter(adapter_path)
-    if adapter.tool != request.tool:
-        raise BuildError(
-            f"Adapter tool mismatch: requested `{request.tool}`, adapter says `{adapter.tool}`"
-        )
-    try:
-        adapter.launch_metadata.validate_requested_tool_params(
-            tool=request.tool,
-            tool_params=adapter.launch_defaults.tool_params,
-            source=f"{adapter_path}: launch.default_tool_params",
-        )
-        if resolved_preset_launch_overrides is not None:
-            adapter.launch_metadata.validate_requested_tool_params(
-                tool=request.tool,
-                tool_params=resolved_preset_launch_overrides.tool_params,
-                source=(
-                    f"{resolved_preset_path}: launch.overrides.tool_params"
-                    if resolved_preset_path is not None
-                    else "preset launch.overrides.tool_params"
-                ),
-            )
-        if request.launch_overrides is not None:
-            adapter.launch_metadata.validate_requested_tool_params(
-                tool=request.tool,
-                tool_params=request.launch_overrides.tool_params,
-                source="BuildRequest.launch_overrides.tool_params",
-            )
-    except ValueError as exc:
-        raise BuildError(str(exc)) from exc
-
+    dsh_config = (
+        DshEffectiveToolParams.from_mapping(inputs.tool_params) if request.tool == "dsh" else None
+    )
+    auth_env_names = _auth_env_names(adapter, dsh_config)
     launch_helper_args = helper_launch_args(
         adapter_defaults=adapter.launch_defaults,
         recipe_overrides=resolved_preset_launch_overrides,
         direct_overrides=request.launch_overrides,
     )
-
     skills_root = agent_def_dir / "skills"
-    setup_dir = agent_def_dir / "tools" / request.tool / "setups" / resolved_setup
-    auth_dir = _resolve_auth_bundle_dir(
-        agent_def_dir=agent_def_dir,
-        tool=request.tool,
-        auth_name=resolved_auth,
-    )
 
     if not skills_root.is_dir():
         raise BuildError(f"Missing skills repository: {skills_root}")
@@ -645,15 +811,6 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         profile_policy=request.launch_profile_system_skill_policy,
         catalog=system_skill_catalog,
     )
-
-    if not setup_dir.is_dir():
-        raise BuildError(f"Missing setup bundle: {setup_dir}")
-    if auth_dir is None:
-        raise BuildError(
-            "No auth bundle was selected. Provide one in the preset or override it explicitly."
-        )
-    if not auth_dir.is_dir():
-        raise BuildError(f"Missing auth bundle: {auth_dir}")
 
     home_id = request.home_id or _generate_home_id(request.tool)
     if "/" in home_id or "\\" in home_id:
@@ -758,7 +915,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     auth_env_file = auth_dir / adapter.auth_env_source
     env_values = _parse_env_file(auth_env_file)
     _resolve_codex_api_routing(tool=request.tool, home_path=home_path, env_values=env_values)
-    selected_env_names = [key for key in adapter.auth_env_allowlist if key in env_values]
+    selected_env_names = [key for key in auth_env_names if key in env_values]
     derived_launch_env_records = _derive_tool_launch_env_records(
         tool=request.tool,
         projected_auth_files=projected_auth_files,
@@ -767,7 +924,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     try:
         persistent_env_records = validate_persistent_env_records(
             request.persistent_env_records or {},
-            auth_env_allowlist=adapter.auth_env_allowlist,
+            auth_env_allowlist=auth_env_names,
             source="BuildRequest.persistent_env_records",
         )
     except ValueError as exc:
@@ -781,19 +938,8 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             effective_launch_env_records = force_kimi_v2_engine_env(effective_launch_env_records)
         except KimiSystemPromptError as exc:
             raise BuildError(str(exc)) from exc
-    baseline_model_config = _extract_native_model_config_baseline(
-        tool=request.tool,
-        home_path=home_path,
-        auth_env_values=env_values,
-    )
-    resolved_model_config = resolve_model_config_layers(
-        (
-            ("baseline_native", baseline_model_config),
-            ("source_launch", request.preset_model_config),
-            ("launch_profile", request.launch_profile_model_config),
-            ("direct_launch", request.direct_model_config),
-        )
-    )
+    baseline_model_config = inputs.baseline_model
+    resolved_model_config = inputs.model
     projected_model_env_exports: dict[str, str] = {}
     model_projection = _project_model_name(
         tool=request.tool,
@@ -809,6 +955,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         ),
         launch_env_exports=projected_model_env_exports,
         auth_env_values=env_values,
+        dsh_tool_params=dsh_config,
     )
     reasoning_projection = None
     if (
@@ -821,6 +968,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             requested_level=resolved_model_config.config.reasoning.level,
             model_name=resolved_model_config.config.name,
             env_model_values=env_values,
+            dsh_tool_params=dsh_config,
         )
     provider_model_selection_cli_args = _provider_model_selection_cli_args(
         tool=request.tool,
@@ -835,13 +983,14 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     )
     codex_cli_config_args = codex_config_override_args(codex_cli_config_overrides)
     dsh_projection: dict[str, Any] | None = None
-    if request.tool == "dsh":
+    if dsh_config is not None:
         try:
             prepared = prepare_dsh_home(
                 home_path,
-                DshSetup.from_file(home_path / "dsh-setup.yaml"),
+                dsh_config,
                 {key: env_values[key] for key in selected_env_names},
                 request.role_prompt_override or "",
+                credential_environment=read_dsh_mcp_environment(dsh_config, auth_env_file),
                 selected_model=(
                     resolved_model_config.config.name if resolved_model_config.config else None
                 ),
@@ -856,10 +1005,9 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         except DshConfigurationError as exc:
             raise BuildError(str(exc)) from exc
         launch_helper_args.extend(["--profile", "acp", "--patch", str(prepared.patch_path)])
-        projected_model_env_exports.update(prepared.environment)
         dsh_projection = {
             **prepared.metadata,
-            "setup_path": str(home_path / "dsh-setup.yaml"),
+            "setup_path": str(home_path / MATERIALIZED_DSH_TOOL_PARAMS),
             "patch_path": str(prepared.patch_path),
             "role_path": str(prepared.role_path),
             "persistence_root": str(prepared.persistence_root),
@@ -888,11 +1036,12 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             *provider_model_selection_cli_args,
         ],
         env_exports={
-            **{key: env_values[key] for key in selected_env_names},
+            **({key: env_values[key] for key in selected_env_names} if dsh_config is None else {}),
             **effective_launch_env_records,
             **projected_model_env_exports,
         },
         operator_prompt_mode=resolved_operator_prompt_mode,
+        dsh_credential_env_file=auth_env_file if dsh_config is not None else None,
     )
 
     construction_provenance: dict[str, object] = {
@@ -988,7 +1137,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
                         else None
                     ),
                 },
-                "tool_metadata": adapter.launch_metadata.to_payload(),
+                "tool_params": {"layers": inputs.layers, "effective": inputs.tool_params},
                 "env_records": dict(effective_launch_env_records),
                 "model_selection": {
                     "requested_layers": {
@@ -1026,7 +1175,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             "projected_files": projected_credentials,
             "env_contract": {
                 "source_file": str(auth_env_file),
-                "allowlisted_env_vars": adapter.auth_env_allowlist,
+                "allowlisted_env_vars": auth_env_names,
                 "selected_env_vars": selected_env_names,
                 "injection_mode": adapter.env_injection_mode,
             },
@@ -1235,15 +1384,13 @@ def _extract_native_model_config_baseline(
     tool: str,
     home_path: Path,
     auth_env_values: dict[str, str],
+    dsh_tool_params: DshEffectiveToolParams | None = None,
 ) -> ModelConfig | None:
     """Extract one launch-time baseline model config from copied native state."""
 
-    if tool == "dsh":
-        try:
-            setup = DshSetup.from_file(home_path / "dsh-setup.yaml")
-        except DshConfigurationError as exc:
-            raise BuildError(str(exc)) from exc
-        return ModelConfig(name=setup.selected_model)
+    if dsh_tool_params is not None:
+        models = dsh_tool_params.models
+        return ModelConfig(name=models[0].id) if len(models) == 1 else None
 
     if tool == "claude":
         model_name = _non_empty_str(auth_env_values.get("ANTHROPIC_MODEL"))
@@ -1280,16 +1427,14 @@ def _project_model_name(
     model_name: str | None,
     launch_env_exports: dict[str, str],
     auth_env_values: dict[str, str],
+    dsh_tool_params: DshEffectiveToolParams | None = None,
 ) -> dict[str, Any] | None:
     """Project one resolved model name into the runtime home or launch env."""
 
     if model_name is None:
         return None
-    if tool == "dsh":
-        try:
-            model, _ = DshSetup.from_file(home_path / "dsh-setup.yaml").select_model(model_name)
-        except DshConfigurationError as exc:
-            raise BuildError(str(exc)) from exc
+    if dsh_tool_params is not None:
+        model, _ = dsh_tool_params.select_model(model_name)
         return {"surface": "native_configuration", "value": model.id}
     if tool == "claude":
         del launch_env_exports

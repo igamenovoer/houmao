@@ -8,6 +8,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import threading
 import time
 from typing import Any, cast
@@ -18,15 +19,24 @@ import httpx
 from websockets.sync.client import ClientConnection, connect
 from websockets.typing import Origin
 
+from houmao.agents.realm_controller.backends.dsh_diagnostics import sanitize_dsh_diagnostic
+from houmao.agents.realm_controller.errors import BackendExecutionError
 
-class DshWebError(RuntimeError):
+
+class DshWebError(BackendExecutionError):
     """Expose a safe native refusal without retaining credential-bearing transport errors."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, *, secret_values: Sequence[str] = ()) -> None:
         """Retain the machine-readable refusal and its safe message."""
 
-        super().__init__(message)
-        self.m_code: str = code
+        self.m_code: str = (
+            code
+            if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", code)
+            and sanitize_dsh_diagnostic(code, secret_values=secret_values) == code
+            else "native_failure"
+        )
+        summary = sanitize_dsh_diagnostic(message, secret_values=secret_values)
+        super().__init__(f"{self.m_code}: {summary}" if summary else self.m_code)
 
     @property
     def code(self) -> str:
@@ -45,6 +55,7 @@ class DshWebClient:
         self.m_http: httpx.Client | None = None
         self.m_socket: ClientConnection | None = None
         self.m_timeout: float = 15.0
+        self.m_secret_values: tuple[str, ...] = ()
         self.m_lock: threading.RLock = threading.RLock()
 
     @classmethod
@@ -55,6 +66,7 @@ class DshWebClient:
         launch_token: str | None = None,
         cookie_file: Path | None = None,
         timeout_seconds: float = 15.0,
+        secret_values: Sequence[str] = (),
     ) -> DshWebClient:
         """Authenticate an independent owner Peer and retain its revocable socket.
 
@@ -68,14 +80,16 @@ class DshWebClient:
             Optional private persisted API credential. Its socket must still be live.
         timeout_seconds:
             Bound for each wire operation; mutations are never retried.
+        secret_values:
+            Resolved provider credentials that must stay out of native error messages.
         """
 
-        parsed = urlsplit(origin)
         try:
+            parsed = urlsplit(origin)
             loopback = ipaddress.ip_address(parsed.hostname or "").is_loopback
             port = parsed.port
-        except ValueError as exc:
-            raise DshWebError("invalid_origin", "Managed Web origin is invalid") from exc
+        except ValueError:
+            raise DshWebError("invalid_origin", "Managed Web origin is invalid") from None
         if (
             parsed.scheme != "http"
             or not loopback
@@ -91,6 +105,7 @@ class DshWebClient:
         client = cls()
         client.m_origin = origin.rstrip("/")
         client.m_timeout = timeout_seconds
+        client.m_secret_values = (*secret_values, *((launch_token,) if launch_token else ()))
         client.m_http = httpx.Client(
             base_url=client.m_origin,
             timeout=timeout_seconds,
@@ -176,6 +191,7 @@ class DshWebClient:
         with self.m_lock:
             if self.m_http is None or self.m_socket is None:
                 raise DshWebError("connection_unavailable", "Native API connection is closed")
+            submitted_cookies = tuple(entry.value or "" for entry in self.m_http.cookies.jar)
             rpc_id = str(uuid4())
             endpoint = f"managed/v1/{method}"
             try:
@@ -205,7 +221,15 @@ class DshWebClient:
                 result = envelope["result"]
                 if result.get("ok") is not True:
                     error = result["error"]
-                    raise DshWebError(str(error["code"]), str(error["message"]))
+                    raise DshWebError(
+                        str(error["code"]),
+                        str(error["message"]),
+                        secret_values=(
+                            *self.m_secret_values,
+                            *submitted_cookies,
+                            *(entry.value or "" for entry in self.m_http.cookies.jar),
+                        ),
+                    )
                 return result["value"]
             except DshWebError:
                 raise

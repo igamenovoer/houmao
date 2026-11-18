@@ -82,6 +82,7 @@ from houmao.agents.realm_controller.errors import (
 )
 from houmao.agents.realm_controller.errors import LaunchPlanError
 from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
+from houmao.agents.realm_controller.backends.dsh_web_client import DshWebError
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.gateway_plugin_host import GatewayPluginHost
 from houmao.agents.realm_controller.gateway_access_runtime import (
@@ -4045,6 +4046,7 @@ class GatewayServiceRuntime:
         confirmed = threading.Event()
         completed = threading.Event()
         failed = threading.Event()
+        failure_detail: str | None = None
         try:
             identity = adapter.capture_plugin_execution_identity()
             if expected_identity is not None and identity != expected_identity:
@@ -4086,6 +4088,7 @@ class GatewayServiceRuntime:
         def execute() -> None:
             """Execute once and retain only accounting and receipt metadata afterward."""
 
+            nonlocal failure_detail
             try:
                 adapter.submit_scoped_web_prompt(
                     prompt=prompt,
@@ -4095,6 +4098,9 @@ class GatewayServiceRuntime:
                     admission_policy=admission_policy,
                     operator=operator,
                 )
+            except DshWebError as exc:
+                failure_detail = str(exc)
+                failed.set()
             except Exception:
                 failed.set()
             finally:
@@ -4122,11 +4128,14 @@ class GatewayServiceRuntime:
                     break
                 control.cancel()
                 adapter.cancel_plugin_event(control)
+                detail = "Native Web admission was refused or its outcome is uncertain; input was not resent."
+                if failure_detail is not None:
+                    detail = f"{detail} {failure_detail}"
                 self._raise_prompt_control_http_error(
                     status_code=409 if failed.is_set() else 503,
                     admission_policy=admission_policy,
                     error_code="dispatch_failed",
-                    detail="Native Web admission was refused or its outcome is uncertain; input was not resent.",
+                    detail=detail,
                 )
         append_gateway_event(
             self.m_paths,
@@ -6676,9 +6685,12 @@ class GatewayServiceRuntime:
                         identity.native_session_id,
                     ),
                 )
-            except HTTPException:
+            except HTTPException as exc:
+                detail = exc.detail.get("detail") if isinstance(exc.detail, dict) else None
                 raise GatewayError(
-                    "Native Web ordinary admission was refused or uncertain; no input was replayed"
+                    detail
+                    if isinstance(detail, str)
+                    else "Native Web ordinary admission was refused or uncertain; no input was replayed"
                 ) from None
             return
         usage_turn_id = self._register_usage_prompt(turn_id=turn_id)

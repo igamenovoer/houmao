@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from houmao.agents.dsh_configuration import DshSetup, prepare_dsh_home
+from houmao.agents.dsh_configuration import DshEffectiveToolParams, prepare_dsh_home
 from houmao.agents.realm_controller.backends.dispatch_control import _dispatch_origin_birth_token
 from houmao.agents.realm_controller.backends.dsh_web_client import DshWebClient
 
@@ -162,15 +162,14 @@ def native_web_factory(
         selected_root = root or tmp_path / f"host-{len(hosts)}"
         selected_root.mkdir(exist_ok=True, mode=0o700)
         (selected_root / "user-home").mkdir(exist_ok=True)
-        setup = DshSetup.from_mapping(
+        setup = DshEffectiveToolParams.from_mapping(
             {
-                "version": 1,
                 "provider": {
                     "adapter": "deepseek",
                     "protocol": "messages",
                     "route": "deepseek-official",
-                    "base_url_env": "HOUMAO_SYNTHETIC_ENDPOINT",
-                    "api_key_env": "HOUMAO_SYNTHETIC_KEY",
+                    "base_url_env": "DSH_SYNTHETIC_ENDPOINT",
+                    "api_key_env": "DSH_SYNTHETIC_KEY",
                 },
                 "models": models
                 or [
@@ -178,10 +177,9 @@ def native_web_factory(
                         "id": "controlled",
                         "context_window": 8192,
                         "max_output_tokens": 128,
-                        "reasoning": False,
+                        "reasoning_efforts": False,
                     }
                 ],
-                "selected_model": "controlled",
             }
         )
         prepared = prepare_dsh_home(
@@ -190,10 +188,11 @@ def native_web_factory(
             {
                 "PATH": os.environ["PATH"],
                 "HOME": str(selected_root / "user-home"),
-                "HOUMAO_SYNTHETIC_ENDPOINT": endpoint or default_endpoint,
-                "HOUMAO_SYNTHETIC_KEY": "synthetic-controlled-only",
+                "DSH_SYNTHETIC_ENDPOINT": endpoint or default_endpoint,
+                "DSH_SYNTHETIC_KEY": "synthetic-controlled-only",
             },
             "Literal Web role {{kept}} $HOME",
+            selected_model="controlled",
             operator_prompt_mode=operator_prompt_mode,
         )
         bootstrap = selected_root / "bootstrap.json"

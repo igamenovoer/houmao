@@ -13,7 +13,12 @@ import sys
 import threading
 from typing import Any
 
-from houmao.agents.dsh_configuration import DshConfigurationError, DshSetup, load_dsh_home
+from houmao.agents.dsh_configuration import (
+    DshConfigurationError,
+    DshEffectiveToolParams,
+    load_dsh_home,
+    read_dsh_mcp_environment,
+)
 from houmao.agents.realm_controller.backends.dsh_acp_connection import (
     DshAcpProtocolError,
     DshAcpRequestError,
@@ -23,6 +28,7 @@ from houmao.agents.realm_controller.backends.dsh_acp_driver import (
     _write_private_json,
     run_dsh_acp_turn,
 )
+from houmao.agents.realm_controller.backends.dsh_diagnostics import dsh_diagnostic_secrets
 
 
 def main() -> int:
@@ -59,11 +65,13 @@ def main() -> int:
     def prepare(invocation: DshAcpInvocation) -> DshAcpInvocation:
         """Load current home inputs and compose transient control under the lock."""
 
-        setup = DshSetup.from_file(Path(private["setup_path"]))
+        setup = DshEffectiveToolParams.from_file(Path(private["setup_path"]))
+        mcp_environment = read_dsh_mcp_environment(setup, private.get("credential_env_source"))
         prepared = load_dsh_home(
             home,
             setup,
             os.environ,
+            credential_environment=mcp_environment,
             selected_model=private.get("model"),
             reasoning_level=private.get("reasoning_level"),
         )
@@ -137,6 +145,10 @@ def main() -> int:
             model=prepared.model,
             reasoning_effort=prepared.reasoning_effort,
             dispatch_guard=Path(guard) if guard else None,
+            secret_values=(
+                *dsh_diagnostic_secrets(prepared.environment, key_name=setup.api_key_env),
+                *mcp_environment.values(),
+            ),
         )
 
     def confirmed() -> None:

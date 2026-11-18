@@ -14,6 +14,52 @@ from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDis
 from houmao.agents.realm_controller.errors import BackendExecutionError
 
 
+def test_startup_reports_redacted_exit_and_native_log(tmp_path: Path) -> None:
+    """The supervisor reason stays useful without copying tokens or private keys into errors."""
+
+    (tmp_path / "exit.json").write_text(
+        json.dumps({"returncode": 1, "error": "Plugin failed to activate"}), encoding="utf-8"
+    )
+    (tmp_path / "bootstrap.json").write_text(
+        json.dumps({"launch_token": "test-launch-secret"}), encoding="utf-8"
+    )
+    raw = "EADDRINUSE test-launch-secret API-Key: test-key\nCookie: value=private; other=secret"
+    artifact = tmp_path / "native-private.log"
+    artifact.write_text(raw, encoding="utf-8")
+    for path in (tmp_path / "exit.json", tmp_path / "bootstrap.json", artifact):
+        path.chmod(0o600)
+    summary = backend_module._startup_failure_detail(tmp_path, ("test-key",))
+    assert "native exit 1" in summary
+    assert "Plugin failed to activate EADDRINUSE" in summary
+    assert "[REDACTED]" in summary
+    assert "test-launch-secret" not in summary and "test-key" not in summary
+    assert "value=private" not in summary and "other=secret" not in summary
+    assert "\n" not in summary
+    assert artifact.read_text() == raw
+
+
+def test_web_control_failure_exposes_code_and_sanitized_message(tmp_path: Path) -> None:
+    """Surface the native admission diagnostic without mutating request accounting semantics."""
+
+    session = DshWebSession()
+    session.m_manifest_path = tmp_path / "manifest.json"
+    identity = {"native_session_id": "native"}
+    session.m_state = Mock(
+        spec=DshWebSessionState, web_identity=identity, evidence_path="owned", turn_index=0
+    )
+    session.m_client = Mock(conversation=Mock(return_value={"current_cursor": 0}))
+    session.m_usage_service = Mock()
+    session.m_client.prompt.side_effect = backend_module.DshWebError(
+        "not_ready", "Native request could not start. Authorization: Bearer synthetic-auth"
+    )
+    with pytest.raises(
+        BackendExecutionError, match="not_ready: Native request could not start"
+    ) as failed:
+        session.send_web_prompt("prompt", turn_artifact_dir_name="test-turn")
+    assert "[REDACTED]" in str(failed.value) and "synthetic-auth" not in str(failed.value)
+    session.m_client.prompt.assert_called_once()
+
+
 def test_native_tool_output_remains_a_tool_result_in_its_claimed_turn() -> None:
     """Tool text cannot become fabricated assistant output or a later human result."""
 

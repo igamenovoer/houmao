@@ -6,213 +6,24 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
+import stat
 from typing import Any
-from urllib.parse import SplitResult, urlsplit
 
 import yaml
 
-_RESERVED_ENVIRONMENT_REFERENCES = frozenset(
-    {
-        "HOME",
-        "PATH",
-        "TMUX",
-        "TMUX_PANE",
-        "TMUX_TMPDIR",
-        "DSH_HOME",
-        "DSH_AGENTS_HOME",
-        "DSH_PERMISSION_MODE",
-        "DSH_BUNDLED_SKILL_DIR",
-    }
+from houmao.agents.tool_params.dsh import (
+    MATERIALIZED_DSH_TOOL_PARAMS as MATERIALIZED_DSH_TOOL_PARAMS,
+    DshConfigurationError as DshConfigurationError,
+    DshEffectiveToolParams as DshEffectiveToolParams,
+    DshModel,
+    validate_http_url,
 )
 
-
-class DshConfigurationError(ValueError):
-    """Identify an invalid explicit DSH launch configuration without secret values."""
-
-
-@dataclass(frozen=True)
-class DshModel:
-    """Carry qualified exact-model capacities and declared reasoning support."""
-
-    id: str
-    context_window: int
-    max_output_tokens: int
-    reasoning: Mapping[str, str] | None
-
-
-@dataclass(frozen=True)
-class DshSetup:
-    """Describe one explicit provider route independently of resolved credentials."""
-
-    adapter: str
-    protocol: str
-    route: str
-    base_url_env: str
-    api_key_env: str
-    models: tuple[DshModel, ...]
-    selected_model: str
-    skill_roots: tuple[Path, ...]
-    mcp_servers: tuple[dict[str, Any], ...]
-
-    @classmethod
-    def from_file(cls, path: Path) -> DshSetup:
-        """Read the tool-owned YAML or JSON setup document."""
-
-        try:
-            data = yaml.safe_load(path.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError) as error:
-            raise DshConfigurationError("Cannot read the DSH setup document") from error
-        return cls.from_mapping(data)
-
-    @classmethod
-    def from_mapping(cls, data: object) -> DshSetup:
-        """Reject ambiguous routes, missing capacities, and implicit reasoning defaults."""
-
-        document = _mapping(data, "setup")
-        _fields(
-            document,
-            {
-                "version",
-                "provider",
-                "models",
-                "selected_model",
-                "skill_roots",
-                "mcp_servers",
-                "hmr",
-            },
-            "setup",
-        )
-        if document.get("version") != 1 or isinstance(document.get("version"), bool):
-            raise DshConfigurationError("DSH setup requires version: 1")
-        if document.get("hmr", False) is not False:
-            raise DshConfigurationError(
-                "Managed DSH supports startup-only configuration; hmr must be false"
-            )
-        provider = _mapping(document.get("provider"), "provider")
-        _fields(
-            provider, {"adapter", "protocol", "route", "base_url_env", "api_key_env"}, "provider"
-        )
-        adapter = _text(provider.get("adapter"), "provider.adapter")
-        protocol = _text(provider.get("protocol"), "provider.protocol")
-        route = _text(provider.get("route"), "provider.route")
-        if (adapter, protocol) not in {("deepseek", "messages"), ("pi-ai", "openai-completions")}:
-            raise DshConfigurationError(
-                "DSH adapter/protocol must be deepseek/messages or pi-ai/openai-completions"
-            )
-        if not re.fullmatch(r"[a-z][a-z0-9-]*", route):
-            raise DshConfigurationError("DSH provider.route must be a lowercase route identifier")
-        if adapter == "deepseek" and route != "deepseek-official":
-            raise DshConfigurationError(
-                "The native DeepSeek adapter requires route deepseek-official"
-            )
-        if adapter == "pi-ai" and route == "deepseek-official":
-            raise DshConfigurationError("The native DeepSeek route cannot use the pi-ai adapter")
-        base_ref = _env_ref(provider.get("base_url_env"), "provider.base_url_env")
-        key_ref = _env_ref(provider.get("api_key_env"), "provider.api_key_env")
-        if base_ref == key_ref:
-            raise DshConfigurationError("DSH endpoint and API key require distinct references")
-        models_input = document.get("models")
-        if not isinstance(models_input, list) or not models_input:
-            raise DshConfigurationError("DSH setup requires an explicit nonempty model catalog")
-        models = []
-        for index, value in enumerate(models_input):
-            model = _mapping(value, f"models[{index}]")
-            _fields(model, {"id", "context_window", "max_output_tokens", "reasoning"}, "model")
-            identifier = _text(model.get("id"), "model.id")
-            context = _positive_int(model.get("context_window"), "model.context_window")
-            output = _positive_int(model.get("max_output_tokens"), "model.max_output_tokens")
-            if output > context:
-                raise DshConfigurationError("DSH model.max_output_tokens exceeds context_window")
-            raw_reasoning = model.get("reasoning")
-            if raw_reasoning is False:
-                reasoning = None
-            elif isinstance(raw_reasoning, dict) and raw_reasoning:
-                reasoning = {
-                    _text(key, "reasoning level"): _text(value, "native reasoning effort")
-                    for key, value in raw_reasoning.items()
-                }
-                if any(not level.isdigit() or str(int(level)) != level for level in reasoning):
-                    raise DshConfigurationError(
-                        "DSH reasoning keys must be canonical numbered presets"
-                    )
-                positives = sorted(int(level) for level in reasoning if int(level) > 0)
-                if not positives or positives != list(range(1, len(positives) + 1)):
-                    raise DshConfigurationError(
-                        "DSH positive reasoning presets must be consecutive from 1"
-                    )
-                if "0" in reasoning and reasoning["0"] != "off":
-                    raise DshConfigurationError(
-                        "DSH reasoning preset 0 must explicitly disable reasoning"
-                    )
-                if any(reasoning[str(level)] == "off" for level in positives):
-                    raise DshConfigurationError(
-                        "DSH positive reasoning presets must enable reasoning"
-                    )
-                if adapter == "deepseek" and any(
-                    value not in {"off", "low", "high", "max"} for value in reasoning.values()
-                ):
-                    raise DshConfigurationError(
-                        "The native DeepSeek reasoning effort is unsupported"
-                    )
-                if adapter == "pi-ai" and any(
-                    value not in {"off", "minimal", "low", "medium", "high", "xhigh", "max"}
-                    for value in reasoning.values()
-                ):
-                    raise DshConfigurationError("The pi-ai native reasoning effort is unsupported")
-            else:
-                raise DshConfigurationError(
-                    "DSH model.reasoning must explicitly be false or a nonempty effort mapping"
-                )
-            models.append(DshModel(identifier, context, output, reasoning))
-        if len({model.id for model in models}) != len(models):
-            raise DshConfigurationError("DSH model IDs must be unique")
-        selected = _text(document.get("selected_model"), "selected_model")
-        if selected not in {model.id for model in models}:
-            raise DshConfigurationError("DSH selected_model must identify a declared exact model")
-        roots = document.get("skill_roots", [])
-        if not isinstance(roots, list):
-            raise DshConfigurationError("DSH skill_roots must be a list of absolute directories")
-        parsed_roots = tuple(Path(_text(root, "skill root")) for root in roots)
-        if any(not root.is_absolute() for root in parsed_roots):
-            raise DshConfigurationError("DSH skill_roots must be absolute")
-        servers = document.get("mcp_servers", [])
-        if not isinstance(servers, list):
-            raise DshConfigurationError("DSH mcp_servers must be a list")
-        parsed_servers = tuple(_parse_mcp_server(server) for server in servers)
-        if len({server["name"] for server in parsed_servers}) != len(parsed_servers):
-            raise DshConfigurationError("DSH MCP server names must be unique")
-        return cls(
-            adapter,
-            protocol,
-            route,
-            base_ref,
-            key_ref,
-            tuple(models),
-            selected,
-            parsed_roots,
-            parsed_servers,
-        )
-
-    def select_model(
-        self, model_name: str | None = None, reasoning_level: str | None = None
-    ) -> tuple[DshModel, str | None]:
-        """Validate common launch selections against the exact declared model catalog."""
-
-        selected = model_name if model_name is not None else self.selected_model
-        model = next((model for model in self.models if model.id == selected), None)
-        if model is None:
-            raise DshConfigurationError(
-                "Requested DSH model is not in the configured exact catalog"
-            )
-        if reasoning_level is None:
-            return model, None
-        if model.reasoning is None or reasoning_level not in model.reasoning:
-            raise DshConfigurationError(
-                "Requested DSH reasoning level is not declared for the selected model"
-            )
-        return model, model.reasoning[reasoning_level]
+DSH_LOCAL_API_KEY_ENV = "HOUMAO_DSH_LOCAL_API_KEY"
+_DSH_LOCAL_API_KEY_VALUE = "houmao-local-no-auth"
 
 
 @dataclass(frozen=True)
@@ -247,9 +58,10 @@ class DshLoadedHome:
 
 def load_dsh_home(
     home_path: Path,
-    setup: DshSetup,
+    setup: DshEffectiveToolParams,
     environment: Mapping[str, str],
     *,
+    credential_environment: Mapping[str, str] | None = None,
     selected_model: str | None = None,
     reasoning_level: str | None = None,
 ) -> DshLoadedHome:
@@ -264,6 +76,8 @@ def load_dsh_home(
         declarations and explicit credential references.
     environment:
         Explicit selected invocation environment, filtered for credential isolation.
+    credential_environment:
+        Selected private bundle values for resolving MCP references.
     selected_model, reasoning_level:
         Request-scoped overrides only. Absent controls select the current
         materialized native defaults rather than a previous turn's override.
@@ -306,7 +120,7 @@ def load_dsh_home(
     persistence_root = Path(_text(persistence.get("root"), "persistence root"))
     if not persistence_root.is_absolute() or not persistence_root.is_dir():
         raise DshConfigurationError("DSH requires an existing absolute persistence root")
-    private_environment = _selected_environment(home, setup, environment)
+    private_environment = dsh_native_environment(home, setup, environment)
     patch: list[dict[str, Any]] = []
     acp = dict(_mapping(configs.get("acp"), "materialized ACP config"))
     provider_name = _text(acp.get("provider"), "materialized ACP provider")
@@ -316,12 +130,10 @@ def load_dsh_home(
     if selected_model is not None or reasoning_level is not None:
         model_name = selected_model or _text(acp.get("model"), "materialized ACP model")
         model, effort = setup.select_model(model_name, reasoning_level)
-        if selected_model is not None and effort is None and model.reasoning is not None:
-            default_level = "0" if "0" in model.reasoning else min(model.reasoning, key=int)
-            effort = model.reasoning[default_level]
+        if selected_model is not None and effort is None and model.reasoning_slots:
+            effort = model.reasoning_slots[0]
         if selected_model is not None:
             model_selection = (setup.route, model.id)
-        if selected_model is not None:
             acp.update({"provider": setup.route, "model": model.id})
             patch.append({"id": "acp", "config": acp})
         if setup.adapter == "deepseek":
@@ -333,15 +145,7 @@ def load_dsh_home(
                         "defaultContextWindow": model.context_window,
                     }
                 )
-                if model.reasoning is None:
-                    config.update({"thinking": "disabled", "reasoningEffort": "off"})
-                    effort = "off"
-                else:
-                    config["thinking"] = "enabled"
-            elif effort not in {None, "off"}:
-                config["thinking"] = "enabled"
-            if effort is not None:
-                config["reasoningEffort"] = effort
+            effort = _project_deepseek_reasoning(config, model, effort)
             patch.append({"id": "llm-deepseek", "config": config})
         else:
             config = dict(_mapping(configs.get("llm-pi-ai"), "materialized adapter config"))
@@ -354,7 +158,7 @@ def load_dsh_home(
                         "defaultContextWindow": model.context_window,
                     }
                 )
-                if model.reasoning is None:
+                if model.reasoning_efforts is False:
                     provider.pop("reasoning", None)
             if effort is not None:
                 provider["reasoning"] = effort
@@ -367,7 +171,7 @@ def load_dsh_home(
         persistence_root,
         agents_home,
         private_environment,
-        setup.mcp_servers,
+        _resolve_mcp_servers(setup, credential_environment),
         model_selection,
         effort,
         tuple(patch),
@@ -401,46 +205,180 @@ def _materialized_reasoning(configs: Mapping[str, Any], provider: str, model: st
     return value
 
 
-def _selected_environment(
-    home: Path, setup: DshSetup, environment: Mapping[str, str]
-) -> dict[str, str]:
-    """Select declared routing/authentication without changing native home files."""
+def _project_deepseek_reasoning(
+    config: dict[str, Any], model: DshModel, selected_slot: str | None
+) -> str:
+    """Use native DeepSeek effort names and keep capable models selectable."""
+
+    if model.reasoning_efforts is False:
+        config.update({"thinking": "disabled", "reasoningEffort": "off"})
+        return "off"
+    slot = selected_slot or model.reasoning_slots[0]
+    config.update({"thinking": "enabled", "reasoningEffort": slot})
+    return slot
+
+
+def _selected_credentials(
+    setup: DshEffectiveToolParams, environment: Mapping[str, str]
+) -> tuple[str, str]:
+    """Validate and return the explicitly selected provider endpoint and key."""
 
     endpoint = environment.get(setup.base_url_env, "").strip()
-    key = environment.get(setup.api_key_env, "")
     if not endpoint:
         raise DshConfigurationError(f"DSH launch requires endpoint reference {setup.base_url_env}")
-    if not key.strip():
-        raise DshConfigurationError(f"DSH launch requires credential reference {setup.api_key_env}")
-    parsed = _http_url(endpoint, field="endpoint")
-    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+    parsed = validate_http_url(endpoint, field="endpoint")
+    if (
+        parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
         raise DshConfigurationError(
             "DSH endpoint cannot contain credentials, query parameters, or fragments"
         )
+    if setup.api_key_env is None:
+        return endpoint, _DSH_LOCAL_API_KEY_VALUE
+    key = environment.get(setup.api_key_env, "")
+    if not key.strip():
+        raise DshConfigurationError(f"DSH launch requires credential reference {setup.api_key_env}")
+    return endpoint, key
+
+
+def dsh_native_environment(
+    home: Path, setup: DshEffectiveToolParams, environment: Mapping[str, str]
+) -> dict[str, str]:
+    """Select declared routing/authentication without changing native home files."""
+
+    endpoint, key = _selected_credentials(setup, environment)
+    mcp_names = setup.mcp_env_refs
     result = {
         name: value
         for name, value in environment.items()
         if name
         not in {"DSH_HOME", "DSH_AGENTS_HOME", "DSH_PERMISSION_MODE", "DSH_BUNDLED_SKILL_DIR"}
+        and name not in mcp_names
         and not re.search(r"API_KEY|TOKEN|SECRET|PASSWORD|ACCESS_KEY|BASE_URL", name)
     }
     result.update(
         {
             "DSH_HOME": str(home),
             "DSH_AGENTS_HOME": str(home / "shared-agents"),
-            setup.api_key_env: key,
+            setup.api_key_env or DSH_LOCAL_API_KEY_ENV: key,
             setup.base_url_env: endpoint,
         }
     )
     return result
 
 
+def _project_models(setup: DshEffectiveToolParams) -> list[dict[str, Any]]:
+    """Serialize the exact model catalog in the selected native adapter's format."""
+
+    catalog: list[dict[str, Any]] = []
+    native_input = "inputModalities" if setup.adapter == "deepseek" else "input"
+    for entry in setup.models:
+        model: dict[str, Any] = {
+            "id": entry.id,
+            "contextWindow": entry.context_window,
+            "maxTokens": entry.max_output_tokens,
+            native_input: entry.input_modalities or ["text"],
+        }
+        if entry.name is not None:
+            model["name"] = entry.name
+        if setup.adapter == "pi-ai":
+            model["reasoningEfforts"] = entry.reasoning_efforts
+            if entry.compat is not None:
+                model["compat"] = entry.compat.model_dump(
+                    mode="json", by_alias=True, exclude_none=True
+                )
+        catalog.append(model)
+    return catalog
+
+
+def read_dsh_mcp_environment(
+    setup: DshEffectiveToolParams, source: str | Path | None
+) -> dict[str, str]:
+    """Read only current MCP references from the selected private bundle."""
+
+    names = sorted(setup.mcp_env_refs)
+    if not names:
+        return {}
+    if not isinstance(source, (str, Path)):
+        raise DshConfigurationError("DSH MCP requires the selected private credential source")
+
+    from houmao.agents.realm_controller.loaders import parse_env_text
+
+    try:
+        descriptor = os.open(source, os.O_RDONLY | os.O_NONBLOCK)
+        with os.fdopen(descriptor, encoding="utf-8") as stream:
+            info = os.fstat(stream.fileno())
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_uid != os.geteuid()
+                or info.st_mode & 0o077
+            ):
+                raise DshConfigurationError("DSH MCP requires an owner-private credential file")
+            values = parse_env_text(stream.read())
+    except (OSError, UnicodeError):
+        raise DshConfigurationError("Cannot read the selected DSH MCP credential source") from None
+    return {name: values[name] for name in names if name in values}
+
+
+def _resolve_mcp_servers(
+    setup: DshEffectiveToolParams, credential_environment: Mapping[str, str] | None
+) -> tuple[dict[str, Any], ...]:
+    """Project reference values solely into their declared native MCP entries."""
+
+    bundle = credential_environment if credential_environment is not None else {}
+    servers: list[dict[str, Any]] = []
+    for index, server in enumerate(setup.mcp_servers):
+        payload = server.model_dump(exclude_none=True, exclude={"headers", "env"})
+        is_header = server.type == "http"
+        field = "headers" if is_header else "env"
+        entries = (server.headers if is_header else server.env) or []
+        native_entries = []
+        for entry_index, entry in enumerate(entries):
+            value = bundle.get(entry.env_ref)
+            field_path = f"mcp_servers.{index}.{field}.{entry_index}.env_ref"
+            if value is None:
+                raise DshConfigurationError(f"DSH {field_path} is missing in the selected bundle")
+            if is_header and any(
+                ord(c) > 255 or ord(c) == 127 or (ord(c) < 32 and c != "\t") for c in value
+            ):
+                raise DshConfigurationError(f"DSH {field_path} resolves to an invalid header value")
+            if not is_header and "\x00" in value:
+                raise DshConfigurationError(f"DSH {field_path} resolves to an invalid env value")
+            native_entries.append({"name": entry.name, "value": value})
+        payload[field] = native_entries
+        if not is_header:
+            payload.setdefault("args", [])
+        servers.append(payload)
+    return tuple(servers)
+
+
+def validate_dsh_launch(
+    setup: DshEffectiveToolParams,
+    environment: Mapping[str, str],
+    *,
+    credential_environment: Mapping[str, str] | None = None,
+    selected_model: str | None = None,
+    reasoning_level: str | None = None,
+) -> None:
+    """Check DSH birth-time inputs without changing the runtime home."""
+
+    setup.select_model(selected_model, reasoning_level)
+    _selected_credentials(setup, environment)
+    _resolve_mcp_servers(setup, credential_environment)
+    if any(not Path(root).is_dir() for root in setup.skill_roots):
+        raise DshConfigurationError("Every selected DSH skill root must exist as a directory")
+
+
 def prepare_dsh_home(
     home_path: Path,
-    setup: DshSetup,
+    setup: DshEffectiveToolParams,
     environment: Mapping[str, str],
     role_prompt: str,
     *,
+    credential_environment: Mapping[str, str] | None = None,
     selected_model: str | None = None,
     reasoning_level: str | None = None,
     skill_roots: Sequence[Path] = (),
@@ -456,6 +394,8 @@ def prepare_dsh_home(
         Validated route, exact model catalog, and explicit skill/MCP declarations.
     environment:
         Selected credential environment. Public metadata retains reference names only.
+    credential_environment:
+        Selected private bundle values for resolving MCP references.
     role_prompt:
         Complete effective native system section, preserved as literal text.
     selected_model, reasoning_level:
@@ -480,17 +420,25 @@ def prepare_dsh_home(
     if operator_prompt_mode not in {"unattended", "as_is"}:
         raise DshConfigurationError("DSH operator prompt mode must be unattended or as_is")
     model, effort = setup.select_model(selected_model, reasoning_level)
-    if effort is None and model.reasoning is not None:
-        default_level = "0" if "0" in model.reasoning else min(model.reasoning, key=int)
-        effort = model.reasoning[default_level]
+    if effort is None and model.reasoning_slots:
+        effort = model.reasoning_slots[0]
     home = home_path.resolve()
-    private_env = _selected_environment(home, setup, environment)
+    private_env = dsh_native_environment(home, setup, environment)
     endpoint = private_env[setup.base_url_env]
-    roots = tuple(dict.fromkeys([*setup.skill_roots, *(path.resolve() for path in skill_roots)]))
+    mcp_servers = _resolve_mcp_servers(setup, credential_environment)
+    roots = tuple(
+        dict.fromkeys(
+            [*(Path(root) for root in setup.skill_roots), *(p.resolve() for p in skill_roots)]
+        )
+    )
     if any(not root.is_dir() for root in roots):
         raise DshConfigurationError("Every selected DSH skill root must exist as a directory")
     home.mkdir(parents=True, exist_ok=True, mode=0o700)
     home.chmod(0o700)
+    params = setup.model_dump(mode="json", exclude_none=True)
+    if setup.api_key_env is None:
+        params["provider"]["api_key_env"] = None
+    _write_private(home / MATERIALIZED_DSH_TOOL_PARAMS, yaml.safe_dump(params, sort_keys=False))
     agents_home = home / "shared-agents"
     agents_home.mkdir(exist_ok=True, mode=0o700)
     persistence = home / "sessions"
@@ -499,21 +447,16 @@ def prepare_dsh_home(
     _write_private(role_path, role_prompt)
     credentials_path = home / "houmao-empty-credentials.yaml"
     _write_private(credentials_path, "{}\n")
-    model_catalog: list[dict[str, Any]] = []
-    for entry in setup.models:
-        catalog_entry: dict[str, Any] = {
-            "id": entry.id,
-            "contextWindow": entry.context_window,
-            "maxTokens": entry.max_output_tokens,
-            "inputModalities": ["text"],
-        }
-        if setup.adapter == "pi-ai":
-            catalog_entry["reasoningEfforts"] = (
-                {effort: effort for effort in entry.reasoning.values()}
-                if entry.reasoning
-                else False
-            )
-        model_catalog.append(catalog_entry)
+    provider_options: dict[str, Any] = {
+        "baseURL": endpoint,
+        "apiKeyEnv": setup.api_key_env or DSH_LOCAL_API_KEY_ENV,
+        "models": _project_models(setup),
+        "defaultContextWindow": model.context_window,
+    }
+    if setup.provider.retry_policy is not None:
+        provider_options["retryPolicy"] = setup.provider.retry_policy.model_dump(
+            mode="json", by_alias=True, exclude_none=True
+        )
     patch: list[dict[str, Any]] = [
         {
             "id": "session-persistence-jsonl",
@@ -543,41 +486,49 @@ def prepare_dsh_home(
             [
                 {"id": "approval", "config": {"policy": "never"}},
                 {"id": "sandbox-policy", "config": {"mode": "workspace-write"}},
+                {
+                    "id": "permission",
+                    "config": {
+                        "presets": {
+                            "read-only": {"sandbox": "read-only", "approval": "ask"},
+                            "workspace-write": {"sandbox": "workspace-write", "approval": "ask"},
+                            "danger-full-access": {
+                                "sandbox": "danger-full-access",
+                                "approval": "never",
+                            },
+                            "houmao-unattended": {
+                                "sandbox": "workspace-write",
+                                "approval": "never",
+                            },
+                        },
+                        "defaultPreset": "houmao-unattended",
+                    },
+                },
             ]
         )
     if setup.adapter == "deepseek":
-        config: dict[str, Any] = {
-            "baseURL": endpoint,
-            "apiKeyEnv": setup.api_key_env,
-            "maxTokens": model.max_output_tokens,
-            "defaultContextWindow": model.context_window,
-            "models": model_catalog,
-        }
-        if model.reasoning is None:
-            config.update({"thinking": "disabled", "reasoningEffort": "off"})
-        elif effort is not None:
-            config["reasoningEffort"] = effort
+        provider_options["maxTokens"] = model.max_output_tokens
+        _project_deepseek_reasoning(provider_options, model, effort)
         patch.extend(
             [
-                {"id": "llm-deepseek", "config": config},
+                {"id": "llm-deepseek", "config": provider_options},
                 {"id": "llm-pi-ai", "config": {"providers": {}}},
             ]
         )
     else:
-        provider: dict[str, Any] = {
-            "api": "openai-completions",
-            "baseURL": endpoint,
-            "apiKeyEnv": setup.api_key_env,
-            "models": model_catalog,
-            "defaultContextWindow": model.context_window,
-            "defaultMaxTokens": model.max_output_tokens,
-        }
+        provider_options.update(
+            {"api": setup.protocol, "defaultMaxTokens": model.max_output_tokens}
+        )
+        if setup.provider.compat is not None:
+            provider_options["compat"] = setup.provider.compat.model_dump(
+                mode="json", by_alias=True, exclude_none=True
+            )
         if effort is not None:
-            provider["reasoning"] = effort
+            provider_options["reasoning"] = effort
         patch.extend(
             [
                 {"id": "llm-deepseek", "disabled": True},
-                {"id": "llm-pi-ai", "config": {"providers": {setup.route: provider}}},
+                {"id": "llm-pi-ai", "config": {"providers": {setup.route: provider_options}}},
             ]
         )
     patch_path = home / "houmao-profile.patch.json"
@@ -607,7 +558,7 @@ def prepare_dsh_home(
         model.id,
         setup.route,
         metadata,
-        setup.mcp_servers,
+        mcp_servers,
     )
 
 
@@ -619,126 +570,12 @@ def _mapping(value: object, field: str) -> dict[str, Any]:
     return value
 
 
-def _fields(value: Mapping[str, Any], allowed: set[str], field: str) -> None:
-    """Reject unsupported fields without copying their potentially private values."""
-
-    if set(value) - allowed:
-        raise DshConfigurationError(f"DSH {field} contains unsupported fields")
-
-
 def _text(value: object, field: str) -> str:
     """Require an explicit nonempty text input."""
 
     if not isinstance(value, str) or not value.strip():
         raise DshConfigurationError(f"DSH {field} must be a nonempty string")
     return value
-
-
-def _positive_int(value: object, field: str) -> int:
-    """Reject absent or inherited model capacities, including booleans."""
-
-    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
-        raise DshConfigurationError(f"DSH {field} must be an explicit positive integer")
-    return value
-
-
-def _env_ref(value: object, field: str) -> str:
-    """Accept credential names rather than embedded values."""
-
-    result = _text(value, field)
-    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", result):
-        raise DshConfigurationError(f"DSH {field} must name an environment reference")
-    if result in _RESERVED_ENVIRONMENT_REFERENCES:
-        raise DshConfigurationError(
-            f"DSH {field} cannot replace native isolation or process settings"
-        )
-    return result
-
-
-def _http_url(value: str, *, field: str) -> SplitResult:
-    """Validate routing syntax without including a potentially private URL in errors."""
-
-    try:
-        parsed = urlsplit(value)
-        port = parsed.port
-    except ValueError:
-        raise DshConfigurationError(f"DSH {field} must be an absolute HTTP(S) URL") from None
-    if (
-        parsed.scheme not in {"http", "https"}
-        or not parsed.hostname
-        or (port is not None and port == 0)
-        or any(ord(character) < 33 or ord(character) == 127 for character in value)
-    ):
-        raise DshConfigurationError(f"DSH {field} must be an absolute HTTP(S) URL")
-    return parsed
-
-
-def _parse_mcp_server(value: object) -> dict[str, Any]:
-    """Validate only the stdio and HTTP transports supported by the pinned ACP build."""
-
-    server = _mapping(value, "MCP server")
-    name = _text(server.get("name"), "MCP server.name")
-    if any(ord(character) < 32 or ord(character) == 127 for character in name):
-        raise DshConfigurationError("DSH MCP server.name contains control characters")
-    if "type" not in server:
-        _fields(server, {"name", "command", "args", "env"}, "stdio MCP server")
-        command = _text(server.get("command"), "MCP server.command")
-        if not Path(command).is_absolute() or "\x00" in command:
-            raise DshConfigurationError("DSH stdio MCP command must be an absolute path")
-        arguments = server.get("args", [])
-        if not isinstance(arguments, list) or any(
-            not isinstance(argument, str) or "\x00" in argument for argument in arguments
-        ):
-            raise DshConfigurationError("DSH stdio MCP args must be a list of strings")
-        return {
-            "name": name,
-            "command": command,
-            "args": list(arguments),
-            "env": _mcp_entries(server.get("env", []), kind="environment"),
-        }
-    if server["type"] != "http":
-        raise DshConfigurationError("DSH MCP supports only ACP stdio or http transports")
-    _fields(server, {"name", "type", "url", "headers"}, "HTTP MCP server")
-    url = _text(server.get("url"), "MCP server.url")
-    _http_url(url, field="HTTP MCP URL")
-    return {
-        "name": name,
-        "type": "http",
-        "url": url,
-        "headers": _mcp_entries(server.get("headers", []), kind="header"),
-    }
-
-
-def _mcp_entries(value: object, *, kind: str) -> list[dict[str, str]]:
-    """Validate ordered ACP environment/header entries without disclosing their values."""
-
-    if not isinstance(value, list):
-        raise DshConfigurationError(f"DSH MCP {kind} entries must be a list")
-    result: list[dict[str, str]] = []
-    names: set[str] = set()
-    for raw in value:
-        entry = _mapping(raw, f"MCP {kind} entry")
-        _fields(entry, {"name", "value"}, f"MCP {kind} entry")
-        name = _text(entry.get("name"), f"MCP {kind} entry.name")
-        content = entry.get("value")
-        if not isinstance(content, str):
-            raise DshConfigurationError(f"DSH MCP {kind} entry.value must be a string")
-        if kind == "header":
-            if not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", name) or any(
-                ord(character) > 255
-                or ord(character) == 127
-                or (ord(character) < 32 and character != "\t")
-                for character in content
-            ):
-                raise DshConfigurationError("DSH MCP contains an invalid header entry")
-        elif "=" in name or "\x00" in name or "\x00" in content:
-            raise DshConfigurationError("DSH MCP contains an invalid environment entry")
-        identity = name.lower() if kind == "header" else name
-        if identity in names:
-            raise DshConfigurationError(f"DSH MCP {kind} entries contain duplicate names")
-        names.add(identity)
-        result.append({"name": name, "value": content})
-    return result
 
 
 def _write_private(path: Path, text: str) -> None:

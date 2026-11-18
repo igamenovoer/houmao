@@ -17,7 +17,7 @@ from pathlib import Path
 import sys
 import threading
 import time
-from typing import Any
+from typing import Any, TextIO
 
 from houmao.agents.realm_controller.backends.dispatch_control import (
     headless_dispatch_permission_allowed,
@@ -27,6 +27,11 @@ from houmao.agents.realm_controller.backends.dsh_acp_connection import (
     DshAcpProtocolError,
     reject_dsh_acp_permission,
     validate_dsh_acp_initialization,
+)
+from houmao.agents.realm_controller.backends.dsh_diagnostics import (
+    dsh_diagnostic_secrets,
+    dsh_diagnostic_tail,
+    sanitize_dsh_diagnostic,
 )
 
 
@@ -53,6 +58,7 @@ class DshAcpInvocation:
     persistence_root: Path | None = None
     model: tuple[str, str] | None = None
     reasoning_effort: str | None = None
+    secret_values: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -99,7 +105,18 @@ def run_dsh_acp_turn(
                 "DSH runtime session already has an active invocation"
             ) from exc
         prepared = prepare(invocation) if prepare is not None else invocation
-        return _run_locked(prepared, emit=emit, interrupted=interrupted, confirmed=confirmed)
+        try:
+            return _run_locked(prepared, emit=emit, interrupted=interrupted, confirmed=confirmed)
+        except (DshAcpProtocolError, TimeoutError) as exc:
+            reason = str(exc) if isinstance(exc, DshAcpProtocolError) else "ACP request timed out"
+            diagnostics = dsh_diagnostic_tail(prepared.turn_dir / "provider-stderr.log")
+            secret_values = (*dsh_diagnostic_secrets(prepared.environment), *prepared.secret_values)
+            summary = sanitize_dsh_diagnostic(diagnostics, secret_values=secret_values)
+            if summary:
+                raise DshAcpProtocolError(f"{reason}. Worker stderr: {summary}") from None
+            if isinstance(exc, TimeoutError):
+                raise DshAcpProtocolError(reason) from None
+            raise
     finally:
         os.close(descriptor)
 
@@ -118,7 +135,10 @@ def _run_locked(
     raw_path = invocation.turn_dir / "provider-stdout.jsonl"
     receipt = _NativeReceipts(invocation)
     closed = False
-    with raw_path.open("x", encoding="utf-8") as raw:
+    with (
+        _open_private_diagnostics(raw_path) as raw,
+        _open_private_diagnostics(invocation.turn_dir / "provider-stderr.log") as stderr,
+    ):
 
         def permission(method: str, params: dict[str, Any]) -> dict[str, Any]:
             """Answer only requests belonging to the already selected session."""
@@ -133,6 +153,12 @@ def _run_locked(
             raw.write(line)
             raw.flush()
 
+        def stderr_line(line: str) -> None:
+            """Keep raw worker stderr available for private inspection."""
+
+            stderr.write(line)
+            stderr.flush()
+
         try:
             _require_dispatch(invocation)
             connection = DshAcpConnection.from_command(
@@ -141,6 +167,8 @@ def _run_locked(
                 env=invocation.environment,
                 request_handler=permission,
                 frame_sink=frame,
+                stderr_sink=stderr_line,
+                secret_values=invocation.secret_values,
             )
             receipt.bind_process(connection.process.pid)
             result = connection.request(
@@ -254,29 +282,19 @@ def _run_locked(
                             "message": "DSH process cleanup failed",
                         }
                     )
-                try:
-                    diagnostics_path = invocation.turn_dir / "provider-stderr.log"
-                    descriptor = os.open(
-                        diagnostics_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600
-                    )
-                    with os.fdopen(descriptor, "w", encoding="utf-8") as diagnostics:
-                        diagnostics.write(connection.diagnostics)
-                except OSError as exc:
-                    cleanup_error = cleanup_error or exc
-                    emit(
-                        {
-                            "type": "driver_cleanup_error",
-                            "stage": "diagnostics",
-                            "error_kind": type(exc).__name__,
-                            "message": "DSH private diagnostics could not be persisted",
-                        }
-                    )
                 if primary_error is None and cleanup_error is not None:
                     raise cleanup_error
                 if primary_error is None and closed and connection.process.returncode != 0:
                     raise DshAcpProtocolError(
                         "DSH worker exited unsuccessfully after native closure"
                     )
+
+
+def _open_private_diagnostics(path: Path) -> TextIO:
+    """Create a user-private provider log without reopening an earlier artifact."""
+
+    descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    return os.fdopen(descriptor, "w", encoding="utf-8")
 
 
 def _settlement(pending: Future[dict[str, Any]]) -> str:

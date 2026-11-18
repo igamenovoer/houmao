@@ -71,6 +71,7 @@ A launch profile may store, with no inline secrets:
 - an auth override selected by display name (the actual credentials still live in the auth bundle, while the stored relationship resolves through auth-profile identity),
 - an operator prompt-mode override (`unattended` or `as_is`),
 - durable non-secret env records,
+- secret-free partial `tool_params` for the source tool,
 - managed system-skill policy for packaged Houmao-owned skills,
 - declarative mailbox configuration (transport, root, address, principal id, and Stalwart-only fields when applicable),
 - launch posture defaults (`headless`, gateway auto-attach, fixed loopback gateway port),
@@ -81,6 +82,14 @@ A launch profile may store, with no inline secrets:
 - an optional memo seed for managed memory (`houmao-memo.md` and/or contained `pages/`) plus one apply policy.
 
 Inline prompt-overlay text is stored inline. File-referenced overlays are kept as managed file-backed content under the overlay-owned content roots, and the catalog stores only the reference. This keeps long prompt overlays out of the catalog database itself.
+
+## Authoring Tool Parameters
+
+Use `--tool-params <json-or-@path>` on `project profile create|set` or `internals native-agent launch-dossiers add|set`. Project-local recipe-backed profiles also support `project agents launch-profiles add|set`. Houmao validates the mapping against the tool selected by the specialist or recipe.
+
+The `set` command merges the supplied fields with the stored mapping. Use `--clear-tool-params` to restore inheritance from lower layers. A confirmed replacement with `create --yes` or `add --yes` clears tool parameters if the replacement omits them. Inspect the stored mapping with `get --name <profile>`.
+
+Use `--tool-params` on the launch command to override these fields for a single instance. See [Typed Tool Parameters](../reference/build-phase/launch-overrides.md#typed-tool-parameters) for the five layers and migration from older recipe files.
 
 ## Effective-Launch Precedence
 

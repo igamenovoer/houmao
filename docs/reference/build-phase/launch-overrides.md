@@ -1,92 +1,36 @@
 # Launch Overrides
 
-Module: `src/houmao/agents/launch_overrides/` — "Shared launch-override models and resolution helpers."
+## Raw Launch Arguments
 
-Launch overrides control how tool launch arguments and parameters are customized beyond the adapter's built-in defaults. They flow through a layered resolution pipeline: adapter defaults → recipe overrides → launch-profile defaults → direct overrides → live runtime mutations. For the shared conceptual model that ties launch profiles to this build-phase pipeline, see [Launch Profiles](../../getting-started/launch-profiles.md).
+Adapter `launch.args` supplies the initial argument list. A preset's `launch.overrides.args` or direct build's argument override can append to the list or replace it using the section's `mode` and `values`. When both overrides specify `args`, the direct override applies its mode to the adapter's initial list. The backend adds its protocol-required arguments separately.
 
-The managed prompt header is adjacent to this pipeline but is not itself a `LaunchOverrides` field. Structured prompt rendering is a separate launch-prompt composition step that happens after prompt-overlay resolution, after any one-shot launch appendix append, and before backend-specific prompt injection.
+## Typed Tool Parameters
 
-### Override Precedence
+Houmao validates each `tool_params` layer against the selected tool's schema. Later layers override earlier layers. Omitted fields inherit their previous values, including fields inside nested objects. An explicit `null` overrides a value when the schema permits it. DSH merges model entries by `id` and MCP servers by `name`, preserving earlier entries and appending new entries in order.
 
 ```mermaid
-flowchart TD
-    A["1. ToolAdapter LaunchDefaults<br/>(lowest priority)"]
-    B["2. Recipe LaunchOverrides<br/>(`internals native-agent recipes ...` /<br/>compatibility `presets ...`)"]
-    C["3. Launch-profile defaults<br/>(easy `project profile ...` or<br/>explicit `internals native-agent launch-dossiers ...`)"]
-    D["4. Direct LaunchOverrides<br/>(CLI overrides on the launching command)"]
-    E["5. Live runtime mutations<br/>(late mailbox registration, etc.)"]
-    M["merge_launch_intent()"]
-    R["resolve_launch_behavior()"]
-    F["Final LaunchBehavior<br/>(args + tool_params)"]
+flowchart LR
+    A["Adapter<br/>launch.default_tool_params"]
+    B["Setup<br/>tool-params.yaml"]
+    C["Specialist or preset<br/>tool_params"]
+    D["Launch profile<br/>tool_params"]
+    E["Direct build or launch<br/>--tool-params"]
 
-    A --> M
-    B --> M
-    C --> M
-    D --> M
-    E --> M
-    M --> R
-    R --> F
+    A --> B --> C --> D --> E
 ```
 
-Layer rules:
+The setup file contains the mapping itself. Preset and launch-profile YAML store it at the top level under `tool_params`. Move older preset parameters from `launch.overrides.tool_params` to the top level. The tool's Python adapter owns validation and runtime projection following the removal of `launch.metadata.tool_params`.
 
-- Fields omitted by a higher-priority layer survive from the next lower-priority layer.
-- Direct CLI overrides win over launch-profile defaults but **never rewrite** the stored recipe or launch profile. The next launch from the same recipe and profile sees the original stored defaults again.
-- Live runtime mutations such as late filesystem mailbox registration are runtime-owned. They affect the running session and the runtime manifest, but they never rewrite stored source or birth-time configuration.
+For example, a Claude headless profile can request partial messages by storing:
 
-## LaunchDefaults
-
-`LaunchDefaults` is a frozen dataclass owned by the tool adapter. It defines the baseline launch arguments and tool parameters that apply when no overrides are specified.
-
-| Field | Type | Description |
-|---|---|---|
-| `args` | `tuple[str, ...]` | Default launch arguments passed to the tool executable |
-| `tool_params` | `dict[str, JsonValue]` | Default tool parameter values |
-
-## LaunchOverrides
-
-`LaunchOverrides` is a frozen dataclass used by recipes (formerly called presets) and direct build requests to customize launch behavior on top of the adapter defaults. The same model is reused when a launch profile contributes its own birth-time launch defaults during build.
-
-| Field | Type | Description |
-|---|---|---|
-| `args` | `LaunchArgsSection \| None` | Optional args override section specifying mode and values |
-| `tool_params` | `dict[str, JsonValue]` | Tool parameter values to override |
-
-## LaunchArgsSection
-
-`LaunchArgsSection` is a frozen dataclass that controls how override arguments combine with the adapter's default arguments.
-
-| Field | Type | Description |
-|---|---|---|
-| `mode` | `"append" \| "replace"` | Whether to append to or replace the adapter default arguments |
-| `values` | `tuple[str, ...]` | Argument values to append or use as replacement |
-
-When `mode` is `"append"`, the override `values` are added after the adapter's default `args`. When `mode` is `"replace"`, the override `values` completely replace the adapter's default `args`.
-
-## Resolution Pipeline
-
-Two key functions handle the merge:
-
-### `merge_launch_intent`
-
-Merges launch overrides from multiple layers — recipe overrides, launch-profile defaults, and direct overrides — into a single resolved intent. Later layers take precedence: direct overrides win over launch-profile defaults, which in turn win over recipe overrides.
-
-### `resolve_launch_behavior`
-
-Takes the merged intent and the adapter's `LaunchDefaults` and produces the final set of launch arguments and tool parameters. Tool parameters are validated against `ToolLaunchMetadata` definitions from the adapter and translated to backend-specific arguments.
-
-### Merge Order
-
-```
-Adapter LaunchDefaults
-  └─▶ Recipe LaunchOverrides (if present)
-        └─▶ Launch-profile defaults (if launch came from a launch profile)
-              └─▶ Direct LaunchOverrides (if present)
-                    └─▶ Live runtime mutations (runtime-owned, not rewritten back)
-                          └─▶ Final resolved launch arguments + tool params
+```yaml
+tool_params:
+  include_partial_messages: true
 ```
 
-Each layer can override `tool_params` by key (later values win) and modify `args` according to the `LaunchArgsSection.mode`.
+Set the same value for a single launch with `--tool-params '{"include_partial_messages":true}'`. The option also accepts `@params.yaml` or `@params.json`. Delegated launches read the file in the execution owner, where relative paths resolve from the selected project directory. The resulting configuration applies to the new launch and leaves stored definitions intact.
+
+See [Launch Profiles](../../getting-started/launch-profiles.md) for authoring and [DSH Headless](../run-phase/dsh-headless.md) for DSH parameters and credential references.
 
 ## Protocol-Required Arguments
 
@@ -97,6 +41,6 @@ Protocol-required arguments are owned by the backend and **cannot** be overridde
 - `kimi -p --output-format stream-json --skills-dir <home>/skills` (headless prompt mode)
 - `--resume` / `--continue` (session continuation)
 
-Launch overrides apply only to non-protocol launch arguments and tool parameters. Attempting to override protocol-required arguments will result in a validation error during the build phase.
+Supplying a protocol-required argument through a launch override causes a validation error when Houmao resolves the launch backend.
 
 Kimi TUI unattended permission posture is launch-policy owned. Use `operator_prompt_mode` or project `launch.prompt_mode: unattended` for managed Kimi automation rather than raw `--auto` or `--yolo` overrides. For Kimi Code 2.1.1 or later, Houmao canonicalizes caller inputs, keeps `default_permission_mode = "auto"` as a managed-home fallback, and appends exactly one native `--auto` after the fresh/latest/exact session selector is resolved. `--agent` and `--agent-file` are rejected because they can bypass the managed native system prompt.

@@ -13,7 +13,6 @@ from typing import Any
 import pytest
 import yaml
 
-from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
 from houmao.agents.realm_controller.native_refresh_models import NativeRefreshRequestV1
 
 
@@ -100,7 +99,7 @@ def test_exact_continuation_consumes_external_skill_and_mcp_changes(
             native_id = manifest["headless"]["session_id"]
             home = Path(manifest["launch_plan"]["home_selector"]["home_path"])
         _skill(home, "current-alpha", "alpha first revision")
-        setup_path = home / "dsh-setup.yaml"
+        setup_path = home / "houmao-tool-params.yaml"
         setup = yaml.safe_load(setup_path.read_text())
         server = root / "mcp_server.py"
         server.write_text(_MCP_SERVER)
@@ -137,11 +136,7 @@ def test_exact_continuation_consumes_external_skill_and_mcp_changes(
             before = {str(path): path.read_bytes() for path in protected}
             if surface == "manager":
                 identity = first["identity"]
-                client = GatewayClient(
-                    endpoint=GatewayEndpoint(
-                        host=identity["gateway_host"], port=identity["gateway_port"]
-                    )
-                )
+                client = launch.manager_gateway(launch.load_run(root))
                 binding = home / "houmao-native-session.json"
                 journal = next((home / "sessions").rglob("session.v4.jsonl"))
                 native_before = {path: path.read_bytes() for path in (binding, journal)}
@@ -216,8 +211,8 @@ def test_exact_continuation_consumes_external_skill_and_mcp_changes(
     ("reasoning", "alternate_reasoning"),
     [
         (False, False),
-        ({"0": "off", "1": "high"}, {"0": "off", "1": "high"}),
-        (False, {"0": "off", "1": "high"}),
+        ({"off": "off", "high": "high"}, {"off": "off", "high": "high"}),
+        (False, {"off": "off", "high": "high"}),
     ],
 )
 def test_request_model_controls_return_to_current_native_defaults(
@@ -256,11 +251,11 @@ def test_request_model_controls_return_to_current_native_defaults(
         manifest_path = Path(started["identity"]["manifest_path"])
         manifest = json.loads(manifest_path.read_text())
         home = Path(manifest["launch_plan"]["home_selector"]["home_path"])
-        setup_path = home / "dsh-setup.yaml"
+        setup_path = home / "houmao-tool-params.yaml"
         setup = yaml.safe_load(setup_path.read_text())
         setup["models"][0]["context_window"] = 131072
         setup["models"].append(
-            {**setup["models"][0], "id": "alternate", "reasoning": alternate_reasoning}
+            {**setup["models"][0], "id": "alternate", "reasoning_efforts": alternate_reasoning}
         )
         setup_path.write_text(yaml.safe_dump(setup))
         patch = home / "houmao-profile.patch.json"
@@ -274,25 +269,39 @@ def test_request_model_controls_return_to_current_native_defaults(
         launch.prompt_run(root, prompt="current default first", timeout=45)
         native_id = json.loads(manifest_path.read_text())["headless"]["session_id"]
         assert requests[-1]["model"] == "controlled"
-        identity = started["identity"]
-        base = f"http://{identity['gateway_host']}:{identity['gateway_port']}"
+        managed_run = launch.load_run(root)
 
         def override(text: str, model: dict[str, Any]) -> None:
             """Wait only for this admitted controlled request's usage and ownership."""
 
-            previous = {row["record_id"] for row in launch._http(base, "/v1/usage")["records"]}
-            launch._http(
-                base, "/v1/control/prompt", {"prompt": text, "execution": {"model": model}}
+            previous = {
+                row["record_id"]
+                for row in launch._gateway_request(managed_run, "/v1/usage")["records"]
+            }
+            launch._gateway_request(
+                managed_run, "/v1/control/prompt", {"prompt": text, "execution": {"model": model}}
             )
             deadline = time.monotonic() + 45
             while True:
-                records = launch._http(base, "/v1/usage")["records"]
+                records = launch._gateway_request(managed_run, "/v1/usage")["records"]
                 selected = [row for row in records if row["record_id"] not in previous]
-                if selected and launch._http(base, "/v1/status")["active_execution"] != "running":
+                if (
+                    selected
+                    and launch._gateway_request(managed_run, "/v1/status")["active_execution"]
+                    != "running"
+                ):
                     assert selected[0]["outcome"] == "completed"
                     break
                 assert time.monotonic() < deadline, "Explicit native model override did not settle"
                 time.sleep(0.05)
+
+        if reasoning:
+            assert requests[-1]["thinking"]["type"] == "disabled"
+            assert "output_config" not in requests[-1]
+            override("raise the current model effort for one turn", {"reasoning": {"level": 1}})
+            assert requests[-1]["model"] == "controlled"
+            assert requests[-1]["thinking"]["type"] == "enabled"
+            assert requests[-1]["output_config"]["effort"] == "high"
 
         model: dict[str, Any] = {"name": "alternate"}
         if alternate_reasoning:
@@ -317,7 +326,7 @@ def test_request_model_controls_return_to_current_native_defaults(
             assert requests[-1]["thinking"]["type"] == "enabled"
             assert patch.read_bytes() == externally_edited
         assert json.loads(manifest_path.read_text())["headless"]["session_id"] == native_id
-        assert len(requests) == (5 if alternate_reasoning else 4)
+        assert len(requests) == 4 + bool(alternate_reasoning) + bool(reasoning)
         assert "current default first" in json.dumps(requests[-1]["messages"])
     finally:
         launch.stop_run(root)

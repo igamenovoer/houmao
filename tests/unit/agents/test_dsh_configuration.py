@@ -5,15 +5,22 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
-from houmao.agents.dsh_configuration import DshConfigurationError, DshSetup, prepare_dsh_home
+from houmao.agents.dsh_configuration import (
+    DSH_LOCAL_API_KEY_ENV,
+    MATERIALIZED_DSH_TOOL_PARAMS,
+    DshConfigurationError,
+    DshEffectiveToolParams,
+    prepare_dsh_home,
+)
+from houmao.agents.model_mapping_policy import resolve_reasoning_mapping
 
 
 def _setup() -> dict:
     """Return a fully explicit synthetic native Messages setup."""
 
     return {
-        "version": 1,
         "provider": {
             "adapter": "deepseek",
             "protocol": "messages",
@@ -21,13 +28,12 @@ def _setup() -> dict:
             "base_url_env": "TEST_MESSAGES_ENDPOINT",
             "api_key_env": "TEST_MESSAGES_KEY",
         },
-        "selected_model": "test-model",
         "models": [
             {
                 "id": "test-model",
                 "context_window": 8192,
                 "max_output_tokens": 128,
-                "reasoning": False,
+                "reasoning_efforts": False,
             }
         ],
     }
@@ -49,14 +55,14 @@ def _environment() -> dict[str, str]:
     }
 
 
-@pytest.mark.parametrize("field", ["context_window", "max_output_tokens", "reasoning"])
+@pytest.mark.parametrize("field", ["context_window", "max_output_tokens", "reasoning_efforts"])
 def test_explicit_model_metadata_is_required(field: str) -> None:
     """Do not inherit model capacities or reasoning from provider catalogs."""
 
     document = _setup()
     del document["models"][0][field]
     with pytest.raises(DshConfigurationError):
-        DshSetup.from_mapping(document)
+        DshEffectiveToolParams.from_mapping(document)
 
 
 def test_protocol_mismatch_fails_before_projection() -> None:
@@ -65,13 +71,13 @@ def test_protocol_mismatch_fails_before_projection() -> None:
     document = _setup()
     document["provider"]["protocol"] = "openai-completions"
     with pytest.raises(DshConfigurationError, match="adapter/protocol"):
-        DshSetup.from_mapping(document)
+        DshEffectiveToolParams.from_mapping(document)
 
 
 def test_selected_route_credentials_are_private_and_isolated(tmp_path: Path) -> None:
     """Give each agent its own roots, selected key, and secret-free provenance."""
 
-    setup = DshSetup.from_mapping(_setup())
+    setup = DshEffectiveToolParams.from_mapping(_setup())
     first = prepare_dsh_home(tmp_path / "one", setup, _environment(), "{{literal role}}")
     second = prepare_dsh_home(tmp_path / "two", setup, _environment(), "other role")
     assert first.persistence_root != second.persistence_root
@@ -93,6 +99,7 @@ def test_selected_route_credentials_are_private_and_isolated(tmp_path: Path) -> 
     assert patch["skill-filesystem"]["config"]["watch"] is False
     assert patch["hmr"]["disabled"] is True
     assert patch["approval"]["config"]["policy"] == "never"
+    assert patch["permission"]["config"]["defaultPreset"] == "houmao-unattended"
     assert patch["session-persistence-jsonl"]["config"]["compression"] == "none"
     assert "synthetic-selected-key" not in first.patch_path.read_text()
 
@@ -100,7 +107,7 @@ def test_selected_route_credentials_are_private_and_isolated(tmp_path: Path) -> 
 def test_empty_role_and_credentials_replace_stale_managed_content(tmp_path: Path) -> None:
     """Remove Houmao-owned stale instructions and native credentials on rebuild."""
 
-    setup = DshSetup.from_mapping(_setup())
+    setup = DshEffectiveToolParams.from_mapping(_setup())
     first = prepare_dsh_home(tmp_path, setup, _environment(), "old role")
     credentials = tmp_path / "houmao-empty-credentials.yaml"
     credentials.write_text("version: 1\nrefs:\n  TEST_MESSAGES_KEY: synthetic-stale\n")
@@ -118,7 +125,9 @@ def test_missing_reference_fails_before_creating_home(tmp_path: Path, missing: s
     del environment[missing]
     destination = tmp_path / "not-created"
     with pytest.raises(DshConfigurationError, match=missing):
-        prepare_dsh_home(destination, DshSetup.from_mapping(_setup()), environment, "")
+        prepare_dsh_home(
+            destination, DshEffectiveToolParams.from_mapping(_setup()), environment, ""
+        )
     assert not destination.exists()
 
 
@@ -133,38 +142,249 @@ def test_pi_ai_uses_explicit_generic_catalog_and_reasoning(tmp_path: Path) -> No
             "route": "houmao-self-hosted",
         }
     )
-    document["models"][0]["reasoning"] = {"0": "off", "1": "high"}
-    setup = DshSetup.from_mapping(document)
-    model, effort = setup.select_model("test-model", "1")
+    document["models"][0]["reasoning_efforts"] = {"off": None, "high": "custom-wire"}
+    setup = DshEffectiveToolParams.from_mapping(document)
+    model, effort = setup.select_model("test-model", "high")
     assert model.id == "test-model"
     assert effort == "high"
-    prepared = prepare_dsh_home(tmp_path, setup, _environment(), "", reasoning_level="1")
+    prepared = prepare_dsh_home(tmp_path, setup, _environment(), "", reasoning_level="high")
     patch = {entry["id"]: entry for entry in json.loads(prepared.patch_path.read_text())}
     assert patch["llm-deepseek"]["disabled"] is True
     provider = patch["llm-pi-ai"]["config"]["providers"]["houmao-self-hosted"]
     assert provider["api"] == "openai-completions"
-    assert provider["models"][0]["reasoningEfforts"] == {"off": "off", "high": "high"}
+    assert provider["models"][0]["reasoningEfforts"] == {"off": None, "high": "custom-wire"}
     assert provider["defaultContextWindow"] == 8192
     assert provider["defaultMaxTokens"] == 128
+
+
+@pytest.mark.parametrize(
+    ("protocol", "compat", "native_compat"),
+    [
+        (
+            "openai-completions",
+            {"supports_developer_role": False, "thinking_format": "qwen"},
+            {"supportsDeveloperRole": False, "thinkingFormat": "qwen"},
+        ),
+        (
+            "openai-responses",
+            {"supports_max_output_tokens": True},
+            {"supportsMaxOutputTokens": True},
+        ),
+        ("anthropic-messages", {"allow_empty_signature": True}, {"allowEmptySignature": True}),
+        ("google-generative-ai", None, None),
+    ],
+)
+def test_pi_ai_projects_protocol_model_metadata_and_retry_policy(
+    tmp_path: Path, protocol: str, compat: dict | None, native_compat: dict | None
+) -> None:
+    """Project the native metadata supported by each explicitly selected pi-ai protocol."""
+
+    document = _setup()
+    document["provider"].update(adapter="pi-ai", protocol=protocol, route="controlled-generic")
+    if compat is not None:
+        document["provider"]["compat"] = compat
+        document["models"][0]["compat"] = compat
+    document["provider"]["retry_policy"] = {
+        "mode": "normal",
+        "max_retries": 2,
+        "retryable_codes": ["rate-limit"],
+        "backoff": {"initial_delay_ms": 250, "max_delay_ms": 2000, "jitter_ratio": 0.25},
+    }
+    document["models"][0].update(name="Controlled Model", input_modalities=["text", "image"])
+    setup = DshEffectiveToolParams.from_mapping(document)
+    setup = DshEffectiveToolParams.from_mapping(setup.model_dump(mode="json"))
+    built = prepare_dsh_home(tmp_path, setup, _environment(), "")
+    rows = {
+        row["id"]: row["config"]
+        for row in json.loads(built.patch_path.read_text())
+        if "config" in row
+    }
+    route = rows["llm-pi-ai"]["providers"]["controlled-generic"]
+    assert route["api"] == protocol
+    assert route.get("compat") == native_compat
+    assert route["models"][0].get("compat") == native_compat
+    assert route["models"][0]["name"] == "Controlled Model"
+    assert route["models"][0]["input"] == ["text", "image"]
+    assert route["models"][0]["reasoningEfforts"] is False
+    assert "reasoning" not in route
+    assert route["retryPolicy"] == {
+        "mode": "normal",
+        "maxRetries": 2,
+        "retryableCodes": ["rate-limit"],
+        "backoff": {"initialDelayMs": 250, "maxDelayMs": 2000, "jitterRatio": 0.25},
+    }
+
+
+@pytest.mark.parametrize(
+    ("adapter", "protocol", "route"),
+    [
+        ("deepseek", "messages", "deepseek-official"),
+        ("pi-ai", "openai-responses", "controlled"),
+        ("pi-ai", "anthropic-messages", "controlled"),
+        ("pi-ai", "google-generative-ai", "controlled"),
+    ],
+)
+def test_endpoint_only_rejects_other_protocols(adapter: str, protocol: str, route: str) -> None:
+    """Require a named API key on qualified protocols besides Chat Completions."""
+
+    document = _setup()
+    document["provider"].update(adapter=adapter, protocol=protocol, route=route, api_key_env=None)
+    with pytest.raises(DshConfigurationError, match="provider.api_key_env"):
+        DshEffectiveToolParams.from_mapping(document)
+
+
+def test_endpoint_only_placeholder_stays_in_native_environment(tmp_path: Path) -> None:
+    """Round-trip the explicit null reference and keep the public placeholder out of files."""
+
+    document = _setup()
+    document["provider"].update(
+        adapter="pi-ai", protocol="openai-completions", route="controlled", api_key_env=None
+    )
+    setup = DshEffectiveToolParams.from_mapping(document)
+    built = prepare_dsh_home(tmp_path, setup, _environment(), "")
+    assert built.environment[DSH_LOCAL_API_KEY_ENV] == "houmao-local-no-auth"
+    assert "OPENAI_API_KEY" not in built.environment
+    assert "DEEPSEEK_API_KEY" not in built.environment
+    content = (tmp_path / MATERIALIZED_DSH_TOOL_PARAMS).read_text()
+    assert yaml.safe_load(content)["provider"]["api_key_env"] is None
+    assert (
+        DshEffectiveToolParams.from_file(tmp_path / MATERIALIZED_DSH_TOOL_PARAMS).api_key_env
+        is None
+    )
+    patch_text = built.patch_path.read_text()
+    assert DSH_LOCAL_API_KEY_ENV in patch_text
+    assert all(
+        "houmao-local-no-auth" not in text
+        for text in (json.dumps(built.metadata), patch_text, content)
+    )
+
+
+def test_reasoning_slots_normalize_independently_of_wire_strings() -> None:
+    """Apply canonical slot ordering, optional off, and saturation."""
+
+    document = _setup()
+    document["provider"].update(adapter="pi-ai", protocol="openai-completions", route="controlled")
+    document["models"][0]["reasoning_efforts"] = {"max": "custom-max", "low": "custom-low"}
+    setup = DshEffectiveToolParams.from_mapping(document)
+
+    def mapping(level: int) -> dict:
+        """Resolve common integer input using the effective model catalog."""
+
+        return resolve_reasoning_mapping(
+            tool="dsh", requested_level=level, model_name=None, dsh_tool_params=setup
+        )
+
+    assert mapping(1)["profile_key"] == "low"
+    assert mapping(2)["profile_key"] == "max"
+    assert mapping(3)["profile_key"] == "max"
+    assert mapping(3)["saturated"]
+    with pytest.raises(ValueError, match="does not support reasoning level 0"):
+        mapping(0)
+    document["models"][0]["reasoning_efforts"]["off"] = "none"
+    setup = DshEffectiveToolParams.from_mapping(document)
+    assert mapping(0)["profile_key"] == "off"
+    assert setup.models[0].reasoning_efforts["off"] == "none"
+
+
+def test_reasoning_yaml_requires_quoted_off_key() -> None:
+    """Keep the off slot a string through YAML parsing."""
+
+    document = _setup()
+    document["models"][0]["reasoning_efforts"] = yaml.safe_load("off: null\nhigh: high\n")
+    with pytest.raises(DshConfigurationError, match="reasoning_efforts"):
+        DshEffectiveToolParams.from_mapping(document)
+    document["models"][0]["reasoning_efforts"] = yaml.safe_load("'off': null\nhigh: high\n")
+    setup = DshEffectiveToolParams.from_mapping(document)
+    assert setup.models[0].reasoning_slots == ("off", "high")
+
+
+def test_reject_retired_reasoning_shape() -> None:
+    """Name the native model field when the retired numbered ladder appears."""
+
+    document = _setup()
+    document["models"][0]["reasoning"] = {"0": "off", "1": "high"}
+    with pytest.raises(DshConfigurationError, match="use models\\[\\].reasoning_efforts"):
+        DshEffectiveToolParams.from_mapping(document)
+
+
+@pytest.mark.parametrize(
+    ("adapter", "protocol", "field"),
+    [
+        ("deepseek", "messages", "supports_store"),
+        ("pi-ai", "openai-responses", "supports_store"),
+        ("pi-ai", "google-generative-ai", "supports_developer_role"),
+    ],
+)
+def test_compatibility_fields_are_protocol_gated(adapter: str, protocol: str, field: str) -> None:
+    """Reject mismatched model compatibility controls before native startup."""
+
+    document = _setup()
+    document["provider"].update(
+        adapter=adapter,
+        protocol=protocol,
+        route="deepseek-official" if adapter == "deepseek" else "controlled",
+    )
+    document["models"][0]["compat"] = {field: False}
+    with pytest.raises(DshConfigurationError, match=r"models.0.compat"):
+        DshEffectiveToolParams.from_mapping(document)
+
+
+def test_chat_template_options_use_native_fields_and_hide_malformed_inputs(tmp_path: Path) -> None:
+    """Preserve template option names while hiding dynamic keys from errors."""
+
+    from houmao.agents.tool_params import validate_tool_params
+
+    document = _setup()
+    document["provider"].update(adapter="pi-ai", protocol="openai-completions", route="controlled")
+    document["provider"]["compat"] = {
+        "chat_template_kwargs": {
+            "enable_thinking": {"$var": "thinking.enabled", "omit_when_off": True},
+            "optional_input": None,
+        }
+    }
+    setup = DshEffectiveToolParams.from_mapping(document)
+    prepared = prepare_dsh_home(tmp_path, setup, _environment(), "")
+    patch = {row["id"]: row for row in json.loads(prepared.patch_path.read_text())}
+    native = patch["llm-pi-ai"]["config"]["providers"]["controlled"]["compat"]
+    assert native == {
+        "chatTemplateKwargs": {
+            "enable_thinking": {"$var": "thinking.enabled", "omitWhenOff": True},
+            "optional_input": None,
+        }
+    }
+    document["provider"]["compat"]["chat_template_kwargs"] = {"synthetic-private-key": []}
+    with pytest.raises(ValueError, match="provider.compat.chat_template_kwargs") as failure:
+        validate_tool_params("dsh", document, source="setup")
+    assert "synthetic-private-key" not in str(failure.value)
 
 
 def test_model_and_reasoning_selections_are_exact() -> None:
     """Refuse unknown model IDs and unsupported effort rather than choosing a fallback."""
 
-    setup = DshSetup.from_mapping(_setup())
+    setup = DshEffectiveToolParams.from_mapping(_setup())
     with pytest.raises(DshConfigurationError, match="exact catalog"):
         setup.select_model("other")
     with pytest.raises(DshConfigurationError, match="reasoning level"):
         setup.select_model(reasoning_level="high")
 
 
-def test_managed_hmr_cannot_be_enabled() -> None:
+@pytest.mark.parametrize("hmr", [True, 0])
+def test_managed_hmr_cannot_be_enabled(hmr: object) -> None:
     """Make startup-only resource activation explicit."""
 
     document = _setup()
-    document["hmr"] = True
+    document["hmr"] = hmr
     with pytest.raises(DshConfigurationError, match="startup-only"):
-        DshSetup.from_mapping(document)
+        DshEffectiveToolParams.from_mapping(document)
+
+
+def test_reasoning_requires_an_explicit_boolean_or_presets() -> None:
+    """Reject numeric zero in the reasoning capability field."""
+
+    document = _setup()
+    document["models"][0]["reasoning_efforts"] = 0
+    with pytest.raises(DshConfigurationError, match="must be false"):
+        DshEffectiveToolParams.from_mapping(document)
 
 
 @pytest.mark.parametrize("adapter", ["deepseek", "pi-ai"])
@@ -182,10 +402,16 @@ def test_mcp_entries_are_canonical_for_the_selected_route(adapter: str, tmp_path
             "name": "remote",
             "type": "http",
             "url": "https://mcp.example.test/rpc",
-            "headers": [{"name": "Authorization", "value": "synthetic-private-header"}],
+            "headers": [{"name": "Authorization", "env_ref": "MCP_AUTH_EXAMPLE"}],
         },
     ]
-    prepared = prepare_dsh_home(tmp_path, DshSetup.from_mapping(document), _environment(), "")
+    prepared = prepare_dsh_home(
+        tmp_path,
+        DshEffectiveToolParams.from_mapping(document),
+        _environment(),
+        "",
+        credential_environment={"MCP_AUTH_EXAMPLE": "synthetic-private-header"},
+    )
     assert prepared.mcp_servers[0] == {
         "name": "local",
         "command": "/usr/bin/true",
@@ -194,6 +420,40 @@ def test_mcp_entries_are_canonical_for_the_selected_route(adapter: str, tmp_path
     }
     assert prepared.mcp_servers[1]["headers"][0]["value"] == "synthetic-private-header"
     assert "synthetic-private-header" not in json.dumps(prepared.metadata)
+    assert "synthetic-private-header" not in prepared.patch_path.read_text()
+    assert "MCP_AUTH_EXAMPLE" not in prepared.environment
+    materialized = tmp_path / MATERIALIZED_DSH_TOOL_PARAMS
+    assert "env_ref: MCP_AUTH_EXAMPLE" in materialized.read_text()
+    assert "synthetic-private-header" not in materialized.read_text()
+    assert materialized.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize("value", [None, "synthetic-private\r\nX-Injected: value"])
+def test_invalid_mcp_reference_fails_before_home_creation(
+    tmp_path: Path, value: str | None
+) -> None:
+    """Resolve MCP references exclusively from a valid private bundle."""
+
+    document = _setup()
+    document["mcp_servers"] = [
+        {
+            "name": "remote",
+            "type": "http",
+            "url": "https://mcp.example.test/rpc",
+            "headers": [{"name": "Authorization", "env_ref": "MCP_AUTH_EXAMPLE"}],
+        },
+    ]
+    environment = _environment() | {"MCP_AUTH_EXAMPLE": "synthetic-private-ambient"}
+    with pytest.raises(DshConfigurationError) as failure:
+        prepare_dsh_home(
+            tmp_path / "home",
+            DshEffectiveToolParams.from_mapping(document),
+            environment,
+            "",
+            credential_environment={} if value is None else {"MCP_AUTH_EXAMPLE": value},
+        )
+    assert "synthetic-private" not in str(failure.value)
+    assert not (tmp_path / "home").exists()
 
 
 @pytest.mark.parametrize(
@@ -207,7 +467,7 @@ def test_mcp_entries_are_canonical_for_the_selected_route(adapter: str, tmp_path
         {
             "name": "bad",
             "command": "/usr/bin/true",
-            "env": [{"name": "X", "value": "one"}, {"name": "X", "value": "two"}],
+            "env": [{"name": "X", "env_ref": "REF_ONE"}, {"name": "X", "env_ref": "REF_TWO"}],
         },
         {"name": "bad", "type": "http", "url": "file:///private"},
         {
@@ -215,8 +475,8 @@ def test_mcp_entries_are_canonical_for_the_selected_route(adapter: str, tmp_path
             "type": "http",
             "url": "https://mcp.example.test",
             "headers": [
-                {"name": "Authorization", "value": "synthetic-private"},
-                {"name": "authorization", "value": "synthetic-private"},
+                {"name": "Authorization", "env_ref": "REF_ONE"},
+                {"name": "authorization", "env_ref": "REF_TWO"},
             ],
         },
         {
@@ -233,29 +493,39 @@ def test_invalid_mcp_declarations_fail_before_native_start(server: dict) -> None
     document = _setup()
     document["mcp_servers"] = [server]
     with pytest.raises(DshConfigurationError) as failure:
-        DshSetup.from_mapping(document)
+        DshEffectiveToolParams.from_mapping(document)
     assert "synthetic-private" not in str(failure.value)
 
 
 def test_as_is_preserves_native_permissions_while_unattended_is_explicit(tmp_path: Path) -> None:
     """Do not apply unattended permissions when the operator selects native defaults."""
 
-    setup = DshSetup.from_mapping(_setup())
+    setup = DshEffectiveToolParams.from_mapping(_setup())
     prepared = prepare_dsh_home(
         tmp_path / "as-is", setup, _environment(), "", operator_prompt_mode="as_is"
     )
     patch = {entry["id"]: entry for entry in json.loads(prepared.patch_path.read_text())}
     assert "approval" not in patch
     assert "sandbox-policy" not in patch
+    assert "permission" not in patch
     assert prepared.metadata["operator_prompt_mode"] == "as_is"
     unattended = prepare_dsh_home(tmp_path / "unattended", setup, _environment(), "")
     patch = {entry["id"]: entry for entry in json.loads(unattended.patch_path.read_text())}
     assert patch["approval"]["config"]["policy"] == "never"
     assert patch["sandbox-policy"]["config"]["mode"] == "workspace-write"
+    assert patch["permission"]["config"] == {
+        "defaultPreset": "houmao-unattended",
+        "presets": {
+            "read-only": {"sandbox": "read-only", "approval": "ask"},
+            "workspace-write": {"sandbox": "workspace-write", "approval": "ask"},
+            "danger-full-access": {"sandbox": "danger-full-access", "approval": "never"},
+            "houmao-unattended": {"sandbox": "workspace-write", "approval": "never"},
+        },
+    }
     assert unattended.metadata["operator_prompt_mode"] == "unattended"
 
 
-@pytest.mark.parametrize("efforts", [{"0": "off"}, {"1": "off"}, {"1": "invented"}])
+@pytest.mark.parametrize("efforts", [{}, {"off": "none"}, {"high": ""}, {"high": None}, {0: "off"}])
 def test_pi_ai_reasoning_requires_a_native_positive_preset(efforts: dict) -> None:
     """Validate the pinned adapter's supported effort names before native launch."""
 
@@ -263,9 +533,9 @@ def test_pi_ai_reasoning_requires_a_native_positive_preset(efforts: dict) -> Non
     document["provider"].update(
         adapter="pi-ai", protocol="openai-completions", route="controlled-generic"
     )
-    document["models"][0]["reasoning"] = efforts
+    document["models"][0]["reasoning_efforts"] = efforts
     with pytest.raises(DshConfigurationError):
-        DshSetup.from_mapping(document)
+        DshEffectiveToolParams.from_mapping(document)
 
 
 def test_endpoint_and_key_references_cannot_alias() -> None:
@@ -274,7 +544,7 @@ def test_endpoint_and_key_references_cannot_alias() -> None:
     document = _setup()
     document["provider"]["api_key_env"] = document["provider"]["base_url_env"]
     with pytest.raises(DshConfigurationError, match="distinct references"):
-        DshSetup.from_mapping(document)
+        DshEffectiveToolParams.from_mapping(document)
 
 
 @pytest.mark.parametrize("reference", ["DSH_HOME", "DSH_AGENTS_HOME", "HOME", "PATH", "TMUX"])
@@ -284,7 +554,7 @@ def test_provider_references_cannot_override_native_isolation(reference: str) ->
     document = _setup()
     document["provider"]["api_key_env"] = reference
     with pytest.raises(DshConfigurationError, match="isolation or process settings"):
-        DshSetup.from_mapping(document)
+        DshEffectiveToolParams.from_mapping(document)
 
 
 @pytest.mark.parametrize(
@@ -294,6 +564,7 @@ def test_provider_references_cannot_override_native_isolation(reference: str) ->
         "http://model.example:bad",
         "http://model.example:0",
         "http://model.example/\nprivate",
+        "http://@model.example/v1",
     ],
 )
 def test_malformed_provider_endpoint_fails_without_public_values(
@@ -305,6 +576,8 @@ def test_malformed_provider_endpoint_fails_without_public_values(
     environment["TEST_MESSAGES_ENDPOINT"] = endpoint
     destination = tmp_path / "not-created"
     with pytest.raises(DshConfigurationError) as failure:
-        prepare_dsh_home(destination, DshSetup.from_mapping(_setup()), environment, "")
+        prepare_dsh_home(
+            destination, DshEffectiveToolParams.from_mapping(_setup()), environment, ""
+        )
     assert endpoint not in str(failure.value)
     assert not destination.exists()

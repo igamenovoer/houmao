@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from houmao.agents.dsh_configuration import DshSetup, prepare_dsh_home
+from houmao.agents.dsh_configuration import DshEffectiveToolParams, prepare_dsh_home
 from houmao.agents.realm_controller.backends.dsh_acp_connection import DshAcpConnection
 
 
@@ -44,25 +44,23 @@ def _launch_native(
     asset = (
         Path(__file__).resolve().parents[4] / "src/houmao/agents/assets/dsh/managed-companion.mjs"
     )
-    setup = DshSetup.from_mapping(
+    setup = DshEffectiveToolParams.from_mapping(
         {
-            "version": 1,
             "provider": {
                 "adapter": adapter,
                 "protocol": "messages" if adapter == "deepseek" else "openai-completions",
                 "route": "deepseek-official" if adapter == "deepseek" else "houmao-controlled",
-                "base_url_env": "HOUMAO_SYNTHETIC_ENDPOINT",
-                "api_key_env": "HOUMAO_SYNTHETIC_KEY",
+                "base_url_env": "DSH_SYNTHETIC_ENDPOINT",
+                "api_key_env": "DSH_SYNTHETIC_KEY",
             },
             "models": [
                 {
                     "id": "controlled",
                     "context_window": 8192,
                     "max_output_tokens": 128,
-                    "reasoning": False,
+                    "reasoning_efforts": False,
                 }
             ],
-            "selected_model": "controlled",
         }
     )
     prepared = prepare_dsh_home(
@@ -71,8 +69,8 @@ def _launch_native(
         {
             "PATH": os.environ["PATH"],
             "HOME": str(root / "user-home"),
-            "HOUMAO_SYNTHETIC_KEY": "synthetic-local-only",
-            "HOUMAO_SYNTHETIC_ENDPOINT": endpoint,
+            "DSH_SYNTHETIC_KEY": "synthetic-local-only",
+            "DSH_SYNTHETIC_ENDPOINT": endpoint,
         },
         role,
     )

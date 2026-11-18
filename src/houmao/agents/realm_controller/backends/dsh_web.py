@@ -18,7 +18,7 @@ import time
 from typing import Any, cast
 from uuid import uuid4
 
-from houmao.agents.dsh_configuration import DshSetup, prepare_dsh_home
+from houmao.agents.dsh_configuration import DshEffectiveToolParams, prepare_dsh_home
 from houmao.agents.launch_policy import is_supported_dsh_version
 from houmao.agents.model_mapping_policy import resolve_reasoning_mapping
 from houmao.agents.model_selection import ModelConfig
@@ -27,6 +27,11 @@ from houmao.agents.realm_controller.backends.dispatch_control import (
     _dispatch_origin_birth_token,
 )
 from houmao.agents.realm_controller.backends.dsh_acp_driver import _write_private_json
+from houmao.agents.realm_controller.backends.dsh_diagnostics import (
+    dsh_diagnostic_secrets,
+    dsh_diagnostic_tail,
+    sanitize_dsh_diagnostic,
+)
 from houmao.agents.realm_controller.backends.dsh_web_client import DshWebClient, DshWebError
 from houmao.agents.realm_controller.backends.dsh_web_supervisor import _signal_owned
 from houmao.agents.realm_controller.backends.tmux_runtime import (
@@ -50,6 +55,37 @@ from houmao.agents.realm_controller.usage_support import UsageService, write_usa
 
 _STARTUP_TIMEOUT_SECONDS = 45.0
 _SUPERVISOR_STOP_TIMEOUT_SECONDS = 25.0
+
+
+def _startup_failure_detail(root: Path, secret_values: tuple[str, ...]) -> str:
+    """Read the supervisor's exit reason and native log without exposing credentials."""
+
+    try:
+        recorded = json.loads(dsh_diagnostic_tail(root / "exit.json"))
+    except ValueError:
+        recorded = None
+    try:
+        boot = json.loads(dsh_diagnostic_tail(root / "bootstrap.json"))
+    except ValueError:
+        boot = None
+    if isinstance(boot, dict) and isinstance(boot.get("launch_token"), str):
+        secret_values = (*secret_values, boot["launch_token"])
+
+    reason = recorded.get("error") if isinstance(recorded, dict) else None
+    returncode = recorded.get("returncode") if isinstance(recorded, dict) else None
+    diagnostic = "\n".join(
+        filter(
+            None,
+            (
+                reason if isinstance(reason, str) else "",
+                dsh_diagnostic_tail(root / "native-private.log"),
+            ),
+        )
+    )
+    summary = sanitize_dsh_diagnostic(diagnostic, secret_values=secret_values)
+    status = f" (native exit {returncode})" if type(returncode) is int else ""
+    detail = summary or "verified native bootstrap is unavailable"
+    return f"DSH Web startup failed{status}: {detail}"
 
 
 @dataclass
@@ -257,11 +293,11 @@ class DshWebSession:
             return SessionControlResult(
                 status="ok", action="relaunch", detail="Relaunched the owned native Web Host"
             )
-        except (OSError, ValueError, BackendExecutionError, DshWebError) as exc:
+        except (OSError, ValueError, BackendExecutionError) as exc:
             return SessionControlResult(
                 status="error",
                 action="relaunch",
-                detail=f"DSH Web relaunch failed: {getattr(exc, 'code', type(exc).__name__)}",
+                detail=f"DSH Web relaunch failed: {self._diagnostic_detail(exc)}",
             )
         finally:
             self.m_force_cleanup = force_cleanup
@@ -309,7 +345,7 @@ class DshWebSession:
             setup_metadata.get("setup_path"), str
         ):
             raise BackendExecutionError("DSH Web requires an explicitly prepared tool setup")
-        setup = DshSetup.from_file(Path(setup_metadata["setup_path"]))
+        setup = DshEffectiveToolParams.from_file(Path(setup_metadata["setup_path"]))
         prepared = prepare_dsh_home(
             self.plan.home_path,
             setup,
@@ -327,17 +363,30 @@ class DshWebSession:
             skill_roots=(self.plan.home_path / "skills",),
             operator_prompt_mode=setup_metadata.get("operator_prompt_mode", "unattended"),
         )
-        version = subprocess.run(
-            [self.plan.executable, "--version"],
-            env=prepared.environment,
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=15,
-        ).stdout.strip()
-        if not is_supported_dsh_version(version):
+        secret_values = dsh_diagnostic_secrets(prepared.environment, key_name=setup.api_key_env)
+        try:
+            version = subprocess.run(
+                [self.plan.executable, "--version"],
+                env=prepared.environment,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=15,
+            ).stdout.strip()
+        except subprocess.CalledProcessError as exc:
+            diagnostic = sanitize_dsh_diagnostic(exc.stderr or "", secret_values=secret_values)
+            suffix = f": {diagnostic}" if diagnostic else ""
             raise BackendExecutionError(
-                f"DSH Web requires version >=0.2.2-rc.1 (release or rc only; detected {version!r})"
+                f"DSH Web version probe exited with status {exc.returncode}{suffix}"
+            ) from None
+        except (OSError, subprocess.TimeoutExpired, UnicodeError) as exc:
+            raise BackendExecutionError(
+                f"DSH Web version probe failed: {type(exc).__name__}"
+            ) from None
+        if not is_supported_dsh_version(version):
+            detected = sanitize_dsh_diagnostic(version, secret_values=secret_values)
+            raise BackendExecutionError(
+                f"DSH Web requires version >=0.2.2-rc.1 (release or rc only; detected {detected!r})"
             )
         root = self.plan.home_path / "houmao-web" / uuid4().hex
         root.mkdir(parents=True, mode=0o700)
@@ -389,18 +438,6 @@ class DshWebSession:
                 },
             ]
         )
-        if setup_metadata.get("operator_prompt_mode", "unattended") == "unattended":
-            patch.append(
-                {
-                    "id": "permission",
-                    "config": {
-                        "presets": {
-                            "houmao-unattended": {"sandbox": "workspace-write", "approval": "never"}
-                        },
-                        "defaultPreset": "houmao-unattended",
-                    },
-                }
-            )
         patch_path = root / "profile.patch.json"
         descriptor = os.open(patch_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
@@ -470,9 +507,7 @@ class DshWebSession:
             deadline = time.monotonic() + _STARTUP_TIMEOUT_SECONDS
             while not bootstrap.is_file() or not (root / "supervisor.json").is_file():
                 if (root / "exit.json").exists() or time.monotonic() >= deadline:
-                    raise BackendExecutionError(
-                        "DSH Web startup failed; inspect private supervisor diagnostics"
-                    )
+                    raise BackendExecutionError(_startup_failure_detail(root, secret_values))
                 time.sleep(0.05)
             boot = json.loads(bootstrap.read_text())
             process = json.loads((root / "supervisor.json").read_text())
@@ -480,6 +515,7 @@ class DshWebSession:
                 boot["origin"],
                 launch_token=boot["launch_token"],
                 cookie_file=root / "api-credential.json",
+                secret_values=secret_values,
             )
             native_identity = self.m_client.lifecycle_start(
                 mode="exact" if existing and not new_session else "new",
@@ -518,11 +554,13 @@ class DshWebSession:
             if ownership.returncode != 0:
                 raise BackendExecutionError("DSH Web supervisor ownership could not be recorded")
             write_usage_json(root / "owned-state.json", self.state.to_payload())
-        except BaseException:
+        except BaseException as exc:
             self.close_control_connection()
             self._stop_supervisor_file(root / "supervisor.json")
             if created and self._owns_supervisor_session(name, str(control)):
                 kill_tmux_session(session_name=name)
+            if isinstance(exc, DshWebError):
+                raise BackendExecutionError(f"DSH Web startup failed: {exc}") from None
             raise
 
     def _abandoned_operations(
@@ -546,6 +584,24 @@ class DshWebSession:
             == previous.web_identity["native_session_id"]
         )
 
+    def _diagnostic_secrets(self) -> tuple[str, ...]:
+        """Select only credential values from the current private launch plan."""
+
+        if self.m_plan is None:
+            return ()
+        setup = self.m_plan.metadata.get("dsh")
+        name = setup.get("api_key_env") if isinstance(setup, dict) else None
+        return dsh_diagnostic_secrets(
+            self.m_plan.env, key_name=name if isinstance(name, str) else None
+        )
+
+    def _diagnostic_detail(self, error: BaseException) -> str:
+        """Return safe detail from native refusals and client-owned runtime errors."""
+
+        if isinstance(error, BackendExecutionError):
+            return sanitize_dsh_diagnostic(str(error), secret_values=self._diagnostic_secrets())
+        return type(error).__name__
+
     def _client(self) -> DshWebClient:
         """Reconnect authentication only to the exact already owned live host."""
 
@@ -561,7 +617,10 @@ class DshWebSession:
                 raise BackendExecutionError("DSH Web bootstrap origin changed")
             cookie = bootstrap_path.parent / f"api-{uuid4().hex}.json"
             client = DshWebClient.from_connection(
-                state.origin, launch_token=boot["launch_token"], cookie_file=cookie
+                state.origin,
+                launch_token=boot["launch_token"],
+                cookie_file=cookie,
+                secret_values=self._diagnostic_secrets(),
             )
             try:
                 client.state(state.web_identity)
@@ -636,6 +695,7 @@ class DshWebSession:
             state.origin,
             launch_token=payload["launch_token"],
             timeout_seconds=remaining,
+            secret_values=self._diagnostic_secrets(),
         )
         try:
             if self.m_state is not state or state.web_identity != identity:
@@ -877,7 +937,7 @@ class DshWebSession:
                     "outcome": "uncertain",
                 },
             )
-            raise BackendExecutionError(f"DSH Web control failed: {exc.code}") from exc
+            raise
         finally:
             if control is not None:
                 if not control.m_handoff_confirmed.is_set():
@@ -904,7 +964,7 @@ class DshWebSession:
         """Apply an explicit operator override without reapplying birth defaults."""
 
         setup_metadata = cast(dict[str, Any], self.plan.metadata["dsh"])
-        setup = DshSetup.from_file(Path(setup_metadata["setup_path"]))
+        setup = DshEffectiveToolParams.from_file(Path(setup_metadata["setup_path"]))
         selected = config.name or self.observe_web_state().get("model", {}).get("model")
         reasoning = None
         if config.reasoning is not None:
@@ -1029,7 +1089,7 @@ class DshWebSession:
 
             try:
                 self._client().interrupt(identity, turn_start_seq=None, operation_id=operation)
-            except (DshWebError, BackendExecutionError):
+            except BackendExecutionError:
                 pass
             finally:
                 with self.m_operation_lock:
@@ -1050,11 +1110,11 @@ class DshWebSession:
             return self.interrupt_web_turn(
                 self.state.web_identity, turn_start_seq=active["start_sequence"]
             )
-        except (DshWebError, BackendExecutionError) as exc:
+        except BackendExecutionError as exc:
             return SessionControlResult(
                 status="error",
                 action="interrupt",
-                detail=f"Web interruption unavailable: {getattr(exc, 'code', type(exc).__name__)}",
+                detail=f"Web interruption unavailable: {self._diagnostic_detail(exc)}",
             )
 
     def interrupt_web_turn(
@@ -1081,11 +1141,11 @@ class DshWebSession:
                 action="interrupt",
                 detail="Interrupted the captured native Web turn; retained inbox remains visible",
             )
-        except (DshWebError, BackendExecutionError) as exc:
+        except BackendExecutionError as exc:
             return SessionControlResult(
                 status="error",
                 action="interrupt",
-                detail=f"Captured Web interruption refused: {getattr(exc, 'code', type(exc).__name__)}",
+                detail=f"Captured Web interruption refused: {self._diagnostic_detail(exc)}",
             )
 
     def terminate(self) -> SessionControlResult:
@@ -1094,7 +1154,7 @@ class DshWebSession:
         try:
             try:
                 self._client().stop(self.state.web_identity)
-            except (DshWebError, BackendExecutionError):
+            except BackendExecutionError:
                 pass
             finally:
                 self.close_control_connection()
@@ -1115,7 +1175,7 @@ class DshWebSession:
             return SessionControlResult(
                 status="error",
                 action="terminate",
-                detail=f"Web cleanup failed: {type(exc).__name__}",
+                detail=f"Web cleanup failed: {self._diagnostic_detail(exc)}",
             )
 
     def close_control_connection(self) -> None:

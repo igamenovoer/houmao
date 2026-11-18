@@ -217,9 +217,14 @@ def parse_env_file(path: Path) -> dict[str, str]:
 
     if not path.is_file():
         raise LaunchPlanError(f"Missing env file: {path}")
+    return parse_env_text(path.read_text(encoding="utf-8"))
+
+
+def parse_env_text(text: str) -> dict[str, str]:
+    """Parse the checked contents of an environment file as key/value pairs."""
 
     values: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in text.splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue

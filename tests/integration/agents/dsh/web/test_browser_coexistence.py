@@ -326,7 +326,12 @@ def test_browser_model_selection_controls_the_actual_human_request(
 
     host = native_web_factory(
         models=[
-            {"id": name, "context_window": 131072, "max_output_tokens": 128, "reasoning": False}
+            {
+                "id": name,
+                "context_window": 131072,
+                "max_output_tokens": 128,
+                "reasoning_efforts": False,
+            }
             for name in ["controlled", "controlled-browser"]
         ]
     )

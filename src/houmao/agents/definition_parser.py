@@ -11,10 +11,8 @@ from typing import Any, cast
 from houmao.agents.launch_overrides import (
     LaunchDefaults,
     LaunchOverrides,
-    ToolLaunchMetadata,
     parse_launch_defaults,
     parse_launch_overrides,
-    parse_tool_launch_metadata,
 )
 from houmao.agents.launch_policy.models import OperatorPromptMode
 from houmao.agents.mailbox_runtime_models import MailboxesDeclarativeConfig
@@ -27,10 +25,11 @@ from houmao.agents.system_skills import (
     SystemSkillSelectionPolicy,
     parse_system_skill_selection_policy,
 )
+from houmao.agents.tool_params import validate_tool_params
 
 _PRESET_FILE_SUFFIXES: tuple[str, ...] = (".yaml", ".yml")
 _PRESET_TOP_LEVEL_FIELDS: frozenset[str] = frozenset(
-    {"role", "tool", "setup", "skills", "auth", "launch", "mailboxes", "extra"}
+    {"role", "tool", "setup", "skills", "auth", "launch", "tool_params", "mailboxes", "extra"}
 )
 
 
@@ -52,7 +51,7 @@ class ToolAdapter:
     home_selector_env_var: str
     launch_executable: str
     launch_defaults: LaunchDefaults
-    launch_metadata: ToolLaunchMetadata
+    default_tool_params: dict[str, Any]
     env_injection_mode: str
     env_file_in_home: str | None
     setup_destination: str
@@ -121,6 +120,7 @@ class AgentPreset:
     extra: dict[str, Any] = field(default_factory=dict)
     gateway_defaults: BlueprintGatewayDefaults | None = None
     default_agent_name_value: str | None = None
+    tool_params: dict[str, Any] = field(default_factory=dict)
 
     @property
     def config_profile(self) -> str:
@@ -260,17 +260,21 @@ def parse_tool_adapter(path: Path) -> ToolAdapter:
     raw_launch_metadata = launch.get("metadata", {})
     if raw_launch_metadata is not None and not isinstance(raw_launch_metadata, dict):
         raise ValueError(f"{path}: launch.metadata must be a mapping when set")
-    raw_default_tool_params = launch.get("default_tool_params", {})
+    if isinstance(raw_launch_metadata, dict) and "tool_params" in raw_launch_metadata:
+        raise ValueError(
+            f"{path}: launch.metadata.tool_params was removed. Use launch.default_tool_params."
+        )
+    tool = _require_str(payload, "tool", where=str(path))
     launch_defaults = parse_launch_defaults(
-        {
-            "args": _require_str_list(launch, "args", where=str(path)),
-            "tool_params": raw_default_tool_params,
-        },
+        {"args": _require_str_list(launch, "args", where=str(path))},
         source=f"{path}:launch.defaults",
     )
-    launch_metadata = parse_tool_launch_metadata(
-        raw_launch_metadata if raw_launch_metadata is not None else {},
-        source=f"{path}:launch.metadata",
+    default_tool_params = (
+        validate_tool_params(
+            tool, launch["default_tool_params"], source=f"{path}: launch.default_tool_params"
+        )
+        if "default_tool_params" in launch
+        else {}
     )
 
     env_injection = _require_mapping(launch, "env_injection", where=str(path))
@@ -312,12 +316,12 @@ def parse_tool_adapter(path: Path) -> ToolAdapter:
     if skills_mode not in {"symlink", "copy"}:
         raise ValueError(f"{path}: skills_projection.mode must be `symlink` or `copy`")
 
-    adapter = ToolAdapter(
-        tool=_require_str(payload, "tool", where=str(path)),
+    return ToolAdapter(
+        tool=tool,
         home_selector_env_var=_require_str(home_selector, "env_var", where=str(path)),
         launch_executable=_require_str(launch, "executable", where=str(path)),
         launch_defaults=launch_defaults,
-        launch_metadata=launch_metadata,
+        default_tool_params=default_tool_params,
         env_injection_mode=env_injection_mode,
         env_file_in_home=env_file_in_home,
         setup_destination=_require_str(setup_projection, "destination", where=str(path)),
@@ -328,12 +332,6 @@ def parse_tool_adapter(path: Path) -> ToolAdapter:
         auth_env_source=_require_str(auth_env, "source", where=str(path)),
         auth_env_allowlist=_require_str_list(auth_env, "allowlist", where=str(path)),
     )
-    adapter.launch_metadata.validate_requested_tool_params(
-        tool=adapter.tool,
-        tool_params=adapter.launch_defaults.tool_params,
-        source=f"{path}: launch.default_tool_params",
-    )
-    return adapter
 
 
 def parse_agent_preset(path: Path) -> AgentPreset:
@@ -346,7 +344,7 @@ def parse_agent_preset(path: Path) -> AgentPreset:
         joined = ", ".join(unknown_fields)
         raise ValueError(
             f"{resolved_path}: unsupported top-level field(s): {joined}. "
-            "Supported fields: role, tool, setup, skills, auth, launch, mailboxes, extra."
+            "Supported fields: role, tool, setup, skills, auth, launch, tool_params, mailboxes, extra."
         )
 
     preset_name = _preset_name_from_path(resolved_path)
@@ -355,6 +353,11 @@ def parse_agent_preset(path: Path) -> AgentPreset:
     setup = _require_str(payload, "setup", where=str(resolved_path)).strip()
     auth = _optional_non_empty_str(payload.get("auth"), field=f"{resolved_path}:auth")
     launch = _parse_preset_launch(payload.get("launch"), source=str(resolved_path))
+    tool_params = (
+        validate_tool_params(tool, payload["tool_params"], source=f"{resolved_path}: tool_params")
+        if "tool_params" in payload
+        else {}
+    )
     mailboxes = _parse_mailbox(payload.get("mailboxes"), source=str(resolved_path))
     extra = _parse_extra(payload.get("extra"), source=str(resolved_path))
     gateway_defaults = _parse_gateway_defaults(extra=extra, source=str(resolved_path))
@@ -371,6 +374,7 @@ def parse_agent_preset(path: Path) -> AgentPreset:
         mailboxes=mailboxes,
         extra=extra,
         gateway_defaults=gateway_defaults,
+        tool_params=tool_params,
     )
 
 
@@ -434,8 +438,8 @@ def _load_mapping_file(path: Path) -> dict[str, Any]:
     except Exception:
         try:
             loaded = json.loads(text)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"Could not parse {path} as YAML/JSON: {exc}") from exc
+        except (json.JSONDecodeError, RecursionError):
+            raise ValueError(f"Could not parse {path} as YAML/JSON") from None
 
     if loaded is None:
         return {}

@@ -9,8 +9,11 @@ from houmao.project.migration import detect_project_migration_plan
 from .project_easy import easy_instance_group, easy_profile_group, easy_specialist_group
 from .project_mailbox import project_mailbox_group
 from .project_agent_definitions import project_agent_definitions_group
+from .project_definitions import project_presets_group
+from .project_launch_profiles import project_launch_profiles_group
 from .project_migrate import migrate_project_command
 from .project_skills import project_skills_group
+from .project_tools import project_tools_group
 from .project_context import active_project_dir, store_project_command_context
 
 
@@ -109,5 +112,8 @@ def project_status_command() -> None:
 
 project_group.add_command(easy_specialist_group, name="specialist")
 project_group.add_command(easy_profile_group, name="profile")
+easy_instance_group.add_command(project_presets_group)
+easy_instance_group.add_command(project_launch_profiles_group)
+easy_instance_group.add_command(project_tools_group)
 project_group.add_command(easy_instance_group, name="agents")
 project_group.add_command(project_mailbox_group)

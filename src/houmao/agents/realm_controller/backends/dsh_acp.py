@@ -9,11 +9,20 @@ from pathlib import Path
 import sys
 from typing import Any
 
-from houmao.agents.dsh_configuration import DshSetup, load_dsh_home
+from houmao.agents.dsh_configuration import (
+    DshEffectiveToolParams,
+    DshLoadedHome,
+    load_dsh_home,
+    read_dsh_mcp_environment,
+)
 from houmao.agents.model_mapping_policy import resolve_reasoning_mapping
 from houmao.agents.model_selection import ModelConfig
 from houmao.agents.realm_controller.backends.dispatch_control import _dispatch_origin_birth_token
 from houmao.agents.realm_controller.backends.dsh_acp_driver import _write_private_json
+from houmao.agents.realm_controller.backends.dsh_diagnostics import (
+    dsh_diagnostic_secrets,
+    sanitize_dsh_diagnostic,
+)
 from houmao.agents.realm_controller.backends.headless_base import (
     HeadlessInteractiveSession,
     HeadlessSessionState,
@@ -223,11 +232,7 @@ class DshAcpSession(HeadlessInteractiveSession):
             setup = self._plan.metadata.get("dsh")
             if not isinstance(setup, dict) or not isinstance(setup.get("setup_path"), str):
                 raise BackendExecutionError("DSH setup projection is unavailable")
-            current = load_dsh_home(
-                self._plan.home_path,
-                DshSetup.from_file(Path(setup["setup_path"])),
-                self._plan.env,
-            )
+            current = self._read_current_dsh_home(Path(setup["setup_path"]))
             projection_model = ModelConfig(
                 name=current.model[1], reasoning=execution_model.reasoning
             )
@@ -238,6 +243,15 @@ class DshAcpSession(HeadlessInteractiveSession):
                 session_selection=session_selection,
                 execution_model=projection_model,
             )
+        except BackendExecutionError as exc:
+            # Native diagnostics are scrubbed by the driver. This also covers helper-level stderr.
+            setup_metadata = self._plan.metadata.get("dsh")
+            key = setup_metadata.get("api_key_env") if isinstance(setup_metadata, dict) else None
+            secrets = dsh_diagnostic_secrets(
+                self._plan.env, key_name=key if isinstance(key, str) else None
+            )
+            summary = sanitize_dsh_diagnostic(str(exc), secret_values=secrets, max_length=640)
+            raise type(exc)(summary) from None
         finally:
             binding_path = self.m_turn_dir / "dsh-native-binding.json"
             if binding_path.is_file():
@@ -283,11 +297,7 @@ class DshAcpSession(HeadlessInteractiveSession):
         if model is not None and model.reasoning is not None:
             model_name = model.name
             if model_name is None:
-                current = load_dsh_home(
-                    self._plan.home_path,
-                    DshSetup.from_file(Path(setup["setup_path"])),
-                    self._plan.env,
-                )
+                current = self._read_current_dsh_home(Path(setup["setup_path"]))
                 model_name = current.model[1]
             mapping = resolve_reasoning_mapping(
                 tool="dsh",
@@ -302,6 +312,7 @@ class DshAcpSession(HeadlessInteractiveSession):
             "working_directory": str(self._plan.working_directory),
             "home_path": str(self._plan.home_path),
             "setup_path": setup["setup_path"],
+            "credential_env_source": self._plan.metadata.get("env_source_file"),
             "prompt": prompt,
             "session_id": session_id,
             "attempt_id": self.m_turn_dir.name,
@@ -322,3 +333,17 @@ class DshAcpSession(HeadlessInteractiveSession):
             "--input",
             str(input_path),
         ], prompt
+
+    def _read_current_dsh_home(self, path: Path) -> DshLoadedHome:
+        """Read current model and MCP declarations from this session's native home."""
+
+        params = DshEffectiveToolParams.from_file(path)
+        credential_environment = read_dsh_mcp_environment(
+            params, self._plan.metadata.get("env_source_file")
+        )
+        return load_dsh_home(
+            self._plan.home_path,
+            params,
+            self._plan.env,
+            credential_environment=credential_environment,
+        )

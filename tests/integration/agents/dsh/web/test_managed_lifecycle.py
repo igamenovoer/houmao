@@ -30,14 +30,25 @@ from houmao.agents.realm_controller.runtime import (
     RuntimeSessionController,
     _relaunch_backend_session,
 )
+from tests.integration.agents.dsh.test_gateway_passive import bind_fixture_gateway_owner
 from tests.integration.agents.dsh.test_managed_acp import _launch_plan
 
 
-def _web_plan(root: Path, executable: Path, endpoint: str) -> tuple[LaunchPlan, Path]:
+def _web_plan(
+    root: Path, executable: Path, endpoint: str, *, tmux_socket: Path | None = None
+) -> tuple[LaunchPlan, Path]:
     """Prepare an explicit synthetic model and stable managed Web owner."""
 
     root.mkdir(exist_ok=True)
     plan, manifest = _launch_plan(root, executable, endpoint)
+    if tmux_socket is not None:
+        plan = bind_fixture_gateway_owner(
+            plan,
+            root=root,
+            tmux_socket=tmux_socket,
+            agent_id="web-lifecycle-owner",
+            generation="web-lifecycle-generation",
+        )
     plan = replace(
         plan,
         backend="dsh_web",
@@ -157,7 +168,7 @@ def test_explicit_relaunch_restores_exact_history_under_fresh_execution_identity
 
     monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(tmp_path / "registry"))
     endpoint, requests = controlled_messages_server
-    plan, manifest = _web_plan(tmp_path, dsh_executable, endpoint)
+    plan, manifest = _web_plan(tmp_path, dsh_executable, endpoint, tmux_socket=isolated_tmux)
     session = DshWebSession.from_launch_plan(
         launch_plan=plan,
         session_manifest_path=manifest,
@@ -232,7 +243,7 @@ def test_late_completed_controller_cannot_overwrite_an_explicit_native_reset(
 
     monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(tmp_path / "registry"))
     endpoint, requests = controlled_messages_server
-    plan, manifest = _web_plan(tmp_path, dsh_executable, endpoint)
+    plan, manifest = _web_plan(tmp_path, dsh_executable, endpoint, tmux_socket=isolated_tmux)
     session = DshWebSession.from_launch_plan(
         launch_plan=plan,
         session_manifest_path=manifest,
@@ -334,7 +345,7 @@ def test_native_listener_conflict_rolls_back_without_adopting_the_existing_liste
     monkeypatch.setattr(web_module, "_write_private_json", inject_bind_failure)
     monkeypatch.setattr(web_module, "_STARTUP_TIMEOUT_SECONDS", 3)
     name = "HOUMAO-web-conflicting-listener"
-    with pytest.raises(BackendExecutionError, match="startup failed"):
+    with pytest.raises(BackendExecutionError, match="startup failed.*EADDRINUSE"):
         DshWebSession.from_launch_plan(
             launch_plan=plan,
             session_manifest_path=manifest,
