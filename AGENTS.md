@@ -14,7 +14,6 @@ Classify every new file by purpose before placing it: `distro` (part of the rele
 - `examples/`: example deployments such as `examples/writer-team/`.
 - `dockers/`: project-local Docker services (`dev-helpers/`, `email-system/`).
 - `context/`: project context and working notes for agent workflows (plans, issues, summaries, roles, and similar artifacts).
-- `magic-context/`: shared agent instruction and skill assets (see "Python Style (magic-context)" below).
 - `skillset/`: Houmao skillsets — `dev/` contributor skills (not published), `runtime/` a symlink to the packaged runtime skills at `src/houmao/agents/assets/system_skills/`; edit at that source location.
 - `extern/`: external code — `extern/tracked/` for tracked dependencies and `extern/orphan/` for local reference-only checkouts (current examples: `RxPY`, `filestash`, `codex`, `asciinema`, `cypht`, `stalwart`). When a task involves a library, tool, or integration that has a source reference under `extern/orphan/`, inspect that local source checkout first and use it as the primary reference for behavior, APIs, config, and implementation details; fall back to online documentation or web search only after checking the in-repo source, or when you need newer upstream context that is not present locally.
 - `temp` files belong in an ignored scratch tree such as `tmp/<purpose-dir>/`. They may be deleted at any time, must not be tracked by Git, and must not be required by production code, committed tests, or durable workflows.
@@ -53,8 +52,7 @@ Target Python 3.11+ with 4-space indentation and type hints for public logic. Ru
 For Markdown documentation, do not hard-wrap lines purely for width; keep paragraphs as natural long lines and only add line breaks for semantic structure (headings, lists, tables, quotes, or code blocks).
 In chat or conversational responses, prefer plain-text ASCII diagrams to present diagrams. In Markdown output files, use Mermaid fenced code blocks to present diagrams.
 
-### Python Style (magic-context)
-Follow [`magic-context/instructions/python-coding-guide.md`](magic-context/instructions/python-coding-guide.md) for Python implementation details:
+### Python Style
 - Run Python entrypoints, scripts, and tooling via `pixi run` rather than the system `python` executable.
 - Prefer absolute imports; group imports as standard library, third-party, then local modules.
 - Use NumPy-style docstrings for modules, classes, and functions; private helpers (`_name`) still require a brief docstring.

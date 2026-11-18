@@ -1,7 +1,3 @@
-[submodule "magic-context"]
-	path = magic-context
-	url = https://github.com/igamenovoer/magic-context
-	branch = main
 [submodule "extern/tracked/cli-agent-orchestrator"]
 	path = extern/tracked/cli-agent-orchestrator
 	url = https://github.com/imsight-forks/cli-agent-orchestrator.git

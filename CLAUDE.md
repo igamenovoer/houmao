@@ -113,8 +113,6 @@ skills/
 
 ### Python Style
 
-Follow [`magic-context/instructions/python-coding-guide.md`](magic-context/instructions/python-coding-guide.md) for Python implementation details:
-
 - Prefer absolute imports; group imports as standard library, third-party, then local modules.
 - Use NumPy-style docstrings for modules, classes, and functions; private helpers (`_name`) still require a brief docstring.
 - Add module-level docstrings for non-trivial modules.
@@ -131,7 +129,7 @@ For UML-style diagrams in Markdown, prefer Mermaid fenced code blocks that rende
 ## Supporting Directories
 
 - `openspec/` — spec-driven change tracking (proposals, designs, tasks)
-- `context/` and `magic-context/` — agent context packages (roles, skills, instructions)
+- `context/` — agent context packages (plans, issues, instructions)
 - `scripts/` — automation helpers and demo scripts
 - `config/` — legacy configuration assets retained for historical reference; not used by current Houmao workflows
 - `tmp/` — generated runtime homes and artifacts (safe to delete/rebuild; gitignored)
