@@ -52,7 +52,7 @@ The [2026-11-13 qualification](../../../../openspec/changes/archive/2026-11-13-r
 
 ## Self-Hosted Setup
 
-For DSH, select the pinned runtime through [the development preparation guide](../../../../tools/dsh/README.md). The cloud route uses native Messages, while the self-hosted route explicitly uses pi-ai Chat Completions. Add the selected case's `MAX_OUTPUT_TOKENS` and `DSH_REASONING` references to the external env file, alongside its model and context. Reasoning must be JSON `false` or a qualified preset mapping. DSH ignores ambient credentials and requires `--env-file`; no local model or auth JSON is needed for the cloud route. Select `headless` for ACP or raw/manager `tui` for Web. Native-login selection remains rejected.
+For DSH, select the pinned runtime through [the development preparation guide](../../../../tools/dsh/README.md). The cloud route uses native Messages, while the self-hosted route explicitly uses pi-ai Chat Completions. Add the selected case's `MAX_OUTPUT_TOKENS` and `DSH_REASONING` references to the external env file, alongside its model and context. Reasoning must be JSON `false` or a qualified preset mapping. DSH ignores ambient credentials and requires `--env-file`; no local model or auth JSON is needed for the cloud route. Select `web` on the raw or manager fixture surface.
 
 ```bash
 pixi run python scripts/agents/test-fixtures/fixture.py check \

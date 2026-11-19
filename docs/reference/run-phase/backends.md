@@ -12,8 +12,12 @@ BackendKind = Literal[
     "claude_headless",
     "codex_headless",
     "kimi_headless",
+    "kimi_acp",
+    "kimi_web",
+    "dsh_headless",
+    "dsh_web",
     "dsh_acp",
-    "codex_app_server",  # unmaintained: blocked at launch with an explicit error
+    "codex_app_server",
     "cao_rest",
     "houmao_server_rest",
 ]
@@ -29,17 +33,25 @@ flowchart LR
     CH["ClaudeHeadlessSession<br/>claude -p per turn<br/>JSON streaming output<br/>--continue for resume"]
     CX["CodexHeadlessSession<br/>codex exec --json per turn<br/>resume via thread_id"]
     KH["KimiHeadlessSession<br/>kimi -p per turn<br/>--session <session_id>"]
-    DS["DshAcpSession<br/>ACP worker per turn<br/>exact native session resume"]
+    KA["Kimi ACP service<br/>kimi acp over stdio<br/>exact native session binding"]
+    KW["Kimi Web host<br/>browser and native API<br/>exact native session binding"]
+    DS["DSH headless profile<br/>one CLI worker per turn<br/>exact native session resume"]
+    DA["DSH ACP service<br/>one persistent child<br/>exact native session binding"]
+    DW["DSH Web host<br/>verified browser origin and session"]
     LEG["Legacy/internal backends<br/>cao_rest / houmao_server_rest<br/>rejected for new public launches"]
-    UNM["Unmaintained backends<br/>codex_app_server<br/>blocked at launch with an explicit error"]
+    CS["Codex app-server<br/>owned stdio service<br/>exact native thread binding"]
 
     LP -->|local_interactive| LI
     LP -->|claude_headless| CH
     LP -->|codex_headless| CX
     LP -->|kimi_headless| KH
-    LP -->|dsh_acp| DS
+    LP -->|kimi_acp| KA
+    LP -->|kimi_web| KW
+    LP -->|dsh_headless| DS
+    LP -->|dsh_acp| DA
+    LP -->|dsh_web| DW
     LP -.->|legacy manifests only| LEG
-    LP -.->|blocked| UNM
+    LP -->|codex_app_server| CS
 ```
 
 ## Backend reference
@@ -105,7 +117,7 @@ Runs Kimi Code CLI in prompt mode (`kimi -p <prompt> --output-format stream-json
 - **Role injection:** managed-home native `SYSTEM.md`, verified before each fresh or resumed provider start. A promptless build removes a stale file.
 - **Use case:** automated pipelines and non-interactive agent orchestration for Kimi Code.
 
-Managed Kimi support starts at version 2.1.1 and has no upper version limit. Both Kimi backends force `KIMI_CODE_LEGACY_FLAG=0`, reject explicit or project agent profiles that outrank `SYSTEM.md`, and reject any `${identifier}` token in the complete effective prompt before provider launch.
+Managed Kimi headless and TUI support starts at version 2.1.1 and has no upper version limit. Both modes force `KIMI_CODE_LEGACY_FLAG=0`, reject explicit or project agent profiles that outrank `SYSTEM.md`, and reject any `${identifier}` token in the complete effective prompt before provider launch.
 
 #### Kimi validation checklist
 
@@ -117,23 +129,29 @@ Managed Kimi support starts at version 2.1.1 and has no upper version limit. Bot
 - Resume behavior: send a follow-up Kimi prompt from the same working directory and confirm Houmao launches `kimi --session <persisted-session-id> -p <prompt> --output-format stream-json`; changing the working directory should fail explicitly.
 - Local-interactive unattended posture: launch fresh, latest-resume, and exact-resume Kimi TUI sessions with `operator_prompt_mode = unattended`; confirm each effective command contains one strategy-owned `--auto`, the migration picker is suppressed, and no confirmation appears before managed prompts.
 
+### dsh_web
+
+The DSH project default starts an owned native Web host with a private home and loopback listener. Houmao reports the verified browser origin and session ID. The gateway uses structured native operations and tmux supervises the host. [DSH Web](dsh-web.md).
+
+### dsh_headless
+
+The DSH headless backend starts one native `--profile headless` CLI worker per prompt. It writes the task through private stdin, reads JSON events, and resumes the recorded native conversation by exact session ID. The managed supervisor remains available between prompts. [DSH headless launch and configuration](dsh-headless.md), [DSH headless integrations](dsh-headless-integrations.md).
+
 ### dsh_acp
 
-**Source:** `backends/dsh_acp.py`
+DSH service mode keeps one native `--profile acp` process and logical session across managed turns. The manager and authenticated gateway reach the same supervised owner. [DSH ACP service](dsh-service.md).
 
-Runs a qualified DeepSeek Harness ACP worker for each explicit managed headless turn. The worker creates a conversation only for a new selection, resumes an exact saved conversation for continuation, closes native persistence, and exits between turns. The tmux envelope preserves logical managed identity and gateway attachment between workers.
+### kimi_acp
 
-The full composed prompt is a literal native system-prompt section. DSH setup explicitly selects its model adapter, protocol, endpoint reference, capacities, reasoning metadata, skills, and MCP servers in isolated roots. Consumption comes from the qualified raw native journal, separately from ACP context occupancy. Raw keys and terminal parsing remain unsupported; interactive Web support belongs to the succeeding change.
+Kimi Code `2.6.0` uses `kimi acp` over a private persistent connection. The manager, gateway, and AG-UI use the same native session and request admission. [Kimi Code ACP Service](kimi-acp-service.md).
 
-See [DSH Headless Compatibility](dsh-headless.md), [DSH Headless Integrations](dsh-headless-integrations.md), and the [acceptance map](dsh-headless-acceptance.md) for qualified behavior and outstanding evidence.
+### kimi_web
 
-### codex_app_server (unmaintained, blocked)
+Kimi Code `2.6.0` exposes one native conversation to the browser and Houmao's authenticated control path. The owner checks readiness immediately before sending ordinary input and preserves Kimi's queued receipt if the browser wins after that check. [Kimi Web](kimi-web.md).
 
-**Source:** `backends/codex_app_server.py` (retained as dead code)
+### codex_app_server
 
-Runs Codex in app-server mode over a stdio JSON-RPC channel. This backend has not been qualified against current Codex releases and is **unmaintained**: launch requests and retained manifests naming `codex_app_server` are rejected with an explicit unmaintained-backend error, and no Codex process is started.
-
-- **Migration:** use `codex_headless` for structured non-interactive sessions or `local_interactive` for tracked TUI sessions.
+Codex CLI `0.169.0` runs as an owner-private stdio service with one bound native thread. Native handle, terminal status, and partial output use exact turn evidence. [Codex App-Server Service](codex-app-server-service.md).
 - **Role injection (historical):** native developer instructions (same as `codex_headless`).
 
 ### cao_rest (legacy/internal)
@@ -156,7 +174,7 @@ Legacy old-server-backed path. New runtime manifests with this backend are not s
 
 ## Headless backend base class
 
-The maintained native headless backends (`claude_headless`, `codex_headless`, `kimi_headless`, `dsh_acp`) share a common base class: `HeadlessInteractiveSession`.
+The maintained native headless backends (`claude_headless`, `codex_headless`, `kimi_headless`, `dsh_headless`) share the `HeadlessInteractiveSession` base class.
 
 This base class manages:
 
@@ -177,7 +195,7 @@ Tmux-backed relaunch accepts a relaunch-only chat-session selector. It does not 
 | Claude Code | `claude --continue` | `claude --resume <session_id>` | `claude -p --continue <prompt>` | `claude -p --resume <session_id> <prompt>` |
 | Codex | `codex resume --last` | `codex resume <session_id>` | `codex exec resume --last <prompt>` | `codex exec resume <session_id> <prompt>` |
 | Kimi Code | `kimi --continue` | `kimi --session <session_id>` | `kimi --continue -p <prompt>` | `kimi --session <session_id> -p <prompt>` |
-| DSH | Unsupported in the headless change | Unsupported in the headless change | Unsupported; use an exact saved session or explicit new conversation | ACP `session/resume` with the exact saved native identity |
+| DSH | Unsupported | Unsupported | Unsupported | Unsupported |
 
 When the relaunch selector is omitted, the runtime uses `new` and starts a fresh provider chat. When a local interactive relaunch resumes an existing provider chat, bootstrap-message role injection is not replayed into that chat.
 

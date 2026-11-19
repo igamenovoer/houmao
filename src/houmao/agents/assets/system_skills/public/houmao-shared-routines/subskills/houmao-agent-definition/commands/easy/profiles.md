@@ -57,19 +57,16 @@ Project profiles may store:
 - prompt mode: `--prompt-mode unattended|as_is`
 - durable env: repeatable `--env-set NAME=value`
 - mailbox defaults: `--mail-transport filesystem|stalwart`, `--mail-principal-id`, `--mail-address`, `--mail-root`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url`
-- launch posture: `--headless`, `--no-gateway`, `--gateway-port`
+- run mode: `--mode headless|service|tui|web` at `defaults.posture.mode`
+- gateway posture: `--no-gateway`, `--gateway-port`
 - managed prompt header: `--managed-header`, `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled`
 - prompt overlay: `--prompt-overlay-mode append|replace`, `--prompt-overlay-text`, `--prompt-overlay-file`
 - gateway mail-notifier default: `--gateway-mail-notifier-appendix-text`
 - memo seed: `--memo-seed-text`, `--memo-seed-file`, `--memo-seed-dir`
 
-## Default Launch Posture
+## Default Run Mode
 
-When the user does not specify headless or TUI posture, omit `--headless`. An project profile without stored headless posture remains TUI/local-interactive preferred on later launch when the selected tool supports it.
-
-Only persist `--headless` when the user explicitly asks for headless execution or the selected tool/lane is known to require headless. Do not infer headless from `--prompt-mode unattended`, mailbox defaults, gateway defaults, model defaults, or automation-oriented wording.
-
-Kimi-backed profiles are TUI/local-interactive preferred when headless posture is omitted.
+Store `--mode` when the user specifies a supported mode. Omit it to let the project choose the tool default described in [Profile Lanes](../../references/common/profile-lanes.md#run-modes). Kimi-backed profiles default to TUI. A launch-level `--mode` selects a different mode for one instance.
 
 For Kimi-backed profiles, use `--prompt-mode unattended` as the managed no-question control. Do not store raw Kimi `--auto` or `--yolo` launch arguments to achieve unattended TUI behavior.
 
@@ -86,7 +83,7 @@ For Kimi-backed profiles, use `--prompt-mode unattended` as the managed no-quest
 - `--clear-prompt-mode`
 - `--clear-env`
 - `--clear-mailbox`
-- `--clear-headless`
+- `--clear-mode`
 - `--clear-managed-header`
 - `--clear-managed-header-section SECTION`
 - `--clear-managed-header-sections`
@@ -115,8 +112,7 @@ For Kimi-backed profiles, use `--prompt-mode unattended` as the managed no-quest
 - Do not use `internals native-agent launch-dossiers set` for project profile edits.
 - Do not remove and recreate a project profile for ordinary default edits.
 - Do not treat profile creation as launching or mutating a live managed agent.
-- Do not store `--headless` by default for TUI-capable tools.
-- Do not add `--prompt-mode`, `--headless`, or clear flags unless the user explicitly supplied those fields.
+- Apply prompt policy and run mode independently. Include clear flags only for requested fields.
 - Do not add raw Kimi `--auto` or `--yolo` launch flags to profiles; use prompt mode for managed automation.
 - Do not preregister same-root ordinary per-agent mailbox addresses as the default precursor to mailbox-enabled project launch.
 - Do not pass hidden full-model defaults such as model, env, mailbox, memo seed, gateway, or prompt overlay fields to `project.profile` config drafts.

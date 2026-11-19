@@ -100,12 +100,12 @@ def test_agent_definition_kimi_guidance_and_relative_links_resolve() -> None:
     assert '"name":"general-kimi","tool":"kimi"' in skill_text
     assert '"name":"general-kimi","tool":"kimi"' in specialists_text
     assert "`--tool claude|codex|kimi`" in specialists_text
-    assert "Kimi supports TUI/local-interactive launch" in launch_text
-    assert "unattended prompt mode is the supported managed no-question control" in launch_text
+    assert "`--mode headless|service|tui|web`" in launch_text
+    assert "`--prompt-mode unattended` to disable interactive questions" in launch_text
     assert "Do not add raw Kimi `--auto` or `--yolo` launch flags" in launch_text
-    assert "Kimi-backed profiles are TUI/local-interactive preferred" in profiles_text
+    assert "Kimi-backed profiles default to TUI" in profiles_text
     assert "use `--prompt-mode unattended` as the managed no-question control" in profiles_text
-    assert "Kimi is TUI/local-interactive capable" in fast_forward_text
+    assert "Claude, Codex, and Kimi default to `tui`. DSH defaults to `web`" in fast_forward_text
     assert "should not be replaced with raw `--auto` or `--yolo` launch flags" in (
         fast_forward_text
     )

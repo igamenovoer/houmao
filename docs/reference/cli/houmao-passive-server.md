@@ -124,18 +124,44 @@ All maintained agent routes live under `/houmao/`. Root health is available at `
 | `GET` | `/houmao/agents` | List discovered registry-backed agents. |
 | `GET` | `/houmao/agents/{agent_ref}` | Resolve one discovered agent by id or unambiguous name. |
 
-### Passive TUI Observation
+### Passive Agent Observation
 
-These routes expose passive-server's local observer for discovered tmux-backed agents.
+These routes select a native observation source from the agent's recorded mode and verified surface. Headless state reads active worker and exit evidence from the owner. Web state uses the bound native browser session. Service state uses native connection and request evidence supplied by the service adapter. Only a verified terminal UI supplies terminal diagnostics.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/houmao/agents/{agent_ref}/state` | Compact passive TUI state. |
-| `GET` | `/houmao/agents/{agent_ref}/state/detail` | Detailed passive TUI state with diagnostics and parsed surface data. |
-| `GET` | `/houmao/agents/{agent_ref}/history` | Recent passive TUI state history. |
-| `GET` | `/houmao/agents/{agent_ref}/managed-state` | Managed-agent-compatible state projection. |
-| `GET` | `/houmao/agents/{agent_ref}/managed-state/detail` | Managed-agent-compatible detailed state projection. |
-| `GET` | `/houmao/agents/{agent_ref}/managed-history` | Managed-agent-compatible history projection. |
+| `GET` | `/houmao/agents/{agent_ref}/state` | Compact observation for the recorded mode. |
+| `GET` | `/houmao/agents/{agent_ref}/state/detail` | Canonical raw TUI detail or structured headless, service, or Web detail. |
+| `GET` | `/houmao/agents/{agent_ref}/history` | Recent native Web or TUI observations. |
+| `GET` | `/houmao/agents/{agent_ref}/managed-state` | Curated managed-agent summary with operation capabilities and available control evidence. |
+| `GET` | `/houmao/agents/{agent_ref}/managed-state/detail` | Detail discriminated by `detail.transport`. The TUI detail links to the raw route. |
+| `GET` | `/houmao/agents/{agent_ref}/managed-history` | History from a supported mode-specific source. |
+
+In a managed summary, `capabilities.operations` lists the available operation kinds, while `control` reports their current evidence. A verified TUI can expose `send_keys`. Headless, Web, and service capabilities omit it. An operation can be supported while the current agent is busy or its native connection is unavailable.
+
+A service response can report a live owner and an unavailable native connection at the same time. The following excerpt shows a stale service observation after a connection loss. Only a fresh, available native observation can report prompt readiness.
+
+```json
+{
+  "availability": "unavailable",
+  "identity": {
+    "mode": "service",
+    "native_surface": null
+  },
+  "control": {
+    "source": "service_native",
+    "freshness": "stale",
+    "owner_available": true,
+    "connection_ready": false,
+    "can_accept_prompt_now": false,
+    "native_session_id": "thread-last-known",
+    "last_request_id": "request-last-known",
+    "last_outcome": "uncertain"
+  }
+}
+```
+
+If the source has not initialized, the route returns `503`. An observation with missing completion evidence reports an uncertain outcome. A known native Web session can still be observed after gateway detach through its verified owner.
 
 ### Gateway Proxy
 

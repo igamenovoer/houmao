@@ -1,6 +1,6 @@
 # Managed-Agent API
 
-`/houmao/agents/*` is the maintained Houmao-owned control and inspection surface for managed agents. It unifies TUI-backed managed agents discovered from the shared registry and passive-server-managed native headless agents under one identity namespace. The route family keeps coarse orchestration state, transport-specific detail, request submission, gateway proxying, pair-owned mailbox follow-up, and transport-neutral stop behavior on the maintained server API, while durable headless turn artifacts stay on the headless `/turns/*` routes.
+`/houmao/agents/*` exposes discovery, observation, and control for managed agents. The shared registry records each agent's run mode and backend. Observation uses the evidence available to the owner in that mode. Durable headless turn artifacts remain available through `/turns/*`.
 
 `houmao-passive-server` is the maintained shared coordination plane for this surface. An attached healthy gateway becomes the live per-agent control plane behind that same public API. Callers do not switch route families when a gateway attaches; passive-server keeps the public contracts stable and changes only the backing control path.
 
@@ -10,8 +10,9 @@ For the maintained server boundary that exposes these routes, use [houmao-passiv
 
 | Surface | Routes | Applies to | Notes |
 | --- | --- | --- | --- |
-| Discovery and summary state | `GET /houmao/agents`, `GET /houmao/agents/{agent_ref}`, `GET /houmao/agents/{agent_ref}/state`, `GET /houmao/agents/{agent_ref}/history` | TUI and headless | Summary state stays coarse and transport-neutral; history stays bounded and coarse |
-| Detailed inspection | `GET /houmao/agents/{agent_ref}/state/detail` | TUI and headless | Returns one shared envelope with a transport-discriminated detail payload |
+| Discovery and curated state | `GET /houmao/agents`, `GET /houmao/agents/{agent_ref}`, `GET /houmao/agents/{agent_ref}/managed-state`, `GET /houmao/agents/{agent_ref}/managed-history` | Managed agents with verified observations | Returns the operating mode, shared posture, and bounded history where supported |
+| Curated detail | `GET /houmao/agents/{agent_ref}/managed-state/detail` | Managed agents with verified observations | Returns a common envelope with mode-specific detail |
+| Mode-specific observation | `GET /houmao/agents/{agent_ref}/state`, `GET /houmao/agents/{agent_ref}/state/detail`, `GET /houmao/agents/{agent_ref}/history` | According to live capability | Use raw TUI state only for verified terminal surfaces. Web state uses the bound browser session. |
 | Transport-neutral request submission | `POST /houmao/agents/{agent_ref}/requests` | TUI and headless | Official prompt and interrupt surface across both transports |
 | Finalized usage | `GET /houmao/agents/{agent_ref}/usage` | Headless and qualified TUI sources | Returns stable accounting records, capability/collection health, and a resumable cursor; active turns are excluded |
 | Gateway proxy, direct prompt control, raw gateway-owned TUI inspection, gateway-mediated requests, headless session control, and notifier control | `GET /houmao/agents/{agent_ref}/gateway`, `POST /houmao/agents/{agent_ref}/gateway/attach`, `POST /houmao/agents/{agent_ref}/gateway/detach`, `POST /houmao/agents/{agent_ref}/gateway/control/prompt`, `GET /houmao/agents/{agent_ref}/gateway/control/headless/state`, `POST /houmao/agents/{agent_ref}/gateway/control/headless/next-prompt-session`, `GET /houmao/agents/{agent_ref}/gateway/tui/state`, `GET /houmao/agents/{agent_ref}/gateway/tui/history`, `POST /houmao/agents/{agent_ref}/gateway/tui/note-prompt`, `POST /houmao/agents/{agent_ref}/gateway/requests`, `GET|PUT|DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier` | TUI and headless | `POST /gateway/control/prompt` is immediate "send now or refuse now" control; `POST /gateway/requests` remains the queued gateway surface; `gateway/control/headless/*` is headless only; passive-server returns not-implemented for remote gateway attach/detach because those remain same-host manager operations |
@@ -31,11 +32,11 @@ Supported aliases include:
 - `agent_name`
 - `agent_id`
 
-Alias resolution applies consistently across `GET /houmao/agents/{agent_ref}`, `/state`, `/state/detail`, `/history`, `/requests`, `/stop`, `/gateway/*`, and `/mail/*`. Ambiguous aliases are rejected explicitly instead of silently selecting one managed agent.
+Alias resolution applies consistently across `GET /houmao/agents/{agent_ref}`, `/managed-state`, `/managed-state/detail`, `/managed-history`, the raw observation routes, `/requests`, `/stop`, `/gateway/*`, and `/mail/*`. Ambiguous aliases return a conflict.
 
 ## Summary State
 
-`GET /houmao/agents/{agent_ref}/state` is the coarse shared state surface. It is meant for orchestration, availability checks, and quick inspection without transport-specific parsing.
+Use `GET /houmao/agents/{agent_ref}/managed-state` for orchestration, availability checks, and quick inspection across run modes.
 
 The response includes:
 
@@ -44,6 +45,7 @@ The response includes:
 - `turn`: shared current-turn posture and optional active turn id
 - `last_turn`: shared coarse result summary
 - `diagnostics`: structured availability or recovery details
+- `control` and `capabilities` when the current owner supplies managed control evidence
 - `mailbox`: redacted mailbox posture when the managed agent has mailbox support
 - `gateway`: redacted gateway posture when gateway capability is known
 
@@ -53,12 +55,11 @@ Representative summary behavior:
 - Headless agents expose coarse turn posture without requiring callers to read raw turn artifacts.
 - When an attached gateway is healthy, summary and detail projection prefer the gateway HTTP read surface.
 - When no live gateway is attached, or when direct fallback is the only safe option, the same routes continue projecting from passive observation or runtime state.
-- `/history` stays bounded and coarse for both transports; it is not a second durable per-turn store.
-- TUI-backed `/history` is derived from bounded in-memory recent transitions, while headless `/history` is derived from persisted passive-server-owned turn records.
+- `/managed-history` returns a bounded posture history where supported. Durable headless events remain on `/turns/*`.
 
 ## Detailed State
 
-`GET /houmao/agents/{agent_ref}/state/detail` returns one shared envelope:
+`GET /houmao/agents/{agent_ref}/managed-state/detail` returns the shared envelope with these fields.
 
 - `tracked_agent_id`
 - `identity`
@@ -67,9 +68,9 @@ Representative summary behavior:
 
 `detail` is discriminated by `transport`.
 
-### TUI detail
+### TUI Detail
 
-TUI detail is a curated projection, not a second raw terminal contract. It includes:
+The curated TUI detail includes these fields.
 
 - `terminal_id`
 - `canonical_terminal_state_route`
@@ -84,7 +85,7 @@ The maintained raw passive TUI inspection surface is exposed through `/houmao/ag
 
 For attached eligible TUI sessions, the live tracked state served here is gateway-owned and projected back through passive-server. When no live gateway owns that session, passive-server falls back to its registry-driven observer.
 
-### Headless detail
+### Headless Detail
 
 Headless detail is execution-centric and intentionally does not fabricate TUI parser concepts. It includes:
 
@@ -113,6 +114,12 @@ This route is the canonical rich inspection surface for managed headless agents 
 `tmux_session_live` is diagnostic only. Terminal headless status, readiness for the next managed prompt, and last-turn timestamps reconcile from authoritative active-turn state plus durable turn artifacts such as the persisted `exitcode` file. `last_turn_completion_source` remains optional diagnostic metadata when it can be recovered.
 
 For attached healthy headless gateways, passive-server reads live control posture from the gateway HTTP surface before building this response. Durable turn records and turn reconciliation still remain passive-server-owned when passive-server owns the headless agent.
+
+### Web and Service Detail
+
+Web detail reports availability, readiness, and the latest native turn for the verified browser session. The observer can use the owner-bound native session directly when the gateway is detached. Public discovery includes the browser handoff URL without private control credentials.
+
+The service detail schema reports supervisor liveness, native connection state, and request correlation separately. Read `capabilities.operations` to determine what the selected adapter supports.
 
 ## Transport-Neutral Request Submission
 
@@ -202,6 +209,15 @@ Important attach behavior:
 - explicit attach resolves the group-level `agents single --agent-name <friendly-name>` or `agents single --agent-id <authoritative-id>` selector through maintained manager targeting rules
 
 `POST /houmao/agents/{agent_ref}/gateway/detach` is likewise not a remote passive-server action. Use local manager detach on the owning host.
+
+The manager uses the verified owner route for lifecycle operations during a gateway outage. An exact managed ID selects the same saved execution context for inspection, stop, and relaunch.
+
+```bash
+houmao-mgr agents single --agent-id "$AGENT_ID" gateway detach
+houmao-mgr agents single --agent-id "$AGENT_ID" state
+houmao-mgr agents single --agent-id "$AGENT_ID" stop
+houmao-mgr agents single --agent-id "$AGENT_ID" relaunch
+```
 
 `GET /houmao/agents/{agent_ref}/gateway/tui/state` proxies the raw `HoumaoTerminalStateResponse` exposed by the live gateway tracker for that managed agent.
 

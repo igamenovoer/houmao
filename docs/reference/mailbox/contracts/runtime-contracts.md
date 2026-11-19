@@ -51,7 +51,7 @@ A persisted offline slot looks like this:
 
 A remote offline binding uses `transport: registry`, a registry URL, and a protected credential reference. It contains no registry-host mailbox path for the client to open. The offline binding ID is the confirmed registration ID. An online binding records its provider and protected credential reference separately from the owning agent ID.
 
-The current persisted formats are `launch_plan.v2`, `session_manifest.v5` (`schema_version: 5`), and managed registry record v4. Unsupported pre-change formats require an explicit operator backup and rebootstrap. Loading them never generates missing identity, resets mailbox history, or translates the former single mailbox union.
+The current persisted formats are `launch_plan.v3`, `session_manifest.v6` (`schema_version: 6`), and managed registry record v5. Stop agents with their owning release and start fresh agents on the new schema. The separate offline mail store retains its durable membership and message history.
 
 ## Atomic Binding Authority
 

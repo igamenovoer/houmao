@@ -1,4 +1,4 @@
-# DSH Headless Acceptance Map
+# DSH RC2 Per-Turn ACP Acceptance Map
 
 This map tracks all 61 delta scenarios in `dsh-01-add-acp-headless-backend`. Each row identifies executed evidence and its limits. Hermetic and controlled-native results are distinct from real-provider qualification. The explicitly selected DeepSeek Messages manager lane now passes tool completion, exact resume, usage, interruption, and two-home isolation. Real self-hosted qualification remains `not_run` because no compatible deployment/model was selected.
 
@@ -12,7 +12,7 @@ After the Web implementation, the combined regression gate passed 4,150 unit tes
 - **Managed:** Runtime, gateway, manager, passive-server, and plugin integration qualification.
 - **Live:** Explicit DeepSeek provider smoke; self-hosted lanes require their own configured prerequisites.
 
-The [compatibility reference](dsh-headless.md) records source/build identity, configuration boundaries, and unsupported operations. The [integration reference](dsh-headless-integrations.md) describes gateway, passive-server, mailbox, and CCCC paths. All native tmux tests use explicit isolated sockets after clearing inherited `TMUX` and `TMUX_PANE`; cleanup targets only their owned test server.
+The test and command names below refer to the RC2 implementation. The [current headless reference](dsh-headless.md) describes the native one-shot CLI. The historical native tmux tests cleared inherited `TMUX` and `TMUX_PANE` and confined cleanup to their private sockets.
 
 ## Evidence Index
 

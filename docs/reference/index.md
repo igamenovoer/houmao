@@ -28,7 +28,11 @@
 - [Native Home and Common-Plugin Refresh](run-phase/native-refresh.md): External update, passive freshness checks, native automatic updates, refresh effects, and the separate relaunch boundary.
 - [Native Refresh Compatibility](run-phase/native-refresh-compatibility.md): Best-effort Kimi Code, Codex, and Claude Code evidence, managed transport limits, and common-plugin freshness coverage.
 - [Native Refresh Acceptance](run-phase/native-refresh-acceptance.md): Scenario-level evidence for all 112 native-home/common-refresh, CLI, DSH headless, and passive-proxy delta scenarios.
-- [DSH Headless Compatibility](run-phase/dsh-headless.md): Qualified ACP runtime, explicit setup, native prompt projection, and lifecycle limits.
+- [DSH Headless](run-phase/dsh-headless.md) covers the one-shot CLI, exact continuation, and durable turn output.
+- [DSH ACP Service](run-phase/dsh-service.md) covers the persistent owner, request admission, and lifecycle.
+- [Kimi Code ACP Service](run-phase/kimi-acp-service.md) covers persistent stdio control, permissions, and exact continuation.
+- [Kimi Web](run-phase/kimi-web.md) covers browser access, readiness checks, and shared native conversation control.
+- [Codex App-Server Service](run-phase/codex-app-server-service.md) covers private stdio, native turn status, and exact thread resume.
 - [DSH Headless Integrations](run-phase/dsh-headless-integrations.md): Gateway, passive-server, mailbox, and owner-bound plugin behavior.
 - [DSH Headless Acceptance](run-phase/dsh-headless-acceptance.md): Scenario evidence and remaining qualification gates.
 - [DSH Web Compatibility](run-phase/dsh-web.md): Browser entry, shared-session authority, admission, and lifecycle boundaries.

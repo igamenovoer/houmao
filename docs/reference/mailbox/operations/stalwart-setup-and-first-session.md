@@ -98,11 +98,11 @@ An operator explicitly authorized to create Stalwart accounts can still use a pr
 
 ```bash
 pixi run houmao-mgr project profile create \
-  --name research-online --specialist worker --agent-name research --headless \
+  --name research-online --specialist worker --agent-name research --mode headless \
   --mail-transport stalwart --mail-address research@example.test \
   --mail-jmap-url http://127.0.0.1:10080/.well-known/jmap \
   --mail-management-url http://127.0.0.1:10080/api
-pixi run houmao-mgr project agents launch --profile research-online --name research --headless
+pixi run houmao-mgr project agents launch --profile research-online --name research --mode headless
 ```
 
 A declaration can independently populate both slots:

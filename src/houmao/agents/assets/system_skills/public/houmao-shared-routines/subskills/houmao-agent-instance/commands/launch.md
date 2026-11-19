@@ -24,19 +24,15 @@ Use this action only when the user wants to create one new managed-agent instanc
 3. Recover the required launch inputs from the current prompt first and recent chat context second when they were stated explicitly.
 4. If the source lane or required target inputs are still missing, ask the user in Markdown before proceeding. Prefer a compact table that shows the intended lane and exactly which required fields are still missing.
 5. If the request depends on direct mailbox flags such as `--mail-transport`, `--mail-root`, or `--mail-account-dir`, stop and explain that manual mailbox-enabled launch is outside this skill's scope.
-6. Build the correct direct launch command, omitting `--headless` when launch posture is unspecified and TUI/local-interactive launch is supported.
+6. Build the correct direct launch command with `--mode` for a requested override only.
 7. Run the direct command only after required inputs are explicit and conflicts are resolved.
-8. Report the managed-agent identity and launch result returned by the command.
+8. Report the managed-agent identity and the verified terminal or browser handoff. For headless and service, report the managed control reference.
 
 
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
-## Default Launch Posture
+## Default Run Mode
 
-When the user does not specify headless or TUI posture, prefer TUI/local-interactive launch when the selected tool or launch lane supports it.
-
-Only add a one-shot `--headless` flag when the user explicitly asks for headless execution or the selected tool/lane is known to require headless. Do not infer headless from unattended prompt mode, gateway attachment, mailbox defaults, output rendering, or automation-oriented wording.
-
-For Kimi automation, rely on stored `launch.prompt_mode: unattended` or project/profile prompt-mode controls. Do not add raw Kimi `--auto` or `--yolo` launch arguments, and do not force `--headless` just because Kimi should run without approval prompts.
+Launch uses the stored profile mode when supplied. See [Run Modes](../../houmao-agent-definition/references/common/profile-lanes.md#run-modes) for defaults and available selections. Set prompt policy and gateway options independently of run mode.
 
 ## Command Selection
 
@@ -59,7 +55,7 @@ Common optional inputs:
 - `--name`
 - `--auth`
 - `--session-name`
-- `--headless`
+- `--mode headless|service|tui|web`
 - `--workdir`
 - `--managed-header-section SECTION=enabled|disabled`
 - `--provider` only when it matches the provider resolved from the stored launch profile
@@ -69,7 +65,7 @@ Behavior note:
 - `--profile` and `--specialist` are mutually exclusive.
 - The stored project profile resolves the source specialist and contributes birth-time defaults before direct CLI overrides.
 - Stored project-profile defaults may already include gateway posture, prompt overlay, gateway mail-notifier appendix text, durable env records, and declared mailbox configuration.
-- Preserve explicit stored launch-profile posture, but do not add a one-shot `--headless` override unless the user explicitly asks for it or the selected tool/lane requires it.
+- Preserve the stored mode, including `web` or `service`, by omitting the one-shot `--mode` flag.
 - Profile-owned mail-notifier appendix text is seeded into runtime gateway notifier state during launch, but it does not enable notifier polling by itself.
 - Do not add one-shot background gateway overrides unless the user explicitly asks for background gateway execution. Stored launch-profile gateway posture owns launch-time defaults when present.
 - `--managed-header-section` is a one-shot section override and does not rewrite stored launch-profile section policy.
@@ -96,7 +92,7 @@ Common optional inputs:
 
 - `--auth`
 - `--session-name`
-- `--headless`
+- `--mode headless|service|tui|web`
 - `--workdir`
 - `--env-set NAME=value|NAME`
 - `--managed-header-section SECTION=enabled|disabled`
@@ -104,12 +100,12 @@ Common optional inputs:
 Behavior note:
 
 - `--workdir` changes only the launched agent runtime cwd.
-- When launch posture is unspecified and the selected specialist's tool supports TUI/local-interactive launch, omit `--headless`.
+- Omit `--mode` to use the selected specialist's tool default.
 - The selected easy-project overlay and specialist source stay authoritative even when `--workdir` points outside that project.
 - `--managed-header-section` is a one-shot section override for the launched instance.
 - Do not add background gateway flags unless the user explicitly asks for background gateway execution; defer detailed specialist-backed launch-time gateway behavior to `houmao-shared-routines->houmao-agent-definition`.
 
-If the selected specialist is known to use Kimi, unattended prompt mode is compatible with omitted `--headless`; Houmao will delegate to the maintained Kimi TUI no-question posture.
+For Kimi TUI automation, use unattended prompt mode to disable native approval or user-question prompts.
 
 ## Guardrails
 
@@ -123,7 +119,6 @@ If the selected specialist is known to use Kimi, unattended prompt mode is compa
 - Do not include direct mailbox launch flags in this skill; manual mailbox-enabled launch is out of scope here.
 - Do not reject the launch-profile lane just because the stored profile carries mailbox or gateway defaults.
 - Do not treat prompt submission or gateway attach as part of launch completion for this skill.
-- Do not add `--headless` by default for TUI-capable tools or because prompt mode is unattended.
 - Do not add raw Kimi `--auto` or `--yolo` launch flags to achieve managed unattended mode.
 - Do not invent alternate launch command shapes; use the direct scoped commands shown in this action and maintained project/profile guidance.
 - Do not add a background gateway override unless the user explicitly asks for detached background gateway execution.

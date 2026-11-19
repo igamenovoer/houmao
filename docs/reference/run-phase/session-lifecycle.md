@@ -6,6 +6,38 @@ The session lifecycle covers starting, interacting with, resuming, and stopping 
 
 On the skill surface, a human operator uses `$houmao-admin-entrypoint agent-instance ...` with an explicit target. A managed agent uses `$houmao-agent-entrypoint agent-instance ...` after self-identity verification; self-scoped follow-up defaults to verified self. Both entrypoints delegate to the parent-scoped `houmao-shared-routines->houmao-agent-instance` child.
 
+## Run Modes and Handoff
+
+`houmao-mgr project agents launch --mode <mode>` selects a tool's native entrypoint. The manager uses the direct selection, the stored `defaults.posture.mode`, or the project default, in that order. Prompt policy (`unattended` or `as_is`), gateway attachment, and execution owner are independent choices.
+
+| Mode | Process and interface | Handoff |
+| --- | --- | --- |
+| `headless` | One native CLI worker per prompt with logical session continuation | Manager and gateway control |
+| `service` | Persistent native protocol process | Manager and gateway control |
+| `tui` | Native terminal UI | Verified tmux terminal target |
+| `web` | Native browser application | Token-free browser origin and bound native session ID |
+
+Claude, Codex, and Kimi currently support `headless` and `tui`, with `tui` the project default. DSH currently defaults to `web` and rejects other modes until their adapters qualify. Passive headless birth requires `headless`. The low-level Codex runtime start defaults to `headless` when both mode and backend are omitted.
+
+Launch and inspection report `tool`, `mode`, `backend`, and `native_surface`. A terminal launch from a script includes a tmux attach command. A Web launch reports the native browser origin and session ID. For a routed launch, browser origins and tmux targets refer to the execution owner. Service and headless supervision panes are available for diagnostics. Relaunch selects the saved mode and backend even if the profile has changed.
+
+The launch result and agent identity share these fields. The sample uses a representative local origin and native session ID.
+
+```json
+{
+  "tool": "dsh",
+  "mode": "web",
+  "backend": "dsh_web",
+  "native_surface": {
+    "kind": "web",
+    "origin": "http://127.0.0.1:36733",
+    "native_session_id": "session-example"
+  }
+}
+```
+
+The current launch plan uses schema 3, the session manifest uses schema 6, the registry record uses schema 5, and the execution locator uses schema 2. Stop RC2 agents with RC2 before switching to the current runtime, then start fresh agents. Replace `defaults.posture.headless` with an explicit mode or omit it to use the project default.
+
 ## RuntimeSessionController
 
 `RuntimeSessionController` is the primary entry point for managing a live agent session. It is constructed via one of two class-level factory functions: `start_runtime_session` (for new sessions) or `resume_runtime_session` (for previously persisted sessions).
@@ -21,6 +53,7 @@ def start_runtime_session(
     role_name: str | None,
     runtime_root: Path | None = None,
     backend: BackendKind | None = None,
+    mode: RunMode | None = None,
     working_directory: Path | None = None,
     api_base_url: str = "http://localhost:9889",
     cao_profile_store_dir: Path | None = None,

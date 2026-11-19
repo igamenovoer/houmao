@@ -123,7 +123,7 @@ houmao-mgr project specialist create \
 
 
 
-Kimi specialists follow the same easy unattended default as Claude and Codex: by default Houmao persists `launch.prompt_mode: unattended`, and `--no-unattended` remains the explicit opt-out to `as_is`. Kimi specialists can use the TUI/local-interactive path when headless posture is omitted, and still honor explicit `--headless` for prompt-mode launch.
+Kimi specialists follow the same easy unattended default as Claude and Codex: by default Houmao persists `launch.prompt_mode: unattended`, and `--no-unattended` remains the explicit opt-out to `as_is`. Kimi specialists can use the TUI/local-interactive path by default and use their native one-shot CLI with `--mode headless`.
 
 
 ```bash
@@ -220,7 +220,7 @@ Key options:
 | `--no-system-skills` | False | Shorthand for profile policy `none`, disabling current Houmao-owned system skills for future launches from this profile. |
 | `--mail-transport` | None | Optional declarative mailbox transport (`filesystem` or `stalwart`). |
 | `--mail-root`, `--mail-principal-id`, `--mail-address`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url` | None | Optional declarative mailbox identity and endpoints (Stalwart-only fields apply only when `--mail-transport stalwart`). |
-| `--headless` | False | Persist headless launch as the default posture. |
+| `--mode {headless\|service\|tui\|web}` | Omitted | Persist a native run mode under `defaults.posture.mode`. |
 | `--no-gateway` | False | Persist gateway auto-attach disabled. |
 | `--gateway-port` | None | Persist one fixed loopback gateway port for launches from this profile. |
 | `--managed-header`, `--no-managed-header` | `inherit` | Store managed prompt-header policy for launches from this profile. |
@@ -299,7 +299,7 @@ Key options:
 | `--profile` | One of these required | Project profile name to launch from. Mutually exclusive with `--specialist`. |
 | `--name` | Required (or supplied by profile) | Managed-agent instance name. Optional only when `--profile` is used and the selected profile stores a default managed-agent name. |
 | `--workdir` | None | Optional runtime working directory override for the launched agent session. |
-| `--headless` | False | Launch in detached/background mode. |
+| `--mode` | Profile or tool default | Select `headless`, `service`, `tui`, or `web` for this launch. |
 | `--no-gateway` | False | Skip the default launch-time gateway attach for this instance. |
 | `--gateway-port` | Auto | Request one fixed loopback gateway listener port for this launch. |
 | `--gateway-tui-watch-poll-interval-seconds` | Default | One-shot gateway-owned TUI watch poll interval override. |
@@ -318,7 +318,7 @@ Key options:
 | `--mail-root` | None | Shared filesystem mailbox root (when using mailbox). |
 | `--mail-account-dir` | None | Optional private filesystem mailbox directory to symlink into the shared root. |
 
-Kimi specialists and Kimi-backed profiles can launch through the TUI/local-interactive path when `--headless` is omitted, and still honor explicit `--headless` for prompt-mode launch.
+Kimi specialists and Kimi-backed profiles can launch through the TUI/local-interactive path by default and use their native one-shot CLI with `--mode headless`.
 
 `--workdir` changes only the launched agent cwd. The selected project overlay and stored specialist remain the launch source for recipe resolution plus overlay-local runtime, managed-agent memory, and mailbox defaults.
 

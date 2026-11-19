@@ -29,3 +29,14 @@ Houmao has two reusable birth-time profile lanes. They share some storage and pr
 - Use `set` for ordinary patch edits.
 - Use create with `--yes` only when the user intends same-name replacement.
 - Do not replace a project profile with a launch dossier, or the reverse.
+
+## Run Modes
+
+Use `--mode headless` for one native CLI process per prompt, `--mode service` for a persistent request protocol, `--mode tui` for a terminal UI, or `--mode web` for a native browser UI. Profile authoring stores the choice in `defaults.posture.mode`. Running a profile with an explicit `--mode` overrides it only for the new instance.
+
+| Tool | Project Default | Qualified Modes |
+| --- | --- | --- |
+| Claude, Codex, Kimi | `tui` | `headless`, `tui` |
+| DSH | `web` | `web` |
+
+Report the manager's unsupported selection diagnostic when the requested mode is unavailable. Launch reports identify the actual terminal target or token-free browser origin and bound session. Headless and service use managed control through the manager or the gateway. Select unattended or `as_is` prompt policy independently.

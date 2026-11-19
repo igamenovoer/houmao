@@ -31,7 +31,7 @@ Launch the prepared specialist. Replace `worker` with a specialist registered in
 
 ```bash
 pixi run houmao-mgr project agents launch \
-  --specialist worker --name research --headless
+  --specialist worker --name research --mode headless
 ```
 
 Record the returned `agent_id` as `agent_id` in your shell. A friendly name is convenient metadata; use the stable ID when names are ambiguous. The default allocates a new UUID. Explicit `--agent-id-mode name-hash` is available when you deliberately manage name uniqueness yourself.

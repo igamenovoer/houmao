@@ -59,7 +59,7 @@ The runtime session root itself can live anywhere else on disk. The registry sto
 
 External records are different: they do not point to local runtime session roots. They store local locator metadata for a remote `houmao-passive-server` plus a cached identity snapshot for offline listing.
 
-Execution locators use strict `schema_version: 1` and `kind: executor_managed` with `agent_id`, `agent_name`, `profile_name`, and `binding`. The packaged schema is `src/houmao/execution/schemas/executor_agent_locator.v1.schema.json`. The binding qualifies observed owner/context identity, controller scope, and owner-side roots. Its foreign paths remain metadata; the operator does not open them locally or reinterpret an owner-loopback endpoint on its own host. Locators contain no manifest copies, queues, credentials, or mutable runtime presence.
+Execution locators use strict `schema_version: 2` and `kind: executor_managed` with `agent_id`, `agent_name`, `tool`, `mode`, `backend`, `profile_name`, and `binding`. The packaged schema is `src/houmao/execution/schemas/executor_agent_locator.v2.schema.json`. The binding qualifies observed owner context, controller scope, and owner-side roots. Its paths and loopback addresses refer to the execution owner.
 
 Owner lifecycle records can carry top-level `execution_binding`; their manifests retain the same binding under `runtime.execution_binding`. Stopping clears live presence while preserving execution ownership. Relaunch preserves the binding and logical ID while replacing live generation and handles. An equivalent owner-local record and operator locator can coexist for a shared account/registry, but conflicting bindings for one ID are rejected in either publication order. See [agent execution contexts](../../run-phase/execution-contexts.md).
 
@@ -67,14 +67,17 @@ Owner lifecycle records can carry top-level `execution_binding`; their manifests
 
 The strict persisted contract is now shipped in two complementary forms:
 
-- a packaged JSON Schema at `src/houmao/agents/realm_controller/schemas/managed_agent_registry_record.v4.schema.json` for the structural disk contract, and
-- strict Pydantic models in `registry_models.py` for typed construction, load validation, and semantic invariants. Unsupported older projections require explicit backup and rebootstrap.
+- a packaged JSON Schema at `src/houmao/agents/realm_controller/schemas/managed_agent_registry_record.v5.schema.json` for the structural disk contract, and
+- strict Pydantic models in `registry_models.py` for typed construction, load validation, and semantic invariants. Stop agents using their owning release before upgrading their runtime and start fresh agents on the new schema.
+
+The record binds tool, mode, backend, and managed generation to the current manifest. An optional `native_surface` reports a verified terminal target or a token-free Web origin and bound native session. The `terminal` section can also describe process supervision for a service, Web host, or one-shot worker.
 
 Representative active record with optional gateway and mailbox metadata present:
 
 ```json
 {
-  "schema_version": 4,
+  "schema_version": 5,
+  "mode": "headless",
   "agent_name": "HOUMAO-gpu",
   "agent_id": "270b8738f2f97092e572b73d19e6f923",
   "generation_id": "98cc9a0d-d1fd-4c56-b49c-871274e28f98",
@@ -259,10 +262,9 @@ External records also do not copy remote runtime-owned state. They store only a 
 
 That boundary is the main reason the registry can stay small and safe to inspect.
 
-## Migration Notes
+## Upgrade From RC2
 
-- Legacy `live_agent_registry_record.v2` payloads are still accepted on load. They are upgraded to `ManagedAgentRegistryRecordV3` with `lifecycle.state=active`, `terminal.current_session_name == terminal.last_session_name == <legacy session_name>`, and legacy freshness fields mapped into active-only `liveness`.
-- Pre-change stopped sessions that never published a lifecycle-aware record are still reachable only through bounded runtime-root scans used by `agents single ... relaunch` and `agents single ... cleanup`. Once such a session is revived or cleaned, the lifecycle registry becomes authoritative again.
+Stop existing agents with RC2 and relaunch them with the new version. Bounded scans for stopped sessions use the current manifest schema. Update stored profile defaults that still use `defaults.posture.headless` before launching.
 
 ## Current Implementation Notes
 
@@ -281,7 +283,7 @@ That boundary is the main reason the registry can stay small and safe to inspect
 
 - [`src/houmao/agents/realm_controller/registry_models.py`](../../../../src/houmao/agents/realm_controller/registry_models.py)
 - [`src/houmao/agents/realm_controller/registry_storage.py`](../../../../src/houmao/agents/realm_controller/registry_storage.py)
-- [`src/houmao/agents/realm_controller/schemas/managed_agent_registry_record.v4.schema.json`](../../../../src/houmao/agents/realm_controller/schemas/managed_agent_registry_record.v4.schema.json)
+- [`src/houmao/agents/realm_controller/schemas/managed_agent_registry_record.v5.schema.json`](../../../../src/houmao/agents/realm_controller/schemas/managed_agent_registry_record.v5.schema.json)
 - [`src/houmao/agents/realm_controller/schemas/external_managed_agent_registry_record.v1.schema.json`](../../../../src/houmao/agents/realm_controller/schemas/external_managed_agent_registry_record.v1.schema.json)
 - [`docs/reference/system-files/shared-registry.md`](../../system-files/shared-registry.md)
 - [`tests/unit/agents/realm_controller/test_registry_storage.py`](../../../../tests/unit/agents/realm_controller/test_registry_storage.py)

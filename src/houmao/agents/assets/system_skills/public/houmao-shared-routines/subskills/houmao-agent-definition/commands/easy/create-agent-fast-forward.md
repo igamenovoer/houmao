@@ -36,8 +36,8 @@ This workflow creates or selects a specialist, creates or updates a project prof
    - derive the ordinary mailbox defaults as principal id `HOUMAO-<agent-name>` and address `<agent-name>@houmao.localhost` unless the user supplied explicit mailbox identity values;
    - do not manually preregister the per-agent account during fast-forward; store the mailbox defaults so the later `project agents launch --profile <profile>` command creates the agent mailbox automatically.
 6. Generate `project.profile` with only `name`, `specialist`, and `credential`, then store launch defaults through the maintained profile `create|set` command fields. Store filesystem mailbox posture by default: `--mail-transport filesystem`, `--mail-root <selected-root>`, `--mail-principal-id <principal-id>`, and `--mail-address <address>`.
-7. Print the exact launch command by rendering `project.agents.launch`, omitting `--headless` when launch posture is unspecified and TUI/local-interactive launch is supported.
-8. Report durable identity facts and stored posture, including mailbox root, principal id, address, and that unspecified launch posture is TUI/local-interactive preferred when supported.
+7. Print the exact `project agents launch --profile <profile>` command. Include a launch-level `--mode` only for a requested one-shot override.
+8. Report the intended mode, mailbox root, principal ID, and address. For a profile without a stored mode, report the [tool default](../../references/common/profile-lanes.md#run-modes).
 9. Stop. Do not run the launch command.
 
 
@@ -50,7 +50,7 @@ If the request does not map cleanly to this workflow, use the native planning to
 - default filesystem mailbox posture: `--mail-transport filesystem`, `--mail-principal-id HOUMAO-<agent-name>`, `--mail-address <agent-name>@houmao.localhost`, `--mail-root <selected-root>`
 - workdir: `--workdir`
 - prompt mode: omit unless the user explicitly asks to persist one; prompt mode does not imply headless execution. For Kimi, prompt mode is the managed no-question control and should not be replaced with raw `--auto` or `--yolo` launch flags
-- launch posture: prefer TUI/local-interactive when supported; store `--headless` only when explicitly requested or required by the selected tool/lane; Kimi is TUI/local-interactive capable here
+- run mode: store a requested supported `--mode headless|service|tui|web` on the profile. Claude, Codex, and Kimi default to `tui`. DSH defaults to `web`
 - model: `--model`
 - reasoning: `--reasoning-level`
 - env: repeatable `--env-set NAME=value`
@@ -111,14 +111,13 @@ Report:
 - project profile name
 - intended managed-agent name or agent id when known
 - initialized mailbox root and stored mailbox address/principal id
-- stored prompt mode, launch posture, workdir, auth override, mailbox posture, gateway posture, prompt overlay, notifier appendix, memo seed, model, reasoning, and env defaults
+- stored prompt mode, effective run mode, workdir, auth override, mailbox posture, gateway posture, prompt overlay, notifier appendix, memo seed, model, reasoning, and env defaults
 - exact launch command
 
 ## Guardrails
 
 - Do not launch the managed agent.
 - Do not guess missing specialist, profile, tool, credential, managed-agent identity, workdir, gateway, prompt, model, or env inputs.
-- Do not persist profile `--headless` or include launch-command `--headless` by default for TUI-capable tools.
 - Do not persist profile `--prompt-mode` unless prompt mode is explicit in the user request or recovered explicit context.
 - Do not treat unattended prompt mode as evidence that headless launch was requested.
 - Do not add raw Kimi `--auto` or `--yolo` launch flags to achieve managed unattended mode.

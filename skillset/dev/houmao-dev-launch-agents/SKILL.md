@@ -28,7 +28,7 @@ If the task does not map cleanly to these steps, use the native planning tool to
 
 ## Scope
 
-This manually invoked development skill owns local test-fixture configuration and test-agent launch preparation. It supports explicit API cases and imported native login for Claude Code, Codex, and Kimi Code. DSH uses headless ACP on raw, manager, or passive-server surfaces and native Web for the raw/manager `tui` posture. Native login remains unsupported for DSH. Web and ACP qualification remain separate. It does not administer production agents or create provider accounts, API keys, or interactive logins.
+This manually invoked development skill owns local test-fixture configuration and test-agent launch preparation. It supports explicit API cases and imported native login for Claude Code, Codex, and Kimi Code. DSH uses native `web` mode on the raw and manager surfaces with explicit API inputs. It does not administer production agents or create provider accounts, API keys, or interactive logins.
 
 The provider-specific commands retain their raw TUI contract for recorder and behavior-test callers. `launch-fixture` also covers raw headless execution and explicitly selected manager or passive-server test surfaces. Launching a raw client does not establish a Houmao managed identity. Test oracles, recording, skill-pack installation, and behavior adjudication remain owned by their calling workflows.
 

@@ -74,7 +74,7 @@ A launch profile may store, with no inline secrets:
 - secret-free partial `tool_params` for the source tool,
 - managed system-skill policy for packaged Houmao-owned skills,
 - declarative mailbox configuration (transport, root, address, principal id, and Stalwart-only fields when applicable),
-- launch posture defaults (`headless`, gateway auto-attach, fixed loopback gateway port),
+- launch posture defaults (optional `defaults.posture.mode`, gateway auto-attach, fixed loopback gateway port),
 - an optional gateway mail-notifier appendix default,
 - a relaunch-only provider chat-session policy for future selected-agent `agents single ... relaunch` operations,
 - a managed prompt-header whole-header policy (`inherit`, `enabled`, or `disabled`) plus optional per-section policy (`identity`, `memo-cue`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack` set to `enabled` or `disabled`),

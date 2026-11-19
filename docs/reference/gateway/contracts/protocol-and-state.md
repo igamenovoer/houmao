@@ -6,6 +6,14 @@ For the broader runtime-root and session-root filesystem map around this subtree
 
 For `backend=dsh_web`, typed `native_surface` metadata identifies the token-free browser origin and native session. Supervisor tmux fields remain separate process/log handles. `GET /v1/control/web/state` and `/v1/control/web/history` expose native control, turn, inbox, interaction, model, sequence, and freshness facts. The passive managed detail union has `transport=web` with this same structured state. Terminal parser, capture, tracking, raw-key, and timing surfaces return unsupported semantics. See the [Web integration contract](../../run-phase/dsh-web-integrations.md) for admission acknowledgement, metadata-only operation observation, and no-replay recovery.
 
+For `mode=service`, `GET /v1/status` and `GET /v1/control/service/state` expose service incarnation, connection readiness, native session, and active request evidence. `GET /v1/control/service/requests/{request_id}` returns the selected request's canonical events and native outcome. The gateway applies its administrator access policy to the two service routes. A service attach response keeps the owner's private socket and native stdio credentials private.
+
+`POST /v1/control/prompt` reserves the service's current request slot and returns `outcome=queued` with its operation ID. Use that ID to read native handoff and completion. The live connection accepts prompts on its current or exact bound session. Use the owner relaunch operation to select a different conversation. Detaching or restarting a gateway preserves the service and its request evidence.
+
+Kimi ACP uses the model bound at service launch and rejects per-prompt model overrides. Its request events and usage come from the exact native Kimi turn. ACP replay and context-occupancy notifications stay outside that request's evidence.
+
+Codex app-server binds one native thread and its launch-selected model. A native turn handle identifies admitted work before completion. Only a terminal notification for that thread and turn confirms the outcome. A lost connection can leave the request uncertain, including when a handle was already recorded.
+
 ## Mental Model
 
 The gateway contract has two layers.

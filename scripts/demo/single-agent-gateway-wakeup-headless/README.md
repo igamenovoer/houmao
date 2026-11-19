@@ -9,7 +9,7 @@ It shows the maintained headless flow from project creation through gateway noti
 3. redirect Houmao overlay state into `outputs/overlay/` with `HOUMAO_PROJECT_OVERLAY_DIR` so runtime, jobs, mailbox, and project-easy state stay demo-local
 4. preserve reusable overlay-backed specialist/auth/setup state across fresh runs while resetting run-local project, mailbox, runtime, jobs, logs, deliveries, and evidence
 5. import the local Claude or Codex fixture auth bundle into that overlay and create or reuse one project-easy specialist
-6. initialize the project mailbox, register the agent and operator addresses, launch one headless instance through `houmao-mgr project easy instance launch --headless`, attach a live gateway in a separate watchable tmux window, and enable mail-notifier polling
+6. initialize the project mailbox, register the agent and operator addresses, launch one headless instance through `houmao-mgr project agents launch --mode headless`, attach a live gateway in a separate watchable tmux window, and enable mail-notifier polling
 7. inject one filesystem-backed operator message
 8. verify gateway notifier evidence, managed-agent headless last-turn or turn-artifact evidence, deterministic artifact creation under `project/tmp/`, actor-scoped unread completion, and structural project-mailbox visibility
 

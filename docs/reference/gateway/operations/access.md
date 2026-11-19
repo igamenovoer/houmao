@@ -81,6 +81,23 @@ The client requests a challenge from `POST /v1/auth/challenge`, checks the issue
 
 Use an already listed key to add another with `admin.add_admin_key(other_key)`. After verifying the new signer, use `admin.remove_admin_key(key_id)` from a current admin to revoke the old enrollment. If two callers compete to register the first key, only the first successful commit changes the roster. **Removing the final key immediately reopens admin operations to anyone who can reach the listener.** Restrict reachability first when anonymous control is unintended.
 
+## Submit an Authenticated Prompt
+
+Use the enrolled admin client from the previous example to submit a ready-only prompt. The client signs the exact request to `POST /v1/control/prompt`.
+
+```python
+from houmao.agents.realm_controller.gateway_models import GatewayPromptControlRequestV1
+
+receipt = admin.control_prompt(
+    GatewayPromptControlRequestV1(
+        prompt="Summarize the current work without changing files.",
+        admission_policy="ready_only",
+    )
+)
+```
+
+The receipt reports how far the request reached. A handoff confirms delivery to the native surface. Model completion requires evidence for the same request. After a lost response, inspect the existing operation or the agent's state before sending any new prompt.
+
 ## Send Public Input
 
 Public input is disabled by default and has a finite admission budget. The gateway marks input on these two routes as public even when a key holder sends it.

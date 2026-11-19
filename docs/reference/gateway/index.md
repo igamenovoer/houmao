@@ -4,6 +4,8 @@ This section explains the session-owned FastAPI gateway sidecar: what it adds to
 
 DSH interactive agents use a Web native surface. Their gateway observes structured native state and confirms ordinary input at the native ready-only boundary. Web prompt observations retain operation metadata without an executable gateway queue payload. See [DSH Web Gateway and Passive Observation](../run-phase/dsh-web-integrations.md) for browser/session identity, shared human activity, explicit operator policies, and unsupported terminal controls.
 
+Kimi Web uses the stock native backend and checks readiness immediately before sending. The gateway records a native queued receipt if browser activity starts after the check. [Kimi Web](../run-phase/kimi-web.md).
+
 If you are new to the subsystem, start with lifecycle. If you need exact payloads and file contracts, go to contracts. If you are debugging queue or recovery behavior, use the internals page.
 
 ## Mental Model

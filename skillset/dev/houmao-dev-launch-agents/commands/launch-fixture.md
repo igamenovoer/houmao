@@ -15,11 +15,11 @@ If the test does not fit a supported lane, use the native planning tool to inspe
 
 | Surface | Modes | Authority and Use |
 | --- | --- | --- |
-| `raw` | `headless`, `tui` | Direct client/native output; no Houmao managed identity |
-| `manager` | `headless`, `tui` | Current `houmao-mgr project agents launch`; captured agent/gateway identity |
+| `raw` | `headless`, `tui`, `web` | Direct client/native output; no Houmao managed identity |
+| `manager` | Each mode in the tool's support matrix | Current `houmao-mgr project agents launch`; captured agent/gateway identity |
 | `passive-server` | `headless` | Same-host `houmao-passive-server` with an explicitly selected local authority URL |
 
-DSH supports the headless lane on all three surfaces, using ACP for raw execution and the maintained `dsh_acp` backend for managed execution. Its raw/manager `tui` posture selects native Web. Select a qualified DSH executable and explicit external API env file with model/context/output/reasoning metadata. Passing headless ACP does not qualify a browser surface; use the separate browser/API qualification. Native-login selection remains unsupported.
+DSH supports native `web` on raw and manager surfaces. Select a qualified DSH executable and explicit API inputs with model, context, output capacity, and reasoning metadata. Use the browser/API qualification to verify the two controls share a native session.
 
 Choose from the test subject. Do not infer headless from unattended posture. Provider-specific commands retain raw TUI behavior. The helper defaults to `--prompt-mode unattended`; select `--prompt-mode as_is` deliberately for native human approval/question tests. For an exact terminal workdir/session or extra terminal-client arguments, use [the common adapter](../references/common-launch.md#exact-workdir-tui-adapter). Normal helper launches allocate their own workdir/session.
 
@@ -39,7 +39,7 @@ Select `self-hosted` with its own private inputs for that case. For native login
 
 The returned `run_dir` owns the configured project and selected executable. Preparation is offline. See the [helper guide](../../../../scripts/agents/test-fixtures/README.md) for the supported role/seed/system-prompt inputs. Installing the case's skill pack and defining test assertions remain caller responsibilities.
 
-For DSH, use `--client dsh --mode headless` for ACP or `--mode tui` for Web, and `--executable /selected/qualified-runtime/node_modules/.bin/dsh`. The API file must contain the selected case's context, maximum-output-token, and reasoning fields. Equivalent `--max-output-tokens` and `--dsh-reasoning` flags are available for explicit non-secret overrides. The helper never reads ambient DSH auth or retargets the selected adapter after a failure.
+For DSH, use `--client dsh --mode web` and `--executable /selected/qualified-runtime/node_modules/.bin/dsh`. The API file must contain the selected case's context, maximum-output-token, and reasoning fields. Equivalent `--max-output-tokens` and `--dsh-reasoning` flags are available for explicit non-secret overrides. The helper never reads ambient DSH auth or retargets the selected adapter after a failure.
 
 ## Launch and Follow-Up
 

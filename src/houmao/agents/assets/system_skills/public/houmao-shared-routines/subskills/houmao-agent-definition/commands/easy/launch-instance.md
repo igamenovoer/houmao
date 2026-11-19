@@ -30,7 +30,7 @@ Use this subskill only when the user wants to launch one project managed agent f
 5. If profile launch lacks a managed-agent name, inspect the profile with `project profile get --name <profile>` to see whether it stores one.
 6. Build the direct `project agents launch` command with only explicit source, identity, and one-shot override flags.
 7. If required input is missing or explicit inputs conflict, recover that input before launching.
-8. Run the direct command, omitting `--headless` when launch posture is unspecified and TUI/local-interactive launch is supported.
+8. Run the direct command with `--mode` only for a requested override. Otherwise use the profile or tool default.
 9. Report the launched instance identity and command output.
 10. Tell the user that broader live-agent management now belongs to `houmao-shared-routines->houmao-agent-instance`.
 
@@ -49,8 +49,7 @@ Add optional flags only when the user supplied them explicitly or the selected t
 
 - `--auth`
 - `--session-name`
-- `--headless`
-- `--no-headless`
+- `--mode headless|service|tui|web`
 - `--no-gateway`
 - `--gateway-port`
 - `--gateway-background` only when the user explicitly requests detached background gateway execution
@@ -66,10 +65,8 @@ Add optional flags only when the user supplied them explicitly or the selected t
 
 - `--specialist` and `--profile` are mutually exclusive.
 - Profile-backed launch applies stored profile defaults before direct CLI overrides.
-- When the user does not specify headless or TUI posture, prefer TUI/local-interactive launch when the selected tool supports it.
-- Add `--headless` only when the user explicitly asks for headless execution, when an existing selected profile stores headless posture, or when the selected tool/lane requires headless.
-- Kimi supports TUI/local-interactive launch here when headless is omitted.
-- `--prompt-mode unattended` and other stored automation defaults do not imply headless launch. For Kimi, unattended prompt mode is the supported managed no-question control; do not add raw `--auto` or `--yolo` launch flags.
+- A launch-level `--mode` overrides the stored mode for this instance. Omit it to preserve the profile default. See [Run Modes](../../references/common/profile-lanes.md#run-modes) for tool defaults.
+- Choose prompt policy separately from run mode. For Kimi, set `--prompt-mode unattended` to disable interactive questions through Houmao.
 - Profile-backed launch applies any stored memo seed before prompt composition and provider startup.
 - Direct specialist-backed launch does not apply a stored memo seed because no reusable profile was selected.
 - Launch-time gateway auto-attach is enabled by default unless `--no-gateway` or stored profile posture disables it.
@@ -87,7 +84,6 @@ Add optional flags only when the user supplied them explicitly or the selected t
 - Do not guess specialist name, profile name, or instance name.
 - Do not route specialist-backed launch through retired root-level managed-agent launch paths.
 - Do not route profile-backed launch through retired root-level managed-agent launch paths.
-- Do not add `--headless` by default for TUI-capable tools.
 - Do not add raw Kimi `--auto` or `--yolo` launch flags to achieve managed unattended mode.
 - Do not invent optional launch flags that the user did not request.
 - Do not add `--gateway-background` unless the user explicitly requested background or detached gateway execution.

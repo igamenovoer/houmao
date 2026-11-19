@@ -62,7 +62,7 @@ Start here:
 
 ### `single-agent-gateway-wakeup-headless/`
 
-Supported project-local gateway wake-up demo for one `houmao-mgr project easy` headless specialist. The pack keeps one canonical `outputs/` root, copies a tiny dummy project under `outputs/project/`, redirects Houmao overlay state into `outputs/overlay/`, imports the local Claude or Codex fixture auth bundle, launches one project-easy instance through `project easy instance launch --headless`, attaches a live gateway in a separate watchable tmux window, enables mail-notifier polling, injects one filesystem-backed operator message, and verifies headless last-turn or durable turn-artifact evidence alongside artifact creation and actor-scoped unread completion.
+Supported project-local gateway wake-up demo for one project-local headless specialist. The pack keeps one canonical `outputs/` root, copies a tiny dummy project under `outputs/project/`, redirects Houmao overlay state into `outputs/overlay/`, imports the local Claude or Codex fixture auth bundle, launches one project-easy instance through `houmao-mgr project agents launch --mode headless`, attaches a live gateway in a separate watchable tmux window, enables mail-notifier polling, injects one filesystem-backed operator message, and verifies headless last-turn or durable turn-artifact evidence alongside artifact creation and actor-scoped unread completion.
 
 Supported lanes:
 

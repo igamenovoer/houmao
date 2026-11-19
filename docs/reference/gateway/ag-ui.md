@@ -58,6 +58,14 @@ Every admitted run emits `RUN_STARTED` first and then exactly one terminal event
 
 For headless targets, the AG-UI `runId` becomes the gateway prompt `turn_id`. The AG-UI stream loads canonical headless events from `<manifest-stem>.turn-artifacts/<runId>/canonical-events.jsonl`, so deterministic demos can seed that file to test text and graphics mapping without depending on live model tool choice.
 
+Run admission uses the saved run mode and the same ready-only slot used by manager prompts and protected gateway control. TUI and Web activity snapshots describe the shared surface. A TUI handoff can finish the stream with `completionEvidence: terminal_handoff` and `providerCompletion: unconfirmed`. Web and service runs require completion evidence for the exact request, native session, and native turn. A lost connection or missing correlation can end the stream with `RUN_ERROR` and `houmao_native_outcome_uncertain`. Reconnecting a stream does not submit the prompt again.
+
+A service run pins the connection incarnation and bound conversation at admission. It emits request activity while the operation runs and assistant text from the exact confirmed native turn when it settles.
+
+For Kimi ACP, the gateway uses output from the attributed native journal turn. Binding-time history and session-wide ACP display updates stay out of the run. ACP context occupancy updates do not contribute to per-turn usage.
+
+For Codex app-server, the gateway uses completed assistant items from the exact native thread and turn. The native turn handle can appear while the run is active. The stream waits for the correlated terminal notification before reporting completion.
+
 ## Agent-Published Events
 
 Agents can publish already-rendered AG-UI events to active GUI streams through the live gateway:
@@ -334,7 +342,7 @@ This smoke is manual and opt-in because it uses live credentials, model behavior
 
 ## Known Limits
 
-- TUI targets stream lower-fidelity status and final text, not headless canonical event detail.
+- TUI targets stream shared terminal status and handoff evidence. Unattributed terminal output stays out of the run's assistant messages.
 - Frontend tool execution is not implemented; declared AG-UI tools are prompt context, not provider-native tool bindings.
 - State deltas remain future work; published GUI events are not replayed by the gateway.
 - Multimodal input support is conservative and may reject unsupported content before admission.

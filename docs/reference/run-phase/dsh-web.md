@@ -24,12 +24,12 @@ Web runtime, native authentication/admission, shared-session identity, and actua
 
 ## Launch and Surface Selection
 
-DSH keeps the existing interaction posture: `headless` selects `dsh_acp`; `tui` (or a manager launch with `--no-headless`) selects `dsh_web`. A Web host uses a private DSH home, an explicit model/provider catalog, a loopback listener, and `--no-open`. Port zero requests an available listener; Houmao records the port actually bound by the host. The host's tmux session supervises its process and private logs. It does not expose a human terminal interface, parsed prompt surface, terminal timing authority, or raw-key input.
+DSH selects `dsh_web` in `web` mode. A Web host uses a private DSH home, an explicit model/provider catalog, a loopback listener, and `--no-open`. Port zero requests an available listener. Houmao records the port that the host binds. The host's tmux session supervises its process and private logs.
 
 | Field or Control | Web Meaning |
 | --- | --- |
 | Specialist/recipe `tool: dsh` | Selects the maintained DSH tool and explicit API setup. |
-| Profile `defaults.posture.headless` | `true` selects ACP; an omitted/false posture permits interactive Web. A launch `--headless` or `--no-headless` overrides this choice for that invocation. |
+| Profile `defaults.posture.mode` | `web` selects the browser host. An omitted mode uses the DSH project default of `web`. A direct `--mode` overrides the profile for that invocation. |
 | Recipe `launch.prompt_mode` / profile `defaults.prompt_mode` | `unattended` is the automation default; deliberate `as_is` retains native human approval behavior. |
 | Explicit model/setup metadata | Reuses DSH provider/protocol, context/output capacities, reasoning, and credential-reference validation. No ambient route is substituted. |
 | `LaunchPlan.native_surface_kind` | `web`; published `native_surface` carries only verified origin and native session ID. |
@@ -37,11 +37,11 @@ DSH keeps the existing interaction posture: `headless` selects `dsh_acp`; `tui` 
 After preparing a DSH specialist with its explicit setup, a reusable Web profile can use the maintained CLI:
 
 ```bash
-houmao-mgr project profile create --name dsh-browser --specialist dsh-specialist --prompt-mode unattended
-houmao-mgr project agents launch --profile dsh-browser --no-headless --gateway-background --workdir /selected/workdir
+houmao-mgr project profile create --name dsh-browser --specialist dsh-specialist --mode web --prompt-mode unattended
+houmao-mgr project agents launch --profile dsh-browser --gateway-background --workdir /selected/workdir
 ```
 
-The [fixture workflow](../../../scripts/agents/test-fixtures/README.md#dsh-acp-and-web) prepares that specialist and its private model/credential inputs reproducibly. The [launch-profile reference](../../getting-started/launch-profiles.md) defines profile precedence and storage.
+The fixture workflow prepares that specialist and its private model and credential inputs. The launch profile reference defines profile precedence and storage. [Fixture workflow](../../../scripts/agents/test-fixtures/README.md#dsh-web), [Launch profiles](../../getting-started/launch-profiles.md).
 
 The first release starts Houmao-owned local hosts. A manually started DSH host cannot be adopted, even if it has a compatible companion or matching workspace. Refusal leaves that host untouched. A verified connection to an existing Houmao-owned host may reconnect or reattach a gateway while retaining the exact native session and live incarnation. Read-only status, detail, and history do not start a stopped host or activate a cold native agent.
 

@@ -49,7 +49,8 @@ The `internals.native-agent.launch-dossier` config draft is intentionally minima
 - `--reasoning-level`
 - `--prompt-mode unattended|as_is`
 - repeatable `--env-set NAME=value`
-- launch posture: `--headless`, `--no-gateway`, `--gateway-port`
+- run mode: `--mode headless|service|tui|web` at `defaults.posture.mode`
+- gateway posture: `--no-gateway`, `--gateway-port`
 
 ## Set Clear Fields
 
@@ -74,6 +75,5 @@ The `internals.native-agent.launch-dossier` config draft is intentionally minima
 - Do not remove and recreate a launch dossier for ordinary edits.
 - Do not treat launch-dossier `--auth` changes as credential CRUD.
 - Do not route low-level recipe editing through this subskill.
-- Do not store `--headless` by default for TUI-capable tools.
-- Do not add `--prompt-mode`, `--headless`, or clear flags unless the user explicitly supplied those fields.
+- Store `--mode` only when the operator requests a supported mode. Use `--clear-mode` to return to the [tool default](../../references/common/profile-lanes.md#run-modes). Choose prompt policy independently.
 - Do not invent launch-dossier names, recipe names, or field overrides.
