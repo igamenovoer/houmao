@@ -111,25 +111,30 @@ The system SHALL NOT treat footer model metadata such as a model name followed b
 - **THEN** the tracked state does not report an active turn solely from that footer text
 
 ### Requirement: Kimi unattended TUI startup establishes policy without a conversational turn
-Maintained Kimi 2.1.1-or-later unattended TUI startup SHALL use native `--auto` after native role-prompt projection and before workload submission. Houmao SHALL NOT submit `/auto on`, a role bootstrap, an answered confirmation, or another conversational command to establish launch policy or role identity.
 
-Normal unattended startup and work SHALL not enter approval, waiting-for-answer, or confirmation states. If Kimi hard-codes an intervention that no supported setting can suppress, Houmao SHALL retain evidence and report it as an explicit exception rather than silently answering it.
+Maintained Kimi 2.1.1-or-later TUI startup SHALL apply the resolved native permission mode after role projection and before managed input. Houmao SHALL use `--auto` for the omitted unattended permission mode and a qualified native startup surface for a supported authored value. Launch SHALL establish policy and role outside the conversation.
+
+Under the unattended default, normal startup and work SHALL proceed without approval, answer, or confirmation states. A deliberate approval-setting override SHALL retain its native behavior. If a provider-required intervention remains, Houmao SHALL preserve the evidence and report the intervention.
 
 #### Scenario: Fresh unattended Kimi starts without policy or role chat
-- **WHEN** Houmao launches a fresh maintained Kimi 2.1.1-or-later TUI with unattended prompt mode
-- **THEN** the final launch command includes `--auto` and the managed native prompt is already projected
+- **WHEN** Houmao launches a fresh maintained Kimi TUI in unattended mode with permission mode omitted
+- **THEN** the final launch command includes native `--auto` and the managed native prompt is already projected
 - **AND THEN** the first managed conversational input is workload content
 
 #### Scenario: Fresh unattended Kimi starts prompt-free
-- **WHEN** Houmao launches a fresh maintained Kimi TUI with unattended prompt mode
-- **THEN** native `--auto` and native `SYSTEM.md` projection establish policy and role before conversation
+- **WHEN** Houmao starts a fresh maintained Kimi TUI with the unattended default permission mode
+- **THEN** native `--auto` and native `SYSTEM.md` establish policy and role before conversation
 - **AND THEN** startup sends no policy or role bootstrap prompt
 
+#### Scenario: A user selects a mode for a resumed TUI
+- **WHEN** a Kimi TUI relaunch resumes its saved session with a supported explicit permission mode
+- **THEN** that mode takes effect at native startup
+- **AND THEN** Houmao sends no policy-changing conversation input to establish it
+
 #### Scenario: Avoidable confirmation fails unattended validation
-- **WHEN** a normal unattended Kimi scenario displays a confirmation or user-question surface
-- **AND WHEN** current source or CLI settings provide a supported suppression mechanism
-- **THEN** validation fails the unattended contract
-- **AND THEN** the harness does not answer the prompt automatically
+- **WHEN** a Kimi TUI using the unattended default presents a confirmation or question that a supported startup setting can suppress
+- **THEN** validation reports the unattended compatibility failure
+- **AND THEN** the harness preserves the native intervention as evidence
 
 ### Requirement: Kimi queued-message surfaces remain busy until retained work is released
 The maintained Kimi Code TUI tracker SHALL treat a current source-backed queue pane as evidence that a new independent turn cannot start immediately.

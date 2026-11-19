@@ -871,7 +871,7 @@ For Codex launches, the runtime SHALL apply a runtime-owned bootstrap step to th
 Bootstrap behavior SHALL include:
 - ensuring launch-context trust is recorded for the active workspace target in Codex project config, and
 - seeding required notice state needed to avoid interactive onboarding/warning prompts for the selected policy profile, and
-- applying configured non-interactive launch flags needed to reduce interactive startup prompts (including `approval_policy` / `sandbox_mode` only when explicitly present in the selected Codex setup bundle; the runtime SHALL NOT hardcode new approval/sandbox defaults).
+- applying the resolved non-secret launch preferences, including approval and sandbox settings from the authored inputs or the applicable launch-policy defaults.
 
 #### Scenario: CAO Codex launch seeds trust for launch workspace
 - **WHEN** a Codex CAO-backed session is started with a resolved working directory
@@ -1941,34 +1941,27 @@ When the resolved manifest requests `operator_prompt_mode = as_is`, the runtime 
 - **AND THEN** the runtime does not block launch solely because no unattended strategy exists for the detected tool version and backend
 
 ### Requirement: Runtime unattended launch can synthesize provider startup state from minimal credentials
-When unattended launch is requested, the runtime SHALL construct provider startup state by starting from the selected setup-projected runtime home and then allowing the selected strategy to create, patch, or validate strategy-owned provider config/state and launch surfaces before process start.
 
-Unattended compatibility SHALL be evaluated independently from credential readiness. The runtime SHALL NOT define unattended support in terms of `auth.json`, API-key presence, or other secret material alone.
+When unattended launch is requested, the runtime SHALL start with the selected setup-projected runtime home. The selected strategy SHALL project authored native settings, fill omitted defaults, and synthesize its declared runtime-owned startup state before process start. This applies to every maintained backend that supports unattended launch.
 
-For strategy-owned unattended surfaces, the runtime SHALL NOT depend on pre-existing values in copied setup files or on caller-supplied launch args to reach unattended startup.
-
-The runtime SHALL NOT require pre-existing user-owned tool config files solely to suppress startup prompts.
-
-This contract SHALL apply to any Houmao-launched agent backend that supports unattended launch, whether the provider surface is TUI or headless.
+Unattended compatibility SHALL be evaluated independently from credential readiness. The runtime SHALL provide the default unattended startup state without requiring pre-existing user-owned config or caller-supplied low-level arguments solely to suppress startup prompts.
 
 #### Scenario: Fresh runtime home launches unattended from setup baseline plus strategy-owned overrides
 - **WHEN** a session starts from a brain manifest that requests `operator_prompt_mode = unattended`
-- **AND WHEN** the selected tool setup projects a baseline `config.toml` into a fresh runtime home
-- **THEN** the runtime copies that setup baseline first
-- **AND THEN** the selected strategy may patch its declared runtime-owned config keys and launch surfaces before provider start
-- **AND THEN** unattended launch does not depend on a pre-existing user-authored no-prompt home directory
+- **AND WHEN** the selected tool setup projects a baseline `config.toml` into a fresh runtime home with a supported permission value
+- **THEN** the runtime copies the setup baseline and applies the authored value
+- **AND THEN** the selected strategy fills missing permission defaults and synthesizes required startup state
 
 #### Scenario: Missing credential fails readiness without redefining unattended compatibility
 - **WHEN** a session requests `operator_prompt_mode = unattended`
 - **AND WHEN** a compatible unattended strategy exists for the detected tool version and backend
-- **AND WHEN** the resolved provider still lacks the required secret material after provider selection is known
+- **AND WHEN** the resolved provider lacks required secret material
 - **THEN** the runtime fails before provider start with a credential-readiness error
-- **AND THEN** the failure does not report that unattended compatibility itself was unsupported
 
 #### Scenario: Claude unattended launch follows the same authoritative contract
-- **WHEN** a Claude Code session requests `operator_prompt_mode = unattended`
-- **THEN** the runtime treats Claude's declared no-prompt state and launch surfaces as Houmao-owned for provider start
-- **AND THEN** unattended startup does not depend on pre-existing Claude config files or caller-supplied low-level startup flags
+- **WHEN** a Claude Code session requests `operator_prompt_mode = unattended` with minimal credentials and no authored permission value
+- **THEN** the strategy synthesizes its qualified permission defaults and required startup state
+- **AND THEN** startup needs no user-prepared Claude settings or permission flags
 
 ### Requirement: Runtime launch records launch policy provenance
 The system SHALL persist and surface launch policy provenance for startup-prompt-forbidden launches using a typed `launch_policy_provenance` structure rather than only untyped backend metadata.
@@ -2063,41 +2056,30 @@ Generated `launch.sh` helpers SHALL remain shell wrappers that invoke that share
 - **AND THEN** maintained runtime-managed sessions do not bypass version detection, override handling, or fail-closed unattended checks
 
 ### Requirement: Strategy-owned launch args are not silently overridden
-When unattended launch is requested, the selected strategy SHALL own the effective no-prompt CLI args it requires and the equivalent caller launch-override surfaces that map onto strategy-owned runtime config.
 
-The runtime SHALL canonicalize the effective launch request before provider start so strategy-owned unattended behavior wins over contradictory caller launch inputs.
-
-For tools such as Codex that support config-override args, the runtime SHALL also canonicalize caller overrides that target strategy-owned unattended config keys even when the conflict is expressed through generic config-override syntax rather than a dedicated flag.
+The selected strategy SHALL emit managed launch arguments from resolved native values and backend-derived controls. It SHALL validate equivalent dedicated flags and generic config overrides so recognized configurable values retain their precedence and attempts to set reserved controls fail explicitly.
 
 #### Scenario: Conflicting launch override is canonicalized to the unattended strategy
-- **WHEN** a session requests `operator_prompt_mode = unattended`
-- **AND WHEN** caller-supplied `launch_args_override` conflicts with a strategy-owned no-prompt arg or removes required strategy behavior
-- **THEN** the runtime canonicalizes the effective launch args before provider start so the strategy-owned unattended behavior still applies
-- **AND THEN** the final effective launch behavior does not depend on the caller-supplied conflicting arg
+- **WHEN** a session requests `operator_prompt_mode = unattended` and supplies a supported permission override through a recognized native launch input
+- **AND WHEN** that value differs from the unattended default
+- **THEN** launch uses the resolved override instead of the omitted-field default
+- **AND THEN** the strategy projects a consistent native representation
 
 #### Scenario: Conflicting Codex config-override arg is canonicalized to the unattended strategy
-- **WHEN** a session requests `operator_prompt_mode = unattended`
-- **AND WHEN** caller-supplied launch overrides include a Codex `-c` config override for a strategy-owned unattended key such as `approval_policy`, `sandbox_mode`, or project trust
-- **THEN** the runtime canonicalizes the effective startup surface before provider start so the strategy-owned unattended value still applies
-- **AND THEN** the launch does not depend on the caller-supplied conflicting config value to become unattended
+- **WHEN** the caller submits a generic native config override for a field that the backend reserves
+- **THEN** the runtime identifies the canonical reserved field and rejects it before starting or replacing the provider
 
 ### Requirement: Runtime resolves the effective launch overrides for the selected backend before provider start
-The system SHALL resolve the effective launch overrides during launch-plan composition using the resolved brain manifest, the selected backend, runtime launch policy, and backend-reserved protocol controls.
 
-That resolution SHALL apply launch-override precedence in this order:
+The system SHALL resolve effective launch settings during launch-plan composition using the brain manifest, selected backend, and detected tool version.
 
-1. adapter-owned launch defaults persisted in the brain manifest
-2. recipe-requested launch overrides persisted in the brain manifest
-3. direct-build launch overrides when present in the manifest for that built brain
-4. backend-aware launch-override translation and validation
-5. runtime-owned launch policy application
-6. backend-reserved protocol args and runtime continuity controls
+The runtime SHALL resolve the authored argument and tool-parameter layers with their documented precedence, validate supported settings and reserved protocol controls, and apply default values only to the remaining omissions. Provider startup SHALL use the resulting arguments, home projection, and derived continuity controls.
 
 #### Scenario: Runtime resolves a Claude headless launch override with a supported typed param
-- **WHEN** a Claude brain manifest requests `launch_overrides.tool_params.include_partial_messages = true`
+- **WHEN** a Claude brain manifest contains an effective `tool_params.include_partial_messages` value of true
 - **AND WHEN** the selected backend is `claude_headless`
-- **THEN** launch-plan composition resolves that request into effective Claude headless launch behavior before provider start
-- **AND THEN** the resulting launch plan preserves runtime-owned continuity and machine-readable output controls
+- **THEN** launch-plan composition enables partial messages before provider start
+- **AND THEN** the launch plan preserves runtime-owned continuity and machine-readable output controls
 
 ### Requirement: Codex launch preferences use final CLI config overrides
 For Houmao-managed Codex launches, the runtime SHALL pass Houmao-owned non-secret preferences as final Codex CLI config override arguments so those preferences take precedence over Codex config layers discovered from the launch working directory.
@@ -2108,7 +2090,7 @@ At minimum, the Codex CLI override preference layer SHALL cover:
 
 - resolved launch-owned model name,
 - resolved launch-owned reasoning effort,
-- unattended approval and sandbox posture when unattended policy owns those values,
+- resolved approval and sandbox settings, including versioned defaults for omitted unattended fields,
 - selected model provider when Houmao owns provider selection for the launch,
 - non-secret provider contract fields needed to prevent project-local provider config from changing a Houmao-owned provider selection.
 
@@ -2450,56 +2432,6 @@ The persisted operator-supplied relaunch posture SHALL remain secret-free manife
 - **AND WHEN** the adopted tmux session environment currently publishes `CODEX_HOME=/tmp/codex-home`
 - **THEN** later relaunch resolves `CODEX_HOME` from that tmux session environment
 - **AND THEN** the shared-registry record for that joined session does not need to persist a second copy of the relaunch posture or inherited env value
-
-### Requirement: Unattended runtime-owned config overrides replace conflicting setup values in the runtime home
-When unattended launch is requested, the runtime SHALL treat strategy-owned runtime-home config keys as authoritative for provider start even when the copied setup baseline defines different values for those same keys.
-
-The runtime SHALL preserve non-owned setup content in the runtime home, including provider-selection and model-provider configuration, unless a declared strategy-owned mutation explicitly changes that content.
-
-This rule SHALL apply to any provider that declares strategy-owned runtime-home config state for unattended launch, including Gemini when copied runtime-home settings would otherwise weaken the maintained unattended approval, sandbox, or tool-availability posture.
-
-#### Scenario: Codex unattended launch overwrites copied setup approval settings
-- **WHEN** a selected Codex setup baseline defines `approval_policy` or `sandbox_mode` values in `config.toml`
-- **AND WHEN** the brain manifest requests `operator_prompt_mode = unattended`
-- **THEN** the runtime overwrites those strategy-owned keys in the runtime-home `config.toml` before provider start
-- **AND THEN** unrelated setup-defined provider configuration remains intact
-
-#### Scenario: Claude unattended launch preserves non-owned baseline content while overriding owned startup state
-- **WHEN** a selected Claude setup baseline includes provider-specific defaults that are not strategy-owned unattended state
-- **AND WHEN** the brain manifest requests `operator_prompt_mode = unattended`
-- **THEN** the runtime preserves that non-owned baseline content
-- **AND THEN** it still overwrites Claude's declared unattended-owned startup state before provider start
-
-#### Scenario: Gemini unattended launch overwrites copied startup-policy settings
-- **WHEN** a selected Gemini setup baseline or runtime-home settings file defines approval, sandbox, or tool-availability keys that would weaken the maintained unattended posture
-- **AND WHEN** the brain manifest requests `operator_prompt_mode = unattended`
-- **THEN** the runtime overwrites or removes those strategy-owned Gemini keys before provider start
-- **AND THEN** unrelated setup-defined Gemini configuration remains intact
-
-### Requirement: Unattended runtime-owned launch surfaces replace conflicting caller launch inputs
-When unattended launch is requested, the runtime SHALL treat strategy-owned launch args and equivalent config-override surfaces as authoritative for provider start even when the caller requested different values.
-
-The runtime MAY preserve caller-supplied diagnostics or provenance, but the final effective startup behavior SHALL be determined by the unattended strategy rather than by the caller's conflicting low-level launch inputs.
-
-This rule SHALL apply equally to current tools such as Claude Code, Codex, and Gemini and to future Houmao-launched tools that declare unattended-owned launch surfaces.
-
-#### Scenario: Codex unattended launch replaces caller startup-policy flags
-- **WHEN** a caller requests unattended launch for Codex
-- **AND WHEN** the caller also supplies direct launch flags or `-c` config overrides that would weaken unattended startup behavior
-- **THEN** the runtime replaces or removes those conflicting effective startup inputs before provider start
-- **AND THEN** the resulting Codex launch still uses the unattended strategy's startup policy
-
-#### Scenario: Claude unattended launch replaces caller startup-policy flags
-- **WHEN** a caller requests unattended launch for Claude Code
-- **AND WHEN** the caller also supplies low-level startup inputs that would weaken the unattended strategy's owned launch surfaces
-- **THEN** the runtime replaces or removes those conflicting effective startup inputs before provider start
-- **AND THEN** the resulting Claude launch still uses the unattended strategy's startup policy
-
-#### Scenario: Gemini unattended launch replaces caller startup-policy flags
-- **WHEN** a caller requests unattended launch for Gemini
-- **AND WHEN** the caller also supplies low-level Gemini launch flags that would weaken the unattended strategy's owned approval, sandbox, or tool-availability posture
-- **THEN** the runtime replaces or removes those conflicting effective startup inputs before provider start
-- **AND THEN** the resulting Gemini launch still uses the maintained unattended full-permission posture
 
 ### Requirement: Project-aware build and launch results describe selected local roots explicitly
 Maintained project-aware build and launch surfaces SHALL describe overlay-local default roots, explicit root overrides, and implicit overlay bootstrap in operator-facing result text and machine-readable payload details.
@@ -3137,45 +3069,36 @@ The runtime SHALL NOT fall back to managed auto skills, memo-only injection, or 
 - **AND THEN** no provider process is started through the retired skill fallback
 
 ### Requirement: Kimi unattended local-interactive launch runs in automatic no-question mode
-When a Kimi Code local-interactive launch resolves `operator_prompt_mode = unattended`, the runtime SHALL start the provider in Kimi auto permission mode before submitting any Houmao role bootstrap, mailbox notification, or workload prompt.
 
-For fresh Kimi TUI sessions, the runtime SHALL rely on the launch-policy-owned managed runtime-home config value `default_permission_mode = "auto"` as the provider-native fresh-session default.
-
-For resumed Kimi TUI sessions or existing provider sessions whose stored permission may not be auto, the runtime SHALL refresh Kimi permission mode by issuing the provider-native `/auto on` TUI command before managed prompts are submitted.
-
-Kimi unattended local-interactive launch SHALL NOT add `--auto`, `--yolo`, or `--plan` to Kimi TUI startup commands that include `--continue` or `--session <session_id>`.
-
-If the runtime cannot force or refresh Kimi auto mode for an unattended local-interactive launch, the launch or relaunch SHALL fail clearly rather than proceeding in manual approval mode.
-
-When a Kimi Code local-interactive launch resolves `operator_prompt_mode = as_is`, the runtime SHALL NOT force Kimi auto permission mode and SHALL leave provider approval behavior to the launched Kimi session.
+A maintained Kimi TUI launch SHALL apply the resolved permission mode using qualified native startup inputs before a managed prompt. The unattended default SHALL be `auto` where the operator omits a permission mode. The native startup path SHALL preserve a supported explicit mode and keep policy setup outside the conversation. An `as_is` launch with an omitted permission mode SHALL retain native session behavior.
 
 #### Scenario: Fresh unattended Kimi TUI launch starts in auto mode
-- **WHEN** a managed Kimi Code local-interactive launch resolves `operator_prompt_mode = unattended`
-- **AND WHEN** no provider-native session resume selector is used
-- **THEN** the launch policy writes `default_permission_mode = "auto"` in the managed Kimi runtime home before provider start
-- **AND THEN** the runtime does not submit the Houmao role bootstrap or workload prompt until the TUI startup path is expected to be in auto mode
+- **WHEN** a managed Kimi TUI launches with unattended defaults and the author omits permission mode
+- **THEN** the runtime projects `default_permission_mode = "auto"` and uses native `--auto` at launch
+- **AND THEN** native role instructions are in place before the first workload prompt
 
 #### Scenario: Resumed unattended Kimi TUI launch refreshes auto mode
-- **WHEN** a managed Kimi Code local-interactive relaunch resolves `operator_prompt_mode = unattended`
-- **AND WHEN** the relaunch resumes provider history with `--continue` or `--session <session_id>`
-- **THEN** the runtime does not add `--auto` to the Kimi startup command
-- **AND THEN** after Kimi TUI readiness, the runtime issues `/auto on` before any managed workload prompt
+- **WHEN** an unattended Kimi TUI relaunch resumes history with `--continue` or `--session <session_id>` and permission mode is omitted
+- **THEN** the startup command includes the native `--auto` option with the continuation selector
+- **AND THEN** the first managed conversational input can be workload content
+
+#### Scenario: Unsupported Kimi permission selection fails before launch
+- **WHEN** the Kimi TUI cannot establish the authored permission mode using the selected native startup path
+- **THEN** Houmao reports the unsupported setting and startup combination before starting the provider
 
 #### Scenario: Auto refresh failure blocks unattended launch
-- **WHEN** a managed Kimi Code local-interactive launch resolves `operator_prompt_mode = unattended`
-- **AND WHEN** the runtime cannot submit or confirm the startup auto-mode refresh required for that launch path
-- **THEN** the launch or relaunch fails with a diagnostic that names Kimi unattended auto-mode setup
-- **AND THEN** the runtime does not continue into a manual approval posture
+- **WHEN** an unattended launch needs the Kimi auto default and the native startup path cannot establish it
+- **THEN** Houmao reports the unsupported startup combination before admitting workload prompts
 
 #### Scenario: As-is Kimi TUI remains manual when provider chooses manual
-- **WHEN** a managed Kimi Code local-interactive launch resolves `operator_prompt_mode = as_is`
-- **THEN** the runtime does not write `default_permission_mode = "auto"` as launch-policy-owned state
-- **AND THEN** the runtime does not issue `/auto on` before managed prompts
+- **WHEN** a Kimi TUI launches in `as_is` with permission mode omitted
+- **AND WHEN** the provider's selected native settings or session choose manual mode
+- **THEN** the provider determines the permission mode from its selected native settings and session
 
 #### Scenario: Kimi auto mode is no-question but not hard-deny bypass
-- **WHEN** Kimi unattended local-interactive launch has entered Kimi auto permission mode
-- **THEN** Kimi tool approval prompts and `AskUserQuestion` requests do not require operator input during normal agent work
-- **AND THEN** Kimi may still block work through explicit provider hard-deny policies or user-configured deny rules
+- **WHEN** a Kimi TUI starts in the unattended default auto mode
+- **THEN** ordinary tool approvals and user questions do not require operator input
+- **AND THEN** native hard denials and explicit deny rules still apply
 
 ### Requirement: Brain launch runtime excludes Gemini backends
 The brain launch runtime SHALL NOT resolve, validate, start, resume, or dispatch a Gemini interactive or headless backend.
@@ -3335,17 +3258,20 @@ DSH Web startup SHALL use the isolated configuration and native prompt projectio
 
 ### Requirement: Web Human Interaction Follows the Selected Operator Policy
 
-DSH Web launch SHALL preserve native human questions, permissions, and model selection in `as_is` mode. Unattended mode SHALL apply its separately qualified no-question policy without silently approving native hard denies. Opening the browser SHALL be explicit, and credentials required for browser sign-in SHALL not enter ordinary public launch/status metadata.
+DSH Web SHALL use the resolved sandbox, approval, and model configuration. Omitted permission settings SHALL use native defaults for `as_is` and the qualified unattended defaults for `unattended`. An explicit approval policy SHALL control human participation. Browser opening SHALL be explicit and public launch or status data SHALL omit sign-in credentials.
 
 #### Scenario: Human Operates an As-Is DSH Session
-- **WHEN** an interactive DSH agent uses `as_is` mode and requests approval
-- **THEN** the browser presents the native interaction while Houmao observes its blocked state
-- **AND THEN** the Web adapter does not apply unattended policy on resume or status inspection
+- **WHEN** a DSH Web session uses `as_is` and its effective policy requests human approval
+- **THEN** the browser presents the interaction while Houmao observes the blocked state
+- **AND THEN** observation or reconnect preserves the effective native policy
+
+#### Scenario: Authored approval overrides the unattended Web default
+- **WHEN** a DSH Web launch requests `unattended` and explicitly sets approval to `ask`
+- **THEN** the session uses the selected approval setting and presents native approval requests through the browser
 
 #### Scenario: Automated Web Qualification Has No Display
-- **WHEN** an unattended DSH Web fixture launches on a host without a desktop browser
-- **THEN** the host becomes controllable without automatically opening a graphical application
-- **AND THEN** browser qualification can connect separately to the same bound native session
+- **WHEN** an unattended DSH Web fixture launches without a graphical desktop
+- **THEN** the host becomes controllable and the browser can connect separately to the same native session
 
 ### Requirement: Web Relaunch Preserves Logical Identity and Changes Execution Identity
 
@@ -3393,16 +3319,22 @@ Managed DSH compatible-adapter `tool_params` SHALL validate and project supporte
 
 ### Requirement: Unattended DSH Launch Composes Coherent Permission Presets
 
-When a managed DSH headless, service, or Web launch applies unattended operator policy, profile generation SHALL register a matching unattended preset in the native permission-presets service and select it as the default preset alongside matching approval and sandbox-policy defaults so native permission-service activation succeeds without preset-mismatch errors. Launches in `as_is` operator mode SHALL omit unattended permission, approval, and sandbox-policy overrides.
+DSH headless, ACP service, and Web SHALL resolve sandbox and approval independently for each launch. Unattended defaults SHALL be `danger-full-access` and `never`. Profile generation SHALL select a native permission preset consistent with the effective sandbox and approval sections, preserving supported explicit settings and omitting unattended defaults for `as_is`.
 
 #### Scenario: Unattended Launch Activates Native Permission Service Cleanly
-- **WHEN** a managed DSH native headless, ACP service, or Web agent starts in `unattended` operator mode
-- **THEN** the generated profile patch configures a named unattended permission preset alongside DSH's standard presets, sets it as `defaultPreset`, and aligns `approval` and `sandbox-policy` with that preset
-- **AND THEN** DSH starts without a `permission` plugin preset-mismatch activation error in stderr
+- **WHEN** a managed DSH backend starts with unattended mode and both permission fields omitted
+- **THEN** the generated profile selects a preset with `danger-full-access` and `never` matching the native sandbox and approval sections
+- **AND THEN** DSH activates its native permission service without a preset-mismatch error
+
+#### Scenario: One authored field changes the selected preset
+- **WHEN** a managed unattended DSH launch sets sandbox to `workspace-write` and leaves approval unset
+- **THEN** the profile selects a preset with `workspace-write` and the `never` default
+- **AND THEN** the native sandbox and approval sections agree with that preset
 
 #### Scenario: As-Is Launch Preserves Native Permission Defaults
-- **WHEN** a managed DSH agent starts in `as_is` operator mode
-- **THEN** the generated profile patch omits unattended `permission`, `approval`, and `sandbox-policy` overrides so native interactive approval behavior remains active
+- **WHEN** a managed DSH backend starts in `as_is` without permission overrides
+- **THEN** the native profile uses its existing baseline permissions
+- **AND THEN** Houmao projects no unattended permission defaults
 
 ### Requirement: DSH Web selection launches its native browser host
 
@@ -3450,3 +3382,24 @@ A fresh current-schema `(codex, service)` launch SHALL select the maintained app
 
 - **WHEN** the selection fails its version or protocol check
 - **THEN** the error identifies the required service capability and the available headless and TUI modes
+
+### Requirement: Provider start uses the resolved native launch settings
+
+Managed provider start and explicit relaunch SHALL project the resolved native launch settings consistently into supported config files, CLI arguments, and native session parameters. Strategy writes SHALL preserve unrelated setup content. A managed service SHALL verify effective settings where its native handshake reports them before publishing readiness.
+
+#### Scenario: A later native startup surface could override the managed configuration
+
+- **WHEN** an operator sets a supported sandbox policy and the backend reads configuration before binding a native thread
+- **THEN** the runtime applies the resolved sandbox policy through the backend's qualified startup surface
+- **AND THEN** the config and native thread parameters agree where both define the setting
+
+#### Scenario: A native session reports a different effective permission setting
+
+- **WHEN** a native backend reports a permission setting different from the requested effective value during startup
+- **THEN** the runtime reports the disagreement instead of publishing readiness for that configuration
+
+#### Scenario: A relaunch reconstructs its permission settings
+
+- **WHEN** a managed instance relaunches from saved authored inputs and an earlier runtime home contains generated permission defaults
+- **THEN** provider start resolves the authored inputs and current applicable defaults for the selected executable
+- **AND THEN** the prior materialized defaults do not shadow an explicit setting

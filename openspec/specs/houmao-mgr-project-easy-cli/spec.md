@@ -221,9 +221,7 @@ The command SHALL NOT expose or require a separate launch-time workspace-trust b
 
 The delegated native launch SHALL proceed without a Houmao-managed workspace trust confirmation prompt.
 
-When the stored specialist launch posture is `unattended`, any maintained no-prompt or full-autonomy provider startup posture SHALL remain owned by the resolved prompt mode and downstream launch policy.
-
-When the stored specialist launch posture is `as_is`, easy instance launch SHALL NOT inject a separate yolo-style startup override and SHALL leave provider startup behavior untouched beyond the existing delegated launch contract.
+Easy instance launch SHALL delegate the resolved prompt mode and authored tool settings to the native launch flow. `unattended` SHALL fill omitted permission defaults through the selected provider strategy. `as_is` SHALL use the native baseline for omitted permission settings. Both modes SHALL honor effective supported authored values.
 
 #### Scenario: Easy instance launch uses overlay-local runtime and jobs defaults
 - **WHEN** an active project overlay resolves as `/repo/.houmao`
@@ -257,6 +255,11 @@ When the stored specialist launch posture is `as_is`, easy instance launch SHALL
 - **AND WHEN** an operator runs `houmao-mgr project agents launch --specialist researcher --name repo-research-1`
 - **THEN** the command delegates to native launch without a Houmao-managed workspace trust confirmation prompt
 - **AND THEN** it does not inject a separate yolo-style startup override on top of the stored `as_is` posture
+
+#### Scenario: An unattended specialist includes an authored sandbox override
+- **WHEN** a specialist uses unattended defaults and supplies a supported native sandbox value in its tool parameters
+- **THEN** the delegated launch applies that sandbox value
+- **AND THEN** omitted permission fields use their versioned unattended defaults
 
 ### Requirement: `project agents launch` supports project-profile-backed launch
 `houmao-mgr project agents launch` SHALL support selecting a reusable project profile through `--profile <profile>`.
