@@ -16,13 +16,21 @@ from pydantic import (
     ConfigDict,
     Field,
     JsonValue as PydanticJsonValue,
+    TypeAdapter,
     ValidationError,
     field_validator,
     model_validator,
 )
 
 from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig, parse_reasoning_level
-from houmao.agents.realm_controller.models import BackendKind, CaoParsingMode
+from houmao.agents.realm_controller.managed_control import (
+    MANAGED_SERVICE_BACKENDS,
+    MANAGED_WEB_BACKENDS,
+    ManagedControlCapabilitiesV1,
+    ManagedControlObservationV1,
+)
+from houmao.agents.realm_controller.run_modes import RunMode, validate_mode_binding
+from houmao.agents.realm_controller.models import BackendKind, CaoParsingMode, SessionEvent
 from houmao.agents.realm_controller.native_surface import NativeSurfaceV1, WebNativeSurfaceV1
 from houmao.hook_observation.health import HookChannelState
 from houmao.gateway.plugins import GatewayPluginConfiguration
@@ -78,6 +86,7 @@ GatewayStoredRequestState = Literal[
     "completed",
     "failed",
     "coalesced",
+    "uncertain",
 ]
 GatewayMailPostReplyPolicy = Literal["none", "operator_mailbox"]
 GatewayMailReadFilter = Literal["any", "read", "unread"]
@@ -140,14 +149,21 @@ def _validate_gateway_backend_metadata_shape(
         | GatewayAttachBackendMetadataCaoV1
         | GatewayAttachBackendMetadataHoumaoServerV1
         | GatewayAttachBackendMetadataWebV1
+        | GatewayAttachBackendMetadataServiceV1
     ),
     context: str,
 ) -> None:
     """Validate backend-specific gateway metadata against one backend kind."""
 
-    if backend == "dsh_web":
+    if backend in MANAGED_WEB_BACKENDS:
         if not isinstance(backend_metadata, GatewayAttachBackendMetadataWebV1):
-            raise ValueError(f"{context} must use the Web attach schema for backend=dsh_web")
+            raise ValueError(f"{context} must use the Web attach schema for backend={backend}")
+        validate_mode_binding(backend_metadata.tool, "web", backend)
+        return
+    if backend in MANAGED_SERVICE_BACKENDS:
+        if not isinstance(backend_metadata, GatewayAttachBackendMetadataServiceV1):
+            raise ValueError(f"{context} must use the service attach schema for backend={backend}")
+        validate_mode_binding(backend_metadata.tool, "service", backend)
         return
     if backend == "cao_rest":
         if not isinstance(backend_metadata, GatewayAttachBackendMetadataCaoV1):
@@ -167,7 +183,7 @@ def _validate_gateway_backend_metadata_shape(
         "codex_headless",
         "claude_headless",
         "kimi_headless",
-        "dsh_acp",
+        "dsh_headless",
     }:
         if not isinstance(backend_metadata, GatewayAttachBackendMetadataHeadlessV1):
             raise ValueError(
@@ -191,7 +207,10 @@ def _parse_gateway_datetime(value: str) -> datetime:
 
 
 def _validate_web_attach_surface(metadata: object, surface: NativeSurfaceV1 | None) -> None:
-    """Require public Web location/session to match the native execution binding."""
+    """Preserve the native Web binding and exclude human surfaces from services."""
+
+    if isinstance(metadata, GatewayAttachBackendMetadataServiceV1) and surface is not None:
+        raise ValueError("Gateway service attachment cannot publish a human surface")
 
     if isinstance(metadata, GatewayAttachBackendMetadataWebV1):
         if not isinstance(surface, WebNativeSurfaceV1) or (
@@ -419,7 +438,7 @@ def _resolve_tui_timing_field(
 
 
 class GatewayDshCapabilitiesV1(_StrictGatewayModel):
-    """Describe the qualified native ACP operations without terminal emulation."""
+    """Describe qualified DSH headless operations and native accounting."""
 
     supported_operations: list[str] = Field(
         default_factory=lambda: [
@@ -445,6 +464,7 @@ class GatewayDshCapabilitiesV1(_StrictGatewayModel):
             "fork",
             "additional_workspaces",
             "raw_keys",
+            "mcp",
             "acp_wire_reload",
             "interactive_web",
         ]
@@ -516,16 +536,23 @@ class GatewayWebExecutionIdentityV1(_StrictGatewayModel):
         return value
 
 
+class GatewayAttachBackendMetadataServiceV1(_StrictGatewayModel):
+    """Describe a service attach route without publishing its private channel."""
+
+    control_kind: Literal["service"] = "service"
+    tool: str = Field(min_length=1)
+
+
 class GatewayAttachBackendMetadataWebV1(_StrictGatewayModel):
     """Public Web location and identity, separate from tmux supervision."""
 
     surface_kind: Literal["web"] = "web"
-    tool: Literal["dsh"] = "dsh"
+    tool: Literal["dsh", "kimi"] = "dsh"
     origin: str
     browser_url: str
     identity: GatewayWebExecutionIdentityV1
-    resource_activation: Literal["native-config-resources"] = "native-config-resources"
-    accounting_source: Literal["dsh-journal-v4"] = "dsh-journal-v4"
+    resource_activation: Literal["native-config-resources"] | None = "native-config-resources"
+    accounting_source: Literal["dsh-journal-v4"] | None = "dsh-journal-v4"
     supported_operations: list[str] = Field(
         default_factory=lambda: [
             "prompt",
@@ -773,6 +800,7 @@ class GatewayAttachContractV1(_StrictGatewayModel):
         | GatewayAttachBackendMetadataCaoV1
         | GatewayAttachBackendMetadataHoumaoServerV1
         | GatewayAttachBackendMetadataWebV1
+        | GatewayAttachBackendMetadataServiceV1
     )
     manifest_path: str | None = None
     agent_def_dir: str | None = None
@@ -838,6 +866,7 @@ class GatewayManifestV1(_StrictGatewayModel):
         | GatewayAttachBackendMetadataCaoV1
         | GatewayAttachBackendMetadataHoumaoServerV1
         | GatewayAttachBackendMetadataWebV1
+        | GatewayAttachBackendMetadataServiceV1
     )
     manifest_path: str | None = None
     agent_def_dir: str | None = None
@@ -1327,10 +1356,24 @@ class GatewayPromptControlResultV1(_StrictGatewayModel):
 
     status: Literal["ok"] = "ok"
     action: Literal["submit_prompt"] = "submit_prompt"
-    sent: Literal[True] = True
+    sent: bool = True
     admission_policy: GatewayPromptAdmissionPolicy
     detail: str
     operation_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    outcome: Literal["queued", "handed_off"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    native_prompt_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
+
+    @model_validator(mode="after")
+    def _validate_handoff(self) -> "GatewayPromptControlResultV1":
+        """Require the send flag and durable operation ID to agree with the evidence."""
+
+        if self.outcome is not None and (
+            not self.operation_id or self.sent != (self.outcome == "handed_off")
+        ):
+            raise ValueError("Prompt outcome, operation identity, and send flag disagree")
+        return self
 
     @field_validator("detail")
     @classmethod
@@ -1410,6 +1453,10 @@ class GatewayAcceptedRequestV1(_StrictGatewayModel):
     accepted_at_utc: str
     queue_depth: int
     managed_agent_instance_epoch: int
+    native_admission: Literal["queued", "handed_off"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    native_prompt_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @field_validator("request_id", "accepted_at_utc")
     @classmethod
@@ -1853,6 +1900,7 @@ class GatewayStatusV1(_StrictGatewayModel):
     protocol_version: GatewayProtocolVersion = Field(default=GATEWAY_PROTOCOL_VERSION)
     attach_identity: str
     backend: BackendKind
+    mode: RunMode | None = Field(default=None, exclude_if=lambda value: value is None)
     tmux_session_name: str
     gateway_health: GatewayHealthState
     managed_agent_connectivity: GatewayConnectivityState
@@ -1874,6 +1922,15 @@ class GatewayStatusV1(_StrictGatewayModel):
     native_surface: NativeSurfaceV1 | None = None
     native_surface_eligibility: GatewaySurfaceEligibilityState | None = None
     web: GatewayWebControlStateV1 | None = None
+    service: ManagedControlObservationV1 | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    capabilities: ManagedControlCapabilitiesV1 | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    observation: ManagedControlObservationV1 | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @field_validator(
         "attach_identity",
@@ -1919,6 +1976,12 @@ class GatewayStatusV1(_StrictGatewayModel):
 
         if self.schema_version != GATEWAY_STATE_SCHEMA_VERSION:
             raise ValueError(f"schema_version must be {GATEWAY_STATE_SCHEMA_VERSION}")
+        if self.service is not None and (
+            self.mode != "service"
+            or self.native_surface is not None
+            or self.service.source != "service_native"
+        ):
+            raise ValueError("Service state requires native service evidence and service mode")
         if self.gateway_health == "not_attached":
             if self.gateway_host is not None or self.gateway_port is not None:
                 raise ValueError("offline gateway status must omit live gateway host and port")
@@ -1953,6 +2016,30 @@ class GatewayStatusV1(_StrictGatewayModel):
         if self.gateway_tmux_window_index == "0":
             raise ValueError("gateway tmux window index must not be 0")
         return self
+
+
+class GatewayServiceRequestSnapshotV1(_StrictGatewayModel):
+    """Read exact request evidence from the persistent native owner."""
+
+    request_id: str
+    generation_id: str
+    service_incarnation: str
+    native_session_id: str
+    native_turn_id: str | None = None
+    state: Literal[
+        "reserved", "submitting", "handed_off", "completed", "interrupted", "failed", "uncertain"
+    ]
+    accepted_at_utc: str | None = None
+    handoff_at_utc: str | None = None
+    completed_at_utc: str | None = None
+    events: list[SessionEvent] = Field(default_factory=list)
+
+    @field_validator("events", mode="before")
+    @classmethod
+    def _decode_session_events(cls, value: object) -> list[SessionEvent]:
+        """Decode public JSON objects before strict gateway dataclass validation."""
+
+        return TypeAdapter(list[SessionEvent]).validate_python(value, strict=False)
 
 
 class GatewayHeadlessControlStateV1(_StrictGatewayModel):

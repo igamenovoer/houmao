@@ -150,7 +150,9 @@ def test_session_manifest_write_and_load_round_trip(tmp_path: Path) -> None:
     loaded = load_session_manifest(path)
 
     assert loaded.path == path
-    assert loaded.payload["schema_version"] == 5
+    assert loaded.payload["schema_version"] == 6
+    assert loaded.payload["mode"] == "headless"
+    assert loaded.payload["launch_plan"]["mode"] == "headless"
     assert loaded.payload["backend"] == "claude_headless"
     assert loaded.payload["agent_name"] == "HOUMAO-claude"
     assert loaded.payload["agent_id"] == derive_agent_id_from_name("HOUMAO-claude")
@@ -189,6 +191,71 @@ def test_session_manifest_write_and_load_round_trip(tmp_path: Path) -> None:
         "source": "launch_plan.role_injection.prompt",
     }
     assert "secret" not in path.read_text(encoding="utf-8")
+
+
+def test_codex_service_manifest_requires_current_owner_binding(tmp_path: Path) -> None:
+    """Accept current owner authority and reject retired or mismatched Codex state."""
+
+    binding = observed_local_binding(
+        working_directory=tmp_path,
+        runtime_root=tmp_path / "runtime",
+        registry_root=tmp_path / "registry",
+        tmux_socket=str(tmp_path / "tmux.sock"),
+    )
+    plan = replace(
+        _sample_plan(tmp_path),
+        backend="codex_app_server",
+        tool="codex",
+        executable="/selected/codex",
+        args=["app-server", "--listen", "stdio://"],
+        home_env_var="CODEX_HOME",
+        execution_binding=binding,
+        metadata={"tmux_socket_path": binding.tmux_socket},
+    )
+    payload = build_session_manifest_payload(
+        SessionManifestRequest(
+            launch_plan=plan,
+            role_name="gpu-kernel-coder",
+            brain_manifest_path=tmp_path / "brain.yaml",
+            **_identity_fields("HOUMAO-codex"),
+            session_id="runtime-id",
+            registry_generation_id="generation",
+            backend_state={
+                "runtime_session_id": "runtime-id",
+                "generation_id": "generation",
+                "service_incarnation": "incarnation",
+                "native_session_id": "codex-thread",
+                "working_directory": str(tmp_path),
+                "tmux_session_name": "HOUMAO-codex",
+                "tmux_window_id": "@7",
+                "tmux_pane_id": "%7",
+            },
+        )
+    )
+    parsed = parse_session_manifest_payload(payload, source="test")
+    assert parsed.mode == "service" and parsed.native_surface is None
+    assert parsed.backend_state["native_session_id"] == "codex-thread"
+    assert parsed.tmux is not None and parsed.tmux.primary_window_role == "supervisor_logs"
+    assert parsed.codex is None and parsed.headless is None
+
+    legacy = deepcopy(payload)
+    legacy["codex"] = {"thread_id": "codex-thread", "turn_index": 0, "pid": 1}
+    with pytest.raises(SessionManifestError, match=r"Retired Codex.*Start a fresh runtime session"):
+        parse_session_manifest_payload(legacy, source="legacy")
+    legacy["schema_version"] = 5
+    with pytest.raises(SessionManifestError, match=r"schema-version mismatch.*fresh runtime"):
+        parse_session_manifest_payload(legacy, source="legacy-v5")
+
+    for key, value in (
+        ("generation_id", "other-generation"),
+        ("runtime_session_id", "other-session"),
+        ("tmux_pane_id", "%8"),
+        ("working_directory", "/other/workspace"),
+    ):
+        stale = deepcopy(payload)
+        stale["backend_state"][key] = value
+        with pytest.raises(SessionManifestError, match="current service identity differs"):
+            parse_session_manifest_payload(stale, source="stale")
 
 
 def test_bound_manifest_generation_change_requires_captured_handoff(tmp_path: Path) -> None:

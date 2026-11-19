@@ -20,6 +20,7 @@ from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
 )
+from houmao.agents.realm_controller.managed_control import MANAGED_WEB_BACKENDS
 from houmao.agents.realm_controller.native_surface import WebNativeSurfaceV1
 from houmao.agents.realm_controller.runtime import resume_runtime_session
 from houmao.agents.realm_controller.web_observation import WebObservation, web_state_is_fresh
@@ -64,11 +65,11 @@ class AgentWebObserver:
         record = self.m_agent.record
         handle = load_session_manifest(Path(record.runtime.manifest_path))
         payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
-        metadata = web_attach_metadata_from_state(payload.backend_state)
+        metadata = web_attach_metadata_from_state(payload.backend_state, backend=payload.backend)
         surface = getattr(record, "native_surface", None)
         if (
-            payload.backend != "dsh_web"
-            or record.identity.backend != "dsh_web"
+            payload.backend not in MANAGED_WEB_BACKENDS
+            or record.identity.backend != payload.backend
             or not isinstance(surface, WebNativeSurfaceV1)
             or surface.origin != metadata.origin
             or surface.native_session_id != metadata.identity.native_session_id
@@ -123,11 +124,11 @@ class AgentWebObserver:
                         raise SessionManifestError(
                             "Direct Web observation needs private runtime authority"
                         )
-                    # Reconstructing a controller is observational for dsh_web;
-                    # only explicit launch/relaunch can activate a native Agent.
+                    # Reconstructing a controller only attaches to this Web host.
                     controller = resume_runtime_session(
                         agent_def_dir=Path(agent_def_dir),
                         session_manifest_path=Path(self.m_agent.record.runtime.manifest_path),
+                        read_only=True,
                     )
                     backend = cast(_ReadOnlyWebBackend, controller.backend_session)
                     closer = getattr(backend, "close_control_connection", None)
@@ -136,6 +137,7 @@ class AgentWebObserver:
                         metadata=metadata,
                         state=backend.observe_web_state,
                         history=backend.observe_web_history,
+                        sparse_history=self.m_agent.record.identity.backend == "kimi_web",
                     )
                 self.m_state = self.m_direct.refresh()
                 self._merge_history(self.m_direct.history(limit=100))

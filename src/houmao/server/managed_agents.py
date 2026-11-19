@@ -30,7 +30,7 @@ class ManagedHeadlessAuthorityRecord(_ManagedAgentStoreModel):
     """Server-owned native headless authority record."""
 
     tracked_agent_id: str
-    backend: Literal["claude_headless", "codex_headless", "kimi_headless", "dsh_acp"]
+    backend: Literal["claude_headless", "codex_headless", "kimi_headless", "dsh_headless", "dsh_acp"]
     tool: str
     manifest_path: str
     session_root: str
@@ -150,7 +150,7 @@ class ManagedHeadlessTurnRecord(_ManagedAgentStoreModel):
     tracked_agent_id: str
     turn_id: str
     turn_index: int
-    status: Literal["active", "completed", "failed", "interrupted"] = "active"
+    status: Literal["active", "completed", "failed", "interrupted", "unknown"] = "active"
     started_at_utc: str
     completed_at_utc: str | None = None
     turn_artifact_dir: str

@@ -3108,13 +3108,13 @@ def _seed_headless_gateway_root(
     if tool == "dsh":
         plan = replace(
             plan,
-            backend="dsh_acp",
+            backend="dsh_headless",
             tool="dsh",
             executable="dsh",
             home_env_var="DSH_HOME",
             args=[],
             role_injection=replace(plan.role_injection, method="native_system_prompt_section"),
-            metadata={"headless_output_format": "dsh-acp"},
+            metadata={"headless_output_format": "dsh-cli"},
         )
     runtime_session_id = f"{tool}-headless-1"
     native_session_id = f"{tool}-session-1"
@@ -7946,7 +7946,7 @@ def test_gateway_mail_notifier_headless_uses_current_context_without_clean_conte
         recipient_principal_id=derive_agent_id_from_name("HOUMAO-headless"),
         recipient_address="HOUMAO-headless@agents.localhost",
     )
-    backend = "dsh_acp" if tool == "dsh" else "claude_headless"
+    backend = "dsh_headless" if tool == "dsh" else "claude_headless"
     fake_session = _FakeGatewayHeadlessSession(backend=backend)
     fake_controller = _FakeGatewayHeadlessController(fake_session)
     monkeypatch.setattr(

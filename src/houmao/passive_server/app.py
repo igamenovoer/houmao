@@ -701,10 +701,12 @@ def create_app(
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]
         return result
 
-    # -- TUI observation routes -----------------------------------------------
+    # -- mode-specific observation routes -------------------------------------
 
     @app.get("/houmao/agents/{agent_ref}/state")
-    def agent_state(agent_ref: str) -> AgentTuiStateResponse | AgentWebStateResponse:
+    def agent_state(
+        agent_ref: str,
+    ) -> AgentTuiStateResponse | AgentWebStateResponse | HoumaoManagedAgentStateResponse:
         result = resolved_service.agent_state(agent_ref)
         if isinstance(result, tuple):
             return JSONResponse(status_code=result[0], content=result[1])  # type: ignore[return-value]

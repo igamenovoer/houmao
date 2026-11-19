@@ -31,7 +31,18 @@ _RESERVED_ARGS_BY_BACKEND: Final[dict[SupportedLaunchBackend, tuple[str, ...]]] 
         "--yolo",
         "--plan",
     ),
+    "kimi_acp": (),
+    "kimi_web": ("web", "--host", "--port", "--no-open"),
     "cao_rest": (),
+    "dsh_headless": (
+        "--profile",
+        "--config",
+        "--patch",
+        "--json",
+        "--session-id",
+        "web",
+        "headless",
+    ),
     "dsh_acp": ("--profile", "--config", "--patch", "web", "headless"),
     "dsh_web": (
         "--profile",

@@ -6,6 +6,7 @@ import click
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+import sqlite3
 from types import SimpleNamespace
 
 import pytest
@@ -16,6 +17,7 @@ from houmao.agents.realm_controller.backends.headless_output import (
     canonical_headless_event_artifact_path,
 )
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
+from houmao.agents.realm_controller.backends.kimi_web import KimiWebSession
 from houmao.agents.realm_controller.backends.tmux_runtime import TmuxBackedAuthorityHealth
 from houmao.agents.realm_controller.errors import BackendExecutionError, SessionManifestError
 from houmao.agents.realm_controller.manifest import (
@@ -42,7 +44,11 @@ from houmao.agents.realm_controller.models import (
     RelaunchChatSessionSelection,
     RoleInjectionPlan,
     SessionControlResult,
+    SessionEvent,
 )
+from houmao.agents.realm_controller.managed_control import managed_control_capabilities
+from houmao.agents.realm_controller.native_surface import TerminalNativeSurfaceV1
+from houmao.agents.realm_controller import owner_admission
 from houmao.agents.realm_controller.registry_models import (
     ManagedAgentRegistryRecordV3,
     RegistryIdentityV1,
@@ -104,6 +110,7 @@ from houmao.srv_ctrl.commands.managed_agents import (
     mailbox_status,
     managed_agent_detail_payload,
     managed_agent_state_payload,
+    open_managed_agent_browser,
     prompt_managed_agent,
     register_mailbox_binding,
     relaunch_managed_agent,
@@ -147,7 +154,9 @@ def test_resolve_managed_agent_target_prefers_shared_registry_for_local_records(
     controller = SimpleNamespace(
         agent_id="agent-1234",
         agent_identity="gpu",
-        launch_plan=SimpleNamespace(backend="codex_headless", tool="codex", mailbox=None),
+        launch_plan=SimpleNamespace(
+            backend="codex_headless", mode="headless", tool="codex", mailbox=None
+        ),
         manifest_path=(tmp_path / "manifest.json").resolve(),
         tmux_session_name="gpu-session",
     )
@@ -159,6 +168,9 @@ def test_resolve_managed_agent_target_prefers_shared_registry_for_local_records(
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.probe_tmux_backed_authority",
         lambda **kwargs: _healthy_tmux_authority_probe(),
+    )
+    monkeypatch.setattr(
+        managed_agents_module, "require_registry_mode_authority", lambda _record: None
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.resume_runtime_session",
@@ -256,6 +268,9 @@ def test_resolve_managed_agent_target_wraps_unusable_local_runtime_authority(
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.probe_tmux_backed_authority",
         lambda **kwargs: _healthy_tmux_authority_probe(),
+    )
+    monkeypatch.setattr(
+        managed_agents_module, "require_registry_mode_authority", lambda _record: None
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.resume_runtime_session",
@@ -425,7 +440,7 @@ def test_local_headless_turn_event_loader_prefers_canonical_artifact(tmp_path: P
         + "\n",
         encoding="utf-8",
     )
-    snapshot = managed_agents_module._LocalHeadlessTurnSnapshot(
+    snapshot = managed_agents_module.HeadlessTurnSnapshot(
         turn_id="turn-0001",
         turn_index=1,
         status="completed",
@@ -1013,6 +1028,7 @@ def _degraded_or_stale_record(
             relaunchable=True,
             state_updated_at=published_at.isoformat(timespec="seconds"),
         ),
+        mode="headless",
         identity=RegistryIdentityV1(backend="codex_headless", tool="codex"),
         runtime=RegistryRuntimeV1(
             agent_def_dir=str(agent_def_dir.resolve()),
@@ -1807,6 +1823,145 @@ def test_mail_send_local_tui_without_gateway_returns_submission_only_result(
     )
 
     assert payload == expected
+
+
+@pytest.mark.parametrize(
+    ("backend_kind", "already_reserved", "cao_terminal_ready"),
+    [
+        ("local_interactive", False, False),
+        ("local_interactive", True, False),
+        ("cao_rest", False, False),
+        ("cao_rest", True, False),
+        ("cao_rest", False, True),
+    ],
+)
+def test_local_tui_mail_fallback_uses_owner_admission(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    backend_kind: str,
+    already_reserved: bool,
+    cao_terminal_ready: bool,
+) -> None:
+    """A mailbox fallback competes with ordinary prompts and reports its actual handoff."""
+
+    manifest = tmp_path / "manifest.json"
+    gateway_dir = tmp_path / "gateway"
+    gateway_dir.mkdir()
+    with sqlite3.connect(gateway_dir / "queue.sqlite"):
+        pass
+    monkeypatch.setattr(owner_admission, "_owner_manifest", lambda *_: SimpleNamespace(mode="tui"))
+    if already_reserved:
+        owner_admission.reserve_owner_prompt(manifest, "generation", origin="gateway")
+
+    backend = object.__new__(
+        managed_agents_module.LocalInteractiveSession
+        if backend_kind == "local_interactive"
+        else managed_agents_module.CaoRestSession
+    )
+    actions: list[str] = []
+    if isinstance(backend, managed_agents_module.LocalInteractiveSession):
+        monkeypatch.setattr(backend, "plugin_execution_identity", lambda: ("generation", "pane"))
+
+        def configure(control: object) -> None:
+            """Install a request-specific test control without a tmux runner."""
+
+            backend.m_dispatch_control = control
+
+        monkeypatch.setattr(backend, "configure_request_dispatch", configure)
+
+    request = managed_agents_module.MailPromptRequest(
+        channel="offline",
+        request_id="mailreq-owner-test",
+        operation="mark",
+        prompt="prepared mailbox prompt",
+        expected_binding_id="binding-test",
+    )
+    monkeypatch.setattr(managed_agents_module, "prepare_mail_prompt", lambda **_: request)
+    monkeypatch.setattr(
+        managed_agents_module,
+        "ensure_mailbox_command_ready",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            transport="filesystem",
+            principal_id="alpha",
+            address="alpha@agents.localhost",
+            bindings_version="revision-test",
+        ),
+    )
+    monkeypatch.setattr(
+        managed_agents_module, "_live_gateway_client_for_controller", lambda _: None
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_manager_prompt_readiness",
+        lambda _controller, *, mode: lambda: actions.append(f"ready:{mode}"),
+    )
+
+    def send(prepared: managed_agents_module.MailPromptRequest) -> list[SessionEvent]:
+        """Attempt a competing gateway reservation while the mailbox call owns the slot."""
+
+        assert prepared == request
+        with pytest.raises(owner_admission.OwnerAdmissionError, match="unresolved"):
+            owner_admission.reserve_owner_prompt(manifest, "generation", origin="gateway")
+        if isinstance(backend, managed_agents_module.LocalInteractiveSession):
+            control = backend.m_dispatch_control
+            assert control is not None
+            control.require_allowed()
+            control.m_input_started.set()
+            control.confirm_handoff()
+        actions.append("send")
+        events = [SessionEvent(kind="submitted", message="prompt submitted", turn_index=1)]
+        if cao_terminal_ready:
+            events.append(
+                SessionEvent(
+                    kind="done",
+                    message="terminal ready",
+                    turn_index=1,
+                    payload={"canonical_runtime_status": "completed"},
+                )
+            )
+        return events
+
+    controller = SimpleNamespace(
+        launch_plan=object(),
+        tmux_session_name="owner",
+        manifest_path=manifest,
+        registry_generation_id="generation",
+        backend_session=backend,
+        control_capabilities=lambda: managed_control_capabilities(
+            mode="tui",
+            tool="codex",
+            backend=backend_kind,
+            native_surface=TerminalNativeSurfaceV1(tmux_session_name="owner", pane_id="%1"),
+        ),
+        execution_scope=nullcontext,
+        send_mail_prompt=send,
+    )
+
+    result = managed_agents_module._run_local_mail_prompt(
+        controller=controller,
+        operation="mark",
+        args={},
+        channel="offline",
+        expected_binding_id="binding-test",
+    )
+
+    assert result["execution_path"] == "tui_submission"
+    assert result["authoritative"] is False
+    assert result["verification_required"] is True
+    assert result["request_id"] == request.request_id
+    active = owner_admission.observe_owner_prompt(manifest, "generation")
+    if already_reserved:
+        assert result["status"] == "busy"
+        assert actions == []
+        assert active is not None and active.origin == "gateway", result
+    else:
+        assert result["status"] == "submitted"
+        assert actions[0] == "ready:tui" and actions[-1] == "send"
+        if cao_terminal_ready:
+            assert active is None
+        else:
+            assert active is not None and active.request_id == request.request_id, result
+            assert active.origin == "manager_mail" and active.state == "handed_off"
 
 
 def test_mail_send_local_headless_uses_verified_manager_direct_result(
@@ -3001,6 +3156,8 @@ def test_identity_from_record_uses_persisted_tmux_window_name(
     record = SimpleNamespace(
         agent_name="joined-agent",
         agent_id="agent-joined",
+        mode="tui",
+        native_surface=None,
         execution_binding=None,
         identity=SimpleNamespace(backend="local_interactive", tool="codex"),
         runtime=SimpleNamespace(
@@ -3039,6 +3196,8 @@ def test_identity_from_record_falls_back_to_join_launch_metadata_tmux_window_nam
     record = SimpleNamespace(
         agent_name="joined-agent",
         agent_id="agent-joined",
+        mode="tui",
+        native_surface=None,
         identity=SimpleNamespace(backend="local_interactive", tool="codex"),
         execution_binding=None,
         runtime=SimpleNamespace(
@@ -3190,16 +3349,54 @@ def test_joined_tui_state_and_detail_after_resume_keep_adopted_window_name(
     assert detail.detail.transport == "tui"
 
 
-def test_local_prompt_and_interrupt_use_runtime_controller() -> None:
-    calls: list[tuple[str, dict[str, object]]] = []
+def _stub_manager_headless_prompt_owner(monkeypatch, tmp_path):
+    """Model a verified, reserved headless runtime for manager routing tests."""
+
+    manifest = tmp_path / "sessions" / "headless" / "manifest.json"
+    calls = []
+    settled = []
+    claim = SimpleNamespace(
+        request_id="owned-request-1",
+        active=lambda: True,
+        handoff=lambda: None,
+        finish=lambda result, **_: settled.append(result),
+    )
+    monkeypatch.setattr(managed_agents_module, "reserve_owner_prompt", lambda *a, **kw: claim)
+
+    def send(prompt, **kwargs):
+        """Record exactly which durable request selected the worker artifacts."""
+
+        calls.append((prompt, kwargs))
+        return [SessionEvent(kind="done", message="done", turn_index=1)]
+
+    controller = SimpleNamespace(
+        manifest_path=manifest,
+        registry_generation_id="generation-1",
+        backend_session=None,
+        send_prompt=send,
+        control_capabilities=lambda: managed_control_capabilities(
+            tool="codex", backend="codex_headless", mode="headless", native_surface=None
+        ),
+    )
+    return controller, claim, calls, settled
+
+
+def test_local_prompt_and_interrupt_use_captured_owner_request(monkeypatch, tmp_path) -> None:
+    controller, claim, calls, settled = _stub_manager_headless_prompt_owner(monkeypatch, tmp_path)
+    turn_dir = controller.manifest_path.parent / f"manifest.turn-artifacts/{claim.request_id}"
+    monkeypatch.setattr(
+        managed_agents_module, "observe_owner_prompt", lambda *a: SimpleNamespace(turn_dir=turn_dir)
+    )
+    interrupted = []
+    monkeypatch.setattr(
+        managed_agents_module, "interrupt_owned_headless_attempt",
+        lambda path: interrupted.append(path) or SessionControlResult(status="ok", action="interrupt", detail="done"),
+    )
     target = ManagedAgentTarget(
         mode="local",
         agent_ref="agent-joined",
         identity=_managed_identity(),
-        controller=SimpleNamespace(
-            send_prompt=lambda prompt, **kwargs: calls.append((prompt, kwargs)),
-            interrupt=lambda: SessionControlResult(status="ok", action="interrupt", detail="done"),
-        ),
+        controller=controller,
     )
 
     prompt_response = prompt_managed_agent(target, prompt="hello")
@@ -3207,9 +3404,13 @@ def test_local_prompt_and_interrupt_use_runtime_controller() -> None:
 
     assert prompt_response.success is True
     assert prompt_response.request_kind == "submit_prompt"
+    assert prompt_response.request_id == claim.request_id
+    assert prompt_response.delivery_state == "completed"
+    assert settled == ["completed"]
     assert interrupt_response.success is True
     assert interrupt_response.detail == "done"
-    assert calls == [("hello", {"execution_model": None})]
+    assert interrupted == [turn_dir]
+    assert calls == [("hello", {"execution_model": None, "turn_artifact_dir_name": claim.request_id})]
 
 
 def test_prompt_managed_agent_rejects_execution_override_for_tui_target() -> None:
@@ -3222,6 +3423,48 @@ def test_prompt_managed_agent_rejects_execution_override_for_tui_target() -> Non
 
     with pytest.raises(click.ClickException, match="Execution overrides are only supported"):
         prompt_managed_agent(target, prompt="hello", model="claude-3-7-sonnet")
+
+
+@pytest.mark.parametrize("owner_available", [True, False])
+def test_open_browser_verifies_current_owner_before_opening(
+    monkeypatch: pytest.MonkeyPatch, owner_available: bool
+) -> None:
+    """Only the verified local owner may invoke the private opener."""
+
+    backend = KimiWebSession()
+    checks: list[str] = []
+
+    def require_owner() -> None:
+        """Simulate owner validation before reading browser authority."""
+
+        checks.append("owner")
+        if not owner_available:
+            raise SessionManifestError("Stale owner")
+
+    def open_browser() -> SessionControlResult:
+        """Record the private action without invoking a desktop browser."""
+
+        checks.append("browser")
+        return SessionControlResult(status="ok", action="open_browser", detail="Opened")
+
+    monkeypatch.setattr(backend, "open_browser", open_browser)
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="agent-joined",
+        identity=_managed_identity(),
+        controller=SimpleNamespace(
+            execution_scope=nullcontext,
+            require_managed_control_owner=require_owner,
+            backend_session=backend,
+        ),
+    )
+    if owner_available:
+        assert open_managed_agent_browser(target).status == "ok"
+        assert checks == ["owner", "browser"]
+    else:
+        with pytest.raises(click.ClickException, match="Stale owner"):
+            open_managed_agent_browser(target)
+        assert checks == ["owner"]
 
 
 def test_server_interrupt_uses_transport_neutral_request_route() -> None:
@@ -3270,6 +3513,7 @@ def test_headless_detail_uses_exit_artifact_even_when_tmux_session_is_live(
         manifest_path=manifest_path,
         tmux_session_name="join-sess",
         launch_plan=launch_plan,
+        backend_session=None,
         agent_identity="joined-agent",
         agent_id="agent-joined",
         execution_scope=nullcontext,
@@ -3283,11 +3527,6 @@ def test_headless_detail_uses_exit_artifact_even_when_tmux_session_is_live(
 
     monkeypatch.setattr(managed_agents_module, "_local_gateway_summary", lambda _controller: None)
     monkeypatch.setattr(managed_agents_module, "_local_mailbox_summary", lambda _controller: None)
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.managed_agents.tmux_session_exists",
-        lambda *, session_name: session_name == "join-sess",
-    )
-
     detail = managed_agent_detail_payload(target)
 
     assert detail.detail.transport == "headless"
@@ -3414,13 +3653,7 @@ def test_submit_headless_turn_uses_local_runtime_controller(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    launch_plan = _sample_launch_plan(tmp_path=tmp_path, backend="codex_headless")
-    calls: list[tuple[str, dict[str, object]]] = []
-    controller = SimpleNamespace(
-        send_prompt=lambda prompt, **kwargs: calls.append((prompt, kwargs)),
-        launch_plan=launch_plan,
-        manifest_path=(tmp_path / "session-root" / "manifest.json").resolve(),
-    )
+    controller, claim, calls, settled = _stub_manager_headless_prompt_owner(monkeypatch, tmp_path)
     target = ManagedAgentTarget(
         mode="local",
         agent_ref="agent-joined",
@@ -3428,11 +3661,10 @@ def test_submit_headless_turn_uses_local_runtime_controller(
         controller=controller,
     )
 
-    monkeypatch.setattr(managed_agents_module, "_next_turn_index", lambda resolved_controller: 1)
     monkeypatch.setattr(
         managed_agents_module,
         "_turn_snapshot_from_id",
-        lambda *, controller, turn_id: managed_agents_module._LocalHeadlessTurnSnapshot(
+        lambda *, controller, turn_id: managed_agents_module.HeadlessTurnSnapshot(
             turn_id=turn_id,
             turn_index=1,
             status="completed",
@@ -3451,12 +3683,13 @@ def test_submit_headless_turn_uses_local_runtime_controller(
     response = submit_headless_turn(target, prompt="summarize")
 
     assert response.success is True
-    assert response.turn_id == "turn-0001"
+    assert response.turn_id == claim.request_id
+    assert settled == ["completed"]
     assert calls == [
         (
             "summarize",
             {
-                "turn_artifact_dir_name": "turn-0001",
+                "turn_artifact_dir_name": claim.request_id,
                 "execution_model": None,
             },
         )

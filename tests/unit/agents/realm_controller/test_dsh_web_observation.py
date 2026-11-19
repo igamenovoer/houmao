@@ -158,6 +158,28 @@ def test_native_interactions_refresh_without_state_sequence_or_browser_draft_inv
     assert observer.refresh().can_accept_prompt_now
 
 
+def test_kimi_sparse_web_history_requires_a_verified_prior_offset() -> None:
+    """Journal byte offsets can skip rows while the previous transition stays covered."""
+
+    payload = _state(sequence=100)
+    page = _page(100)
+    observer = WebObservation(
+        metadata=_metadata(),
+        state=lambda: deepcopy(payload),
+        history=lambda **_: deepcopy(page),
+        sparse_history=True,
+    )
+    assert observer.refresh().can_accept_prompt_now
+    payload["sequence"] = 204
+    page = _page(204)
+    page["previous_sequence"] = 93
+    assert observer.refresh().availability == "unavailable"
+    assert [item.sequence for item in observer.history().entries] == [100]
+    page["previous_sequence"] = 100
+    assert observer.refresh().can_accept_prompt_now
+    assert [item.sequence for item in observer.history().entries] == [204, 100]
+
+
 @pytest.mark.parametrize("gap", ["missing", "truncated", "replaced_row"])
 def test_native_history_gap_or_rebinding_requires_verified_reconciliation(gap: str) -> None:
     """An unreconciled history gap closes readiness and commits no partial history."""

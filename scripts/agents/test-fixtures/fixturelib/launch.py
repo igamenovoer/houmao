@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import shutil
 import signal
@@ -17,11 +18,14 @@ from urllib.error import URLError
 from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
+from pydantic import TypeAdapter, ValidationError
+
 from houmao.agents.realm_controller.gateway_access_runtime import owner_gateway_client_binding
 from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputRequestV1,
     GatewayPromptControlRequestV1,
 )
+from houmao.agents.realm_controller.native_surface import NativeSurfaceV1, TerminalNativeSurfaceV1
 from houmao.gateway.client import GatewayClient, GatewayHttpError
 
 from fixturelib.auth import private_write, write_json
@@ -29,11 +33,17 @@ from fixturelib.config import FixtureError
 from fixturelib.prepare import (
     ManagedCommandError,
     command_environment,
+    fixture_tmux_socket_path,
     isolated_environment,
     load_run,
     manager_call,
     manager_root_call,
 )
+
+_VERSION_OUTPUT = re.compile(
+    r"(?:codex-cli )?(\d{1,4}\.\d{1,4}\.\d{1,4}(?:[-+][\w.-]{1,40})?)(?: \(Claude Code\))?"
+)
+_NATIVE_SURFACE = TypeAdapter(NativeSurfaceV1)
 
 
 def run_environment(run: dict[str, Any]) -> dict[str, str]:
@@ -48,8 +58,8 @@ def run_environment(run: dict[str, Any]) -> dict[str, str]:
         isinstance(k, str) and isinstance(v, str) for k, v in selected.items()
     ):
         raise FixtureError("Invalid prepared private environment")
-    env = isolated_environment(selected, run_dir=root)
-    if run["configuration"]["mode"] == "tui" and run["configuration"]["client"] != "dsh":
+    env = isolated_environment(selected, run_dir=root, tmux_socket_path=run.get("tmux_socket_path"))
+    if run["configuration"]["mode"] == "tui":
         env[f"HOUMAO_HOOK_OBSERVATION_{run['configuration']['client'].upper()}"] = "1"
     return env
 
@@ -59,9 +69,15 @@ def _tmux_command(run: dict[str, Any], *arguments: str) -> list[str]:
 
     server = run.get("tmux_server")
     executable = run.get("tmux_executable")
-    if server != "houmao-fixture-" + Path(run["run_dir"]).name or not executable:
+    root = Path(run["run_dir"])
+    socket_path = fixture_tmux_socket_path(root)
+    if (
+        server != "houmao-fixture-" + root.name
+        or run.get("tmux_socket_path") != socket_path
+        or not executable
+    ):
         raise FixtureError("Fixture has no verified isolated tmux server")
-    return [executable, "-L", server, *arguments]
+    return [executable, "-S", socket_path, *arguments]
 
 
 def public_run(run: dict[str, Any]) -> dict[str, Any]:
@@ -72,6 +88,8 @@ def public_run(run: dict[str, Any]) -> dict[str, Any]:
         "status",
         "run_dir",
         "configuration",
+        "backend",
+        "native_surface",
         "identity",
         "turns",
         "error",
@@ -166,17 +184,6 @@ def raw_command(run: dict[str, Any], *, prompt: str | None = None) -> list[str]:
     model = run["configuration"].get("model")
     unattended = run["configuration"].get("operator_prompt_mode", "unattended") == "unattended"
     session = run.get("identity", {}).get("provider_session_id")
-    if client == "dsh":
-        if prompt is None:
-            raise FixtureError("DSH raw fixtures support explicit ACP prompts only")
-        index = len(run.get("turns", [])) + 1
-        return [
-            sys.executable,
-            "-m",
-            "houmao.agents.realm_controller.backends.dsh_acp_entry",
-            "--input",
-            str(Path(run["run_dir"]) / "raw-turns" / f"turn-{index}" / "input.json"),
-        ]
     if client == "claude":
         if unattended:
             command += ["--dangerously-skip-permissions"]
@@ -197,14 +204,29 @@ def raw_command(run: dict[str, Any], *, prompt: str | None = None) -> list[str]:
             if session:
                 command += ["resume", session]
             command += [prompt]
-    else:
-        if prompt is None and unattended:
-            command += ["--auto"]
+    elif client == "kimi":
+        if prompt is None:
+            if unattended:
+                command += ["--auto"]
         else:
             command += ["--output-format", "stream-json"]
             if session:
                 command += ["--session", session]
             command += ["-p", prompt]
+    elif client == "dsh" and run["configuration"]["mode"] == "headless":
+        command += [
+            "--profile",
+            "headless",
+            "--patch",
+            str(Path(run["home_path"]) / "houmao-profile.patch.json"),
+            "--patch",
+            run["raw_dsh_patch"],
+            "--json",
+        ]
+        if session:
+            command += ["--session-id", session]
+    else:
+        raise FixtureError(f"No direct terminal or one-shot fixture command for {client}")
     return command
 
 
@@ -226,6 +248,51 @@ def _session_id(path: Path, client: str) -> str | None:
     return None
 
 
+def _raw_dsh_turn_result(path: Path, *, expected_session: str | None) -> tuple[str | None, str]:
+    """Read the exact opening identity and terminal reason from DSH's complete lines."""
+
+    session = None
+    outcome = None
+    try:
+        with path.open(encoding="utf-8") as stream:
+            for line in stream:
+                if not line.endswith("\n"):
+                    return session, "uncertain"
+                event = json.loads(line)
+                if not isinstance(event, dict) or outcome is not None:
+                    return session, "uncertain"
+                kind = event.get("type")
+                if not isinstance(kind, str):
+                    return session, "uncertain"
+                if kind == "error":
+                    outcome = "failed"
+                elif kind == "session" and session is None:
+                    value = event.get("sessionId")
+                    if (
+                        not isinstance(value, str)
+                        or not value
+                        or (expected_session is not None and value != expected_session)
+                    ):
+                        return None, "uncertain"
+                    session = value
+                elif kind == "final" and session is not None and event.get("sessionId") == session:
+                    reason = event.get("reason")
+                    tag = reason.get("kind") if isinstance(reason, dict) else None
+                    if tag == "completed":
+                        outcome = "completed"
+                    elif tag == "aborted":
+                        outcome = "interrupted"
+                    elif tag in ("blocked", "error", "max-tokens"):
+                        outcome = "failed"
+                    else:
+                        outcome = "uncertain"
+                elif kind in {"session", "final"} or session is None:
+                    return session, "uncertain"
+    except (OSError, UnicodeError, ValueError):
+        return session, "uncertain"
+    return session, outcome or "uncertain"
+
+
 def _raw_turn(run: dict[str, Any], prompt: str, timeout: float) -> None:
     """Capture raw client output privately, terminating only the owned process group."""
 
@@ -233,68 +300,66 @@ def _raw_turn(run: dict[str, Any], prompt: str, timeout: float) -> None:
     index = len(run.get("turns", [])) + 1
     stdout = root / f"raw-turn-{index}.jsonl"
     stderr = root / f"raw-turn-{index}.stderr"
+    client = run["configuration"]["client"]
+    dsh = client == "dsh"
+    env = run_environment(run)
+    if dsh:
+        from fixturelib.dsh import raw_dsh_environment
+
+        env = raw_dsh_environment(run, env)
     private_write(stdout, b"")
     private_write(stderr, b"")
-    if run["configuration"]["client"] == "dsh":
-        turn_dir = root / "raw-turns" / f"turn-{index}"
-        write_json(
-            turn_dir / "input.json",
-            {
-                "executable": run["executable"],
-                "working_directory": run["workdir"],
-                "home_path": run["home_path"],
-                "setup_path": str(Path(run["home_path"]) / "houmao-tool-params.yaml"),
-                "credential_env_source": str(
-                    Path(run["assets_root"]) / "tools/dsh/auth/default/env/vars.env"
-                ),
-                "prompt": prompt,
-                "session_id": run.get("identity", {}).get("provider_session_id"),
-                "attempt_id": f"turn-{index}",
-                "runtime_session_id": root.name,
-                "generation": "raw-fixture-" + root.name,
-                "turn_dir": str(turn_dir),
-                "model": None,
-                "reasoning_level": None,
-            },
-        )
     with stdout.open("wb") as out, stderr.open("wb") as err:
         process = subprocess.Popen(
             raw_command(run, prompt=prompt),
             cwd=run["workdir"],
-            env=run_environment(run),
-            stdin=subprocess.DEVNULL,
+            env=env,
+            stdin=subprocess.PIPE if dsh else subprocess.DEVNULL,
             stdout=out,
             stderr=err,
             start_new_session=True,
             umask=0o077,
         )
-        run["active_process"] = {"pid": process.pid, "birth": _process_birth(process.pid)}
+        worker = {"pid": process.pid, "birth": _process_birth(process.pid)}
+        run["active_process"] = worker
         _save(run)
         try:
-            code = process.wait(timeout=timeout)
+            if dsh:
+                process.communicate(input=prompt.encode(), timeout=timeout)
+            else:
+                process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGTERM)
+            if process.poll() is None:
+                os.killpg(process.pid, signal.SIGTERM)
             try:
-                process.wait(timeout=25 if run["configuration"]["client"] == "dsh" else 5)
+                process.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                if run["configuration"]["client"] == "dsh":
-                    from houmao.agents.realm_controller.backends.dsh_acp_connection import (
-                        signal_dsh_native_process,
-                    )
-
-                    signal_dsh_native_process(turn_dir, signal.SIGTERM)
-                    time.sleep(1)
-                    signal_dsh_native_process(turn_dir, signal.SIGKILL)
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait()
-            code = process.returncode
+        code = process.returncode
         run.pop("active_process", None)
-        run.setdefault("turns", []).append({"index": index, "returncode": code})
-    session = _session_id(stdout, run["configuration"]["client"])
+    summary: dict[str, int | str] = {"index": index, "returncode": code}
+    if dsh:
+        run.setdefault("raw_workers", []).append(worker)
+        session, outcome = _raw_dsh_turn_result(
+            stdout, expected_session=run.get("identity", {}).get("provider_session_id")
+        )
+        if outcome in {"failed", "uncertain"} and code in {-signal.SIGINT, 130}:
+            # The native launcher reserves 130 for SIGINT-triggered exit.
+            outcome = "interrupted"
+            summary["evidence_source"] = "worker_exit"
+        else:
+            if outcome == "completed" and code != 0:
+                outcome = "uncertain"
+            summary["evidence_source"] = "native_stream"
+        summary["status"] = outcome
+    else:
+        session = _session_id(stdout, client)
+    run.setdefault("turns", []).append(summary)
     if session:
         run.setdefault("identity", {})["provider_session_id"] = session
     _save(run)
-    if code != 0:
+    if code != 0 or (dsh and summary["status"] != "completed"):
         raise FixtureError("Raw client turn failed; inspect private stdout/stderr captures")
 
 
@@ -338,7 +403,7 @@ def interrupt_run(path: Path) -> dict[str, Any]:
     run = load_run(path)
     identity = run.get("identity", {})
     if run["configuration"]["surface"] == "raw":
-        if run["configuration"]["client"] == "dsh" and run["configuration"]["mode"] == "tui":
+        if run["configuration"]["mode"] == "web":
             from fixturelib.web import control_raw_web
 
             control_raw_web(run, "interrupt")
@@ -361,11 +426,14 @@ def _raw_tui(run: dict[str, Any]) -> None:
 
     name = "fixture-" + Path(run["run_dir"]).name
     command = [sys.executable, str(Path(__file__).with_name("raw_child.py")), run["run_dir"]]
-    subprocess.run(
+    started = subprocess.run(
         _tmux_command(
             run,
             "new-session",
             "-d",
+            "-P",
+            "-F",
+            "#{pane_id}",
             "-s",
             name,
             "-c",
@@ -374,9 +442,14 @@ def _raw_tui(run: dict[str, Any]) -> None:
         ),
         check=True,
         capture_output=True,
+        text=True,
         env=run_environment(run),
     )
-    run["identity"] = {"tmux_session_name": name}
+    surface = TerminalNativeSurfaceV1(tmux_session_name=name, pane_id=started.stdout.strip())
+    run["identity"] = {
+        "tmux_session_name": name,
+        "native_surface": surface.model_dump(mode="json"),
+    }
 
 
 def _passive_launch(run: dict[str, Any], base_url: str) -> dict[str, Any]:
@@ -424,6 +497,14 @@ def launch_run(
         raise FixtureError("Passive-server launch requires explicit --passive-url")
     if config["surface"] == "raw" and config["mode"] == "headless" and not prompt:
         raise FixtureError("Raw headless launch requires --prompt")
+    if not os.access(run["executable"], os.X_OK):
+        run["status"] = "not_run"
+        run["prerequisites"] = {"missing": ["client_executable"], "live_requested": True}
+        _save(run)
+        raise FixtureError("Client executable is unavailable; prepare a fresh fixture run")
+    if config["surface"] == "manager" or config["mode"] in {"tui", "web"}:
+        _tmux_command(run)
+        run_environment(run)
     run["status"] = "launching"
     _save(run)
     try:
@@ -435,19 +516,22 @@ def launch_run(
             timeout=15,
             umask=0o077,
         )
-        # Only version lines with the expected client marker can enter reports.
+        # Store the version token only. Other executable output stays private.
         line = version.stdout.strip().splitlines()
-        if version.returncode == 0 and line and len(line[0]) < 120:
-            run["client_version"] = line[0]
+        match = _VERSION_OUTPUT.fullmatch(line[0]) if version.returncode == 0 and line else None
+        run["client_version"] = match.group(1) if match else None
         if config["surface"] == "raw":
             if config["mode"] == "headless":
                 _raw_turn(run, prompt or "", timeout)
-            elif config["client"] == "dsh":
+            elif config["mode"] == "web":
                 from fixturelib.web import launch_raw_web
 
-                launch_raw_web(run)
-            else:
+                with command_environment(run_environment(run)):
+                    launch_raw_web(run)
+            elif config["mode"] == "tui":
                 _raw_tui(run)
+            else:
+                raise FixtureError("This mode requires the managed fixture surface")
         elif config["surface"] == "manager":
             result = manager_call(
                 Path(run["project_dir"]),
@@ -461,22 +545,28 @@ def launch_run(
                     "--workdir",
                     run["workdir"],
                     "--gateway-background",
-                    "--headless" if config["mode"] == "headless" else "--no-headless",
+                    "--mode",
+                    config["mode"],
                 ],
                 env=run_environment(run),
             )
             run["identity"] = result
             if not result.get("agent_id") or not result.get("manifest_path"):
                 raise FixtureError("Managed launch did not return an authoritative identity")
+            if (
+                result.get("tool") != config["client"]
+                or result.get("mode") != config["mode"]
+                or result.get("backend") != run["backend"]
+            ):
+                raise FixtureError("Managed launch returned a different run mode, tool, or backend")
         else:
             run["identity"] = _passive_launch(run, passive_url or "")
             if not run["identity"].get("tracked_agent_id"):
                 raise FixtureError("Passive launch did not return an authoritative identity")
+        _record_native_surface(run)
         run["status"] = "launched"
         _save(run)
-        if prompt and (
-            config["surface"] != "raw" or (config["client"] == "dsh" and config["mode"] == "tui")
-        ):
+        if prompt and (config["surface"] != "raw" or config["mode"] == "web"):
             return prompt_run(path, prompt=prompt, timeout=timeout)
         return public_run(run)
     except (FixtureError, OSError, subprocess.SubprocessError) as exc:
@@ -490,6 +580,26 @@ def launch_run(
         raise FixtureError(f"Launch failed; inspect {path / 'report.json'}") from exc
 
 
+def _record_native_surface(run: dict[str, Any]) -> None:
+    """Require a verified and public native surface for an interactive mode."""
+
+    identity = run.get("identity", {})
+    payload = identity.pop("native_surface", None)
+    expected = {"tui": "terminal", "web": "web"}.get(run["configuration"]["mode"])
+    run["native_surface"] = None
+    if payload is None and expected is None:
+        return
+    try:
+        surface = _NATIVE_SURFACE.validate_python(payload)
+    except ValidationError as exc:
+        raise FixtureError("Launch did not return a valid native surface for its mode") from exc
+    if surface.kind != expected:
+        raise FixtureError("Launch returned a native surface for a different mode")
+    safe = surface.model_dump(mode="json")
+    identity["native_surface"] = safe
+    run["native_surface"] = safe
+
+
 def prompt_run(path: Path, *, prompt: str, timeout: float = 300) -> dict[str, Any]:
     """Continue an owned raw or managed headless session, or send direct TUI input."""
 
@@ -499,7 +609,7 @@ def prompt_run(path: Path, *, prompt: str, timeout: float = 300) -> dict[str, An
     config = run["configuration"]
     identity = run.get("identity", {})
     if config["surface"] == "raw":
-        if config["client"] == "dsh" and config["mode"] == "tui":
+        if config["mode"] == "web":
             from fixturelib.web import prompt_raw_web
 
             try:
@@ -544,7 +654,7 @@ def prompt_run(path: Path, *, prompt: str, timeout: float = 300) -> dict[str, An
             _save(run)
             raise FixtureError("Managed headless turn did not complete")
     else:
-        if config["mode"] == "tui" and config["client"] != "dsh":
+        if config["mode"] == "tui":
             _gateway_request(
                 run, "/v1/control/send-keys", {"sequence": prompt, "escape_special_keys": True}
             )
@@ -554,17 +664,12 @@ def prompt_run(path: Path, *, prompt: str, timeout: float = 300) -> dict[str, An
             before = _gateway_request(run, "/v1/usage")
             previous = {record["record_id"] for record in before["records"]}
             accepted = _gateway_request(run, "/v1/control/prompt", {"prompt": prompt})
-            operation_id = (
-                accepted.get("operation_id")
-                if config["client"] == "dsh" and config["mode"] == "tui"
-                else None
+            require_operation_id = (
+                config["mode"] in {"service", "web"} or run.get("backend") == "dsh_headless"
             )
-            if (
-                config["client"] == "dsh"
-                and config["mode"] == "tui"
-                and not isinstance(operation_id, str)
-            ):
-                raise FixtureError("Web prompt has no exact admitted operation identity")
+            operation_id = accepted.get("operation_id") if require_operation_id else None
+            if require_operation_id and (not isinstance(operation_id, str) or not operation_id):
+                raise FixtureError("Managed prompt has no exact admitted operation identity")
             deadline = time.monotonic() + timeout
             while True:
                 usage = _gateway_request(run, "/v1/usage")
@@ -578,7 +683,7 @@ def prompt_run(path: Path, *, prompt: str, timeout: float = 300) -> dict[str, An
                     break
                 if time.monotonic() >= deadline:
                     raise FixtureError(
-                        "Headless turn timed out; inspect usage and stop the captured run"
+                        "Managed turn timed out; inspect usage and stop the captured run"
                     )
                 time.sleep(0.25)
             run["usage"] = usage
@@ -587,7 +692,7 @@ def prompt_run(path: Path, *, prompt: str, timeout: float = 300) -> dict[str, An
             )
             if rows[0]["outcome"] != "completed":
                 _save(run)
-                raise FixtureError("Managed headless turn did not complete; inspect public usage")
+                raise FixtureError("Managed turn did not complete; inspect public usage")
             # The ledger may finalize before the current gateway worker releases
             # execution ownership. Finish observing that same successful turn;
             # this never waits on or retries a subsequent prompt mutation.
@@ -607,11 +712,12 @@ def _cleanup(run: dict[str, Any]) -> None:
     identity = run.get("identity", {})
     config = run["configuration"]
     try:
-        if config["surface"] == "raw" and config["client"] == "dsh" and config["mode"] == "tui":
+        if config["surface"] == "raw" and config["mode"] == "web":
             if run.get("raw_web_state"):
                 from fixturelib.web import control_raw_web
 
-                control_raw_web(run, "terminate")
+                with command_environment(run_environment(run)):
+                    control_raw_web(run, "terminate")
         elif config["surface"] == "raw" and run.get("active_process"):
             active = run["active_process"]
             current_birth = _process_birth(active["pid"])
@@ -628,32 +734,8 @@ def _cleanup(run: dict[str, Any]) -> None:
                 ):
                     time.sleep(0.1)
                 if _process_birth(active["pid"]) == active["birth"]:
-                    if config["client"] == "dsh":
-                        from houmao.agents.realm_controller.backends.dsh_acp_connection import (
-                            signal_dsh_native_process,
-                        )
-
-                        turn_dir = (
-                            Path(run["run_dir"])
-                            / "raw-turns"
-                            / f"turn-{len(run.get('turns', [])) + 1}"
-                        )
-                        signal_dsh_native_process(turn_dir, signal.SIGTERM)
-                        time.sleep(1)
-                        signal_dsh_native_process(turn_dir, signal.SIGKILL)
                     if not _signal_raw_driver(run, signal.SIGKILL):
                         raise FixtureError("Raw fixture cleanup lost its verified process target")
-            if config["client"] == "dsh":
-                from houmao.agents.realm_controller.backends.dsh_acp_connection import (
-                    signal_dsh_native_process,
-                )
-
-                turn_dir = (
-                    Path(run["run_dir"]) / "raw-turns" / f"turn-{len(run.get('turns', [])) + 1}"
-                )
-                if signal_dsh_native_process(turn_dir, signal.SIGTERM):
-                    time.sleep(1)
-                    signal_dsh_native_process(turn_dir, signal.SIGKILL)
             run.pop("active_process", None)
         elif config["surface"] == "manager" and identity.get("agent_id"):
             scope = ["agents", "single", "--agent-id", identity["agent_id"]]
@@ -711,10 +793,10 @@ def check_run(path: Path, *, live: bool = False) -> dict[str, Any]:
     run = load_run(path)
     root = Path(run["run_dir"])
     missing = []
-    if not Path(run["executable"]).is_file():
+    if not os.access(run["executable"], os.X_OK):
         missing.append("client_executable")
     if (
-        run["configuration"]["mode"] == "tui" or run["configuration"]["surface"] != "raw"
+        run["configuration"]["mode"] in {"tui", "web"} or run["configuration"]["surface"] != "raw"
     ) and shutil.which("tmux") is None:
         missing.append("tmux")
     if not (root / "private-env.json").is_file():
@@ -722,11 +804,7 @@ def check_run(path: Path, *, live: bool = False) -> dict[str, Any]:
     run["prerequisites"] = {"missing": missing, "live_requested": live}
     if live:
         identity = run.get("identity", {})
-        if (
-            run["configuration"]["client"] == "dsh"
-            and run["configuration"]["mode"] == "tui"
-            and run["configuration"]["surface"] == "raw"
-        ):
+        if run["configuration"]["mode"] == "web" and run["configuration"]["surface"] == "raw":
             from fixturelib.web import observe_raw_web
 
             run["native_state"] = observe_raw_web(run)

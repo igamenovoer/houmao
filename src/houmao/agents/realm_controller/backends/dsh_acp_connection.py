@@ -1,4 +1,4 @@
-"""Concurrent JSON-RPC stdio transport for a managed DSH ACP worker.
+"""Concurrent JSON-RPC stdio transport for a managed native worker.
 
 The reader never waits for an outgoing request or a permission decision. Callers
 own operation deadlines and must treat a timed-out mutation as uncertain rather
@@ -14,10 +14,12 @@ import json
 import os
 from pathlib import Path
 import queue
+import select
 import signal
 import subprocess
 import threading
-from typing import Any
+import time
+from typing import Any, Literal
 
 from houmao.agents.realm_controller.backends.dispatch_control import _dispatch_origin_birth_token
 from houmao.agents.realm_controller.backends.dsh_diagnostics import (
@@ -55,8 +57,21 @@ class DshAcpRequestError(RuntimeError):
         return dict(self.m_error)
 
 
+class _AcpPrewriteRejected(RuntimeError):
+    """Carry a caller-side rejection that left the transport untouched."""
+
+    def __init__(self, error: Exception) -> None:
+        """Keep the original caller exception for its request thread."""
+
+        super().__init__("ACP request refused before writing")
+        self.m_error: Exception = error
+
+
+_MAX_RPC_LINE = 16 * 1024 * 1024
+
+
 class DshAcpConnection:
-    """Demultiplex a single owned worker's ACP messages and diagnostics."""
+    """Demultiplex one owned native worker's protocol frames and diagnostics."""
 
     def __init__(self) -> None:
         """Create an inactive connection; use ``from_command`` to start it."""
@@ -69,6 +84,10 @@ class DshAcpConnection:
         self.m_lock: threading.Lock = threading.Lock()
         self.m_write_lock: threading.Lock = threading.Lock()
         self.m_notifications: queue.Queue[dict[str, Any]] = queue.Queue()
+        self.m_retain_notifications: bool = True
+        self.m_notification_sink: Callable[[dict[str, Any], int], None] | None = None
+        self.m_framing: Literal["acp", "codex"] = "acp"
+        self.m_write_timeout: float | None = None
         self.m_diagnostics: deque[str] = deque(maxlen=128)
         self.m_failure: DshAcpProtocolError | None = None
         self.m_request_handler: Callable[[str, dict[str, Any]], dict[str, Any]] | None = None
@@ -78,6 +97,7 @@ class DshAcpConnection:
         self.m_reader: threading.Thread | None = None
         self.m_stderr_reader: threading.Thread | None = None
         self.m_requests: ThreadPoolExecutor | None = None
+        self.m_request_slots: threading.BoundedSemaphore = threading.BoundedSemaphore(16)
 
     @classmethod
     def from_command(
@@ -90,13 +110,17 @@ class DshAcpConnection:
         frame_sink: Callable[[str], None] | None = None,
         stderr_sink: Callable[[str], None] | None = None,
         secret_values: Sequence[str] = (),
+        retain_notifications: bool = True,
+        write_timeout: float | None = None,
+        framing: Literal["acp", "codex"] = "acp",
+        notification_sink: Callable[[dict[str, Any], int], None] | None = None,
     ) -> DshAcpConnection:
         """Start an explicitly configured worker and its independent readers.
 
         Parameters
         ----------
         command:
-            Actual DSH executable and ACP profile arguments.
+            Actual executable and ACP profile arguments.
         cwd, env:
             Resolved workspace and complete isolated process environment.
         request_handler:
@@ -107,6 +131,14 @@ class DshAcpConnection:
             Private raw stderr writer, separate from error summaries.
         secret_values:
             Additional resolved credentials allowed only in private native IO.
+        retain_notifications:
+            Keep notifications for consumers that read the notification queue.
+        write_timeout:
+            Bound pipe backpressure. A timeout may leave a partial frame.
+        framing:
+            Codex uses an unversioned envelope. ACP requires ``jsonrpc: 2.0``.
+        notification_sink:
+            Nonblocking notification handler with its own bounded retention.
         """
 
         instance = cls()
@@ -114,6 +146,10 @@ class DshAcpConnection:
         instance.m_frame_sink = frame_sink
         instance.m_stderr_sink = stderr_sink
         instance.m_secret_values = (*dsh_diagnostic_secrets(env), *secret_values)
+        instance.m_retain_notifications = retain_notifications
+        instance.m_notification_sink = notification_sink
+        instance.m_framing = framing
+        instance.m_write_timeout = write_timeout
         instance.m_process = subprocess.Popen(
             list(command),
             cwd=cwd,
@@ -128,6 +164,9 @@ class DshAcpConnection:
             start_new_session=True,
         )
         instance.m_process_birth_token = _dispatch_origin_birth_token(instance.m_process.pid)
+        if write_timeout is not None:
+            assert instance.m_process.stdin is not None
+            os.set_blocking(instance.m_process.stdin.fileno(), False)
         if instance.m_process_birth_token is not None:
             instance.m_owned_processes[instance.m_process.pid] = instance.m_process_birth_token
         instance.m_requests = ThreadPoolExecutor(
@@ -163,7 +202,24 @@ class DshAcpConnection:
 
         return self.m_process_birth_token
 
-    def request(self, method: str, params: dict[str, Any]) -> Future[dict[str, Any]]:
+    @property
+    def healthy(self) -> bool:
+        """Report a live owned process and an open protocol reader."""
+
+        with self.m_lock:
+            return (
+                self.m_failure is None
+                and self.m_process is not None
+                and self.m_process.poll() is None
+            )
+
+    def request(
+        self,
+        method: str,
+        params: dict[str, Any],
+        *,
+        before_write: Callable[[], None] | None = None,
+    ) -> Future[dict[str, Any]]:
         """Send one request exactly once and return its correlated result."""
 
         with self.m_lock:
@@ -174,15 +230,30 @@ class DshAcpConnection:
             future: Future[dict[str, Any]] = Future()
             self.m_pending[request_id] = future
         try:
-            self._write({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
+            self._write(
+                {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params},
+                before_write=before_write,
+            )
+        except _AcpPrewriteRejected as exc:
+            with self.m_lock:
+                self.m_pending.pop(request_id, None)
+            raise exc.m_error from None
         except (OSError, ValueError, DshAcpProtocolError) as exc:
             self._fail(DshAcpProtocolError(f"ACP write failed: {type(exc).__name__}"))
+            if before_write is not None:
+                # The caller cannot certify a complete transport handoff.
+                raise DshAcpProtocolError("ACP request write did not finish") from None
         return future
 
     def notify(self, method: str, params: dict[str, Any]) -> None:
         """Send a notification without claiming admission or settlement."""
 
-        self._write({"jsonrpc": "2.0", "method": method, "params": params})
+        try:
+            self._write({"jsonrpc": "2.0", "method": method, "params": params})
+        except (OSError, ValueError, DshAcpProtocolError) as exc:
+            failure = DshAcpProtocolError(f"ACP notification write failed: {type(exc).__name__}")
+            self._fail(failure)
+            raise failure from None
 
     def next_notification(self, *, timeout: float = 0.0) -> dict[str, Any] | None:
         """Read one queued notification independently of outstanding requests."""
@@ -313,16 +384,47 @@ class DshAcpConnection:
                 pass
         return signalled
 
-    def _write(self, frame: dict[str, Any]) -> None:
+    def _write(
+        self, frame: dict[str, Any], *, before_write: Callable[[], None] | None = None
+    ) -> None:
         """Serialize writes from driver requests and permission responses."""
 
+        if self.m_framing == "codex":
+            frame = {key: value for key, value in frame.items() if key != "jsonrpc"}
         encoded = json.dumps(frame, ensure_ascii=False, allow_nan=False) + "\n"
+        payload = memoryview(encoded.encode("utf-8")) if self.m_write_timeout is not None else None
         with self.m_write_lock:
             stream = self.process.stdin
             if stream is None or stream.closed:
                 raise DshAcpProtocolError("ACP input is closed")
-            stream.write(encoded)
-            stream.flush()
+            if before_write is not None:
+                if not self.healthy:
+                    raise DshAcpProtocolError("ACP connection is not available for mutation")
+                try:
+                    before_write()
+                except Exception as exc:
+                    raise _AcpPrewriteRejected(exc) from exc
+            if payload is None:
+                stream.write(encoded)
+                stream.flush()
+                return
+            assert self.m_write_timeout is not None
+            self._write_bounded(stream.fileno(), payload, self.m_write_timeout)
+
+    @staticmethod
+    def _write_bounded(fd: int, payload: memoryview, timeout: float) -> None:
+        """Write a complete frame to a nonblocking pipe within its deadline."""
+
+        deadline = time.monotonic() + timeout
+        while payload:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not select.select([], [fd], [], remaining)[1]:
+                raise DshAcpProtocolError("ACP input write timed out")
+            try:
+                count = os.write(fd, payload)
+            except BlockingIOError:
+                continue
+            payload = payload[count:]
 
     def _read_stdout(self) -> None:
         """Route frames until EOF, failing every unresolved request on loss."""
@@ -330,18 +432,23 @@ class DshAcpConnection:
         stream = self.process.stdout
         assert stream is not None
         try:
-            for line in stream:
+            while line := stream.readline(_MAX_RPC_LINE + 1):
+                if len(line) > _MAX_RPC_LINE or not line.endswith("\n"):
+                    raise DshAcpProtocolError("Native RPC frame incomplete or exceeds its bound")
                 if self.m_frame_sink is not None:
                     self.m_frame_sink(line)
                 frame = json.loads(line, parse_constant=_reject_nonfinite)
-                if not isinstance(frame, dict) or frame.get("jsonrpc") != "2.0":
-                    raise DshAcpProtocolError("Invalid ACP JSON-RPC envelope")
-                self._route(frame)
+                if not isinstance(frame, dict) or (
+                    (self.m_framing == "acp" and frame.get("jsonrpc") != "2.0")
+                    or (self.m_framing == "codex" and "jsonrpc" in frame)
+                ):
+                    raise DshAcpProtocolError("Invalid native JSON-RPC envelope")
+                self._route(frame, len(line))
             self._fail(DshAcpProtocolError("ACP output closed before connection shutdown"))
         except (OSError, ValueError, DshAcpProtocolError) as exc:
             self._fail(DshAcpProtocolError(f"ACP protocol failure: {type(exc).__name__}"))
 
-    def _route(self, frame: dict[str, Any]) -> None:
+    def _route(self, frame: dict[str, Any], size: int) -> None:
         """Keep native notifications, server requests, and responses distinct."""
 
         if "method" in frame:
@@ -353,8 +460,17 @@ class DshAcpConnection:
                 if type(frame["id"]) not in (str, int):
                     raise DshAcpProtocolError("Invalid ACP server request ID")
                 assert self.m_requests is not None
-                self.m_requests.submit(self._answer_request, frame)
-            else:
+                if not self.m_request_slots.acquire(blocking=False):
+                    raise DshAcpProtocolError("ACP reverse request capacity exceeded")
+                try:
+                    pending_response = self.m_requests.submit(self._answer_request, frame)
+                except RuntimeError:
+                    self.m_request_slots.release()
+                    raise DshAcpProtocolError("ACP reverse request worker is closed") from None
+                pending_response.add_done_callback(lambda _: self.m_request_slots.release())
+            elif self.m_notification_sink is not None:
+                self.m_notification_sink(frame, size)
+            elif self.m_retain_notifications:
                 self.m_notifications.put(frame)
             return
         request_id = frame.get("id")
@@ -372,6 +488,8 @@ class DshAcpConnection:
                 future.set_exception(DshAcpProtocolError("Invalid ACP error"))
             else:
                 future.set_exception(DshAcpRequestError(error, secret_values=self.m_secret_values))
+        elif frame["result"] is None:
+            future.set_result({})
         elif not isinstance(frame["result"], dict):
             future.set_exception(DshAcpProtocolError("Invalid ACP result"))
         else:
@@ -388,6 +506,8 @@ class DshAcpConnection:
                 response["result"] = self.m_request_handler(
                     frame["method"], frame.get("params", {})
                 )
+            except NotImplementedError:
+                response["error"] = {"code": -32601, "message": "Unsupported ACP client request"}
             except Exception:
                 response["error"] = {"code": -32603, "message": "ACP client request refused"}
         try:

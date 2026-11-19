@@ -103,6 +103,7 @@ class HeadlessInteractiveSession:
             "claude_headless",
             "kimi_headless",
             "dsh_acp",
+            "dsh_headless",
         }:
             raise BackendExecutionError(f"Invalid tmux-backed backend: {backend}")
 
@@ -229,7 +230,7 @@ class HeadlessInteractiveSession:
                 execution_model=execution_model,
             )
         except BaseException as exc:
-            uncertain_dsh_wait = self.backend == "dsh_acp" and isinstance(
+            uncertain_dsh_wait = self.backend in {"dsh_acp", "dsh_headless"} and isinstance(
                 exc, HeadlessTurnWaitTimeout
             )
             if not uncertain_dsh_wait and not getattr(
@@ -313,11 +314,15 @@ class HeadlessInteractiveSession:
                     for key, value in os.environ.items()
                     if key in {"PATH", "LANG", "LC_ALL", "SHELL", "TERM", "COLORTERM", "TMPDIR"}
                 }
-                if self.backend == "dsh_acp"
+                if self.backend in {"dsh_acp", "dsh_headless"}
                 else os.environ.copy()
             )
             env.update(self._plan.env)
             env.update(execution_projection.env)
+            if self.backend == "dsh_headless":
+                setup = self._plan.metadata.get("dsh")
+                if isinstance(setup, dict) and isinstance(setup.get("api_key_env"), str):
+                    env["HOUMAO_DSH_DIAGNOSTIC_KEY_NAME"] = setup["api_key_env"]
             env[self._plan.home_env_var] = str(self._plan.home_path)
             overlay_tmux_rich_color_environment(env)
             inject_loopback_no_proxy_env(env)

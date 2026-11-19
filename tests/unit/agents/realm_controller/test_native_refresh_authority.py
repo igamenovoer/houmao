@@ -14,16 +14,20 @@ from houmao.agents.realm_controller.agent_identity import (
 )
 from houmao.agents.realm_controller.backends.tmux_runtime import TmuxCommandError
 from houmao.agents.realm_controller.errors import GatewayError
+from houmao.agents.realm_controller.managed_control import ManagedControlObservationV1
+from houmao.agents.realm_controller.models import BackendKind
+from houmao.agents.realm_controller.run_modes import mode_for_backend
 from houmao.execution.tmux import current_tmux_socket_path, tmux_server_scope
 
 
-def _payload(tmp_path: Path, *, backend: str = "dsh_acp") -> SimpleNamespace:
+def _payload(tmp_path: Path, *, backend: BackendKind = "dsh_headless") -> SimpleNamespace:
     """Build only the parsed authority fields consumed by the home reader."""
 
     native = tmp_path / "selected-native-home"
     native.mkdir()
     return SimpleNamespace(
         backend=backend,
+        mode=mode_for_backend(backend),
         tool="dsh",
         agent_id="selected",
         tmux_session_name="HOUMAO-selected",
@@ -138,11 +142,50 @@ def test_between_worker_dsh_home_stays_inspectable_without_projection(
     project = Mock(side_effect=AssertionError("No home materialization"))
     monkeypatch.setattr("houmao.agents.dsh_configuration.prepare_dsh_home", project)
     home = native_refresh.inspect_native_home(controller)
-    assert home.backend == "dsh_acp"
+    assert home.backend == "dsh_headless"
     assert controller.backend_session.native_invocation_active is False
     controller.backend_session.send_prompt.assert_not_called()
     controller.backend_session.observe_web_state.assert_not_called()
     project.assert_not_called()
+
+
+def test_dsh_service_refresh_requires_explicit_relaunch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Project startup and session-binding evidence without changing the native incarnation."""
+
+    payload = _payload(tmp_path, backend="dsh_acp")
+    payload.backend_state = {
+        "service_incarnation": "native-body",
+        "native_session_id": "native-conversation",
+        "generation_id": "generation",
+        "runtime_session_id": "logical-runtime",
+        "socket_path": "/private/socket",
+    }
+    manifest, _environment, _surface = _install(tmp_path, monkeypatch, payload)
+    controller = _controller(manifest, payload)
+    controller.launch_plan.metadata = {"dsh": {"detected_tool_version": "0.2.2-rc.3"}}
+    controller.observe_managed_service = Mock(
+        return_value=ManagedControlObservationV1(
+            source="service_native",
+            freshness="current",
+            owner_available=True,
+            connection_ready=True,
+            can_accept_prompt_now=True,
+            native_session_id="native-conversation",
+            service_incarnation="native-body",
+        )
+    )
+    observation = native_refresh.observe_common_plugins(controller)
+    assert observation.home.identity["service_incarnation"] == "native-body"
+    assert "/private/socket" not in observation.model_dump_json()
+    assert [(item.kind, item.component, item.boundary) for item in observation.resources] == [
+        ("skills", "provider_start", "next_load"),
+        ("mcp", "session_binding", "next_load"),
+    ]
+    planned = native_refresh.plan_native_refresh(observation)
+    assert planned is not None and planned.outcome == "restart_required"
+    controller.backend_session.send_prompt.assert_not_called()
 
 
 def test_native_home_leaves_private_material_unread_and_unchanged(

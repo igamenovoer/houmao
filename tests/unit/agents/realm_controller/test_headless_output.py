@@ -10,6 +10,89 @@ from houmao.agents.realm_controller.backends.headless_output import (
 )
 
 
+def test_dsh_cli_normalizes_native_output_and_leaves_managed_completion_unproven() -> None:
+    """The one-shot stream preserves semantic output and the exact final session."""
+
+    rows = [
+        {"type": "session", "sessionId": "native", "cwd": "/work"},
+        {"type": "status", "phase": "turn_start", "turn": 4},
+        {"type": "tool_call", "callId": "call", "tool": "read", "input": {"path": "file"}},
+        {"type": "tool_result", "callId": "call", "status": "completed", "result": "data"},
+        {"type": "thinking", "text": "thinking"},
+        {"type": "text", "text": "one\u2028line"},
+        {"type": "status", "phase": "step_end", "turn": 4, "step": 1, "usage": {"inputTokens": 7}},
+        {"type": "status", "phase": "turn_end", "turn": 4, "reason": {"kind": "completed"}},
+        {"type": "final", "sessionId": "native", "reason": {"kind": "completed"}, "text": "answer"},
+    ]
+    events = canonical_headless_events_from_provider_output(
+        provider="dsh",
+        output_format="dsh-cli",
+        stdout_text="".join(f"{json.dumps(row, ensure_ascii=False)}\n" for row in rows),
+        turn_index=2,
+    )
+    assert [event.kind for event in events] == [
+        "session",
+        "progress",
+        "action_request",
+        "action_result",
+        "reasoning",
+        "assistant",
+        "progress",
+        "progress",
+        "completion",
+    ]
+    assert all(event.session_id == "native" and event.turn_index == 2 for event in events)
+    assert events[5].message == "one\u2028line"
+    assert events[6].data is not None
+    assert events[6].data["reported_step_usage"] == {"inputTokens": 7}
+    assert events[-1].data == {
+        "stop_reason": "completed",
+        "status": "native_completed",
+        "result_text": "answer",
+    }
+
+
+@pytest.mark.parametrize("reason", ["max-tokens", "aborted", "error"])
+def test_dsh_cli_diagnostics_exclude_raw_secrets_and_require_complete_session_frames(
+    reason: str,
+) -> None:
+    """Malformed, unfinished, or foreign records cannot establish native completion."""
+
+    secret = "fixture-private-value"
+    failure = f"HTTP 403 using {secret} and Bearer other-hidden-token"
+    rows = [
+        {"type": "error", "sessionId": "unverified", "message": failure * 40},
+        {"type": "session", "sessionId": "native", "cwd": "/work"},
+        {"type": "final", "sessionId": "other", "reason": {"kind": "completed"}, "text": "foreign"},
+        {
+            "type": "final",
+            "sessionId": "native",
+            "text": "partial answer",
+            "reason": {"kind": reason, "error": {"code": "PROVIDER", "message": failure}},
+        },
+    ]
+    incomplete = json.dumps({"type": "final", "sessionId": "native", "text": secret})
+    events = canonical_headless_events_from_provider_output(
+        provider="dsh",
+        output_format="dsh-cli",
+        stdout_text="".join(f"{json.dumps(row)}\n" for row in rows)
+        + f"malformed {secret}\n"
+        + incomplete,
+        turn_index=4,
+        diagnostic_secrets=(secret,),
+    )
+    assert "HTTP 403" in events[0].message and "[REDACTED]" in events[0].message
+    assert len(events[0].message) <= 512 and events[0].session_id is None
+    assert [event.provider_event_type for event in events if event.kind == "diagnostic"] == [
+        "dsh_cli_session_mismatch",
+        "raw_text",
+        "dsh_cli_incomplete_record",
+    ]
+    assert [event.data["stop_reason"] for event in events if event.kind == "completion"] == [reason]
+    public = json.dumps([event.to_public_payload(detail="detail") for event in events])
+    assert secret not in public and "other-hidden-token" not in public
+
+
 @pytest.mark.parametrize(
     ("provider", "stdout_text", "expected_kinds", "expected_session_id"),
     [

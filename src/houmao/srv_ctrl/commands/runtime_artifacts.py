@@ -372,6 +372,7 @@ def materialize_joined_launch(
         published_at = datetime.now(UTC)
         publish_live_agent_record(
             ManagedAgentRegistryRecordV3(
+                mode=launch_plan.mode,
                 agent_name=canonicalize_registry_agent_name(normalized_agent_name),
                 execution_binding=launch_plan.execution_binding,
                 agent_id=resolved_agent_id,
@@ -732,6 +733,7 @@ def materialize_delegated_launch(
     published_at = datetime.now(UTC)
     publish_live_agent_record(
         ManagedAgentRegistryRecordV3(
+            mode=launch_plan.mode,
             agent_name=canonicalize_registry_agent_name(canonical_agent_name),
             agent_id=agent_id,
             generation_id=manifest_payload["registry_generation_id"],
@@ -1050,7 +1052,7 @@ def _joined_backend_state(
         "tmux_window_id": tmux_window_id,
         "tmux_pane_id": tmux_pane_id,
     }
-    if backend in {"codex_headless", "claude_headless", "kimi_headless", "dsh_acp"}:
+    if backend in {"codex_headless", "claude_headless", "kimi_headless", "dsh_headless", "dsh_acp"}:
         payload["session_id"] = None
         payload["resume_selection_kind"] = (
             resume_selection.kind if resume_selection is not None else "none"

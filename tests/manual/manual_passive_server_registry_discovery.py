@@ -246,6 +246,7 @@ def _record(
             relaunchable=True,
             state_updated_at=now.isoformat(timespec="seconds"),
         ),
+        mode="headless",
         identity=RegistryIdentityV1(backend="claude_headless", tool="claude"),
         runtime=RegistryRuntimeV1(
             manifest_path=str(session_root / "manifest.json"),

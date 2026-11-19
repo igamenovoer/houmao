@@ -9,6 +9,15 @@ from unittest.mock import patch
 
 import pytest
 
+from houmao.agents.launch_policy.models import LaunchPolicyProvenance
+from houmao.agents.realm_controller.run_modes import mode_for_backend
+from houmao.agents.realm_controller.manifest import (
+    SessionManifestRequest,
+    build_session_manifest_payload,
+    write_session_manifest,
+)
+from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
+from houmao.agents.realm_controller.native_surface import NativeSurfaceV1
 from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.discovery import (
@@ -39,6 +48,7 @@ def _make_record(
     generation_id: str = "gen-1",
     tool: str = "claude",
     backend: str = "claude_headless",
+    native_surface: NativeSurfaceV1 | None = None,
     session_name: str = "HOUMAO-alpha-abc123",
     manifest_path: str = "/tmp/manifest.json",
     session_root: str = "/tmp/session",
@@ -68,6 +78,8 @@ def _make_record(
             online=RegistryMailboxSlotV1(revision="online-0", binding=None),
         ),
         canonical_mail_identity=None,
+        mode=mode_for_backend(backend),
+        native_surface=native_surface,
         identity=RegistryIdentityV1(backend=backend, tool=tool),
         runtime=RegistryRuntimeV1(manifest_path=manifest_path, session_root=session_root),
         terminal=RegistryTerminalV2(
@@ -178,11 +190,57 @@ class TestDiscoveredAgentIndex:
 # ---------------------------------------------------------------------------
 
 
-def _write_record(registry_root: Path, record: ManagedAgentRegistryRecordV3) -> None:
+def _write_record(
+    registry_root: Path,
+    record: ManagedAgentRegistryRecordV3,
+    *,
+    observed_tool_version: str | None = None,
+) -> None:
     """Persist a record to the test registry directory."""
 
     agent_dir = registry_root / "live_agents" / record.agent_id
     agent_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = agent_dir / "manifest.json"
+    record.runtime.manifest_path = str(manifest_path)
+    plan = LaunchPlan(
+        backend=record.identity.backend,
+        tool=record.identity.tool,
+        executable="claude",
+        args=["-p"],
+        working_directory=agent_dir,
+        home_env_var="CLAUDE_CONFIG_DIR",
+        home_path=agent_dir / "home",
+        env={},
+        env_var_names=[],
+        role_injection=RoleInjectionPlan(
+            method="native_append_system_prompt", role_name="demo", prompt=""
+        ),
+        launch_policy_provenance=(
+            LaunchPolicyProvenance(
+                requested_operator_prompt_mode="unattended",
+                detected_tool_version=observed_tool_version,
+                selected_strategy_id="test",
+                selection_source="registry",
+            )
+            if observed_tool_version is not None
+            else None
+        ),
+    )
+    write_session_manifest(
+        manifest_path,
+        build_session_manifest_payload(
+            SessionManifestRequest(
+                launch_plan=plan,
+                role_name="demo",
+                brain_manifest_path=agent_dir / "brain.json",
+                backend_state={},
+                agent_id=record.agent_id,
+                agent_name=record.agent_name,
+                tmux_session_name=record.terminal.session_name,
+                registry_generation_id=record.generation_id,
+            )
+        ),
+    )
     (agent_dir / "record.json").write_text(
         json.dumps(record.model_dump(mode="json"), indent=2), encoding="utf-8"
     )
@@ -208,7 +266,7 @@ class TestRegistryDiscoveryScan:
     def test_fresh_live_agent_is_discovered(self, tmp_path: Path) -> None:
         record = _make_record(agent_id="abc123", session_name="HOUMAO-alpha-abc123")
         registry_root = tmp_path / "registry"
-        _write_record(registry_root, record)
+        _write_record(registry_root, record, observed_tool_version="2.1.296")
 
         svc = self._make_service(tmp_path)
         with (
@@ -225,7 +283,26 @@ class TestRegistryDiscoveryScan:
             )
             svc.scan_once()
 
-        assert svc.index.get_by_id("abc123") is not None
+        discovered = svc.index.get_by_id("abc123")
+        assert discovered is not None
+        assert discovered.summary.mode == "headless"
+        assert discovered.observed_tool_version == "2.1.296"
+
+    def test_manifest_mode_mismatch_excludes_live_record(self, tmp_path: Path) -> None:
+        record = _make_record()
+        registry_root = tmp_path / "registry"
+        _write_record(registry_root, record)
+        path = registry_root / "live_agents" / record.agent_id / "record.json"
+        payload = json.loads(path.read_text())
+        payload.update(mode="tui", identity={"backend": "local_interactive", "tool": "claude"})
+        path.write_text(json.dumps(payload))
+        svc = self._make_service(tmp_path)
+        with patch(
+            "houmao.passive_server.discovery._get_live_tmux_session_names",
+            return_value={record.terminal.session_name},
+        ):
+            svc.scan_once()
+        assert svc.index.get_by_id(record.agent_id) is None
 
     def test_expired_agent_excluded(self, tmp_path: Path) -> None:
         now = datetime.now(UTC)

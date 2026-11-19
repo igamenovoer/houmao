@@ -408,6 +408,7 @@ def test_resolve_live_mailbox_binding_from_agent_identity_uses_registry_manifest
                 online=RegistryMailboxSlotV1(revision="online-empty", binding=None),
             ),
             canonical_mail_identity=None,
+            mode="headless",
             identity=RegistryIdentityV1(backend="claude_headless", tool="claude"),
             runtime=RegistryRuntimeV1(
                 manifest_path=str(manifest_path),

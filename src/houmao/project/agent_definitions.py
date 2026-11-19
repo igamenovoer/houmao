@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 import tomli_w
 
 from houmao.project.catalog import ProjectCatalog
+from houmao.project.launch_profiles import profile_run_mode
 from houmao.project.overlay import HoumaoProjectOverlay
 
 OVERVIEW_FILENAME = "agent-def-overview.md"
@@ -898,6 +899,7 @@ def create_deployment_request(
 ) -> DeploymentRequest:
     """Validate values and create one non-secret Deployment Request."""
 
+    profile_run_mode(posture or {}, tool=tool, source="Deployment Request")
     revision = validate_revision(revision_root)
     resolved_values = _resolve_input_values(revision.deploy_contract, values)
     workspace_contract = revision.instance_contract.private_workspace
@@ -944,6 +946,7 @@ def plan_deployment(
 ) -> tuple[DeploymentPlan, Path]:
     """Render and persist an integrity-protected Deployment Plan."""
 
+    profile_run_mode(request.posture, tool=request.tool, source="Deployment Request")
     if Path(request.target_project).resolve() != overlay.project_root.resolve():
         raise ValueError("Deployment Request targets a different project.")
     revision = validate_revision(Path(request.definition_path))
@@ -1118,6 +1121,7 @@ def apply_deployment(
     """Apply one intact plan and make its Agent Deployment visible last."""
 
     plan = load_deployment_plan(plan_root)
+    profile_run_mode(plan.posture, tool=plan.tool, source="Deployment Plan")
     if plan.blockers:
         raise ValueError("Deployment Plan has blockers: " + "; ".join(plan.blockers))
     if Path(plan.target_project).resolve() != overlay.project_root.resolve():

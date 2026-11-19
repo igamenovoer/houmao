@@ -189,11 +189,56 @@
           "enum": [
             "tui",
             "headless",
+            "service",
             "web",
             "unknown"
           ],
           "title": "Transport",
           "type": "string"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "headless",
+                "service",
+                "tui",
+                "web"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mode"
+        },
+        "backend": {
+          "anyOf": [
+            {
+              "enum": [
+                "local_interactive",
+                "codex_headless",
+                "codex_app_server",
+                "claude_headless",
+                "kimi_headless",
+                "kimi_acp",
+                "dsh_headless",
+                "dsh_acp",
+                "dsh_web",
+                "kimi_web",
+                "cao_rest",
+                "houmao_server_rest"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Backend"
         },
         "native_surface": {
           "anyOf": [

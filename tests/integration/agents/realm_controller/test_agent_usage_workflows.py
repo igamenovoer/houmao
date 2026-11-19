@@ -14,10 +14,13 @@ from typing import Any
 from fastapi.testclient import TestClient
 import pytest
 
-from houmao.agents.realm_controller.gateway_service import (
-    GatewayServiceRuntime,
-    create_app as create_gateway_app,
+from houmao.agents.realm_controller.gateway_service import GatewayServiceRuntime
+from houmao.agents.realm_controller.manifest import (
+    SessionManifestRequest,
+    build_session_manifest_payload,
+    write_session_manifest,
 )
+from houmao.agents.realm_controller.models import BackendKind, LaunchPlan, RoleInjectionPlan
 from houmao.agents.realm_controller.usage_adapters import UsageAdapter
 from houmao.agents.realm_controller.usage_models import UsagePage
 from houmao.agents.realm_controller.usage_support import UsageService, persist_terminal_evidence
@@ -25,12 +28,21 @@ from houmao.passive_server.app import create_app as create_passive_app
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.service import PassiveServerService
 from houmao.server.managed_agents import ManagedHeadlessAuthorityRecord
+from tests.fixtures.gateway_access import configure_fixture_gateway_access, gateway_fixture_client
+from tests.unit.passive_server.contract_client import AdmittedPassiveClient
 
 _CAPTURED_TOKEN_COUNTS = {
     "claude": [(4445, 32), (4502, 31)],
     "codex": [(11613, 40), (11675, 32)],
     "kimi": [(20114, 40), (20242, 24)],
 }
+
+
+@pytest.fixture(autouse=True)
+def _gateway_access(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provision local proof for HTTP fixtures without launching a native provider."""
+
+    configure_fixture_gateway_access(tmp_path, monkeypatch)
 
 
 def _fixture(provider: str) -> dict[str, Any]:
@@ -70,22 +82,46 @@ def _manifest(tmp_path: Path, provider: str, *, headless: bool = True) -> Path:
     """Create the runtime-owned identity and isolated provider home."""
 
     path = tmp_path / "session" / "manifest.json"
-    path.parent.mkdir(parents=True)
-    path.write_text(
-        json.dumps(
-            {
-                "tool": provider,
-                "backend": f"{provider}_headless" if headless else "local_interactive",
-                "agent_id": "agent-a",
-                "agent_name": "usage-agent",
-                "registry_generation_id": "generation-original",
-                "runtime": {"session_id": "runtime-a"},
-                "backend_state": {"session_id": "identity-1"},
-                "launch_plan": {"home_selector": {"home_path": str(tmp_path / "home")}},
-            }
+    headless_backends: dict[str, BackendKind] = {
+        "claude": "claude_headless",
+        "codex": "codex_headless",
+        "kimi": "kimi_headless",
+    }
+    home_env_vars = {
+        "claude": "CLAUDE_CONFIG_DIR",
+        "codex": "CODEX_HOME",
+        "kimi": "KIMI_CODE_HOME",
+    }
+    plan = LaunchPlan(
+        backend=headless_backends[provider] if headless else "local_interactive",
+        tool=provider,
+        executable=provider,
+        args=[],
+        working_directory=tmp_path,
+        home_env_var=home_env_vars[provider],
+        home_path=tmp_path / "home",
+        env={},
+        env_var_names=[],
+        role_injection=RoleInjectionPlan(
+            method="native_developer_instructions", role_name="usage", prompt=""
         ),
-        encoding="utf-8",
+        metadata={"tmux_socket_path": str(tmp_path / "tmux.sock")},
     )
+    payload = build_session_manifest_payload(
+        SessionManifestRequest(
+            launch_plan=plan,
+            role_name="usage",
+            brain_manifest_path=tmp_path / "brain.yaml",
+            agent_def_dir=tmp_path / "agent-defs",
+            backend_state={"session_id": "identity-1", "tmux_pane_id": "%0"},
+            agent_id="agent-a",
+            agent_name="usage-agent",
+            tmux_session_name="no-live-controller",
+            session_id="runtime-a",
+            registry_generation_id="generation-original",
+        )
+    )
+    write_session_manifest(path, payload)
     return path
 
 
@@ -108,13 +144,13 @@ def _source(tmp_path: Path, provider: str) -> Path:
     return tmp_path / "home" / "sessions" / "rollout.jsonl"
 
 
-def _gateway_client(service: UsageService) -> TestClient:
+def _gateway_client(manifest: Path) -> TestClient:
     """Expose the production gateway route against the real shared usage service."""
 
-    runtime = GatewayServiceRuntime.__new__(GatewayServiceRuntime)
-    runtime.m_usage_service = service
-    runtime.m_usage_error = None
-    return TestClient(create_gateway_app(runtime=runtime))
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=manifest.parent / "gateway", host="127.0.0.1", port=43123
+    )
+    return gateway_fixture_client(runtime)
 
 
 def _passive_client(tmp_path: Path, manifest: Path) -> TestClient:
@@ -139,7 +175,7 @@ def _passive_client(tmp_path: Path, manifest: Path) -> TestClient:
             updated_at_utc="2026-11-13T00:00:00Z",
         )
     )
-    return TestClient(create_passive_app(service=service))
+    return AdmittedPassiveClient(create_passive_app(service=service))
 
 
 def _page(client: TestClient, route: str, after: str | None = None) -> UsagePage:
@@ -161,7 +197,7 @@ def test_resumed_headless_captures_have_one_record_per_turn_across_http_surfaces
     manifest = _manifest(tmp_path, provider)
     service = UsageService.from_manifest(manifest)
     source = _source(tmp_path, provider)
-    gateway = _gateway_client(service)
+    gateway = _gateway_client(manifest)
     passive = _passive_client(tmp_path, manifest)
     initial = _page(gateway, "/v1/usage")
     assert initial.records == [] and initial.next_cursor is not None
@@ -365,7 +401,7 @@ def test_direct_tui_turns_survive_source_rotation_and_gateway_restart(
     replacement.replace(source)
     restarted = UsageService.from_manifest(manifest)
     restarted.collect()
-    client = _gateway_client(restarted)
+    client = _gateway_client(manifest)
     second = _page(client, "/v1/usage", first.next_cursor)
     assert len(second.records) == 1
     assert second.records[0].provider_turn_id != first.records[0].provider_turn_id
@@ -402,7 +438,7 @@ def test_tui_attachment_during_active_turn_marks_observed_usage_partial(
     assert initial.records == []
     _append(source, native_turn[boundary:])
     service.collect()
-    client = _gateway_client(service)
+    client = _gateway_client(manifest)
     page = _page(client, "/v1/usage", initial.next_cursor)
     assert len(page.records) == 1
     record = page.records[0]
@@ -426,7 +462,7 @@ def test_codex_fork_replay_waits_for_new_native_turn(tmp_path: Path) -> None:
     _append(source, [header])
     service = UsageService.from_manifest(manifest)
     service.collect()
-    client = _gateway_client(service)
+    client = _gateway_client(manifest)
     initial = _page(client, "/v1/usage")
     inherited = [
         payload
@@ -470,7 +506,7 @@ def test_claude_sidechain_parent_copies_do_not_add_charges(tmp_path: Path) -> No
     _append(source, native_turn)
     _append(sidechain, [{**payload, "isSidechain": True} for payload in native_turn])
     service.collect()
-    client = _gateway_client(service)
+    client = _gateway_client(manifest)
     page = _page(client, "/v1/usage", initial.next_cursor)
     assert len(page.records) == 1
     record = page.records[0]

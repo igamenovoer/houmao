@@ -95,6 +95,179 @@ def _turn(path: Path, name: str, *, inputs: int = 1000) -> None:
     )
 
 
+@pytest.mark.parametrize("wrong_incarnation", [False, True])
+@pytest.mark.parametrize("backend", ["kimi_acp", "kimi_web"])
+def test_kimi_service_accounts_only_for_the_certified_interval(
+    tmp_path: Path, wrong_incarnation: bool, backend: str
+) -> None:
+    """Exclude replay and occupancy and require exact owner evidence across recovery."""
+
+    manifest = _manifest(tmp_path, backend=backend, session="session-b", provider="kimi")
+    payload = json.loads(manifest.read_text())
+    if backend == "kimi_web":
+        payload["backend_state"] = {
+            "web_identity": {"native_session_id": "session-b", "host_incarnation": "incarnation-b"}
+        }
+    else:
+        payload["backend_state"]["service_incarnation"] = "incarnation-b"
+    manifest.write_text(json.dumps(payload))
+    journal = (
+        tmp_path / "home" / "sessions" / "wd_test" / "session-b" / "agents" / "main" / "wire.jsonl"
+    )
+
+    def record(kind: str, **values: Any) -> None:
+        """Write one private native main-agent row."""
+
+        _append(journal, {"type": kind, "agentId": "main", **values})
+
+    native_usage = {"inputOther": 12, "output": 4}
+    record("turn.prompt", turnId=0, promptId="old")
+    record("usage.record", usageScope="turn", usage={"inputOther": 170, "output": 27})
+    record("turn.ended", turnId=0, reason="completed")
+    start = journal.stat().st_size
+
+    service = UsageService.from_manifest(manifest)
+    turn_dir = manifest.parent / "manifest.turn-artifacts" / "request-a"
+    service.begin_headless_turn(
+        turn_id="request-a", turn_dir=turn_dir, turn_index=2, new_session=False
+    )
+    (turn_dir / "process.json").write_text(
+        json.dumps({"child_pid": 20, "child_birth_token": "proc:12"})
+    )
+    record("turn.prompt", turnId=1, promptId="new")
+    record("usage.record", usageScope="turn", usage=native_usage)
+    record("usage.record", usageScope="session", usage={"inputOther": 900})
+    record("turn.ended", turnId=1, reason="completed")
+    record("prompt.completed", promptId="new", reason="completed")
+    complete = journal.stat()
+    record("usage.record", usageScope="turn", usage={"inputOther": 999})
+    (turn_dir / "kimi-native-turn.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "agent_id": "agent-a",
+                "runtime_session_id": "runtime-a",
+                "request_id": "request-a",
+                "generation_id": "generation-1",
+                "service_incarnation": "stale" if wrong_incarnation else "incarnation-b",
+                "native_session_id": "session-b",
+                "native_turn_id": 1,
+                "native_prompt_id": "new",
+                "terminal": "completed",
+                "settled_at_utc": "2026-11-19T01:00:05+00:00",
+                "process_id": 20,
+                "process_birth_token": "proc:12",
+                "journal_path": str(journal),
+                "journal_device": complete.st_dev,
+                "journal_inode": complete.st_ino,
+                "journal_baseline_offset": start,
+                "journal_settled_offset": complete.st_size,
+            }
+        )
+    )
+    # Simulate losing the recorder after native closure and before creating usage-final.
+    recovered = UsageService.from_manifest(manifest)
+    recovered.reconcile()
+    page = recovered.get_usage()
+    if wrong_incarnation:
+        assert page.records == []
+        assert page.collection.status == "degraded"
+    else:
+        [settlement] = page.records
+        assert settlement.turn_id == "request-a" and settlement.provider_turn_id == "1"
+        assert settlement.token_usage.input_tokens.value == 12
+        assert settlement.token_usage.output_tokens.value == 4
+        recovered.reconcile()
+        assert recovered.get_usage(after=page.next_cursor).records == []
+
+
+def test_codex_service_recovers_only_exact_native_responses(tmp_path: Path) -> None:
+    """Charge the bound native turn once after its terminal reaches the rollout."""
+
+    manifest = _manifest(tmp_path, backend="codex_app_server")
+    workspace = str(tmp_path / "workspace")
+    payload = json.loads(manifest.read_text())
+    payload["working_directory"] = workspace
+    payload["backend_state"]["service_incarnation"] = "codex-incarnation"
+    manifest.write_text(json.dumps(payload))
+    service = UsageService.from_manifest(manifest)
+    turn_dir = manifest.parent / "manifest.turn-artifacts" / "request-c"
+    service.begin_headless_turn(
+        turn_id="request-c", turn_dir=turn_dir, turn_index=2, new_session=False
+    )
+    path = tmp_path / "home" / "sessions" / "2026" / "rollout-thread-a.jsonl"
+    _append(
+        path,
+        {
+            "type": "session_meta",
+            "payload": {"id": "thread-a", "cwd": workspace, "cli_version": "0.169.0"},
+        },
+    )
+    _turn(path, "historical")
+    _append(path, {"type": "event_msg", "payload": {"type": "task_started", "turn_id": "target"}})
+    _append(path, {"type": "turn_context", "payload": {"turn_id": "target", "model": "test-model"}})
+    _append(
+        path,
+        {
+            "type": "event_msg",
+            "payload": {
+                "type": "token_count",
+                "turn_id": "target",
+                "info": {"total_token_usage": {"input_tokens": 995}},
+            },
+        },
+    )
+    for thread_id in ("foreign", "thread-a"):
+        _append(
+            path,
+            {
+                "type": "token_usage_record",
+                "payload": {
+                    "thread_id": thread_id,
+                    "turn_id": "target",
+                    "root_turn_id": "target",
+                    "response_id": "response-" + thread_id,
+                    "usage": {"input_tokens": 14, "output_tokens": 3},
+                },
+            },
+        )
+    (turn_dir / "process.json").write_text(
+        json.dumps({"child_pid": 2, "child_birth_token": "proc:3"})
+    )
+    (turn_dir / "codex-native-turn.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "agent_id": "agent-a",
+                "runtime_session_id": "runtime-a",
+                "generation_id": "generation-1",
+                "service_incarnation": "codex-incarnation",
+                "request_id": "request-c",
+                "native_session_id": "thread-a",
+                "native_turn_id": "target",
+                "rollout_path": str(path),
+                "terminal": "completed",
+                "process_id": 2,
+                "process_birth_token": "proc:3",
+                "settled_at_utc": "2026-11-19T06:22:00+00:00",
+            }
+        )
+    )
+    usage = UsageService.from_manifest(manifest)
+    usage.reconcile()
+    assert usage.get_usage().records == []
+    _append(path, {"type": "event_msg", "payload": {"type": "task_complete", "turn_id": "target"}})
+    _turn(path, "successor")
+    usage.collect()
+    page = usage.get_usage()
+    [record] = page.records
+    assert record.turn_id == "request-c" and record.provider_turn_id == "target"
+    assert record.token_usage.input_tokens.value == 14
+    assert record.token_usage.output_tokens.value == 3
+    usage.reconcile()
+    assert usage.get_usage(after=page.next_cursor).records == []
+
+
 def test_native_turn_is_finalized_once_and_empty_cursor_resumes(tmp_path: Path) -> None:
     """A TUI source yields stable native records while polling retains its position."""
 

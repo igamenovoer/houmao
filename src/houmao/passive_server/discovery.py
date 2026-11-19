@@ -12,6 +12,7 @@ from houmao.agents.realm_controller.agent_identity import (
     normalize_managed_agent_name,
 )
 from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.agents.realm_controller.manifest import load_registry_mode_authority
 from houmao.agents.realm_controller.native_surface import WebNativeSurfaceV1
 from houmao.agents.realm_controller.registry_models import (
     ManagedAgentRegistryRecordV3,
@@ -35,6 +36,7 @@ class DiscoveredAgent:
 
     record: ManagedAgentRegistryRecordV3
     summary: DiscoveredAgentSummary
+    observed_tool_version: str | None = None
 
 
 class DiscoveredAgentIndex:
@@ -97,6 +99,7 @@ def _summary_from_record(record: ManagedAgentRegistryRecordV3) -> DiscoveredAgen
         generation_id=record.generation_id,
         tool=record.identity.tool,
         backend=record.identity.backend,
+        mode=record.mode,
         tmux_session_name=record.terminal.session_name,
         manifest_path=record.runtime.manifest_path,
         session_root=record.runtime.session_root or "",
@@ -220,9 +223,21 @@ class RegistryDiscoveryService:
             live_sessions = live_sessions_by_socket[socket_path]
             if live_sessions is None or record.terminal.session_name not in live_sessions:
                 continue
+            try:
+                manifest = load_registry_mode_authority(record)
+            except SessionManifestError:
+                logger.debug(
+                    "Skipping registry record with unusable manifest authority: %s", record_path
+                )
+                continue
 
             summary = _summary_from_record(record)
-            new_agents[record.agent_id] = DiscoveredAgent(record=record, summary=summary)
+            provenance = manifest.launch_policy_provenance
+            new_agents[record.agent_id] = DiscoveredAgent(
+                record=record,
+                summary=summary,
+                observed_tool_version=(provenance.detected_tool_version if provenance else None),
+            )
 
         self.m_index.replace(new_agents)
 
@@ -235,6 +250,6 @@ class RegistryDiscoveryService:
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
             return parse_managed_agent_registry_record(payload)
-        except (json.JSONDecodeError, SessionManifestError):
+        except (OSError, ValueError, SessionManifestError):
             logger.debug("Skipping invalid registry record: %s", path)
             return None

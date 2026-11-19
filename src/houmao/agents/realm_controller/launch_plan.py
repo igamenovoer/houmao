@@ -5,8 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import os
 from pathlib import Path
+import shutil
 from typing import Any, Final, Literal, cast
 
+from houmao.agents.codex_cli_config import (
+    CodexCliConfigOverride,
+    CodexCliConfigScalar,
+    codex_provider_cli_config_overrides,
+)
 from houmao.agents.kimi_system_prompt import (
     KimiSystemPromptError,
     ensure_kimi_system_prompt,
@@ -44,7 +50,12 @@ from houmao.agents.launch_policy.models import (
     SupportedVersionSpec,
     ToolVersion,
 )
-from houmao.agents.launch_policy.provider_hooks import provider_state_mutation_lock
+from houmao.agents.launch_policy.provider_hooks import (
+    load_toml_state,
+    prepare_kimi_service_config,
+    provider_state_mutation_lock,
+    validate_codex_credential_readiness,
+)
 from houmao.agents.launch_overrides import (
     LaunchDefaults,
     LaunchOverrides,
@@ -77,6 +88,11 @@ from houmao.hook_observation.kimi_hooks_generator import (
 from .errors import LaunchPlanError, LaunchPolicyResolutionError
 from .loaders import RolePackage, parse_allowlisted_env
 from .models import BackendKind, CaoParsingMode, LaunchPlan, RoleInjectionPlan
+from houmao.agents.realm_controller.run_modes import (
+    human_surface_for_mode,
+    mode_for_backend,
+    validate_mode_binding,
+)
 
 _BRAIN_MANIFEST_SCHEMA_VERSION: Final[int] = 3
 _CAO_PARSING_MODE_DEFAULT_BY_TOOL: Final[dict[str, CaoParsingMode]] = {
@@ -93,7 +109,10 @@ _CAO_SHADOW_STALLED_TERMINAL_KEY: Final[str] = "stalled_is_terminal"
 _LAUNCH_POLICY_OVERRIDE_ENV_VAR: Final[str] = "HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY"
 _CLAUDE_MODEL_SELECTION_FLAGS: Final[frozenset[str]] = frozenset({"--model", "--effort"})
 _KIMI_MODEL_SELECTION_FLAGS: Final[frozenset[str]] = frozenset({"--model"})
-_KIMI_TUI_NO_AUTO_UPDATE_ENV_VAR: Final[str] = "KIMI_CODE_NO_AUTO_UPDATE"
+_KIMI_NO_AUTO_UPDATE_ENV_VAR: Final[str] = "KIMI_CODE_NO_AUTO_UPDATE"
+_KIMI_SERVICE_VERSION: Final[str] = "2.6.0"
+_CODEX_SERVICE_VERSION: Final[str] = "0.169.0"
+_CODEX_SERVICE_ALTERNATIVES: Final[str] = "Available Codex alternatives are headless and tui."
 
 
 @dataclass(frozen=True)
@@ -125,7 +144,6 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
 
     manifest = request.brain_manifest
     _validate_manifest_schema_version(manifest)
-    _reject_unmaintained_backend(backend=request.backend)
 
     inputs = _require_mapping(manifest, "inputs")
     runtime = _require_mapping(manifest, "runtime")
@@ -133,10 +151,11 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     launch_contract = _require_mapping(runtime, "launch_contract")
 
     tool = _require_str(inputs, "tool")
-    if (tool == "dsh") != (request.backend in {"dsh_acp", "dsh_web"}):
-        raise LaunchPlanError(
-            "DSH requires backend=dsh_acp for headless or dsh_web for interactive Web."
-        )
+    try:
+        mode = mode_for_backend(request.backend)
+        validate_mode_binding(tool, mode, request.backend)
+    except ValueError as exc:
+        raise LaunchPlanError(str(exc)) from exc
     executable = _require_str(runtime, "launch_executable")
     home_env_var = _require_str(home_selector, "env_var")
     home_path = Path(_require_str(home_selector, "value")).resolve()
@@ -169,6 +188,44 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         raise LaunchPlanError(
             "DSH Web uses owned native configuration; raw launch arguments and terminal controls are unsupported"
         )
+    if request.backend in {"dsh_headless", "dsh_acp"} and args:
+        raise LaunchPlanError(
+            f"DSH {mode} uses owned native configuration and rejects raw launch arguments"
+        )
+    owned_kimi_session = request.backend in {"kimi_acp", "kimi_web"}
+    kimi_entrypoint = "Kimi Web" if request.backend == "kimi_web" else "Kimi ACP"
+    if owned_kimi_session and args:
+        raise LaunchPlanError(
+            f"{kimi_entrypoint} uses owned native configuration and rejects raw launch arguments"
+        )
+    if owned_kimi_session and home_env_var != "KIMI_CODE_HOME":
+        raise LaunchPlanError(f"{kimi_entrypoint} requires the KIMI_CODE_HOME home selector")
+    if request.backend == "codex_app_server":
+        if args:
+            raise LaunchPlanError(
+                "Codex app-server uses private stdio and rejects raw launch arguments."
+            )
+        if home_env_var != "CODEX_HOME":
+            raise LaunchPlanError("Codex app-server requires the CODEX_HOME home selector")
+    codex_service_version = None
+    if request.backend == "codex_app_server" and request.intent == "provider_start":
+        executable, codex_service_version = _resolve_codex_service_executable(executable)
+        try:
+            validate_codex_credential_readiness(home_path=home_path, env=env_values)
+        except (LaunchPolicyError, OSError) as exc:
+            raise LaunchPlanError(str(exc)) from exc
+    kimi_native_version = None
+    if owned_kimi_session and request.intent == "provider_start":
+        resolved_executable = shutil.which(executable)
+        if resolved_executable is None:
+            raise LaunchPlanError(f"The selected {kimi_entrypoint} executable is unavailable")
+        executable = str(Path(resolved_executable).resolve(strict=True))
+        validate_kimi_version = (
+            validate_kimi_web_launch_version
+            if request.backend == "kimi_web"
+            else validate_kimi_service_launch_version
+        )
+        kimi_native_version = validate_kimi_version(executable=executable)
     configured_cao_parsing_mode = _extract_configured_cao_parsing_mode(runtime=runtime)
     if configured_cao_parsing_mode is not None:
         metadata[_CAO_PARSING_MODE_METADATA_KEY] = configured_cao_parsing_mode
@@ -182,7 +239,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         "claude_headless",
         "codex_headless",
         "kimi_headless",
-        "dsh_acp",
+        "dsh_headless",
     }:
         metadata["headless_output_format"] = "stream-json"
         metadata["headless_display_style"] = "plain"
@@ -252,14 +309,29 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
             generated_args=provider_model_selection_cli_args,
             launch_contract=launch_contract,
         )
-    if tool == "kimi" and provider_model_selection_cli_args:
+    if tool == "kimi" and provider_model_selection_cli_args and not owned_kimi_session:
         args, provider_model_selection_cli_args = _merge_kimi_model_selection_cli_args(
             args=args,
             generated_args=provider_model_selection_cli_args,
         )
     args.extend(codex_cli_config_args)
-    args.extend(provider_model_selection_cli_args)
+    if request.backend == "kimi_web":
+        args.extend(("web", "--no-open", "--host", "127.0.0.1", "--port", "0"))
+    elif request.backend == "kimi_acp":
+        args.append("acp")
+    else:
+        args.extend(provider_model_selection_cli_args)
+    if request.backend == "codex_app_server":
+        args.extend(["app-server", "--listen", "stdio://"])
+        env_values[home_env_var] = str(home_path)
+        env_var_names = sorted({*env_var_names, home_env_var})
+        metadata["codex_app_server"] = {
+            "detected_version": codex_service_version,
+            "operator_prompt_mode": requested_operator_prompt_mode,
+            "thread_config": _codex_service_thread_config(home_path),
+        }
     if tool == "dsh":
+        assert request.backend in {"dsh_headless", "dsh_acp", "dsh_web"}
         dsh_metadata, env_values = _prepare_dsh_launch(
             request=request,
             home_path=home_path,
@@ -280,25 +352,23 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
             "effective_prompt_sha256": dsh_metadata["role_sha256"],
             "validation": "passed",
         }
-        args.extend(
-            [
-                "--profile",
-                "web" if request.backend == "dsh_web" else "acp",
-                "--patch",
-                str(dsh_metadata["patch_path"]),
-            ]
-        )
+        profile = {"dsh_headless": "headless", "dsh_web": "web", "dsh_acp": "acp"}[request.backend]
+        args.extend(["--profile", profile, "--patch", str(dsh_metadata["patch_path"])])
+        if request.backend == "dsh_headless":
+            args.append("--json")
+            metadata["headless_output_format"] = "dsh-cli"
         env_var_names = sorted(env_values)
-        if request.backend == "dsh_acp":
-            metadata["headless_output_format"] = "dsh-acp"
-    if tool == "kimi" and request.backend in {"local_interactive", "kimi_headless"}:
+    if tool == "kimi" and (
+        owned_kimi_session or request.backend in {"local_interactive", "kimi_headless"}
+    ):
         metadata["native_system_prompt"] = _ensure_kimi_native_system_prompt_for_start(
             executable=executable,
             args=args,
             working_directory=request.working_directory,
             home_path=home_path,
             role_injection=role_injection,
-            detected_version=(
+            detected_version=kimi_native_version
+            or (
                 launch_policy_result.provenance.detected_tool_version
                 if launch_policy_result.provenance is not None
                 else None
@@ -309,6 +379,35 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
                 working_directory=request.working_directory,
                 home_path=home_path,
             )
+    if owned_kimi_session:
+        env_values[home_env_var] = str(home_path)
+        env_var_names = sorted({*env_var_names, home_env_var})
+        model_alias = None
+        if provider_model_selection_cli_args:
+            _, option = _parse_kimi_model_selection_arg_groups(provider_model_selection_cli_args)[
+                -1
+            ]
+            model_alias = option[-1] if len(option) == 2 else option[0].partition("=")[2]
+            if not model_alias.strip():
+                raise LaunchPlanError(
+                    f"{kimi_entrypoint} requires a non-empty configured model alias"
+                )
+        if request.intent == "provider_start":
+            try:
+                prepare_kimi_service_config(
+                    home_path,
+                    model_alias=model_alias,
+                    unattended=requested_operator_prompt_mode == "unattended",
+                )
+            except (LaunchPolicyError, OSError, ValueError) as exc:
+                raise LaunchPlanError(
+                    f"Could not project the private {kimi_entrypoint} configuration"
+                ) from exc
+        metadata[request.backend] = {
+            "detected_version": kimi_native_version,
+            "operator_prompt_mode": requested_operator_prompt_mode,
+            "configured_model": model_alias or env_values.get("KIMI_MODEL_NAME"),
+        }
     if launch_policy_result.strategy is not None:
         metadata["launch_policy"] = launch_policy_result.strategy.to_metadata_payload()
     metadata["launch_policy_request"] = {
@@ -321,7 +420,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
             backend_resolution["args_after_launch_policy"] = list(args)
             if codex_cli_config_args:
                 backend_resolution["codex_cli_config_args"] = list(codex_cli_config_args)
-            if provider_model_selection_cli_args:
+            if provider_model_selection_cli_args and not owned_kimi_session:
                 backend_resolution["provider_model_selection_cli_args"] = list(
                     provider_model_selection_cli_args
                 )
@@ -349,13 +448,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         metadata=metadata,
         mailboxes=request.mailboxes,
         launch_policy_provenance=launch_policy_result.provenance,
-        native_surface_kind=(
-            "web"
-            if request.backend == "dsh_web"
-            else "terminal"
-            if request.backend in {"local_interactive", "cao_rest", "houmao_server_rest"}
-            else None
-        ),
+        native_surface_kind=human_surface_for_mode(mode),
     )
 
 
@@ -394,10 +487,98 @@ def read_launch_environment(
         except KimiSystemPromptError as exc:
             raise LaunchPlanError(str(exc)) from exc
         names = sorted({*names, "KIMI_CODE_LEGACY_FLAG"})
-        if backend == "local_interactive":
-            selected[_KIMI_TUI_NO_AUTO_UPDATE_ENV_VAR] = "1"
-            names = sorted({*names, _KIMI_TUI_NO_AUTO_UPDATE_ENV_VAR})
+        if backend in {"local_interactive", "kimi_acp", "kimi_web"}:
+            selected[_KIMI_NO_AUTO_UPDATE_ENV_VAR] = "1"
+            names = sorted({*names, _KIMI_NO_AUTO_UPDATE_ENV_VAR})
     return selected, names, source, selected_names
+
+
+def validate_dsh_launch_version(
+    *, executable: str, detected_version: str | None = None, backend: BackendKind | None = None
+) -> str:
+    """Check the installed DSH version without touching the selected home."""
+
+    try:
+        version = detected_version or detect_tool_version(executable=executable).raw
+    except LaunchPolicyError as exc:
+        raise LaunchPlanError(str(exc)) from exc
+    if not is_supported_dsh_version(version):
+        raise LaunchPlanError(
+            "DSH requires version >=0.2.2-rc.1 with no upper version limit (release or rc only; "
+            f"detected {version!r})."
+        )
+    if backend in {"dsh_headless", "dsh_acp"} and not SupportedVersionSpec.parse(
+        ">=0.2.2rc3"
+    ).contains(ToolVersion.parse(version)):
+        mode = "headless" if backend == "dsh_headless" else "service"
+        raise LaunchPlanError(f"DSH {mode} requires >=0.2.2-rc.3. Detected {version!r}.")
+    return version
+
+
+def validate_kimi_service_launch_version(*, executable: str) -> str:
+    """Allow the explicitly qualified Kimi ACP executable version."""
+
+    return _validate_kimi_native_version(executable=executable, mode="ACP")
+
+
+def validate_kimi_web_launch_version(*, executable: str) -> str:
+    """Allow the explicitly qualified Kimi Web executable version."""
+
+    return _validate_kimi_native_version(executable=executable, mode="Web")
+
+
+def _validate_kimi_native_version(*, executable: str, mode: str) -> str:
+    """Check the selected Kimi native protocol against its supported build."""
+
+    try:
+        version = detect_tool_version(executable=executable).raw
+    except LaunchPolicyError as exc:
+        raise LaunchPlanError(str(exc)) from exc
+    if version != _KIMI_SERVICE_VERSION:
+        raise LaunchPlanError(
+            f"Kimi {mode} requires Kimi Code {_KIMI_SERVICE_VERSION}. Detected {version!r}."
+        )
+    return version
+
+
+def _resolve_codex_service_executable(executable: str) -> tuple[str, str]:
+    """Pin and version-check the executable allowed to start private stdio."""
+
+    resolved = shutil.which(executable)
+    if resolved is None:
+        raise LaunchPlanError(
+            f"The selected Codex app-server executable is unavailable. {_CODEX_SERVICE_ALTERNATIVES}"
+        )
+    try:
+        path = str(Path(resolved).resolve(strict=True))
+        version = detect_tool_version(executable=path).raw
+    except (LaunchPolicyError, OSError) as exc:
+        raise LaunchPlanError(
+            f"Could not verify the selected Codex app-server executable. {_CODEX_SERVICE_ALTERNATIVES}"
+        ) from exc
+    if version != _CODEX_SERVICE_VERSION:
+        raise LaunchPlanError(
+            f"Codex app-server service requires Codex CLI {_CODEX_SERVICE_VERSION}. "
+            f"Detected {version!r}. {_CODEX_SERVICE_ALTERNATIVES}"
+        )
+    return path, version
+
+
+def _codex_service_thread_config(home_path: Path) -> dict[str, CodexCliConfigScalar]:
+    """Keep the selected private-home model and provider above workspace defaults."""
+
+    try:
+        private_config = load_toml_state(home_path / "config.toml")
+        overrides = list(codex_provider_cli_config_overrides(private_config))
+        for key in ("model", "model_reasoning_effort"):
+            value = private_config.get(key)
+            if isinstance(value, str) and value.strip():
+                overrides.append(CodexCliConfigOverride((key,), value))
+    except (LaunchPolicyError, OSError, ValueError) as exc:
+        raise LaunchPlanError(
+            "Could not project the private Codex app-server configuration"
+        ) from exc
+    return {override.rendered_key_path: override.value for override in overrides}
 
 
 def _prepare_dsh_launch(
@@ -412,12 +593,9 @@ def _prepare_dsh_launch(
 ) -> tuple[dict[str, Any], dict[str, str]]:
     """Project DSH at explicit provider start and keep control restoration read-only."""
 
-    version = detected_version or detect_tool_version(executable=executable).raw
-    if not is_supported_dsh_version(version):
-        raise LaunchPlanError(
-            "DSH requires version >=0.2.2-rc.1 with no upper version limit (release or rc only; "
-            f"detected {version!r})."
-        )
+    version = validate_dsh_launch_version(
+        executable=executable, detected_version=detected_version, backend=request.backend
+    )
     setup_path = home_path / MATERIALIZED_DSH_TOOL_PARAMS
     try:
         setup = DshEffectiveToolParams.from_file(setup_path)
@@ -451,6 +629,7 @@ def _prepare_dsh_launch(
                 skill_roots=(home_path / "skills",),
                 operator_prompt_mode=_requested_operator_prompt_mode(request.brain_manifest)
                 or "unattended",
+                native_profile="headless" if request.backend == "dsh_headless" else "acp",
             )
             metadata = {
                 **prepared.metadata,
@@ -804,9 +983,9 @@ def _native_role_injection_method(
         return "native_append_system_prompt"
     if backend == "local_interactive" and tool == "claude":
         return "native_append_system_prompt"
-    if backend == "kimi_headless":
+    if backend in {"kimi_headless", "kimi_acp", "kimi_web"}:
         return "native_home_system_prompt"
-    if backend in {"dsh_acp", "dsh_web"}:
+    if backend in {"dsh_headless", "dsh_acp", "dsh_web"}:
         return "native_system_prompt_section"
     if backend == "local_interactive" and tool == "kimi":
         return "native_home_system_prompt"
@@ -822,7 +1001,7 @@ def _plan_legacy_role_injection(
 ) -> RoleInjectionPlan:
     """Create the pre-policy role-injection plan for direct helper callers."""
 
-    if backend in {"dsh_acp", "dsh_web"}:
+    if backend in {"dsh_headless", "dsh_acp", "dsh_web"}:
         return RoleInjectionPlan(
             method="native_system_prompt_section", role_name=role_name, prompt=role_prompt
         )
@@ -865,7 +1044,7 @@ def _plan_legacy_role_injection(
             bootstrap_message=_bootstrap_message(role_name, role_prompt),
         )
 
-    if backend == "kimi_headless":
+    if backend in {"kimi_headless", "kimi_acp", "kimi_web"}:
         return RoleInjectionPlan(
             method="native_home_system_prompt",
             role_name=role_name,
@@ -880,50 +1059,6 @@ def _plan_legacy_role_injection(
         )
 
     raise LaunchPlanError(f"Unsupported backend: {backend}")
-
-
-def backend_for_tool(
-    tool: str,
-    prefer_cao: bool = False,
-    *,
-    prefer_local_interactive: bool = False,
-) -> BackendKind:
-    """Return the default backend for a tool.
-
-    Parameters
-    ----------
-    tool:
-        Tool name from the brain manifest.
-    prefer_cao:
-        If true, force CAO backend regardless of tool.
-
-    Returns
-    -------
-    BackendKind
-        Selected backend.
-    """
-
-    if prefer_cao:
-        if tool == "dsh":
-            raise LaunchPlanError(
-                "DSH has no CAO backend; select headless ACP or managed Web explicitly."
-            )
-        return "cao_rest"
-    if prefer_local_interactive:
-        if tool == "dsh":
-            return "dsh_web"
-        if tool in {"codex", "claude", "kimi"}:
-            return "local_interactive"
-        raise LaunchPlanError(f"No local interactive backend for tool {tool!r}")
-    if tool == "codex":
-        return "codex_headless"
-    if tool == "claude":
-        return "claude_headless"
-    if tool == "kimi":
-        return "kimi_headless"
-    if tool == "dsh":
-        return "dsh_acp"
-    raise LaunchPlanError(f"No default backend for tool {tool!r}")
 
 
 def _requested_operator_prompt_mode(manifest: dict[str, Any]) -> OperatorPromptMode | None:
@@ -1016,7 +1151,7 @@ def _provider_model_selection_cli_args_from_contract(
         if backend not in {"local_interactive", "claude_headless"}:
             return []
     elif tool == "kimi":
-        if backend not in {"local_interactive", "kimi_headless"}:
+        if backend not in {"local_interactive", "kimi_headless", "kimi_acp", "kimi_web"}:
             return []
     else:
         return []
@@ -1220,18 +1355,6 @@ def _matched_cli_option_flag(arg: str, *, flags: frozenset[str]) -> str | None:
         if arg.startswith(f"{flag}="):
             return flag
     return None
-
-
-def _reject_unmaintained_backend(*, backend: BackendKind) -> None:
-    """Reject backends declared unmaintained before any launch planning work."""
-
-    if backend != "codex_app_server":
-        return
-    raise LaunchPlanError(
-        "backend='codex_app_server' is unmaintained and no longer supported for launching; "
-        "use the maintained Codex backends 'codex_headless' (structured non-interactive) "
-        "or 'local_interactive' (tracked TUI) instead."
-    )
 
 
 def launch_surface_for_backend(backend: BackendKind) -> SupportedLaunchBackend:

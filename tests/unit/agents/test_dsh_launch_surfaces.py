@@ -21,8 +21,10 @@ from houmao.agents.brain_builder import (
     build_brain_home,
     validate_brain_inputs,
 )
+from houmao.agents.definition_parser import parse_agent_preset
 from houmao.agents.dsh_configuration import (
     DSH_LOCAL_API_KEY_ENV,
+    DshConfigurationError,
     DshEffectiveToolParams,
     load_dsh_home,
     read_dsh_mcp_environment,
@@ -45,14 +47,16 @@ from houmao.agents.realm_controller.backends.headless_base import HeadlessSessio
 from houmao.agents.realm_controller.errors import LaunchPlanError
 from houmao.agents.realm_controller.launch_plan import (
     LaunchPlanRequest,
-    backend_for_tool,
     build_launch_plan,
+    validate_dsh_launch_version,
 )
 from houmao.agents.realm_controller.loaders import RolePackage
+from houmao.agents.realm_controller.run_modes import resolve_run_mode
 from houmao.agents.realm_controller.runtime import RuntimeSessionController
 from houmao.project.catalog import ProjectCatalog
 from houmao.srv_ctrl.commands.main import cli
 from houmao.project.overlay import require_project_overlay
+from houmao.agents.tool_params.dsh import DshMcpServer, DshToolParamsAdapter
 
 
 def _seed(tmp_path: Path) -> BuildRequest:
@@ -314,6 +318,10 @@ def test_dsh_bound_roles_project_into_native_launch_only(
         "houmao.agents.realm_controller.launch_plan.detect_tool_version",
         lambda **_: ToolVersion.parse("0.2.2-rc.3"),
     )
+    monkeypatch.setattr(
+        "houmao.agents.launch_policy.engine.detect_tool_version",
+        lambda **_: ToolVersion.parse("0.2.2-rc.3"),
+    )
     plan = build_launch_plan(
         LaunchPlanRequest(
             brain_manifest=built.manifest,
@@ -421,13 +429,15 @@ def test_generated_dsh_helper_reads_roles_at_execution_time(tmp_path: Path) -> N
     assert "houmao-local-no-auth" not in result.launch_helper_path.read_text()
 
 
+@pytest.mark.parametrize("backend", ["dsh_acp", "dsh_headless"])
 def test_dsh_controller_keeps_request_fields_separate_from_frozen_launch_defaults(
     tmp_path: Path,
+    backend: str,
 ) -> None:
-    """Reasoning-only ACP requests preserve current-native model fallback downstream."""
+    """Reasoning-only DSH requests preserve the current native model downstream."""
 
     controller = object.__new__(RuntimeSessionController)
-    controller.backend_session = object.__new__(DshAcpSession)
+    controller.launch_plan = SimpleNamespace(backend=backend)
     controller.brain_manifest_path = tmp_path / "unread-frozen-brain.json"
     controller.brain_manifest_path.write_text("invalid saved launch projection")
     request = ModelConfig(reasoning=ModelReasoningConfig(level=1))
@@ -435,7 +445,9 @@ def test_dsh_controller_keeps_request_fields_separate_from_frozen_launch_default
     assert controller._resolve_headless_execution_model(None) is None
 
 
-@pytest.mark.parametrize("backend,profile", [("dsh_acp", "acp"), ("dsh_web", "web")])
+@pytest.mark.parametrize(
+    "backend,profile", [("dsh_acp", "acp"), ("dsh_headless", "headless"), ("dsh_web", "web")]
+)
 def test_dsh_launch_plan_is_native_and_restore_is_read_only(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -463,7 +475,13 @@ def test_dsh_launch_plan_is_native_and_restore_is_read_only(
     )
     plan = build_launch_plan(plan_request)
     assert plan.executable == "dsh"
-    assert plan.args == ["--profile", profile, "--patch", plan.metadata["dsh"]["patch_path"]]
+    assert plan.args == [
+        "--profile",
+        profile,
+        "--patch",
+        plan.metadata["dsh"]["patch_path"],
+        *(["--json"] if profile == "headless" else []),
+    ]
     assert plan.native_surface_kind == ("web" if backend == "dsh_web" else None)
     assert plan.role_injection.method == "native_system_prompt_section"
     assert plan.role_injection.bootstrap_message is None
@@ -480,7 +498,7 @@ def test_dsh_launch_plan_is_native_and_restore_is_read_only(
     assert role_path.read_text() == "newer-role"
 
 
-@pytest.mark.parametrize("backend", ["dsh_acp", "dsh_web"])
+@pytest.mark.parametrize("backend", ["dsh_acp", "dsh_headless", "dsh_web"])
 def test_dsh_launch_plan_preserves_as_is_native_permissions(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -507,13 +525,97 @@ def test_dsh_launch_plan_preserves_as_is_native_permissions(
     assert {entry["id"] for entry in patch}.isdisjoint({"approval", "sandbox-policy"})
 
 
-def test_dsh_operation_selection_and_owned_arguments_are_explicit() -> None:
-    """Select native ACP or Web explicitly and reserve protocol-owned controls."""
+def test_dsh_headless_reads_edited_native_model_and_keeps_overrides_private(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Read current CLI defaults and return a detached override without altering the home."""
 
-    assert backend_for_tool("dsh") == "dsh_acp"
-    assert backend_for_tool("dsh", prefer_local_interactive=True) == "dsh_web"
-    with pytest.raises(LaunchPlanError, match="CAO"):
-        backend_for_tool("dsh", prefer_cao=True)
+    built = build_brain_home(_seed(tmp_path))
+    for detector in ("launch_policy.engine", "realm_controller.launch_plan"):
+        monkeypatch.setattr(
+            f"houmao.agents.{detector}.detect_tool_version",
+            lambda **_: ToolVersion.parse("0.2.2-rc.3"),
+        )
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=built.manifest,
+            role_package=RolePackage("role", "Literal role", tmp_path),
+            backend="dsh_headless",
+            working_directory=tmp_path,
+        )
+    )
+    projection = plan.metadata["dsh"]
+    profile = Path(projection["patch_path"])
+    rows = json.loads(profile.read_text())
+    defaults = next(row["config"] for row in rows if row["id"] == "agent-default-model")
+    defaults.update(model="model-b", reasoningEffort="low")
+    profile.write_text(json.dumps(rows))
+    role_file = Path(projection["role_path"])
+    role_file.write_text("Role edited directly")
+    setup = DshEffectiveToolParams.from_file(Path(projection["setup_path"]))
+
+    current = load_dsh_home(built.home_path, setup, plan.env, native_profile="headless")
+    assert current.model == ("deepseek-official", "model-b")
+    assert current.reasoning_effort == "low"
+    assert current.invocation_patch == ()
+    override = load_dsh_home(
+        built.home_path, setup, plan.env, native_profile="headless", reasoning_level="high"
+    )
+    assert override.model == current.model
+    assert override.reasoning_effort == "high"
+    assert (
+        next(
+            row["config"]["reasoningEffort"]
+            for row in override.invocation_patch
+            if row["id"] == "agent-default-model"
+        )
+        == "high"
+    )
+    assert json.loads(profile.read_text()) == rows
+    assert role_file.read_text() == "Role edited directly"
+
+
+@pytest.mark.parametrize(
+    ("declaration", "kind"),
+    [
+        ({"name": "test-server", "command": "/bin/false"}, "stdio"),
+        ({"name": "test-server", "type": "http", "url": "https://example.invalid/mcp"}, "http"),
+    ],
+)
+def test_dsh_headless_refuses_acp_mcp_before_preparing_native_work(
+    tmp_path: Path, declaration: dict[str, str], kind: str
+) -> None:
+    """Reject both typed transport forms at birth and on a native-home read."""
+
+    built = build_brain_home(_seed(tmp_path))
+    setup = DshEffectiveToolParams.from_file(built.home_path / "houmao-tool-params.yaml")
+    configured = setup.model_copy(
+        update={"mcp_servers": [DshMcpServer.model_validate(declaration)]}
+    )
+    reason = rf"ACP MCP declarations 'test-server' \({kind}\)"
+    with pytest.raises(DshConfigurationError, match=reason):
+        DshToolParamsAdapter().prepare_launch(configured, backend="dsh_headless")
+    with pytest.raises(DshConfigurationError, match=reason):
+        load_dsh_home(built.home_path, configured, {}, native_profile="headless")
+
+
+def test_dsh_headless_detects_older_build_before_starting_native_work() -> None:
+    """Apply the headless floor independently of unattended launch policy."""
+
+    with pytest.raises(LaunchPlanError, match="DSH headless requires >=0.2.2-rc.3"):
+        validate_dsh_launch_version(
+            executable="dsh", detected_version="0.2.2-rc.2", backend="dsh_headless"
+        )
+
+
+def test_dsh_operation_selection_and_owned_arguments_are_explicit() -> None:
+    """Select each DSH profile while keeping its native flags owner-controlled."""
+
+    assert resolve_run_mode("dsh").backend == "dsh_web"
+    assert resolve_run_mode("dsh", mode="headless", entrypoint="project").backend == "dsh_headless"
+    assert resolve_run_mode("dsh", mode="service").backend == "dsh_acp"
+    with pytest.raises(LaunchPlanError, match="backend 'cao_rest' do not agree"):
+        resolve_run_mode("dsh", backend="cao_rest")
     with pytest.raises(ValueError, match="reserved"):
         resolve_launch_behavior(
             tool="dsh",
@@ -529,7 +631,7 @@ def test_dsh_launch_plan_rejects_an_incompatible_backend(tmp_path: Path, backend
     """Refuse mismatched backends before executable probing or native startup."""
 
     built = build_brain_home(_seed(tmp_path))
-    with pytest.raises(LaunchPlanError, match="dsh_acp.*dsh_web"):
+    with pytest.raises(LaunchPlanError, match=f"Tool 'dsh'.*backend '{backend}' do not agree"):
         build_launch_plan(
             LaunchPlanRequest(
                 brain_manifest=built.manifest,
@@ -649,13 +751,13 @@ def test_dsh_join_refuses_before_accessing_any_tmux_server(monkeypatch: pytest.M
 
 @pytest.mark.parametrize("prompt_mode", ["unattended", "as_is"])
 @pytest.mark.parametrize("adapter", ["deepseek", "pi-ai"])
-@pytest.mark.parametrize("headless", [True, False])
+@pytest.mark.parametrize("selected_mode", [None, "web", "headless"])
 def test_dsh_project_profile_prepares_the_selected_managed_native_surface(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     prompt_mode: str,
     adapter: str,
-    headless: bool,
+    selected_mode: str | None,
 ) -> None:
     """Resolve actual project credentials/profile/model through the manager without starting a worker."""
 
@@ -736,7 +838,7 @@ def test_dsh_project_profile_prepares_the_selected_managed_native_surface(
             "controlled",
             "--agent-name",
             "controlled",
-            *(["--headless"] if headless else []),
+            *(["--mode", selected_mode] if selected_mode else []),
         ],
     )
     assert profile.exit_code == 0, profile.output
@@ -754,13 +856,19 @@ def test_dsh_project_profile_prepares_the_selected_managed_native_surface(
         "houmao.srv_ctrl.commands.agents.core.start_runtime_session", provider_boundary
     )
     monkeypatch.setattr(
+        "houmao.agents.realm_controller.launch_plan.detect_tool_version",
+        lambda **_: ToolVersion.parse("0.2.2-rc.3"),
+    )
+    monkeypatch.setattr(
         "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion", lambda **_: None
     )
     launched = runner.invoke(
         cli, ["project", "agents", "launch", "--profile", "controlled", "--no-gateway"]
     )
     assert launched.exit_code == 0, launched.output
-    assert captured["backend"] == ("dsh_acp" if headless else "dsh_web")
+    expected_mode = selected_mode or "web"
+    assert captured["mode"] == expected_mode
+    assert captured["backend"] == f"dsh_{expected_mode}"
     provenance = captured["manifest"]["runtime"]["launch_contract"]["construction_provenance"][
         "dsh"
     ]
@@ -772,7 +880,7 @@ def test_dsh_project_profile_prepares_the_selected_managed_native_surface(
     home = Path(provenance["role_path"]).parent
     assert (home / "skills").is_dir()
     assert "{{literal}}" in (home / "houmao-role.txt").read_text()
-    if not headless:
+    if selected_mode is None:
         captured.clear()
         rejected = runner.invoke(
             cli,
@@ -787,7 +895,7 @@ def test_dsh_project_profile_prepares_the_selected_managed_native_surface(
             ],
         )
         assert rejected.exit_code != 0
-        assert "unsupported" in rejected.output and "Web" in rejected.output
+        assert "require a terminal native surface" in rejected.output
         assert captured == {}
 
 
@@ -802,7 +910,7 @@ def test_dsh_companion_and_setup_are_product_resources() -> None:
     assert setup.is_file()
 
 
-def test_dsh_mcp_references_survive_project_authoring_and_launch(
+def test_dsh_mcp_references_survive_project_authoring_and_home_construction(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Preserve private values on credential update and expose only references in launch state."""
@@ -894,8 +1002,9 @@ def test_dsh_mcp_references_survive_project_authoring_and_launch(
     )
     specialist = catalog.load_specialist("bound")
     assert specialist.tool_params == tool_params
-    preset = yaml.safe_load(specialist.resolved_preset_path(overlay).read_text())
-    assert preset["tool_params"] == tool_params
+    preset_path = specialist.resolved_preset_path(overlay)
+    preset = parse_agent_preset(preset_path)
+    assert preset.tool_params == tool_params
     invoke(
         "profile",
         "create",
@@ -905,24 +1014,26 @@ def test_dsh_mcp_references_survive_project_authoring_and_launch(
         "bound",
         "--agent-name",
         "bound",
-        "--headless",
+        "--mode",
+        "web",
     )
-    captured: dict[str, Any] = {}
+    rejected = runner.invoke(cli, ["project", "agents", "launch", "--profile", "bound"])
+    assert rejected.exit_code != 0
+    assert "MCP declarations are unsupported by backend 'dsh_web'" in rejected.output
+    assert "synthetic-private-mcp-value" not in rejected.output
 
-    def provider_boundary(**kwargs: Any) -> SimpleNamespace:
-        """Capture launch inputs without making a provider request."""
-
-        captured.update(kwargs)
-        return SimpleNamespace()
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.start_runtime_session", provider_boundary
+    request = BuildRequest(
+        agent_def_dir=overlay.agents_root,
+        runtime_root=tmp_path / "runtime",
+        tool=preset.tool,
+        skills=preset.skills,
+        setup=preset.setup,
+        auth=preset.auth,
+        preset_path=preset.path,
+        preset_model_config=preset.launch_model_config,
     )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion", lambda **_: None
-    )
-    invoke("agents", "launch", "--profile", "bound", "--no-gateway")
-    manifest = yaml.safe_load(Path(captured["brain_manifest_path"]).read_text())
+    prepared = validate_brain_inputs(request, backend="dsh_acp")
+    manifest = build_brain_home(replace(request, validated_inputs=prepared)).manifest
     contract = manifest["runtime"]["launch_contract"]
     effective = DshEffectiveToolParams.from_mapping(contract["tool_params"]["effective"])
     assert effective.mcp_servers[0].model_dump(exclude_none=True) == declaration
@@ -931,7 +1042,7 @@ def test_dsh_mcp_references_survive_project_authoring_and_launch(
     assert all(
         "synthetic-private-mcp-value" not in value
         for value in (
-            json.dumps(preset),
+            preset_path.read_text(),
             json.dumps(manifest),
             home_file.read_text(),
         )
@@ -1011,5 +1122,5 @@ def test_removed_provider_identifiers_stay_rejected_on_maintained_surfaces(
     assert result.exit_code == 2
     assert "Invalid value for '--tool'" in result.output
     assert not (tmp_path / ".houmao").exists()
-    with pytest.raises(LaunchPlanError, match="No default backend"):
-        backend_for_tool(identifier)
+    with pytest.raises(LaunchPlanError, match="No qualified managed run modes"):
+        resolve_run_mode(identifier)

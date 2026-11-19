@@ -32,6 +32,10 @@ from houmao.agents.realm_controller.native_refresh_models import (
     NativeRefreshResultV1,
     RefreshOutcome,
 )
+from houmao.agents.realm_controller.owner_admission import (
+    OwnerAdmissionError,
+    observe_owner_prompt,
+)
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     read_tmux_session_environment_value,
@@ -148,6 +152,22 @@ def _inspect_native_home_payload(path: Path, payload: SessionManifestPayloadV4) 
         ):
             raise GatewayError("Native execution identity is unavailable")
         identity.update({key: cast(str, native_identity[key]) for key in keys})
+    if payload.mode == "service":
+        state = payload.backend_state
+        incarnation, native_session = (
+            state.get("service_incarnation"),
+            state.get("native_session_id"),
+        )
+        if (
+            state.get("generation_id") != payload.registry_generation_id
+            or state.get("runtime_session_id") != payload.runtime.session_id
+            or not isinstance(incarnation, str)
+            or not incarnation
+            or not isinstance(native_session, str)
+            or not native_session
+        ):
+            raise GatewayError("Native service identity is unavailable")
+        identity.update(service_incarnation=incarnation, native_session_id=native_session)
     return NativeHomeV1(
         agent_id=payload.agent_id,
         backend=payload.backend,
@@ -306,6 +326,39 @@ def observe_common_plugins(controller: RuntimeSessionController) -> CommonPlugin
         return observation
     observation = unknown_common_observation(home)
     if home.backend == "dsh_acp":
+        control = controller.observe_managed_service()
+        if control.connection_ready is True and (
+            control.native_session_id != home.identity.get("native_session_id")
+            or control.service_incarnation != home.identity.get("service_incarnation")
+        ):
+            raise GatewayError("Native service changed during observation")
+        observation.profile = "acp"
+        dsh = controller.launch_plan.metadata.get("dsh", {})
+        version = dsh.get("detected_tool_version") if isinstance(dsh, dict) else None
+        observation.native_version = version if isinstance(version, str) else None
+        observation.native_ready = control.can_accept_prompt_now is True
+        observation.native_settled = (
+            control.connection_ready is True
+            and control.active_request_id is None
+            and control.last_outcome != "uncertain"
+        )
+        observation.resources = [
+            CommonPluginResourceV1(
+                kind="skills",
+                component="provider_start",
+                boundary="next_load",
+                supported=True,
+                reason="dsh_service_skill_loader_relaunch",
+            ),
+            CommonPluginResourceV1(
+                kind="mcp",
+                component="session_binding",
+                boundary="next_load",
+                supported=True,
+                reason="dsh_service_mcp_session_binding",
+            ),
+        ]
+    elif home.backend == "dsh_headless":
         # The loader reads the currently materialized setup and native patch on
         # every ordinary attempt. No worker is created for this qualification.
         from houmao.agents.dsh_configuration import (
@@ -314,6 +367,18 @@ def observe_common_plugins(controller: RuntimeSessionController) -> CommonPlugin
             load_dsh_home,
             read_dsh_mcp_environment,
         )
+
+        observation.profile = "headless"
+        generation = home.identity.get("generation")
+        try:
+            idle = (
+                generation is not None
+                and observe_owner_prompt(controller.manifest_path, generation) is None
+            )
+        except OwnerAdmissionError:
+            idle = False
+        observation.native_settled = idle
+        observation.native_ready = idle
 
         metadata = controller.launch_plan.metadata.get("dsh", {})
         setup_path = metadata.get("setup_path") if isinstance(metadata, dict) else None
@@ -329,6 +394,7 @@ def observe_common_plugins(controller: RuntimeSessionController) -> CommonPlugin
             credential_environment=read_dsh_mcp_environment(
                 setup, controller.launch_plan.metadata.get("env_source_file")
             ),
+            native_profile="headless",
         )
         try:
             selected = subprocess.run(
@@ -347,16 +413,17 @@ def observe_common_plugins(controller: RuntimeSessionController) -> CommonPlugin
             selected = None
         observation.native_version = selected
         if is_supported_dsh_version(selected):
-            observation.automatic = True
             observation.resources = [
                 CommonPluginResourceV1(
-                    kind=cast(Any, kind),
+                    kind="skills",
                     component="next_invocation",
                     supported=True,
                     boundary="next_turn",
                     reason="qualified_current_home_loading",
-                )
-                for kind in ("skills", "mcp")
+                ),
+                CommonPluginResourceV1(
+                    kind="mcp", component="inventory", reason="dsh_cli_mcp_unqualified"
+                ),
             ]
     if inspect_native_home(controller) != home:
         raise GatewayError("Native authority changed during observation")
@@ -384,6 +451,10 @@ def plan_native_refresh(observation: CommonPluginObservationV1) -> NativeRefresh
         )
     if observation.native_reload:
         return None
+    if observation.home.backend == "dsh_acp" and observation.profile == "acp":
+        return NativeRefreshResultV1(
+            method="none", outcome="restart_required", observation=observation
+        )
     return NativeRefreshResultV1(method="none", outcome="unsupported", observation=observation)
 
 

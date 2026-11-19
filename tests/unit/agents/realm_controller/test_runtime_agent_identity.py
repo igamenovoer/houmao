@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from houmao.agents.launch_policy.models import ToolVersion
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
@@ -60,11 +61,16 @@ def _isolate_shared_registry(
     monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str((tmp_path / "registry").resolve()))
 
 
-def _seed_brain_manifest(agent_def_dir: Path, tmp_path: Path) -> Path:
+def _seed_brain_manifest(agent_def_dir: Path, tmp_path: Path, *, tool: str = "codex") -> Path:
     """Create a minimal brain manifest and role for runtime tests."""
 
+    home_env, auth_env = {
+        "codex": ("CODEX_HOME", "OPENAI_API_KEY"),
+        "claude": ("CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY"),
+        "kimi": ("KIMI_CODE_HOME", "KIMI_API_KEY"),
+    }[tool]
     env_file = tmp_path / "vars.env"
-    env_file.write_text("OPENAI_API_KEY=secret\n", encoding="utf-8")
+    env_file.write_text(f"{auth_env}=secret\n", encoding="utf-8")
 
     manifest_path = tmp_path / "brain.yaml"
     manifest_path.write_text(
@@ -72,7 +78,7 @@ def _seed_brain_manifest(agent_def_dir: Path, tmp_path: Path) -> Path:
             [
                 "schema_version: 3",
                 "inputs:",
-                "  tool: codex",
+                f"  tool: {tool}",
                 "  skills: []",
                 "  setup: default",
                 "  auth: default",
@@ -85,9 +91,9 @@ def _seed_brain_manifest(agent_def_dir: Path, tmp_path: Path) -> Path:
                 "  home_id: test-home",
                 f"  home_path: {tmp_path / 'home'}",
                 f"  launch_helper: {tmp_path / 'home' / 'launch.sh'}",
-                "  launch_executable: codex",
+                f"  launch_executable: {tool}",
                 "  launch_home_selector:",
-                "    env_var: CODEX_HOME",
+                f"    env_var: {home_env}",
                 f"    value: {tmp_path / 'home'}",
                 "  launch_contract:",
                 "    adapter_defaults:",
@@ -109,7 +115,7 @@ def _seed_brain_manifest(agent_def_dir: Path, tmp_path: Path) -> Path:
                 "  env_contract:",
                 f"    source_file: {env_file}",
                 "    allowlisted_env_vars:",
-                "      - OPENAI_API_KEY",
+                f"      - {auth_env}",
             ]
         )
         + "\n",
@@ -180,7 +186,9 @@ def _build_headless_manifest(
 ) -> Path:
     """Build and persist a schema-valid tmux-backed headless manifest."""
 
-    brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
+    brain_manifest_path = _seed_brain_manifest(
+        agent_def_dir, tmp_path, tool=backend.removesuffix("_headless")
+    )
     manifest = load_brain_manifest(brain_manifest_path)
     role = load_role_package(agent_def_dir, "r")
     launch_plan = build_launch_plan(
@@ -242,6 +250,7 @@ def _publish_registry_resolution_record(
                 "online": {"revision": "on-empty", "binding": None},
             },
             canonical_mail_identity=None,
+            mode="tui",
             identity=RegistryIdentityV1(backend="cao_rest", tool="codex"),
             runtime=RegistryRuntimeV1(
                 manifest_path=str(manifest_path.resolve()),
@@ -649,6 +658,7 @@ def test_resolve_agent_identity_falls_back_to_shared_registry_when_tmux_missing(
                 "online": {"revision": "on-empty", "binding": None},
             },
             canonical_mail_identity=None,
+            mode="tui",
             identity=RegistryIdentityV1(backend="cao_rest", tool="codex"),
             runtime=RegistryRuntimeV1(
                 manifest_path=str(manifest_path.resolve()),
@@ -901,6 +911,11 @@ def test_resolve_agent_identity_accepts_tmux_backed_headless_manifest(
     agent_def_dir.mkdir(parents=True, exist_ok=True)
     tmux_agent_def_dir = tmp_path / "live-agent-defs"
     tmux_agent_def_dir.mkdir(parents=True, exist_ok=True)
+    if backend == "kimi_headless":
+        monkeypatch.setattr(
+            "houmao.agents.realm_controller.launch_plan.detect_tool_version",
+            lambda **_: ToolVersion.parse("2.1.1"),
+        )
     manifest_path = _build_headless_manifest(
         agent_def_dir,
         tmp_path,

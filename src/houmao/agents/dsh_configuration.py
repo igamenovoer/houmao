@@ -1,4 +1,4 @@
-"""Materialize DSH launch profiles and read current native ACP invocation inputs."""
+"""Materialize isolated DSH profiles and read their current invocation inputs."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 import re
 import stat
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 
@@ -19,6 +19,7 @@ from houmao.agents.tool_params.dsh import (
     DshConfigurationError as DshConfigurationError,
     DshEffectiveToolParams as DshEffectiveToolParams,
     DshModel,
+    DshToolParamsAdapter,
     validate_http_url,
 )
 
@@ -64,6 +65,7 @@ def load_dsh_home(
     credential_environment: Mapping[str, str] | None = None,
     selected_model: str | None = None,
     reasoning_level: str | None = None,
+    native_profile: Literal["acp", "headless"] = "acp",
 ) -> DshLoadedHome:
     """Read a materialized home without rebuilding or repairing its files.
 
@@ -81,6 +83,8 @@ def load_dsh_home(
     selected_model, reasoning_level:
         Request-scoped overrides only. Absent controls select the current
         materialized native defaults rather than a previous turn's override.
+    native_profile:
+        Select the native profile that owns the materialized model row.
 
     Returns
     -------
@@ -94,6 +98,8 @@ def load_dsh_home(
         Required material is missing or an explicit override cannot be applied.
     """
 
+    if native_profile == "headless":
+        DshToolParamsAdapter().prepare_launch(setup, backend="dsh_headless")
     home = home_path.resolve()
     patch_path = home / "houmao-profile.patch.json"
     role_path = home / "houmao-role.txt"
@@ -122,20 +128,25 @@ def load_dsh_home(
         raise DshConfigurationError("DSH requires an existing absolute persistence root")
     private_environment = dsh_native_environment(home, setup, environment)
     patch: list[dict[str, Any]] = []
-    acp = dict(_mapping(configs.get("acp"), "materialized ACP config"))
-    provider_name = _text(acp.get("provider"), "materialized ACP provider")
-    model_name = _text(acp.get("model"), "materialized ACP model")
+    selection_row = "agent-default-model" if native_profile == "headless" else "acp"
+    selection = dict(_mapping(configs.get(selection_row), f"materialized {selection_row} config"))
+    provider_name = _text(selection.get("provider"), f"materialized {selection_row} provider")
+    model_name = _text(selection.get("model"), f"materialized {selection_row} model")
     model_selection = (provider_name, model_name)
-    effort = _materialized_reasoning(configs, provider_name, model_name)
+    native_effort = selection.get("reasoningEffort") if native_profile == "headless" else None
+    effort = (
+        _text(native_effort, "materialized reasoning effort")
+        if native_effort is not None
+        else _materialized_reasoning(configs, provider_name, model_name)
+    )
     if selected_model is not None or reasoning_level is not None:
-        model_name = selected_model or _text(acp.get("model"), "materialized ACP model")
+        model_name = selected_model or model_name
         model, effort = setup.select_model(model_name, reasoning_level)
         if selected_model is not None and effort is None and model.reasoning_slots:
             effort = model.reasoning_slots[0]
         if selected_model is not None:
             model_selection = (setup.route, model.id)
-            acp.update({"provider": setup.route, "model": model.id})
-            patch.append({"id": "acp", "config": acp})
+            selection.update({"provider": setup.route, "model": model.id})
         if setup.adapter == "deepseek":
             config = dict(_mapping(configs.get("llm-deepseek"), "materialized adapter config"))
             if selected_model is not None:
@@ -165,6 +176,10 @@ def load_dsh_home(
             providers[setup.route] = provider
             config["providers"] = providers
             patch.append({"id": "llm-pi-ai", "config": config})
+        if native_profile == "headless" and effort is not None and model.reasoning_efforts:
+            selection["reasoningEffort"] = effort
+        if selected_model is not None or native_profile == "headless":
+            patch.append({"id": selection_row, "config": selection})
     return DshLoadedHome(
         patch_path,
         role_path,
@@ -383,6 +398,7 @@ def prepare_dsh_home(
     reasoning_level: str | None = None,
     skill_roots: Sequence[Path] = (),
     operator_prompt_mode: str = "unattended",
+    native_profile: Literal["acp", "headless"] = "acp",
 ) -> DshPreparedHome:
     """Project an isolated native profile and literal role without installing software.
 
@@ -405,6 +421,8 @@ def prepare_dsh_home(
     operator_prompt_mode:
         ``unattended`` applies the qualified no-question permissions. ``as_is``
         preserves native permission defaults without adding unattended overrides.
+    native_profile:
+        Select the native profile that receives the managed model defaults.
 
     Returns
     -------
@@ -419,6 +437,8 @@ def prepare_dsh_home(
 
     if operator_prompt_mode not in {"unattended", "as_is"}:
         raise DshConfigurationError("DSH operator prompt mode must be unattended or as_is")
+    if native_profile == "headless":
+        DshToolParamsAdapter().prepare_launch(setup, backend="dsh_headless")
     model, effort = setup.select_model(selected_model, reasoning_level)
     if effort is None and model.reasoning_slots:
         effort = model.reasoning_slots[0]
@@ -477,10 +497,12 @@ def prepare_dsh_home(
         {"id": "goal-round-driver", "disabled": True},
         {"id": "llm-deepseek-account", "disabled": True},
         {
-            "id": "acp",
+            "id": "agent-default-model" if native_profile == "headless" else "acp",
             "config": {"provider": setup.route, "model": model.id},
         },
     ]
+    if native_profile == "headless":
+        patch.append({"id": "session-title-llm", "disabled": True})
     if operator_prompt_mode == "unattended":
         patch.extend(
             [

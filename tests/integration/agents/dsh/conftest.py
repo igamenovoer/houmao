@@ -1,11 +1,11 @@
 """Explicit native DSH build and credential-free local model fixtures."""
 
 from collections.abc import Iterator
+from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
-import shlex
 import shutil
 import subprocess
 import tempfile
@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from houmao.agents.launch_policy import is_supported_dsh_version
+from houmao.execution.tmux import tmux_server_scope
 
 
 @pytest.fixture
@@ -28,19 +29,13 @@ def isolated_tmux(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[P
     monkeypatch.delenv("TMUX_PANE", raising=False)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "owner-config"))
     with tempfile.TemporaryDirectory(prefix="houmao-dsh-tmux-") as directory:
-        socket = Path(directory) / "server.sock"
-        commands = tmp_path / "isolated-bin"
-        commands.mkdir()
-        wrapper = commands / "tmux"
-        wrapper.write_text(
-            "#!/bin/sh\nunset TMUX TMUX_PANE\n"
-            f'exec {shlex.quote(executable)} -S {shlex.quote(str(socket))} "$@"\n',
-            encoding="utf-8",
-        )
-        wrapper.chmod(0o700)
-        monkeypatch.setenv("PATH", f"{commands}{os.pathsep}{os.environ['PATH']}")
+        socket_dir = Path(directory) / f"tmux-{os.getuid()}"
+        socket_dir.mkdir(mode=0o700)
+        socket = socket_dir / "default"
+        monkeypatch.setenv("TMUX_TMPDIR", directory)
         try:
-            yield socket
+            with tmux_server_scope(socket):
+                yield socket
         finally:
             subprocess.run(
                 [executable, "-S", str(socket), "kill-server"],
@@ -70,8 +65,30 @@ def dsh_executable() -> Path:
     return executable
 
 
+@dataclass
+class ControlledModelGate:
+    """Hold a controlled response while a second caller competes for the same agent."""
+
+    entered: threading.Event = field(default_factory=threading.Event)
+    release: threading.Event = field(default_factory=threading.Event)
+    armed: bool = False
+
+
 @pytest.fixture
-def controlled_messages_server() -> Iterator[tuple[str, list[dict[str, Any]]]]:
+def controlled_model_gate() -> Iterator[ControlledModelGate]:
+    """Unblock the controlled provider during teardown after any failed assertion."""
+
+    gate = ControlledModelGate()
+    try:
+        yield gate
+    finally:
+        gate.release.set()
+
+
+@pytest.fixture
+def controlled_messages_server(
+    controlled_model_gate: ControlledModelGate,
+) -> Iterator[tuple[str, list[dict[str, Any]]]]:
     """Serve deterministic Messages streams without external credentials or network."""
 
     requests: list[dict[str, Any]] = []
@@ -92,6 +109,11 @@ def controlled_messages_server() -> Iterator[tuple[str, list[dict[str, Any]]]]:
                     ),
                 }
             )
+            if controlled_model_gate.armed:
+                controlled_model_gate.entered.set()
+                if not controlled_model_gate.release.wait(timeout=20):
+                    self.send_error(504)
+                    return
             if self.path.endswith("/chat/completions"):
                 frames = [
                     {

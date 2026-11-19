@@ -45,7 +45,7 @@ def test_unknown_native_lock_ownership_fails_closed(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("tool", ["claude", "dsh"])
-def test_only_dsh_publication_describes_the_native_acp_capability_contract(
+def test_only_dsh_publication_describes_the_native_cli_capability_contract(
     tmp_path: Path, tool: str
 ) -> None:
     """Published capabilities identify native control and explicit limits without activating a body."""
@@ -58,6 +58,7 @@ def test_only_dsh_publication_describes_the_native_acp_capability_contract(
     if tool == "claude":
         assert capabilities is None
         return
+    assert contract.backend == "dsh_headless"
     assert capabilities is not None
     assert {
         "create",
@@ -79,6 +80,7 @@ def test_only_dsh_publication_describes_the_native_acp_capability_contract(
         "delete",
         "additional_workspaces",
         "raw_keys",
+        "mcp",
         "acp_wire_reload",
     }.issubset(capabilities.unsupported_operations)
     assert not set(capabilities.supported_operations).intersection(

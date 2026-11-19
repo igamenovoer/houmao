@@ -538,29 +538,36 @@ def test_codex_registry_declares_final_cli_config_override_hook() -> None:
     documents = load_registry_documents(tool="codex")
 
     assert len(documents) == 1
-    assert len(documents[0].strategies) == 1
-    strategy = documents[0].strategies[0]
-    assert strategy.strategy_id == "codex-unattended-0.162-plus"
+    strategies = {item.strategy_id: item for item in documents[0].strategies}
+    strategy = strategies["codex-unattended-0.162-plus"]
     assert any("--config" in note for note in strategy.minimal_inputs.notes)
     assert strategy.actions[-1].kind == "provider_hook.call"
     assert strategy.actions[-1].params == {"hook_id": "codex.append_unattended_cli_overrides"}
+    service = strategies["codex-app-server-unattended-0.169.0"]
+    assert service.backends == ("codex_app_server",)
+    assert service.supported_versions.to_payload() == "==0.169.0"
+    assert service.system_prompt.owned_surface == "developerInstructions"
+    assert all(action.params != strategy.actions[-1].params for action in service.actions)
 
 
 def test_kimi_registry_declares_native_home_system_prompt() -> None:
     documents = load_registry_documents(tool="kimi")
 
     assert len(documents) == 1
-    assert {strategy.strategy_id for strategy in documents[0].strategies} == {
-        "kimi-unattended-2.1-plus",
-        "kimi-tui-unattended-2.1-plus",
+    supported_versions = {
+        "kimi-unattended-2.1-plus": ">=2.1.1",
+        "kimi-tui-unattended-2.1-plus": ">=2.1.1",
+        "kimi-acp-unattended-2.6.0": "==2.6.0",
+        "kimi-web-unattended-2.6.0": "==2.6.0",
     }
+    assert {strategy.strategy_id for strategy in documents[0].strategies} == set(supported_versions)
     for strategy in documents[0].strategies:
         contract = strategy.system_prompt
         assert contract.method == "native_home_system_prompt"
         assert contract.owned_surface == "SYSTEM.md"
         assert contract.required_engine_env == {"KIMI_CODE_LEGACY_FLAG": "0"}
         assert contract.evidence
-        assert strategy.supported_versions.to_payload() == ">=2.1.1"
+        assert strategy.supported_versions.to_payload() == supported_versions[strategy.strategy_id]
         assert strategy.to_metadata_payload()["system_prompt"] == contract.to_payload()
 
 
@@ -746,12 +753,14 @@ def test_kimi_raw_launch_as_is_leaves_args_and_config_untouched(tmp_path: Path) 
     assert config_path.read_text(encoding="utf-8") == original_config
 
 
-def test_kimi_registry_declares_separate_headless_and_tui_unattended_strategies() -> None:
+def test_kimi_registry_declares_separate_mode_strategies() -> None:
     documents = load_registry_documents(tool="kimi")
 
     strategies = {strategy.strategy_id: strategy for strategy in documents[0].strategies}
     assert strategies["kimi-unattended-2.1-plus"].backends == ("kimi_headless",)
     assert strategies["kimi-tui-unattended-2.1-plus"].backends == ("raw_launch",)
+    assert strategies["kimi-acp-unattended-2.6.0"].backends == ("kimi_acp",)
+    assert strategies["kimi-web-unattended-2.6.0"].backends == ("kimi_web",)
     assert [action.kind for action in strategies["kimi-tui-unattended-2.1-plus"].actions] == [
         "provider_hook.call",
         "toml.set",
@@ -1011,7 +1020,11 @@ def test_codex_canonicalization_preserves_hook_config_overrides(
 def test_codex_registry_documents_hook_observation_owned_surfaces() -> None:
     documents = load_registry_documents(tool="codex")
 
-    strategy = documents[0].strategies[0]
+    strategy = next(
+        item
+        for item in documents[0].strategies
+        if item.strategy_id == "codex-unattended-0.162-plus"
+    )
     owned = {spec.path: spec.keys for spec in strategy.owned_paths}
     config_keys = owned["config.toml"]
     assert any("hooks.state." in key and "trusted_hash" in key for key in config_keys)
@@ -1115,6 +1128,9 @@ def test_kimi_registry_documents_hook_observation_owned_surfaces() -> None:
         config_keys = [
             key for spec in strategy.owned_paths if spec.path == "config.toml" for key in spec.keys
         ]
+        if strategy.backends in {("kimi_acp",), ("kimi_web",)}:
+            assert set(config_keys) == {"default_model", "default_permission_mode"}
+            continue
         assert any(
             "hooks." in key and "event, matcher, command, timeout" in key for key in config_keys
         )

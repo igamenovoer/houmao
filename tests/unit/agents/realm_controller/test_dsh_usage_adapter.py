@@ -456,7 +456,9 @@ def test_real_controlled_rc3_capture_retains_two_resumed_native_turns() -> None:
     ]
 
 
-def _managed_service(tmp_path: Path) -> tuple[UsageService, Path, Path]:
+def _managed_service(
+    tmp_path: Path, *, backend: str = "dsh_acp"
+) -> tuple[UsageService, Path, Path]:
     """Prepare a managed DSH service whose native process has not been created."""
 
     home = tmp_path / "private-home"
@@ -466,7 +468,7 @@ def _managed_service(tmp_path: Path) -> tuple[UsageService, Path, Path]:
         json.dumps(
             {
                 "tool": "dsh",
-                "backend": "dsh_acp",
+                "backend": backend,
                 "agent_id": "agent-1",
                 "registry_generation_id": "generation-1",
                 "runtime": {"session_id": "runtime-1"},
@@ -596,6 +598,116 @@ def test_wrong_generation_evidence_preserves_outcome_with_unknown_usage(tmp_path
     assert record is not None and record.outcome == "failed"
     assert record.token_usage.total_tokens.value is None
     assert "dsh_native_binding_identity_mismatch" in record.diagnostics
+
+
+def _qualify_cli_attempt(turn_dir: Path, *, claimed_message: str = "input-1") -> None:
+    """Add the CLI-specific bridge and actual native admission evidence."""
+
+    binding_path = turn_dir / "dsh-native-binding.json"
+    binding = json.loads(binding_path.read_text())
+    binding["process_birth_token"] = "fixture-worker-birth"
+    binding_path.write_text(json.dumps(binding))
+    (turn_dir / "dsh-native-handoff.json").write_text(json.dumps(binding))
+    (turn_dir / "process.json").write_text(
+        json.dumps(
+            {"child_pid": binding["process_id"], "child_birth_token": "fixture-worker-birth"}
+        )
+    )
+    evidence_path = turn_dir / "dsh-native-evidence.jsonl"
+    evidence = [json.loads(line) for line in evidence_path.read_text().splitlines()]
+    evidence[1]["message_id"] = claimed_message
+    _write(
+        evidence_path, [{**evidence[1], "event": "admitted", "message_id": "input-1"}, *evidence]
+    )
+
+
+def _complete_cli_attempt(turn_dir: Path) -> None:
+    """Install the bridge's post-flush closure marker from the owned handoff."""
+
+    binding = json.loads((turn_dir / "dsh-native-handoff.json").read_text())
+    (turn_dir / "dsh-native-closure.json").write_text(
+        json.dumps(
+            {
+                **{
+                    key: binding[key]
+                    for key in (
+                        "version",
+                        "attempt_id",
+                        "native_session_id",
+                        "process_id",
+                        "process_birth_token",
+                    )
+                },
+                "source": "native_journal",
+                "returncode": 0,
+            }
+        )
+    )
+
+
+def test_cli_usage_recovers_only_verified_closure_and_counts_the_journal_once(
+    tmp_path: Path,
+) -> None:
+    """Native step summaries and a bare zero exit cannot establish accounting."""
+
+    service, manifest, home = _managed_service(tmp_path, backend="dsh_headless")
+    turn_dir = manifest.parent / "manifest.turn-artifacts" / "managed-1"
+    service.begin_headless_turn(
+        turn_id="managed-1", turn_dir=turn_dir, turn_index=1, new_session=True
+    )
+    _three_native_turns(home / "sessions/project/native-1/session.v4.jsonl")
+    _companion_evidence(turn_dir, home)
+    _qualify_cli_attempt(turn_dir)
+    _write(
+        turn_dir / "stdout.jsonl",
+        [
+            {
+                "type": "status",
+                "phase": "step_end",
+                "turn": 1,
+                "step": 1,
+                "usage": _usage(inputTokens=999),
+            }
+        ],
+    )
+    (turn_dir / "exitcode").write_text("0\n")
+    service.reconcile()
+    assert service.store.get_record("managed-1") is None
+    _complete_cli_attempt(turn_dir)
+    service.reconcile()
+    record = service.store.get_record("managed-1")
+    assert record is not None and record.outcome == "completed"
+    assert record.token_usage.total_tokens.value == 52
+    assert len(service.get_usage().records) == 1
+
+
+@pytest.mark.parametrize("different_birth", [False, True])
+def test_cli_usage_withholds_unbound_admission(tmp_path: Path, different_birth: bool) -> None:
+    """An unrelated claimed input or recycled PID cannot attach native usage."""
+
+    service, manifest, home = _managed_service(tmp_path, backend="dsh_headless")
+    turn_dir = manifest.parent / "manifest.turn-artifacts" / "managed-1"
+    service.begin_headless_turn(
+        turn_id="managed-1", turn_dir=turn_dir, turn_index=1, new_session=True
+    )
+    _three_native_turns(home / "sessions/project/native-1/session.v4.jsonl")
+    _companion_evidence(turn_dir, home)
+    _qualify_cli_attempt(turn_dir, claimed_message="input-1" if different_birth else "other-input")
+    if different_birth:
+        (turn_dir / "process.json").write_text(
+            json.dumps({"child_pid": 101, "child_birth_token": "recycled-worker"})
+        )
+    persist_terminal_evidence(
+        turn_dir, returncode=2, completed_at_utc="2026-11-16T01:00:00+00:00", wall_time_ms=25
+    )
+    record = service.finalize_headless_turn(turn_dir)
+    assert record is not None and record.token_usage.total_tokens.value is None
+    diagnostic = (
+        "dsh_native_handoff_identity_mismatch"
+        if different_birth
+        else "dsh_native_admission_unverified"
+    )
+    assert diagnostic in record.diagnostics
 
 
 def _descendant_evidence(turn_dir: Path, *, local: bool = True) -> None:

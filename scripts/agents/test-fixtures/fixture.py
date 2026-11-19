@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 import sys
 
+from houmao.agents.realm_controller.run_modes import RUN_MODES
+
 from fixturelib.auth import (
     bundle_path,
     candidate_from_source,
@@ -14,7 +16,7 @@ from fixturelib.auth import (
     external_root,
     import_auth,
 )
-from fixturelib.config import FixtureError, ResolvedConfig, resolve_config
+from fixturelib.config import FixtureError, ResolvedConfig, fixture_run_mode, resolve_config
 from fixturelib.prepare import load_run, prepare_run
 from fixturelib.launch import check_run, interrupt_run, launch_run, prompt_run, public_run, stop_run
 
@@ -51,7 +53,7 @@ def add_case_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--capabilities", help="Explicit comma-separated model capabilities")
     parser.add_argument("--reasoning-key")
     parser.add_argument("--reasoning-effort")
-    parser.add_argument("--mode", choices=("headless", "tui"), default="headless")
+    parser.add_argument("--mode", choices=RUN_MODES, help="Native run mode for the selected client")
     parser.add_argument("--prompt-mode", choices=("unattended", "as_is"), default="unattended")
     parser.add_argument(
         "--surface", choices=("raw", "manager", "passive-server"), default="manager"
@@ -114,11 +116,9 @@ def selected_configuration(args: argparse.Namespace) -> ResolvedConfig:
             raise FixtureError("Native login selection is independent of API case/env routing")
         if not args.auth_bundle:
             raise FixtureError("Native login requires an explicit imported --auth-bundle")
-        if args.surface == "passive-server" and args.mode != "headless":
-            raise FixtureError("Passive-server birth supports headless mode")
         return ResolvedConfig(
             client=args.client,
-            mode=args.mode,
+            mode=fixture_run_mode(args.client, args.mode, args.surface).mode,
             surface=args.surface,
             operator_prompt_mode=args.prompt_mode,
             auth_method="native-login",
@@ -228,7 +228,11 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 if args.live:
                     raise FixtureError("Live check requires explicit --run-dir for a prepared run")
-                payload = {"status": "configuration_valid", "configuration": config.summary()}
+                payload = {
+                    "status": "configuration_valid",
+                    "configuration": config.summary(),
+                    "backend": config.selection().backend,
+                }
         print(json.dumps(payload, sort_keys=True, indent=2))
         return 0
     except (FixtureError, OSError) as exc:

@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -51,12 +52,14 @@ def test_bridge_never_launches_under_revoked_or_superseded_grant(
     payload = json.loads(guard.read_text(encoding="utf-8"))
     assert set(payload) == {
         "active",
+        "attempt_id",
         "expires_at",
         "manifest_path",
         "registry_generation_id",
         "origin_pid",
         "origin_birth_token",
     }
+    assert payload["attempt_id"] == turn.name
     if reason == "cancellation":
         control.cancel()
     elif reason == "expiry":
@@ -360,6 +363,55 @@ def test_handoff_confirmation_remains_valid_after_sender_response() -> None:
     assert confirmations == [True]
     with pytest.raises(BackendExecutionError):
         control.require_allowed()
+
+
+def test_handoff_confirmation_requires_durable_callback() -> None:
+    """A failed evidence write cannot set the confirmed handoff flag."""
+
+    def persist() -> None:
+        """Simulate unavailable owner admission storage."""
+
+        raise BackendExecutionError("evidence store unavailable")
+
+    control = HeadlessDispatchControl.from_callbacks(
+        allowed=lambda: True, confirmed=persist, deadline=time.monotonic() + 10
+    )
+    with pytest.raises(BackendExecutionError, match="evidence store unavailable"):
+        control.confirm_handoff()
+    assert not control.m_handoff_confirmed.is_set()
+
+
+def test_tui_confirms_after_managed_prompt_enter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A bootstrap submission cannot confirm the requested TUI prompt's handoff."""
+
+    from houmao.agents.realm_controller.backends import local_interactive
+
+    backend = object.__new__(local_interactive.LocalInteractiveSession)
+    backend._plan = SimpleNamespace(
+        role_injection=SimpleNamespace(method="bootstrap_message", bootstrap_message="bootstrap")
+    )
+    backend._state = SimpleNamespace(role_bootstrap_applied=False, turn_index=0)
+    operations: list[str] = []
+    backend.m_dispatch_control = HeadlessDispatchControl.from_callbacks(
+        allowed=lambda: True,
+        confirmed=lambda: operations.append("handoff"),
+        deadline=time.monotonic() + 10,
+    )
+    monkeypatch.setattr(backend, "_require_tmux_session_name", lambda: "owned-session")
+    monkeypatch.setattr(backend, "_primary_tmux_pane_target", lambda: "%1")
+    monkeypatch.setattr(
+        local_interactive, "load_tmux_buffer_shared", lambda *, text, **_: operations.append(text)
+    )
+    monkeypatch.setattr(local_interactive, "paste_tmux_buffer_shared", lambda **_: None)
+    monkeypatch.setattr(local_interactive.time, "sleep", lambda _: None)
+    monkeypatch.setattr(
+        local_interactive, "send_tmux_control_input_shared", lambda **_: operations.append("enter")
+    )
+    monkeypatch.setattr(local_interactive, "run_tmux_shared", lambda _: None)
+
+    assert backend.send_prompt("managed prompt")[0].kind == "submitted"
+    assert operations == ["bootstrap", "enter", "managed prompt", "enter", "handoff"]
+    assert backend.m_dispatch_control.m_handoff_confirmed.is_set()
 
 
 def test_tui_replacement_after_paste_prevents_enter_and_clears_buffer(

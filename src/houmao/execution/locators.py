@@ -19,6 +19,8 @@ from houmao.agents.realm_controller.agent_identity import (
     normalize_managed_agent_name,
 )
 from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.agents.realm_controller.models import BackendKind
+from houmao.agents.realm_controller.run_modes import RunMode, validate_mode_binding
 from houmao.execution.models import ExecutionBindingV1, validate_selector
 from houmao.owned_mutation import remove_tree_or_path
 from houmao.owned_paths import resolve_registry_root
@@ -31,14 +33,17 @@ class ExecutorLocatorError(ValueError):
 
 
 class ExecutorAgentLocatorV1(BaseModel):
-    """Point to owner authority without copying manifests, endpoints, or mutable runtime state."""
+    """Point to owner authority and record its admitted tool, mode, and backend."""
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     kind: Literal["executor_managed"] = "executor_managed"
     agent_id: str
     agent_name: str
+    tool: str
+    mode: RunMode
+    backend: BackendKind
     profile_name: str
     binding: ExecutionBindingV1
 
@@ -72,10 +77,11 @@ class ExecutorAgentLocatorV1(BaseModel):
 
     @model_validator(mode="after")
     def _profile_matches_binding(self) -> ExecutorAgentLocatorV1:
-        """Prevent a locator from selecting a different profile than its captured binding."""
+        """Validate the routing profile and captured mode binding."""
 
         if self.profile_name != self.binding.profile_name:
             raise ValueError("locator profile differs from its execution binding")
+        validate_mode_binding(self.tool, self.mode, self.backend)
         return self
 
 
@@ -109,7 +115,15 @@ def load_executor_locator(
     except FileNotFoundError:
         raise ExecutorLocatorError("Known execution locator has no readable record") from None
     try:
+        document = json.loads(payload)
+        if not isinstance(document, dict) or document.get("schema_version") != 2:
+            raise ExecutorLocatorError(
+                "Unsupported execution locator schema. Stop the old agent with its owning "
+                "release and start a fresh runtime session."
+            )
         record = ExecutorAgentLocatorV1.model_validate_json(payload)
+    except ExecutorLocatorError:
+        raise
     except (ValidationError, ValueError):
         raise ExecutorLocatorError("Known execution locator is malformed or incompatible") from None
     if record.agent_id != agent_id:

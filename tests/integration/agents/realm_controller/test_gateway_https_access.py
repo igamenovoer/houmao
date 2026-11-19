@@ -27,6 +27,7 @@ import httpx
 import pytest
 import uvicorn
 
+from houmao.agents.realm_controller.run_modes import mode_for_backend
 from houmao.agents.realm_controller import gateway_access_runtime, gateway_service
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
@@ -247,6 +248,7 @@ def _provision_runtime(
         agent_id=_AGENT,
         generation_id=generation,
         execution_binding=binding,
+        mode=mode_for_backend(backend),
         identity=RegistryIdentityV1(backend=backend, tool="codex"),
         runtime=RegistryRuntimeV1(
             manifest_path=str(manifest_path),

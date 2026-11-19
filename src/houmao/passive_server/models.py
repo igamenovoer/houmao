@@ -9,10 +9,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from houmao.agents.realm_controller.gateway_models import (
     GatewayChatSessionSelectorV1,
+    GatewayExecutionOverrideV1,
     GatewayWebControlStateV1,
     GatewayWebHistoryV1,
 )
 from houmao.agents.realm_controller.native_surface import NativeSurfaceV1
+from houmao.agents.realm_controller.models import BackendKind
+from houmao.agents.realm_controller.run_modes import RunMode
 from houmao.gateway.access import GatewayLaunchSeed
 from houmao.server.models import (
     HoumaoHeadlessLaunchMailboxesOptions,
@@ -69,7 +72,7 @@ class DiscoveredAgentSummary(_PassiveModel):
     agent_name: str
     generation_id: str
     tool: str
-    backend: str
+    backend: BackendKind
     tmux_session_name: str
     manifest_path: str
     session_root: str
@@ -77,7 +80,8 @@ class DiscoveredAgentSummary(_PassiveModel):
     has_mailbox: bool
     published_at: str
     lease_expires_at: str
-    native_surface_kind: Literal["terminal", "web", "headless"] | None = None
+    native_surface_kind: Literal["terminal", "web"] | None = None
+    mode: RunMode
     browser_origin: str | None = None
     native_session_id: str | None = None
     native_surface: NativeSurfaceV1 | None = None
@@ -281,14 +285,14 @@ class PassiveHeadlessTurnRequest(_PassiveModel):
 
     prompt: str
     chat_session: GatewayChatSessionSelectorV1 | None = None
+    execution: GatewayExecutionOverrideV1 | None = None
 
     @field_validator("prompt")
     @classmethod
     def _prompt_not_blank(cls, value: str) -> str:
-        stripped = value.strip()
-        if not stripped:
+        if not value.strip():
             raise ValueError("prompt must not be empty")
-        return stripped
+        return value
 
 
 class PassiveRequestAcceptedResponse(_PassiveModel):

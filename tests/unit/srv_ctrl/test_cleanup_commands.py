@@ -138,6 +138,7 @@ def _registry_record(
             ),
             stop_reason="operator_stop" if lifecycle_state in {"stopped", "retired"} else None,
         ),
+        mode="headless",
         identity=RegistryIdentityV1(backend="codex_headless", tool="codex"),
         runtime=RegistryRuntimeV1(
             manifest_path=str(manifest_path.resolve()),

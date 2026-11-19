@@ -18,6 +18,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from houmao.agents.realm_controller import cli
+from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
 from houmao.agents.realm_controller.backends.headless_base import (
     HeadlessInteractiveSession,
     HeadlessSessionState,
@@ -349,12 +350,14 @@ class _FakeCodexHeadlessSession(HeadlessInteractiveSession):
         tmux_session_name: str | None = None,
         output_format: str = "stream-json",
     ) -> None:
-        del role_name, session_manifest_path, agent_def_dir, output_format
+        del role_name, agent_def_dir, output_format
         registry = type(self).m_registry
         if registry is None:
             raise AssertionError("Fake headless registry is not configured.")
         self.backend = "codex_headless"
         self.m_registry = registry
+        self.m_dispatch_control: HeadlessDispatchControl | None = None
+        self._session_manifest_path = session_manifest_path
         self._plan = launch_plan
         session_name = tmux_session_name or registry.m_session_name
         self._state = state or HeadlessSessionState(
@@ -371,6 +374,17 @@ class _FakeCodexHeadlessSession(HeadlessInteractiveSession):
         if not self._state.tmux_session_name:
             self._state.tmux_session_name = session_name
 
+    def plugin_execution_identity(self) -> tuple[str, ...]:
+        """Bind simulated native handoff to the actual managed test generation."""
+
+        manifest = json.loads(self._session_manifest_path.read_text())
+        return (str(manifest["registry_generation_id"]), self.m_registry.m_session_name)
+
+    def configure_request_dispatch(self, control: HeadlessDispatchControl | None) -> None:
+        """Use the same request fence without launching an actual provider process."""
+
+        self.m_dispatch_control = control
+
     def send_prompt(
         self,
         prompt: str,
@@ -381,10 +395,15 @@ class _FakeCodexHeadlessSession(HeadlessInteractiveSession):
     ) -> list[SessionEvent]:
         """Record a direct prompt submission for the fake headless backend."""
 
+        control = self.m_dispatch_control
+        if control is not None:
+            control.require_allowed()
         self.m_registry.m_prompts.append(prompt)
         self.m_registry.m_prompt_calls.append(
             (prompt, turn_artifact_dir_name, session_selection, execution_model)
         )
+        if control is not None:
+            control.confirm_handoff()
         self._state.turn_index += 1
         self._state.session_id = self.m_registry.m_session_id
         return [

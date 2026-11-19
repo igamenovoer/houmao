@@ -50,7 +50,13 @@ def locator(
         tmux_socket="/foreign/tmux.sock",
     )
     return ExecutorAgentLocatorV1(
-        agent_id=agent_id, agent_name=agent_name, profile_name="alice", binding=binding
+        agent_id=agent_id,
+        agent_name=agent_name,
+        tool="codex",
+        mode="headless",
+        backend="codex_headless",
+        profile_name="alice",
+        binding=binding,
     )
 
 
@@ -58,7 +64,7 @@ def test_locator_schema_resource_matches_strict_model() -> None:
     """Ship the same closed contract validated by the product model."""
 
     source = resources.files("houmao.execution").joinpath(
-        "schemas/executor_agent_locator.v1.schema.json"
+        "schemas/executor_agent_locator.v2.schema.json"
     )
     schema = json.loads(source.read_text())
     assert schema == ExecutorAgentLocatorV1.model_json_schema()
@@ -86,11 +92,28 @@ def test_publish_load_and_list_do_not_open_foreign_paths(tmp_path: Path) -> None
         "kind",
         "agent_id",
         "agent_name",
+        "tool",
+        "mode",
+        "backend",
         "profile_name",
         "binding",
     }
     assert stored["binding"]["runtime_root"] == "/foreign/runtime"
     assert (tmp_path / "executor_agents/agent-1/record.json").stat().st_mode & 0o777 == 0o600
+
+
+def test_rc2_locator_requires_fresh_launch(tmp_path: Path) -> None:
+    """A locator without the admitted run-mode binding cannot route a request."""
+
+    publish_executor_locator(locator(), root=tmp_path)
+    path = tmp_path / "executor_agents/agent-1/record.json"
+    payload = json.loads(path.read_text())
+    payload["schema_version"] = 1
+    for field in ("mode", "tool", "backend"):
+        del payload[field]
+    path.write_text(json.dumps(payload))
+    with pytest.raises(ExecutorLocatorError, match="start a fresh runtime session"):
+        load_executor_locator("agent-1", root=tmp_path)
 
 
 def test_missing_lookup_and_forget_do_not_create_registry(tmp_path: Path) -> None:
@@ -267,7 +290,8 @@ def test_later_local_publication_cannot_shadow_existing_executor_owner(tmp_path:
     record = ManagedAgentRegistryRecordV3.model_validate_json(
         json.dumps(
             {
-                "schema_version": 4,
+                "schema_version": 5,
+                "mode": "headless",
                 "agent_id": "agent-1",
                 "agent_name": "reviewer",
                 "generation_id": "local-generation",

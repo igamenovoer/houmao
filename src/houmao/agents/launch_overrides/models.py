@@ -12,8 +12,11 @@ SupportedLaunchBackend: TypeAlias = Literal[
     "codex_app_server",
     "claude_headless",
     "kimi_headless",
+    "kimi_acp",
+    "dsh_headless",
     "dsh_acp",
     "dsh_web",
+    "kimi_web",
     "cao_rest",
 ]
 

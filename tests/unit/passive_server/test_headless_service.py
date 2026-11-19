@@ -142,7 +142,13 @@ class _FakeRuntimeController:
         return self.m_registry_record
 
     def send_prompt(
-        self, prompt: str, *, turn_artifact_dir_name: str, refresh_registry: bool = True
+        self,
+        prompt: str,
+        *,
+        turn_artifact_dir_name: str,
+        refresh_registry: bool = True,
+        session_selection: object = None,
+        execution_model: object = None,
     ) -> list[SessionEvent]:
         """Forward controlled work through the same controller surface as production."""
 
@@ -472,7 +478,9 @@ class TestManagedHeadlessRouting:
         )
 
         assert response.status == "ok"
-        svc.m_headless.submit_turn.assert_called_once_with("tracked-alpha", "hello")
+        svc.m_headless.submit_turn.assert_called_once_with(
+            "tracked-alpha", "hello", chat_session=None, execution=None
+        )
 
     def test_interrupt_and_stop_accept_tracked_and_published_refs(
         self,

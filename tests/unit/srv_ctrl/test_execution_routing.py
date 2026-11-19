@@ -21,6 +21,9 @@ def _locator() -> ExecutorAgentLocatorV1:
     return ExecutorAgentLocatorV1(
         agent_id="agent-1",
         agent_name="reviewer",
+        tool="codex",
+        mode="headless",
+        backend="codex_headless",
         profile_name="worker",
         binding=ExecutionBindingV1(
             context_id="owner-context",
@@ -62,7 +65,9 @@ def _identity() -> HoumaoManagedAgentIdentity:
         agent_id="agent-1",
         agent_name="reviewer",
         transport="headless",
-        tool="dsh",
+        mode="headless",
+        backend="codex_headless",
+        tool="codex",
         lifecycle_state="active",
         management_kind="local_lifecycle",
         lifecycle_owner="local",
@@ -168,6 +173,31 @@ def test_friendly_name_conflict_is_reported_before_owner_control(
     transport.assert_not_called()
 
 
+def test_unreachable_saved_owner_does_not_fall_through_to_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One unreachable describe leaves the saved owner unresolved for every action."""
+
+    _forbid_local(monkeypatch)
+    monkeypatch.setattr(helpers, "resolve_executor_locator", lambda **kwargs: _locator())
+    monkeypatch.setattr(helpers, "resolve_managed_agent_records_by_name", lambda name: ())
+    transport = Mock(
+        return_value=ExecutionResponseV1(
+            request_id="request-unavailable",
+            outcome="indeterminate",
+            admitted=None,
+            error_code="transport_timeout",
+        )
+    )
+    monkeypatch.setattr(helpers, "_execute_executor_operation", transport)
+
+    with pytest.raises(click.ClickException, match="transport_timeout.*request-unavailable"):
+        helpers.resolve_managed_agent_target(agent_id=None, agent_name="reviewer", port=None)
+
+    transport.assert_called_once()
+    assert transport.call_args.args[:2] == (_locator(), "describe")
+
+
 def test_equivalent_owner_record_deduplicates_without_local_manifest_open(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -202,7 +232,7 @@ def test_owner_dispatch_scope_prevents_same_user_recursive_delegation(
         raise AssertionError("owner must not delegate recursively")
 
     monkeypatch.setattr(helpers, "resolve_executor_locator", lookup_forbidden)
-    record = SimpleNamespace(identity=SimpleNamespace(backend="dsh_acp"))
+    record = SimpleNamespace(identity=SimpleNamespace(backend="codex_headless"))
     monkeypatch.setattr(
         helpers,
         "_resolve_local_managed_agent_record_with_miss_context",
@@ -258,8 +288,8 @@ def test_home_and_refresh_are_owner_qualified_without_local_materialization(
     )
     home = {
         "agent_id": "agent-1",
-        "backend": "dsh_acp",
-        "tool": "dsh",
+        "backend": "codex_headless",
+        "tool": "codex",
         "home_dir": "/owner-only/native",
     }
     observation = {"home": home, "resources": [], "freshness": "unknown"}
@@ -360,7 +390,7 @@ def test_owner_gateway_loopback_endpoint_is_context_qualified(
 
     status = {
         "attach_identity": "agent-1",
-        "backend": "dsh_acp",
+        "backend": "codex_headless",
         "tmux_session_name": "owner-session",
         "gateway_health": "healthy",
         "managed_agent_connectivity": "connected",
@@ -388,8 +418,8 @@ def test_native_home_of_another_agent_is_rejected(monkeypatch: pytest.MonkeyPatc
         lambda *args: _completed(
             {
                 "agent_id": "other-agent",
-                "backend": "dsh_acp",
-                "tool": "dsh",
+                "backend": "codex_headless",
+                "tool": "codex",
                 "home_dir": "/other/native",
             }
         ),

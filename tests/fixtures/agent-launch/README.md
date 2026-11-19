@@ -1,12 +1,12 @@
 # Generic Agent Launch Fixtures
 
-These tracked descriptors define two API cases: `self-hosted` and `cloud-api`. Select the client (`claude`, `codex`, `kimi`, or `dsh`), model, mode, and launch surface independently. DSH uses ACP for `headless` and native Web for `tui`; their qualification evidence remains separate. DeepSeek is the initial cloud configuration. There is no pinned model, local port, personal account, reasoning effort, or model context default.
+These tracked descriptors define two API cases: `self-hosted` and `cloud-api`. Select the client (`claude`, `codex`, `kimi`, or `dsh`), model, mode, and launch surface independently. DSH uses `web` on the raw and manager fixture surfaces. DeepSeek is the initial cloud configuration. There is no pinned model, local port, personal account, reasoning effort, or model context default.
 
 Use the development helper through `pixi run python scripts/agents/test-fixtures/fixture.py`. Seed roles and setups remain in [plain-agent-def](../plain-agent-def/README.md); managed preparation creates a fresh project instead of treating that seed tree as a project overlay.
 
 Copy required variable names from [.env.example](.env.example) into a local ignored env file. The helper reads only an explicitly selected file as literal data. Process variables take precedence over file values; explicit non-secret flags take precedence over both. It does not execute shell syntax or expand variables.
 
-DSH reads selected env files outside the checkout and ignores ambient credential and model variables. The cloud descriptor selects `deepseek/messages`. The self-hosted descriptor selects `pi-ai/openai-completions` and supports endpoint-only configuration when the selected input omits a key. Supply context window, maximum output tokens, and `reasoning_efforts` explicitly. The reasoning input is JSON `false` or a native slot-to-wire map. The `HOUMAO_TEST_*_DSH_COMPAT` reference optionally provides JSON model compatibility. Raw ACP, raw Web, and manager preparation use the same route and private credentials. Passive-server birth uses ACP. [DSH fixture workflow](../../../scripts/agents/test-fixtures/README.md#dsh-acp-and-web)
+DSH reads selected env files outside the checkout and ignores ambient credential and model variables. The cloud descriptor selects `deepseek/messages`. The self-hosted descriptor selects `pi-ai/openai-completions` and supports endpoint-only configuration when the selected input omits a key. Supply context window, maximum output tokens, and `reasoning_efforts` explicitly. The reasoning input is JSON `false` or a native slot-to-wire map. The `HOUMAO_TEST_*_DSH_COMPAT` reference optionally provides JSON model compatibility. Raw and managed Web preparation use the same route and private credentials. [DSH fixture workflow](../../../scripts/agents/test-fixtures/README.md#dsh-web)
 
 | Client | Protocol | Base URL Convention |
 | --- | --- | --- |

@@ -15,6 +15,10 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayStatusV1,
     GatewayTuiTrackingTimingOverridesV1,
 )
+from houmao.agents.realm_controller.native_surface import (
+    TerminalNativeSurfaceV1,
+    WebNativeSurfaceV1,
+)
 from houmao.project.catalog import ProjectCatalog
 from houmao.project.overlay import (
     PROJECT_OVERLAY_DISCOVERY_MODE_ENV_VAR,
@@ -3770,10 +3774,72 @@ def test_project_agents_launch_allows_kimi_without_headless(
 
     assert result.exit_code == 0, result.output
     assert captured["provider"] == "kimi"
-    assert captured["headless"] is False
+    assert captured["mode"] == "tui"
     assert captured["agents"] == str(
         repo_root / ".houmao" / "agents" / "presets" / "kimi-reviewer-kimi-default.yaml"
     )
+
+
+def test_project_passes_explicit_kimi_web_to_managed_launch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Resolve Web mode from the project CLI and forward the requested takeover policy."""
+
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    created = runner.invoke(
+        cli,
+        [
+            "project",
+            "specialist",
+            "create",
+            "--name",
+            "reviewer",
+            "--tool",
+            "kimi",
+            "--system-prompt",
+            "Review carefully.",
+            "--api-key",
+            "synthetic-key",
+        ],
+    )
+    assert created.exit_code == 0, created.output
+
+    captured: dict[str, object] = {}
+
+    def fake_launch(**kwargs: object) -> SimpleNamespace:
+        """Record the runtime arguments without starting Kimi or tmux."""
+
+        captured.update(kwargs)
+        return SimpleNamespace()
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally", fake_launch
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion", lambda **kwargs: None
+    )
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch",
+            "--specialist",
+            "reviewer",
+            "--name",
+            "existing",
+            "--mode",
+            "web",
+            "--force",
+            "clean",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["mode"] == "web"
+    assert captured["provider"] == "kimi"
+    assert captured["force_mode"] == "clean"
 
 
 def test_project_agents_launch_preserves_explicit_kimi_headless(
@@ -3830,13 +3896,14 @@ def test_project_agents_launch_preserves_explicit_kimi_headless(
             "kimi-reviewer",
             "--name",
             "kimi-reviewer-1",
-            "--headless",
+            "--mode",
+            "headless",
         ],
     )
 
     assert result.exit_code == 0, result.output
     assert captured["provider"] == "kimi"
-    assert captured["headless"] is True
+    assert captured["mode"] == "headless"
 
 
 def test_project_agents_launch_allows_kimi_profile_without_headless(
@@ -3905,7 +3972,7 @@ def test_project_agents_launch_allows_kimi_profile_without_headless(
     assert result.exit_code == 0, result.output
     assert captured["provider"] == "kimi"
     assert captured["agent_name"] == "kimi-profile-agent"
-    assert captured["headless"] is False
+    assert captured["mode"] == "tui"
 
 
 def test_project_agents_launch_rejects_removed_yolo_flag(tmp_path: Path) -> None:
@@ -4001,7 +4068,8 @@ def test_project_agents_launch_uses_stored_specialist_setup(
             "researcher",
             "--name",
             "repo-research-1",
-            "--headless",
+            "--mode",
+            "headless",
         ],
     )
 
@@ -4117,7 +4185,8 @@ def test_project_agents_launch_uses_registered_project_skill_projection(
             "researcher",
             "--name",
             f"repo-research-{mode}",
-            "--headless",
+            "--mode",
+            "headless",
         ],
     )
 
@@ -4205,7 +4274,8 @@ def test_project_agents_launch_reloads_symlink_project_skill_after_source_edit(
             "researcher",
             "--name",
             "repo-research-1",
-            "--headless",
+            "--mode",
+            "headless",
         ],
     )
     assert first_launch.exit_code == 0, first_launch.output
@@ -4222,7 +4292,8 @@ def test_project_agents_launch_reloads_symlink_project_skill_after_source_edit(
             "researcher",
             "--name",
             "repo-research-2",
-            "--headless",
+            "--mode",
+            "headless",
         ],
     )
     assert second_launch.exit_code == 0, second_launch.output
@@ -4378,6 +4449,8 @@ def test_native_agent_launch_dossiers_crud_round_trip(
             "unattended",
             "--env-set",
             "PROJECT_CONTEXT=alice",
+            "--mode",
+            "headless",
             "--gateway-port",
             "9011",
         ),
@@ -4396,6 +4469,7 @@ def test_native_agent_launch_dossiers_crud_round_trip(
         "prompt_mode": "unattended",
         "env_records": {"PROJECT_CONTEXT": "alice"},
         "posture": {
+            "mode": "headless",
             "gateway_auto_attach": True,
             "gateway_host": "127.0.0.1",
             "gateway_port": 9011,
@@ -4467,12 +4541,15 @@ def test_native_agent_launch_dossiers_crud_round_trip(
             "--auth",
             "reviewer-creds",
             "--clear-model",
+            "--mode",
+            "tui",
         ),
     )
     assert set_result.exit_code == 0, set_result.output
     set_payload = json.loads(set_result.output)
     assert set_payload["defaults"]["auth"] == "reviewer-creds"
     assert set_payload["defaults"]["model"] == {"reasoning": {"level": 4}}
+    assert set_payload["defaults"]["posture"]["mode"] == "tui"
 
     remove_result = runner.invoke(
         cli,
@@ -4723,6 +4800,7 @@ def test_project_profile_crud_round_trip(
     assert get_payload["profile_lane"] == "profile"
     assert get_payload["specialist"] == "researcher"
     assert get_payload["defaults"]["auth"] == "alice-creds"
+    assert "posture" not in get_payload["defaults"]
     assert get_payload["defaults"]["gateway_mail_notifier_appendix"] == {
         "present": True,
         "text": "Escalate supervisor mail before status updates.",
@@ -4732,6 +4810,15 @@ def test_project_profile_crud_round_trip(
         source_kind="memo",
         relative_path="memo-seeds/launch-profiles/alice/seed",
     )
+
+    selected = runner.invoke(
+        cli, ["project", "profile", "set", "--name", "alice", "--mode", "service"]
+    )
+    assert selected.exit_code == 0, selected.output
+    assert json.loads(selected.output)["defaults"]["posture"]["mode"] == "service"
+    cleared = runner.invoke(cli, ["project", "profile", "set", "--name", "alice", "--clear-mode"])
+    assert cleared.exit_code == 0, cleared.output
+    assert "posture" not in json.loads(cleared.output)["defaults"]
 
     remove_result = runner.invoke(cli, ["project", "profile", "remove", "--name", "alice"])
     assert remove_result.exit_code == 0, remove_result.output
@@ -6182,7 +6269,8 @@ def test_project_agents_launch_uses_profile_defaults_and_overrides(
                 "alice@agents.localhost",
                 "--mail-root",
                 "/shared-mail-root",
-                "--headless",
+                "--mode",
+                "headless",
                 "--no-gateway",
                 "--prompt-overlay-mode",
                 "append",
@@ -6229,7 +6317,8 @@ def test_project_agents_launch_uses_profile_defaults_and_overrides(
             "gpt-5.4-nano",
             "--reasoning-level",
             "12",
-            "--no-headless",
+            "--mode",
+            "tui",
         ],
     )
 
@@ -6241,7 +6330,10 @@ def test_project_agents_launch_uses_profile_defaults_and_overrides(
     assert captured["auth"] == "breakglass"
     assert captured["working_directory"] == runtime_workdir
     assert captured["provider"] == "codex"
-    assert captured["headless"] is False
+    assert captured["mode"] == "tui"
+    stored = runner.invoke(cli, ["project", "profile", "get", "--name", "alice"])
+    assert stored.exit_code == 0, stored.output
+    assert json.loads(stored.output)["defaults"]["posture"]["mode"] == "headless"
     assert captured["gateway_auto_attach"] is False
     assert captured["launch_profile_model_config"].name == "gpt-5.4-mini"
     assert captured["launch_profile_model_config"].reasoning.level == 4
@@ -6340,7 +6432,7 @@ def test_project_agents_launch_kimi_specialist_preserves_tui_prompt_mode(
 
     assert result.exit_code == 0, result.output
     assert captured["provider"] == "kimi"
-    assert captured["headless"] is False
+    assert captured["mode"] == "tui"
     assert captured["operator_prompt_mode"] == prompt_mode
 
 
@@ -6433,7 +6525,7 @@ def test_project_agents_launch_kimi_profile_preserves_tui_prompt_mode(
 
     assert result.exit_code == 0, result.output
     assert captured["provider"] == "kimi"
-    assert captured["headless"] is False
+    assert captured["mode"] == "tui"
     assert captured["operator_prompt_mode"] == prompt_mode
 
 
@@ -6828,7 +6920,8 @@ def test_project_agents_launch_derives_provider_and_mailbox_flags(
             "researcher",
             "--name",
             "repo-research-1",
-            "--headless",
+            "--mode",
+            "headless",
             "--mail-transport",
             "filesystem",
             "--mail-root",
@@ -6844,7 +6937,7 @@ def test_project_agents_launch_derives_provider_and_mailbox_flags(
     )
     assert captured["agent_name"] == "repo-research-1"
     assert captured["provider"] == "codex"
-    assert captured["headless"] is True
+    assert captured["mode"] == "headless"
     assert captured["gateway_auto_attach"] is True
     assert captured["gateway_host"] == "127.0.0.1"
     assert captured["gateway_port"] == 0
@@ -6853,7 +6946,6 @@ def test_project_agents_launch_derives_provider_and_mailbox_flags(
     assert captured["mailbox_root"] == mail_root
     assert captured["mailbox_account_dir"] == private_mailbox_dir
     assert emitted["agent_name"] == "repo-research-1"
-    assert emitted["headless"] is True
 
 
 def test_project_agents_launch_keeps_selected_overlay_when_workdir_points_elsewhere(
@@ -6922,7 +7014,8 @@ def test_project_agents_launch_keeps_selected_overlay_when_workdir_points_elsewh
             "researcher",
             "--name",
             "repo-research-1",
-            "--headless",
+            "--mode",
+            "headless",
             "--workdir",
             str(runtime_workdir),
         ],
@@ -7014,7 +7107,8 @@ def test_project_agents_launch_no_gateway_opt_out(
             "researcher",
             "--name",
             "repo-research-1",
-            "--headless",
+            "--mode",
+            "headless",
             "--no-gateway",
         ],
     )
@@ -7090,7 +7184,8 @@ def test_project_agents_launch_gateway_port_override(
             "researcher",
             "--name",
             "repo-research-1",
-            "--headless",
+            "--mode",
+            "headless",
             "--gateway-port",
             "43123",
         ],
@@ -7167,7 +7262,8 @@ def test_project_agents_launch_gateway_background_override(
             "researcher",
             "--name",
             "repo-research-1",
-            "--headless",
+            "--mode",
+            "headless",
             "--gateway-background",
         ],
     )
@@ -7259,7 +7355,8 @@ def test_project_agents_launch_gateway_background_override_forces_attach_when_ea
             "alice",
             "--name",
             "repo-research-1",
-            "--headless",
+            "--mode",
+            "headless",
             "--gateway-background",
         ],
     )
@@ -7335,7 +7432,8 @@ def test_project_agents_launch_gateway_tui_timing_overrides(
             "researcher",
             "--name",
             "repo-research-1",
-            "--headless",
+            "--mode",
+            "tui",
             "--gateway-tui-watch-poll-interval-seconds",
             "0.25",
             "--gateway-tui-stale-active-recovery-seconds",
@@ -7406,7 +7504,8 @@ def test_project_agents_launch_rejects_no_gateway_with_tui_timing_override(
             "researcher",
             "--name",
             "repo-research-1",
-            "--headless",
+            "--mode",
+            "headless",
             "--no-gateway",
             "--gateway-tui-stale-active-recovery-seconds",
             "6",
@@ -7485,7 +7584,8 @@ def test_project_agents_launch_resolves_one_off_env_set(
             "researcher",
             "--name",
             "repo-research-1",
-            "--headless",
+            "--mode",
+            "headless",
             "--env-set",
             "FEATURE_FLAG_X=1",
             "--env-set",
@@ -7554,7 +7654,8 @@ def test_project_agents_launch_rejects_conflicting_gateway_flags(
             "researcher",
             "--name",
             "repo-research-1",
-            "--headless",
+            "--mode",
+            "headless",
             "--no-gateway",
             "--gateway-port",
             "43123",
@@ -7621,7 +7722,8 @@ def test_project_agents_launch_rejects_no_gateway_with_gateway_background(
             "researcher",
             "--name",
             "repo-research-1",
-            "--headless",
+            "--mode",
+            "headless",
             "--no-gateway",
             "--gateway-background",
         ],
@@ -7632,12 +7734,35 @@ def test_project_agents_launch_rejects_no_gateway_with_gateway_background(
     assert launch_called is False
 
 
+def _stub_launch_result_manifest(
+    monkeypatch, path, *, mode="headless", backend="claude_headless", tool="claude", surface=None
+):
+    """Model a verified manifest for the launch renderer and handoff unit tests."""
+
+    manifest = SimpleNamespace(
+        agent_id="agent-123",
+        tool=tool,
+        mode=mode,
+        backend=backend,
+        native_surface=surface,
+        tmux=SimpleNamespace(socket_path="/owner/isolated.sock"),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.load_session_manifest",
+        lambda _: SimpleNamespace(path=path, payload={}),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.parse_session_manifest_payload",
+        lambda *_args, **_kwargs: manifest,
+    )
+
+
 def test_emit_local_launch_completion_reports_gateway_endpoint(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     manifest_path = (tmp_path / "manifest.json").resolve()
-    manifest_path.write_text("{}\n", encoding="utf-8")
+    _stub_launch_result_manifest(monkeypatch, manifest_path)
     emitted: list[dict[str, object]] = []
 
     monkeypatch.setattr(
@@ -7694,7 +7819,6 @@ def test_emit_local_launch_completion_reports_gateway_endpoint(
         launch_result=launch_result,
         agent_name="repo-research-1",
         session_name="HOUMAO-repo-research-1",
-        headless=True,
     )
 
     assert emitted == [
@@ -7702,6 +7826,11 @@ def test_emit_local_launch_completion_reports_gateway_endpoint(
             "status": "Managed agent launch complete",
             "agent_name": "repo-research-1",
             "agent_id": "agent-123",
+            "tool": "claude",
+            "mode": "headless",
+            "backend": "claude_headless",
+            "native_surface": None,
+            "control_command": "houmao-mgr agents single --agent-id agent-123",
             "tmux_session_name": "HOUMAO-repo-research-1",
             "manifest_path": str(manifest_path),
             "runtime_root": str((tmp_path / "runtime").resolve()),
@@ -7723,13 +7852,78 @@ def test_emit_local_launch_completion_reports_gateway_endpoint(
     ]
 
 
-def test_emit_local_launch_completion_reports_memo_seed_status(
+@pytest.mark.parametrize(
+    ("mode", "backend", "tool", "surface", "interactive", "handoff"),
+    [
+        (
+            "headless",
+            "claude_headless",
+            "claude",
+            None,
+            False,
+            {
+                "control_command": "houmao-mgr agents single --agent-id agent-123",
+            },
+        ),
+        (
+            "service",
+            "dsh_acp",
+            "dsh",
+            None,
+            True,
+            {
+                "control_command": "houmao-mgr agents single --agent-id agent-123",
+            },
+        ),
+        (
+            "tui",
+            "local_interactive",
+            "kimi",
+            TerminalNativeSurfaceV1(tmux_session_name="HOUMAO-repo-research-1", pane_id="%4"),
+            False,
+            {
+                "terminal_handoff": "skipped_non_interactive",
+                "attach_command": "tmux -S /owner/isolated.sock attach-session -t HOUMAO-repo-research-1",
+            },
+        ),
+        (
+            "web",
+            "dsh_web",
+            "dsh",
+            WebNativeSurfaceV1(origin="http://127.0.0.1:38899", native_session_id="native-session"),
+            True,
+            {
+                "browser_origin": "http://127.0.0.1:38899",
+                "native_session_id": "native-session",
+            },
+        ),
+    ],
+)
+def test_emit_local_launch_completion_reports_memo_seed_status_and_native_handoff(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    mode: str,
+    backend: str,
+    tool: str,
+    surface: TerminalNativeSurfaceV1 | WebNativeSurfaceV1 | None,
+    interactive: bool,
+    handoff: dict[str, str],
 ) -> None:
     manifest_path = (tmp_path / "manifest.json").resolve()
-    manifest_path.write_text("{}\n", encoding="utf-8")
+    _stub_launch_result_manifest(
+        monkeypatch, manifest_path, mode=mode, backend=backend, tool=tool, surface=surface
+    )
     emitted: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core._caller_has_interactive_terminal", lambda: interactive
+    )
+
+    def unexpected_attach(**_kwargs):
+        pytest.fail("The launch should only publish its handoff.")
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.attach_tmux_session_shared", unexpected_attach
+    )
 
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.emit",
@@ -7773,7 +7967,6 @@ def test_emit_local_launch_completion_reports_memo_seed_status(
         launch_result=launch_result,
         agent_name="repo-research-1",
         session_name="HOUMAO-repo-research-1",
-        headless=True,
     )
 
     assert emitted == [
@@ -7781,6 +7974,11 @@ def test_emit_local_launch_completion_reports_memo_seed_status(
             "status": "Managed agent launch complete",
             "agent_name": "repo-research-1",
             "agent_id": "agent-123",
+            "tool": tool,
+            "mode": mode,
+            "backend": backend,
+            "native_surface": surface.model_dump(mode="json") if surface is not None else None,
+            **handoff,
             "tmux_session_name": "HOUMAO-repo-research-1",
             "manifest_path": str(manifest_path),
             "runtime_root": str((tmp_path / "runtime").resolve()),
@@ -7810,7 +8008,7 @@ def test_emit_local_launch_completion_reports_gateway_attach_failure_and_exits_t
     tmp_path: Path,
 ) -> None:
     manifest_path = (tmp_path / "manifest.json").resolve()
-    manifest_path.write_text("{}\n", encoding="utf-8")
+    _stub_launch_result_manifest(monkeypatch, manifest_path)
     emitted: list[dict[str, object]] = []
 
     monkeypatch.setattr(
@@ -7850,7 +8048,6 @@ def test_emit_local_launch_completion_reports_gateway_attach_failure_and_exits_t
             launch_result=launch_result,
             agent_name="repo-research-1",
             session_name="HOUMAO-repo-research-1",
-            headless=True,
         )
 
     assert exc_info.value.code == 2
@@ -7859,6 +8056,11 @@ def test_emit_local_launch_completion_reports_gateway_attach_failure_and_exits_t
             "status": "Managed agent launch complete",
             "agent_name": "repo-research-1",
             "agent_id": "agent-123",
+            "tool": "claude",
+            "mode": "headless",
+            "backend": "claude_headless",
+            "native_surface": None,
+            "control_command": "houmao-mgr agents single --agent-id agent-123",
             "tmux_session_name": "HOUMAO-repo-research-1",
             "manifest_path": str(manifest_path),
             "runtime_root": str((tmp_path / "runtime").resolve()),
@@ -8067,7 +8269,8 @@ def test_project_agents_launch_filesystem_in_root_requires_mail_root(
             "researcher",
             "--name",
             "repo-research-1",
-            "--headless",
+            "--mode",
+            "headless",
             "--mail-transport",
             "filesystem",
             "--mail-root",
@@ -8137,7 +8340,8 @@ def test_project_agents_launch_bare_force_forwards_keep_stale(
             "researcher",
             "--name",
             "repo-research-1",
-            "--headless",
+            "--mode",
+            "headless",
             "--force",
         ],
     )
@@ -8202,7 +8406,8 @@ def test_project_agents_launch_forwards_reuse_home(
             "researcher",
             "--name",
             "repo-research-1",
-            "--headless",
+            "--mode",
+            "headless",
             "--reuse-home",
         ],
     )
@@ -8260,7 +8465,8 @@ def test_project_agents_launch_reuse_home_missing_home_failure_surfaces_clearly(
             "researcher",
             "--name",
             "repo-research-1",
-            "--headless",
+            "--mode",
+            "headless",
             "--reuse-home",
         ],
     )
@@ -8303,7 +8509,7 @@ def test_project_agents_launch_profile_forwards_clean_force_mode(
             reasoning_level=None,
             managed_header_policy="inherit",
             prompt_overlay_mode=None,
-            posture_payload={"headless": True},
+            posture_payload={"mode": "headless"},
             managed_agent_name="profile-agent",
             auth_name=None,
             workdir=None,
@@ -8397,7 +8603,7 @@ def test_project_agents_launch_profile_forwards_reuse_home_with_current_profile_
             reasoning_level=4,
             managed_header_policy="inherit",
             prompt_overlay_mode="append",
-            posture_payload={"headless": True},
+            posture_payload={"mode": "headless"},
             managed_agent_name="profile-agent",
             auth_name="alice-creds",
             workdir=None,
@@ -8505,7 +8711,8 @@ def test_project_agents_launch_rejects_reuse_home_clean_force_before_delegation(
             "researcher",
             "--name",
             "repo-research-1",
-            "--headless",
+            "--mode",
+            "headless",
             "--reuse-home",
             "--force",
             "clean",

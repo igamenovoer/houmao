@@ -23,6 +23,7 @@ from houmao.agents.realm_controller.usage_models import (
     UsageScope,
     UsageSourceKind,
     UsageTokenSemantics,
+    UsageTurnSnapshot,
     opaque_usage_reference,
 )
 
@@ -83,6 +84,44 @@ def text_id(value: Any) -> str | None:
     if isinstance(value, int) and not isinstance(value, bool):
         return str(value)
     return None
+
+
+def verify_service_turn_receipt(
+    snapshot: UsageTurnSnapshot,
+    receipt: Mapping[str, Any],
+    process: Mapping[str, Any],
+    outcome: str,
+) -> tuple[str, str]:
+    """Bind a private native receipt to the recorded process and managed request."""
+
+    session_id = snapshot.provider_session_id
+    native_turn_id = text_id(receipt.get("native_turn_id"))
+    incarnation = snapshot.metadata.get("service_incarnation")
+    pid = process.get("child_pid")
+    birth = process.get("child_birth_token")
+    if (
+        type(receipt.get("version")) is not int
+        or receipt["version"] != 1
+        or receipt.get("agent_id") != snapshot.agent_id
+        or receipt.get("runtime_session_id") != snapshot.runtime_session_id
+        or receipt.get("request_id") != snapshot.turn_id
+        or not snapshot.generation_id
+        or receipt.get("generation_id") != snapshot.generation_id
+        or not incarnation
+        or receipt.get("service_incarnation") != incarnation
+        or not session_id
+        or receipt.get("native_session_id") != session_id
+        or native_turn_id is None
+        or receipt.get("terminal") != outcome
+        or type(pid) is not int
+        or pid <= 0
+        or receipt.get("process_id") != pid
+        or not isinstance(birth, str)
+        or not birth
+        or receipt.get("process_birth_token") != birth
+    ):
+        raise ValueError("Native accounting receipt does not match the managed request")
+    return session_id, native_turn_id
 
 
 def number(value: Any) -> UsageNumber | None:

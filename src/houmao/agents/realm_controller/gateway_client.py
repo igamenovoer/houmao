@@ -21,6 +21,7 @@ from pydantic import BaseModel, ValidationError
 
 from houmao.ag_ui.models import AgUiEventPublishRequest, AgUiEventPublishResponse
 from houmao.agents.realm_controller.errors import GatewayHttpError
+from houmao.agents.realm_controller.managed_control import ManagedControlObservationV1
 from houmao.agents.realm_controller.usage_models import UsagePage
 from houmao.agents.realm_controller.native_refresh_models import (
     CommonPluginObservationV1,
@@ -65,6 +66,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayReminderPutV1,
     GatewayReminderV1,
     GatewayStatusV1,
+    GatewayServiceRequestSnapshotV1,
     GatewayWebControlStateV1,
     GatewayWebHistoryV1,
     GatewayMemoryActionResponseV1,
@@ -759,6 +761,17 @@ class GatewayClient:
         return self._request_model(
             "GET", f"/v1/control/web/history?limit={limit}", GatewayWebHistoryV1
         )
+
+    def get_service_state(self) -> ManagedControlObservationV1:
+        """Read native service owner and connection evidence."""
+
+        return self._request_model("GET", "/v1/control/service/state", ManagedControlObservationV1)
+
+    def get_service_request(self, request_id: str) -> GatewayServiceRequestSnapshotV1:
+        """Read events and outcome for one exact persistent-service request."""
+
+        path = f"/v1/control/service/requests/{parse.quote(request_id, safe='')}"
+        return self._request_model("GET", path, GatewayServiceRequestSnapshotV1)
 
     def get_tui_state(self) -> HoumaoTerminalStateResponse:
         """Call `GET /v1/control/tui/state`."""

@@ -1,10 +1,9 @@
-"""Qualify DSH semantic integrations with a real isolated ACP execution body."""
+"""Qualify DSH semantic integrations with the isolated native one-shot CLI."""
 
 from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
-import fcntl
 import importlib
 import json
 from pathlib import Path
@@ -15,7 +14,7 @@ from typing import Any
 import pytest
 
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
-from houmao.agents.realm_controller.backends.dsh_acp import DshAcpSession
+from houmao.agents.realm_controller.backends.dsh_headless import DshHeadlessSession
 from houmao.agents.realm_controller.errors import GatewayError
 from houmao.agents.realm_controller.gateway_access_runtime import provision_gateway_generation
 from houmao.agents.realm_controller.gateway_service import GatewayServiceRuntime
@@ -32,9 +31,11 @@ from houmao.agents.realm_controller.manifest import (
 )
 from houmao.agents.realm_controller.runtime import RuntimeSessionController
 from houmao.agents.realm_controller.models import LaunchPlan
+from houmao.agents.realm_controller.owner_admission import reserve_owner_prompt
 from houmao.execution.context import observed_local_binding
 from houmao.gateway.access import GatewayLaunchSeed
 from houmao.gateway.plugins import PluginDispatchError, PluginEvent
+from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.headless import HeadlessAgentService
 from houmao.server.managed_agents import (
@@ -82,11 +83,11 @@ def _gateway_runtime(
     endpoint: str,
     monkeypatch: pytest.MonkeyPatch,
     tmux_socket: Path,
-) -> tuple[GatewayServiceRuntime, DshAcpSession]:
+) -> tuple[GatewayServiceRuntime, DshHeadlessSession]:
     """Bind real native execution to the ordinary gateway using synthetic credentials."""
 
-    plan, manifest = _launch_plan(root, executable, endpoint)
-    plan = replace(plan, metadata={**plan.metadata, "headless_output_format": "dsh-acp"})
+    plan, manifest = _launch_plan(root, executable, endpoint, native_profile="headless")
+    plan = replace(plan, metadata={**plan.metadata, "headless_output_format": "dsh-cli"})
     plan = bind_fixture_gateway_owner(
         plan,
         root=root,
@@ -94,6 +95,7 @@ def _gateway_runtime(
         agent_id="owner1",
         generation="native-integration-generation",
     )
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(root / "registry"))
     definitions = root / "agent-defs"
     definitions.mkdir()
     name = "HOUMAO-dsh-integration"
@@ -117,7 +119,7 @@ def _gateway_runtime(
             )
         ),
     )
-    backend = DshAcpSession(
+    backend = DshHeadlessSession(
         launch_plan=plan,
         role_name="controlled",
         session_manifest_path=manifest,
@@ -135,7 +137,7 @@ def _gateway_runtime(
         tmux_session_name=name,
         registry_generation_id="native-integration-generation",
     )
-    controller.persist_manifest(refresh_registry=False)
+    controller.persist_manifest()
     controller.ensure_gateway_capability()
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
@@ -184,9 +186,12 @@ def test_native_dsh_gateway_continues_exact_session_and_keeps_debug_frames(
         assert metadata.native_capabilities.accounting_source == "dsh-journal-v4"
         with pytest.raises(GatewayError, match="unsupported"):
             runtime.m_adapter.send_control_input(sequence="C-c")
-        with (backend._plan.home_path / "houmao-invocation.lock").open("a+b") as lock:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            assert runtime.status().terminal_surface_eligibility == "not_ready"
+        assert runtime.m_manifest_path is not None
+        busy = reserve_owner_prompt(
+            runtime.m_manifest_path, "native-integration-generation", origin="manager"
+        )
+        try:
+            assert runtime.status().active_execution == "running"
             with pytest.raises(PluginDispatchError) as refusal:
                 runtime.dispatch_plugin_event(
                     PluginEvent(source_event_id="busy", text="must not enter native inbox"),
@@ -198,6 +203,8 @@ def test_native_dsh_gateway_continues_exact_session_and_keeps_debug_frames(
             assert refusal.value.status_code == 409
             assert refusal.value.dispatch_outcome == "not_sent"
             assert requests == []
+        finally:
+            busy.finish("failed", evidence="fixture_released_before_native_dispatch")
         for index in (1, 2):
             result = runtime.dispatch_plugin_event(
                 PluginEvent(
@@ -219,15 +226,15 @@ def test_native_dsh_gateway_continues_exact_session_and_keeps_debug_frames(
         assert "controlled notification 1" in json.dumps(requests[1]["messages"])
         for directory in backend._turn_artifacts_root.iterdir():
             raw = [
-                json.loads(line)
-                for line in (directory / "provider-stdout.jsonl").read_text().splitlines()
+                json.loads(line) for line in (directory / "stdout.jsonl").read_text().splitlines()
             ]
-            assert any(frame.get("jsonrpc") == "2.0" for frame in raw)
+            assert raw[0]["type"] == "session" and raw[0]["sessionId"] == native_id
+            assert raw[-1]["type"] == "final" and raw[-1]["reason"]["kind"] == "completed"
             assert (directory / "canonical-events.jsonl").is_file()
         assert runtime.m_manifest_path is not None
         authority = ManagedHeadlessAuthorityRecord(
             tracked_agent_id="tracked-native-dsh",
-            backend="dsh_acp",
+            backend="dsh_headless",
             tool="dsh",
             manifest_path=str(runtime.m_manifest_path),
             session_root=str(runtime.m_manifest_path.parent),
@@ -272,7 +279,8 @@ def test_native_dsh_gateway_continues_exact_session_and_keeps_debug_frames(
             raw = passive.turn_artifact_text(
                 authority.tracked_agent_id, turn_directory.name, "stdout"
             )
-            assert any(json.loads(line).get("jsonrpc") == "2.0" for line in raw.splitlines())
+            assert json.loads(raw.splitlines()[0])["type"] == "session"
+            assert json.loads(raw.splitlines()[-1])["type"] == "final"
             page = passive.get_usage(authority.tracked_agent_id)
             assert len(page.records) == 2
             assert len(requests) == 2

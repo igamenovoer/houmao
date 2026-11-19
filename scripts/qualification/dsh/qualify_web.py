@@ -122,6 +122,8 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
         "schema_version": 1,
         "case": args.case,
         "surface": "manager",
+        "mode": "web",
+        "backend": "dsh_web",
         "native_surface": "web",
         "status": "not_run",
         "checks": {},
@@ -141,7 +143,7 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
     config = resolve_config(
         case=args.case,
         client="dsh",
-        mode="tui",
+        mode="web",
         surface="manager",
         env_file=args.env_file,
         model=args.model,

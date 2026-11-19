@@ -27,10 +27,13 @@ from houmao.agents.realm_controller.dsh_web_usage import (
     web_identity,
 )
 from houmao.agents.realm_controller.usage_adapters import UsageAdapter
+from houmao.agents.realm_controller.usage_adapters.codex_service import read_codex_service_usage
 from houmao.agents.realm_controller.usage_adapters.dsh import (
     DshJournalError,
+    dsh_cli_completion_evidence,
     read_dsh_interval,
 )
+from houmao.agents.realm_controller.usage_adapters.kimi_service import read_kimi_service_usage
 from houmao.agents.realm_controller.usage_collection import (
     UsageCollector,
     complete_file_position,
@@ -56,6 +59,11 @@ from houmao.hook_observation.reader import HookObservationReader
 
 _LOGGER = logging.getLogger(__name__)
 _PROVIDERS = {"claude", "codex", "kimi", "dsh"}
+_SERVICE_JOURNAL_READERS = {
+    "kimi_acp": ("kimi-native-turn.json", read_kimi_service_usage),
+    "kimi_web": ("kimi-native-turn.json", read_kimi_service_usage),
+    "codex_app_server": ("codex-native-turn.json", read_codex_service_usage),
+}
 _TOKEN_FIELDS = (
     "input_tokens",
     "output_tokens",
@@ -72,10 +80,12 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _headless_backend(backend: str) -> bool:
-    """Identify supported managed headless envelopes independently of suffixes."""
+def _artifact_accounting_backend(backend: str) -> bool:
+    """Identify backends that settle usage through managed request artifacts."""
 
-    return backend.endswith("_headless") or backend == "dsh_acp"
+    return (
+        backend.endswith("_headless") or backend == "dsh_acp" or backend in _SERVICE_JOURNAL_READERS
+    )
 
 
 def _dsh_link_descendant(
@@ -223,6 +233,8 @@ class UsageService:
         self.m_provider: str = ""
         self.m_home_path: Path = Path()
         self.m_generation_id: str | None = None
+        self.m_service_incarnation: str | None = None
+        self.m_service_working_directory: str | None = None
         self.m_provider_session_id: str | None = None
         self.m_store: UsageStore | None = None
         self.m_capability: UsageCapability = UsageCapability(
@@ -311,9 +323,18 @@ class UsageService:
         )
         generation = payload.get("registry_generation_id") or runtime.get("registry_generation_id")
         self.m_generation_id = generation if isinstance(generation, str) else None
-        provider_id = state.get("session_id") or state.get("thread_id")
-        if self.m_backend == "dsh_web" and isinstance(state.get("web_identity"), dict):
-            provider_id = state["web_identity"].get("native_session_id") or provider_id
+        web_identity = state.get("web_identity")
+        incarnation = state.get("service_incarnation")
+        if self.m_backend == "kimi_web" and isinstance(web_identity, dict):
+            incarnation = web_identity.get("host_incarnation")
+        self.m_service_incarnation = incarnation if isinstance(incarnation, str) else None
+        workspace = payload.get("working_directory")
+        self.m_service_working_directory = workspace if isinstance(workspace, str) else None
+        provider_id = (
+            state.get("session_id") or state.get("thread_id") or state.get("native_session_id")
+        )
+        if self.m_backend in {"dsh_web", "kimi_web"} and isinstance(web_identity, dict):
+            provider_id = web_identity.get("native_session_id") or provider_id
         for section in ("headless", "local_interactive", "codex"):
             data = payload.get(section)
             if isinstance(data, dict):
@@ -329,7 +350,7 @@ class UsageService:
         if not 1 <= limit <= 500:
             raise ValueError("Usage page limit must be between 1 and 500")
         queryable = bool(self.m_runtime_session_id) and (
-            self.store_path.exists() or _headless_backend(self.m_backend)
+            self.store_path.exists() or _artifact_accounting_backend(self.m_backend)
         )
         if not queryable:
             if after is not None:
@@ -341,12 +362,14 @@ class UsageService:
             )
         health = self.store.get_collection_health()
         capability = self.m_capability
-        if _headless_backend(self.m_backend) and not capability.turn_recording:
+        if _artifact_accounting_backend(self.m_backend) and not capability.turn_recording:
+            service_journal = self.m_backend in _SERVICE_JOURNAL_READERS
+            verified_service = service_journal and health.status == "healthy"
             capability = UsageCapability(
-                status="partial",
+                status="available" if verified_service else "partial",
                 turn_recording=True,
-                source_kinds=["structured_output"],
-                reasons=["provider_metrics_depend_on_evidence"],
+                source_kinds=["native_session_log" if service_journal else "structured_output"],
+                reasons=[] if verified_service else ["provider_metrics_depend_on_evidence"],
             )
         return self.store.read_page(
             after=after,
@@ -441,7 +464,7 @@ class UsageService:
             else {},
             metadata={"fresh_session": new_session},
         )
-        if not new_session:
+        if not new_session and self.m_backend not in _SERVICE_JOURNAL_READERS:
             binding.collection_boundary = {
                 opaque_usage_reference(str(path)): complete_file_position(path)
                 for path in discover_usage_sources(binding)
@@ -613,8 +636,16 @@ class UsageService:
             counter_epoch=binding.counter_epoch,
             coverage="complete",
             metadata={
-                "registered_headless": _headless_backend(self.m_backend),
+                "registered_headless": _artifact_accounting_backend(self.m_backend),
                 "baseline_source_ids": baseline_ids,
+                **(
+                    {
+                        "service_incarnation": self.m_service_incarnation,
+                        "service_working_directory": self.m_service_working_directory,
+                    }
+                    if self.m_backend in _SERVICE_JOURNAL_READERS
+                    else {}
+                ),
             },
         )
         self.store.put_pending_turn(snapshot)
@@ -687,7 +718,10 @@ class UsageService:
         for observation in batch.observations:
             if observation.kind == "session_started" and observation.session_id:
                 self.m_hook_session_id = observation.session_id
-                if not _headless_backend(self.m_backend) or self.m_provider_session_id is None:
+                if (
+                    not _artifact_accounting_backend(self.m_backend)
+                    or self.m_provider_session_id is None
+                ):
                     self.m_provider_session_id = observation.session_id
         return list(batch.observations)
 
@@ -701,10 +735,14 @@ class UsageService:
         with self.m_lock:
             if refresh_manifest:
                 self._refresh_manifest()
+            if self.m_backend in _SERVICE_JOURNAL_READERS:
+                if finalize_native:
+                    self._recover_known_headless()
+                return []
             hooks = self._read_hooks()
-            if self.m_hook_session_id and not _headless_backend(self.m_backend):
+            if self.m_hook_session_id and not _artifact_accounting_backend(self.m_backend):
                 self.m_provider_session_id = self.m_hook_session_id
-            if _headless_backend(self.m_backend) and self.m_active_binding_id is None:
+            if _artifact_accounting_backend(self.m_backend) and self.m_active_binding_id is None:
                 # Execution registers the source binding. A background reader
                 # must not invent a competing provisional/attachment binding.
                 existing = [
@@ -726,8 +764,10 @@ class UsageService:
             binding = self._binding()
             if binding.provisional:
                 self.m_capability = UsageCapability(
-                    status="partial" if _headless_backend(self.m_backend) else "unavailable",
-                    turn_recording=_headless_backend(self.m_backend),
+                    status="partial"
+                    if _artifact_accounting_backend(self.m_backend)
+                    else "unavailable",
+                    turn_recording=_artifact_accounting_backend(self.m_backend),
                     reasons=["provider_session_binding_pending"],
                 )
                 return []
@@ -766,7 +806,7 @@ class UsageService:
             )
             self.m_capability = UsageCapability(
                 status="available" if has_turns else "partial",
-                turn_recording=has_turns or _headless_backend(self.m_backend),
+                turn_recording=has_turns or _artifact_accounting_backend(self.m_backend),
                 source_kinds=kinds,
                 observed_scopes=scopes,
                 reasons=[] if has_turns else ["verified_turn_association_unavailable"],
@@ -800,7 +840,7 @@ class UsageService:
                         assemble_web_usage(self, binding, all_observations)
                 else:
                     self._assemble_native(binding, all_observations)
-                if _headless_backend(self.m_backend):
+                if _artifact_accounting_backend(self.m_backend):
                     self._recover_known_headless()
             return accepted
 
@@ -875,7 +915,7 @@ class UsageService:
 
         from houmao.agents.realm_controller.usage_extraction import assemble_usage_record
 
-        if _headless_backend(self.m_backend):
+        if _artifact_accounting_backend(self.m_backend):
             # Headless lifecycle and its artifact cutoff are authoritative.
             # Native files supplement that managed row, never create another.
             for headless_pending in self.store.list_pending_turns(include_finalized=True):
@@ -1019,7 +1059,7 @@ class UsageService:
         if original is None:
             return
         proposed_observations = relevant
-        if _headless_backend(snapshot.backend):
+        if _artifact_accounting_backend(snapshot.backend):
             original_observations = [
                 UsageObservation.model_validate(item)
                 for item in finalization.metadata.get("observations", [])
@@ -1071,7 +1111,7 @@ class UsageService:
         assert pending is not None
         snapshot = pending.snapshot
         positions: dict[str, int] = {}
-        if snapshot.binding_id:
+        if snapshot.binding_id and snapshot.backend not in _SERVICE_JOURNAL_READERS:
             binding = self.store.get_binding(snapshot.binding_id)
             if binding is not None:
                 for path in discover_usage_sources(binding):
@@ -1176,12 +1216,31 @@ class UsageService:
                     },
                 }
             )
-        observed, output_session_id, output_turn_id, raw_count = self._headless_output(
-            turn_dir,
-            snapshot,
-            original_session_id or provider_session_id,
-            events,
-        )
+        output_turn_id: str | None
+        service_journal = _SERVICE_JOURNAL_READERS.get(snapshot.backend)
+        if service_journal is not None:
+            receipt_name, read_usage = service_journal
+            try:
+                if original_binding is None:
+                    raise ValueError("Service accounting binding is missing")
+                output_turn_id, observed = read_usage(
+                    snapshot=snapshot,
+                    home=Path(original_binding.home_path),
+                    receipt=_read_json(turn_dir / receipt_name),
+                    process=_read_json(turn_dir / "process.json"),
+                    outcome=finalization.outcome,
+                )
+            except (OSError, ValueError, KeyError):
+                self._degraded(f"{snapshot.provider}_service_journal_evidence_unavailable")
+                return None
+            output_session_id, raw_count = snapshot.provider_session_id, len(observed)
+        else:
+            observed, output_session_id, output_turn_id, raw_count = self._headless_output(
+                turn_dir,
+                snapshot,
+                original_session_id or provider_session_id,
+                events,
+            )
         session_id = original_session_id or provider_session_id or output_session_id
         if session_id is not None and output_session_id not in {None, session_id}:
             raise ValueError("Headless output belongs to a different provider session")
@@ -1215,7 +1274,11 @@ class UsageService:
             self.store.put_binding(native)
         self.collect(finalize_native=False, max_batches=32, refresh_manifest=False)
         observed = [item.model_copy(update={"binding_id": native.binding_id}) for item in observed]
-        native_observations = self.store.list_observations(binding_id=native.binding_id)
+        native_observations = (
+            []
+            if service_journal is not None
+            else self.store.list_observations(binding_id=native.binding_id)
+        )
         # Cut source records at their pre-dispatch complete-record boundaries.
         candidates: list[UsageObservation] = []
         for item in native_observations:
@@ -1335,6 +1398,10 @@ class UsageService:
             record.diagnostics.append(limitation)
         write_usage_json(cached, record.model_dump(mode="json"))
         self.store.finalize(record)
+        if service_journal is not None:
+            self.store.set_collection_health(
+                UsageCollectionHealth(status="healthy", updated_at_utc=_now())
+            )
         baseline = dict(native.baseline)
         for item in observed:
             if item.kind == "cumulative":
@@ -1355,8 +1422,8 @@ class UsageService:
 
         observations: list[UsageObservation] = []
         if self.m_provider == "dsh":
-            # ACP usage_update is context occupancy. Native session identity and
-            # root membership come only from the bound companion sidecars.
+            # CLI step usage aggregates separately billed attempts and ACP reports
+            # occupancy. Only the owned native journal contributes usage records.
             return [], None, None, 0
         session_ids: set[str] = set()
         turn_ids: set[str] = set()
@@ -1434,12 +1501,41 @@ class UsageService:
             if not isinstance(artifact_dir, str):
                 continue
             turn_dir = Path(artifact_dir)
+            service_journal = _SERVICE_JOURNAL_READERS.get(pending.snapshot.backend)
+            if service_journal is not None and not (turn_dir / "usage-final.json").exists():
+                try:
+                    receipt = _read_json(turn_dir / service_journal[0])
+                    outcome = receipt["terminal"]
+                    completed = receipt["settled_at_utc"]
+                    if (
+                        not isinstance(outcome, str)
+                        or outcome not in {"completed", "failed", "interrupted"}
+                        or not isinstance(completed, str)
+                    ):
+                        continue
+                    persist_terminal_evidence(
+                        turn_dir,
+                        returncode=0 if outcome == "completed" else 1,
+                        completed_at_utc=completed,
+                        wall_time_ms=None,
+                        interrupted=outcome == "interrupted",
+                    )
+                except (OSError, ValueError, KeyError):
+                    continue
             if not (turn_dir / "usage-final.json").exists() and (turn_dir / "exitcode").exists():
                 exit_path = turn_dir / "exitcode"
+                returncode = int(exit_path.read_text().strip())
+                if (
+                    pending.snapshot.backend == "dsh_headless"
+                    and returncode == 0
+                    and not dsh_cli_completion_evidence(turn_dir, pending.snapshot)
+                ):
+                    self._degraded("dsh_native_closure_unverified")
+                    continue
                 completed = datetime.fromtimestamp(exit_path.stat().st_mtime, UTC).isoformat()
                 persist_terminal_evidence(
                     turn_dir,
-                    returncode=int(exit_path.read_text().strip()),
+                    returncode=returncode,
                     completed_at_utc=completed,
                     wall_time_ms=None,
                     interrupted=(turn_dir / "usage-interrupt.json").exists(),

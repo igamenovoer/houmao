@@ -34,7 +34,10 @@ from houmao.ag_ui.graphics import (
 from houmao.ag_ui.runtime import AgUiTuiObservation
 from houmao.ag_ui.state import JsonObject, JsonValue
 from houmao.agents.realm_controller.backends.headless_output import CanonicalHeadlessEvent
-from houmao.agents.realm_controller.gateway_models import GatewayWebControlStateV1
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayServiceRequestSnapshotV1,
+    GatewayWebControlStateV1,
+)
 
 
 class AgUiEventMapper:
@@ -149,6 +152,7 @@ class AgUiEventMapper:
 
         activity_payload: JsonObject = {
             "source": "houmao.tui",
+            "attribution": "shared",
             "available": observation.available,
             "status": observation.status,
         }
@@ -186,12 +190,54 @@ class AgUiEventMapper:
                 message_id=f"{self.m_run_id}:web:{sequence_index}",
                 activity_type="houmao.web.state",
                 content=json.dumps(
-                    {"source": "houmao.web", "state": observation.model_dump(mode="json")},
+                    {
+                        "source": "houmao.web",
+                        "attribution": "shared",
+                        "state": observation.model_dump(mode="json"),
+                    },
                     sort_keys=True,
                 ),
                 replace=True,
             )
         ]
+
+    def map_service_request(
+        self, snapshot: GatewayServiceRequestSnapshotV1, *, include_final_text: bool = False
+    ) -> list[BaseEvent]:
+        """Publish request-scoped service posture or its confirmed native assistant output."""
+
+        if not include_final_text:
+            return [
+                ActivitySnapshotEvent(
+                    message_id=f"{self.m_run_id}:service",
+                    activity_type="houmao.service.request",
+                    content=json.dumps(
+                        snapshot.model_dump(mode="json", exclude={"events"}), sort_keys=True
+                    ),
+                    replace=True,
+                )
+            ]
+        if snapshot.state != "completed" or snapshot.native_turn_id is None:
+            return []
+        output: list[BaseEvent] = []
+        for index, event in enumerate(snapshot.events):
+            scope = event.payload or {}
+            if (
+                event.kind == "assistant"
+                and scope.get("native_session_id") == snapshot.native_session_id
+                and scope.get("native_turn_id") == snapshot.native_turn_id
+            ):
+                output.extend(
+                    self._assistant_text_events(
+                        message_id=f"{self.m_run_id}:service-output:{index}", text=event.message
+                    )
+                )
+        return output
+
+    def map_web_assistant_text(self, text: str) -> list[BaseEvent]:
+        """Publish completed assistant text from a verified native Web request."""
+
+        return self._assistant_text_events(message_id=f"{self.m_run_id}:web-output", text=text)
 
     def graphic_artifact_events(
         self,

@@ -760,6 +760,10 @@ def validate_brain_inputs(
                 raise BuildError(
                     "DSH Web uses owned native configuration. Raw launch arguments are unsupported."
                 )
+            if backend == "kimi_web" and behavior.args_before_policy:
+                raise BuildError(
+                    "Kimi Web uses owned native configuration. Raw launch arguments are unsupported."
+                )
     except (OSError, ValueError) as exc:
         raise BuildError(str(exc)) from exc
     return ValidatedBrainInputs(adapter, setup_dir, auth_dir, layers, effective, baseline, model)

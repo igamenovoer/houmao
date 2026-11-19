@@ -32,7 +32,7 @@ def raw_web_fixture(
     selected = config.resolve_config(
         case="cloud-api",
         client="dsh",
-        mode="tui",
+        mode="web",
         surface="raw",
         process_env={
             "DEEPSEEK_API_KEY": "synthetic-private-key",
@@ -130,6 +130,12 @@ def raw_web_fixture(
             calls.append({"action": "terminate"})
             return SimpleNamespace(status="ok")
 
+        def configure_stop_force_cleanup(self, *, force_cleanup: bool) -> None:
+            """Require raw fixture stop to remove its owned supervisor too."""
+
+            assert force_cleanup
+            calls.append({"action": "force_cleanup"})
+
     native = ModuleType("houmao.agents.realm_controller.backends.dsh_web")
     native.DshWebSession = Session
     native.DshWebSessionState = State
@@ -145,6 +151,9 @@ def test_raw_web_followup_reconstructs_without_start_and_keeps_auth_private(
     run, launch, _web, calls = raw_web_fixture
     root = Path(run["run_dir"])
     first = launch.launch_run(root)
+    assert first["configuration"]["mode"] == "web"
+    assert first["backend"] == "dsh_web"
+    assert first["native_surface"] == first["identity"]["native_surface"]
     assert first["identity"]["native_surface"]["native_session_id"] == "native-exact"
     second = launch.prompt_run(root, prompt="One explicit prompt", timeout=17)
     assert second["turns"] == [{"index": 1, "status": "completed"}]
@@ -169,6 +178,7 @@ def test_raw_web_followup_reconstructs_without_start_and_keeps_auth_private(
         }
     ]
     assert len([row for row in calls if row["action"] == "close"]) == 4
+    assert {"action": "force_cleanup"} in calls
 
 
 def test_browser_handoff_is_deliberate_private_and_origin_bound(
@@ -207,7 +217,7 @@ def test_manager_web_waits_for_exact_operation_usage(
     run = {
         "run_dir": str(tmp_path),
         "status": "launched",
-        "configuration": {"client": "dsh", "mode": "tui", "surface": "manager"},
+        "configuration": {"client": "dsh", "mode": "web", "surface": "manager"},
         "identity": {"gateway_host": "127.0.0.1", "gateway_port": 19095},
     }
     human = {
@@ -280,6 +290,7 @@ def test_web_live_runner_refuses_ambient_auth_and_validates_only_selected_file(
     assert offline.returncode == 0
     assert checked["status"] == "not_run" and checked["checks"] == {}
     assert checked["configuration_valid"] is True
+    assert checked["mode"] == "web" and checked["backend"] == "dsh_web"
     assert checked["native_surface"] == "web"
     assert (
         "synthetic-runner-key"

@@ -94,6 +94,7 @@ def _local_record(*, agent_name: str) -> ManagedAgentRegistryRecordV3:
             relaunchable=True,
             state_updated_at=published_at.isoformat(timespec="seconds"),
         ),
+        mode="tui",
         identity=RegistryIdentityV1(backend="houmao_server_rest", tool="codex"),
         runtime=RegistryRuntimeV1(
             manifest_path="/tmp/runtime/session/manifest.json",

@@ -873,6 +873,23 @@ class LiveSessionTracker:
                 monotonic_ts=monotonic_ts,
                 observed_at_utc=observed_at_utc,
             )
+            if (
+                self.m_hook_adapter == "kimi"
+                and self.m_hook_channel is not None
+                and diagnostics.availability == "available"
+                and parsed_surface is not None
+                and _is_submit_ready(parsed_surface)
+                and tracker_state.turn_phase == "ready"
+                and tracker_state.surface_pending_input == "no"
+            ):
+                native_end = self.m_hook_channel.reconcile_kimi_ended_turn()
+                if native_end is not None:
+                    self.m_hook_posture = native_end
+                    self._note_hook_fold_locked(
+                        posture=native_end,
+                        monotonic_ts=monotonic_ts,
+                        observed_at_utc=observed_at_utc,
+                    )
             hook_projection = self._project_hook_state_locked(
                 tracker_state=tracker_state,
                 previous_last_turn=self.m_last_state.last_turn,

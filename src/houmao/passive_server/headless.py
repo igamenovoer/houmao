@@ -7,7 +7,7 @@ startup rebuild.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 import logging
 import re
@@ -43,13 +43,23 @@ from houmao.agents.realm_controller.errors import (
     SessionManifestError,
 )
 from houmao.agents.realm_controller.gateway_access_runtime import gateway_access_for_manifest
-from houmao.agents.realm_controller.launch_plan import backend_for_tool
+from houmao.agents.realm_controller.gateway_models import GatewayChatSessionSelectorV1
+from houmao.agents.realm_controller.headless_snapshots import (
+    read_dsh_cli_safe_error,
+    read_dsh_cli_terminal_source,
+)
+from houmao.agents.realm_controller.run_modes import resolve_run_mode
 from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
 from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
 )
 from houmao.agents.realm_controller.models import HeadlessTurnSessionSelection, SessionEvent
+from houmao.agents.realm_controller.owner_admission import (
+    OwnerAdmissionError,
+    OwnerPromptClaim,
+    reserve_owner_prompt,
+)
 from houmao.agents.realm_controller.usage_models import UsagePage
 from houmao.agents.realm_controller.usage_store import UsageStoreError
 from houmao.agents.realm_controller.usage_support import (
@@ -102,9 +112,27 @@ def _authority_tmux_session_exists(authority: ManagedHeadlessAuthorityRecord) ->
         return tmux_session_exists(session_name=authority.tmux_session_name)
 
 
-_HEADLESS_BACKENDS = frozenset({"claude_headless", "codex_headless", "kimi_headless", "dsh_acp"})
+_HEADLESS_BACKENDS = frozenset(
+    {"claude_headless", "codex_headless", "kimi_headless", "dsh_headless"}
+)
 _BACKING_HANDOFF_SECONDS = 5.0
 _TURN_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
+
+
+def _headless_chat_selection(
+    manifest_path: Path, chat: GatewayChatSessionSelectorV1 | None
+) -> HeadlessTurnSessionSelection | None:
+    """Resolve the requested native conversation under the current turn authority."""
+
+    if chat is None or chat.mode == "auto":
+        return None
+    if chat.mode != "current":
+        return HeadlessTurnSessionSelection(mode=chat.mode, session_id=chat.id)
+    handle = load_session_manifest(manifest_path)
+    manifest = parse_session_manifest_payload(handle.payload, source="runtime manifest")
+    if manifest.headless is None or not manifest.headless.session_id:
+        raise ValueError("The current native session is unavailable.")
+    return HeadlessTurnSessionSelection(mode="exact", session_id=manifest.headless.session_id)
 
 
 class _RelayedDispatchControl(HeadlessDispatchControl):
@@ -122,7 +150,7 @@ class _RelayedDispatchControl(HeadlessDispatchControl):
 
 @dataclass(frozen=True)
 class _BackingDispatch:
-    """Current generation, launch options, and handoff signal for a backing call."""
+    """Current generation, launch options, and handoff signal for one fenced turn."""
 
     turn_id: str
     control: HeadlessDispatchControl
@@ -130,6 +158,7 @@ class _BackingDispatch:
     deadline: float
     selection: HeadlessTurnSessionSelection | None
     execution: ModelConfig | None
+    owner_claim: OwnerPromptClaim | None = None
 
 
 def _controller_primary_tmux_window_id(controller: RuntimeSessionController) -> str | None:
@@ -283,7 +312,9 @@ class HeadlessAgentService:
             )
 
         try:
-            resolved_backend = backend_for_tool(resolved_tool)
+            resolved_backend = resolve_run_mode(
+                resolved_tool, entrypoint="passive_headless"
+            ).backend
         except LaunchPlanError as exc:
             return (422, {"detail": str(exc)})
         if resolved_backend not in _HEADLESS_BACKENDS:
@@ -297,7 +328,7 @@ class HeadlessAgentService:
                 },
             )
         backend = cast(
-            Literal["claude_headless", "codex_headless", "kimi_headless", "dsh_acp"],
+            Literal["claude_headless", "codex_headless", "kimi_headless", "dsh_headless"],
             resolved_backend,
         )
 
@@ -325,6 +356,7 @@ class HeadlessAgentService:
                     brain_manifest_path=manifest_path,
                     role_name=resolved_role_name,
                     backend=backend,
+                    mode="headless",
                     runtime_root=self.m_config.runtime_root,
                     working_directory=working_dir,
                     api_base_url=self.m_config.api_base_url,
@@ -411,15 +443,28 @@ class HeadlessAgentService:
     # -- turns ----------------------------------------------------------------
 
     def submit_turn(
-        self, tracked_agent_id: str, prompt: str
+        self,
+        tracked_agent_id: str,
+        prompt: str,
+        *,
+        chat_session: GatewayChatSessionSelectorV1 | None = None,
+        execution: ModelConfig | None = None,
     ) -> PassiveHeadlessTurnAcceptedResponse | tuple[int, dict[str, Any]]:
         """Submit a turn to a managed headless agent."""
 
         with self.m_lock:
-            return self._submit_turn_locked(tracked_agent_id, prompt)
+            return self._submit_turn_locked(
+                tracked_agent_id, prompt, chat_session=chat_session, execution=execution
+            )
 
     def _submit_turn_locked(
-        self, tracked_agent_id: str, prompt: str, *, backing: _BackingDispatch | None = None
+        self,
+        tracked_agent_id: str,
+        prompt: str,
+        *,
+        backing: _BackingDispatch | None = None,
+        chat_session: GatewayChatSessionSelectorV1 | None = None,
+        execution: ModelConfig | None = None,
     ) -> PassiveHeadlessTurnAcceptedResponse | tuple[int, dict[str, Any]]:
         """Reserve durable admission before another caller can start a worker."""
 
@@ -458,11 +503,45 @@ class HeadlessAgentService:
         now_utc = datetime.now(UTC).isoformat(timespec="seconds")
 
         manifest_path = Path(handle.authority.manifest_path)
+        if (
+            handle.authority.backend == "dsh_headless"
+            and chat_session is not None
+            and chat_session.mode == "tool_last_or_new"
+        ):
+            return (422, {"detail": "DSH requires an explicit new or exact native session."})
+        if backing is None and handle.authority.backend == "dsh_headless":
+            generation = handle.controller.registry_generation_id
+            if generation is None:
+                return (503, {"detail": "Managed DSH generation is unavailable"})
+            try:
+                claim = reserve_owner_prompt(
+                    manifest_path, generation, request_id=turn_id, origin="passive"
+                )
+            except OwnerAdmissionError as exc:
+                status = 409 if exc.code in {"not_ready", "uncertain", "duplicate_request"} else 503
+                return (status, {"detail": str(exc), "error_code": exc.code})
+            deadline = time.monotonic() + 300
+            control = HeadlessDispatchControl.from_callbacks(
+                allowed=claim.active,
+                confirmed=claim.handoff,
+                deadline=deadline,
+                manifest_path=manifest_path,
+                generation_id=generation,
+            )
+            backing = _BackingDispatch(
+                turn_id, control, threading.Event(), deadline, None, execution, owner_claim=claim
+            )
+        try:
+            selection = _headless_chat_selection(manifest_path, chat_session)
+        except (OSError, SessionManifestError, ValueError) as exc:
+            if backing is not None and backing.owner_claim is not None:
+                backing.owner_claim.finish("failed", evidence="invalid_session_selection")
+            return (422, {"detail": str(exc)})
+        if backing is not None and backing.owner_claim is not None:
+            backing = replace(backing, selection=selection)
         turn_artifact_dir = str(
             manifest_path.parent / f"{manifest_path.stem}.turn-artifacts" / turn_id
         )
-        Path(turn_artifact_dir).mkdir(parents=True, exist_ok=True)
-
         active_turn = ManagedHeadlessActiveTurnRecord(
             tracked_agent_id=tracked_agent_id,
             turn_id=turn_id,
@@ -473,8 +552,6 @@ class HeadlessAgentService:
             tmux_window_id=handle.authority.tmux_window_id,
             tmux_pane_id=handle.authority.tmux_pane_id,
         )
-        self.m_store.write_active_turn(active_turn)
-
         turn_record = ManagedHeadlessTurnRecord(
             tracked_agent_id=tracked_agent_id,
             turn_id=turn_id,
@@ -486,19 +563,32 @@ class HeadlessAgentService:
             tmux_window_id=handle.authority.tmux_window_id,
             tmux_pane_id=handle.authority.tmux_pane_id,
         )
-        self.m_store.write_turn_record(turn_record)
-
         worker_arguments = (tracked_agent_id, turn_id, prompt, handle.controller)
+        worker_options: dict[str, Any] = {}
+        if backing is not None:
+            worker_options["backing"] = backing
+        else:
+            if selection is not None:
+                worker_options["selection"] = selection
+            if execution is not None:
+                worker_options["execution"] = execution
         worker = threading.Thread(
             target=self._run_turn_worker,
             args=worker_arguments,
-            kwargs={"backing": backing} if backing is not None else None,
+            kwargs=worker_options,
             name=f"houmao-headless-turn-{tracked_agent_id}-{turn_id}",
             daemon=True,
         )
-        with self.m_lock:
+        try:
+            Path(turn_artifact_dir).mkdir(parents=True, exist_ok=True, mode=0o700)
+            self.m_store.write_active_turn(active_turn)
+            self.m_store.write_turn_record(turn_record)
             handle.turn_worker = worker
-        worker.start()
+            worker.start()
+        except BaseException:
+            if backing is not None and backing.owner_claim is not None:
+                backing.owner_claim.finish("failed", evidence="passive_start_refused")
+            raise
 
         return PassiveHeadlessTurnAcceptedResponse(
             tracked_agent_id=tracked_agent_id,
@@ -587,25 +677,12 @@ class HeadlessAgentService:
         if guard is not None:
             control.m_permission_path = guard
         control.require_allowed()
-        chat = payload.chat_session
-        selection = None
-        if chat is not None and chat.mode != "auto":
-            mode = chat.mode
-            session_id = chat.id
-            if mode == "current":
-                handle = load_session_manifest(manifest_path)
-                manifest = parse_session_manifest_payload(handle.payload, source="runtime manifest")
-                if manifest.headless is None or not manifest.headless.session_id:
-                    raise ValueError("current session is unavailable")
-                mode = "exact"
-                session_id = manifest.headless.session_id
-            selection = HeadlessTurnSessionSelection(mode=mode, session_id=session_id)
         return _BackingDispatch(
             turn_id,
             control,
             settled,
             deadline,
-            selection,
+            _headless_chat_selection(manifest_path, payload.chat_session),
             payload.execution.to_model_config() if payload.execution else None,
         )
 
@@ -740,6 +817,8 @@ class HeadlessAgentService:
         try:
             with tmux_server_scope(handle.authority.tmux_socket_path):
                 result = backend_session.interrupt()
+            if handle.authority.backend == "dsh_headless" and result.status != "ok":
+                return (409, {"detail": result.detail or "The DSH worker identity is unresolved."})
             detail = f"Interrupt sent: {result.detail}" if result.detail else "Interrupt sent"
         except Exception as exc:
             detail = f"Interrupt attempted with error: {exc}"
@@ -958,7 +1037,8 @@ class HeadlessAgentService:
             runtime_resumable=runtime_resumable,
             tmux_session_live=tmux_session_live,
             can_accept_prompt_now=runtime_resumable and tmux_session_live and active_turn is None,
-            interruptible=active_turn is not None,
+            interruptible=active_turn is not None
+            and (latest_turn is None or latest_turn.status != "unknown"),
             active_turn=active_turn,
             latest_turn=latest_turn,
         )
@@ -1104,14 +1184,21 @@ class HeadlessAgentService:
         controller: RuntimeSessionController,
         *,
         backing: _BackingDispatch | None = None,
+        selection: HeadlessTurnSessionSelection | None = None,
+        execution: ModelConfig | None = None,
     ) -> None:
         """Worker thread: send prompt and finalize turn record."""
 
         backend = controller.backend_session if backing is not None else None
+        record: ManagedHeadlessTurnRecord | None = None
         try:
             if backing is None:
                 events = controller.send_prompt(
-                    prompt=prompt, turn_artifact_dir_name=turn_id, refresh_registry=False
+                    prompt=prompt,
+                    turn_artifact_dir_name=turn_id,
+                    refresh_registry=False,
+                    session_selection=selection,
+                    execution_model=execution,
                 )
             else:
                 if (
@@ -1128,7 +1215,7 @@ class HeadlessAgentService:
                     session_selection=backing.selection,
                     execution_model=backing.execution,
                 )
-            self._refresh_turn_record(
+            record = self._refresh_turn_record(
                 tracked_agent_id=tracked_agent_id,
                 turn_id=turn_id,
                 completion_events=events,
@@ -1137,7 +1224,7 @@ class HeadlessAgentService:
             log.info("Turn %s completed for agent %s", turn_id, tracked_agent_id)
         except Exception as exc:
             log.error("Turn %s failed for agent %s: %s", turn_id, tracked_agent_id, exc)
-            self._refresh_turn_record(
+            record = self._refresh_turn_record(
                 tracked_agent_id=tracked_agent_id,
                 turn_id=turn_id,
                 completion_events=None,
@@ -1151,6 +1238,17 @@ class HeadlessAgentService:
                 ):
                     backend.configure_request_dispatch(None)
                 backing.settled.set()
+                if backing.owner_claim is not None:
+                    status = (
+                        record.status
+                        if record is not None and record.returncode is not None
+                        else None
+                    )
+                    match status:
+                        case "completed" | "interrupted" | "failed":
+                            backing.owner_claim.finish(status, evidence="headless_artifacts")
+                        case _:
+                            backing.owner_claim.finish("uncertain")
             authority = self.m_store.read_authority(tracked_agent_id=tracked_agent_id)
             if authority is not None:
                 self._reconcile_usage(authority)
@@ -1242,7 +1340,9 @@ class HeadlessAgentService:
             self._completion_source_from_events(completion_events) or record.completion_source
         )
         returncode = record.returncode
-        final_status: Literal["active", "completed", "failed", "interrupted"]
+        final_status: Literal["completed", "failed", "interrupted", "unknown"]
+        handle = self._require_handle(tracked_agent_id)
+        dsh_cli = handle is not None and handle.authority.backend == "dsh_headless"
 
         if status_path.exists():
             try:
@@ -1276,6 +1376,9 @@ class HeadlessAgentService:
                             tracked_agent_id,
                             turn_id,
                         )
+        elif dsh_cli:
+            final_status = "unknown"
+            error_detail = "The DSH worker has no durable terminal status."
         elif interrupt_requested_at_utc is not None:
             final_status = "interrupted"
         else:
@@ -1283,10 +1386,26 @@ class HeadlessAgentService:
             if error_detail is None:
                 error_detail = "Headless execution ended without a durable completion marker."
 
+        if dsh_cli and returncode is not None:
+            if returncode in {0, 130}:
+                completion_source = read_dsh_cli_terminal_source(turn_dir, returncode=returncode)
+                if completion_source is None:
+                    final_status = "unknown"
+                    error_detail = "The DSH worker exited without a matching native closure record."
+                elif returncode == 130:
+                    final_status = "interrupted"
+            else:
+                final_status = "failed"
+                error_detail = error_detail or read_dsh_cli_safe_error(turn_dir)
+
         updated_record = record.model_copy(
             update={
                 "status": final_status,
-                "completed_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
+                "completed_at_utc": (
+                    datetime.now(UTC).isoformat(timespec="seconds")
+                    if final_status != "unknown"
+                    else None
+                ),
                 "stdout_path": str(stdout_path) if stdout_path.exists() else None,
                 "stderr_path": str(stderr_path) if stderr_path.exists() else None,
                 "status_path": str(status_path) if status_path.exists() else None,
@@ -1297,7 +1416,8 @@ class HeadlessAgentService:
             }
         )
         self.m_store.write_turn_record(updated_record)
-        self.m_store.clear_active_turn(tracked_agent_id=tracked_agent_id)
+        if final_status != "unknown":
+            self.m_store.clear_active_turn(tracked_agent_id=tracked_agent_id)
         return updated_record
 
     def _completion_source_from_events(

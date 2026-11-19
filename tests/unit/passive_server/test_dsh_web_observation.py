@@ -34,6 +34,8 @@ def _agent(tmp_path: Path, *, gateway: bool = True) -> DiscoveredAgent:
         agent_id="owner",
         agent_name="web-agent",
         generation_id="generation",
+        mode="web",
+        native_surface=WebNativeSurfaceV1(origin=_metadata().origin, native_session_id="native"),
         identity=SimpleNamespace(backend="dsh_web", tool="dsh"),
         runtime=SimpleNamespace(
             manifest_path=str(tmp_path / "manifest.json"),
@@ -53,6 +55,7 @@ def _agent(tmp_path: Path, *, gateway: bool = True) -> DiscoveredAgent:
         generation_id="generation",
         tool="dsh",
         backend="dsh_web",
+        mode="web",
         tmux_session_name="supervisor",
         manifest_path=record.runtime.manifest_path,
         session_root=str(tmp_path),
@@ -153,6 +156,7 @@ def test_gateway_to_direct_fallback_preserves_native_identity_and_history(
     assert second.source == "direct" and second.identity == first.identity
     assert second.interaction_waits == ["approval"] and not second.can_accept_prompt_now
     reconnect.assert_called_once()
+    assert reconnect.call_args.kwargs["read_only"] is True
     assert [entry.sequence for entry in observer.history().web.entries] == [1]
     assert "terminal" not in second.model_dump_json()
     observer.close()

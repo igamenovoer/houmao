@@ -30,6 +30,7 @@ def test_native_smoke_uses_explicit_external_bundle_and_always_stops(tmp_path, m
 
     def prepare(config, **kwargs):
         assert config.auth_method == "native-login" and config.case is None
+        assert config.mode == "headless" and config.surface == "manager"
         assert config.native_bundle == bundle.parent
         calls.append("prepare")
         return {"run_dir": str(root)}

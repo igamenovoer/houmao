@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import json
 import os
 from pathlib import Path
 import pwd
@@ -14,6 +15,13 @@ from click.testing import CliRunner
 from pydantic import ValidationError
 import pytest
 
+from houmao.agents.realm_controller.manifest import (
+    SessionManifestRequest,
+    build_session_manifest_payload,
+    write_session_manifest,
+)
+from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
+from houmao.agents.realm_controller.native_surface import WebNativeSurfaceV1
 from houmao.agents.realm_controller.registry_models import (
     ManagedAgentRegistryRecordV3,
     RegistryIdentityV1,
@@ -38,6 +46,7 @@ from houmao.execution.models import (
 )
 from houmao.execution.owner import OwnerAdmissionError, OwnerPolicyV1
 from houmao.execution.profiles import ExecutionProfileError
+from houmao.execution.tmux import tmux_server_scope
 from houmao.passive_server.models import PassiveHeadlessLaunchRequest
 from houmao.srv_ctrl.commands import managed_agents as managed
 from houmao.srv_ctrl.commands import project_easy
@@ -94,6 +103,7 @@ def boundary(tmp_path: Path) -> SimpleNamespace:
         agent_id="agent-1",
         agent_name="reviewer",
         generation_id="generation-1",
+        mode="headless",
         lifecycle=RegistryLifecycleV1(
             state="active", relaunchable=True, state_updated_at=now.isoformat()
         ),
@@ -121,6 +131,9 @@ def boundary(tmp_path: Path) -> SimpleNamespace:
     locator = ExecutorAgentLocatorV1(
         agent_id=record.agent_id,
         agent_name=record.agent_name,
+        tool=record.identity.tool,
+        mode=record.mode,
+        backend=record.identity.backend,
         profile_name=profile.name,
         binding=binding,
     )
@@ -134,6 +147,13 @@ def _response(
 ) -> ExecutionResponseV1:
     """Return the exact correlated owner result expected from a qualified transport."""
 
+    if request.operation == "describe" and isinstance(result.get("identity"), dict):
+        result["identity"] = {
+            "tool": boundary.record.identity.tool,
+            "mode": boundary.record.mode,
+            "backend": boundary.record.identity.backend,
+            **result["identity"],
+        }
     return ExecutionResponseV1.model_validate(
         {
             "request_id": request.request_id,
@@ -154,6 +174,89 @@ def _registry(monkeypatch: pytest.MonkeyPatch, value: object) -> Mock:
         loader,
     )
     return loader
+
+
+@pytest.fixture
+def owner_manifest(boundary: SimpleNamespace, tmp_path: Path) -> Path:
+    """Persist the runtime authority behind one routed registry fixture."""
+
+    record = boundary.record
+    path = Path(record.runtime.manifest_path)
+    path.parent.mkdir(parents=True)
+    with tmux_server_scope(boundary.binding.tmux_socket):
+        payload = build_session_manifest_payload(
+            SessionManifestRequest(
+                launch_plan=LaunchPlan(
+                    tool="codex",
+                    backend="codex_headless",
+                    executable="codex",
+                    args=["exec", "--json"],
+                    working_directory=tmp_path,
+                    home_env_var="CODEX_HOME",
+                    home_path=tmp_path / "home",
+                    env={},
+                    env_var_names=[],
+                    role_injection=RoleInjectionPlan(
+                        method="native_developer_instructions",
+                        role_name="reviewer",
+                        prompt="Review the requested change.",
+                    ),
+                    execution_binding=boundary.binding,
+                ),
+                role_name="reviewer",
+                agent_name=record.agent_name,
+                agent_id=record.agent_id,
+                registry_generation_id=record.generation_id,
+                tmux_session_name=record.terminal.session_name,
+                brain_manifest_path=tmp_path / "brain.yaml",
+                backend_state={},
+                agent_def_dir=Path(record.runtime.agent_def_dir),
+            )
+        )
+    write_session_manifest(path, payload)
+    return path
+
+
+def test_owner_describes_the_manifest_backed_run_mode(
+    boundary: SimpleNamespace, owner_manifest: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Owner discovery publishes the trio used by the operator locator."""
+
+    _registry(monkeypatch, boundary.record)
+    request = ExecutionRequestV1(operation="describe", agent_id=boundary.record.agent_id)
+    result = application.dispatch_operation(request, boundary.binding, boundary.policy)
+    assert result["identity"]["tool"] == "codex"
+    assert result["identity"]["mode"] == "headless"
+    assert result["identity"]["backend"] == "codex_headless"
+    assert result["identity"]["manifest_path"] == str(owner_manifest)
+
+
+@pytest.mark.parametrize("legacy_manifest", [False, True])
+def test_owner_refuses_describe_for_unverified_run_mode(
+    boundary: SimpleNamespace,
+    owner_manifest: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    legacy_manifest: bool,
+) -> None:
+    """A mismatched record or legacy ACP manifest cannot establish routed authority."""
+
+    record = boundary.record
+    if legacy_manifest:
+        owner_manifest.write_text(
+            json.dumps({"schema_version": 5, "backend": "dsh_acp"}), encoding="utf-8"
+        )
+    else:
+        record = record.model_copy(
+            update={
+                "mode": "tui",
+                "identity": RegistryIdentityV1(backend="local_interactive", tool="codex"),
+            }
+        )
+    _registry(monkeypatch, record)
+    request = ExecutionRequestV1(operation="describe", agent_id=record.agent_id)
+    with pytest.raises(OwnerAdmissionError, match="start a fresh runtime session") as error:
+        application.dispatch_operation(request, boundary.binding, boundary.policy)
+    assert error.value.code == "unusable_mode_authority"
 
 
 @pytest.mark.parametrize(
@@ -266,12 +369,13 @@ def test_owner_launch_reuses_shared_service_and_output_collector(
 
     monkeypatch.setattr(project_easy, "launch_project_agent", launch)
     result = application.dispatch_operation(
-        ExecutionRequestV1(operation="launch", arguments={"profile": "reviewer"}),
+        ExecutionRequestV1(operation="launch", arguments={"profile": "reviewer", "mode": "tui"}),
         boundary.binding,
         boundary.policy,
     )
     assert result["agent_id"] == "agent-1"
     assert len(seen) == 1 and seen[0]["profile"] == "reviewer"
+    assert seen[0]["mode"] == "tui"
     assert seen[0]["workdir"] == Path(boundary.profile.project_root)
     assert "executor" not in seen[0]
 
@@ -310,6 +414,7 @@ def test_owner_loads_tool_params_from_the_target_project(
     def launch(**parameters: object) -> dict[str, str]:
         """Observe the private application call without starting a harness."""
 
+        assert parameters["mode"] == "headless"
         assert parameters["direct_tool_params"] == {"include_partial_messages": True}
         return {"agent_id": "agent-1", "agent_name": "reviewer"}
 
@@ -323,7 +428,7 @@ def test_owner_loads_tool_params_from_the_target_project(
             arguments={
                 "specialist": "reviewer",
                 "name": "reviewer",
-                "headless": True,
+                "mode": "headless",
                 "tool_params": "@params.yaml",
             },
         ),
@@ -331,6 +436,54 @@ def test_owner_loads_tool_params_from_the_target_project(
         boundary.policy,
     )
     assert result["agent_id"] == "agent-1"
+
+
+def test_owner_rejects_unsupported_run_mode_before_force_launch(
+    boundary: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unsupported owner-side selection leaves the launch target untouched."""
+
+    project = Path(boundary.profile.project_root)
+    monkeypatch.setattr(
+        project_easy, "_ensure_project_overlay", lambda: SimpleNamespace(project_root=project)
+    )
+    monkeypatch.setattr(
+        project_easy,
+        "_load_specialist_or_click",
+        lambda **kwargs: SimpleNamespace(tool="dsh", provider="dsh", launch_payload={}),
+    )
+    project_projection = Mock(side_effect=AssertionError("unexpected catalog materialization"))
+    start = Mock(side_effect=AssertionError("unexpected launch attempt"))
+    monkeypatch.setattr(
+        project_easy, "materialize_project_agent_catalog_projection", project_projection
+    )
+    monkeypatch.setattr(project_easy, "launch_managed_agent_locally", start)
+    request = ExecutionRequestV1(
+        operation="launch",
+        arguments={
+            "specialist": "reviewer",
+            "name": "reviewer",
+            "agent_id": "agent-1",
+            "force_mode": "clean",
+            "mode": "tui",
+        },
+    )
+
+    with pytest.raises(OwnerAdmissionError, match=r"dsh.*tui.*web") as error:
+        application.dispatch_operation(request, boundary.binding, boundary.policy)
+    assert error.value.code == "invalid_run_mode"
+    with pytest.raises(click.ClickException, match=r"dsh.*tui.*web"):
+        router.require_execution_result(
+            ExecutionResponseV1(
+                request_id=request.request_id,
+                admitted=False,
+                outcome="rejected",
+                error_code=error.value.code,
+                error_message=str(error.value),
+            )
+        )
+    project_projection.assert_not_called()
+    start.assert_not_called()
 
 
 def test_bound_route_rejects_a_different_described_identity(
@@ -376,6 +529,83 @@ def test_bound_describe_verifies_execution_binding(
         router.execute_bound_operation(boundary.locator, "describe")
 
 
+def test_bound_route_refuses_a_stale_run_mode_before_mutation(
+    boundary: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same owner and agent can have a replacement generation in another mode."""
+
+    monkeypatch.setattr(router, "load_execution_profile", lambda name: boundary.profile)
+    transport = Mock(
+        side_effect=lambda profile, request: _response(
+            request,
+            boundary,
+            identity={
+                "agent_id": "agent-1",
+                "mode": "tui",
+                "backend": "local_interactive",
+            },
+            generation_id="generation-2",
+        )
+    )
+    monkeypatch.setattr(router, "execute_request", transport)
+    with pytest.raises(click.ClickException, match="run mode differs from the locator"):
+        router.execute_bound_operation(boundary.locator, "stop")
+    assert transport.call_count == 1
+    assert transport.call_args.args[1].operation == "describe"
+
+
+@pytest.mark.parametrize("unsafe_origin", [False, True])
+def test_routed_web_launch_emits_only_the_verified_owner_relative_origin(
+    boundary: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, unsafe_origin: bool
+) -> None:
+    """Only the typed, token-free loopback origin may reach the operator output."""
+
+    origin = "http://127.0.0.1:45123"
+    session_id = "native-dsh-session"
+    private_origin = f"{origin}/#token=owner-native-secret"
+    surface = WebNativeSurfaceV1(origin=origin, native_session_id=session_id).model_dump(
+        mode="json"
+    )
+    if unsafe_origin:
+        surface["origin"] = private_origin
+    monkeypatch.setattr(router, "load_execution_profile", lambda name: boundary.profile)
+    transport = Mock(
+        side_effect=lambda profile, request: _response(
+            request,
+            boundary,
+            agent_id="web-agent",
+            agent_name="reviewer",
+            tool="dsh",
+            mode="web",
+            backend="dsh_web",
+            browser_origin=private_origin,
+            native_surface=surface,
+        )
+    )
+    monkeypatch.setattr(router, "execute_request", transport)
+    publish = Mock()
+    monkeypatch.setattr(router, "publish_executor_locator", publish)
+
+    with collect_output_payloads() as output:
+        if unsafe_origin:
+            with pytest.raises(click.ClickException, match="locator publication failed"):
+                router.launch_with_executor("worker", {"profile": "reviewer", "mode": "web"})
+            publish.assert_not_called()
+            assert output[0]["locator_published"] is False
+            assert "browser_origin" not in output[0]
+        else:
+            router.launch_with_executor("worker", {"profile": "reviewer", "mode": "web"})
+            assert publish.call_args.args[0].mode == "web"
+            assert output[0]["browser_origin"] == origin
+            assert output[0]["native_session_id"] == session_id
+            assert output[0]["browser_handoff"] == "owner_context_required"
+            assert output[0]["execution_context"]["account"] == boundary.binding.account
+            assert "attach_command" not in output[0]
+
+    assert transport.call_args.args[1].arguments["mode"] == "web"
+    assert "owner-native-secret" not in json.dumps(output)
+
+
 def test_lost_launch_response_never_publishes_or_replays(
     boundary: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -409,7 +639,13 @@ def test_failed_operator_publication_reports_admitted_identity_without_second_bi
     monkeypatch.setattr(router, "load_execution_profile", lambda name: boundary.profile)
     transport = Mock(
         side_effect=lambda profile, request: _response(
-            request, boundary, agent_id="agent-1", agent_name="reviewer"
+            request,
+            boundary,
+            agent_id="agent-1",
+            agent_name="reviewer",
+            tool="codex",
+            mode="headless",
+            backend="codex_headless",
         )
     )
     monkeypatch.setattr(router, "execute_request", transport)
@@ -555,7 +791,15 @@ def test_reconciliation_publishes_only_existing_owner_locator(
 
         operations.append(request.operation)
         return _response(
-            request, boundary, identity={"agent_id": "agent-1", "agent_name": "reviewer"}
+            request,
+            boundary,
+            identity={
+                "agent_id": "agent-1",
+                "agent_name": "reviewer",
+                "tool": "codex",
+                "mode": "headless",
+                "backend": "codex_headless",
+            },
         )
 
     monkeypatch.setattr(router, "execute_request", execute)

@@ -61,6 +61,7 @@ class WebObservation:
         history: Callable[..., dict[str, Any]],
         retention: int = 100,
         source: Literal["gateway", "direct"] = "direct",
+        sparse_history: bool = False,
     ) -> None:
         """Bind read-only callbacks to one exact owned Web incarnation."""
 
@@ -69,6 +70,7 @@ class WebObservation:
         self.m_read_history: Callable[..., dict[str, Any]] = history
         self.m_retention: int = max(1, min(retention, 500))
         self.m_source: Literal["gateway", "direct"] = source
+        self.m_sparse_history: bool = sparse_history
         self.m_entries: deque[GatewayWebHistoryEntryV1] = deque(maxlen=self.m_retention)
         self.m_sequence: int | None = None
         self.m_reconciled: bool = False
@@ -96,7 +98,7 @@ class WebObservation:
                 availability="available" if available else "unavailable",
                 control_available=True,
                 host_process_alive=True,
-                native_agent_live=available,
+                native_agent_live=payload.get("native_agent_live", available),
                 observed_at_utc=payload["observed_at_utc"],
                 sequence=payload["sequence"],
                 cursor=payload["cursor"],
@@ -189,6 +191,8 @@ class WebObservation:
             page = self.m_read_history(after_sequence=after, limit=self.m_retention)
             if not initial and page.get("truncated", False):
                 raise ValueError("Native history retention gap")
+            if self.m_sparse_history and not initial and page.get("previous_sequence") != after:
+                raise ValueError("Native history did not verify its previous offset")
             if GatewayWebExecutionIdentityV1.model_validate(page["identity"]) != state.identity:
                 raise ValueError("Native history identity changed")
             entries = page["entries"]
@@ -208,7 +212,7 @@ class WebObservation:
                     raise ValueError("Native transition identity changed")
                 if entry.sequence <= after:
                     continue
-                if not initial and entry.sequence != after + 1:
+                if not initial and not self.m_sparse_history and entry.sequence != after + 1:
                     raise ValueError("Native history sequence gap")
                 pending.append(entry)
                 after = entry.sequence

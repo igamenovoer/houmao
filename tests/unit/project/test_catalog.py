@@ -10,12 +10,23 @@ import pytest
 import yaml
 
 from houmao.project.catalog import ProjectCatalog
+from houmao.project.launch_profiles import profile_run_mode
 from houmao.project.overlay import (
     bootstrap_project_overlay,
     ensure_project_agent_compatibility_tree,
     require_project_overlay,
 )
 from houmao.srv_ctrl.commands.main import cli
+
+
+def test_legacy_dsh_profile_explains_the_new_native_modes() -> None:
+    """A stored RC2 Boolean requires an explicit operator decision."""
+
+    with pytest.raises(ValueError, match=r"obsolete defaults\.posture\.headless") as error:
+        profile_run_mode({"headless": True}, tool="dsh", source="Profile 'reviewer'")
+
+    assert "defaults.posture.mode (headless, service, tui, web)" in str(error.value)
+    assert "headless for the native one-shot CLI, service for persistent ACP" in str(error.value)
 
 
 def _make_skill_dir(root: Path, name: str) -> Path:
@@ -393,7 +404,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             },
             "online": None,
         },
-        posture_mapping={"headless": True, "gateway_port": 9011},
+        posture_mapping={"mode": "headless", "gateway_port": 9011},
         relaunch_chat_session_mapping={"mode": "tool_last_or_new"},
         managed_header_policy="inherit",
         managed_header_section_policy={
@@ -448,7 +459,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
                 },
                 "online": None,
             },
-            "posture": {"headless": True, "gateway_port": 9011},
+            "posture": {"mode": "headless", "gateway_port": 9011},
             "managed_header": "inherit",
             "managed_header_sections": {
                 "automation-notice": "disabled",

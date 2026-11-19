@@ -280,17 +280,19 @@ def test_headless_automatic_observation_rechecks_authority_after_version_probe(
 
     home = NativeHomeV1(
         agent_id="agent",
-        backend="dsh_acp",
+        backend="dsh_headless",
         tool="dsh",
         home_dir=str(tmp_path),
         identity={"generation": "old"},
     )
     controller = SimpleNamespace(
+        manifest_path=tmp_path / "manifest.json",
         backend_session=SimpleNamespace(),
         launch_plan=SimpleNamespace(metadata={}, home_path=tmp_path, env={}, executable="unused"),
     )
     inspect = Mock(side_effect=[home, home.model_copy(update={"identity": {"generation": "new"}})])
     monkeypatch.setattr(native_refresh, "inspect_native_home", inspect)
+    monkeypatch.setattr(native_refresh, "observe_owner_prompt", lambda *_: None)
     monkeypatch.setattr(
         dsh_configuration.DshEffectiveToolParams,
         "from_file",
@@ -304,3 +306,48 @@ def test_headless_automatic_observation_rechecks_authority_after_version_probe(
     with pytest.raises(GatewayError, match="authority changed during observation"):
         native_refresh.observe_common_plugins(controller)
     assert inspect.call_count == 2
+
+
+@pytest.mark.parametrize("active", [False, True])
+def test_dsh_cli_refresh_qualifies_only_skills_at_the_next_invocation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, active: bool
+) -> None:
+    """The read reports the supported boundary without starting a managed worker."""
+
+    home = NativeHomeV1(
+        agent_id="agent",
+        backend="dsh_headless",
+        tool="dsh",
+        home_dir=str(tmp_path),
+        identity={"generation": "current"},
+    )
+    controller = SimpleNamespace(
+        manifest_path=tmp_path / "manifest.json",
+        backend_session=SimpleNamespace(),
+        launch_plan=SimpleNamespace(metadata={}, home_path=tmp_path, env={}, executable="dsh"),
+    )
+    monkeypatch.setattr(native_refresh, "inspect_native_home", lambda _: home)
+    monkeypatch.setattr(
+        native_refresh, "observe_owner_prompt", lambda *args: object() if active else None
+    )
+    monkeypatch.setattr(
+        dsh_configuration.DshEffectiveToolParams,
+        "from_file",
+        Mock(return_value=SimpleNamespace(mcp_env_refs=frozenset())),
+    )
+    load = Mock()
+    monkeypatch.setattr(dsh_configuration, "load_dsh_home", load)
+    probe = Mock(return_value=SimpleNamespace(stdout="0.2.2-rc.3"))
+    monkeypatch.setattr(native_refresh.subprocess, "run", probe)
+
+    observation = native_refresh.observe_common_plugins(controller)
+
+    assert load.call_args.kwargs["native_profile"] == "headless"
+    assert probe.call_args.args[0] == ["dsh", "--version"]
+    assert observation.profile == "headless" and observation.freshness == "unknown"
+    skills, mcp = observation.resources
+    assert skills.supported and skills.boundary == "next_turn"
+    assert not mcp.supported and mcp.reason == "dsh_cli_mcp_unqualified"
+    planned = native_refresh.plan_native_refresh(observation)
+    assert planned is not None
+    assert planned.outcome == ("unavailable" if active else "unsupported")

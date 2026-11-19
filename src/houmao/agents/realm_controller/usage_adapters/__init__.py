@@ -25,7 +25,7 @@ from houmao.agents.realm_controller.usage_models import UsageObservation, UsageS
 
 _QUALIFIED_VERSIONS = {
     "claude": {"2.1.323"},
-    "codex": {"0.167.2"},
+    "codex": {"0.167.2", "0.169.0"},
     "kimi": {"2.6.0"},
 }
 

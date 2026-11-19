@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 import json
 import sqlite3
@@ -37,8 +38,21 @@ from houmao.agents.realm_controller.models import (
     LaunchPlan,
     RoleInjectionPlan,
 )
+from houmao.agents.realm_controller.owner_admission import OwnerPromptClaim
+from houmao.agents.realm_controller.registry_models import (
+    ManagedAgentRegistryRecordV3,
+    RegistryIdentityV1,
+    RegistryLifecycleV1,
+    RegistryLivenessV1,
+    RegistryMailboxSlotV1,
+    RegistryMailboxesV1,
+    RegistryRuntimeV1,
+    RegistryTerminalV2,
+)
+from houmao.agents.realm_controller.registry_storage import publish_managed_agent_record
 from houmao.execution.context import observed_local_binding
 from houmao.gateway.access import GatewayLaunchSeed
+from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
 from tests.fixtures.gateway_access import FixtureProofAuth, fixture_admin_key
 
 
@@ -117,6 +131,25 @@ class _FakeHeadlessGatewayAdapter(gateway_service._LocalHeadlessGatewayAdapter):
             run_id=turn_id,
             events=events,
         )
+
+    def submit_claimed_prompt(
+        self,
+        *,
+        claim: OwnerPromptClaim,
+        prompt: str,
+        session_selection: HeadlessTurnSessionSelection | None,
+        execution_model: ModelConfig | None,
+        allowed: Callable[[], bool],
+    ) -> None:
+        """Reproduce one handoff and its owned terminal evidence deterministically."""
+
+        assert allowed() and claim.active()
+        claim.handoff()
+        self.submit_prompt(
+            prompt=prompt, turn_id=claim.request_id,
+            session_selection=session_selection, execution_model=execution_model,
+        )
+        (claim.turn_dir / "exitcode").write_text("0\n")
 
     def send_control_input(self, *, sequence: str, escape_special_keys: bool = False) -> str:
         """Reject raw control input for the deterministic E2E fake."""
@@ -291,6 +324,34 @@ def _seed_gateway_manifest(tmp_path: Path, *, seed: GatewayLaunchSeed) -> Path:
         )
     )
     write_session_manifest(manifest_path, payload)
+    now = datetime.now(UTC)
+    empty_slot = RegistryMailboxSlotV1(revision="ag-ui-empty", binding=None)
+    publish_managed_agent_record(
+        ManagedAgentRegistryRecordV3(
+            agent_name="HOUMAO-ag-ui-e2e-agent",
+            agent_id=agent_id,
+            mode="headless",
+            generation_id=generation,
+            execution_binding=binding,
+            identity=RegistryIdentityV1(backend=backend, tool="codex"),
+            runtime=RegistryRuntimeV1(
+                manifest_path=str(manifest_path), session_root=str(manifest_path.parent),
+                agent_def_dir=str(agent_def_dir),
+            ),
+            terminal=RegistryTerminalV2(
+                current_session_name="HOUMAO-ag-ui-e2e", last_session_name="HOUMAO-ag-ui-e2e"
+            ),
+            lifecycle=RegistryLifecycleV1(
+                state="active", relaunchable=True, state_updated_at=now.isoformat()
+            ),
+            liveness=RegistryLivenessV1(
+                published_at=now.isoformat(), lease_expires_at=(now + timedelta(minutes=3)).isoformat()
+            ),
+            mailboxes=RegistryMailboxesV1(offline=empty_slot, online=empty_slot),
+            canonical_mail_identity=None,
+        ),
+        env={HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR: binding.registry_root},
+    )
     ensure_gateway_capability(
         GatewayCapabilityPublication(
             manifest_path=manifest_path,

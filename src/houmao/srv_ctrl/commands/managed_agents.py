@@ -14,7 +14,7 @@ from houmao.mailbox.online_models import (
 from houmao.mailbox.online_models import OnlineAuthorityContext
 from houmao.mailbox.errors import GatewayMailboxMutationError
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -22,6 +22,7 @@ from datetime import UTC, datetime
 import json
 from pathlib import Path
 import shlex
+from time import monotonic, sleep
 from typing import Any, Literal, TypeVar, TypedDict, cast
 import uuid
 
@@ -49,29 +50,45 @@ from houmao.agents.mailbox_runtime_support import (
     safe_registry_mailboxes_projection,
 )
 from houmao.agents.model_selection import ModelConfig, normalize_model_config
+from houmao.agents.realm_controller.backends.cao_rest import CaoRestSession
+from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
+from houmao.agents.realm_controller.backends.kimi_web import KimiWebSession
+from houmao.agents.realm_controller.backends.local_interactive import LocalInteractiveSession
 from houmao.agents.realm_controller.backends.dsh_web import DshWebSession
+from houmao.agents.realm_controller.backends.service_runtime import ManagedServiceSession
 from houmao.agents.realm_controller.web_observation import WebObservation, web_state_is_fresh
 from houmao.agents.realm_controller.gateway_storage import web_attach_metadata_from_state
-from houmao.passive_server.compatibility import managed_web_state_from_native
+from houmao.passive_server.compatibility import (
+    managed_runtime_headless_detail_response,
+    managed_runtime_headless_state_from_observation,
+    managed_service_detail_response,
+    managed_service_state_from_observation,
+    managed_web_state_from_native,
+)
 from houmao.agents.realm_controller.backends.headless_output import (
     HeadlessProvider,
     resolve_headless_provider,
 )
 from houmao.agents.realm_controller.backends.headless_runner import (
-    HeadlessProcessMetadata,
-    load_headless_process_metadata,
+    interrupt_owned_headless_attempt,
     load_headless_turn_events,
-    read_headless_turn_return_code,
+)
+from houmao.agents.realm_controller.headless_snapshots import (
+    HeadlessTurnSnapshot,
+    headless_turn_artifacts_root,
+    latest_headless_turn,
+    read_headless_turn,
 )
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     HEADLESS_AGENT_WINDOW_NAME,
     TmuxBackedAuthorityHealth,
+    TmuxCommandError,
     cleanup_tmux_session,
     probe_tmux_backed_authority,
-    tmux_session_exists,
 )
 from houmao.agents.realm_controller.errors import (
+    BackendExecutionError,
     BrainLaunchRuntimeError,
     GatewayHttpError,
     MailboxCommandError,
@@ -84,6 +101,11 @@ from houmao.mailbox.services import (
     build_gateway_mailbox_adapter,
 )
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
+from houmao.agents.realm_controller.owner_admission import (
+    OwnerAdmissionError,
+    observe_owner_prompt,
+    reserve_owner_prompt,
+)
 from houmao.agents.realm_controller.native_refresh import (
     inspect_native_home,
     observe_common_plugins,
@@ -178,8 +200,19 @@ from houmao.agents.realm_controller.runtime import (
     resume_runtime_session,
     resume_stopped_runtime_session,
 )
-from houmao.agents.realm_controller.models import RelaunchChatSessionSelection
+from houmao.agents.realm_controller.models import (
+    RelaunchChatSessionSelection,
+    SessionControlResult,
+    SessionEvent,
+)
+from houmao.agents.realm_controller.managed_control import (
+    ManagedControlObservationV1,
+    managed_control_capabilities,
+    terminal_prompt_not_ready_reasons,
+)
+from houmao.agents.realm_controller.run_modes import RunMode
 from houmao.agents.realm_controller.manifest import (
+    require_registry_mode_authority,
     load_session_manifest,
     parse_session_manifest_payload,
 )
@@ -210,7 +243,6 @@ from houmao.server.models import (
     HoumaoManagedAgentGatewayPromptControlRequest,
     HoumaoManagedAgentGatewayRequestCreate,
     HoumaoManagedAgentGatewaySummaryView,
-    HoumaoManagedAgentHeadlessDetailView,
     HoumaoManagedAgentWebDetailView,
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentLastTurnView,
@@ -222,8 +254,6 @@ from houmao.server.models import (
     HoumaoManagedAgentTurnView,
     ManagedAgentAvailability,
     ManagedAgentLifecycleState,
-    ManagedAgentLastTurnResult,
-    ManagedAgentTransportKind,
     ManagedAgentTurnStatus,
     HoumaoTerminalSnapshotHistoryResponse,
     HoumaoTerminalStateResponse,
@@ -242,7 +272,9 @@ from .common import (
     resolve_server_base_url,
 )
 
-_HEADLESS_BACKENDS = frozenset({"claude_headless", "codex_headless", "kimi_headless", "dsh_acp"})
+_HEADLESS_BACKENDS = frozenset(
+    {"claude_headless", "codex_headless", "kimi_headless", "dsh_headless"}
+)
 _SUPPORTED_LOCAL_TUI_PROCESSES: dict[str, tuple[str, ...]] = {
     "claude": ("claude", "claude-code"),
     "codex": ("codex",),
@@ -376,6 +408,14 @@ def _qualify_executor_identity(
 
     if identity.agent_id != locator.agent_id:
         raise click.ClickException("Execution owner returned a different logical agent identity.")
+    if (identity.tool, identity.mode, identity.backend) != (
+        locator.tool,
+        locator.mode,
+        locator.backend,
+    ):
+        raise click.ClickException(
+            "Execution owner run mode differs from the locator. Reconcile the owner before retrying."
+        )
     return identity.model_copy(
         update={
             "management_kind": "executor_managed",
@@ -700,24 +740,6 @@ class _LocalManagedAgentSelectorMiss:
 
 
 @dataclass(frozen=True)
-class _LocalHeadlessTurnSnapshot:
-    """One local headless-turn snapshot derived from runtime artifacts."""
-
-    turn_id: str
-    turn_index: int
-    status: str
-    started_at_utc: str
-    completed_at_utc: str | None
-    completion_source: str | None
-    stdout_path: Path | None
-    stderr_path: Path | None
-    status_path: Path | None
-    returncode: int | None
-    history_summary: str | None
-    error: str | None
-
-
-@dataclass(frozen=True)
 class _BrokenActiveRecoveryResult:
     """Outcome of reconciling one broken active local lifecycle record."""
 
@@ -807,7 +829,9 @@ def list_managed_agents(
                     agent_id=locator.agent_id,
                     agent_name=locator.agent_name,
                     transport="unknown",
-                    tool="unknown",
+                    tool=locator.tool,
+                    mode=locator.mode,
+                    backend=locator.backend,
                     management_kind="executor_managed",
                     lifecycle_owner="executor",
                     execution_context=locator.binding,
@@ -2136,6 +2160,8 @@ def managed_agent_state_payload(target: ManagedAgentTarget) -> HoumaoManagedAgen
             controller=controller,
             tracked_state=tracked_state,
         )
+    if target.identity.transport == "service":
+        return _local_service_state_response(controller, identity=target.identity)
     return _local_headless_state_response(
         controller=controller,
         identity=target.identity,
@@ -2184,21 +2210,18 @@ def managed_agent_detail_payload(target: ManagedAgentTarget) -> HoumaoManagedAge
             summary_state=summary_state,
             detail=tui_detail,
         )
+    if target.identity.transport == "service":
+        return managed_service_detail_response(
+            _local_service_state_response(controller, identity=target.identity)
+        )
     summary_state = _local_headless_state_response(
         controller=controller,
         identity=target.identity,
     )
     latest_turn = _latest_local_headless_turn(controller=controller)
-    detail = _local_headless_detail_response(
-        controller=controller,
+    return managed_runtime_headless_detail_response(
         summary_state=summary_state,
         latest_turn=latest_turn,
-    )
-    return HoumaoManagedAgentDetailResponse(
-        tracked_agent_id=summary_state.tracked_agent_id,
-        identity=summary_state.identity,
-        summary_state=summary_state,
-        detail=detail,
     )
 
 
@@ -2351,10 +2374,11 @@ def prompt_managed_agent(
         model=model,
         reasoning_level=reasoning_level,
     )
-    _require_headless_execution_override_target(
-        target=target,
-        execution_model=execution_model,
-    )
+    if target.identity.mode != "service":
+        _require_headless_execution_override_target(
+            target=target,
+            execution_model=execution_model,
+        )
     if _target_uses_pair_api(target):
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentSubmitPromptRequest
@@ -2369,18 +2393,215 @@ def prompt_managed_agent(
         )
 
     controller = _require_live_local_controller(target, operation="submit a prompt")
-    controller.send_prompt(
-        prompt,
+    return _dispatch_owned_manager_prompt(
+        controller,
+        tracked_agent_id=target.identity.tracked_agent_id,
+        prompt=prompt,
         execution_model=execution_model,
     )
+
+
+def _dispatch_owned_manager_prompt(
+    controller: RuntimeSessionController,
+    *,
+    tracked_agent_id: str,
+    prompt: str,
+    execution_model: ModelConfig | None,
+) -> HoumaoManagedAgentRequestAcceptedResponse:
+    """Use one owner reservation for both manager prompt entrypoints."""
+
+    if not prompt.strip():
+        raise click.ClickException("Prompt must not be empty.")
+    generation = controller.registry_generation_id
+    if generation is None:
+        raise click.ClickException("The selected owner has no current generation.")
+    dispatch_attempted = False
+    try:
+        capabilities = controller.control_capabilities()
+        capabilities.require("prompt")
+        claim = reserve_owner_prompt(
+            controller.manifest_path,
+            generation,
+            origin="manager",
+            readiness=_manager_prompt_readiness(controller, mode=capabilities.mode),
+        )
+    except (BrainLaunchRuntimeError, OSError) as exc:
+        raise click.ClickException(str(exc)) from None
+
+    backend = controller.backend_session
+    dispatch = HeadlessDispatchControl.from_callbacks(
+        allowed=claim.active,
+        confirmed=claim.handoff,
+        deadline=monotonic() + 300,
+        manifest_path=controller.manifest_path,
+        generation_id=generation,
+    )
+    try:
+        if isinstance(
+            backend,
+            (HeadlessInteractiveSession, DshWebSession, KimiWebSession, ManagedServiceSession),
+        ):
+            backend.configure_request_dispatch(dispatch)
+        dispatch_attempted = True
+        events = controller.send_prompt(
+            prompt,
+            execution_model=execution_model,
+            turn_artifact_dir_name=claim.request_id,
+        )
+    except BackendExecutionError as exc:
+        if isinstance(backend, KimiWebSession) and not dispatch.m_input_started.is_set():
+            claim.finish("failed")
+            raise click.ClickException(str(exc)) from None
+        claim.finish("uncertain" if dispatch_attempted else "failed")
+        raise
+    except BaseException:
+        # Input may have crossed the native boundary before a process or caller disappeared.
+        claim.finish("uncertain" if dispatch_attempted else "failed")
+        raise
+    finally:
+        if isinstance(
+            backend,
+            (HeadlessInteractiveSession, DshWebSession, KimiWebSession, ManagedServiceSession),
+        ):
+            backend.configure_request_dispatch(None)
+
+    delivery_state: Literal["handed_off", "completed", "interrupted", "failed", "uncertain"]
+    headless_turn_index = None
+    if capabilities.mode == "tui" and any(event.kind == "submitted" for event in events):
+        claim.handoff()
+        delivery_state = "handed_off"
+        detail = "Prompt handed off to the terminal. Provider completion is unconfirmed."
+    elif (
+        terminal := next((event for event in reversed(events) if event.kind == "done"), None)
+    ) is not None:
+        payload = terminal.payload or {}
+        outcome = payload.get("outcome", "completed" if capabilities.mode == "headless" else None)
+        if outcome in ("completed", "interrupted", "failed"):
+            delivery_state = cast(Literal["completed", "interrupted", "failed"], outcome)
+            claim.finish(delivery_state, evidence=capabilities.evidence_source)
+            detail = f"Native prompt outcome: {delivery_state}."
+            if capabilities.mode == "headless":
+                headless_turn_index = terminal.turn_index
+        else:
+            delivery_state = "uncertain"
+            claim.finish(delivery_state)
+            detail = "The owner could not verify the native prompt outcome."
+    else:
+        delivery_state = "uncertain"
+        claim.finish(delivery_state)
+        detail = "The owner could not verify the native prompt outcome."
+    if isinstance(backend, KimiWebSession) and any(
+        event.kind == "status"
+        and event.payload is not None
+        and event.payload.get("phase") == "native_admission"
+        and event.payload.get("native_status") == "queued"
+        for event in events
+    ):
+        detail = f"Kimi accepted the prompt as queued. {detail}"
     return HoumaoManagedAgentRequestAcceptedResponse(
-        success=True,
-        tracked_agent_id=target.identity.tracked_agent_id,
-        request_id=_new_request_id(prefix="prompt"),
+        success=delivery_state in {"handed_off", "completed"},
+        tracked_agent_id=tracked_agent_id,
+        request_id=claim.request_id,
         request_kind="submit_prompt",
         disposition="accepted",
-        detail="Prompt submitted through the local runtime controller.",
+        detail=detail,
+        delivery_state=delivery_state,
+        evidence_source=capabilities.evidence_source,
+        headless_turn_id=claim.request_id if capabilities.mode == "headless" else None,
+        headless_turn_index=headless_turn_index,
     )
+
+
+def _manager_prompt_readiness(
+    controller: RuntimeSessionController, *, mode: RunMode
+) -> Callable[[], None] | None:
+    """Prepare a native readiness check to run while reserving the input slot."""
+
+    if mode == "web" and isinstance(controller.backend_session, (DshWebSession, KimiWebSession)):
+        return lambda: _require_manager_web_ready(controller)
+    if mode == "service":
+        return lambda: _require_manager_service_ready(controller)
+    if mode != "tui":
+        return None
+    tracker = _local_tui_runtime_for_controller(controller)
+    with controller.execution_scope():
+        deadline = monotonic() + 2.0
+        state = tracker.refresh_once()
+        _require_manager_terminal_ready(state, require_stable=False)
+        while not state.stability.stable and monotonic() < deadline:
+            sleep(0.25)
+            state = tracker.refresh_once()
+            _require_manager_terminal_ready(state, require_stable=False)
+        _require_manager_terminal_ready(state)
+
+    def recheck() -> None:
+        """Close the observation-to-admission window before any terminal mutation."""
+
+        with controller.execution_scope():
+            _require_manager_terminal_ready(tracker.refresh_once())
+
+    return recheck
+
+
+def _require_manager_service_ready(controller: RuntimeSessionController) -> None:
+    """Require current idle native service evidence before admitting a prompt."""
+
+    observed = controller.observe_managed_service()
+    if observed.owner_available is not True or observed.connection_ready is not True:
+        raise OwnerAdmissionError("unavailable", "The native service connection is unavailable.")
+    if observed.can_accept_prompt_now is not True:
+        raise OwnerAdmissionError("not_ready", "The native service cannot admit a prompt now.")
+
+
+def _require_manager_web_ready(controller: RuntimeSessionController) -> None:
+    """Require ready evidence from the controller's exact native Web identity."""
+
+    backend = controller.backend_session
+    if isinstance(backend, (DshWebSession, KimiWebSession)):
+        manifest = controller.require_managed_control_owner()
+        metadata = web_attach_metadata_from_state(manifest.backend_state)
+        with controller.execution_scope():
+            observed = WebObservation(
+                metadata=metadata,
+                state=backend.observe_web_state,
+                history=backend.observe_web_history,
+            ).refresh()
+        if observed.availability != "available":
+            raise OwnerAdmissionError("unavailable", "The native Web session is unavailable.")
+        if not observed.can_accept_prompt_now:
+            raise OwnerAdmissionError("not_ready", "The native Web session is busy.")
+
+
+def _require_manager_terminal_ready(
+    state: HoumaoTerminalStateResponse, *, require_stable: bool = True
+) -> None:
+    """Require the shared terminal readiness criteria and an empty composer."""
+
+    reasons = terminal_prompt_not_ready_reasons(state, require_stable=require_stable)
+    if state.surface.pending_input != "no":
+        reasons.append(f"surface.pending_input={state.surface.pending_input!r}")
+    if reasons:
+        raise OwnerAdmissionError(
+            "not_ready", f"The terminal is not ready to accept a prompt ({', '.join(reasons)})."
+        )
+
+
+def open_managed_agent_browser(target: ManagedAgentTarget) -> SessionControlResult:
+    """Open the owner's Kimi Web UI through an explicit local manager action."""
+
+    controller = _require_live_local_controller(target, operation="open the native browser")
+    backend = controller.backend_session
+    if not isinstance(backend, KimiWebSession):
+        raise click.ClickException("Browser opening requires an active local Kimi Web agent.")
+    try:
+        with controller.execution_scope():
+            controller.require_managed_control_owner()
+            result = backend.open_browser()
+    except (OSError, BrainLaunchRuntimeError) as exc:
+        raise click.ClickException(str(exc)) from None
+    if result.status != "ok":
+        raise click.ClickException(result.detail)
+    return result
 
 
 def interrupt_managed_agent(target: ManagedAgentTarget) -> object:
@@ -2404,7 +2625,25 @@ def interrupt_managed_agent(target: ManagedAgentTarget) -> object:
         )
 
     controller = _require_live_local_controller(target, operation="interrupt managed agent")
-    result = controller.interrupt()
+    try:
+        capabilities = controller.control_capabilities()
+        capabilities.require("interrupt")
+        if capabilities.mode == "headless":
+            generation = controller.registry_generation_id
+            if generation is None:
+                raise SessionManifestError("The selected owner has no current generation.")
+            attempt = observe_owner_prompt(controller.manifest_path, generation)
+            result = (
+                interrupt_owned_headless_attempt(attempt.turn_dir)
+                if attempt is not None
+                else SessionControlResult(
+                    status="ok", action="interrupt", detail="No in-flight managed headless request."
+                )
+            )
+        else:
+            result = controller.interrupt()
+    except (BrainLaunchRuntimeError, OSError) as exc:
+        raise click.ClickException(str(exc)) from None
     return HoumaoManagedAgentActionResponse(
         success=result.status == "ok",
         tracked_agent_id=target.identity.tracked_agent_id,
@@ -5013,6 +5252,8 @@ def submit_headless_turn(
     """Submit one headless turn for a managed agent."""
 
     _raise_external_unsupported(target, operation="agents single ... turn submit")
+    if target.identity.transport != "headless":
+        raise click.ClickException("This command requires headless mode.")
 
     execution_model = _resolve_execution_model_override(
         model=model,
@@ -5034,21 +5275,20 @@ def submit_headless_turn(
         )
 
     controller = _require_live_local_controller(target, operation="submit headless turn")
-    turn_index = _next_turn_index(controller)
-    turn_id = f"turn-{turn_index:04d}"
-    controller.send_prompt(
-        prompt,
-        turn_artifact_dir_name=turn_id,
+    outcome = _dispatch_owned_manager_prompt(
+        controller,
+        tracked_agent_id=target.identity.tracked_agent_id,
+        prompt=prompt,
         execution_model=execution_model,
     )
-    snapshot = _turn_snapshot_from_id(controller=controller, turn_id=turn_id)
+    snapshot = _turn_snapshot_from_id(controller=controller, turn_id=outcome.request_id)
     return HoumaoHeadlessTurnAcceptedResponse(
-        success=True,
+        success=outcome.success,
         tracked_agent_id=target.identity.tracked_agent_id,
-        turn_id=turn_id,
+        turn_id=outcome.request_id,
         turn_index=snapshot.turn_index,
         status=_managed_agent_turn_status(snapshot.status),
-        detail="Headless turn completed through the local runtime controller.",
+        detail=outcome.detail,
     )
 
 
@@ -5203,13 +5443,7 @@ def _identity_merge_key(identity: HoumaoManagedAgentIdentity) -> str:
 def _identity_from_record(record: ManagedAgentRegistryRecordV3) -> HoumaoManagedAgentIdentity:
     """Project one registry record into the shared identity payload."""
 
-    transport: ManagedAgentTransportKind = (
-        "web"
-        if record.identity.backend == "dsh_web"
-        else "headless"
-        if record.identity.backend in _HEADLESS_BACKENDS
-        else "tui"
-    )
+    transport = record.mode
     manifest = _managed_manifest_for_identity(Path(record.runtime.manifest_path))
     tracked_agent_id = record.agent_id or record.agent_name or record.terminal.session_name
     tmux_window_name = _managed_tmux_window_name_from_manifest_path(
@@ -5223,7 +5457,9 @@ def _identity_from_record(record: ManagedAgentRegistryRecordV3) -> HoumaoManaged
     return HoumaoManagedAgentIdentity(
         tracked_agent_id=tracked_agent_id,
         transport=transport,
-        native_surface=manifest.native_surface if manifest is not None else record.native_surface,
+        mode=record.mode,
+        backend=record.identity.backend,
+        native_surface=record.native_surface,
         tool=record.identity.tool,
         session_name=record.terminal.session_name if transport == "tui" else None,
         terminal_id=None,
@@ -5257,6 +5493,7 @@ def _resume_controller_from_record(
     agent_def_dir = Path(agent_def_dir_raw).expanduser().resolve()
     manifest_path = Path(record.runtime.manifest_path).expanduser().resolve()
     try:
+        require_registry_mode_authority(record)
         return resume_runtime_session(
             agent_def_dir=agent_def_dir,
             session_manifest_path=manifest_path,
@@ -5341,6 +5578,7 @@ def _resume_stopped_controller_from_record(
             f"agent-definition directory `{agent_def_dir}` is unavailable."
         )
     try:
+        require_registry_mode_authority(record)
         return resume_stopped_runtime_session(
             agent_def_dir=agent_def_dir,
             session_manifest_path=manifest_path,
@@ -5359,13 +5597,7 @@ def _identity_from_controller(controller: RuntimeSessionController) -> HoumaoMan
     tracked_agent_id = (
         controller.agent_id or controller.agent_identity or controller.manifest_path.parent.name
     )
-    transport: ManagedAgentTransportKind = (
-        "web"
-        if controller.launch_plan.backend == "dsh_web"
-        else "headless"
-        if controller.launch_plan.backend in _HEADLESS_BACKENDS
-        else "tui"
-    )
+    transport = controller.launch_plan.mode
     manifest = _managed_manifest_for_identity(controller.manifest_path)
     tmux_window_name = _managed_tmux_window_name_from_manifest_path(
         manifest_path=controller.manifest_path,
@@ -5378,6 +5610,8 @@ def _identity_from_controller(controller: RuntimeSessionController) -> HoumaoMan
     return HoumaoManagedAgentIdentity(
         tracked_agent_id=tracked_agent_id,
         transport=transport,
+        mode=controller.launch_plan.mode,
+        backend=controller.launch_plan.backend,
         native_surface=manifest.native_surface if manifest is not None else None,
         tool=controller.launch_plan.tool,
         session_name=controller.tmux_session_name if transport == "tui" else None,
@@ -5543,6 +5777,33 @@ def _local_gateway_summary(
         status = _gateway_status_for_controller(controller)
     except click.ClickException:
         return None
+    if (
+        status.gateway_health == "healthy"
+        and status.gateway_host is not None
+        and status.gateway_port is not None
+    ):
+        try:
+            descriptor = GatewayClient(
+                endpoint=GatewayEndpoint(host=status.gateway_host, port=status.gateway_port),
+                timeout_seconds=1.0,
+            ).describe_endpoint()
+            binding = controller.execution_binding
+            if (
+                descriptor.target.owner.agent_id != controller.agent_id
+                or descriptor.target.incarnation != controller.registry_generation_id
+                or binding is None
+                or descriptor.target.owner.context_id != binding.context_id
+            ):
+                raise ValueError("Gateway belongs to a different owner.")
+        except (GatewayHttpError, ValueError):
+            return HoumaoManagedAgentGatewaySummaryView(
+                gateway_health="not_attached",
+                managed_agent_connectivity="unavailable",
+                managed_agent_recovery="idle",
+                request_admission="blocked_unavailable",
+                active_execution="idle",
+                queue_depth=status.queue_depth,
+            )
     return HoumaoManagedAgentGatewaySummaryView(
         gateway_health=status.gateway_health,
         managed_agent_connectivity=status.managed_agent_connectivity,
@@ -5607,10 +5868,12 @@ def _tracked_tui_identity_for_controller(
         or controller.agent_identity
         or controller.manifest_path.parent.name
     )
+    launch_policy = controller.launch_plan.launch_policy_provenance
     return HoumaoTrackedSessionIdentity(
         tracked_session_id=tracked_agent_id,
         session_name=tmux_session_name,
         tool=controller.launch_plan.tool,
+        observed_tool_version=launch_policy.detected_tool_version if launch_policy else None,
         tmux_session_name=tmux_session_name,
         tmux_window_name=_managed_tmux_window_name_from_manifest_path(
             manifest_path=controller.manifest_path,
@@ -5671,7 +5934,8 @@ def _refresh_local_tui_state(
 ) -> HoumaoTerminalStateResponse:
     """Poll one local interactive session once and return the tracked state."""
 
-    return _local_tui_runtime_for_controller(controller).refresh_once()
+    with controller.execution_scope():
+        return _local_tui_runtime_for_controller(controller).refresh_once()
 
 
 def _local_tui_state_response_from_state(
@@ -5683,11 +5947,33 @@ def _local_tui_state_response_from_state(
 
     diagnostics = _tracked_errors(tracked_state=tracked_state)
     turn_phase = tracked_state.turn.phase
+    identity = _managed_identity_from_local_tui_state(
+        controller=controller, tracked_state=tracked_state
+    )
+    probe = tracked_state.probe_snapshot
+    known = probe is not None and tracked_state.diagnostics.availability == "available"
+    surface = tracked_state.surface
     return HoumaoManagedAgentStateResponse(
         tracked_agent_id=tracked_state.tracked_session.tracked_session_id,
-        identity=_managed_identity_from_local_tui_state(
-            controller=controller,
-            tracked_state=tracked_state,
+        identity=identity,
+        capabilities=managed_control_capabilities(
+            tool=identity.tool,
+            mode="tui",
+            backend=controller.launch_plan.backend,
+            native_surface=identity.native_surface,
+        ),
+        control=ManagedControlObservationV1(
+            source="terminal_tracker",
+            freshness="current" if known else "unknown",
+            observed_at_utc=probe.observed_at_utc if probe is not None else None,
+            owner_available=True,
+            can_accept_prompt_now=(
+                known
+                and turn_phase == "ready"
+                and surface.accepting_input == "yes"
+                and surface.ready_posture == "yes"
+                and surface.pending_input == "no"
+            ),
         ),
         availability=_availability_from_local_tui_state(tracked_state),
         turn=HoumaoManagedAgentTurnView(
@@ -5738,19 +6024,13 @@ def _managed_identity_from_local_tui_state(
     """Project one local tracked TUI identity into the shared managed-agent model."""
 
     tracked = tracked_state.tracked_session
-    return HoumaoManagedAgentIdentity(
-        tracked_agent_id=tracked.tracked_session_id,
-        transport="tui",
-        tool=tracked.tool,
-        session_name=tracked.session_name,
-        terminal_id=tracked_state.terminal_id,
-        runtime_session_id=controller.manifest_path.parent.name,
-        tmux_session_name=tracked.tmux_session_name,
-        tmux_window_name=tracked.tmux_window_name,
-        manifest_path=tracked.manifest_path or str(controller.manifest_path),
-        session_root=tracked.session_root or str(controller.manifest_path.parent),
-        agent_name=tracked.agent_name or controller.agent_identity,
-        agent_id=tracked.agent_id or controller.agent_id,
+    return _identity_from_controller(controller).model_copy(
+        update={
+            "tracked_agent_id": tracked.tracked_session_id,
+            "session_name": tracked.session_name,
+            "terminal_id": tracked_state.terminal_id,
+            "tmux_window_name": tracked.tmux_window_name,
+        }
     )
 
 
@@ -5829,15 +6109,16 @@ def _local_web_state_response(
         except GatewayHttpError:
             pass
     if state.availability != "available":
-        backend: DshWebSession | None = None
+        backend: DshWebSession | KimiWebSession | None = None
         try:
             if controller.agent_def_dir is None:
                 raise ValueError("Direct Web observation requires private runtime authority")
             fresh = resume_runtime_session(
                 agent_def_dir=controller.agent_def_dir,
                 session_manifest_path=controller.manifest_path,
+                read_only=True,
             )
-            if not isinstance(fresh.backend_session, DshWebSession):
+            if not isinstance(fresh.backend_session, (DshWebSession, KimiWebSession)):
                 raise click.ClickException(
                     "Native Web observation requires the Web runtime adapter"
                 )
@@ -5861,6 +6142,19 @@ def _local_web_state_response(
     return summary.model_copy(update=dict(_controller_memory_state_fields(controller=controller)))
 
 
+def _local_service_state_response(
+    controller: RuntimeSessionController, *, identity: HoumaoManagedAgentIdentity
+) -> HoumaoManagedAgentStateResponse:
+    """Report the provider connection separately from local owner liveness."""
+
+    return managed_service_state_from_observation(
+        identity=identity,
+        observation=controller.observe_managed_service(),
+        gateway_summary=_local_gateway_summary(controller),
+        mailbox_summary=_local_mailbox_summary(controller),
+    )
+
+
 def _local_headless_state_response(
     *,
     controller: RuntimeSessionController,
@@ -5868,144 +6162,47 @@ def _local_headless_state_response(
 ) -> HoumaoManagedAgentStateResponse:
     """Build one local managed-agent state response for a headless controller."""
 
-    latest_turn = _latest_local_headless_turn(controller=controller)
-    gateway_summary = _local_gateway_summary(controller)
-    mailbox_summary = _local_mailbox_summary(controller)
-    if latest_turn is None:
-        turn_view = HoumaoManagedAgentTurnView(phase="ready", active_turn_id=None)
-        last_turn = HoumaoManagedAgentLastTurnView(result="none", turn_id=None, turn_index=None)
-    else:
-        turn_view = HoumaoManagedAgentTurnView(
-            phase="active" if latest_turn.status == "active" else "ready",
-            active_turn_id=latest_turn.turn_id if latest_turn.status == "active" else None,
-        )
-        last_turn = HoumaoManagedAgentLastTurnView(
-            result=_last_turn_result_from_snapshot(latest_turn),
-            turn_id=latest_turn.turn_id,
-            turn_index=latest_turn.turn_index,
-            updated_at_utc=latest_turn.completed_at_utc or latest_turn.started_at_utc,
-        )
-
-    return HoumaoManagedAgentStateResponse(
-        tracked_agent_id=identity.tracked_agent_id,
+    native_session = (
+        controller.backend_session.state.session_id
+        if isinstance(controller.backend_session, HeadlessInteractiveSession)
+        else None
+    )
+    summary = managed_runtime_headless_state_from_observation(
         identity=identity,
-        availability="available",
-        turn=turn_view,
-        last_turn=last_turn,
-        diagnostics=[],
-        mailboxes=mailbox_summary,
-        gateway=gateway_summary,
-        **_controller_memory_state_fields(controller=controller),
+        latest_turn=_latest_local_headless_turn(controller=controller),
+        owner_available=True,
+        native_session_id=native_session,
+        mailbox_summary=_local_mailbox_summary(controller),
+        gateway_summary=_local_gateway_summary(controller),
     )
-
-
-def _local_headless_detail_response(
-    *,
-    controller: RuntimeSessionController,
-    summary_state: HoumaoManagedAgentStateResponse,
-    latest_turn: _LocalHeadlessTurnSnapshot | None,
-) -> HoumaoManagedAgentHeadlessDetailView:
-    """Build one local headless detail payload."""
-
-    tmux_session_name = controller.tmux_session_name
-    with controller.execution_scope():
-        tmux_session_live = (
-            tmux_session_exists(session_name=tmux_session_name)
-            if tmux_session_name is not None
-            else False
-        )
-    active = latest_turn is not None and latest_turn.status == "active"
-    return HoumaoManagedAgentHeadlessDetailView(
-        runtime_resumable=True,
-        tmux_session_live=tmux_session_live,
-        can_accept_prompt_now=not active,
-        interruptible=active,
-        turn=summary_state.turn,
-        last_turn=summary_state.last_turn,
-        active_turn_started_at_utc=(
-            latest_turn.started_at_utc if active and latest_turn is not None else None
-        ),
-        active_turn_interrupt_requested_at_utc=None,
-        last_turn_status=(
-            _managed_agent_turn_status(latest_turn.status) if latest_turn is not None else None
-        ),
-        last_turn_started_at_utc=latest_turn.started_at_utc if latest_turn is not None else None,
-        last_turn_completed_at_utc=(
-            latest_turn.completed_at_utc if latest_turn is not None else None
-        ),
-        last_turn_completion_source=(
-            latest_turn.completion_source if latest_turn is not None else None
-        ),
-        last_turn_returncode=latest_turn.returncode if latest_turn is not None else None,
-        last_turn_history_summary=latest_turn.history_summary if latest_turn is not None else None,
-        last_turn_error=latest_turn.error if latest_turn is not None else None,
-        mailboxes=summary_state.mailboxes,
-        gateway=summary_state.gateway,
-        diagnostics=[],
-    )
-
-
-def _turn_artifacts_root(controller: RuntimeSessionController) -> Path:
-    """Return the persisted headless turn-artifact root for one controller."""
-
-    return (
-        controller.manifest_path.parent / f"{controller.manifest_path.stem}.turn-artifacts"
-    ).resolve()
-
-
-def _next_turn_index(controller: RuntimeSessionController) -> int:
-    """Return the next local headless turn index."""
-
-    backend_session = controller.backend_session
-    if isinstance(backend_session, HeadlessInteractiveSession):
-        return backend_session.state.turn_index + 1
-    return len(_list_local_headless_turns(controller=controller)) + 1
-
-
-def _list_local_headless_turns(
-    controller: RuntimeSessionController,
-) -> list[_LocalHeadlessTurnSnapshot]:
-    """List persisted local headless turns newest-first."""
-
-    root = _turn_artifacts_root(controller)
-    if not root.exists():
-        return []
-    provider = resolve_headless_provider(
-        tool=controller.launch_plan.tool,
-        backend=controller.launch_plan.backend,
-    )
-    snapshots: list[_LocalHeadlessTurnSnapshot] = []
-    for candidate in sorted(root.iterdir(), reverse=True):
-        if not candidate.is_dir():
-            continue
-        snapshots.append(_snapshot_from_turn_dir(candidate, provider=provider))
-    return snapshots
+    return summary.model_copy(update=dict(_controller_memory_state_fields(controller=controller)))
 
 
 def _latest_local_headless_turn(
-    *,
-    controller: RuntimeSessionController,
-) -> _LocalHeadlessTurnSnapshot | None:
-    """Return the latest local headless turn snapshot when available."""
+    *, controller: RuntimeSessionController
+) -> HeadlessTurnSnapshot | None:
+    """Return the latest persisted turn for the addressed headless owner."""
 
-    snapshots = _list_local_headless_turns(controller=controller)
-    if not snapshots:
-        return None
-    return snapshots[0]
+    return latest_headless_turn(
+        manifest_path=controller.manifest_path,
+        tool=controller.launch_plan.tool,
+        backend=controller.launch_plan.backend,
+    )
 
 
 def _turn_snapshot_from_id(
     *,
     controller: RuntimeSessionController,
     turn_id: str,
-) -> _LocalHeadlessTurnSnapshot:
+) -> HeadlessTurnSnapshot:
     """Return one local turn snapshot or fail clearly."""
 
-    candidate = (_turn_artifacts_root(controller) / turn_id).resolve()
+    candidate = (headless_turn_artifacts_root(controller.manifest_path) / turn_id).resolve()
     if not candidate.is_dir():
         raise click.ClickException(f"Headless turn `{turn_id}` was not found.")
-    return _snapshot_from_turn_dir(
+    return read_headless_turn(
         candidate,
+        dsh_cli=controller.launch_plan.backend == "dsh_headless",
         provider=resolve_headless_provider(
             tool=controller.launch_plan.tool,
             backend=controller.launch_plan.backend,
@@ -6013,64 +6210,8 @@ def _turn_snapshot_from_id(
     )
 
 
-def _snapshot_from_turn_dir(
-    turn_dir: Path,
-    *,
-    provider: HeadlessProvider,
-) -> _LocalHeadlessTurnSnapshot:
-    """Read one local headless turn snapshot from a persisted artifact directory."""
-
-    stdout_path = (turn_dir / "stdout.jsonl").resolve()
-    stderr_path = (turn_dir / "stderr.log").resolve()
-    status_path = (turn_dir / "exitcode").resolve()
-    process_path = (turn_dir / "process.json").resolve()
-    process_metadata = _read_process_metadata(process_path)
-    started_at_utc = (
-        process_metadata.launched_at_utc
-        if process_metadata is not None and process_metadata.launched_at_utc is not None
-        else _isoformat_from_mtime(turn_dir)
-    )
-    returncode: int | None = None
-    completed_at_utc: str | None = None
-    status = "active"
-    error: str | None = None
-    if status_path.exists():
-        try:
-            returncode = read_headless_turn_return_code(status_path=status_path)
-        except Exception as exc:
-            error = str(exc)
-            status = "failed"
-        else:
-            status = "completed" if returncode == 0 else "failed"
-            completed_at_utc = _isoformat_from_mtime(status_path)
-            if returncode != 0 and stderr_path.exists():
-                raw_error = stderr_path.read_text(encoding="utf-8").strip()
-                error = raw_error or None
-    turn_index = _turn_index_from_name(turn_dir.name)
-    completion_source = _completion_source_from_turn_dir(
-        turn_dir,
-        provider=provider,
-        turn_index=turn_index,
-    )
-    history_summary = f"{turn_dir.name} {status}"
-    return _LocalHeadlessTurnSnapshot(
-        turn_id=turn_dir.name,
-        turn_index=turn_index,
-        status=status,
-        started_at_utc=started_at_utc,
-        completed_at_utc=completed_at_utc,
-        completion_source=completion_source,
-        stdout_path=stdout_path if stdout_path.exists() else None,
-        stderr_path=stderr_path if stderr_path.exists() else None,
-        status_path=status_path if status_path.exists() else None,
-        returncode=returncode,
-        history_summary=history_summary,
-        error=error,
-    )
-
-
 def _load_turn_events(
-    snapshot: _LocalHeadlessTurnSnapshot,
+    snapshot: HeadlessTurnSnapshot,
     *,
     provider: HeadlessProvider,
 ) -> list[HoumaoHeadlessTurnEvent]:
@@ -6097,76 +6238,6 @@ def _load_turn_events(
     return entries
 
 
-def _read_process_metadata(process_path: Path) -> HeadlessProcessMetadata | None:
-    """Read one optional local process metadata artifact."""
-
-    if not process_path.exists():
-        return None
-    try:
-        return load_headless_process_metadata(process_path=process_path)
-    except Exception:
-        return None
-
-
-def _turn_index_from_name(turn_id: str) -> int:
-    """Extract one integer turn index from a `turn-0001` directory name."""
-
-    suffix = turn_id.rsplit("-", maxsplit=1)[-1]
-    try:
-        return int(suffix)
-    except ValueError:
-        return 0
-
-
-def _completion_source_from_turn_dir(
-    turn_dir: Path,
-    *,
-    provider: HeadlessProvider,
-    turn_index: int,
-) -> str | None:
-    """Extract the completion source from preferred persisted turn events."""
-
-    if not turn_dir.exists():
-        return None
-    try:
-        events = load_headless_turn_events(
-            turn_dir=turn_dir,
-            provider=provider,
-            output_format="stream-json",
-            turn_index=turn_index,
-        )
-    except Exception:
-        return None
-    for event in reversed(events):
-        payload = event.payload
-        if not isinstance(payload, dict):
-            continue
-        value = payload.get("completion_source")
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return None
-
-
-def _isoformat_from_mtime(path: Path) -> str:
-    """Return one UTC ISO-8601 timestamp from a filesystem mtime."""
-
-    return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).isoformat(timespec="seconds")
-
-
-def _last_turn_result_from_snapshot(
-    snapshot: _LocalHeadlessTurnSnapshot,
-) -> ManagedAgentLastTurnResult:
-    """Map one local headless turn snapshot to the managed-agent last-turn result."""
-
-    if snapshot.status == "active":
-        return "unknown"
-    if snapshot.status == "completed":
-        return "success" if snapshot.returncode == 0 else "known_failure"
-    if snapshot.status == "failed":
-        return "known_failure"
-    return "unknown"
-
-
 def _run_local_mail_prompt(
     *,
     channel: MailboxChannel,
@@ -6175,7 +6246,7 @@ def _run_local_mail_prompt(
     operation: str,
     args: dict[str, Any],
 ) -> dict[str, Any]:
-    """Run one local mailbox operation through the runtime-owned mail prompt path."""
+    """Run one submission-only mailbox fallback through the current owner slot."""
 
     try:
         mailbox = ensure_mailbox_command_ready(
@@ -6201,20 +6272,103 @@ def _run_local_mail_prompt(
         prefer_live_gateway=prefer_live_gateway,
         tmux_session_name=controller.tmux_session_name,
     )
+
+    def send_owned(request: MailPromptRequest) -> list[SessionEvent]:
+        """Retain the mailbox-specific event projection after a guarded native send."""
+
+        backend = controller.backend_session
+        generation = controller.registry_generation_id
+        try:
+            capabilities = controller.control_capabilities()
+            capabilities.require("prompt")
+            if (
+                generation is None
+                or capabilities.mode != "tui"
+                or not isinstance(backend, (LocalInteractiveSession, CaoRestSession))
+            ):
+                raise BackendExecutionError("The selected owner does not support TUI mail prompts.")
+            readiness = _manager_prompt_readiness(controller, mode="tui")
+            if readiness is None:
+                raise BackendExecutionError("Verified terminal readiness is unavailable.")
+            with controller.execution_scope():
+                identity = (
+                    backend.plugin_execution_identity()
+                    if isinstance(backend, LocalInteractiveSession)
+                    else None
+                )
+            claim = reserve_owner_prompt(
+                controller.manifest_path,
+                generation,
+                request_id=request.request_id,
+                origin="manager_mail",
+                readiness=readiness,
+            )
+        except OwnerAdmissionError as exc:
+            if exc.code in {"not_ready", "uncertain"}:
+                raise BackendExecutionError(f"Managed terminal is busy. {exc}") from exc
+            raise
+        except (OSError, SessionManifestError, TmuxCommandError) as exc:
+            raise BackendExecutionError(str(exc)) from exc
+
+        dispatch: HeadlessDispatchControl | None = None
+        attempted = False
+        try:
+            if isinstance(backend, LocalInteractiveSession):
+
+                def allowed() -> bool:
+                    """Recheck the exact TUI and its readiness before literal paste."""
+
+                    if not claim.active():
+                        return False
+                    try:
+                        with controller.execution_scope():
+                            if dispatch is not None and not dispatch.m_input_started.is_set():
+                                readiness()
+                            return backend.plugin_execution_identity() == identity
+                    except (BrainLaunchRuntimeError, OSError, TmuxCommandError):
+                        return False
+
+                dispatch = HeadlessDispatchControl.from_callbacks(
+                    allowed=allowed,
+                    confirmed=claim.handoff,
+                    deadline=monotonic() + 10,
+                    manifest_path=claim.manifest_path,
+                    generation_id=claim.generation_id,
+                )
+                backend.configure_request_dispatch(dispatch)
+            elif not claim.active():
+                raise BackendExecutionError("The managed terminal owner changed before submission.")
+
+            attempted = True
+            events = controller.send_mail_prompt(request)
+            if dispatch is not None:
+                if not dispatch.m_handoff_confirmed.is_set():
+                    raise BackendExecutionError("Native terminal handoff could not be verified.")
+            elif any(event.kind == "submitted" for event in events) and claim.active():
+                claim.handoff()
+                if any(
+                    event.kind == "done"
+                    and (event.payload or {}).get("canonical_runtime_status") == "completed"
+                    for event in events
+                ):
+                    claim.finish("settled", evidence="terminal_tracker")
+            else:
+                raise BackendExecutionError("Native terminal handoff could not be verified.")
+            return events
+        except BaseException:
+            input_may_have_started = attempted and (
+                dispatch is None or dispatch.m_input_started.is_set()
+            )
+            claim.finish("uncertain" if input_may_have_started else "failed")
+            raise
+        finally:
+            if isinstance(backend, LocalInteractiveSession):
+                backend.configure_request_dispatch(None)
+
     return run_mail_prompt(
-        send_prompt=controller.send_prompt,
-        send_mail_prompt=(
-            controller.send_mail_prompt
-            if callable(getattr(controller, "send_mail_prompt", None))
-            else None
-        ),
-        prompt_request=MailPromptRequest(
-            channel=channel,
-            request_id=prompt_request.request_id,
-            operation=prompt_request.operation,
-            prompt=prompt_request.prompt,
-            expected_binding_id=expected_binding_id,
-        ),
+        send_prompt=None,
+        send_mail_prompt=send_owned,
+        prompt_request=prompt_request,
         mailbox=mailbox,
     )
 

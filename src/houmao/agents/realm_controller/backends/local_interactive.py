@@ -164,15 +164,7 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
             )
         if not prompt.strip():
             raise BackendExecutionError("Prompt must not be empty")
-        if (
-            not self._state.role_bootstrap_applied
-            and self._plan.role_injection.method == "bootstrap_message"
-            and self._plan.role_injection.bootstrap_message
-        ):
-            self._submit_semantic_prompt(self._plan.role_injection.bootstrap_message)
-            self._state.role_bootstrap_applied = True
-        self._submit_semantic_prompt(prompt)
-        self._state.turn_index += 1
+        self._submit_runtime_prompt(prompt)
         return [
             SessionEvent(
                 kind="submitted",
@@ -483,6 +475,9 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
             self._submit_semantic_prompt(self._plan.role_injection.bootstrap_message)
             self._state.role_bootstrap_applied = True
         self._submit_semantic_prompt(prompt)
+        control = getattr(self, "m_dispatch_control", None)
+        if control is not None:
+            control.confirm_handoff()
         self._state.turn_index += 1
 
     def _submit_semantic_prompt(self, text: str) -> None:

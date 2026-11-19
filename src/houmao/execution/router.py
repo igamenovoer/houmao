@@ -9,6 +9,7 @@ from typing import Any, cast
 
 import click
 
+from houmao.agents.realm_controller.native_surface import WebNativeSurfaceV1
 from houmao.execution.locators import ExecutorAgentLocatorV1, publish_executor_locator
 from houmao.execution.models import (
     ExecutionOperation,
@@ -64,6 +65,14 @@ def execute_bound_operation(
     identity = described.result.get("identity")
     if not isinstance(identity, dict) or identity.get("agent_id") != locator.agent_id:
         raise click.ClickException("Owner reported a different managed-agent identity.")
+    if (identity.get("tool"), identity.get("mode"), identity.get("backend")) != (
+        locator.tool,
+        locator.mode,
+        locator.backend,
+    ):
+        raise click.ClickException(
+            "Execution owner run mode differs from the locator. Reconcile the owner before retrying."
+        )
     if operation == "describe":
         return described
     generation = described.result.get("generation_id")
@@ -91,6 +100,11 @@ def require_execution_result(response: ExecutionResponseV1) -> JsonObject:
     """Return confirmed results or surface safe owner failure/uncertainty information."""
 
     if response.outcome != "completed":
+        if (
+            response.error_code in {"invalid_run_mode", "unusable_mode_authority"}
+            and response.error_message
+        ):
+            raise click.ClickException(response.error_message)
         raise click.ClickException(
             f"Execution {response.outcome}: {response.error_code}; request={response.request_id}. "
             "Inspect the owning agent before deliberately retrying."
@@ -124,13 +138,24 @@ def launch_with_executor(executor: str, parameters: dict[str, Any]) -> None:
         raise click.ClickException(
             "Owner launch returned no admitted identity; inspect before retrying."
         )
-    locator = ExecutorAgentLocatorV1(
-        agent_id=identity,
-        agent_name=name,
-        profile_name=profile.name,
-        binding=response.binding,
-    )
     try:
+        locator = ExecutorAgentLocatorV1.model_validate(
+            {
+                "agent_id": identity,
+                "agent_name": name,
+                "tool": result.get("tool"),
+                "mode": result.get("mode"),
+                "backend": result.get("backend"),
+                "profile_name": profile.name,
+                "binding": response.binding,
+            }
+        )
+        if locator.mode == "web":
+            surface = WebNativeSurfaceV1.model_validate(result.get("native_surface"))
+            result["native_surface"] = cast(JsonObject, surface.model_dump(mode="json"))
+            result["browser_origin"] = surface.origin
+            result["native_session_id"] = surface.native_session_id
+            result["browser_handoff"] = "owner_context_required"
         publish_executor_locator(locator)
     except (OSError, ValueError):
         emit(
@@ -145,6 +170,10 @@ def launch_with_executor(executor: str, parameters: dict[str, Any]) -> None:
         raise click.ClickException(
             "Owner launch succeeded; operator locator publication failed. Do not launch again."
         ) from None
+    # A remote terminal command requires the owner's tmux socket and OS context.
+    if locator.mode == "tui":
+        result.pop("attach_command", None)
+        result["terminal_handoff"] = "owner_context_required"
     emit({**result, "execution_context": response.binding.model_dump(mode="json")})
 
 
@@ -169,11 +198,16 @@ def reconcile_executor_agent(executor: str, agent_id: str) -> ExecutorAgentLocat
     if observed_id != agent_id or not isinstance(name, str):
         raise click.ClickException("Owner identity does not match reconciliation target.")
     return publish_executor_locator(
-        ExecutorAgentLocatorV1(
-            agent_id=agent_id,
-            agent_name=name,
-            profile_name=executor,
-            binding=response.binding,
+        ExecutorAgentLocatorV1.model_validate(
+            {
+                "agent_id": agent_id,
+                "agent_name": name,
+                "tool": identity.get("tool"),
+                "mode": identity.get("mode"),
+                "backend": identity.get("backend"),
+                "profile_name": executor,
+                "binding": response.binding,
+            }
         )
     )
 

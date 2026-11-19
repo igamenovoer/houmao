@@ -26,15 +26,15 @@ from tests.unit.agents.realm_controller.test_gateway_support import (
 
 
 @pytest.mark.parametrize("operation", ["ensure", "attach", "detach", "status"])
-@pytest.mark.parametrize("tool", ["claude", "dsh", "dsh_web"])
+@pytest.mark.parametrize("tool", ["claude", "dsh_headless", "dsh_web"])
 def test_gateway_controls_preserve_newer_native_conversation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str, tool: str
 ) -> None:
     """An old controller must not overwrite a native turn committed by the gateway."""
 
     plan = _sample_headless_plan(tmp_path)
-    if tool == "dsh":
-        plan = replace(plan, backend="dsh_acp", tool="dsh", home_env_var="DSH_HOME")
+    if tool == "dsh_headless":
+        plan = replace(plan, backend="dsh_headless", tool="dsh", home_env_var="DSH_HOME")
     elif tool == "dsh_web":
         plan = replace(
             plan, backend="dsh_web", tool="dsh", home_env_var="DSH_HOME", native_surface_kind="web"
@@ -147,3 +147,38 @@ def test_gateway_controls_preserve_newer_native_conversation(
         call.kwargs["env_vars"][AGENT_ID_ENV_VAR] == "held-owner"
         for call in published.call_args_list
     )
+
+
+def test_dsh_headless_manifest_preserves_newer_turn_across_stale_writes(tmp_path: Path) -> None:
+    """Keep the latest same-generation conversation while permitting a new generation."""
+
+    plan = replace(
+        _sample_headless_plan(tmp_path), backend="dsh_headless", tool="dsh", home_env_var="DSH_HOME"
+    )
+    manifest = default_manifest_path(tmp_path, plan.backend, "managed-one")
+    request = SessionManifestRequest(
+        launch_plan=plan,
+        role_name="role",
+        brain_manifest_path=tmp_path / "brain.yaml",
+        backend_state={"session_id": None, "turn_index": 0},
+        agent_name="HOUMAO-held-controller",
+        agent_id="held-owner",
+        session_id="managed-one",
+        registry_generation_id="generation-one",
+    )
+    stale = build_session_manifest_payload(request)
+    current = build_session_manifest_payload(
+        replace(request, backend_state={"session_id": "native-conversation", "turn_index": 2})
+    )
+    write_session_manifest(manifest, current)
+    refreshed = write_session_manifest(manifest, stale).payload
+    assert refreshed["headless"]["session_id"] == "native-conversation"
+    assert refreshed["backend_state"]["turn_index"] == 2
+
+    restarted = write_session_manifest(
+        manifest,
+        build_session_manifest_payload(replace(request, registry_generation_id="generation-two")),
+        expected_registry_generation_id="generation-one",
+    ).payload
+    assert restarted["headless"]["session_id"] is None
+    assert restarted["backend_state"]["turn_index"] == 0

@@ -107,8 +107,11 @@ def _parse_backend(raw_value: str) -> LaunchSurface:
         "codex_app_server",
         "claude_headless",
         "kimi_headless",
+        "kimi_acp",
+        "dsh_headless",
         "dsh_acp",
         "dsh_web",
+        "kimi_web",
         "cao_rest",
     }:
         raise SystemExit(f"Unsupported --backend value: {raw_value!r}")

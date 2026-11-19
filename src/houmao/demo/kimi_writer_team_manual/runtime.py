@@ -577,7 +577,7 @@ def launch_agent(
         session_name,
     ]
     if uses_headless_backend(member):
-        command.append("--headless")
+        command.extend(["--mode", "headless"])
     command.append("--gateway-background")
     payload = run_json_command(
         manager_cli_command(command),

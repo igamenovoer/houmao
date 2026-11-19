@@ -72,6 +72,7 @@ def main() -> int:
     private: dict[str, Any] = json.loads(args.input.read_text(encoding="utf-8"))
     args.input.unlink()
     root = Path(private["root"])
+    name = "Kimi Web" if private.get("name") == "Kimi Web" else "DSH Web"
     stopped = threading.Event()
 
     def request_stop(signum: int, frame: object) -> None:
@@ -100,7 +101,7 @@ def main() -> int:
             root / "exit.json",
             {"returncode": 127, "ended_at": time.time(), "error": "native_start_failed"},
         )
-        print("DSH Web supervisor could not start its native process.", flush=True)
+        print(f"{name} supervisor could not start its native process.", flush=True)
         return 127
     birth = _dispatch_origin_birth_token(native.pid)
     if birth is None:
@@ -128,9 +129,9 @@ def main() -> int:
                     output.write(line)
                     output.flush()
 
-    reader = threading.Thread(target=drain, name="dsh-web-private-log", daemon=True)
+    reader = threading.Thread(target=drain, name="native-web-private-log", daemon=True)
     reader.start()
-    print("DSH Web supervisor started; native diagnostics are private.", flush=True)
+    print(f"{name} supervisor started; native diagnostics are private.", flush=True)
     owned: dict[int, str] = {}
     try:
         while native.poll() is None and not stopped.wait(0.1):
@@ -152,7 +153,7 @@ def main() -> int:
         _write_private_json(
             root / "exit.json", {"returncode": native.returncode, "ended_at": time.time()}
         )
-        print("DSH Web supervisor stopped.", flush=True)
+        print(f"{name} supervisor stopped.", flush=True)
     return native.returncode or 0
 
 

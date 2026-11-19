@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Literal
 
 from houmao.agents.mailbox_runtime_support import safe_registry_mailboxes_projection
 from houmao.agents.realm_controller.backends.tmux_runtime import HEADLESS_AGENT_WINDOW_NAME
@@ -11,8 +12,19 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayWebControlStateV1,
     GatewayWebHistoryV1,
 )
+from houmao.agents.realm_controller.headless_snapshots import headless_control_observation
+from houmao.agents.realm_controller.managed_control import (
+    ManagedControlCapabilitiesV1,
+    ManagedControlObservationV1,
+    ManagedControlOutcome,
+    managed_control_capabilities,
+)
 from houmao.agents.realm_controller.registry_models import ManagedAgentRegistryRecordV3
-from houmao.agents.realm_controller.native_surface import WebNativeSurfaceV1
+from houmao.agents.realm_controller.native_surface import (
+    TerminalNativeSurfaceV1,
+    WebNativeSurfaceV1,
+)
+from houmao.agents.realm_controller.web_observation import web_state_is_fresh
 from houmao.passive_server.discovery import DiscoveredAgent
 from houmao.passive_server.headless import PassiveManagedHeadlessControlState
 from houmao.passive_server.models import (
@@ -32,6 +44,7 @@ from houmao.server.models import (
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentLastTurnView,
     HoumaoManagedAgentMailboxSummaryView,
+    HoumaoManagedAgentServiceDetailView,
     HoumaoManagedAgentStateResponse,
     HoumaoManagedAgentTurnView,
     HoumaoManagedAgentTuiDetailView,
@@ -41,13 +54,21 @@ from houmao.server.models import (
 )
 from houmao.shared_tui_tracking.models import TurnPhase
 
-_HEADLESS_BACKENDS = frozenset({"claude_headless", "codex_headless", "kimi_headless", "dsh_acp"})
+if TYPE_CHECKING:
+    from houmao.agents.realm_controller.headless_snapshots import HeadlessTurnSnapshot
 
-
-def is_headless_backend(backend: str) -> bool:
-    """Return whether one backend maps to the headless managed-agent transport."""
-
-    return backend in _HEADLESS_BACKENDS
+_RESULT_FROM_NATIVE_OUTCOME: dict[ManagedControlOutcome, ManagedAgentLastTurnResult] = {
+    "completed": "success",
+    "failed": "known_failure",
+    "interrupted": "interrupted",
+    "uncertain": "unknown",
+}
+_OUTCOME_FROM_PASSIVE_STATUS: dict[str, ManagedControlOutcome] = {
+    "completed": "completed",
+    "failed": "failed",
+    "interrupted": "interrupted",
+    "unknown": "uncertain",
+}
 
 
 def managed_identity_from_discovered_summary(
@@ -55,13 +76,8 @@ def managed_identity_from_discovered_summary(
 ) -> HoumaoManagedAgentIdentity:
     """Project one discovery summary into the shared managed-agent identity model."""
 
-    transport: Literal["headless", "tui", "web"] = (
-        "web"
-        if summary.backend == "dsh_web"
-        else "headless"
-        if is_headless_backend(summary.backend)
-        else "tui"
-    )
+    transport = summary.mode
+    terminal = isinstance(summary.native_surface, TerminalNativeSurfaceV1)
     tmux_window_name = (
         HEADLESS_AGENT_WINDOW_NAME
         if transport == "headless" or summary.backend == "local_interactive"
@@ -71,9 +87,11 @@ def managed_identity_from_discovered_summary(
         tracked_agent_id=summary.agent_id,
         transport=transport,
         native_surface=summary.native_surface,
+        mode=summary.mode,
+        backend=summary.backend,
         tool=summary.tool,
-        session_name=summary.tmux_session_name if transport == "tui" else None,
-        terminal_id=summary.agent_id if transport == "tui" else None,
+        session_name=summary.tmux_session_name if terminal else None,
+        terminal_id=summary.agent_id if terminal else None,
         runtime_session_id=summary.agent_id,
         tmux_session_name=summary.tmux_session_name,
         tmux_window_name=tmux_window_name,
@@ -88,6 +106,182 @@ def managed_identity_from_discovered_agent(agent: DiscoveredAgent) -> HoumaoMana
     """Project one full discovered agent into the shared managed-agent identity model."""
 
     return managed_identity_from_discovered_summary(agent.summary)
+
+
+def _capabilities(
+    identity: HoumaoManagedAgentIdentity,
+) -> ManagedControlCapabilitiesV1 | None:
+    """Report capabilities only for a recorded owner mode and backend."""
+
+    if identity.mode is None or identity.backend is None:
+        return None
+    return managed_control_capabilities(
+        tool=identity.tool,
+        mode=identity.mode,
+        backend=identity.backend,
+        native_surface=identity.native_surface,
+    )
+
+
+def managed_service_state_from_observation(
+    *,
+    identity: HoumaoManagedAgentIdentity,
+    observation: ManagedControlObservationV1,
+    mailbox_summary: HoumaoManagedAgentMailboxSummaryView | None = None,
+    gateway_summary: HoumaoManagedAgentGatewaySummaryView | None = None,
+) -> HoumaoManagedAgentStateResponse:
+    """Project attributed service evidence without interpreting its supervisor pane."""
+
+    available = (
+        observation.freshness == "current"
+        and observation.owner_available is True
+        and observation.connection_ready is True
+    )
+    phase: TurnPhase = "unknown"
+    if available:
+        if observation.active_request_id is not None or observation.active_turn_id is not None:
+            phase = "active"
+        elif observation.can_accept_prompt_now is True:
+            phase = "ready"
+    diagnostics = []
+    if not available:
+        diagnostics.append(
+            HoumaoErrorDetail(
+                kind="service_connection_unavailable",
+                message="Verified native service connection is unavailable.",
+            )
+        )
+    return HoumaoManagedAgentStateResponse(
+        tracked_agent_id=identity.tracked_agent_id,
+        identity=identity,
+        availability="available" if available else "unavailable",
+        turn=HoumaoManagedAgentTurnView(
+            phase=phase, active_turn_id=observation.active_turn_id if available else None
+        ),
+        last_turn=HoumaoManagedAgentLastTurnView(
+            result=_RESULT_FROM_NATIVE_OUTCOME.get(observation.last_outcome, "unknown")
+            if observation.last_outcome is not None
+            else "unknown",
+            turn_id=observation.last_turn_id,
+        ),
+        capabilities=_capabilities(identity),
+        control=observation,
+        diagnostics=diagnostics,
+        mailboxes=mailbox_summary,
+        gateway=gateway_summary,
+    )
+
+
+def managed_service_detail_response(
+    summary_state: HoumaoManagedAgentStateResponse,
+) -> HoumaoManagedAgentDetailResponse:
+    """Return the service-specific detail with its verified evidence."""
+
+    assert summary_state.control is not None
+    return HoumaoManagedAgentDetailResponse(
+        tracked_agent_id=summary_state.tracked_agent_id,
+        identity=summary_state.identity,
+        summary_state=summary_state,
+        detail=HoumaoManagedAgentServiceDetailView(state=summary_state.control),
+    )
+
+
+def managed_runtime_headless_state_from_observation(
+    *,
+    identity: HoumaoManagedAgentIdentity,
+    latest_turn: HeadlessTurnSnapshot | None,
+    owner_available: bool,
+    native_session_id: str | None = None,
+    mailbox_summary: HoumaoManagedAgentMailboxSummaryView | None = None,
+    gateway_summary: HoumaoManagedAgentGatewaySummaryView | None = None,
+) -> HoumaoManagedAgentStateResponse:
+    """Project one-shot work from native attempt state and durable exit evidence."""
+
+    control = headless_control_observation(
+        latest_turn, owner_available=owner_available, native_session_id=native_session_id
+    )
+    active_id = control.active_turn_id
+    outcome = control.last_outcome
+    settled_turn = latest_turn if outcome is not None else None
+    diagnostics = []
+    if outcome == "uncertain":
+        diagnostics.append(
+            HoumaoErrorDetail(
+                kind="headless_outcome_uncertain",
+                message="The last recorded worker has no verified terminal evidence.",
+            )
+        )
+    return HoumaoManagedAgentStateResponse(
+        tracked_agent_id=identity.tracked_agent_id,
+        identity=identity,
+        availability="available" if owner_available else "unavailable",
+        turn=HoumaoManagedAgentTurnView(
+            phase="active"
+            if active_id is not None
+            else "ready"
+            if control.can_accept_prompt_now
+            else "unknown",
+            active_turn_id=active_id,
+        ),
+        last_turn=HoumaoManagedAgentLastTurnView(
+            result=_RESULT_FROM_NATIVE_OUTCOME[outcome] if outcome is not None else "none",
+            turn_id=control.last_turn_id,
+            turn_index=settled_turn.turn_index if settled_turn is not None else None,
+            updated_at_utc=settled_turn.completed_at_utc if settled_turn is not None else None,
+        ),
+        capabilities=_capabilities(identity),
+        control=control,
+        diagnostics=diagnostics,
+        mailboxes=mailbox_summary,
+        gateway=gateway_summary,
+    )
+
+
+def managed_runtime_headless_detail_response(
+    *,
+    summary_state: HoumaoManagedAgentStateResponse,
+    latest_turn: HeadlessTurnSnapshot | None,
+) -> HoumaoManagedAgentDetailResponse:
+    """Preserve the relevant owner-native evidence for richer one-shot detail."""
+
+    control = summary_state.control
+    assert control is not None
+    active = control.active_turn_id is not None
+    settled_turn = latest_turn if not active else None
+    last_status = "unknown" if control.last_outcome == "uncertain" else control.last_outcome
+    detail = HoumaoManagedAgentHeadlessDetailView(
+        runtime_resumable=True,
+        tmux_session_live=control.owner_available is True,
+        can_accept_prompt_now=control.can_accept_prompt_now is True,
+        interruptible=active,
+        turn=summary_state.turn,
+        last_turn=summary_state.last_turn,
+        active_turn_started_at_utc=latest_turn.started_at_utc
+        if active and latest_turn is not None
+        else None,
+        last_turn_status=last_status,
+        last_turn_started_at_utc=settled_turn.started_at_utc if settled_turn is not None else None,
+        last_turn_completed_at_utc=settled_turn.completed_at_utc
+        if settled_turn is not None
+        else None,
+        last_turn_returncode=settled_turn.returncode if settled_turn is not None else None,
+        last_turn_history_summary=settled_turn.history_summary
+        if settled_turn is not None
+        else None,
+        last_turn_error=settled_turn.error if settled_turn is not None else None,
+        last_turn_completion_source=settled_turn.completion_source
+        if settled_turn is not None
+        else None,
+        mailboxes=summary_state.mailboxes,
+        gateway=summary_state.gateway,
+        diagnostics=summary_state.diagnostics,
+    )
+    return HoumaoManagedAgentDetailResponse(
+        tracked_agent_id=summary_state.tracked_agent_id,
+        identity=summary_state.identity,
+        summary_state=summary_state,
+        detail=detail,
+    )
 
 
 def managed_web_state_from_observation(
@@ -138,23 +332,51 @@ def managed_web_state_from_native(
             "error": "known_failure",
         }
         result = results.get(state.last_turn.result, "unknown")
+    fresh = web_state_is_fresh(state)
+    active_turn_id = (
+        f"native-turn:{state.identity.native_session_id}:{state.active_turn.turn}"
+        if state.active_turn is not None
+        else None
+    )
+    last_turn_id = (
+        f"native-turn:{state.identity.native_session_id}:{state.last_turn.turn}"
+        if state.last_turn is not None
+        else None
+    )
+    outcome: ManagedControlOutcome | None = None
+    if state.last_turn is not None:
+        outcome_by_result: dict[ManagedAgentLastTurnResult, ManagedControlOutcome] = {
+            "success": "completed",
+            "interrupted": "interrupted",
+            "known_failure": "failed",
+        }
+        outcome = outcome_by_result.get(result, "uncertain")
     return HoumaoManagedAgentStateResponse(
         tracked_agent_id=identity.tracked_agent_id,
         identity=identity,
         availability="available" if state.availability == "available" else "unavailable",
         turn=HoumaoManagedAgentTurnView(
             phase=phase,
-            active_turn_id=f"native-turn:{state.identity.native_session_id}:{state.active_turn.turn}"
-            if state.active_turn
-            else None,
+            active_turn_id=active_turn_id,
         ),
         last_turn=HoumaoManagedAgentLastTurnView(
             result=result,
-            turn_id=f"native-turn:{state.identity.native_session_id}:{state.last_turn.turn}"
-            if state.last_turn
-            else None,
+            turn_id=last_turn_id,
             turn_index=state.last_turn.turn if state.last_turn else None,
             updated_at_utc=state.observed_at_utc if state.last_turn else None,
+        ),
+        capabilities=_capabilities(identity),
+        control=ManagedControlObservationV1(
+            source="web_native",
+            freshness="current" if fresh else "stale",
+            observed_at_utc=state.observed_at_utc,
+            owner_available=state.host_process_alive,
+            connection_ready=state.control_available,
+            can_accept_prompt_now=fresh and state.control_available and state.can_accept_prompt_now,
+            native_session_id=state.identity.native_session_id,
+            active_turn_id=active_turn_id,
+            last_turn_id=last_turn_id,
+            last_outcome=outcome,
         ),
         diagnostics=[
             HoumaoErrorDetail(kind="web_unavailable", message=message)
@@ -242,10 +464,16 @@ def managed_tui_state_from_observation(
     state: AgentTuiStateResponse,
     gateway_summary: HoumaoManagedAgentGatewaySummaryView | None,
     mailbox_summary: HoumaoManagedAgentMailboxSummaryView | None,
+    observed_at_utc: datetime | None,
+    max_age_seconds: float,
 ) -> HoumaoManagedAgentStateResponse:
     """Project one passive TUI observation sample into managed-agent summary state."""
 
     identity = managed_identity_from_discovered_agent(agent)
+    freshness: Literal["current", "stale", "unknown"] = "unknown"
+    if observed_at_utc is not None:
+        age_seconds = (datetime.now(UTC) - observed_at_utc).total_seconds()
+        freshness = "current" if 0 <= age_seconds <= max_age_seconds else "stale"
     return HoumaoManagedAgentStateResponse(
         tracked_agent_id=identity.tracked_agent_id,
         identity=identity,
@@ -261,6 +489,24 @@ def managed_tui_state_from_observation(
             turn_id=None,
             turn_index=None,
             updated_at_utc=state.last_turn.updated_at_utc,
+        ),
+        capabilities=_capabilities(identity),
+        control=ManagedControlObservationV1(
+            source="terminal_tracker",
+            freshness=freshness,
+            observed_at_utc=observed_at_utc.isoformat() if observed_at_utc is not None else None,
+            owner_available=state.diagnostics.transport_state == "tmux_up",
+            connection_ready=state.diagnostics.availability == "available",
+            can_accept_prompt_now=(
+                freshness == "current"
+                and state.diagnostics.availability == "available"
+                and state.turn.phase == "ready"
+                and state.surface.accepting_input == "yes"
+                and state.surface.editing_input == "no"
+                and state.surface.ready_posture == "yes"
+                and state.surface.pending_input == "no"
+                and state.stability.stable
+            ),
         ),
         diagnostics=_tracked_errors_from_tui_state(state),
         mailboxes=mailbox_summary,
@@ -279,7 +525,7 @@ def managed_tui_detail_response(
     terminal_ref = summary_state.identity.terminal_id or agent.record.agent_id
     detail = HoumaoManagedAgentTuiDetailView(
         terminal_id=terminal_ref,
-        canonical_terminal_state_route=f"/houmao/agents/{agent.record.agent_id}/state",
+        canonical_terminal_state_route=f"/houmao/agents/{agent.record.agent_id}/state/detail",
         canonical_terminal_history_route=f"/houmao/agents/{agent.record.agent_id}/history",
         diagnostics=detail_state.diagnostics,
         probe_snapshot=detail_state.probe_snapshot,
@@ -328,6 +574,8 @@ def managed_identity_from_headless_control_state(
     return HoumaoManagedAgentIdentity(
         tracked_agent_id=authority.tracked_agent_id,
         transport="headless",
+        mode="headless",
+        backend=authority.backend,
         tool=authority.tool,
         session_name=None,
         terminal_id=None,
@@ -355,7 +603,10 @@ def managed_headless_state_from_control_state(
     active_turn = control_state.active_turn
     latest_turn = control_state.latest_turn
 
-    if active_turn is not None:
+    unresolved = latest_turn is not None and latest_turn.status == "unknown"
+    if unresolved:
+        turn = HoumaoManagedAgentTurnView(phase="unknown")
+    elif active_turn is not None:
         turn = HoumaoManagedAgentTurnView(phase="active", active_turn_id=active_turn.turn_id)
     else:
         turn = HoumaoManagedAgentTurnView(
@@ -368,7 +619,9 @@ def managed_headless_state_from_control_state(
     last_turn_index: int | None = None
     updated_at_utc: str | None = None
     if latest_turn is not None:
-        last_turn_result = _last_turn_result_from_headless_status(latest_turn.status)
+        last_turn_result = (
+            "unknown" if unresolved else _last_turn_result_from_headless_status(latest_turn.status)
+        )
         last_turn_id = latest_turn.turn_id
         last_turn_index = latest_turn.turn_index
         updated_at_utc = latest_turn.completed_at_utc or latest_turn.started_at_utc
@@ -385,6 +638,25 @@ def managed_headless_state_from_control_state(
             turn_id=last_turn_id,
             turn_index=last_turn_index,
             updated_at_utc=updated_at_utc,
+        ),
+        capabilities=_capabilities(identity),
+        control=ManagedControlObservationV1(
+            source="headless_artifacts",
+            freshness="unknown" if unresolved else "current",
+            observed_at_utc=datetime.now(UTC).isoformat(),
+            owner_available=control_state.tmux_session_live,
+            connection_ready=control_state.runtime_resumable,
+            can_accept_prompt_now=control_state.can_accept_prompt_now,
+            active_request_id=active_turn.turn_id if active_turn is not None else None,
+            active_turn_id=(
+                active_turn.turn_id if active_turn is not None and not unresolved else None
+            ),
+            last_turn_id=last_turn_id,
+            last_outcome=(
+                _OUTCOME_FROM_PASSIVE_STATUS.get(latest_turn.status)
+                if latest_turn is not None
+                else None
+            ),
         ),
         diagnostics=diagnostics,
         mailboxes=mailbox_summary,

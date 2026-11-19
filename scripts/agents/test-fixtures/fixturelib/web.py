@@ -156,7 +156,11 @@ def control_raw_web(run: dict[str, Any], action: str) -> None:
 
     session = _raw_session(run)
     try:
-        result = session.interrupt() if action == "interrupt" else session.terminate()
+        if action == "interrupt":
+            result = session.interrupt()
+        else:
+            session.configure_stop_force_cleanup(force_cleanup=True)
+            result = session.terminate()
         if result.status != "ok":
             raise FixtureError("Owned Web control failed; inspect the captured run")
         if action == "interrupt":
@@ -186,11 +190,14 @@ def observe_raw_web(run: dict[str, Any]) -> dict[str, Any]:
 def browser_connection_file(run: dict[str, Any]) -> Path:
     """Write an explicit private browser handoff, returning its path rather than a token."""
 
-    if run["configuration"]["client"] != "dsh" or run["configuration"]["mode"] != "tui":
-        raise FixtureError("Browser handoff requires a launched DSH Web fixture")
+    tool = run["configuration"]["client"]
+    if tool not in {"dsh", "kimi"} or run["configuration"]["mode"] != "web":
+        raise FixtureError("Browser handoff requires a launched Web fixture")
     if run.get("status") != "launched":
         raise FixtureError("Browser handoff requires a launched owned host")
     root = Path(run["run_dir"])
+    if tool == "kimi":
+        return _kimi_browser_connection_file(run, root)
     if run["configuration"]["surface"] == "raw":
         state = run["raw_web_state"]
     else:
@@ -214,6 +221,62 @@ def browser_connection_file(run: dict[str, Any]) -> Path:
                 "origin": state["origin"],
                 "launch_token": token,
                 "native_session_id": native_session_id,
+            }
+        ).encode(),
+    )
+    return target
+
+
+def _kimi_browser_connection_file(run: dict[str, Any], root: Path) -> Path:
+    """Verify the current owned Kimi listener and write credentials only to the fixture."""
+
+    from houmao.agents.realm_controller.backends.kimi_web import KimiWebSession
+    from houmao.agents.realm_controller.manifest import (
+        load_session_manifest,
+        parse_session_manifest_payload,
+    )
+    from houmao.agents.realm_controller.runtime import resume_runtime_session
+
+    from fixturelib.launch import run_environment
+    from fixturelib.prepare import command_environment
+
+    identity = run["identity"]
+    manifest = Path(identity["manifest_path"]).resolve()
+    if not manifest.is_relative_to(root.resolve()):
+        raise FixtureError("Kimi Web manifest is outside the private fixture")
+    saved = parse_session_manifest_payload(
+        load_session_manifest(manifest).payload, source=str(manifest)
+    )
+    saved_agent_def = saved.runtime.agent_def_dir
+    if saved_agent_def is None or not Path(saved_agent_def).resolve().is_relative_to(
+        root.resolve()
+    ):
+        raise FixtureError("Kimi Web runtime role is outside the private fixture")
+    surface = run["native_surface"]
+    with command_environment(run_environment(run)):
+        controller = resume_runtime_session(
+            agent_def_dir=Path(saved_agent_def), session_manifest_path=manifest, read_only=True
+        )
+        try:
+            backend = controller.backend_session
+            if not isinstance(backend, KimiWebSession):
+                raise FixtureError("Fixture owner no longer uses Kimi Web")
+            origin, token = backend.browser_credentials()
+            if (
+                origin != surface["origin"]
+                or backend.state.native_surface.native_session_id != surface["native_session_id"]
+            ):
+                raise FixtureError("Kimi Web host changed since this fixture launched")
+        finally:
+            controller.close()
+    target = root / "browser-connection.json"
+    private_write(
+        target,
+        json.dumps(
+            {
+                "origin": origin,
+                "launch_token": token,
+                "native_session_id": surface["native_session_id"],
             }
         ).encode(),
     )

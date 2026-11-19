@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from houmao.gateway.deployment import validate_gateway_access_config_path
-
 import json
 from pathlib import Path
 from time import monotonic
@@ -13,12 +11,14 @@ import click
 from click._utils import UNSET
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter
 
+from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.gateway_models import GatewayTuiTrackingTimingOverridesV1
+from houmao.agents.realm_controller.manifest import require_registry_mode_authority
 from houmao.agents.realm_controller.models import RelaunchChatSessionSelection
 from houmao.execution.context import execution_read_only_scope
-
 from houmao.execution.models import ExecutionBindingV1, ExecutionRequestV1, JsonObject
 from houmao.execution.owner import OwnerAdmissionError, OwnerPolicyV1
+from houmao.gateway.deployment import validate_gateway_access_config_path
 
 _READ_ONLY_DISPATCH = frozenset(
     {
@@ -77,6 +77,7 @@ def _launch(request: ExecutionRequestV1, policy: OwnerPolicyV1) -> JsonObject:
     from houmao.srv_ctrl.commands.output import collect_output_payloads
     from houmao.srv_ctrl.commands.project_context import store_project_command_context
     from houmao.srv_ctrl.commands.project_easy import (
+        ProjectRunModePreflightError,
         launch_easy_instance_command,
         launch_project_agent,
     )
@@ -130,7 +131,10 @@ def _launch(request: ExecutionRequestV1, policy: OwnerPolicyV1) -> JsonObject:
                 "deadline_exhausted", "Execution deadline expired before launch preparation."
             )
         with collect_output_payloads() as results:
-            launch_project_agent(**parameters)
+            try:
+                launch_project_agent(**parameters)
+            except ProjectRunModePreflightError as exc:
+                raise OwnerAdmissionError("invalid_run_mode", str(exc)) from None
     for result in results:
         if isinstance(result, dict) and result.get("agent_id"):
             return _json_result(result)
@@ -150,7 +154,15 @@ def _control(request: ExecutionRequestV1, binding: ExecutionBindingV1) -> JsonOb
         if request.operation == "describe" and not request.arguments:
             return {"initialized": True, "uid": binding.uid, "gid": binding.gid}
         raise OwnerAdmissionError("agent_required", "An exact managed-agent ID is required.")
-    record = load_managed_agent_record_by_agent_id(request.agent_id)
+    try:
+        record = load_managed_agent_record_by_agent_id(request.agent_id)
+    except (SessionManifestError, OSError):
+        raise OwnerAdmissionError(
+            "unusable_mode_authority",
+            "The owner could not read a current managed-agent registry record. "
+            "Stop agents from an earlier Houmao release with that release, "
+            "then start a fresh runtime session.",
+        ) from None
     if record is None:
         raise OwnerAdmissionError("agent_not_found", "Owner has no matching managed agent.")
     if record.agent_id != request.agent_id:
@@ -191,6 +203,15 @@ def _control(request: ExecutionRequestV1, binding: ExecutionBindingV1) -> JsonOb
             "unsupported_operation", "Unsupported finite operation or arguments."
         )
     if operation == "describe":
+        try:
+            require_registry_mode_authority(record)
+        except (SessionManifestError, OSError):
+            raise OwnerAdmissionError(
+                "unusable_mode_authority",
+                "The owner registry record lacks matching current session mode and native "
+                "surface authority. Stop agents from an earlier Houmao release with that "
+                "release, then start a fresh runtime session.",
+            ) from None
         return {
             "initialized": True,
             "identity": _json_result(managed._identity_from_record(record)),

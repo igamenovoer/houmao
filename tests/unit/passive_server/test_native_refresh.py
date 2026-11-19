@@ -13,6 +13,7 @@ import pytest
 
 from houmao.agents.realm_controller.errors import GatewayHttpError
 from houmao.agents.realm_controller.gateway_client import GatewayClient
+from houmao.agents.realm_controller.native_surface import WebNativeSurfaceV1
 from houmao.agents.realm_controller.native_refresh_models import (
     CommonPluginObservationV1,
     CommonPluginResourceV1,
@@ -38,22 +39,15 @@ def _agent(
     record = _make_record(
         agent_id=agent_id,
         agent_name="HOUMAO-alpha",
-        backend="dsh_acp",
+        backend="dsh_web" if web else "dsh_acp",
         tool="dsh",
         session_name=f"isolated-{agent_id}",
-    )
-    if web:
-        record = type(record).model_validate(
-            {
-                **record.model_dump(mode="python"),
-                "identity": {"backend": "dsh_web", "tool": "dsh"},
-                "native_surface": {
-                    "kind": "web",
-                    "origin": "http://127.0.0.1:43001",
-                    "native_session_id": "native",
-                },
-            }
+        native_surface=WebNativeSurfaceV1(
+            origin="http://127.0.0.1:43001", native_session_id="native"
         )
+        if web
+        else None,
+    )
     if gateway:
         record.gateway = RegistryGatewayV1(
             host="127.0.0.1", port=port, state_path="/owned/gateway.json", protocol_version="v1"

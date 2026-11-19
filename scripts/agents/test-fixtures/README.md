@@ -27,7 +27,7 @@ The generic API cases require no imported native JSON. DeepSeek uses local key/e
 ## Check API Configuration
 
 ```bash
-pixi run python scripts/agents/test-fixtures/fixture.py check --case cloud-api --client codex --model MODEL --env-file .env
+pixi run python scripts/agents/test-fixtures/fixture.py check --case cloud-api --client codex --model MODEL --env-file /external/selected-deepseek.env
 pixi run python scripts/agents/test-fixtures/fixture.py check --case self-hosted --client kimi --model MODEL --context-window TOKENS
 ```
 
@@ -62,9 +62,61 @@ Claude uses Anthropic Messages, Codex uses Responses, and Kimi uses Chat Complet
 
 Model selection is always explicit for API cases. Kimi additionally requires `--context-window TOKENS` or the case's context reference. Capabilities default to `tool_use`; opt into `thinking` or `image_in` only for a qualified model. Optional `--reasoning-key`, `--reasoning-effort`, `--context-window`, and `--capabilities` project selected values without inheriting historical model assumptions. Codex renders an explicit model/provider and optional context/effort; the generic tracked template requires a selected `OPENAI_BASE_URL` at build time. Empty or conflicting routing fails before launch.
 
-## DSH ACP and Web
+## Codex App-Server Service
 
-DSH uses `--client dsh --mode headless` for ACP on `raw`, `manager`, and `passive-server` surfaces. Its `--mode tui` posture selects the native Web surface on `raw` and `manager`. Web qualification is tracked separately in the [compatibility reference](../../../docs/reference/run-phase/dsh-web.md) and [scenario map](../../../docs/reference/run-phase/dsh-web-acceptance.md); a passing ACP run does not qualify Web. Native-login selection is rejected before any private run is allocated. Install and explicitly select the qualified executable described in [DSH preparation](../../../tools/dsh/README.md); product launch never installs a runtime.
+Use `--client codex --mode service --surface manager` with Codex CLI `0.169.0` and a Responses endpoint. The manager fixture opens one app-server and keeps the native thread across `prompt` calls.
+
+```bash
+pixi run python scripts/agents/test-fixtures/fixture.py prepare \
+  --case self-hosted --client codex --mode service --surface manager \
+  --model Qwen/Qwen3.8-27B-FP8 --base-url http://127.0.0.1:14888/v1 \
+  --context-window 262144 --max-output-tokens 8192 \
+  --executable /selected/codex-0.169.0
+```
+
+Use the prepared directory with `launch`, `prompt`, and `stop`. [Codex App-Server Service](../../../docs/reference/run-phase/codex-app-server-service.md).
+
+## Kimi Web
+
+Select `--client kimi --mode web --surface manager` and an explicit executable for Kimi Code `2.6.0`. The fixture supports `browser-connection` for an explicitly selected browser runner. The command creates a private credential file and returns its path with the safe identity. [Kimi Web](../../../docs/reference/run-phase/kimi-web.md).
+
+## Kimi ACP Service
+
+The manager fixture supports `--client kimi --mode service` on Kimi Code `2.6.0`. It keeps the native ACP session alive across calls and matches the result and usage to each managed request. Use `launch` once, then run `prompt` for each follow-up.
+
+```bash
+pixi run python scripts/agents/test-fixtures/fixture.py prepare \
+  --case self-hosted --client kimi --mode service --surface manager \
+  --model Qwen/Qwen3.8-27B-FP8 --base-url http://127.0.0.1:14888/v1 \
+  --context-window 262144 --max-output-tokens 8192 \
+  --executable /selected/kimi-2.6.0
+```
+
+The raw fixture surface supports one-shot CLI calls and owned TUI entry. Use the captured service identity and `stop` to clean up a manager service fixture. [Kimi Code ACP Service](../../../docs/reference/run-phase/kimi-acp-service.md).
+
+## DSH Headless
+
+Use `--client dsh --mode headless` to select `dsh_headless` on the raw, manager, or passive-server fixture surface. Each prompt invokes the native `headless` profile with its launcher patches before `--json`. Raw fixtures send literal prompt bytes through stdin and record the opening native session identity and terminal reason from JSON lines. Continuation creates a new worker and passes the exact captured `--session-id` in the original workspace. The manager and passive server preserve their managed identity across workers.
+
+```bash
+pixi run python scripts/agents/test-fixtures/fixture.py prepare \
+  --case self-hosted --client dsh --mode headless --surface raw \
+  --model Qwen/Qwen3.8-27B-FP8 --base-url http://127.0.0.1:14888/v1 \
+  --context-window 262144 --max-output-tokens 8192 \
+  --dsh-reasoning '{"off":"none","low":"low","medium":"medium","high":"high"}' \
+  --dsh-compat '{"supports_developer_role":false}' \
+  --executable /selected/qualified-runtime/node_modules/.bin/dsh
+```
+
+Run `launch` with a prompt and `prompt` for a follow-up using the prepared run directory. Use `--case cloud-api --env-file /external/selected-deepseek.env` for an explicitly selected DeepSeek Messages route. The external file supplies the endpoint, credential, model, and declared capacities under the fixture's existing input names. [DSH headless control](../../../docs/reference/run-phase/dsh-headless.md), [selected inputs](../../../tests/fixtures/agent-launch/README.md).
+
+## DSH ACP Service
+
+Use `--client dsh --mode service --surface manager` with the same model, endpoint, compatibility metadata, and qualified executable as the headless fixture. Launch once and issue two `prompt` commands against the prepared run directory. The fixture waits for each gateway operation's own usage record. Use `stop` to stop the owned service and its private supervisor. [DSH ACP service](../../../docs/reference/run-phase/dsh-service.md).
+
+## DSH Web
+
+Use `--client dsh --mode web` with `--surface raw` or `--surface manager`. The helper reports unavailable modes before creating a run. Use a qualified installed executable. [DSH preparation](../../../tools/dsh/README.md), [Web qualification scenarios](../../../docs/reference/run-phase/dsh-web-acceptance.md).
 
 Cloud configuration defaults to the native DeepSeek Messages adapter. Self-hosted configuration defaults to pi-ai `openai-completions`. Both require an exact model, context window, maximum output tokens, and declared reasoning support. Use `--dsh-reasoning false` for a model without reasoning or a JSON slot-to-wire map such as `'{"off":"none","low":"low","high":"high"}'` for supported efforts. Use `--dsh-compat '{"supports_developer_role":false}'` to set model compatibility on OpenAI Completions. Case descriptors can name environment references for capacities, reasoning, and compatibility. Use `--dsh-protocol` to select a protocol supported by the descriptor's adapter. DeepSeek Messages preserves a trailing `/v1` and appends it when absent. Supply the base URL before `/messages`.
 
@@ -72,16 +124,14 @@ Cloud configuration defaults to the native DeepSeek Messages adapter. Self-hoste
 pixi run python scripts/agents/test-fixtures/fixture.py check \
   --case cloud-api --client dsh --env-file /external/selected-deepseek.env
 pixi run python scripts/agents/test-fixtures/fixture.py prepare \
-  --case cloud-api --client dsh --mode headless --surface raw \
+  --case cloud-api --client dsh --mode web --surface raw \
   --env-file /external/selected-deepseek.env \
   --executable /selected/qualified-runtime/node_modules/.bin/dsh
 ```
 
 Cloud DSH reads credentials from the explicitly selected external env file. Self-hosted OpenAI Completions accepts explicit endpoint and model flags without a key. That path writes `api_key_env: null` and uses `Authorization: Bearer houmao-local-no-auth` in native requests. Select an endpoint that accepts that public placeholder. Both surfaces ignore ambient credential and model variables. The generated setup records credential names, and every agent owns its DSH home, shared-agent root, selected skills, journal, and invocation artifacts.
 
-Raw DSH calls use the packaged ACP driver with create/exact-resume/prompt/close, rather than the one-shot CLI. `raw-turns/turn-N/provider-stdout.jsonl` retains native ACP frames separately from `raw-turn-N.jsonl` driver events. Continuation preserves the captured exact native ID and fails rather than selecting another session. `interrupt --run-dir PATH` sends native cancellation through the captured managed authority or the birth-verified raw driver; a timeout or interruption never resends a prompt.
-
-For Web preparation, use the same explicit case and env file with `--mode tui --surface manager` (or `raw`). The host stays headless at the operating-system level: it binds loopback and does not open a browser automatically. Select `--prompt-mode as_is` only when testing human questions or native approval behavior; normal automated browser checks retain unattended defaults.
+The Web host binds loopback and defers opening a browser to the operator. Select `--prompt-mode as_is` only when testing human questions or native approval behavior; normal automated browser checks retain unattended defaults.
 
 After launch, explicitly request `fixture.py browser-connection --run-dir /external/prepared-run` to create the private browser descriptor. This command returns a path and token-free identity, never the sign-in token itself. A deliberately chosen local browser consumer reads the descriptor; the maintained Bun browser qualification uses the same mechanism.
 
@@ -89,8 +139,8 @@ Browser sign-in uses a private local URL obtained from the run's connection mech
 
 Browser and API clients can alternate work on that same native session. A browser draft is local until submitted. Ordinary API delivery uses `ready_only`; busy, queued, maintenance, or question-blocked work refuses immediately. Explicit operator queueing requires its own policy selection. After a lost response, inspect the original receipt and state; reconnecting does not authorize resending. `interrupt` targets captured native activity and `stop` terminates only the owned host.
 
-Every helper-owned tmux command explicitly names a unique `-L` server. A private run-owned PATH shim applies the same target to managed runtime subprocesses, clearing inherited `TMUX` and `TMUX_PANE`. Cleanup stops only captured sessions/agents within that server. Raw headless ACP requires no tmux server. A separately started passive server must use its own explicit isolated tmux target; the client cannot change a pre-existing server's process environment.
+Each supervised fixture has a unique `tmux -S` socket. The manager captures that exact socket before launch. The run's PATH shim also selects that server and clears inherited `TMUX` and `TMUX_PANE`. Cleanup stops only captured identities on the fixture's server. Raw one-shot CLI calls run without tmux. Start a separately owned passive server with its own explicit isolated tmux target.
 
 ## Qualification
 
-Default automated tests use synthetic credentials and harmless clients. Live qualification is explicit and requires working credentials, installed clients, declared compatible protocols, and a qualified model. Record exact versions, actual model, completed/resumed prompts, direct TUI interaction, and available public usage. Report rejected credentials or unavailable self-hosted/native prerequisites as gaps. Never label an unexecuted lane as passed. Historical captures and completed change-local wrappers retain their factual model names; maintained launch paths use this helper.
+Default automated tests use synthetic credentials and harmless clients. Live qualification is explicit and requires working credentials, installed clients, declared compatible protocols, and a qualified model. Reports include the selected case, model, protocol, mode, backend, and the native build version when the executable reports it. Interactive runs include the verified terminal or browser surface. Record completed and resumed prompts, direct human-interface interaction, and available public usage. Report rejected credentials or unavailable self-hosted/native prerequisites as gaps. Never label an unexecuted lane as passed. Historical captures and completed change-local wrappers retain their factual model names; maintained launch paths use this helper.

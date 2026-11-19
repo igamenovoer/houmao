@@ -26,8 +26,14 @@ from houmao.agents.realm_controller.native_surface import (
     TerminalNativeSurfaceV1,
     WebNativeSurfaceV1,
 )
+from houmao.agents.realm_controller.run_modes import (
+    RunMode,
+    human_surface_for_mode,
+    mode_for_backend,
+    validate_mode_binding,
+)
 
-REGISTRY_SCHEMA_VERSION = 4
+REGISTRY_SCHEMA_VERSION = 5
 EXTERNAL_REGISTRY_SCHEMA_VERSION = 1
 LEGACY_REGISTRY_SCHEMA_VERSION = 2
 TERMINAL_KIND_TMUX: Literal["tmux"] = "tmux"
@@ -390,7 +396,7 @@ class LiveAgentRegistryRecordV2(_StrictRegistryModel):
 class ManagedAgentRegistryRecordV3(_StrictRegistryModel):
     """Lifecycle-aware shared-registry ``record.json`` contract."""
 
-    schema_version: Literal[4] = 4
+    schema_version: Literal[5] = 5
     execution_binding: ExecutionBindingV1 | None = None
 
     _execution_binding = field_validator("execution_binding", mode="before")(
@@ -401,6 +407,7 @@ class ManagedAgentRegistryRecordV3(_StrictRegistryModel):
     generation_id: str
     lifecycle: RegistryLifecycleV1
     identity: RegistryIdentityV1
+    mode: RunMode
     native_surface: NativeSurfaceV1 | None = None
     runtime: RegistryRuntimeV1
     terminal: RegistryTerminalV2
@@ -424,6 +431,11 @@ class ManagedAgentRegistryRecordV3(_StrictRegistryModel):
 
         if self.schema_version != REGISTRY_SCHEMA_VERSION:
             raise ValueError(f"schema_version must be {REGISTRY_SCHEMA_VERSION}")
+        validate_mode_binding(self.identity.tool, self.mode, self.identity.backend)
+        if self.native_surface is not None and self.native_surface.kind != human_surface_for_mode(
+            self.mode
+        ):
+            raise ValueError("registry native surface differs from the selected mode")
         _validate_native_surface(self.identity, self.native_surface, self.terminal.session_name)
         if self.canonical_mail_identity != self.mailboxes.canonical_mail_identity:
             raise ValueError("canonical mail identity differs from configured mailbox projection")
@@ -611,7 +623,7 @@ def parse_managed_agent_registry_record(payload: object) -> ManagedAgentRegistry
     if schema_version != REGISTRY_SCHEMA_VERSION:
         raise ValueError(
             f"unsupported registry schema_version={schema_version!r}; "
-            "back up and rebootstrap registry projections with the current runtime"
+            "stop the old agent with its owning release and start a fresh runtime session"
         )
     return ManagedAgentRegistryRecordV3.model_validate(payload)
 
@@ -623,11 +635,12 @@ def _validate_native_surface(
 ) -> None:
     """Keep a Web human surface distinct from supervisory terminal metadata."""
 
-    if identity.backend == "dsh_web":
-        if identity.tool != "dsh" or not isinstance(surface, WebNativeSurfaceV1):
-            raise ValueError("dsh_web registry records require their typed native Web surface")
+    if mode_for_backend(identity.backend) == "web":
+        validate_mode_binding(identity.tool, "web", identity.backend)
+        if not isinstance(surface, WebNativeSurfaceV1):
+            raise ValueError("Registry records for Web mode require a typed native Web surface")
     elif isinstance(surface, WebNativeSurfaceV1):
-        raise ValueError("a Web native surface requires backend=dsh_web")
+        raise ValueError("a Web native surface requires Web mode")
     if isinstance(surface, TerminalNativeSurfaceV1) and identity.backend not in {
         "local_interactive",
         "cao_rest",

@@ -141,10 +141,6 @@ def _install_basic_launch_patches(
             tool="codex",
         ),
     )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.backend_for_tool",
-        lambda tool, prefer_local_interactive: "codex",
-    )
 
 
 @pytest.mark.usefixtures("stub_brain_preflight")
@@ -237,7 +233,7 @@ def test_launch_managed_agent_locally_merges_launch_profile_skill_overlays(
         agent_id_mode="name-hash",
         auth=None,
         session_name=None,
-        headless=True,
+        mode="headless",
         provider="codex",
         working_directory=working_directory,
         source_agent_def_dir=source_agent_def_dir,
@@ -330,10 +326,6 @@ def test_launch_managed_agent_locally_passes_complete_kimi_prompt_to_builder(
             tool="kimi",
         ),
     )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.backend_for_tool",
-        lambda tool, prefer_local_interactive: "local_interactive",
-    )
     captured: dict[str, object] = {}
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.build_brain_home",
@@ -359,7 +351,7 @@ def test_launch_managed_agent_locally_passes_complete_kimi_prompt_to_builder(
         agent_id_mode="name-hash",
         auth=None,
         session_name="HOUMAO-repo-research-kimi",
-        headless=False,
+        mode="tui",
         provider="kimi",
         working_directory=working_directory,
         source_agent_def_dir=source_agent_def_dir,
@@ -449,10 +441,6 @@ def test_launch_managed_agent_locally_forwards_gateway_args_to_runtime(
         "houmao.srv_ctrl.commands.agents.core.build_brain_home",
         lambda request: SimpleNamespace(manifest_path=manifest_path),
     )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.backend_for_tool",
-        lambda tool, prefer_local_interactive: "codex",
-    )
 
     captured: dict[str, object] = {}
     timing_overrides = GatewayTuiTrackingTimingOverridesV1(
@@ -482,7 +470,7 @@ def test_launch_managed_agent_locally_forwards_gateway_args_to_runtime(
         agent_id_mode="name-hash",
         auth=None,
         session_name="HOUMAO-repo-research-1",
-        headless=True,
+        mode="tui",
         provider="codex",
         working_directory=working_directory,
         source_working_directory=repo_root,
@@ -580,10 +568,6 @@ def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
         )[1],
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.backend_for_tool",
-        lambda tool, prefer_local_interactive: "codex",
-    )
-    monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
         lambda **kwargs: SimpleNamespace(
             agent_identity="repo-research-1",
@@ -600,7 +584,7 @@ def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
         agent_id_mode="name-hash",
         auth="breakglass",
         session_name="HOUMAO-repo-research-1",
-        headless=True,
+        mode="headless",
         provider="codex",
         working_directory=working_directory,
         source_working_directory=repo_root,
@@ -749,7 +733,7 @@ def test_launch_managed_agent_locally_applies_launch_profile_memo_seed_before_bu
         agent_id_mode="name-hash",
         auth=None,
         session_name="HOUMAO-repo-research-1",
-        headless=True,
+        mode="headless",
         provider="codex",
         working_directory=working_directory,
         source_working_directory=repo_root,
@@ -869,7 +853,7 @@ def test_launch_managed_agent_locally_seeds_profile_mail_notifier_appendix(
         agent_id_mode="name-hash",
         auth=None,
         session_name="HOUMAO-repo-research-1",
-        headless=True,
+        mode="headless",
         provider="codex",
         working_directory=working_directory,
         source_working_directory=repo_root,
@@ -967,7 +951,7 @@ def test_launch_managed_agent_locally_memo_only_seed_preserves_pages(
         agent_id_mode="name-hash",
         auth=None,
         session_name="HOUMAO-repo-research-1",
-        headless=True,
+        mode="headless",
         provider="codex",
         working_directory=working_directory,
         source_working_directory=repo_root,
@@ -1063,10 +1047,6 @@ def test_launch_managed_agent_locally_can_disable_default_managed_header(
         )[1],
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.backend_for_tool",
-        lambda tool, prefer_local_interactive: "codex",
-    )
-    monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
         lambda **kwargs: SimpleNamespace(
             agent_identity="HOUMAO-codex-researcher",
@@ -1083,7 +1063,7 @@ def test_launch_managed_agent_locally_can_disable_default_managed_header(
         agent_id_mode="name-hash",
         auth=None,
         session_name="HOUMAO-codex-researcher",
-        headless=True,
+        mode="headless",
         provider="codex",
         working_directory=working_directory,
         source_agent_def_dir=source_agent_def_dir,
@@ -1163,7 +1143,7 @@ def test_launch_managed_agent_locally_fails_before_build_without_force_on_live_o
             agent_id_mode="name-hash",
             auth=None,
             session_name="worker-a",
-            headless=True,
+            mode="headless",
             provider="codex",
             working_directory=working_directory,
             source_agent_def_dir=source_agent_def_dir,
@@ -1286,7 +1266,7 @@ def test_launch_managed_agent_locally_keep_stale_reuses_predecessor_home(
         agent_id_mode="name-hash",
         auth=None,
         session_name="worker-a",
-        headless=True,
+        mode="headless",
         provider="codex",
         working_directory=working_directory,
         source_agent_def_dir=source_agent_def_dir,
@@ -1410,7 +1390,7 @@ def test_launch_managed_agent_locally_reuse_home_rebuilds_stopped_predecessor_ho
         agent_id_mode="name-hash",
         auth=None,
         session_name=None,
-        headless=True,
+        mode="headless",
         provider="codex",
         working_directory=working_directory,
         source_agent_def_dir=source_agent_def_dir,
@@ -1547,7 +1527,7 @@ def test_launch_managed_agent_locally_reuse_home_explicit_session_name_override_
         agent_id_mode="name-hash",
         auth=None,
         session_name="worker-a-debug",
-        headless=True,
+        mode="headless",
         provider="codex",
         working_directory=working_directory,
         source_agent_def_dir=source_agent_def_dir,
@@ -1617,7 +1597,7 @@ def test_launch_managed_agent_locally_reuse_home_fails_without_preserved_home(
             agent_id_mode="name-hash",
             auth=None,
             session_name="worker-a",
-            headless=True,
+            mode="headless",
             provider="codex",
             working_directory=working_directory,
             source_agent_def_dir=source_agent_def_dir,
@@ -1689,7 +1669,7 @@ def test_launch_managed_agent_locally_reuse_home_rejects_live_owner_even_with_fo
             agent_id_mode="name-hash",
             auth=None,
             session_name=None,
-            headless=True,
+            mode="headless",
             provider="codex",
             working_directory=working_directory,
             source_agent_def_dir=source_agent_def_dir,
@@ -1749,7 +1729,7 @@ def test_launch_managed_agent_locally_rejects_reuse_home_with_clean_force(
             agent_id_mode="name-hash",
             auth=None,
             session_name="worker-a",
-            headless=True,
+            mode="headless",
             provider="codex",
             working_directory=working_directory,
             source_agent_def_dir=source_agent_def_dir,
@@ -1888,7 +1868,7 @@ def test_launch_managed_agent_locally_reuse_home_projects_current_specialist_inp
         agent_id_mode="name-hash",
         auth=None,
         session_name=None,
-        headless=True,
+        mode="headless",
         provider="codex",
         working_directory=working_directory,
         source_agent_def_dir=source_agent_def_dir,
@@ -2034,7 +2014,7 @@ def test_launch_managed_agent_locally_clean_removes_replaceable_predecessor_arti
         agent_id_mode="name-hash",
         auth=None,
         session_name="worker-a",
-        headless=True,
+        mode="headless",
         provider="codex",
         working_directory=working_directory,
         source_agent_def_dir=source_agent_def_dir,
@@ -2107,7 +2087,7 @@ def test_launch_managed_agent_locally_force_does_not_target_unrelated_tmux_colli
             agent_id_mode="name-hash",
             auth=None,
             session_name="worker-b",
-            headless=True,
+            mode="headless",
             provider="codex",
             working_directory=working_directory,
             source_agent_def_dir=source_agent_def_dir,
@@ -2216,7 +2196,7 @@ def test_launch_managed_agent_locally_reports_post_takeover_build_failure(
             agent_id_mode="name-hash",
             auth=None,
             session_name="worker-a",
-            headless=True,
+            mode="headless",
             provider="codex",
             working_directory=working_directory,
             source_agent_def_dir=source_agent_def_dir,
@@ -2263,7 +2243,6 @@ def test_invalid_merged_tool_params_leave_force_predecessor_intact(
         return target
 
     monkeypatch.setattr(core, "resolve_native_launch_target", claude_target)
-    monkeypatch.setattr(core, "backend_for_tool", lambda *args, **kwargs: "local_interactive")
     previous = runtime / "previous"
     previous.mkdir(parents=True)
     (previous / "manifest.json").write_text("predecessor manifest", encoding="utf-8")
@@ -2288,7 +2267,7 @@ def test_invalid_merged_tool_params_leave_force_predecessor_intact(
             agent_id_mode="name-hash",
             auth=None,
             session_name=None,
-            headless=False,
+            mode="tui",
             provider="claude_code",
             working_directory=tmp_path,
             source_agent_def_dir=source,

@@ -38,6 +38,7 @@ def test_runtime_generation_handoff_has_no_gap_and_excludes_stale_writer_and_rem
             "identity": RegistryIdentityV1(
                 backend=backend, tool="dsh" if backend == "dsh_web" else "claude"
             ),
+            "mode": "web" if backend == "dsh_web" else "headless",
             "native_surface": WebNativeSurfaceV1(
                 origin="http://127.0.0.1:45231", native_session_id="native"
             )
@@ -55,6 +56,7 @@ def test_runtime_generation_handoff_has_no_gap_and_excludes_stale_writer_and_rem
             json.dumps(
                 {
                     "backend": backend,
+                    "mode": old.mode,
                     "agent_id": old.agent_id,
                     "registry_generation_id": generation,
                     "runtime": {

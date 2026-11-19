@@ -26,7 +26,7 @@ from houmao.agents.realm_controller.agent_identity import (
 from houmao.agents.realm_controller.backends.tmux_runtime import tmux_session_exists
 from houmao.agents.realm_controller.gateway_models import GatewayRequestPayloadSubmitPromptV1
 from houmao.agents.realm_controller.loaders import parse_env_file
-from houmao.agents.realm_controller.launch_plan import backend_for_tool
+from houmao.agents.realm_controller.run_modes import resolve_run_mode
 from houmao.agents.realm_controller.registry_storage import resolve_live_agent_record_by_agent_id
 from houmao.agents.realm_controller.runtime import RuntimeSessionController, start_runtime_session
 from houmao.demo.legacy.launch_support import resolve_demo_preset_launch
@@ -592,13 +592,14 @@ def provision_shared_interactive(
                 persistent_env_records=target.recipe.launch_env_records,
             )
         )
-        resolved_backend = backend_for_tool(target.tool, prefer_local_interactive=True)
+        selection = resolve_run_mode(target.tool, entrypoint="project")
         controller = start_runtime_session(
             agent_def_dir=target.agent_def_dir,
             brain_manifest_path=build_result.manifest_path.resolve(),
             role_name=target.role_name,
             runtime_root=paths.shared_runtime_root,
-            backend=resolved_backend,
+            backend=selection.backend,
+            mode=selection.mode,
             working_directory=paths.interactive_workdir,
             agent_name=agent_name,
             tmux_session_name=agent_name,

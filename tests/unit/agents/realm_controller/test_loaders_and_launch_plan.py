@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import tomllib
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 
@@ -23,7 +23,6 @@ from houmao.agents.mailbox_runtime_models import (
 )
 from houmao.agents.realm_controller.launch_plan import (
     LaunchPlanRequest,
-    backend_for_tool,
     build_launch_plan,
     configured_cao_parsing_mode,
     configured_cao_shadow_policy,
@@ -284,13 +283,6 @@ def test_plan_role_injection_strategy_requires_matching_native_method() -> None:
         )
 
 
-def test_backend_for_tool_defaults_to_codex_headless() -> None:
-    assert backend_for_tool("codex") == "codex_headless"
-    assert backend_for_tool("codex", prefer_cao=True) == "cao_rest"
-    assert backend_for_tool("codex", prefer_local_interactive=True) == "local_interactive"
-    assert backend_for_tool("kimi", prefer_local_interactive=True) == "local_interactive"
-
-
 def test_build_launch_plan_uses_allowlisted_env_and_redacts_values(
     tmp_path: Path,
 ) -> None:
@@ -329,33 +321,107 @@ def test_build_launch_plan_uses_allowlisted_env_and_redacts_values(
     assert "sk-secret" not in str(redacted)
 
 
-def test_build_launch_plan_rejects_unmaintained_codex_app_server(tmp_path: Path) -> None:
-    env_file = tmp_path / "vars.env"
-    env_file.write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
-    _write(tmp_path / "repo/roles/test-role/system-prompt.md", "prompt")
+@pytest.mark.parametrize("policy", ["unattended", "as_is"])
+def test_build_codex_service_launch_owns_stdio_and_private_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, policy: str
+) -> None:
+    """Bind the selected binary and move role and model to the native thread contract."""
 
+    _stub_tool_version(monkeypatch, "0.169.0")
+    executable = tmp_path / "bin/codex-selected"
+    _write(executable, "#!/bin/sh\n")
+    executable.chmod(0o700)
+    selected = executable.with_name("codex")
+    selected.symlink_to(executable)
+    env_file = tmp_path / "vars.env"
+    _write(env_file, "OPENAI_API_KEY=sk-test-private\nCODEX_HOME=/ignore\n")
+    _write(tmp_path / "roles/test-role/system-prompt.md", "native role")
+    home = tmp_path / "home"
+    _write(
+        home / "config.toml",
+        'model = "Qwen/Qwen3.8-27B-FP8"\nmodel_reasoning_effort = "low"\n'
+        'model_provider = "selected"\n[model_providers.selected]\nname = "Selected"\n'
+        'base_url = "http://127.0.0.1:14888/v1"\nenv_key = "OPENAI_API_KEY"\n'
+        'requires_openai_auth = false\nwire_api = "responses"\n',
+    )
     manifest = _manifest(
         tool="codex",
-        executable="codex",
+        executable=str(selected),
         home_env_var="CODEX_HOME",
-        home_path=tmp_path / "home",
+        home_path=home,
         env_file=env_file,
-        allowlisted_env_vars=["OPENAI_API_KEY"],
+        allowlisted_env_vars=["OPENAI_API_KEY", "CODEX_HOME"],
+        launch_policy={"operator_prompt_mode": policy},
+    )
+    (home / "auth.json").unlink()
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=load_role_package(tmp_path, "test-role"),
+            backend="codex_app_server",
+            working_directory=tmp_path,
+        )
     )
 
-    role = load_role_package(tmp_path / "repo", "test-role")
-    with pytest.raises(LaunchPlanError, match="unmaintained") as caught:
+    assert plan.mode == "service"
+    assert plan.native_surface_kind is None
+    assert plan.executable == str(executable)
+    assert plan.args == ["app-server", "--listen", "stdio://"]
+    assert plan.env["CODEX_HOME"] == str(home)
+    assert plan.env["OPENAI_API_KEY"] == "sk-test-private"
+    assert "sk-test-private" not in str(plan.redacted_payload())
+    assert plan.role_injection.method == "native_developer_instructions"
+    assert plan.role_injection.prompt == "native role"
+    metadata = plan.metadata["codex_app_server"]
+    assert metadata["detected_version"] == "0.169.0"
+    assert metadata["operator_prompt_mode"] == policy
+    assert metadata["thread_config"]["model"] == "Qwen/Qwen3.8-27B-FP8"
+    assert metadata["thread_config"]["model_reasoning_effort"] == "low"
+    assert metadata["thread_config"]["model_providers.selected.wire_api"] == "responses"
+    home_config = tomllib.loads((home / "config.toml").read_text())
+    assert ("projects" in home_config) is (policy == "unattended")
+
+
+@pytest.mark.parametrize(
+    ("raw_args", "error"),
+    [
+        ([], r"requires Codex CLI 0\.169\.0.*headless and tui"),
+        (["--listen", "ws://127.0.0.1:9000"], "rejects raw launch arguments"),
+        (["daemon"], "rejects raw launch arguments"),
+    ],
+)
+def test_codex_service_rejects_other_builds_and_transport_overrides(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, raw_args: list[str], error: str
+) -> None:
+    """Fail before starting a worker or mutating the home."""
+
+    _stub_tool_version(monkeypatch, "0.168.0")
+    _write(tmp_path / "roles/r/system-prompt.md", "role")
+    env_file = tmp_path / "vars.env"
+    _write(env_file, "")
+    executable = tmp_path / "codex"
+    _write(executable, "#!/bin/sh\n")
+    executable.chmod(0o700)
+    home = tmp_path / "home"
+    manifest = _manifest(
+        tool="codex",
+        executable=str(executable),
+        home_env_var="CODEX_HOME",
+        home_path=home,
+        env_file=env_file,
+        allowlisted_env_vars=[],
+        launch_args=raw_args,
+    )
+    with pytest.raises(LaunchPlanError, match=error):
         build_launch_plan(
             LaunchPlanRequest(
                 brain_manifest=manifest,
-                role_package=role,
+                role_package=load_role_package(tmp_path, "r"),
                 backend="codex_app_server",
                 working_directory=tmp_path,
             )
         )
-
-    assert "codex_headless" in str(caught.value)
-    assert "local_interactive" in str(caught.value)
+    assert not (home / "config.toml").exists()
 
 
 def test_build_launch_plan_overlays_persistent_launch_env_records(tmp_path: Path) -> None:
@@ -1211,6 +1277,126 @@ def test_build_launch_plan_kimi_as_is_does_not_preseed_workspace_trust(
     assert plan.role_injection.method == "native_home_system_prompt"
     assert "workspace_trust" not in plan.metadata
     assert not (home_path / "workspace-trust").exists()
+
+
+@pytest.mark.parametrize("policy", ["as_is", "unattended"])
+@pytest.mark.parametrize(
+    ("backend", "mode", "surface", "args"),
+    [
+        ("kimi_acp", "service", None, ["acp"]),
+        (
+            "kimi_web",
+            "web",
+            "web",
+            ["web", "--no-open", "--host", "127.0.0.1", "--port", "0"],
+        ),
+    ],
+)
+def test_kimi_owned_plan_projects_private_inputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    policy: str,
+    backend: Literal["kimi_acp", "kimi_web"],
+    mode: str,
+    surface: str | None,
+    args: list[str],
+) -> None:
+    """Map configured models to the private home and pin the selected native executable."""
+
+    _stub_tool_version(monkeypatch, "2.6.0")
+    _write(tmp_path / "repos/roles/r/system-prompt.md", "role marker")
+    executable = tmp_path / "bin/kimi-selected"
+    _write(executable, "#!/bin/sh\n")
+    executable.chmod(0o700)
+    selected = executable.with_name("kimi")
+    selected.symlink_to(executable)
+    home = tmp_path / "home"
+    _write(
+        home / "config.toml",
+        'default_model = "existing"\ndefault_permission_mode = "yolo"\n'
+        '[[hooks]]\nevent = "SessionStart"\ncommand = "test-command"\n',
+    )
+    env_file = tmp_path / "vars.env"
+    _write(env_file, "KIMI_MODEL_API_KEY=private-test-value\nKIMI_CODE_HOME=/wrong\n")
+    request = _manifest(
+        tool="kimi",
+        executable=str(selected),
+        home_env_var="KIMI_CODE_HOME",
+        home_path=home,
+        env_file=env_file,
+        allowlisted_env_vars=["KIMI_MODEL_API_KEY", "KIMI_CODE_HOME"],
+        launch_policy={"operator_prompt_mode": policy},
+    )
+    request["runtime"]["launch_contract"]["model_selection"] = {
+        "provider_cli_args": {"tool": "kimi", "args": ["--model=configured-model"]}
+    }
+
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=request,
+            role_package=load_role_package(tmp_path / "repos", "r"),
+            backend=backend,
+            working_directory=tmp_path,
+        )
+    )
+
+    assert plan.args == args
+    assert plan.executable == str(executable)
+    assert plan.mode == mode
+    assert plan.native_surface_kind == surface
+    assert plan.env["KIMI_CODE_HOME"] == str(home)
+    assert plan.env["KIMI_CODE_LEGACY_FLAG"] == "0"
+    assert plan.env["KIMI_MODEL_API_KEY"] == "private-test-value"
+    assert "private-test-value" not in json.dumps(plan.metadata)
+    assert plan.metadata[backend] == {
+        "detected_version": "2.6.0",
+        "operator_prompt_mode": policy,
+        "configured_model": "configured-model",
+    }
+    assert (home / "SYSTEM.md").read_text() == "${base_prompt}\n\nrole marker\n"
+    config = tomllib.loads((home / "config.toml").read_text())
+    assert config["default_model"] == "configured-model"
+    assert config["default_permission_mode"] == ("auto" if policy == "unattended" else "yolo")
+    assert config["hooks"] == [{"event": "SessionStart", "command": "test-command"}]
+
+
+@pytest.mark.parametrize(
+    ("raw_args", "problem"),
+    [([], r"Kimi ACP requires Kimi Code 2\.6\.0"), (["--model", "x"], "rejects raw launch")],
+)
+def test_kimi_acp_refuses_unqualified_launch_before_home_projection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, raw_args: list[str], problem: str
+) -> None:
+    """Reject unsupported builds and raw ACP controls before changing native home state."""
+
+    _stub_tool_version(monkeypatch, "2.5.0")
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "role")
+    env_file = tmp_path / "vars.env"
+    _write(env_file, "")
+    executable = tmp_path / "kimi"
+    _write(executable, "#!/bin/sh\n")
+    executable.chmod(0o700)
+    home = tmp_path / "home"
+    request = _manifest(
+        tool="kimi",
+        executable=str(executable),
+        home_env_var="KIMI_CODE_HOME",
+        home_path=home,
+        env_file=env_file,
+        allowlisted_env_vars=[],
+        launch_args=raw_args,
+    )
+    with pytest.raises(LaunchPlanError, match=problem):
+        build_launch_plan(
+            LaunchPlanRequest(
+                brain_manifest=request,
+                role_package=load_role_package(tmp_path / "repo", "r"),
+                backend="kimi_acp",
+                working_directory=tmp_path,
+            )
+        )
+    assert not (home / "SYSTEM.md").exists()
+    assert not (home / "config.toml").exists()
 
 
 def test_build_launch_plan_replaces_conflicting_claude_adapter_model_selection_args(

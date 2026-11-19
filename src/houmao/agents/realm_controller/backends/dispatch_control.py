@@ -82,8 +82,16 @@ class HeadlessDispatchControl:
         if self.m_handoff_confirmed.is_set():
             return
         self.require_allowed()
-        self.m_handoff_confirmed.set()
-        self.m_confirmed()
+        self.confirm_durable_handoff()
+
+    def confirm_durable_handoff(self) -> None:
+        """Report a verified owner receipt even if the native request already settled."""
+
+        with self.m_lock:
+            if self.m_handoff_confirmed.is_set():
+                return
+            self.m_confirmed()
+            self.m_handoff_confirmed.set()
 
     def cancel(self) -> None:
         """Permanently revoke this attempt, including a bridge not yet launched."""
@@ -100,6 +108,7 @@ class HeadlessDispatchControl:
             return
         payload = {
             "active": active,
+            "attempt_id": path.parent.name,
             "expires_at": time.time() + max(0.0, self.m_deadline - time.monotonic()),
             "manifest_path": str(self.m_manifest_path) if self.m_manifest_path else None,
             "registry_generation_id": self.m_generation_id,

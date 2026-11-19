@@ -30,6 +30,7 @@ APPROVAL_HEADERS = (
 )
 ACTIVITY_LABEL_2_1_RE = re.compile(
     r"(?:working|thinking)(?:\.\.\.|…)"
+    r"|Working for \d+[hms](?: \d+[ms])*\b"
     r"|Retrying \(\d+/\d+\)"
     r"|Compacting context…"
     r"|Orchestrating…"
@@ -340,11 +341,10 @@ class KimiCodeSignalDetectorV2_1_X(_BaseKimiCodeSignalDetector):
     `context/campaigns/debug/2026-10-10-kimi-code-tui-parsing/`). Repairs over
     the shared base behavior:
 
-    - 2.1.x activity labels render `Thinking…` / `Working…` capitalized with
-      U+2026, plus `Retrying (N/M)`, `Compacting context…`, `Orchestrating…`,
-      and subagent `… Agent Running (…)` rows; the base lowercase ASCII regex
-      matches none of them, so braille-phase busy spans need a 2.1-aware
-      live-edge rescan.
+    - Activity labels include `Thinking…`, `Working…`, elapsed `Working for 1s`
+      in 2.6.0, `Retrying (N/M)`, `Compacting context…`, `Orchestrating…`, and
+      subagent `… Agent Running (…)` rows. The live-edge rescan detects these
+      busy spans while the editor remains visible.
     - Compaction renders a `●` bullet, not a spinner frame.
     - Modal surfaces (approval panels, the AskUserQuestion dialog, the
       goal-start prompt, and the workspace-trust startup modal) report

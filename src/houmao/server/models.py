@@ -22,7 +22,14 @@ from pydantic import (
 )
 
 from houmao.agents.mailbox_runtime_models import MailboxTransport
+from houmao.agents.realm_controller.managed_control import (
+    ManagedControlCapabilitiesV1,
+    ManagedControlEvidenceSource,
+    ManagedControlObservationV1,
+)
+from houmao.agents.realm_controller.models import BackendKind
 from houmao.agents.realm_controller.native_surface import NativeSurfaceV1
+from houmao.agents.realm_controller.run_modes import RunMode
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayAdmissionState,
@@ -76,7 +83,7 @@ from houmao.shared_tui_tracking.models import (
 )
 
 TerminalId = Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{8}$")]
-ManagedAgentTransportKind = Literal["tui", "headless", "web", "unknown"]
+ManagedAgentTransportKind = Literal["tui", "headless", "service", "web", "unknown"]
 ManagedAgentLifecycleState = Literal["active", "stopped", "relaunching", "retired"]
 ManagedAgentManagementKind = Literal[
     "local_lifecycle", "external_communication_only", "executor_managed"
@@ -521,6 +528,8 @@ class HoumaoManagedAgentIdentity(_HoumaoModel):
 
     tracked_agent_id: str
     transport: ManagedAgentTransportKind
+    mode: RunMode | None = None
+    backend: BackendKind | None = None
     native_surface: NativeSurfaceV1 | None = None
     tool: str
     session_name: str | None = None
@@ -714,6 +723,8 @@ class HoumaoManagedAgentStateResponse(_HoumaoModel):
     availability: ManagedAgentAvailability
     turn: HoumaoManagedAgentTurnView
     last_turn: HoumaoManagedAgentLastTurnView
+    capabilities: ManagedControlCapabilitiesV1 | None = None
+    control: ManagedControlObservationV1 | None = None
     diagnostics: list[HoumaoErrorDetail] = Field(default_factory=list)
     mailboxes: HoumaoManagedAgentMailboxSummaryView | None = None
     gateway: HoumaoManagedAgentGatewaySummaryView | None = None
@@ -861,9 +872,17 @@ class HoumaoManagedAgentWebDetailView(_HoumaoModel):
     state: GatewayWebControlStateV1
 
 
+class HoumaoManagedAgentServiceDetailView(_HoumaoModel):
+    """Report native service readiness separately from its managed owner."""
+
+    transport: Literal["service"] = "service"
+    state: ManagedControlObservationV1
+
+
 ManagedAgentDetailPayload = Annotated[
     HoumaoManagedAgentTuiDetailView
     | HoumaoManagedAgentHeadlessDetailView
+    | HoumaoManagedAgentServiceDetailView
     | HoumaoManagedAgentWebDetailView,
     Field(discriminator="transport"),
 ]
@@ -928,6 +947,10 @@ class HoumaoManagedAgentRequestAcceptedResponse(CaoSuccessResponse):
     detail: str
     headless_turn_id: str | None = None
     headless_turn_index: int | None = None
+    delivery_state: (
+        Literal["queued", "handed_off", "completed", "failed", "interrupted", "uncertain"] | None
+    ) = None
+    evidence_source: ManagedControlEvidenceSource | None = None
 
     @field_validator(
         "tracked_agent_id",

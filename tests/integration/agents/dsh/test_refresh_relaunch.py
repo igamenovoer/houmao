@@ -29,6 +29,7 @@ def test_edited_launch_profile_refresh_and_separate_relaunch_keep_their_boundari
     config = configuration.resolve_config(
         case="cloud-api",
         client="dsh",
+        mode="headless",
         surface="manager",
         process_env={
             "HOUMAO_TEST_CLOUD_MODEL": "controlled",
@@ -52,7 +53,8 @@ def test_edited_launch_profile_refresh_and_separate_relaunch_keep_their_boundari
             "refresh-boundary",
             "--specialist",
             "fixture-agent",
-            "--headless",
+            "--mode",
+            "headless",
             "--prompt-overlay-mode",
             "append",
             "--prompt-overlay-text",
@@ -119,8 +121,14 @@ def test_edited_launch_profile_refresh_and_separate_relaunch_keep_their_boundari
         with pytest.raises(prepare.ManagedCommandError) as checked:
             prepare.manager_root_call([*scope, "refresh", "--check"], env=environment)
         assert checked.value.payload["freshness"] == "unknown"
-        refreshed = prepare.manager_root_call([*scope, "refresh"], env=environment)
-        assert refreshed["outcome"] == "automatic"
+        with pytest.raises(prepare.ManagedCommandError) as refreshed:
+            prepare.manager_root_call([*scope, "refresh"], env=environment)
+        assert refreshed.value.payload["outcome"] == "unsupported"
+        resources = {
+            item["kind"]: item for item in refreshed.value.payload["observation"]["resources"]
+        }
+        assert resources["skills"]["supported"] and resources["skills"]["boundary"] == "next_turn"
+        assert resources["mcp"]["reason"] == "dsh_cli_mcp_unqualified"
         assert {path: path.read_bytes() for path in protected} == protected
         assert binding.read_bytes() == binding_before
         assert journal.read_bytes() == journal_before

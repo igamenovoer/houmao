@@ -12,7 +12,11 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from houmao.agents.realm_controller.backends.headless_base import HeadlessSessionState
-from houmao.agents.realm_controller.errors import BackendExecutionError, SessionManifestError
+from houmao.agents.realm_controller.errors import (
+    BackendExecutionError,
+    LaunchPlanError,
+    SessionManifestError,
+)
 from houmao.agents.realm_controller.gateway_models import GatewayCurrentInstanceV1
 from houmao.agents.realm_controller.gateway_access_runtime import gateway_access_for_manifest
 from houmao.agents.realm_controller.gateway_storage import (
@@ -40,6 +44,9 @@ from houmao.execution.tmux import current_tmux_socket_path, tmux_server_scope
 from houmao.gateway.access import GatewayAdminKey, GatewayLaunchSeed, public_key_text
 from houmao.gateway.deployment import GatewayEndpointDescriptor
 from houmao.mailbox.registry_config import associate_registry_store
+from houmao.project.catalog import LaunchProfileCatalogEntry, ProjectCatalog
+from houmao.project.launch_profiles import profile_run_mode
+from houmao.project.overlay import bootstrap_project_overlay, require_project_overlay
 from houmao.agents.realm_controller.runtime import (
     resume_runtime_session,
     resume_stopped_runtime_session,
@@ -203,6 +210,41 @@ def test_start_runtime_session_rejects_retired_houmao_server_backend(
         )
 
 
+def test_kimi_web_rejects_unqualified_version_before_runtime_or_native_start(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Reject the unqualified binary before preparing its workspace or starting a host."""
+
+    executable = tmp_path / "kimi"
+    executable.write_text("#!/bin/sh\nprintf '2.5.0\\n'\n")
+    executable.chmod(0o700)
+    monkeypatch.setattr(
+        runtime_module,
+        "load_brain_manifest",
+        lambda path: {
+            "inputs": {"tool": "kimi"},
+            "runtime": {"launch_executable": str(executable)},
+        },
+    )
+
+    def unexpected_mutation(*args: object, **kwargs: object) -> None:
+        pytest.fail("Unavailable Kimi Web reached runtime preparation")
+
+    monkeypatch.setattr(runtime_module, "resolve_runtime_root", unexpected_mutation)
+    monkeypatch.setattr(runtime_module, "build_launch_plan", unexpected_mutation)
+    monkeypatch.setattr(runtime_module, "_create_backend_session", unexpected_mutation)
+    with pytest.raises(LaunchPlanError, match=r"Kimi Web requires Kimi Code 2\.6\.0.*2\.5\.0"):
+        start_runtime_session(
+            agent_def_dir=tmp_path / "repo",
+            brain_manifest_path=tmp_path / "manifest.yaml",
+            role_name="missing",
+            runtime_root=tmp_path / "runtime",
+            mode="web",
+            working_directory=tmp_path,
+        )
+    assert not (tmp_path / "runtime").exists()
+
+
 def test_start_resume_send_prompt_and_stop_refresh_registry(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -286,6 +328,11 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     assert binding.registry_root == str(registry_root)
     assert started_record.execution_binding == binding
     assert started_record.terminal.socket_path == controller.tmux_socket_path
+    capabilities = controller.control_capabilities()
+    assert capabilities.mode == "headless"
+    assert capabilities.evidence_source == "headless_artifacts"
+    assert "prompt" in capabilities.operations
+    assert "send_keys" not in capabilities.operations
     started_published_at = datetime.fromisoformat(started_record.published_at)
     started_lease_expires_at = datetime.fromisoformat(started_record.lease_expires_at)
     assert (
@@ -342,6 +389,13 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     assert refreshed_record.generation_id == controller.registry_generation_id
 
     before_relaunch = controller.registry_generation_id
+    assert before_relaunch is not None
+    retained_manifest = runtime_root / "retained-predecessor.json"
+    retained_manifest.write_bytes(controller.manifest_path.read_bytes())
+    with pytest.raises(SessionManifestError, match="no longer names"):
+        runtime_module.require_active_managed_control_manifest(
+            retained_manifest, generation_id=before_relaunch
+        )
     assert controller.relaunch().status == "ok"
     assert controller.registry_generation_id != before_relaunch
     relaunched_access = gateway_access_for_manifest(controller.manifest_path)
@@ -359,6 +413,10 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
         snapshot.interrupt()
     with pytest.raises(SessionManifestError, match="generation changed"):
         snapshot.persist_manifest()
+    with pytest.raises(SessionManifestError, match="no longer names"):
+        runtime_module.require_active_managed_control_manifest(
+            retained_manifest, generation_id=before_relaunch
+        )
     assert controller.manifest_path.read_bytes() == manifest_after_relaunch
 
     resumed = resume_runtime_session(
@@ -379,6 +437,8 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     stopped_record = load_managed_agent_record_by_agent_id(resumed.agent_id)
     assert stopped_record is not None
     assert stopped_record.lifecycle.state == "stopped"
+    with pytest.raises(SessionManifestError, match="no longer names"):
+        resumed.require_managed_control_owner()
     assert stopped_record.lifecycle.relaunchable is True
     assert stopped_record.liveness is None
     assert stopped_record.gateway is None
@@ -512,15 +572,42 @@ def test_resume_stopped_runtime_session_revives_headless_runtime(
     assert revived_payload["registry_generation_id"] != original_generation_id
 
 
-def test_stopped_revival_uses_stored_launch_profile_relaunch_policy(
+def test_stopped_revival_uses_saved_mode_and_relaunch_policy_after_profile_edit(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    """Revive the recorded TUI mode after the reusable profile changes to headless."""
+
     agent_def_dir = tmp_path / "repo"
     runtime_root = tmp_path / "runtime"
     registry_root = tmp_path / "registry"
     brain_manifest_path = _seed_brain_manifest(tmp_path)
     _seed_role(agent_def_dir)
+    bootstrap_project_overlay(agent_def_dir)
+    catalog = ProjectCatalog.from_overlay(require_project_overlay(agent_def_dir))
+
+    def store_profile(mode: str) -> LaunchProfileCatalogEntry:
+        """Change the live catalog default for the profile used to start this agent."""
+
+        return catalog.store_launch_profile(
+            name="reviewer-default",
+            profile_lane="launch_profile",
+            source_kind="recipe",
+            source_name="reviewer-claude-default",
+            managed_agent_name="gpu",
+            managed_agent_id=None,
+            workdir=None,
+            auth_tool=None,
+            auth_name=None,
+            operator_prompt_mode=None,
+            env_mapping=None,
+            mailbox_mapping=None,
+            posture_mapping={"mode": mode},
+            prompt_overlay_mode=None,
+            prompt_overlay_text=None,
+        )
+
+    initial_profile = store_profile("tui")
     monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
@@ -554,7 +641,9 @@ def test_stopped_revival_uses_stored_launch_profile_relaunch_policy(
         brain_manifest_path=brain_manifest_path,
         role_name="r",
         runtime_root=runtime_root,
-        backend="local_interactive",
+        mode=profile_run_mode(
+            initial_profile.posture_payload, tool="claude", source="test profile"
+        ),
         working_directory=tmp_path,
         agent_name="gpu",
     )
@@ -579,6 +668,8 @@ def test_stopped_revival_uses_stored_launch_profile_relaunch_policy(
 
     stop_result = controller.stop(force_cleanup=True)
     assert stop_result.status == "ok"
+    store_profile("headless")
+    assert catalog.load_launch_profile(initial_profile.name).posture_payload["mode"] == "headless"
 
     revived = resume_stopped_runtime_session(
         agent_def_dir=agent_def_dir,
@@ -588,8 +679,44 @@ def test_stopped_revival_uses_stored_launch_profile_relaunch_policy(
 
     assert result.status == "ok"
     assert isinstance(revived.backend_session, _FakeHeadlessSession)
+    assert (revived.launch_plan.mode, revived.launch_plan.backend) == ("tui", "local_interactive")
+    assert revived.backend_session.m_launch_plan.mode == "tui"
     assert revived.backend_session.m_relaunch_chat_sessions[-1] is not None
     assert revived.backend_session.m_relaunch_chat_sessions[-1].mode == "tool_last_or_new"
+    manifest = json.loads(revived.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["mode"] == manifest["launch_plan"]["mode"] == "tui"
+    record = resolve_live_agent_record("gpu")
+    assert record is not None
+    assert record.mode == "tui"
+
+
+def test_rc2_dsh_acp_manifest_cannot_restore_a_service(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Reject a per-turn ACP manifest at the schema boundary before backend setup."""
+
+    manifest_path = tmp_path / "manifest.json"
+    legacy_manifest = json.dumps(
+        {
+            "schema_version": 5,
+            "tool": "dsh",
+            "backend": "dsh_acp",
+            "launch_plan": {"schema_version": 2, "tool": "dsh", "backend": "dsh_acp"},
+            "headless": {"session_id": "previous-native-session", "turn_index": 1},
+        }
+    )
+    manifest_path.write_text(legacy_manifest, encoding="utf-8")
+
+    def unexpected_backend(**_kwargs: object) -> None:
+        """Fail if legacy authority proceeds past manifest validation."""
+
+        pytest.fail("RC2 per-turn ACP cannot create a current backend")
+
+    monkeypatch.setattr(runtime_module, "_create_backend_session", unexpected_backend)
+    with pytest.raises(SessionManifestError, match="got 5.*Start a fresh runtime session"):
+        resume_runtime_session(agent_def_dir=tmp_path, session_manifest_path=manifest_path)
+
+    assert manifest_path.read_text(encoding="utf-8") == legacy_manifest
 
 
 def test_shared_registry_record_builder_skips_non_tmux_backed_controller() -> None:

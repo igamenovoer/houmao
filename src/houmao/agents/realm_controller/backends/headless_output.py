@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
+from houmao.agents.realm_controller.backends.dsh_diagnostics import sanitize_dsh_diagnostic
 from houmao.agents.realm_controller.models import SessionEvent
 
 HeadlessDisplayStyle = Literal["plain", "json", "fancy"]
@@ -26,6 +27,13 @@ CANONICAL_HEADLESS_EVENTS_ARTIFACT = "canonical-events.jsonl"
 
 _VALID_DISPLAY_STYLES: frozenset[str] = frozenset({"plain", "json", "fancy"})
 _VALID_DISPLAY_DETAILS: frozenset[str] = frozenset({"concise", "detail"})
+_DSH_CLI_RECORD_TYPES = frozenset(
+    {"session", "status", "text", "thinking", "tool_call", "tool_result", "final", "error"}
+)
+_DSH_CLI_STATUS_PHASES = frozenset({"turn_start", "step_start", "step_end", "turn_end"})
+_DSH_CLI_REASONS = frozenset(
+    {"completed", "aborted", "blocked", "error", "max-tokens", "interrupted", "forked"}
+)
 
 
 @dataclass(frozen=True)
@@ -178,7 +186,14 @@ class CanonicalHeadlessEvent:
 class CanonicalHeadlessEventParser:
     """Incremental provider-aware canonical event parser."""
 
-    def __init__(self, *, provider: HeadlessProvider, turn_index: int) -> None:
+    def __init__(
+        self,
+        *,
+        provider: HeadlessProvider,
+        turn_index: int,
+        output_format: str = "stream-json",
+        diagnostic_secrets: tuple[str, ...] | None = None,
+    ) -> None:
         """Initialize one parser state.
 
         Parameters
@@ -187,12 +202,18 @@ class CanonicalHeadlessEventParser:
             Upstream provider identity.
         turn_index:
             Managed turn index.
+        output_format:
+            Protocol selected by the backend before reading output.
+        diagnostic_secrets:
+            Credentials to redact in native diagnostics. None omits diagnostic contents.
         """
 
         self.m_provider: HeadlessProvider = provider
         self.m_turn_index: int = turn_index
         self.m_session_id: str | None = None
         self.m_seen_action_requests: set[str] = set()
+        self.m_dsh_cli: bool = provider == "dsh" and output_format == "dsh-cli"
+        self.m_diagnostic_secrets: tuple[str, ...] | None = diagnostic_secrets
 
     @property
     def session_id(self) -> str | None:
@@ -216,9 +237,13 @@ class CanonicalHeadlessEventParser:
 
         try:
             payload = json.loads(line)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, RecursionError):
+            if self.m_provider == "dsh":
+                return [self._dsh_cli_invalid_record("raw_text")]
             return [self._diagnostic_event(text=line, provider_event_type="raw_text")]
         if not isinstance(payload, dict):
+            if self.m_provider == "dsh":
+                return [self._dsh_cli_invalid_record("non_mapping")]
             return [
                 self._diagnostic_event(
                     text=str(payload),
@@ -242,6 +267,12 @@ class CanonicalHeadlessEventParser:
             Canonical semantic events derived from the mapping.
         """
 
+        if self.m_provider == "dsh" and (
+            self.m_dsh_cli or _optional_text(payload.get("type")) in _DSH_CLI_RECORD_TYPES
+        ):
+            self.m_dsh_cli = True
+            return [self._consume_dsh_cli_payload(payload)]
+
         candidate_session_id = _extract_session_id_from_payload(payload)
         if candidate_session_id is not None and self.m_session_id is None:
             self.m_session_id = candidate_session_id
@@ -253,6 +284,140 @@ class CanonicalHeadlessEventParser:
         if self.m_provider == "dsh":
             return self._consume_dsh_payload(payload)
         return self._consume_kimi_payload(payload)
+
+    def _dsh_cli_invalid_record(self, event_type: str) -> CanonicalHeadlessEvent:
+        """Keep malformed DSH records out of public diagnostics and session state."""
+
+        return self._diagnostic_event(
+            text="Invalid DSH output record. See the private turn artifact.",
+            provider_event_type=event_type,
+        )
+
+    def _dsh_cli_diagnostic(self, message: object) -> str:
+        """Redact native diagnostics when the worker supplied its credential context."""
+
+        if self.m_diagnostic_secrets is not None and isinstance(message, str):
+            safe = sanitize_dsh_diagnostic(message, secret_values=self.m_diagnostic_secrets)
+            if safe:
+                return safe
+        return "DSH native error. See the private turn artifact."
+
+    def _consume_dsh_cli_payload(self, payload: Mapping[str, Any]) -> CanonicalHeadlessEvent:
+        """Normalize the native one-shot stream without promoting its final frame to success."""
+
+        event_type = _optional_text(payload.get("type")) or "unknown"
+        raw_session_id = payload.get("sessionId")
+        session_id = _optional_text(raw_session_id)
+        if raw_session_id is not None and raw_session_id != session_id:
+            return self._dsh_cli_invalid_record("dsh_cli_session_mismatch")
+        data: dict[str, Any]
+        if event_type == "error":
+            kind, message = "error", self._dsh_cli_diagnostic(payload.get("message"))
+            data = {"severity": "error", "text": message}
+        elif event_type == "session" and session_id and self.m_session_id is None:
+            kind, message = "session", "DSH native session selected"
+            data = {"cwd": _optional_text(payload.get("cwd"))}
+        elif self.m_session_id is None or (
+            session_id is not None and session_id != self.m_session_id
+        ):
+            return self._dsh_cli_invalid_record("dsh_cli_session_mismatch")
+        elif (
+            event_type == "status"
+            and (phase := _optional_text(payload.get("phase"))) in _DSH_CLI_STATUS_PHASES
+        ):
+            kind, message = "progress", str(phase)
+            data = {"phase": phase}
+            for field_name in ("turn", "step"):
+                value = payload.get(field_name)
+                if type(value) is int and value >= 0:
+                    data[field_name] = value
+            if phase == "turn_end":
+                data.update(self._dsh_cli_reason(payload.get("reason")))
+            if phase == "step_end" and isinstance(payload.get("usage"), dict):
+                data["reported_step_usage"] = {
+                    key: value
+                    for key, value in payload["usage"].items()
+                    if key
+                    in {
+                        "inputTokens",
+                        "outputTokens",
+                        "totalTokens",
+                        "cacheReadTokens",
+                        "cacheWriteTokens",
+                        "reasoningTokens",
+                    }
+                    and type(value) is int
+                    and value >= 0
+                }
+        elif event_type in {"text", "thinking"} and isinstance(payload.get("text"), str):
+            kind = "assistant" if event_type == "text" else "reasoning"
+            message = payload["text"]
+            data = {"text": message}
+        elif event_type in {"tool_call", "tool_result"} and (
+            call_id := _optional_text(payload.get("callId"))
+        ):
+            data = {"action_id": call_id, "action_kind": "tool_use"}
+            if event_type == "tool_call":
+                name = _optional_text(payload.get("tool")) or "tool"
+                arguments = payload.get("input")
+                kind, message = "action_request", name
+                data.update(
+                    name=name,
+                    arguments=arguments,
+                    arguments_summary=_summarize_arguments(arguments),
+                )
+            else:
+                status = _optional_text(payload.get("status"))
+                if status not in {"completed", "error"}:
+                    return self._dsh_cli_invalid_record("dsh_cli_invalid_record")
+                failed = status == "error"
+                kind = "action_result"
+                message = (
+                    self._dsh_cli_diagnostic(payload.get("result"))
+                    if failed
+                    else _single_line_summary(
+                        _optional_text(payload.get("result")), fallback="tool result"
+                    )
+                )
+                data.update(status=status, result_summary=message, is_error=failed)
+        elif (
+            event_type == "final"
+            and session_id == self.m_session_id
+            and isinstance(payload.get("text"), str)
+        ):
+            kind, message = "completion", "DSH native result observed"
+            data = self._dsh_cli_reason(payload.get("reason"))
+            data.update(
+                status=f"native_{data['stop_reason'] or 'unknown'}", result_text=payload["text"]
+            )
+        else:
+            return self._dsh_cli_invalid_record("dsh_cli_invalid_record")
+        return self._event(
+            kind=kind,
+            message=message,
+            provider_event_type=event_type,
+            session_id=self.m_session_id if event_type == "error" else session_id,
+            data=data,
+        )
+
+    def _dsh_cli_reason(self, raw_reason: object) -> dict[str, Any]:
+        """Expose only structured reason labels and sanitized native failure detail."""
+
+        reason = _optional_mapping(raw_reason) or {}
+        reason_kind = _optional_text(reason.get("kind"))
+        data: dict[str, Any] = {
+            "stop_reason": reason_kind if reason_kind in _DSH_CLI_REASONS else None
+        }
+        error = _optional_mapping(reason.get("error"))
+        if reason_kind == "error" and error is not None:
+            data["error"] = self._dsh_cli_diagnostic(error.get("message"))
+            if self.m_diagnostic_secrets is not None and (
+                code := _optional_text(error.get("code"))
+            ):
+                data["error_code"] = sanitize_dsh_diagnostic(
+                    code, secret_values=self.m_diagnostic_secrets, max_length=96
+                )
+        return data
 
     def _consume_dsh_payload(self, payload: Mapping[str, Any]) -> list[CanonicalHeadlessEvent]:
         """Project driver messages while preserving native ACP outcome distinctions."""
@@ -1145,6 +1310,7 @@ def canonical_headless_events_from_provider_output(
     output_format: str,
     stdout_text: str,
     turn_index: int,
+    diagnostic_secrets: tuple[str, ...] | None = None,
 ) -> list[CanonicalHeadlessEvent]:
     """Canonicalize one raw provider stdout payload.
 
@@ -1153,11 +1319,13 @@ def canonical_headless_events_from_provider_output(
     provider:
         Upstream provider identity.
     output_format:
-        Provider output format (`json` or `stream-json`).
+        Provider output format (`json`, `stream-json`, or `dsh-cli`).
     stdout_text:
         Raw provider stdout text.
     turn_index:
         Managed turn index.
+    diagnostic_secrets:
+        Optional launch credential context for sanitized native failure detail.
 
     Returns
     -------
@@ -1165,7 +1333,21 @@ def canonical_headless_events_from_provider_output(
         Canonical semantic events.
     """
 
-    parser = CanonicalHeadlessEventParser(provider=provider, turn_index=turn_index)
+    parser = CanonicalHeadlessEventParser(
+        provider=provider,
+        turn_index=turn_index,
+        output_format=output_format,
+        diagnostic_secrets=diagnostic_secrets,
+    )
+    if provider == "dsh" and output_format in {"dsh-cli", "stream-json"}:
+        complete_lines, _, unfinished_line = stdout_text.rpartition("\n")
+        records: list[CanonicalHeadlessEvent] = []
+        for line in complete_lines.split("\n"):
+            if line.strip():
+                records.extend(parser.consume_stream_line(line))
+        if unfinished_line:
+            records.append(parser._dsh_cli_invalid_record("dsh_cli_incomplete_record"))  # noqa: SLF001
+        return records
     if output_format == "stream-json":
         events: list[CanonicalHeadlessEvent] = []
         for raw_line in stdout_text.splitlines():

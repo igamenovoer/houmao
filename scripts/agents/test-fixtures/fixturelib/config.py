@@ -13,8 +13,10 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 import yaml
 
+from houmao.agents.realm_controller.errors import LaunchPlanError
+from houmao.agents.realm_controller.run_modes import RunMode, RunModeSelection, resolve_run_mode
+
 Client = Literal["claude", "codex", "kimi", "dsh"]
-Mode = Literal["headless", "tui"]
 Surface = Literal["raw", "manager", "passive-server"]
 Protocol = Literal["anthropic_messages", "openai_responses", "openai_chat", "google_generative_ai"]
 DshProtocol = Literal[
@@ -128,7 +130,7 @@ class ResolvedConfig(BaseModel):
     schema_version: Literal[1] = 1
     case: Literal["self-hosted", "cloud-api"] | None = None
     client: Client
-    mode: Mode
+    mode: RunMode
     surface: Surface
     operator_prompt_mode: Literal["unattended", "as_is"] = "unattended"
     auth_method: Literal["api-key", "endpoint-only", "native-login"] = "api-key"
@@ -144,6 +146,11 @@ class ResolvedConfig(BaseModel):
         """Return a serializable description without credential values or files."""
 
         return self.model_dump(mode="json", exclude={"api_key", "native_bundle"})
+
+    def selection(self) -> RunModeSelection:
+        """Resolve the selected fixture mode through the runtime support matrix."""
+
+        return fixture_run_mode(self.client, self.mode, self.surface)
 
     def dsh_tool_params(self) -> dict[str, Any]:
         """Return the native-aligned tool parameters shared by raw and managed runs."""
@@ -242,11 +249,34 @@ def _base_url(value: str, protocol: Protocol, client: Client) -> str:
     return value.rstrip("/")
 
 
+def fixture_run_mode(client: Client, mode: RunMode | None, surface: Surface) -> RunModeSelection:
+    """Resolve a fixture lane and enforce the passive endpoint's headless mode."""
+
+    if surface == "passive-server" and mode not in {None, "headless"}:
+        raise FixtureError(
+            "Passive-server birth supports headless mode; use manager for other modes"
+        )
+    if surface == "raw" and mode == "service":
+        raise FixtureError("Persistent service fixtures require the manager surface")
+    if surface == "raw" and client == "kimi" and mode == "web":
+        raise FixtureError("Kimi Web fixtures require the manager surface")
+    if mode is None and surface != "passive-server":
+        mode = "web" if client == "dsh" else "headless"
+    try:
+        return resolve_run_mode(
+            client,
+            mode=mode,
+            entrypoint="passive_headless" if surface == "passive-server" else "project",
+        )
+    except LaunchPlanError as exc:
+        raise FixtureError(str(exc)) from exc
+
+
 def resolve_config(
     *,
     case: str,
     client: Client,
-    mode: Mode = "headless",
+    mode: RunMode | None = None,
     surface: Surface = "manager",
     operator_prompt_mode: Literal["unattended", "as_is"] = "unattended",
     model: str | None = None,
@@ -269,8 +299,7 @@ def resolve_config(
         raise FixtureError("Select case self-hosted or cloud-api")
     if client == "dsh" and env_file is None and process_env is None and case == "cloud-api":
         raise FixtureError("Cloud DSH requires an explicitly selected --env-file")
-    if surface == "passive-server" and mode != "headless":
-        raise FixtureError("Passive-server birth supports headless mode; use manager for TUI")
+    selection = fixture_run_mode(client, mode, surface)
     descriptor = load_descriptor(
         descriptor_path or REPO_ROOT / "tests/fixtures/agent-launch" / f"{case}.yaml"
     )
@@ -367,7 +396,7 @@ def resolve_config(
     result = ResolvedConfig(
         case=case,
         client=client,
-        mode=mode,
+        mode=selection.mode,
         surface=surface,
         operator_prompt_mode=operator_prompt_mode,
         auth_method="endpoint-only" if endpoint_only else "api-key",

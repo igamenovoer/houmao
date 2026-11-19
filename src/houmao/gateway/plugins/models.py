@@ -136,6 +136,10 @@ class PluginDispatchResult(_PluginModel):
 
     disposition: Literal["dispatched"] = "dispatched"
     source_event_id: str
+    native_admission: Literal["queued", "handed_off"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    native_prompt_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 PluginLifecycleState = Literal[

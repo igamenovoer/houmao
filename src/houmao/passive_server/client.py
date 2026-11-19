@@ -838,6 +838,7 @@ class PassiveServerClient(HoumaoServerClient):
             json_body=PassiveHeadlessTurnRequest(
                 prompt=request_model.prompt,
                 chat_session=request_model.chat_session,
+                execution=request_model.execution,
             ).model_dump(mode="json"),
         )
         return HoumaoHeadlessTurnAcceptedResponse(

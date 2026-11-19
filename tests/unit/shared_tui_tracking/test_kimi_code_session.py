@@ -109,6 +109,30 @@ def test_kimi_composer_accepts_input_while_turn_is_active() -> None:
     assert signals.ready_posture == "no"
 
 
+def test_kimi_elapsed_working_spinner_holds_readiness_with_empty_composer() -> None:
+    """Kimi 2.6.0 keeps the editor visible while the elapsed activity spinner runs."""
+
+    composer = (
+        " ╭──────────────────────────────────╮\n"
+        " │ >                                │\n"
+        " ╰──────────────────────────────────╯\n"
+        " Never Ask  Qwen/Qwen3.8-27B-FP8\n"
+        "                context: 0% (0/256k)\n"
+    )
+    working = f" ● Thinking\n\n ⠋ Working for 1s · Tip: use /tasks\n\n{composer}"
+    detector = KimiCodeSignalDetectorV2_1_X()
+
+    signals = detector.detect(output_text=working)
+
+    assert analyze_kimi_surface(working).activity_visible is True
+    assert signals.active_evidence is True
+    assert signals.accepting_input == "yes"
+    assert signals.editing_input == "no"
+    assert signals.pending_input == "no"
+    assert signals.ready_posture == "no"
+    assert detector.detect(output_text=f" ● Working for 1s.\n\n{composer}").ready_posture == "yes"
+
+
 def test_kimi_moon_spinner_tool_phase_marks_turn_active() -> None:
     detector = KimiCodeSignalDetectorV2_1_X()
 

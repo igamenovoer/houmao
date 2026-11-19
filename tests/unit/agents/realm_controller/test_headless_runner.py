@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import json
 from pathlib import Path
+import signal
 import subprocess
 
 import pytest
@@ -10,6 +11,7 @@ import pytest
 import houmao.agents.realm_controller.backends.headless_runner as headless_runner_module
 from houmao.agents.realm_controller.backends.headless_runner import (
     HeadlessCliRunner,
+    interrupt_owned_headless_attempt,
 )
 
 
@@ -18,6 +20,32 @@ def _write_idle_shell(tmp_path: Path) -> Path:
     idle_shell.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
     idle_shell.chmod(0o755)
     return idle_shell
+
+
+@pytest.mark.parametrize("actual_birth", ["expected-birth", "reused-pid-birth"])
+def test_owned_interrupt_verifies_birth_after_opening_pidfd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, actual_birth: str
+) -> None:
+    """A recorded PID is insufficient unless the opened process has the saved start identity."""
+
+    (tmp_path / "process.json").write_text(json.dumps({
+        "child_pid": 1234, "child_birth_token": "expected-birth",
+    }))
+    signals = []
+    monkeypatch.setattr(os, "pidfd_open", lambda _pid: os.open(os.devnull, os.O_RDONLY), raising=False)
+    monkeypatch.setattr(
+        headless_runner_module, "_dispatch_origin_birth_token", lambda _pid: actual_birth
+    )
+    monkeypatch.setattr(signal, "pidfd_send_signal", lambda _fd, sig: signals.append(sig), raising=False)
+    result = interrupt_owned_headless_attempt(tmp_path)
+    if actual_birth == "expected-birth":
+        assert result.status == "ok"
+        assert signals == [signal.SIGTERM]
+        assert (tmp_path / "usage-interrupt.json").is_file()
+    else:
+        assert result.status == "error"
+        assert not signals
+        assert not (tmp_path / "usage-interrupt.json").exists()
 
 
 def _tmux_wait_timeout() -> subprocess.CompletedProcess[str]:

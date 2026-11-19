@@ -16,6 +16,7 @@ from houmao.agents.brain_builder import (
     load_launch_overrides_input,
 )
 from houmao.agents.definition_parser import resolve_explicit_or_named_preset_path
+from houmao.agents.realm_controller.run_modes import RUN_MODES
 from houmao.mailbox.protocol import mailbox_address_path_segment
 from houmao.project.overlay import (
     PROJECT_OVERLAY_DIR_ENV_VAR,
@@ -155,6 +156,7 @@ def _build_parser() -> argparse.ArgumentParser:
     start.add_argument("--brain-manifest", required=True, help="Built brain manifest path")
     start.add_argument("--role", help="Role name")
     start.add_argument("--blueprint", help=argparse.SUPPRESS)
+    start.add_argument("--mode", choices=RUN_MODES, help="Native run mode override")
     start.add_argument(
         "--backend",
         choices=[
@@ -163,8 +165,11 @@ def _build_parser() -> argparse.ArgumentParser:
             "codex_app_server",
             "claude_headless",
             "kimi_headless",
+            "kimi_acp",
+            "dsh_headless",
             "dsh_acp",
             "dsh_web",
+            "kimi_web",
             "cao_rest",
             "houmao_server_rest",
         ],
@@ -564,6 +569,7 @@ def _cmd_start_session(args: argparse.Namespace) -> int:
         role_name=role_name,
         runtime_root=_optional_path(args.runtime_root, base=cwd),
         backend=backend,
+        mode=args.mode,
         working_directory=_resolve_path(args.workdir, base=cwd),
         api_base_url="",
         cao_profile_store_dir=_optional_path(args.cao_profile_store, base=cwd),

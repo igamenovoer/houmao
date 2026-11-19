@@ -128,6 +128,7 @@ def test_registry_web_discovery_requires_typed_surface_and_keeps_supervisor_sepa
 
     payload = _make_record(agent_id="owner", session_name="supervisor").model_dump(mode="json")
     payload["identity"] = {"backend": "dsh_web", "tool": "dsh"}
+    payload["mode"] = "web"
     payload["native_surface"] = {
         "kind": "web",
         "origin": _metadata().origin,

@@ -6,7 +6,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
-from houmao.agents.realm_controller.gateway_service import GatewayServiceRuntime
+from houmao.agents.realm_controller.gateway_models import GatewayServiceRequestSnapshotV1
+from houmao.agents.realm_controller.gateway_service import (
+    GatewayServiceRuntime,
+    _ManagedServiceGatewayAdapter,
+)
 
 
 def _runtime_stub(**attrs: object) -> GatewayServiceRuntime:
@@ -73,7 +77,7 @@ def _create_queue(path: Path) -> None:
 def test_gateway_runtime_observes_admitted_request_state(tmp_path: Path) -> None:
     queue_path = tmp_path / "queue.sqlite"
     _create_queue(queue_path)
-    runtime = _runtime_stub(m_paths=SimpleNamespace(queue_path=queue_path))
+    runtime = _runtime_stub(m_paths=SimpleNamespace(queue_path=queue_path), m_adapter=object())
 
     observed = runtime.ag_ui_request_state("request-1")
 
@@ -85,6 +89,45 @@ def test_gateway_runtime_observes_admitted_request_state(tmp_path: Path) -> None
     assert observed.failed is False
     assert observed.result == {"ok": True}
     assert runtime.ag_ui_request_state("missing") is None
+
+
+def test_gateway_recovers_ag_ui_state_from_exact_service_owner(tmp_path: Path) -> None:
+    """A prior gateway's uncertain row cannot hide current or terminal native evidence."""
+
+    queue_path = tmp_path / "queue.sqlite"
+    _create_queue(queue_path)
+    with sqlite3.connect(queue_path) as connection:
+        connection.execute("UPDATE gateway_requests SET state = 'uncertain', result_json = NULL")
+    snapshot = GatewayServiceRequestSnapshotV1(
+        request_id="request-1",
+        generation_id="generation",
+        service_incarnation="owner-incarnation",
+        native_session_id="native-session",
+        native_turn_id="native-turn",
+        state="handed_off",
+    )
+    runtime = _runtime_stub(
+        m_paths=SimpleNamespace(queue_path=queue_path),
+        m_adapter=object.__new__(_ManagedServiceGatewayAdapter),
+        ag_ui_service_request=lambda request_id: snapshot,
+    )
+    active = runtime.ag_ui_request_state("request-1")
+    assert active is not None and active.state == "running"
+    assert active.service_request is snapshot
+
+    snapshot = snapshot.model_copy(update={"state": "completed"})
+    completed = runtime.ag_ui_request_state("request-1")
+    assert completed is not None and completed.state == "completed"
+    assert completed.service_request is snapshot
+    assert completed.result == {
+        "operation_id": "request-1",
+        "generation_id": "generation",
+        "service_incarnation": "owner-incarnation",
+        "source": "service_native",
+        "outcome": "completed",
+        "native_session_id": "native-session",
+        "native_turn_ids": ["native-turn"],
+    }
 
 
 def test_gateway_runtime_resolves_headless_artifact_from_ag_ui_run_id(tmp_path: Path) -> None:

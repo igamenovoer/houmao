@@ -1,6 +1,82 @@
 schema_version: 1
 tool: kimi
 strategies:
+  - strategy_id: kimi-acp-unattended-2.6.0
+    operator_prompt_mode: unattended
+    backends:
+      - kimi_acp
+    supported_versions: "==2.6.0"
+    minimal_inputs:
+      credential_forms:
+        - projected config.toml with managed provider credentials
+        - KIMI_MODEL_NAME plus KIMI_MODEL_API_KEY env-model credential material
+      requires_user_prepared_state: false
+      notes:
+        - Kimi ACP reads defaults from the private KIMI_CODE_HOME. Houmao projects auto permission mode at provider start and declines unanswered human interactions.
+        - The owner starts kimi acp without terminal launch options and binds sessions over its private ACP connection.
+    system_prompt:
+      method: native_home_system_prompt
+      owned_surface: SYSTEM.md
+      precedence_conflicts:
+        - project default-agent override
+        - configured extra-agent default override
+      required_engine_env:
+        KIMI_CODE_LEGACY_FLAG: "0"
+      evidence:
+        - kind: source_reference
+          ref: extern/orphan/kimi-code/packages/agent-core-v2/src/workspace/workspaceAgentProfileLoader/internal/systemFile.ts
+          note: The native default agent loads SYSTEM.md from KIMI_CODE_HOME.
+    evidence:
+      - kind: source_reference
+        ref: extern/orphan/kimi-code/apps/kimi-code/src/cli/sub/acp.ts
+        note: The ACP command starts a native server bound to the selected data directory.
+    owned_paths:
+      - path: config.toml
+        keys:
+          - default_model
+          - default_permission_mode
+    actions:
+      - kind: provider_hook.call
+        params:
+          hook_id: kimi.validate_native_system_prompt_contract
+  - strategy_id: kimi-web-unattended-2.6.0
+    operator_prompt_mode: unattended
+    backends:
+      - kimi_web
+    supported_versions: "==2.6.0"
+    minimal_inputs:
+      credential_forms:
+        - projected config.toml with managed provider credentials
+        - KIMI_MODEL_NAME plus KIMI_MODEL_API_KEY env-model credential material
+      requires_user_prepared_state: false
+      notes:
+        - Kimi Web reads model and permission defaults from its private KIMI_CODE_HOME.
+        - Houmao owns the loopback listener and opens the native browser only at explicit request.
+    system_prompt:
+      method: native_home_system_prompt
+      owned_surface: SYSTEM.md
+      precedence_conflicts:
+        - project default-agent override
+        - configured extra-agent default override
+      required_engine_env:
+        KIMI_CODE_LEGACY_FLAG: "0"
+      evidence:
+        - kind: source_reference
+          ref: extern/orphan/kimi-code/packages/agent-core-v2/src/workspace/workspaceAgentProfileLoader/internal/systemFile.ts
+          note: The native default agent loads SYSTEM.md from KIMI_CODE_HOME.
+    evidence:
+      - kind: source_reference
+        ref: extern/orphan/kimi-code/apps/kimi-code/src/cli/sub/web/run.ts
+        note: The Web command supports owned loopback, port assignment, and an explicit no-open option.
+    owned_paths:
+      - path: config.toml
+        keys:
+          - default_model
+          - default_permission_mode
+    actions:
+      - kind: provider_hook.call
+        params:
+          hook_id: kimi.validate_native_system_prompt_contract
   - strategy_id: kimi-unattended-2.1-plus
     operator_prompt_mode: unattended
     backends:

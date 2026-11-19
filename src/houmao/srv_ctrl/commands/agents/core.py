@@ -11,12 +11,13 @@ import os
 import json
 import math
 from pathlib import Path
+from shlex import join as shell_join
 import shutil
 import subprocess
 import sys
 from typing import Any, Literal, cast
 
-from houmao.execution.tmux import tmux_argv, tmux_subprocess_environment
+from houmao.execution.tmux import tmux_argv, tmux_server_scope, tmux_subprocess_environment
 
 import click
 
@@ -103,7 +104,16 @@ from houmao.agents.realm_controller.backends.headless_output import (
     HeadlessDisplayDetail,
     HeadlessDisplayStyle,
 )
-from houmao.agents.realm_controller.launch_plan import backend_for_tool, launch_surface_for_backend
+from houmao.agents.realm_controller.launch_plan import (
+    launch_surface_for_backend,
+    validate_dsh_launch_version,
+    validate_kimi_web_launch_version,
+)
+from houmao.agents.realm_controller.native_surface import (
+    TerminalNativeSurfaceV1,
+    WebNativeSurfaceV1,
+)
+from houmao.agents.realm_controller.run_modes import RUN_MODES, RunMode, resolve_run_mode
 from houmao.agents.realm_controller.loaders import load_brain_manifest
 from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
@@ -137,6 +147,7 @@ from houmao.project.agent_definitions import load_instance_contract
 from houmao.project.launch_profiles import (
     ResolvedLaunchProfileMemoSeed,
     launch_profile_relaunch_payload,
+    profile_run_mode,
     resolve_launch_profile,
 )
 from houmao.server.tui.process import PaneProcessInspector
@@ -189,6 +200,7 @@ from ..managed_agents import (
     managed_agent_state_payload,
     managed_agent_native_home,
     managed_agent_common_plugin_state,
+    open_managed_agent_browser,
     prompt_managed_agent,
     refresh_managed_agent,
     relaunch_managed_agent,
@@ -770,7 +782,7 @@ def launch_managed_agent_locally(
     agent_id: str | None,
     auth: str | None,
     session_name: str | None,
-    headless: bool,
+    mode: RunMode | None,
     provider: str,
     working_directory: Path,
     source_working_directory: Path | None = None,
@@ -889,6 +901,9 @@ def launch_managed_agent_locally(
             working_directory=resolved_working_directory,
             agent_def_dir=effective_agent_def_dir,
         )
+        selection = resolve_run_mode(target.tool, mode=mode, entrypoint="project")
+        resolved_backend = selection.backend
+        resolved_backend_name = resolved_backend
         effective_skill_names = _merge_launch_skill_names(
             target.preset.skills,
             launch_profile_registered_skill_names,
@@ -929,19 +944,14 @@ def launch_managed_agent_locally(
             force_mode=normalized_force_mode,
             reuse_home=reuse_home,
         )
-        resolved_backend = backend_for_tool(
-            target.tool,
-            prefer_local_interactive=not headless,
-        )
         if (
-            resolved_backend == "dsh_web"
+            selection.human_surface_kind != "terminal"
             and gateway_tui_tracking_timing_overrides is not None
             and gateway_tui_tracking_timing_overrides.has_values()
         ):
             raise click.ClickException(
-                "Gateway TUI timing overrides are unsupported for the DSH Web native surface."
+                "Gateway TUI timing overrides require a terminal native surface."
             )
-        resolved_backend_name = resolved_backend
         build_request = BuildRequest(
             agent_def_dir=target.agent_def_dir,
             runtime_root=resolved_runtime_root,
@@ -981,6 +991,12 @@ def launch_managed_agent_locally(
             backend=launch_surface_for_backend(resolved_backend),
             launch_env_overrides=effective_launch_env_overrides,
         )
+        if selection.tool == "dsh":
+            validate_dsh_launch_version(
+                executable=validated_inputs.adapter.launch_executable, backend=resolved_backend
+            )
+        elif resolved_backend == "kimi_web":
+            validate_kimi_web_launch_version(executable=validated_inputs.adapter.launch_executable)
         if predecessor_context is not None and predecessor_context.target is not None:
             _perform_managed_force_takeover(predecessor_context)
             takeover_completed = True
@@ -1084,6 +1100,7 @@ def launch_managed_agent_locally(
             runtime_root=resolved_runtime_root,
             memory_paths=memory,
             backend=resolved_backend,
+            mode=selection.mode,
             working_directory=resolved_working_directory,
             agent_name=agent_name,
             agent_id=managed_launch_identity.agent_id,
@@ -1105,8 +1122,10 @@ def launch_managed_agent_locally(
             mailbox_transport=mailbox_transport,
             mailbox_root=resolved_mailbox_root,
             mailbox_account_dir=mailbox_account_dir,
-            headless_display_style=headless_display_style if headless else None,
-            headless_display_detail=headless_display_detail if headless else None,
+            headless_display_style=headless_display_style if selection.mode == "headless" else None,
+            headless_display_detail=headless_display_detail
+            if selection.mode == "headless"
+            else None,
             managed_force_mode=predecessor_context.force_mode
             if predecessor_context is not None and predecessor_context.target is not None
             else None,
@@ -1187,16 +1206,22 @@ def emit_local_launch_completion(
     launch_result: LocalManagedAgentLaunchResult,
     agent_name: str | None,
     session_name: str | None,
-    headless: bool,
 ) -> None:
-    """Print one successful local launch result and hand off to tmux when appropriate."""
+    """Print the verified native interface or the managed control handoff."""
 
     controller = launch_result.controller
+    handle = load_session_manifest(controller.manifest_path)
+    manifest = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+    surface = manifest.native_surface
     memory = launch_result.memory
     payload = {
         "status": "Managed agent launch complete",
         "agent_name": controller.agent_identity or agent_name,
         "agent_id": controller.agent_id or "unknown",
+        "tool": manifest.tool,
+        "mode": manifest.mode,
+        "backend": manifest.backend,
+        "native_surface": surface.model_dump(mode="json") if surface is not None else None,
         "tmux_session_name": controller.tmux_session_name or session_name or "unknown",
         "manifest_path": str(controller.manifest_path),
         "runtime_root": str(launch_result.runtime_root),
@@ -1234,26 +1259,35 @@ def emit_local_launch_completion(
     if gateway_auto_attach_error is not None:
         payload["gateway_auto_attach_error"] = gateway_auto_attach_error
 
+    terminal_handoff = (
+        isinstance(surface, TerminalNativeSurfaceV1) and _caller_has_interactive_terminal()
+    )
+    socket_path = manifest.tmux.socket_path if manifest.tmux is not None else None
+    if isinstance(surface, TerminalNativeSurfaceV1):
+        payload["terminal_handoff"] = "attach" if terminal_handoff else "skipped_non_interactive"
+        command = ["tmux", "-S", socket_path] if socket_path else ["tmux"]
+        payload["attach_command"] = shell_join(
+            [*command, "attach-session", "-t", surface.tmux_session_name]
+        )
+    elif isinstance(surface, WebNativeSurfaceV1):
+        payload["browser_origin"] = surface.origin
+        payload["native_session_id"] = surface.native_session_id
+    else:
+        payload["control_command"] = f"houmao-mgr agents single --agent-id {manifest.agent_id}"
+
     emit(
         payload,
         plain_renderer=render_launch_completion_plain,
         fancy_renderer=render_launch_completion_fancy,
     )
-    if not headless and controller.tmux_session_name is not None:
-        if _caller_has_interactive_terminal():
-            try:
-                attach_tmux_session_shared(session_name=controller.tmux_session_name)
-            except RuntimeError as exc:
-                raise click.ClickException(
-                    f"Managed agent launch succeeded, but tmux handoff failed: {exc}"
-                ) from exc
-        else:
-            emit(
-                {
-                    "terminal_handoff": "skipped_non_interactive",
-                    "attach_command": f"tmux attach-session -t {controller.tmux_session_name}",
-                }
-            )
+    if terminal_handoff and isinstance(surface, TerminalNativeSurfaceV1):
+        try:
+            with tmux_server_scope(socket_path):
+                attach_tmux_session_shared(session_name=surface.tmux_session_name)
+        except RuntimeError as exc:
+            raise click.ClickException(
+                f"Managed agent launch succeeded, but tmux handoff failed: {exc}"
+            ) from exc
     if gateway_auto_attach_error is not None:
         raise SystemExit(2)
 
@@ -1453,7 +1487,7 @@ def self_relaunch_agent_command(
     help="Optional one-off tool/model-specific reasoning preset index override (>=0).",
 )
 @click.option("--session-name", help="Optional tmux session name.")
-@click.option("--headless", is_flag=True, help="Launch in detached mode.")
+@click.option("--mode", type=click.Choice(RUN_MODES), help="Select the native run mode.")
 @click.option(
     "--gateway-admin-seed",
     "gateway_admin_seed_path",
@@ -1517,7 +1551,7 @@ def launch_agents_command(
     model: str | None,
     reasoning_level: int | None,
     session_name: str | None,
-    headless: bool,
+    mode: RunMode | None,
     managed_header: bool | None,
     managed_header_section: tuple[str, ...],
     workdir: Path | None,
@@ -1553,7 +1587,7 @@ def launch_agents_command(
     resolved_working_directory = (workdir or source_working_directory).resolve()
     resolved_source_working_directory = source_working_directory
     resolved_source_agent_def_dir: Path | None = None
-    resolved_headless = headless
+    resolved_mode = mode
     declared_mailboxes = None
     operator_prompt_mode: OperatorPromptMode | None = None
     persistent_env_records: dict[str, str] | None = None
@@ -1701,7 +1735,15 @@ def launch_agents_command(
             profile_name=resolved_profile.entry.name,
         )
         posture_payload = dict(resolved_profile.entry.posture_payload)
-        resolved_headless = headless or bool(posture_payload.get("headless", False))
+        try:
+            stored_mode = profile_run_mode(
+                posture_payload,
+                tool=resolved_profile.provider,
+                source=f"launch profile `{resolved_profile.entry.name}`",
+            )
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from None
+        resolved_mode = mode if mode is not None else stored_mode
         if posture_payload.get("gateway_port") is not None:
             gateway_auto_attach = True
             gateway_host = str(posture_payload.get("gateway_host") or "127.0.0.1")
@@ -1735,7 +1777,7 @@ def launch_agents_command(
         agent_id_mode=agent_id_mode,
         auth=resolved_auth,
         session_name=session_name,
-        headless=resolved_headless,
+        mode=resolved_mode,
         provider=resolved_provider,
         working_directory=resolved_working_directory,
         source_working_directory=resolved_source_working_directory,
@@ -1773,7 +1815,6 @@ def launch_agents_command(
         launch_result=launch_result,
         agent_name=resolved_agent_name,
         session_name=session_name,
-        headless=resolved_headless,
     )
 
 
@@ -1836,7 +1877,7 @@ def join_agents_command(
     requested_provider = provider.strip() if provider is not None else None
     if requested_provider == "dsh":
         raise click.ClickException(
-            "DSH adoption is unsupported; launch a managed DSH ACP agent from a project profile."
+            "DSH adoption is unsupported. Launch a managed DSH Web agent from a project profile."
         )
     if requested_provider is not None and requested_provider not in _PROVIDERS:
         raise click.ClickException(
@@ -1901,7 +1942,6 @@ def join_agents_command(
         result=result,
         tmux_session_name=tmux_session_name,
         provider=effective_provider,
-        headless=headless,
     )
 
 
@@ -2102,6 +2142,15 @@ def interrupt_agent_command(
     emit(interrupt_managed_agent(target))
 
 
+@agents_group.command(name="open-browser")
+@managed_agent_selector_options
+def open_agent_browser_command(agent_id: str | None, agent_name: str | None) -> None:
+    """Open the native browser for an active local Kimi Web owner."""
+
+    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=None)
+    emit(open_managed_agent_browser(target))
+
+
 @agents_group.command(name="stop")
 @pair_port_option()
 @managed_agent_selector_options
@@ -2259,7 +2308,16 @@ def _install_scoped_agents_commands() -> None:
     selector_port_params = selector_params | frozenset({"port"})
     gateway_self_params = gateway_single_params | frozenset({"pair_port"})
 
-    for command_name in ("state", "home", "refresh", "prompt", "interrupt", "stop", "relaunch"):
+    for command_name in (
+        "state",
+        "home",
+        "refresh",
+        "prompt",
+        "interrupt",
+        "open-browser",
+        "stop",
+        "relaunch",
+    ):
         agents_single_group.add_command(
             clone_scoped_command_tree(
                 legacy_commands[command_name],
@@ -2475,15 +2533,23 @@ def _emit_join_result(
     result: JoinedSessionArtifacts,
     tmux_session_name: str,
     provider: str,
-    headless: bool,
 ) -> None:
+    """Publish the mode and interface verified during adoption."""
+
+    handle = load_session_manifest(result.manifest_path)
+    manifest = parse_session_manifest_payload(handle.payload, source=str(handle.path))
     emit(
         {
             "status": "Managed agent join complete",
             "agent_name": result.agent_name,
             "agent_id": result.agent_id,
             "provider": provider,
-            "backend": "headless" if headless else "local_interactive",
+            "tool": manifest.tool,
+            "backend": manifest.backend,
+            "mode": manifest.mode,
+            "native_surface": manifest.native_surface.model_dump(mode="json")
+            if manifest.native_surface is not None
+            else None,
             "tmux_session_name": tmux_session_name,
             "manifest_path": str(result.manifest_path),
             "runtime_root": str(result.runtime_root),

@@ -1,10 +1,81 @@
 schema_version: 1
 tool: dsh
 strategies:
-  - strategy_id: dsh-acp-unattended-0.2.2-plus
+  - strategy_id: dsh-headless-unattended-0.2.2rc3
+    operator_prompt_mode: unattended
+    backends:
+      - dsh_headless
+    supported_versions: ">=0.2.2rc3"
+    minimal_inputs:
+      credential_forms:
+        - Selected credential-bundle endpoint and API-key roles
+        - An endpoint-only bundle for an explicitly selected pi-ai/openai-completions route
+      requires_user_prepared_state: false
+      notes:
+        - Each approved prompt uses the native headless profile with private stdin and JSON output.
+        - Exact continuation selects the saved native session in the recorded workspace.
+    system_prompt:
+      method: native_system_prompt_section
+      owned_surface: Houmao literal native system-prompt section
+      precedence_conflicts:
+        - --profile
+        - --config
+        - --patch
+      required_engine_env: {}
+      evidence:
+        - kind: source_reference
+          ref: extern/orphan/deepseek-harness/packages/core/system-prompt/README.md
+          note: Native additive sections support interpolate false and preserve built-in instructions.
+    evidence:
+      - kind: source_reference
+        ref: extern/orphan/deepseek-harness/packages/bundle/headless/src/index.ts
+        note: The native CLI resumes the supplied exact session, submits the stdin task and flushes the journal before exit.
+    owned_paths:
+      - path: houmao-profile.patch.json
+        keys:
+          - agent-default-model provider and model
+          - isolated persistence and selected skill roots
+          - startup permissions and disabled autonomous root work
+    actions: []
+  - strategy_id: dsh-acp-service-unattended-0.2.2rc3
     operator_prompt_mode: unattended
     backends:
       - dsh_acp
+    supported_versions: ">=0.2.2rc3"
+    minimal_inputs:
+      credential_forms:
+        - Selected credential-bundle endpoint and API-key roles
+        - An endpoint-only bundle for an explicitly selected pi-ai/openai-completions route
+      requires_user_prepared_state: false
+      notes:
+        - A managed service keeps its ACP process and exact native session across turns.
+        - The private service owner applies the isolated houmao-unattended preset when starting ACP.
+    system_prompt:
+      method: native_system_prompt_section
+      owned_surface: Houmao literal native system-prompt section
+      precedence_conflicts:
+        - --profile
+        - --config
+        - --patch
+      required_engine_env: {}
+      evidence:
+        - kind: source_reference
+          ref: extern/orphan/deepseek-harness/packages/core/system-prompt/README.md
+          note: Native additive sections preserve the built-in prompt and literal role bytes.
+    evidence:
+      - kind: source_reference
+        ref: extern/orphan/deepseek-harness/packages/acp/acp/src/session.ts
+        note: Native session initialization, prompt, cancellation, and close use one ACP connection.
+    owned_paths:
+      - path: houmao-profile.patch.json
+        keys:
+          - ACP session provider and model
+          - isolated persistence and selected skill roots
+          - startup permissions and disabled autonomous root work
+    actions: []
+  - strategy_id: dsh-acp-unattended-0.2.2-plus
+    operator_prompt_mode: unattended
+    backends:
       - raw_launch
     supported_versions: ">=0.2.2rc1"
     minimal_inputs:

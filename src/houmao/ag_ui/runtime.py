@@ -10,11 +10,13 @@ from houmao.ag_ui.state import GatewayStatusSnapshot, JsonObject, JsonValue
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayRequestCreateV1,
+    GatewayServiceRequestSnapshotV1,
     GatewayWebControlStateV1,
 )
+from houmao.agents.realm_controller.managed_control import MANAGED_SERVICE_BACKENDS
+from houmao.agents.realm_controller.run_modes import RunMode
 
-AgUiTargetTransportFamily = Literal["headless", "tui", "web", "http_rest", "unknown"]
-AgUiObservedRequestTerminalState = Literal["completed", "failed", "coalesced"]
+AgUiTargetTransportFamily = Literal["headless", "tui", "service", "web", "http_rest", "unknown"]
 
 
 @dataclass(frozen=True)
@@ -29,18 +31,19 @@ class AgUiObservedRequestState:
     finished_at_utc: str | None = None
     error_detail: str | None = None
     result: JsonValue = None
+    service_request: GatewayServiceRequestSnapshotV1 | None = None
 
     @property
     def terminal(self) -> bool:
         """Return whether the durable gateway request reached a final state."""
 
-        return self.state in {"completed", "failed", "coalesced"}
+        return self.state in {"completed", "failed", "coalesced", "uncertain"}
 
     @property
     def failed(self) -> bool:
         """Return whether the durable gateway request failed."""
 
-        return self.state == "failed"
+        return self.state in {"failed", "uncertain"}
 
 
 @dataclass(frozen=True)
@@ -71,7 +74,9 @@ class AgUiRuntimeObservationProtocol(Protocol):
     def status(self) -> GatewayStatusSnapshot:
         """Return the current gateway status."""
 
-    def create_request(self, request_payload: GatewayRequestCreateV1) -> GatewayAcceptedRequestV1:
+    def create_request(
+        self, request_payload: GatewayRequestCreateV1, *, ready_only: bool = False
+    ) -> GatewayAcceptedRequestV1:
         """Admit one gateway request through the existing gateway controls."""
 
     def ag_ui_request_state(self, request_id: str) -> AgUiObservedRequestState | None:
@@ -93,12 +98,20 @@ class AgUiRuntimeObservationProtocol(Protocol):
 def ag_ui_target_transport_family_for_backend(backend: str) -> AgUiTargetTransportFamily:
     """Map one gateway backend value to the AG-UI observation family."""
 
-    if backend in {"claude_headless", "codex_headless", "kimi_headless", "dsh_acp"}:
+    if backend in {"claude_headless", "codex_headless", "kimi_headless", "dsh_headless"}:
         return "headless"
-    if backend == "dsh_web":
+    if backend in {"dsh_web", "kimi_web"}:
         return "web"
+    if backend in MANAGED_SERVICE_BACKENDS:
+        return "service"
     if backend in {"local_interactive", "cao_rest"}:
         return "tui"
-    if backend in {"codex_app_server", "houmao_server_rest"}:
+    if backend == "houmao_server_rest":
         return "http_rest"
     return "unknown"
+
+
+def ag_ui_target_transport_family_for_mode(mode: RunMode | None) -> AgUiTargetTransportFamily:
+    """Select native observation from the verified owner mode."""
+
+    return mode if mode is not None else "unknown"

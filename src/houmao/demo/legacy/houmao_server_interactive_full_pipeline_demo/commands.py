@@ -16,7 +16,7 @@ from typing import Any, Iterator, Literal
 from houmao.agents.brain_builder import BuildRequest, build_brain_home
 from houmao.agents.native_launch_resolver import resolve_native_launch_target
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
-from houmao.agents.realm_controller.launch_plan import backend_for_tool
+from houmao.agents.realm_controller.run_modes import resolve_run_mode
 from houmao.agents.realm_controller.runtime import resume_runtime_session, start_runtime_session
 from houmao.demo.legacy.houmao_server_interactive_full_pipeline_demo.models import (
     DEFAULT_AGENT_PROFILE,
@@ -110,13 +110,14 @@ def start_demo(
                     persistent_env_records=target.recipe.launch_env_records,
                 )
             )
-            resolved_backend = backend_for_tool(target.tool, prefer_local_interactive=True)
+            selection = resolve_run_mode(target.tool, entrypoint="project")
             controller = start_runtime_session(
                 agent_def_dir=target.agent_def_dir,
                 brain_manifest_path=build_result.manifest_path.resolve(),
                 role_name=target.role_name,
                 runtime_root=paths.runtime_root,
-                backend=resolved_backend,
+                backend=selection.backend,
+                mode=selection.mode,
                 working_directory=paths.workdir,
                 agent_name=agent_name,
                 tmux_session_name=requested_session_name,

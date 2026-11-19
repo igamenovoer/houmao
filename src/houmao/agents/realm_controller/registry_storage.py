@@ -41,7 +41,7 @@ DEFAULT_REGISTRY_LEASE_TTL = timedelta(hours=24)
 TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL = timedelta(days=36500)
 JOINED_REGISTRY_SENTINEL_LEASE_TTL = timedelta(days=30)
 DEFAULT_REGISTRY_CLEANUP_GRACE_PERIOD = timedelta(minutes=5)
-MANAGED_AGENT_REGISTRY_SCHEMA = "managed_agent_registry_record.v4.schema.json"
+MANAGED_AGENT_REGISTRY_SCHEMA = "managed_agent_registry_record.v5.schema.json"
 LIVE_AGENT_REGISTRY_SCHEMA = MANAGED_AGENT_REGISTRY_SCHEMA
 EXTERNAL_MANAGED_AGENT_REGISTRY_SCHEMA = "external_managed_agent_registry_record.v1.schema.json"
 
@@ -691,9 +691,7 @@ def _remove_managed_agent_record_locked(
             and record.generation_id != generation_id
         ):
             return False
-        if record is not None and (
-            record.identity.backend == "dsh_web" or record.execution_binding is not None
-        ):
+        if record is not None and (record.mode == "web" or record.execution_binding is not None):
             try:
                 _require_current_runtime_manifest_generation(record)
             except SessionManifestError:
@@ -1031,7 +1029,7 @@ def _require_runtime_generation_handoff(
 def _require_current_runtime_manifest_generation(record: ManagedAgentRegistryRecordV3) -> None:
     """Fence publication and teardown after an execution-bound generation changes."""
 
-    if record.identity.backend != "dsh_web" and (
+    if record.mode != "web" and (
         record.execution_binding is None or record.lifecycle.state not in {"active", "relaunching"}
     ):
         return
@@ -1039,6 +1037,7 @@ def _require_current_runtime_manifest_generation(record: ManagedAgentRegistryRec
         payload = json.loads(Path(record.runtime.manifest_path).read_text(encoding="utf-8"))
         if (
             payload["backend"] != record.identity.backend
+            or payload["mode"] != record.mode
             or payload["agent_id"] != record.agent_id
             or payload["registry_generation_id"] != record.generation_id
         ):
@@ -1047,7 +1046,7 @@ def _require_current_runtime_manifest_generation(record: ManagedAgentRegistryRec
             record.execution_binding.model_dump(mode="json")
         ):
             raise ValueError("Runtime execution owner changed")
-        if record.identity.backend == "dsh_web":
+        if record.mode == "web":
             identity = payload["backend_state"]["web_identity"]
             if (
                 identity["generation"] != record.generation_id

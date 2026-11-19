@@ -174,6 +174,26 @@ for line in sys.stdin:
         connection.close()
 
 
+def test_bounded_mutation_write_cannot_certify_a_partial_frame(tmp_path: Path) -> None:
+    """A peer that never reads stdin leaves the mutation uncertain and closes admission."""
+
+    connection = _worker(tmp_path, "import time; time.sleep(2)", write_timeout=0.05)
+    authorized: list[bool] = []
+    try:
+        with pytest.raises(DshAcpProtocolError, match="write did not finish"):
+            connection.request(
+                "session/prompt",
+                {"prompt": "x" * (1024 * 1024)},
+                before_write=lambda: authorized.append(True),
+            )
+        assert authorized == [True]
+        assert not connection.healthy
+        with pytest.raises(DshAcpProtocolError):
+            connection.request("session/prompt", {"prompt": "must not write"})
+    finally:
+        connection.close(timeout=0.2)
+
+
 def test_resume_capability_is_required_only_for_continuation() -> None:
     """Missing resume support fails before the caller can submit any prompt."""
 

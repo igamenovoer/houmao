@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from houmao.agents.dsh_configuration import DshEffectiveToolParams, prepare_dsh_home
 from houmao.agents.realm_controller.backends.dsh_acp import DshAcpSession
@@ -17,7 +17,13 @@ from houmao.agents.realm_controller.models import (
 from houmao.agents.realm_controller.usage_support import UsageService
 
 
-def _launch_plan(root: Path, executable: Path, endpoint: str) -> tuple[LaunchPlan, Path]:
+def _launch_plan(
+    root: Path,
+    executable: Path,
+    endpoint: str,
+    *,
+    native_profile: Literal["acp", "headless"] = "acp",
+) -> tuple[LaunchPlan, Path]:
     """Compose synthetic account inputs for the actual managed runtime envelope."""
 
     home = root / "dsh-home"
@@ -46,10 +52,10 @@ def _launch_plan(root: Path, executable: Path, endpoint: str) -> tuple[LaunchPla
         )
     )
     plan = LaunchPlan(
-        backend="dsh_acp",
+        backend="dsh_headless" if native_profile == "headless" else "dsh_acp",
         tool="dsh",
         executable=str(executable),
-        args=[],
+        args=["--profile", "headless", "--json"] if native_profile == "headless" else [],
         working_directory=root,
         home_env_var="DSH_HOME",
         home_path=home,
@@ -73,6 +79,7 @@ def _launch_plan(root: Path, executable: Path, endpoint: str) -> tuple[LaunchPla
         plan.env,
         plan.role_injection.prompt,
         skill_roots=(home / "skills",),
+        native_profile=native_profile,
     )
     manifest = root / "runtime" / "manifest.json"
     manifest.parent.mkdir()
@@ -81,7 +88,7 @@ def _launch_plan(root: Path, executable: Path, endpoint: str) -> tuple[LaunchPla
             {
                 "agent_id": "native-integration-agent",
                 "tool": "dsh",
-                "backend": "dsh_acp",
+                "backend": plan.backend,
                 "registry_generation_id": "native-integration-generation",
                 "runtime": {"session_id": "native-integration-runtime"},
                 "backend_state": {},

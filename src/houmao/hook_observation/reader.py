@@ -28,11 +28,13 @@ from houmao.hook_observation.health import (
     HookChannelState,
     coerce_channel_state,
 )
+from houmao.hook_observation.kimi_journal import KimiTurnJournal
 from houmao.hook_observation.kimi_normalizer import KimiEventNormalizer
 from houmao.hook_observation.models import (
     HookAdapter,
     HookEventEnvelope,
     HookObservation,
+    HookPosture,
 )
 from houmao.hook_observation.normalizer import normalize_envelope
 from houmao.hook_observation.reducer import HookPostureReducer
@@ -367,6 +369,7 @@ class HookObservationChannel:
         staleness_threshold_seconds: float = STALENESS_THRESHOLD_SECONDS,
         reducer: HookPostureReducer | None = None,
         adapter: HookAdapter = "claude",
+        kimi_journal: KimiTurnJournal | None = None,
     ) -> None:
         """Initialize one channel input for a consumer.
 
@@ -387,11 +390,14 @@ class HookObservationChannel:
         adapter:
             Provider normalizer and posture rules for the channel. Defaults to
             ``"claude"`` so existing callers are unchanged.
+        kimi_journal:
+            Optional wire journal bound to the selected Kimi runtime home.
         """
 
         if adapter not in SUPPORTED_ADAPTERS:
             raise ValueError(f"unsupported hook observation adapter {adapter!r}")
         self.m_adapter: HookAdapter = adapter
+        self.m_kimi_journal: KimiTurnJournal | None = kimi_journal
         self.m_reader = HookObservationReader(events_path, adapter=adapter)
         self.m_channel_path = Path(channel_path)
         self.m_collector_path = self.m_channel_path.with_name(COLLECTOR_RECORD_FILENAME)
@@ -465,6 +471,24 @@ class HookObservationChannel:
             staleness_threshold_seconds=staleness_threshold_seconds,
             reducer=reducer,
             adapter=adapter,
+            kimi_journal=(
+                KimiTurnJournal.from_session_root(Path(session_root)) if adapter == "kimi" else None
+            ),
+        )
+
+    def reconcile_kimi_ended_turn(self) -> HookPosture | None:
+        """Release a hook turn that Kimi ended without emitting its Stop hook."""
+
+        posture = self.m_reducer.posture
+        if (
+            self.m_kimi_journal is None
+            or posture.session_id is None
+            or posture.turn_id is None
+            or not self.m_kimi_journal.ended(posture)
+        ):
+            return None
+        return self.m_reducer.reconcile_kimi_ended_turn(
+            session_id=posture.session_id, turn_id=posture.turn_id
         )
 
     @property

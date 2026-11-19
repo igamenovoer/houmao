@@ -14,6 +14,11 @@ from typing import Any, Literal, Protocol
 from houmao.agents.launch_policy.models import LaunchPolicyProvenance
 from houmao.agents.mailbox_runtime_models import MailboxesResolvedConfig
 from houmao.agents.realm_controller.native_surface import NativeSurfaceKind
+from houmao.agents.realm_controller.run_modes import (
+    RunMode,
+    human_surface_for_mode,
+    mode_for_backend,
+)
 from houmao.execution.models import ExecutionBindingV1
 
 BackendKind = Literal[
@@ -22,8 +27,11 @@ BackendKind = Literal[
     "codex_app_server",
     "claude_headless",
     "kimi_headless",
+    "kimi_acp",
+    "dsh_headless",
     "dsh_acp",
     "dsh_web",
+    "kimi_web",
     "cao_rest",
     "houmao_server_rest",
 ]
@@ -179,6 +187,12 @@ class LaunchPlan:
     native_surface_kind: NativeSurfaceKind | None = None
     execution_binding: ExecutionBindingV1 | None = None
 
+    @property
+    def mode(self) -> RunMode:
+        """Return the selected lifetime and native interface for this backend."""
+
+        return mode_for_backend(self.backend)
+
     @classmethod
     def for_joined_session(
         cls,
@@ -218,6 +232,7 @@ class LaunchPlan:
                 prompt=role_prompt,
             ),
             metadata=joined_metadata,
+            native_surface_kind=human_surface_for_mode(mode_for_backend(backend)),
             mailboxes=mailboxes if mailboxes is not None else MailboxesResolvedConfig(),
         )
 
@@ -231,7 +246,9 @@ class LaunchPlan:
         """
 
         return {
+            "schema_version": 3,
             "backend": self.backend,
+            "mode": self.mode,
             "native_surface_kind": self.native_surface_kind,
             "execution_binding": (
                 self.execution_binding.model_dump(mode="json")
@@ -298,7 +315,7 @@ class SessionControlResult:
     """Outcome for runtime control operations."""
 
     status: Literal["ok", "error"]
-    action: Literal["interrupt", "terminate", "control_input", "relaunch"]
+    action: Literal["interrupt", "terminate", "control_input", "relaunch", "open_browser"]
     detail: str
 
 

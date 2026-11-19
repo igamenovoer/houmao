@@ -46,7 +46,7 @@ from houmao.ag_ui.models import (
     HoumaoAgUiFeatureSupport,
     HoumaoAgUiMetadata,
 )
-from houmao.ag_ui.runtime import ag_ui_target_transport_family_for_backend
+from houmao.ag_ui.runtime import ag_ui_target_transport_family_for_mode
 from houmao.ag_ui.state import GatewayStatusSnapshot, JsonObject, JsonValue
 
 
@@ -77,7 +77,7 @@ def build_ag_ui_capabilities(
 
     del replay_enabled
     status = runtime.status()
-    target_transport_family = ag_ui_target_transport_family_for_backend(str(status.backend))
+    target_transport_family = ag_ui_target_transport_family_for_mode(status.mode)
     task_run_submission = target_transport_family != "unknown"
     generated_graphics = target_transport_family == "headless"
     replay_support: Literal["current_snapshot_only"] = "current_snapshot_only"
@@ -98,6 +98,7 @@ def build_ag_ui_capabilities(
         "gateway": {
             "attachIdentity": status.attach_identity,
             "backend": str(status.backend),
+            "mode": status.mode,
             "targetTransportFamily": target_transport_family,
             "activeExecution": str(status.active_execution),
             "requestAdmission": str(status.request_admission),

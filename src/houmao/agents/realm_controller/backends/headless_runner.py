@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import errno
+import ctypes
+from contextlib import contextmanager
+from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
 import json
 import os
+import select
 import shlex
 import signal
 import subprocess
@@ -23,15 +27,26 @@ from houmao.agents.realm_controller.backends.dispatch_control import (
     _dispatch_origin_birth_token,
 )
 from houmao.agents.realm_controller.backends.dsh_acp_connection import signal_dsh_native_process
+from houmao.agents.realm_controller.backends.dsh_diagnostics import (
+    dsh_diagnostic_secrets,
+    dsh_diagnostic_tail,
+    sanitize_dsh_diagnostic,
+)
 from houmao.agents.realm_controller.usage_support import (
     headless_artifact_process_alive,
     persist_terminal_evidence,
     write_usage_json,
 )
+from houmao.agents.realm_controller.usage_adapters.dsh import (
+    DSH_MAX_JOURNAL_ROW_BYTES,
+    inspect_dsh_journal,
+    select_dsh_journal,
+)
 
 from ..errors import BackendExecutionError
 from ..models import SessionControlResult, SessionEvent
 from .headless_output import (
+    CanonicalHeadlessEvent,
     canonical_headless_event_artifact_path,
     canonical_headless_events_from_provider_output,
     canonical_headless_events_to_session_events,
@@ -69,6 +84,7 @@ class HeadlessProcessMetadata:
     launched_at_utc: str | None = None
     runner_birth_token: str | None = None
     child_birth_token: str | None = None
+    child_isolated_group: bool = False
 
 
 @dataclass(frozen=True)
@@ -172,8 +188,10 @@ class HeadlessCliRunner:
     ) -> HeadlessRunResult:
         """Execute a headless command and parse events."""
 
-        if output_format not in {"json", "stream-json"}:
+        if output_format not in {"json", "stream-json", "dsh-cli"}:
             raise BackendExecutionError(f"Unsupported headless output format: {output_format}")
+        if output_format == "dsh-cli" and (provider != "dsh" or tmux_session_name is None):
+            raise BackendExecutionError("Native DSH requires its managed headless bridge")
 
         self._require_dispatch_allowed()
 
@@ -247,7 +265,8 @@ class HeadlessCliRunner:
                 returncode=result.returncode,
                 completed_at_utc=completed_at_utc,
                 wall_time_ms=elapsed_ms,
-                interrupted=self.m_interrupt_requested,
+                interrupted=self.m_interrupt_requested
+                or (self.m_active_turn_dir / "usage-interrupt.json").is_file(),
             )
         return replace(
             result,
@@ -309,6 +328,10 @@ class HeadlessCliRunner:
             )
             self._active_process_metadata = metadata
         if metadata is not None and metadata.child_pid is not None and self.active_process_running:
+            if metadata.child_isolated_group and self.m_active_turn_dir is not None:
+                outcome = interrupt_owned_headless_attempt(self.m_active_turn_dir)
+                self.m_interrupt_requested = outcome.status == "ok"
+                return
             self._note_interruption()
             self._signal_active_tmux_process(signal.SIGTERM)
 
@@ -657,6 +680,12 @@ class HeadlessCliRunner:
                         self._require_dispatch_allowed()
                         time.sleep(0.01)
                     if not handoff_path.is_file():
+                        if output_format == "dsh-cli":
+                            detail = _native_dsh_stderr(stderr_path, env)
+                            if detail:
+                                raise BackendExecutionError(
+                                    f"DSH native handoff was not confirmed: {detail}"
+                                )
                         raise BackendExecutionError("DSH native handoff was not confirmed")
                     try:
                         receipt = json.loads(handoff_path.read_text(encoding="utf-8"))
@@ -664,6 +693,12 @@ class HeadlessCliRunner:
                             receipt.get("version") != 1
                             or receipt.get("attempt_id") != turn_dir.name
                             or not receipt.get("native_session_id")
+                            or (
+                                output_format == "dsh-cli"
+                                and not _matching_dsh_process(
+                                    receipt, self._active_process_metadata
+                                )
+                            )
                         ):
                             raise ValueError("Invalid DSH native receipt")
                     except (OSError, ValueError) as exc:
@@ -671,17 +706,22 @@ class HeadlessCliRunner:
                             "DSH native handoff evidence is invalid"
                         ) from exc
                 has_native_handoff = (
-                    self._active_process_metadata is not None
-                    and self._active_process_metadata.child_pid is not None
-                    and self.active_process_running
-                ) or (
-                    status_path.is_file()
-                    and read_headless_turn_return_code(status_path=status_path) == 0
+                    output_format == "dsh-cli"
+                    or (
+                        self._active_process_metadata is not None
+                        and self._active_process_metadata.child_pid is not None
+                        and self.active_process_running
+                    )
+                    or (
+                        status_path.is_file()
+                        and read_headless_turn_return_code(status_path=status_path) == 0
+                    )
                 )
                 if not has_native_handoff:
                     raise BackendExecutionError("Immediate native handoff was not confirmed")
                 self.m_dispatch_control.m_handoff_alive = lambda: (
-                    self.active_process_running
+                    output_format == "dsh-cli"
+                    or self.active_process_running
                     or (
                         status_path.is_file()
                         and read_headless_turn_return_code(status_path=status_path) == 0
@@ -689,6 +729,7 @@ class HeadlessCliRunner:
                 )
                 self.m_dispatch_control.confirm_handoff()
 
+            deadline = time.monotonic() + max(completion_timeout_seconds, 0.0)
             try:
                 wait_for_tmux_signal_shared(
                     signal_name=wait_signal,
@@ -697,7 +738,6 @@ class HeadlessCliRunner:
             except TmuxCommandError:
                 pass
 
-            deadline = time.monotonic() + max(completion_timeout_seconds, 0.0)
             while True:
                 if status_path.is_file():
                     break
@@ -707,7 +747,11 @@ class HeadlessCliRunner:
                     )
                 time.sleep(max(completion_poll_interval_seconds, 0.01))
 
-            stderr_text = stderr_path.read_text(encoding="utf-8") if stderr_path.exists() else ""
+            stderr_text = (
+                _native_dsh_stderr(stderr_path, env)
+                if output_format == "dsh-cli"
+                else (stderr_path.read_text(encoding="utf-8") if stderr_path.exists() else "")
+            )
             returncode = read_headless_turn_return_code(status_path=status_path)
             canonical_events = load_preferred_canonical_headless_events(
                 turn_dir=turn_dir,
@@ -718,7 +762,8 @@ class HeadlessCliRunner:
             events = canonical_headless_events_to_session_events(canonical_events)
             session_id = extract_session_id(events)
             process_metadata = self._read_process_metadata_best_effort(process_path=process_path)
-
+            if output_format == "dsh-cli" and returncode != 0:
+                stderr_text = _native_dsh_failure(stderr_text, canonical_events)
             if returncode != 0:
                 message = stderr_text.strip() or f"command exited with code {returncode}"
                 events.append(
@@ -735,7 +780,7 @@ class HeadlessCliRunner:
                 returncode=returncode,
                 session_id=session_id,
                 stdout_path=turn_dir / "provider-stdout.jsonl"
-                if provider == "dsh"
+                if provider == "dsh" and output_format != "dsh-cli"
                 else stdout_path,
                 stderr_path=stderr_path,
                 status_path=status_path,
@@ -956,6 +1001,13 @@ class HeadlessCliRunner:
         if metadata is None:
             return False
         if self.m_active_provider == "dsh":
+            if metadata.child_isolated_group and metadata.child_pid is not None:
+                try:
+                    with _pinned_worker(metadata) as descriptor:
+                        _signal_worker(descriptor, sig)
+                    return True
+                except (OSError, ValueError, AttributeError):
+                    return False
             if sig == signal.SIGKILL and self.m_active_turn_dir is not None:
                 signal_dsh_native_process(self.m_active_turn_dir, sig)
             if metadata.child_pid is None or metadata.child_birth_token is None:
@@ -1088,7 +1140,245 @@ def load_headless_process_metadata(*, process_path: Path) -> HeadlessProcessMeta
         launched_at_utc=_coerce_optional_string(payload.get("launched_at_utc")),
         runner_birth_token=_coerce_optional_string(payload.get("runner_birth_token")),
         child_birth_token=_coerce_optional_string(payload.get("child_birth_token")),
+        child_isolated_group=payload.get("child_isolated_group") is True,
     )
+
+
+def interrupt_owned_headless_attempt(turn_dir: Path) -> SessionControlResult:
+    """Interrupt the captured process for an already verified owner request."""
+
+    if (turn_dir / "exitcode").is_file():
+        return SessionControlResult(
+            status="ok", action="interrupt", detail="Headless turn has settled."
+        )
+
+    try:
+        metadata = load_headless_process_metadata(process_path=turn_dir / "process.json")
+        with _pinned_worker(metadata) as descriptor:
+            if not (turn_dir / "exitcode").is_file():
+                path = turn_dir / "usage-interrupt.json"
+                request = {"requested_at_utc": datetime.now(UTC).isoformat()}
+                write_usage_json(path, request)
+                _signal_worker(descriptor, signal.SIGTERM)
+                if metadata.child_isolated_group:
+                    write_usage_json(
+                        path,
+                        {
+                            **request,
+                            "signal_delivered": True,
+                            "process_id": metadata.child_pid,
+                            "process_birth_token": metadata.child_birth_token,
+                        },
+                    )
+                    poll = select.poll()
+                    poll.register(descriptor, select.POLLIN)
+                    if not poll.poll(1500):
+                        _signal_worker(descriptor, signal.SIGKILL)
+                        if not poll.poll(1000):
+                            raise ValueError("Owned DSH worker did not exit")
+                    deadline = time.monotonic() + 2.0
+                    while not (turn_dir / "exitcode").is_file():
+                        if time.monotonic() >= deadline:
+                            raise ValueError("Native process closure remains unverified")
+                        time.sleep(0.02)
+    except (OSError, ValueError, AttributeError):
+        return SessionControlResult(
+            status="error",
+            action="interrupt",
+            detail="The native process for this headless request could not be verified.",
+        )
+    return SessionControlResult(
+        status="ok", action="interrupt", detail="Interrupt sent to the captured headless worker."
+    )
+
+
+@contextmanager
+def _pinned_worker(metadata: HeadlessProcessMetadata) -> Iterator[int]:
+    """Pin the PID before comparing birth and isolated process-session identity."""
+
+    pid = metadata.child_pid
+    if pid is None or metadata.child_birth_token is None:
+        raise ValueError("Missing process identity")
+    descriptor = (
+        os.pidfd_open(pid) if hasattr(os, "pidfd_open") else _libc_pidfd_call("pidfd_open", pid, 0)
+    )
+    try:
+        if _dispatch_origin_birth_token(pid) != metadata.child_birth_token or (
+            metadata.child_isolated_group and os.getsid(pid) != pid
+        ):
+            raise ValueError("Process identity changed")
+        yield descriptor
+    finally:
+        os.close(descriptor)
+
+
+def _signal_worker(descriptor: int, sig: int) -> None:
+    """Send a signal through the pinned process handle."""
+
+    if hasattr(signal, "pidfd_send_signal"):
+        signal.pidfd_send_signal(descriptor, sig)
+    else:
+        _libc_pidfd_call("pidfd_send_signal", descriptor, sig, None, 0)
+
+
+def _matching_dsh_process(
+    binding: dict[str, Any], metadata: HeadlessProcessMetadata | None
+) -> bool:
+    """Match a native receipt to the exact worker launched by the bridge."""
+
+    return bool(
+        metadata is not None
+        and metadata.child_isolated_group
+        and metadata.child_pid is not None
+        and metadata.child_birth_token
+        and binding.get("process_id") == metadata.child_pid
+        and binding.get("process_birth_token") == metadata.child_birth_token
+    )
+
+
+def _native_dsh_stderr(path: Path, environment: dict[str, str]) -> str:
+    """Only surface bounded, redacted native diagnostic text."""
+
+    secrets = dsh_diagnostic_secrets(
+        environment, key_name=environment.get("HOUMAO_DSH_DIAGNOSTIC_KEY_NAME")
+    )
+    return sanitize_dsh_diagnostic(dsh_diagnostic_tail(path), secret_values=secrets, max_length=640)
+
+
+def _native_dsh_failure(stderr: str, events: Sequence[CanonicalHeadlessEvent]) -> str:
+    """Retain a qualified non-completion reason even when stderr is empty."""
+
+    for event in reversed(events):
+        if event.provider_event_type == "final":
+            reason = (event.data or {}).get("stop_reason")
+            if isinstance(reason, str):
+                return f"Native final reason: {reason}. {stderr}".strip()
+        elif event.provider_event_type == "error" and not stderr:
+            return event.message
+    return stderr
+
+
+def _dsh_unverified_settlement(
+    turn_dir: Path,
+    session_id: str | None,
+    events: Sequence[CanonicalHeadlessEvent],
+    metadata: HeadlessProcessMetadata | None,
+) -> str | None:
+    """Require one complete native final and its exact persisted journal interval."""
+
+    finals = [event for event in events if event.provider_event_type == "final"]
+    if (
+        session_id is None
+        or len(finals) != 1
+        or finals[0].session_id != session_id
+        or (finals[0].data or {}).get("stop_reason") != "completed"
+        or any(
+            event.provider_event_type
+            in {
+                "raw_text",
+                "non_mapping",
+                "dsh_cli_invalid_record",
+                "dsh_cli_incomplete_record",
+                "dsh_cli_session_mismatch",
+            }
+            for event in events
+        )
+    ):
+        return "DSH native stdout did not provide a verified completed final event."
+    try:
+        binding = json.loads((turn_dir / "dsh-native-binding.json").read_text())
+        handoff = json.loads((turn_dir / "dsh-native-handoff.json").read_text())
+        if (
+            not isinstance(binding, dict)
+            or binding != handoff
+            or binding.get("native_session_id") != session_id
+            or binding.get("attempt_id") != turn_dir.name
+            or not _matching_dsh_process(binding, metadata)
+        ):
+            raise ValueError("Unverified DSH handoff")
+        expected = {
+            key: binding[key]
+            for key in (
+                "version",
+                "attempt_id",
+                "runtime_session_id",
+                "generation",
+                "process_id",
+                "native_session_id",
+            )
+        }
+        rows: list[dict[str, Any]] = []
+        with (turn_dir / "dsh-native-evidence.jsonl").open("rb") as stream:
+            while line := stream.readline(DSH_MAX_JOURNAL_ROW_BYTES + 1):
+                if len(line) > DSH_MAX_JOURNAL_ROW_BYTES or not line.endswith(b"\n"):
+                    raise ValueError("Incomplete DSH native evidence")
+                row = json.loads(line)
+                if not isinstance(row, dict):
+                    raise ValueError("Malformed DSH native evidence")
+                if row.get("event") in {"admitted", "claimed", "turn/start", "turn/end"}:
+                    if any(row.get(key) != value for key, value in expected.items()):
+                        raise ValueError("Mismatched DSH native evidence")
+                    rows.append(row)
+        admitted = [row.get("message_id") for row in rows if row.get("event") == "admitted"]
+        claimed = [
+            row
+            for row in rows
+            if row.get("event") == "claimed" and row.get("message_id") in admitted
+        ]
+        last_turn = next(row for row in reversed(rows) if row.get("event") == "turn/end")
+        wanted = last_turn["native_sequence"]
+        if (
+            len(admitted) != 1
+            or not isinstance(admitted[0], str)
+            or len(claimed) != 1
+            or type(wanted) is not int
+            or last_turn.get("reason") != {"kind": "completed"}
+            or not any(
+                row.get("event") == "turn/start" and row.get("turn") == claimed[0].get("turn")
+                for row in rows
+            )
+        ):
+            raise ValueError("Incomplete DSH native turn interval")
+        source = select_dsh_journal(Path(binding["persistence_root"]), session_id)
+        if (
+            source is None
+            or inspect_dsh_journal(source, session_id).cwd != binding["working_directory"]
+        ):
+            raise ValueError("Unverified DSH native workspace")
+        persisted = None
+        with source.open("rb") as stream:
+            stream.readline(DSH_MAX_JOURNAL_ROW_BYTES + 1)
+            sequence = 0
+            while line := stream.readline(DSH_MAX_JOURNAL_ROW_BYTES + 1):
+                if len(line) > DSH_MAX_JOURNAL_ROW_BYTES or not line.endswith(b"\n"):
+                    raise ValueError("Incomplete DSH native journal")
+                row = json.loads(line)
+                if not isinstance(row, dict) or row.get("seq") != sequence:
+                    raise ValueError("Discontinuous DSH native journal")
+                if sequence == wanted:
+                    persisted = row
+                sequence += 1
+        if (
+            persisted is None
+            or persisted.get("type") != "turn/end"
+            or persisted.get("data", {}).get("turn") != last_turn.get("turn")
+            or persisted.get("data", {}).get("reason") != {"kind": "completed"}
+        ):
+            raise ValueError("Unverified DSH native terminal journal record")
+    except (OSError, AttributeError, KeyError, StopIteration, TypeError, ValueError):
+        return "DSH native completion could not be verified against its owned journal."
+    return None
+
+
+def _libc_pidfd_call(symbol: str, *arguments: int | None) -> int:
+    """Use the Linux libc binding when this Python build omits pidfd functions."""
+
+    call = getattr(ctypes.CDLL(None, use_errno=True), symbol)
+    result = int(call(*arguments))
+    if result < 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+    return result
 
 
 def read_headless_turn_return_code(*, status_path: Path) -> int:

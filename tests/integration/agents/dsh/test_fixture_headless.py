@@ -1,4 +1,4 @@
-"""Qualify real ACP fixture workflows against a controlled local provider."""
+"""Qualify native one-shot fixture workflows against a controlled local provider."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ def test_native_fixture_exact_resume(
     case: str,
     surface: str,
 ) -> None:
-    """Both explicit protocols preserve one native conversation across driver processes."""
+    """Both explicit protocols preserve one native conversation across DSH workers."""
 
     repo = Path(__file__).resolve().parents[4]
     monkeypatch.syspath_prepend(str(repo / "scripts/agents/test-fixtures"))
@@ -43,17 +43,23 @@ def test_native_fixture_exact_resume(
         selected[prefix + "_OPENAI_BASE_URL"] = endpoint
         monkeypatch.setenv("OPENAI_API_KEY", "synthetic-unselected-ambient-key")
     config = configuration.resolve_config(
-        case=case, client="dsh", surface=surface, process_env=selected
+        case=case, client="dsh", mode="headless", surface=surface, process_env=selected
     )
     run = prepare.prepare_run(config, run_root=tmp_path / "runs", executable=str(dsh_executable))
     root = Path(run["run_dir"])
     try:
         first = launch.launch_run(root, prompt="first fixture turn", timeout=45)
+        assert first["backend"] == "dsh_headless"
         if surface == "raw":
             native_id = first["identity"]["provider_session_id"]
             home = root / "home"
         else:
             manifest = json.loads(Path(first["identity"]["manifest_path"]).read_text())
+            assert manifest["backend"] == "dsh_headless"
+            argv = manifest["launch_plan"]["args"]
+            assert argv[:2] == ["--profile", "headless"] and "--json" in argv
+            assert argv.index("--patch") < argv.index("--json")
+            assert "first fixture turn" not in argv and "--session-id" not in argv
             native_id = manifest["headless"]["session_id"]
             home = Path(manifest["launch_plan"]["home_selector"]["home_path"])
         second = launch.prompt_run(root, prompt="second fixture turn", timeout=45)
@@ -71,16 +77,31 @@ def test_native_fixture_exact_resume(
         assert len(journals) == 1
         assert json.loads(journals[0].read_text().splitlines()[0])["id"] == native_id
         if surface == "raw":
-            for index in (1, 2):
-                assert (root / "raw-turns" / f"turn-{index}" / "provider-stdout.jsonl").is_file()
+            workers = prepare.load_run(root)["raw_workers"]
+            assert len(workers) == 2 and workers[0] != workers[1]
+            captures = sorted(root.glob("raw-turn-*.jsonl"))
+            logs = sorted(root.glob("raw-turn-*.stderr"))
         else:
+            artifact_root = Path(second["identity"]["manifest_path"]).with_suffix(".turn-artifacts")
+            captures = sorted(artifact_root.glob("*/stdout.jsonl"))
+            logs = sorted(artifact_root.glob("*/stderr.log"))
+            handoffs = [
+                json.loads(path.read_text())
+                for path in artifact_root.glob("*/dsh-native-handoff.json")
+            ]
+            assert len(handoffs) == 2
+            assert {row["native_session_id"] for row in handoffs} == {native_id}
+            assert len({(row["process_id"], row["process_birth_token"]) for row in handoffs}) == 2
             assert len(second["usage"]["records"]) == 2
             assert all(
                 record["token_usage"]["total_tokens"]["value"] == 16
                 for record in second["usage"]["records"]
             )
-        logs = list(root.rglob("provider-stderr.log"))
-        assert logs
+        assert len(captures) == len(logs) == 2
+        for capture in captures:
+            rows = [json.loads(line) for line in capture.read_text().splitlines()]
+            assert rows[0]["type"] == "session" and rows[0]["sessionId"] == native_id
+            assert rows[-1]["type"] == "final" and rows[-1]["reason"]["kind"] == "completed"
         assert all(
             "composed sandbox and approval defaults match no preset" not in path.read_text().lower()
             for path in logs

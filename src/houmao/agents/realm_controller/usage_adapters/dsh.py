@@ -105,7 +105,7 @@ class DshUsageAdapterState(UsageAdapterState):
 
 
 class DshIntervalInfo(BaseModel):
-    """Private exact native root set established by an owned ACP interval."""
+    """Private exact native root set established by an owned execution interval."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
     session_id: str
@@ -122,8 +122,8 @@ def read_dsh_interval(turn_dir: Path, snapshot: UsageTurnSnapshot) -> DshInterva
     """Validate driver binding and companion claims without using output timing.
 
     Only evidence carrying the original attempt/runtime/generation/native
-    identity contributes. Root starts belong to the driver's exclusive ACP
-    interval; at least one matching claimed input must establish admission.
+    identity contributes. Root starts belong to one exclusive native process.
+    A matching claimed input must establish admission to the first root turn.
     Native descendant sessions require separate explicit lineage and are not
     guessed from timestamps or recursively charged by this reader.
     """
@@ -155,10 +155,20 @@ def read_dsh_interval(turn_dir: Path, snapshot: UsageTurnSnapshot) -> DshInterva
     process_id = _count(binding.get("process_id"))
     if not process_id:
         raise DshJournalError("dsh_native_binding_process_missing")
+    service_incarnation = text_id(binding.get("service_incarnation"))
+    managed_native = snapshot.backend == "dsh_headless" or (
+        snapshot.backend == "dsh_acp" and service_incarnation is not None
+    )
+    if managed_native:
+        _verify_cli_interval_handoff(turn_dir, binding)
+    if service_incarnation is not None:
+        expected["service_incarnation"] = service_incarnation
     expected["native_session_id"] = native_id
     expected["process_id"] = process_id
     starts: list[str] = []
     claimed: set[str] = set()
+    native_claims: list[tuple[str, str]] = []
+    admitted_id: str | None = None
     incarnation: tuple[str, str] | None = None
     complete = True
     descendants: dict[str, str] = {}
@@ -174,11 +184,14 @@ def read_dsh_interval(turn_dir: Path, snapshot: UsageTurnSnapshot) -> DshInterva
                     break
                 event = json.loads(line)
                 if not isinstance(event, dict) or event.get("event") not in {
+                    "admitted",
                     "claimed",
                     "turn/start",
                     "descendant/created",
                     "descendant/turn/start",
                 }:
+                    continue
+                if event["event"] == "admitted" and not managed_native:
                     continue
                 if any(event.get(key) != value for key, value in expected.items()):
                     raise DshJournalError("dsh_native_evidence_identity_mismatch")
@@ -187,6 +200,13 @@ def read_dsh_interval(turn_dir: Path, snapshot: UsageTurnSnapshot) -> DshInterva
                 if host is None or agent is None or incarnation not in {None, (host, agent)}:
                     raise DshJournalError("dsh_native_evidence_incarnation_mismatch")
                 incarnation = (host, agent)
+                if event["event"] == "admitted":
+                    if (
+                        admitted_id is not None
+                        or (admitted_id := text_id(event.get("message_id"))) is None
+                    ):
+                        raise DshJournalError("dsh_native_evidence_admission_invalid")
+                    continue
                 if event["event"].startswith("descendant/"):
                     child = text_id(event.get("child_session_id"))
                     parent = text_id(event.get("parent_session_id"))
@@ -215,15 +235,21 @@ def read_dsh_interval(turn_dir: Path, snapshot: UsageTurnSnapshot) -> DshInterva
                 if turn is None:
                     raise DshJournalError("dsh_native_evidence_turn_invalid")
                 if event["event"] == "claimed":
-                    if text_id(event.get("message_id")) is None:
+                    claimed_id = text_id(event.get("message_id"))
+                    if claimed_id is None:
                         raise DshJournalError("dsh_native_evidence_claim_invalid")
-                    claimed.add(str(turn))
+                    if managed_native:
+                        native_claims.append((claimed_id, str(turn)))
+                    else:
+                        claimed.add(str(turn))
                 elif str(turn) not in starts:
                     starts.append(str(turn))
     except DshJournalError:
         raise
     except (OSError, ValueError, UnicodeError) as exc:
         raise DshJournalError("dsh_native_evidence_unavailable") from exc
+    if managed_native:
+        claimed = {turn for message_id, turn in native_claims if message_id == admitted_id}
     if claimed and not claimed.issubset(starts):
         raise DshJournalError("dsh_native_evidence_claim_without_turn")
     roots = starts if claimed else []
@@ -237,6 +263,58 @@ def read_dsh_interval(turn_dir: Path, snapshot: UsageTurnSnapshot) -> DshInterva
         working_directory=workspace,
         coverage_complete=complete,
     )
+
+
+def _verify_cli_interval_handoff(turn_dir: Path, binding: dict[str, Any]) -> None:
+    """Require the same worker birth identity in bridge and native handoff evidence."""
+
+    try:
+        handoff = json.loads((turn_dir / "dsh-native-handoff.json").read_text())
+        process = json.loads((turn_dir / "process.json").read_text())
+    except (OSError, ValueError) as exc:
+        raise DshJournalError("dsh_native_handoff_unavailable") from exc
+    birth = text_id(binding.get("process_birth_token"))
+    if (
+        handoff != binding
+        or not isinstance(process, dict)
+        or not _count(binding.get("process_id"))
+        or _count(process.get("child_pid")) != binding.get("process_id")
+        or birth is None
+        or process.get("child_birth_token") != birth
+    ):
+        raise DshJournalError("dsh_native_handoff_identity_mismatch")
+
+
+def dsh_cli_completion_evidence(turn_dir: Path, snapshot: UsageTurnSnapshot) -> bool:
+    """Verify success for this exact owner attempt before crash-time finalization."""
+
+    try:
+        binding = json.loads((turn_dir / "dsh-native-binding.json").read_text())
+        closure = json.loads((turn_dir / "dsh-native-closure.json").read_text())
+        if not isinstance(binding, dict) or not isinstance(closure, dict):
+            return False
+        native_id = text_id(binding.get("native_session_id"))
+        if (
+            binding.get("version") != 1
+            or binding.get("attempt_id") != snapshot.turn_id
+            or binding.get("runtime_session_id") != snapshot.runtime_session_id
+            or binding.get("generation") != snapshot.generation_id
+            or native_id is None
+            or snapshot.provider_session_id not in {None, native_id}
+        ):
+            return False
+        _verify_cli_interval_handoff(turn_dir, binding)
+        return closure == {
+            "version": 1,
+            "attempt_id": snapshot.turn_id,
+            "native_session_id": native_id,
+            "process_id": binding.get("process_id"),
+            "process_birth_token": binding.get("process_birth_token"),
+            "source": "native_journal",
+            "returncode": 0,
+        }
+    except (OSError, ValueError):
+        return False
 
 
 def _count(value: Any) -> int | None:

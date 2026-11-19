@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from houmao.agents.realm_controller.run_modes import RUN_MODES, RunMode
+
 # ruff: noqa: F403,F405
 from .project_common import *
 
@@ -172,7 +174,12 @@ def get_project_launch_profile_command(name: str) -> None:
     default=None,
     help="Optional declarative Stalwart management URL.",
 )
-@click.option("--headless", is_flag=True, help="Persist headless launch as the default posture.")
+@click.option(
+    "--mode",
+    type=click.Choice(RUN_MODES),
+    default=None,
+    help="Persist the run mode for launches from this profile.",
+)
 @click.option("--no-gateway", is_flag=True, help="Persist gateway auto-attach disabled.")
 @click.option(
     "--managed-header/--no-managed-header",
@@ -265,7 +272,7 @@ def add_project_launch_profile_command(
     mail_base_url: str | None,
     mail_jmap_url: str | None,
     mail_management_url: str | None,
-    headless: bool,
+    mode: RunMode | None,
     no_gateway: bool,
     managed_header: bool | None,
     managed_header_section: tuple[str, ...],
@@ -324,8 +331,8 @@ def add_project_launch_profile_command(
         mail_base_url=mail_base_url,
         mail_jmap_url=mail_jmap_url,
         mail_management_url=mail_management_url,
-        headless=headless,
-        clear_headless=False,
+        mode=mode,
+        clear_mode=False,
         no_gateway=no_gateway,
         managed_header=managed_header,
         clear_managed_header=False,
@@ -481,8 +488,13 @@ def add_project_launch_profile_command(
 @click.option(
     "--clear-mailbox", is_flag=True, help="Clear the stored declarative mailbox defaults."
 )
-@click.option("--headless", is_flag=True, help="Persist headless launch as the default posture.")
-@click.option("--clear-headless", is_flag=True, help="Clear the stored headless launch posture.")
+@click.option(
+    "--mode",
+    type=click.Choice(RUN_MODES),
+    default=None,
+    help="Persist the run mode for launches from this profile.",
+)
+@click.option("--clear-mode", is_flag=True, help="Clear the stored run mode.")
 @click.option("--no-gateway", is_flag=True, help="Persist gateway auto-attach disabled.")
 @click.option(
     "--managed-header/--no-managed-header",
@@ -612,8 +624,8 @@ def set_project_launch_profile_command(
     mail_jmap_url: str | None,
     mail_management_url: str | None,
     clear_mailbox: bool,
-    headless: bool,
-    clear_headless: bool,
+    mode: RunMode | None,
+    clear_mode: bool,
     no_gateway: bool,
     managed_header: bool | None,
     clear_managed_header: bool,
@@ -680,8 +692,8 @@ def set_project_launch_profile_command(
         mail_base_url=mail_base_url,
         mail_jmap_url=mail_jmap_url,
         mail_management_url=mail_management_url,
-        headless=headless,
-        clear_headless=clear_headless,
+        mode=mode,
+        clear_mode=clear_mode,
         no_gateway=no_gateway,
         managed_header=managed_header,
         clear_managed_header=clear_managed_header,

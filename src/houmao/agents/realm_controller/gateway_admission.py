@@ -58,6 +58,8 @@ _ADMIN_GET = (
     "/v1/control/tui/history",
     "/v1/control/web/state",
     "/v1/control/web/history",
+    "/v1/control/service/state",
+    "/v1/control/service/requests/{request_id}",
     "/v1/control/headless/state",
     "/v1/reminders",
     "/v1/reminders/{reminder_id}",

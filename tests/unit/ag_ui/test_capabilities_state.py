@@ -16,6 +16,7 @@ def _status(**overrides: object) -> GatewayStatusV1:
     values: dict[str, object] = {
         "attach_identity": "agent-1",
         "backend": "local_interactive",
+        "mode": "tui",
         "tmux_session_name": "tmux-agent-1",
         "gateway_health": "healthy",
         "managed_agent_connectivity": "connected",
@@ -192,7 +193,7 @@ def test_capabilities_can_report_snapshot_only_when_replay_is_disabled() -> None
 
 
 def test_capabilities_report_headless_graphics_tool_metadata() -> None:
-    response = build_ag_ui_capabilities(_Runtime(_status(backend="codex_headless")))
+    response = build_ag_ui_capabilities(_Runtime(_status(backend="codex_headless", mode="headless")))
     dumped = response.model_dump(mode="json", by_alias=True)
 
     assert dumped["houmao"]["features"]["taskRunSubmission"] is True
@@ -280,6 +281,7 @@ class _SensitiveStatus:
 
     attach_identity = "agent-1"
     backend = "cao_rest"
+    mode = "tui"
     tmux_session_name = "tmux-agent-1"
     gateway_health = "healthy"
     managed_agent_connectivity = "connected"

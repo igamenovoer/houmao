@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import Literal, Protocol, TypeAlias
 
 from houmao.ag_ui.connection import AgUiConnectionRecord
+from houmao.agents.realm_controller.run_modes import RunMode
 
 JsonScalar: TypeAlias = str | int | float | bool | None
 JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
@@ -20,6 +21,9 @@ class GatewayStatusSnapshot(Protocol):
 
     @property
     def backend(self) -> str: ...
+
+    @property
+    def mode(self) -> RunMode | None: ...
 
     @property
     def tmux_session_name(self) -> str: ...
@@ -80,6 +84,7 @@ def build_houmao_state_snapshot(
     gateway: JsonObject = {
         "attachIdentity": status.attach_identity,
         "backend": status.backend,
+        "mode": status.mode,
         "tmuxSessionName": status.tmux_session_name,
         "availability": status.gateway_health,
         "managedAgentConnectivity": status.managed_agent_connectivity,
@@ -146,7 +151,7 @@ def _target_transport_family(backend: str) -> Literal["http_rest", "tmux", "web"
 
     if backend in {"cao_rest", "houmao_server_rest"}:
         return "http_rest"
-    if backend == "dsh_web":
+    if backend in {"dsh_web", "kimi_web"}:
         return "web"
     return "tmux"
 

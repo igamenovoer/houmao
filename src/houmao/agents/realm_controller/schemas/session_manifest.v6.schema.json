@@ -61,57 +61,6 @@
       "title": "CaoSectionV2",
       "type": "object"
     },
-    "CodexSectionV1": {
-      "additionalProperties": false,
-      "description": "Persisted codex backend section.",
-      "properties": {
-        "thread_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Thread Id"
-        },
-        "turn_index": {
-          "title": "Turn Index",
-          "type": "integer"
-        },
-        "pid": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Pid"
-        },
-        "process_started_at_utc": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Process Started At Utc"
-        }
-      },
-      "required": [
-        "thread_id",
-        "turn_index"
-      ],
-      "title": "CodexSectionV1",
-      "type": "object"
-    },
     "ControllerScopeV1": {
       "additionalProperties": false,
       "description": "Record controller scope admitted by provisioned OS transport policy.",
@@ -287,6 +236,46 @@
         "route_fingerprint"
       ],
       "title": "ExecutionBindingV1",
+      "type": "object"
+    },
+    "GatewayAdminKey": {
+      "additionalProperties": false,
+      "description": "Bind a registered principal to a canonical OpenSSH public key.",
+      "properties": {
+        "principal": {
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Principal",
+          "type": "string"
+        },
+        "public_key": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Public Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "principal",
+        "public_key"
+      ],
+      "title": "GatewayAdminKey",
+      "type": "object"
+    },
+    "GatewayLaunchSeed": {
+      "additionalProperties": false,
+      "description": "Carry owner-authorized initial enrollment in a launch manifest.",
+      "properties": {
+        "admin_keys": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/GatewayAdminKey"
+          },
+          "maxItems": 256,
+          "title": "Admin Keys",
+          "type": "array"
+        }
+      },
+      "title": "GatewayLaunchSeed",
       "type": "object"
     },
     "HeadlessSectionV1": {
@@ -726,8 +715,13 @@
     },
     "LaunchPlanPayloadV1": {
       "additionalProperties": false,
-      "description": "Persisted `launch_plan.v1` payload.",
+      "description": "Persisted `launch_plan.v3` payload.",
       "properties": {
+        "schema_version": {
+          "const": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
         "backend": {
           "enum": [
             "local_interactive",
@@ -735,12 +729,25 @@
             "codex_app_server",
             "claude_headless",
             "kimi_headless",
+            "kimi_acp",
+            "dsh_headless",
             "dsh_acp",
             "dsh_web",
+            "kimi_web",
             "cao_rest",
             "houmao_server_rest"
           ],
           "title": "Backend",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "headless",
+            "service",
+            "tui",
+            "web"
+          ],
+          "title": "Mode",
           "type": "string"
         },
         "native_surface_kind": {
@@ -849,7 +856,9 @@
         }
       },
       "required": [
+        "schema_version",
         "backend",
+        "mode",
         "tool",
         "executable",
         "args",
@@ -1041,8 +1050,11 @@
             "codex_app_server",
             "claude_headless",
             "kimi_headless",
+            "kimi_acp",
+            "dsh_headless",
             "dsh_acp",
             "dsh_web",
+            "kimi_web",
             "cao_rest",
             "houmao_server_rest"
           ],
@@ -1694,53 +1706,13 @@
       ],
       "title": "WebNativeSurfaceV1",
       "type": "object"
-    },
-    "GatewayAdminKey": {
-      "additionalProperties": false,
-      "description": "Bind a registered principal to a canonical OpenSSH public key.",
-      "properties": {
-        "principal": {
-          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$",
-          "title": "Principal",
-          "type": "string"
-        },
-        "public_key": {
-          "maxLength": 4096,
-          "minLength": 1,
-          "title": "Public Key",
-          "type": "string"
-        }
-      },
-      "required": [
-        "principal",
-        "public_key"
-      ],
-      "title": "GatewayAdminKey",
-      "type": "object"
-    },
-    "GatewayLaunchSeed": {
-      "additionalProperties": false,
-      "description": "Carry owner-authorized initial enrollment in a launch manifest.",
-      "properties": {
-        "admin_keys": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/GatewayAdminKey"
-          },
-          "maxItems": 256,
-          "title": "Admin Keys",
-          "type": "array"
-        }
-      },
-      "title": "GatewayLaunchSeed",
-      "type": "object"
     }
   },
   "additionalProperties": false,
-  "description": "Persisted ``session_manifest.v4`` payload.",
+  "description": "Persisted ``session_manifest.v6`` payload.",
   "properties": {
     "schema_version": {
-      "const": 5,
+      "const": 6,
       "title": "Schema Version",
       "type": "integer"
     },
@@ -1751,12 +1723,25 @@
         "codex_app_server",
         "claude_headless",
         "kimi_headless",
+        "kimi_acp",
+        "dsh_headless",
         "dsh_acp",
         "dsh_web",
+        "kimi_web",
         "cao_rest",
         "houmao_server_rest"
       ],
       "title": "Backend",
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "headless",
+        "service",
+        "tui",
+        "web"
+      ],
+      "title": "Mode",
       "type": "string"
     },
     "tool": {
@@ -1901,6 +1886,17 @@
       ],
       "default": null
     },
+    "gateway_admin_seed": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GatewayLaunchSeed"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "launch_plan": {
       "$ref": "#/$defs/LaunchPlanPayloadV1"
     },
@@ -1958,15 +1954,9 @@
       "type": "object"
     },
     "codex": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/CodexSectionV1"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
+      "default": null,
+      "title": "Codex",
+      "type": "null"
     },
     "headless": {
       "anyOf": [
@@ -2011,22 +2001,12 @@
         }
       ],
       "default": null
-    },
-    "gateway_admin_seed": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/GatewayLaunchSeed"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
     }
   },
   "required": [
     "schema_version",
     "backend",
+    "mode",
     "tool",
     "role_name",
     "created_at_utc",

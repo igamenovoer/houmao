@@ -181,7 +181,7 @@ def _relay_operations(http_request: Request) -> frozenset[tuple[str, str]]:
     for key in ("channel", "reminder_id"):
         if key in http_request.path_params:
             path = path.replace("{" + key + "}", quote(str(http_request.path_params[key]), safe=""))
-    if path in {"/gateway", "/managed-state", "/managed-state/detail"}:
+    if path in {"/gateway", "/state", "/state/detail", "/managed-state", "/managed-state/detail"}:
         return frozenset({("GET", "/v1/status")})
     if path in {"/requests", "/interrupt"}:
         return frozenset({("POST", "/v1/requests")})

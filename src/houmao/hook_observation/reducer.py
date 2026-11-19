@@ -1152,6 +1152,24 @@ class HookPostureReducer:
             or self.m_turn_phase in ("active", "blocked")
         )
 
+    def reconcile_kimi_ended_turn(self, *, session_id: str, turn_id: str) -> HookPosture:
+        """Release the exact Kimi hook epoch after durable native termination evidence."""
+
+        if (
+            self.m_adapter != "kimi"
+            or self.m_session_id != session_id
+            or self.m_turn_id != turn_id
+            or self.m_maintenance_active
+        ):
+            return self.posture
+        self.m_turn_id = None
+        self.m_pending_epoch = False
+        self.m_turn_phase = "ready"
+        self.m_armed_prompts.clear()
+        self.m_nested_scope_depth = 0
+        self._clear_blocked()
+        return self.posture
+
     def _kimi_arm_epoch(self, observation: HookObservation) -> None:
         """Arm a new epoch; the following TurnStarted binds its turn_id."""
 

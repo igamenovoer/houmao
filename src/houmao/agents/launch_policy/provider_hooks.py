@@ -12,6 +12,8 @@ import fcntl
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
+import tomli_w
+
 from houmao.agents.codex_cli_config import (
     CodexCliConfigOverride,
     append_or_replace_codex_config_overrides,
@@ -171,8 +173,9 @@ def set_toml_key(
     key_path: tuple[str, ...],
     value: str | bool | int | list[str],
     repair_invalid: bool = False,
+    preserve_native_arrays: bool = False,
 ) -> None:
-    """Set one TOML key path using a minimal writer."""
+    """Set one TOML key path and optionally preserve native arrays of tables."""
 
     payload = load_toml_state(path, repair_invalid=repair_invalid)
     target = payload
@@ -183,7 +186,30 @@ def set_toml_key(
             target[key] = existing
         target = existing
     target[key_path[-1]] = value
-    _atomic_write_text(path, _render_toml_mapping(payload) + "\n")
+    text = (
+        tomli_w.dumps(payload) if preserve_native_arrays else _render_toml_mapping(payload) + "\n"
+    )
+    _atomic_write_text(path, text)
+
+
+def prepare_kimi_service_config(
+    home_path: Path, *, model_alias: str | None, unattended: bool
+) -> None:
+    """Project Kimi ACP defaults without discarding native tables or hooks."""
+
+    updates: dict[str, str] = {}
+    if model_alias is not None:
+        updates["default_model"] = model_alias
+    if unattended:
+        updates["default_permission_mode"] = "auto"
+    if not updates:
+        return
+    path = home_path / "config.toml"
+    with provider_state_mutation_lock(home_path):
+        payload = load_toml_state(path)
+        if any(payload.get(key) != value for key, value in updates.items()):
+            payload.update(updates)
+            _atomic_write_text(path, tomli_w.dumps(payload))
 
 
 def _load_json_state_with_template(path: Path, *, repair_invalid: bool = False) -> dict[str, Any]:
@@ -573,6 +599,7 @@ def _codex_ensure_project_trust(request: LaunchPolicyRequest) -> None:
             "trust_level",
         ),
         value="trusted",
+        preserve_native_arrays=request.backend == "codex_app_server",
         repair_invalid=request.application_kind == "provider_start",
     )
 

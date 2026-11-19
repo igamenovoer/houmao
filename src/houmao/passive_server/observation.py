@@ -22,7 +22,10 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     tmux_session_exists,
 )
-from houmao.agents.realm_controller.native_surface import WebNativeSurfaceV1
+from houmao.agents.realm_controller.native_surface import (
+    TerminalNativeSurfaceV1,
+    WebNativeSurfaceV1,
+)
 from houmao.hook_observation.install import hook_observation_applies
 from houmao.hook_observation.reader import HookObservationChannel
 from houmao.passive_server.config import PassiveServerConfig
@@ -133,6 +136,8 @@ class AgentTuiObserver:
         backend: str | None = None,
         session_root: str | None = None,
         tmux_socket_path: str | None = None,
+        pane_id: str | None = None,
+        generation_id: str | None = None,
     ) -> None:
         """Initialize one observer for a discovered agent."""
 
@@ -145,11 +150,14 @@ class AgentTuiObserver:
         self.m_backend: str | None = backend
         self.m_session_root: str | None = session_root
         self.m_tmux_socket_path: str | None = tmux_socket_path
+        self.m_pane_id: str | None = pane_id
+        self.m_generation_id: str | None = generation_id
 
         self.m_hook_lock: threading.Lock = threading.Lock()
         self.m_hook_channel: HookObservationChannel | None = None
 
         self.m_baseline_pos: int | None = None
+        self.m_observed_at_utc: datetime | None = None
         self.m_last_probe_snapshot: HoumaoProbeSnapshot | None = None
         self.m_parsed_surface: HoumaoParsedSurface | None = None
         self.m_transport_state: TransportState = "tmux_missing"
@@ -200,6 +208,13 @@ class AgentTuiObserver:
 
         with tmux_server_scope(self.m_tmux_socket_path):
             self._poll_cycle_in_scope()
+        self.m_observed_at_utc = datetime.now(UTC)
+
+    @property
+    def observed_at_utc(self) -> datetime | None:
+        """Return when the current tracker sample was evaluated."""
+
+        return self.m_observed_at_utc
 
     def _poll_cycle_in_scope(self) -> None:
         """Read panes and native tracking state on this observer's owner server."""
@@ -229,6 +244,7 @@ class AgentTuiObserver:
             target = self.m_transport_resolver.resolve_target(
                 session_name=self.m_session_name,
                 window_name=self.m_window_name,
+                pane_id=self.m_pane_id,
             )
         except TmuxCommandError as exc:
             self._record_diagnostics(
@@ -663,10 +679,17 @@ class TuiObservationService:
 
     # -- accessor -------------------------------------------------------------
 
-    def get_observer(self, agent_id: str) -> AgentTuiObserver | None:
-        """Return the observer for an agent, or ``None`` if not observed."""
+    def get_observer(
+        self, agent_id: str, *, generation_id: str | None = None
+    ) -> AgentTuiObserver | None:
+        """Return an observer for the selected managed generation, if initialized."""
 
-        return self.m_observers.get(agent_id)
+        observer = self.m_observers.get(agent_id)
+        if observer is not None and (
+            generation_id is None or observer.m_generation_id == generation_id
+        ):
+            return observer
+        return None
 
     def get_web_observer(self, agent_id: str) -> AgentWebObserver | None:
         """Return native Web observation independently of terminal parsers."""
@@ -698,16 +721,20 @@ class TuiObservationService:
         web_agents = [
             agent
             for agent in current_agents
-            if (
-                agent.record.identity.backend == "dsh_web"
-                or isinstance(getattr(agent.record, "native_surface", None), WebNativeSurfaceV1)
-            )
+            if agent.record.mode == "web"
+            and isinstance(agent.record.native_surface, WebNativeSurfaceV1)
         ]
         web_ids = {agent.record.agent_id for agent in web_agents}
-        terminal_agents = [
-            agent for agent in current_agents if agent.record.agent_id not in web_ids
-        ]
-        current_ids = {a.record.agent_id for a in terminal_agents}
+        terminals = {
+            agent.record.agent_id: (
+                agent.record,
+                agent.record.native_surface,
+                agent.observed_tool_version,
+            )
+            for agent in current_agents
+            if agent.record.mode == "tui"
+            and isinstance(agent.record.native_surface, TerminalNativeSurfaceV1)
+        }
         for agent_id in set(self.m_web_observers) - web_ids:
             self.m_web_observers.pop(agent_id).close()
         for agent in web_agents:
@@ -717,8 +744,13 @@ class TuiObservationService:
             else:
                 web_observer.set_agent(agent)
 
-        # Remove observers for agents no longer in the index
-        stale_ids = set(self.m_observers.keys()) - current_ids
+        stale_ids = {
+            agent_id
+            for agent_id, observer in self.m_observers.items()
+            if agent_id not in terminals
+            or observer.m_generation_id != terminals[agent_id][0].generation_id
+            or observer.m_pane_id != terminals[agent_id][1].pane_id
+        }
         for agent_id in stale_ids:
             observer = self.m_observers.pop(agent_id)
             try:
@@ -726,21 +758,20 @@ class TuiObservationService:
             except Exception:
                 logger.debug("Error closing stale observer for %s", agent_id, exc_info=True)
 
-        # Create observers for newly discovered agents
-        for agent in terminal_agents:
-            agent_id = agent.record.agent_id
+        for agent_id, (record, surface, version) in terminals.items():
             if agent_id in self.m_observers:
-                continue
-            if not agent.record.terminal.session_name:
                 continue
             self.m_observers[agent_id] = AgentTuiObserver(
                 agent_id=agent_id,
-                agent_name=agent.record.agent_name,
-                tool=agent.record.identity.tool,
-                session_name=agent.record.terminal.session_name,
-                backend=agent.record.identity.backend,
-                session_root=agent.record.runtime.session_root,
-                tmux_socket_path=agent.record.terminal.socket_path,
+                agent_name=record.agent_name,
+                tool=record.identity.tool,
+                session_name=surface.tmux_session_name,
+                observed_version=version,
+                backend=record.identity.backend,
+                session_root=record.runtime.session_root,
+                tmux_socket_path=record.terminal.socket_path,
+                pane_id=surface.pane_id,
+                generation_id=record.generation_id,
             )
 
     def _poll_all_observers(self) -> None:

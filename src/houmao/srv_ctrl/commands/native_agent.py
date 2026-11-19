@@ -11,6 +11,7 @@ import click
 import yaml
 
 from houmao.agents.definition_parser import AgentPreset, parse_agent_preset, parse_tool_adapter
+from houmao.agents.realm_controller.run_modes import RUN_MODES, RunMode
 from houmao.agents.tool_params import validate_tool_params
 from houmao.project.config_payloads import build_launch_profile_config_payload
 from houmao.terminology import (
@@ -25,7 +26,7 @@ from .brains import native_agent_brain_group
 from .credentials import native_agent_credentials_group
 from .common import overwrite_confirm_option
 from .output import emit
-from .project_common import _tool_params_or_click
+from .project_common import _resolve_profile_posture_mapping, _tool_params_or_click
 
 _SUPPORTED_NATIVE_TOOLS: tuple[str, ...] = ("claude", "codex", "kimi", "dsh")
 
@@ -952,7 +953,7 @@ def _build_dossier_defaults(
     reasoning_level: int | None,
     prompt_mode: str | None,
     env_set: tuple[str, ...],
-    headless: bool,
+    mode: RunMode | None,
     no_gateway: bool,
     gateway_port: int | None,
 ) -> dict[str, object]:
@@ -974,8 +975,8 @@ def _build_dossier_defaults(
     if env_set:
         defaults["env_records"] = _env_records(env_set)
     posture: dict[str, object] = {}
-    if headless:
-        posture["headless"] = True
+    if mode is not None:
+        posture["mode"] = mode
     if no_gateway:
         posture["gateway_auto_attach"] = False
     elif gateway_port is not None:
@@ -1047,7 +1048,7 @@ def get_native_launch_dossier_command(name: str, native_agent_root: Path | None)
     help="Optional prompt mode.",
 )
 @click.option("--env-set", "env_set", multiple=True, help="Repeatable persistent env record.")
-@click.option("--headless", is_flag=True, help="Persist headless launch posture.")
+@click.option("--mode", type=click.Choice(RUN_MODES), help="Persist the run mode.")
 @click.option("--tool-params", help="Partial tool parameters as JSON or @path.")
 @click.option("--no-gateway", is_flag=True, help="Disable gateway auto-attach.")
 @click.option(
@@ -1069,7 +1070,7 @@ def add_native_launch_dossier_command(
     reasoning_level: int | None,
     prompt_mode: str | None,
     env_set: tuple[str, ...],
-    headless: bool,
+    mode: RunMode | None,
     no_gateway: bool,
     gateway_port: int | None,
     yes: bool,
@@ -1112,7 +1113,7 @@ def add_native_launch_dossier_command(
             reasoning_level=reasoning_level,
             prompt_mode=prompt_mode,
             env_set=env_set,
-            headless=headless,
+            mode=mode,
             no_gateway=no_gateway,
             gateway_port=gateway_port,
         ),
@@ -1146,6 +1147,8 @@ def add_native_launch_dossier_command(
     help="Optional prompt mode.",
 )
 @click.option("--clear-prompt-mode", is_flag=True, help="Clear prompt mode.")
+@click.option("--mode", type=click.Choice(RUN_MODES), help="Persist the run mode.")
+@click.option("--clear-mode", is_flag=True, help="Clear the stored run mode.")
 @click.option("--tool-params", help="Patch tool parameters with JSON or @path.")
 @click.option("--clear-tool-params", is_flag=True, help="Clear stored tool parameters.")
 @native_agent_root_option
@@ -1162,6 +1165,8 @@ def set_native_launch_dossier_command(
     clear_reasoning_level: bool,
     prompt_mode: str | None,
     clear_prompt_mode: bool,
+    mode: RunMode | None,
+    clear_mode: bool,
     native_agent_root: Path | None,
     tool_params: str | None = None,
     clear_tool_params: bool = False,
@@ -1237,6 +1242,23 @@ def set_native_launch_dossier_command(
         defaults["model"] = model_payload
     else:
         defaults.pop("model", None)
+    raw_posture = defaults.get("posture")
+    if raw_posture is not None or mode is not None or clear_mode:
+        if raw_posture is not None and not isinstance(raw_posture, dict):
+            raise click.ClickException("Launch dossier defaults.posture must be a mapping.")
+        posture = _resolve_profile_posture_mapping(
+            current=raw_posture,
+            mode=mode,
+            clear_mode=clear_mode,
+            no_gateway=False,
+            gateway_port=None,
+            tool=_launch_dossier_source_tool(root=context.root, source=source),
+            source=f"Launch dossier `{dossier_name}`",
+        )
+        if posture:
+            defaults["posture"] = posture
+        else:
+            defaults.pop("posture", None)
     raw["profile_lane"] = "launch_profile"
     raw["source"] = source
     raw["defaults"] = defaults

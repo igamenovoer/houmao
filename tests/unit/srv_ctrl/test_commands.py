@@ -352,6 +352,7 @@ def test_main_recovers_stale_local_managed_agent_stop_without_traceback(
         agent_name="gpu",
         agent_id="agent-1234",
         generation_id="gen-1",
+        mode="headless",
         execution_binding=None,
         lifecycle=SimpleNamespace(state="active"),
         identity=SimpleNamespace(backend="codex_headless", tool="codex"),

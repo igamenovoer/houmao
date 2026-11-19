@@ -13,6 +13,45 @@ import time
 import pytest
 
 
+def test_fixture_refuses_raw_kimi_web_before_preparing_run(tmp_path: Path) -> None:
+    """The fixture requires managed ownership before creating a Kimi Web run."""
+
+    helper = Path(__file__).resolve().parents[3] / "scripts/agents/test-fixtures/fixture.py"
+    run_root = tmp_path / "runs"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(helper),
+            "prepare",
+            "--case",
+            "self-hosted",
+            "--client",
+            "kimi",
+            "--mode",
+            "web",
+            "--surface",
+            "raw",
+            "--model",
+            "Qwen/Qwen3.8-27B-FP8",
+            "--base-url",
+            "http://127.0.0.1:14888/v1",
+            "--context-window",
+            "262144",
+            "--run-root",
+            str(run_root),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert result.returncode == 2, result.stderr
+    error = json.loads(result.stderr)["error"]
+    assert "Kimi Web fixtures require the manager surface" in error
+    assert not result.stdout
+    assert not run_root.exists()
+
+
 @pytest.mark.parametrize("client", ["claude", "codex", "kimi"])
 @pytest.mark.parametrize("case", ["self-hosted", "cloud-api"])
 @pytest.mark.parametrize("surface", ["raw", "manager"])

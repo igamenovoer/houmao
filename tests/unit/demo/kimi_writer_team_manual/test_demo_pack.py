@@ -357,7 +357,7 @@ def test_launch_agent_uses_tui_gateway_background_for_story(
     command = captured["command"]
     assert "--profile" in command
     assert "alex-story" in command
-    assert "--headless" not in command
+    assert "--mode" not in command
     assert "--gateway-background" in command
 
 
@@ -388,7 +388,7 @@ def test_launch_agent_uses_headless_gateway_background_for_reviewer(
     command = captured["command"]
     assert "--profile" in command
     assert "alex-review" in command
-    assert "--headless" in command
+    assert command[command.index("--mode") + 1] == "headless"
     assert "--gateway-background" in command
 
 

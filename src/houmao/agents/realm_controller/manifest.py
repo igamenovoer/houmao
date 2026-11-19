@@ -34,10 +34,11 @@ from houmao.agents.realm_controller.native_surface import (
     TerminalNativeSurfaceV1,
     WebNativeSurfaceV1,
 )
+from houmao.agents.realm_controller.registry_models import ManagedAgentRegistryRecordV3
 
-LAUNCH_PLAN_SCHEMA = "launch_plan.v2.schema.json"
-SESSION_MANIFEST_SCHEMA = "session_manifest.v5.schema.json"
-SESSION_MANIFEST_SCHEMA_VERSION = 5
+LAUNCH_PLAN_SCHEMA = "launch_plan.v3.schema.json"
+SESSION_MANIFEST_SCHEMA = "session_manifest.v6.schema.json"
+SESSION_MANIFEST_SCHEMA_VERSION = 6
 
 
 @dataclass(frozen=True)
@@ -119,7 +120,7 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
 
     launch_payload = _validate_launch_plan_payload(
         request.launch_plan.redacted_payload(),
-        context="launch_plan.v1 validation failed",
+        context="launch_plan.v3 validation failed",
     ).model_dump(mode="json")
     agent_name, agent_id, tmux_session_name = _resolve_manifest_identity(request)
     session_id = _resolve_manifest_session_id(
@@ -132,6 +133,7 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
     payload: dict[str, Any] = {
         "schema_version": SESSION_MANIFEST_SCHEMA_VERSION,
         "backend": request.launch_plan.backend,
+        "mode": request.launch_plan.mode,
         "tool": request.launch_plan.tool,
         "role_name": request.role_name,
         "created_at_utc": request.created_at_utc or datetime.now(UTC).isoformat(timespec="seconds"),
@@ -160,18 +162,11 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
         ),
     }
 
-    if request.launch_plan.backend == "codex_app_server":
-        payload["codex"] = {
-            "thread_id": request.backend_state.get("thread_id"),
-            "turn_index": int(request.backend_state.get("turn_index", 0)),
-            "pid": request.backend_state.get("pid"),
-            "process_started_at_utc": request.backend_state.get("process_started_at_utc"),
-        }
-    elif request.launch_plan.backend in {
+    if request.launch_plan.backend in {
         "codex_headless",
         "claude_headless",
         "kimi_headless",
-        "dsh_acp",
+        "dsh_headless",
     }:
         payload["headless"] = {
             "session_id": request.backend_state.get("session_id"),
@@ -253,10 +248,10 @@ def _build_manifest_native_surface(
 ) -> dict[str, Any] | None:
     """Describe the native human interface independently of process supervision."""
 
-    if request.launch_plan.backend == "dsh_web":
+    if request.launch_plan.mode == "web":
         identity = request.backend_state.get("web_identity")
         if not isinstance(identity, dict):
-            raise SessionManifestError("DSH Web manifest requires a native execution binding")
+            raise SessionManifestError("Web manifest requires a native execution binding")
         try:
             return WebNativeSurfaceV1(
                 origin=request.backend_state["origin"],
@@ -264,7 +259,7 @@ def _build_manifest_native_surface(
             ).model_dump(mode="json")
         except (KeyError, ValidationError) as exc:
             raise SessionManifestError(
-                "DSH Web manifest requires a verified token-free native surface"
+                "Web manifest requires a verified token-free native surface"
             ) from exc
     if (
         request.launch_plan.backend in {"local_interactive", "cao_rest", "houmao_server_rest"}
@@ -338,13 +333,16 @@ def write_session_manifest(
                     raise SessionManifestError(
                         "Runtime execution generation changed; resolve the current manifest again"
                     )
-            if current.get("backend") == "dsh_web":
+            if current.get("mode") == "web":
                 current_identity = current["backend_state"].get("web_identity")
                 proposed_identity = proposed["backend_state"].get("web_identity")
                 expected = expected_web_identity or proposed_identity
-                if proposed.get("backend") != "dsh_web" or current_identity != expected:
+                if (
+                    proposed.get("backend") != current.get("backend")
+                    or current_identity != expected
+                ):
                     raise SessionManifestError(
-                        "DSH Web execution binding changed; resolve the current manifest again"
+                        "Web execution binding changed; resolve the current manifest again"
                     )
                 if current_identity == proposed_identity:
                     proposed["backend_state"] = {
@@ -357,8 +355,29 @@ def write_session_manifest(
             launch_plan = dict(proposed["launch_plan"])
             launch_plan["mailboxes"] = current["launch_plan"]["mailboxes"]
             proposed["launch_plan"] = launch_plan
+            _preserve_dsh_headless_conversation(current, proposed)
             _preserve_headless_server_authority(current, proposed)
         return _write_session_manifest_locked(path, proposed)
+
+
+def _preserve_dsh_headless_conversation(current: dict[str, Any], proposed: dict[str, Any]) -> None:
+    """Keep the completed conversation when a same-generation reader writes stale state."""
+
+    if (
+        current.get("backend") != "dsh_headless"
+        or proposed.get("backend") != "dsh_headless"
+        or current.get("registry_generation_id") != proposed.get("registry_generation_id")
+    ):
+        return
+    saved = current["headless"]
+    offered = proposed["headless"]
+    if saved["turn_index"] < offered["turn_index"]:
+        return
+    proposed["headless"] = saved
+    proposed["backend_state"] = {
+        **proposed["backend_state"],
+        **{key: saved[key] for key in ("session_id", "turn_index", "resume_selection_kind")},
+    }
 
 
 def _preserve_headless_server_authority(current: dict[str, Any], proposed: dict[str, Any]) -> None:
@@ -366,10 +385,14 @@ def _preserve_headless_server_authority(current: dict[str, Any], proposed: dict[
 
     if current.get("backend") not in {
         "codex_headless",
+        "codex_app_server",
         "claude_headless",
         "kimi_headless",
+        "dsh_headless",
         "dsh_acp",
+        "kimi_acp",
         "dsh_web",
+        "kimi_web",
     }:
         return
     current_authority = current.get("gateway_authority")
@@ -419,7 +442,7 @@ def _write_session_manifest_locked(path: Path, payload: dict[str, Any]) -> Sessi
     """Validate, flush, and atomically replace a snapshot under its held lock."""
 
     validated = _validate_session_manifest_payload(
-        payload, context=f"session_manifest.v5 validation failed for {path}"
+        payload, context=f"session_manifest.v6 validation failed for {path}"
     ).model_dump(mode="json")
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temporary_path = Path(temporary_name)
@@ -491,6 +514,8 @@ def load_session_manifest(path: Path) -> SessionManifestHandle:
 
     try:
         payload = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_manifest_fields)
+    except OSError as exc:
+        raise SessionManifestError(f"Cannot read session manifest: {path}") from exc
     except ValueError as exc:
         raise SessionManifestError(f"Invalid JSON in session manifest: {path}") from exc
 
@@ -517,13 +542,47 @@ def parse_session_manifest_payload(payload: object, *, source: str) -> SessionMa
             "Session manifest schema-version mismatch: "
             f"expected schema_version={SESSION_MANIFEST_SCHEMA_VERSION}, "
             f"got {schema_version!r} in `{source}`. "
-            "Start a fresh runtime session; in-memory upgrades from older manifests are "
-            "not supported before 1.0."
+            "Stop the old agent with its owning release. Start a fresh runtime session."
+        )
+    if (
+        isinstance(payload, dict)
+        and payload.get("backend") == "codex_app_server"
+        and payload.get("codex") is not None
+    ):
+        raise SessionManifestError(
+            "Retired Codex app-server process records lack current service authority. "
+            "Stop the old agent with its owning release. Start a fresh runtime session."
         )
     return _validate_session_manifest_payload(
         payload,
-        context=f"session_manifest.v4 validation failed for {source}",
+        context=f"session_manifest.v6 validation failed for {source}",
     )
+
+
+def require_registry_mode_authority(record: ManagedAgentRegistryRecordV3) -> None:
+    """Require a registry pointer to match its current mode and native surface authority."""
+
+    load_registry_mode_authority(record)
+
+
+def load_registry_mode_authority(record: ManagedAgentRegistryRecordV3) -> SessionManifestPayloadV4:
+    """Return the current manifest whose mode and surface agree with the registry record."""
+
+    handle = load_session_manifest(Path(record.runtime.manifest_path))
+    manifest = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+    if (
+        record.agent_id != manifest.agent_id
+        or record.generation_id != manifest.registry_generation_id
+        or record.execution_binding != manifest.runtime.execution_binding
+        or record.identity.tool != manifest.tool
+        or record.identity.backend != manifest.backend
+        or record.mode != manifest.mode
+        or record.native_surface != manifest.native_surface
+    ):
+        raise SessionManifestError(
+            "Registry mode and native surface differ from manifest authority."
+        )
+    return manifest
 
 
 def update_session_manifest(path: Path, updates: dict[str, Any]) -> SessionManifestHandle:
@@ -613,10 +672,14 @@ def _resolve_manifest_identity(
 
     if request.launch_plan.backend in {
         "codex_headless",
+        "codex_app_server",
         "claude_headless",
         "kimi_headless",
+        "dsh_headless",
         "dsh_acp",
+        "kimi_acp",
         "dsh_web",
+        "kimi_web",
     }:
         if tmux_session_name is None:
             tmux_session_name = _optional_non_empty_str(
@@ -714,7 +777,7 @@ def _build_manifest_tmux_section(
         "socket_path": socket_path,
         "primary_window_index": "0",
         "primary_window_role": "supervisor_logs"
-        if request.launch_plan.backend == "dsh_web"
+        if request.launch_plan.mode in {"service", "web"}
         else "managed_agent_surface",
         "primary_window_name": request.backend_state.get("tmux_window_name"),
         "primary_window_id": _optional_non_empty_str(request.backend_state.get("tmux_window_id")),
@@ -731,10 +794,14 @@ def _build_manifest_interactive_section(
     if request.launch_plan.backend not in {
         "local_interactive",
         "codex_headless",
+        "codex_app_server",
         "claude_headless",
         "kimi_headless",
+        "dsh_headless",
         "dsh_acp",
+        "kimi_acp",
         "dsh_web",
+        "kimi_web",
         "cao_rest",
         "houmao_server_rest",
     }:
@@ -752,7 +819,9 @@ def _build_manifest_interactive_section(
                 "codex_headless",
                 "claude_headless",
                 "kimi_headless",
+                "dsh_headless",
                 "dsh_acp",
+                "kimi_acp",
             }
             else None
         ),
@@ -802,10 +871,14 @@ def _build_manifest_gateway_authority(
     if request.launch_plan.backend not in {
         "local_interactive",
         "codex_headless",
+        "codex_app_server",
         "claude_headless",
         "kimi_headless",
+        "dsh_headless",
         "dsh_acp",
+        "kimi_acp",
         "dsh_web",
+        "kimi_web",
         "cao_rest",
         "houmao_server_rest",
     }:

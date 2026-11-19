@@ -1,4 +1,4 @@
-"""Qualify an explicitly selected live DSH ACP lane with private fixture state."""
+"""Qualify native DSH one-shot execution with an explicitly selected model route."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ _REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_REPO / "scripts/agents/test-fixtures"))
 
 from fixturelib.auth import private_write, validate_external_path  # noqa: E402
-from fixturelib.config import FixtureError, resolve_config  # noqa: E402
+from fixturelib.config import FixtureError, fixture_run_mode, resolve_config  # noqa: E402
 from fixturelib.launch import (  # noqa: E402
     check_run,
     interrupt_run,
@@ -43,14 +43,20 @@ def _native_identity(run_dir: Path) -> tuple[str, str]:
     return native, home
 
 
-def _new_native_claim(run_dir: Path, earlier: set[Path]) -> bool:
-    """Require this new attempt's native claim before requesting cancellation."""
+def _new_native_work(run_dir: Path, earlier: set[Path], *, raw: bool) -> bool:
+    """Require native start evidence from the new attempt before cancellation."""
 
-    for path in run_dir.rglob("dsh-native-evidence.jsonl"):
+    name = "raw-turn-*.jsonl" if raw else "dsh-native-evidence.jsonl"
+    for path in run_dir.rglob(name):
         if path in earlier:
             continue
         for line in path.read_text().splitlines(keepends=True):
-            if line.endswith("\n") and json.loads(line).get("event") == "claimed":
+            if not line.endswith("\n"):
+                continue
+            event = json.loads(line)
+            if raw and event.get("type") == "status" and event.get("phase") == "turn_start":
+                return True
+            if not raw and event.get("event") == "claimed":
                 return True
     return False
 
@@ -58,7 +64,8 @@ def _new_native_claim(run_dir: Path, earlier: set[Path]) -> bool:
 def _interrupt_attempt(run_dir: Path, timeout: float) -> None:
     """Exercise native cancellation without signalling a shared process or server."""
 
-    earlier = set(run_dir.rglob("dsh-native-evidence.jsonl"))
+    raw = load_run(run_dir)["configuration"]["surface"] == "raw"
+    earlier = set(run_dir.rglob("raw-turn-*.jsonl" if raw else "dsh-native-evidence.jsonl"))
     stdout, stderr = (
         run_dir / "interrupt-controller.stdout",
         run_dir / "interrupt-controller.stderr",
@@ -85,14 +92,14 @@ def _interrupt_attempt(run_dir: Path, timeout: float) -> None:
         )
         try:
             deadline = time.monotonic() + timeout
-            while not _new_native_claim(run_dir, earlier):
+            while not _new_native_work(run_dir, earlier, raw=raw):
                 if process.poll() is not None or time.monotonic() >= deadline:
                     raise FixtureError("Cancellation qualification did not reach a native claim")
                 time.sleep(0.1)
             interrupt_run(run_dir)
             process.wait(timeout=timeout)
             latest = load_run(run_dir)["turns"][-1]
-            if latest.get("status") != "interrupted" and latest.get("returncode") != 130:
+            if latest.get("status") != "interrupted":
                 raise FixtureError("Native cancellation did not preserve an interrupted outcome")
         finally:
             if process.poll() is None:
@@ -111,7 +118,9 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
         "schema_version": 1,
         "case": args.case,
         "surface": args.surface,
-        "native_surface": "headless-acp",
+        "mode": "headless",
+        "backend": None,
+        "native_surface": None,
         "status": "not_run",
         "checks": {},
         "limits": ["Interactive Web is not qualified by this headless run"],
@@ -121,13 +130,25 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
             "status": "not_run",
             "reason": "Run separately with an explicitly configured compatible self-hosted env file and model",
         }
+    try:
+        selection = fixture_run_mode("dsh", "headless", args.surface)
+    except FixtureError as error:
+        report["reason"] = str(error)
+        report["error"] = "unsupported_run_mode"
+        return report
+    report["backend"] = selection.backend
     if args.env_file is None:
         report["reason"] = (
             "Select an explicit external --env-file; ambient credentials are disabled"
         )
         return report
     config = resolve_config(
-        case=args.case, client="dsh", surface=args.surface, env_file=args.env_file, model=args.model
+        case=args.case,
+        client="dsh",
+        mode=selection.mode,
+        surface=args.surface,
+        env_file=args.env_file,
+        model=args.model,
     )
     report.update(
         {

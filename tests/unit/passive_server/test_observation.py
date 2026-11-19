@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
 from houmao.agents.realm_controller.backends.tmux_runtime import TmuxCommandError, TmuxPaneRecord
+from houmao.agents.realm_controller.native_surface import TerminalNativeSurfaceV1
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.discovery import (
     DiscoveredAgent,
@@ -130,7 +132,13 @@ def _agent(
 ) -> DiscoveredAgent:
     """Create a DiscoveredAgent for test injection."""
 
-    record = _make_record(agent_id=agent_id, agent_name=agent_name, session_name=session_name)
+    record = _make_record(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        session_name=session_name,
+        backend="local_interactive",
+        native_surface=TerminalNativeSurfaceV1(tmux_session_name=session_name, pane_id="%4"),
+    )
     return DiscoveredAgent(record=record, summary=_summary_from_record(record))
 
 
@@ -391,6 +399,33 @@ class TestObservationServiceReconciliation:
         # Reconcile again — same agent should keep same observer
         svc._reconcile_observers(discovery.index.list_all())
         assert svc.get_observer("abc123") is observer_ref
+
+    def test_selects_tracker_using_discovered_tool_version(self, tmp_path: Path) -> None:
+        config = PassiveServerConfig(runtime_root=tmp_path)
+        svc = TuiObservationService(discovery=RegistryDiscoveryService(config), config=config)
+        agent = replace(_agent(), observed_tool_version="2.1.296")
+
+        svc._reconcile_observers([agent])
+
+        observer = svc.get_observer(agent.record.agent_id)
+        assert observer is not None
+        assert observer.m_tracker_session is not None
+        assert observer.m_tracker_session.detector_version == "2.1.x"
+
+    def test_replaces_tracker_for_new_generation_of_same_agent(self, tmp_path: Path) -> None:
+        config = PassiveServerConfig(runtime_root=tmp_path)
+        svc = TuiObservationService(discovery=RegistryDiscoveryService(config), config=config)
+        agent = _agent()
+        svc._reconcile_observers([agent])
+        old = svc.get_observer(agent.record.agent_id, generation_id=agent.record.generation_id)
+        assert old is not None
+        record = agent.record.model_copy(update={"generation_id": "replaced"})
+        svc._reconcile_observers(
+            [DiscoveredAgent(record=record, summary=_summary_from_record(record))]
+        )
+        assert svc.get_observer(record.agent_id, generation_id=agent.record.generation_id) is None
+        new = svc.get_observer(record.agent_id, generation_id="replaced")
+        assert new is not None and new is not old
 
 
 class TestObservationServicePollLoop:

@@ -4,6 +4,10 @@
       "additionalProperties": false,
       "description": "Record controller scope admitted by provisioned OS transport policy.",
       "properties": {
+        "controller_id": {
+          "title": "Controller Id",
+          "type": "string"
+        },
         "authority": {
           "enum": [
             "local_uid",
@@ -12,10 +16,6 @@
             "container_exec"
           ],
           "title": "Authority",
-          "type": "string"
-        },
-        "controller_id": {
-          "title": "Controller Id",
           "type": "string"
         },
         "operations": {
@@ -66,28 +66,28 @@
       "additionalProperties": false,
       "description": "Separate observed owner identity and controller scope from logical agent identity.",
       "properties": {
-        "account": {
-          "title": "Account",
-          "type": "string"
-        },
-        "container_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Container Id"
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
         },
         "context_id": {
           "title": "Context Id",
           "type": "string"
         },
-        "controller": {
-          "$ref": "#/$defs/ControllerScopeV1"
+        "host_id": {
+          "title": "Host Id",
+          "type": "string"
+        },
+        "account": {
+          "title": "Account",
+          "type": "string"
+        },
+        "uid": {
+          "minimum": 0,
+          "title": "Uid",
+          "type": "integer"
         },
         "gid": {
           "minimum": 0,
@@ -102,35 +102,50 @@
           "title": "Groups",
           "type": "array"
         },
-        "host_id": {
-          "title": "Host Id",
-          "type": "string"
-        },
-        "profile_name": {
-          "title": "Profile Name",
-          "type": "string"
-        },
-        "project_root": {
-          "title": "Project Root",
-          "type": "string"
-        },
         "registry_root": {
           "title": "Registry Root",
-          "type": "string"
-        },
-        "route_fingerprint": {
-          "title": "Route Fingerprint",
           "type": "string"
         },
         "runtime_root": {
           "title": "Runtime Root",
           "type": "string"
         },
-        "schema_version": {
-          "const": 1,
-          "default": 1,
-          "title": "Schema Version",
-          "type": "integer"
+        "project_root": {
+          "title": "Project Root",
+          "type": "string"
+        },
+        "profile_name": {
+          "title": "Profile Name",
+          "type": "string"
+        },
+        "transport": {
+          "enum": [
+            "local",
+            "sudo",
+            "ssh",
+            "docker"
+          ],
+          "title": "Transport",
+          "type": "string"
+        },
+        "controller": {
+          "$ref": "#/$defs/ControllerScopeV1"
+        },
+        "route_fingerprint": {
+          "title": "Route Fingerprint",
+          "type": "string"
+        },
+        "container_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Container Id"
         },
         "tmux_socket": {
           "anyOf": [
@@ -143,21 +158,6 @@
           ],
           "default": null,
           "title": "Tmux Socket"
-        },
-        "transport": {
-          "enum": [
-            "local",
-            "sudo",
-            "ssh",
-            "docker"
-          ],
-          "title": "Transport",
-          "type": "string"
-        },
-        "uid": {
-          "minimum": 0,
-          "title": "Uid",
-          "type": "integer"
         }
       },
       "required": [
@@ -179,8 +179,20 @@
     }
   },
   "additionalProperties": false,
-  "description": "Point to owner authority without copying manifests, endpoints, or mutable runtime state.",
+  "description": "Point to owner authority and record its admitted tool, mode, and backend.",
   "properties": {
+    "schema_version": {
+      "const": 2,
+      "default": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "kind": {
+      "const": "executor_managed",
+      "default": "executor_managed",
+      "title": "Kind",
+      "type": "string"
+    },
     "agent_id": {
       "title": "Agent Id",
       "type": "string"
@@ -189,29 +201,52 @@
       "title": "Agent Name",
       "type": "string"
     },
-    "binding": {
-      "$ref": "#/$defs/ExecutionBindingV1"
+    "tool": {
+      "title": "Tool",
+      "type": "string"
     },
-    "kind": {
-      "const": "executor_managed",
-      "default": "executor_managed",
-      "title": "Kind",
+    "mode": {
+      "enum": [
+        "headless",
+        "service",
+        "tui",
+        "web"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "backend": {
+      "enum": [
+        "local_interactive",
+        "codex_headless",
+        "codex_app_server",
+        "claude_headless",
+        "kimi_headless",
+        "kimi_acp",
+        "dsh_headless",
+        "dsh_acp",
+        "dsh_web",
+        "kimi_web",
+        "cao_rest",
+        "houmao_server_rest"
+      ],
+      "title": "Backend",
       "type": "string"
     },
     "profile_name": {
       "title": "Profile Name",
       "type": "string"
     },
-    "schema_version": {
-      "const": 1,
-      "default": 1,
-      "title": "Schema Version",
-      "type": "integer"
+    "binding": {
+      "$ref": "#/$defs/ExecutionBindingV1"
     }
   },
   "required": [
     "agent_id",
     "agent_name",
+    "tool",
+    "mode",
+    "backend",
     "profile_name",
     "binding"
   ],

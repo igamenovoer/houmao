@@ -90,6 +90,7 @@ def _sample_lifecycle_record(
             ),
             stop_reason=stop_reason if lifecycle_state in {"stopped", "retired"} else None,
         ),
+        mode="headless",
         identity=RegistryIdentityV1(backend="claude_headless", tool="claude"),
         runtime=RegistryRuntimeV1(
             manifest_path="/tmp/runtime/session/manifest.json",

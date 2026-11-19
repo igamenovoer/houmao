@@ -23,8 +23,9 @@ from urllib.parse import urlsplit
 
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     kill_tmux_session,
+    tmux_session_exists,
 )
-from houmao.agents.realm_controller.errors import GatewayHttpError
+from houmao.agents.realm_controller.errors import GatewayHttpError, SessionManifestError
 from houmao.agents.realm_controller.gateway_access_runtime import gateway_access_for_manifest
 from houmao.agents.realm_controller.gateway_client import (
     GatewayClient,
@@ -36,6 +37,10 @@ from houmao.agents.realm_controller.native_refresh_models import (
     NativeRefreshRequestV1,
     NativeRefreshResultV1,
 )
+from houmao.agents.realm_controller.headless_snapshots import latest_headless_turn
+from houmao.agents.realm_controller.manifest import require_registry_mode_authority
+from houmao.agents.realm_controller.native_surface import TerminalNativeSurfaceV1
+from houmao.agents.realm_controller.runtime import resume_runtime_session
 from houmao.mailbox.models import MailChannel
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
@@ -104,12 +109,16 @@ from houmao.agents.realm_controller.registry_models import (
 )
 from houmao.passive_server.compatibility import (
     gateway_summary_from_status,
-    is_headless_backend,
     mailbox_summary_from_headless_control_state,
     mailbox_summary_from_registry_record,
     managed_headless_detail_response,
     managed_headless_history_from_turn_records,
     managed_headless_state_from_control_state,
+    managed_identity_from_discovered_agent,
+    managed_runtime_headless_detail_response,
+    managed_runtime_headless_state_from_observation,
+    managed_service_detail_response,
+    managed_service_state_from_observation,
     managed_web_state_from_observation,
     managed_web_detail_response,
     managed_web_history_response,
@@ -144,7 +153,7 @@ from houmao.passive_server.models import (
     PassivePromptRequest,
     PassiveRequestAcceptedResponse,
 )
-from houmao.passive_server.observation import TuiObservationService
+from houmao.passive_server.observation import AgentTuiObserver, TuiObservationService
 from houmao.server.models import (
     HoumaoManagedAgentGatewayInternalHeadlessPromptRequest,
     HoumaoManagedAgentDetailResponse,
@@ -1530,7 +1539,12 @@ class PassiveServerService:
         if managed_tracked_agent_id is None:
             return (400, {"detail": f"Agent {agent_ref} is not a managed headless agent"})
 
-        return self.m_headless.submit_turn(managed_tracked_agent_id, payload.prompt)
+        return self.m_headless.submit_turn(
+            managed_tracked_agent_id,
+            payload.prompt,
+            chat_session=payload.chat_session,
+            execution=payload.execution.to_model_config() if payload.execution else None,
+        )
 
     def inspect_backing(
         self, agent_ref: str
@@ -1637,9 +1651,10 @@ class PassiveServerService:
             )
         if resolved is None:
             return (404, {"detail": f"Agent not found: {agent_ref}"})
-        if is_headless_backend(resolved.record.identity.backend):
-            return self._managed_headless_unavailable_error(agent_ref)
-        if resolved.record.identity.backend == "dsh_web":
+        if resolved.record.mode in {"headless", "service"}:
+            detail = self._managed_runtime_detail_response(resolved)
+            return detail if isinstance(detail, tuple) else detail.summary_state
+        if resolved.record.mode == "web":
             web_observer = self.m_observation.get_web_observer(resolved.record.agent_id)
             if web_observer is None:
                 return (503, {"detail": "Native Web observation is not initialized"})
@@ -1651,15 +1666,10 @@ class PassiveServerService:
                 )
             except (RuntimeError, ValueError, OSError):
                 return (503, {"detail": "Verified native Web authority is unavailable"})
-        observer = self.m_observation.get_observer(resolved.record.agent_id)
+        observer = self._verified_terminal_observer(resolved)
         if observer is None:
             return (503, {"detail": "Observer not yet initialized for this agent"})
-        return managed_tui_state_from_observation(
-            agent=resolved,
-            state=observer.current_state(),
-            gateway_summary=self._managed_gateway_summary(resolved),
-            mailbox_summary=mailbox_summary_from_registry_record(resolved.record),
-        )
+        return self._managed_tui_summary(resolved, observer)
 
     def managed_agent_state_detail(
         self, agent_ref: str
@@ -1676,9 +1686,9 @@ class PassiveServerService:
             )
         if resolved is None:
             return (404, {"detail": f"Agent not found: {agent_ref}"})
-        if is_headless_backend(resolved.record.identity.backend):
-            return self._managed_headless_unavailable_error(agent_ref)
-        if resolved.record.identity.backend == "dsh_web":
+        if resolved.record.mode in {"headless", "service"}:
+            return self._managed_runtime_detail_response(resolved)
+        if resolved.record.mode == "web":
             web_observer = self.m_observation.get_web_observer(resolved.record.agent_id)
             if web_observer is None:
                 return (503, {"detail": "Native Web observation is not initialized"})
@@ -1690,20 +1700,95 @@ class PassiveServerService:
                 )
             except (RuntimeError, ValueError, OSError):
                 return (503, {"detail": "Verified native Web authority is unavailable"})
-        observer = self.m_observation.get_observer(resolved.record.agent_id)
+        observer = self._verified_terminal_observer(resolved)
         if observer is None:
             return (503, {"detail": "Observer not yet initialized for this agent"})
-        summary_state = managed_tui_state_from_observation(
-            agent=resolved,
-            state=observer.current_state(),
-            gateway_summary=self._managed_gateway_summary(resolved),
-            mailbox_summary=mailbox_summary_from_registry_record(resolved.record),
-        )
         return managed_tui_detail_response(
             agent=resolved,
             detail_state=observer.current_detail(),
-            summary_state=summary_state,
+            summary_state=self._managed_tui_summary(resolved, observer),
         )
+
+    def _verified_terminal_observer(self, agent: DiscoveredAgent) -> AgentTuiObserver | None:
+        """Return the tracker only for the selected generation's actual TUI."""
+
+        record = agent.record
+        if record.mode != "tui" or not isinstance(record.native_surface, TerminalNativeSurfaceV1):
+            return None
+        return self.m_observation.get_observer(record.agent_id, generation_id=record.generation_id)
+
+    def _managed_tui_summary(
+        self, agent: DiscoveredAgent, observer: AgentTuiObserver
+    ) -> HoumaoManagedAgentStateResponse:
+        """Project a tracked sample with its real observation age."""
+
+        return managed_tui_state_from_observation(
+            agent=agent,
+            state=observer.current_state(),
+            gateway_summary=self._managed_gateway_summary(agent),
+            mailbox_summary=mailbox_summary_from_registry_record(agent.record),
+            observed_at_utc=observer.observed_at_utc,
+            max_age_seconds=self.m_config.observation_poll_interval_seconds * 2,
+        )
+
+    def _managed_runtime_detail_response(
+        self, agent: DiscoveredAgent
+    ) -> HoumaoManagedAgentDetailResponse | tuple[int, dict[str, Any]]:
+        """Read one-shot or service state from the same verified runtime as the manager."""
+
+        record = agent.record
+        agent_def_dir = record.runtime.agent_def_dir
+        if agent_def_dir is None:
+            return (503, {"detail": "Verified runtime definition is unavailable"})
+        try:
+            require_registry_mode_authority(record)
+            controller = resume_runtime_session(
+                agent_def_dir=Path(agent_def_dir),
+                session_manifest_path=Path(record.runtime.manifest_path),
+                read_only=True,
+            )
+            with controller.execution_scope():
+                manifest = controller.require_managed_control_owner()
+                if (
+                    manifest.agent_id != record.agent_id
+                    or manifest.registry_generation_id != record.generation_id
+                    or manifest.runtime.execution_binding != record.execution_binding
+                ):
+                    raise SessionManifestError("Observation belongs to a different managed owner")
+                identity = managed_identity_from_discovered_agent(agent).model_copy(
+                    update={"runtime_session_id": manifest.runtime.session_id}
+                )
+                mailbox = mailbox_summary_from_registry_record(record)
+                gateway = self._managed_gateway_summary(agent)
+                if record.mode == "service":
+                    return managed_service_detail_response(
+                        managed_service_state_from_observation(
+                            identity=identity,
+                            observation=controller.observe_managed_service(),
+                            mailbox_summary=mailbox,
+                            gateway_summary=gateway,
+                        )
+                    )
+                latest = latest_headless_turn(
+                    manifest_path=controller.manifest_path,
+                    tool=manifest.tool,
+                    backend=manifest.backend,
+                )
+                owner_available = tmux_session_exists(session_name=record.terminal.session_name)
+                controller.require_managed_control_owner()
+            summary = managed_runtime_headless_state_from_observation(
+                identity=identity,
+                latest_turn=latest,
+                owner_available=owner_available,
+                native_session_id=manifest.headless.session_id if manifest.headless else None,
+                mailbox_summary=mailbox,
+                gateway_summary=gateway,
+            )
+            return managed_runtime_headless_detail_response(
+                summary_state=summary, latest_turn=latest
+            )
+        except (OSError, RuntimeError, ValueError):
+            return (503, {"detail": "Verified native runtime observation is unavailable"})
 
     def managed_agent_history(
         self, agent_ref: str, *, limit: int = 50
@@ -1720,9 +1805,11 @@ class PassiveServerService:
             )
         if resolved is None:
             return (404, {"detail": f"Agent not found: {agent_ref}"})
-        if is_headless_backend(resolved.record.identity.backend):
+        if resolved.record.mode == "headless":
             return self._managed_headless_unavailable_error(agent_ref)
-        if resolved.record.identity.backend == "dsh_web":
+        if resolved.record.mode == "service":
+            return (501, {"detail": "Native service history is unavailable"})
+        if resolved.record.mode == "web":
             web_observer = self.m_observation.get_web_observer(resolved.record.agent_id)
             if web_observer is None:
                 return (503, {"detail": "Native Web observation is not initialized"})
@@ -1733,7 +1820,7 @@ class PassiveServerService:
                 )
             except (RuntimeError, ValueError, OSError):
                 return (503, {"detail": "Verified native Web authority is unavailable"})
-        observer = self.m_observation.get_observer(resolved.record.agent_id)
+        observer = self._verified_terminal_observer(resolved)
         if observer is None:
             return (503, {"detail": "Observer not yet initialized for this agent"})
         return managed_tui_history_from_observation(
@@ -1914,13 +2001,27 @@ class PassiveServerService:
 
     def agent_state(
         self, agent_ref: str
-    ) -> AgentTuiStateResponse | AgentWebStateResponse | tuple[int, dict[str, Any]]:
-        """Return compact observation state for an agent."""
+    ) -> (
+        AgentTuiStateResponse
+        | AgentWebStateResponse
+        | HoumaoManagedAgentStateResponse
+        | tuple[int, dict[str, Any]]
+    ):
+        """Return compact observation from the recorded agent mode."""
 
-        resolved = self._resolve_agent_or_error(agent_ref)
-        if isinstance(resolved, tuple):
-            return resolved
-        if resolved.record.identity.backend == "dsh_web":
+        tracked_id, resolved, error = self._resolve_managed_headless_target(agent_ref)
+        if error is not None:
+            return error
+        if tracked_id is not None:
+            return self._managed_headless_state_response(
+                managed_tracked_agent_id=tracked_id, resolved=resolved
+            )
+        if resolved is None:
+            return (404, {"detail": f"Agent not found: {agent_ref}"})
+        if resolved.record.mode in {"headless", "service"}:
+            detail = self._managed_runtime_detail_response(resolved)
+            return detail if isinstance(detail, tuple) else detail.summary_state
+        if resolved.record.mode == "web":
             web_observer = self.m_observation.get_web_observer(resolved.record.agent_id)
             if web_observer is None:
                 return (503, {"detail": "Native Web observation is not initialized"})
@@ -1928,7 +2029,7 @@ class PassiveServerService:
                 return web_observer.current_state()
             except (RuntimeError, ValueError, OSError):
                 return (503, {"detail": "Verified native Web authority is unavailable"})
-        observer = self.m_observation.get_observer(resolved.record.agent_id)
+        observer = self._verified_terminal_observer(resolved)
         if observer is None:
             return (503, {"detail": "Observer not yet initialized for this agent"})
         return observer.current_state()
@@ -1936,14 +2037,22 @@ class PassiveServerService:
     def agent_state_detail(
         self, agent_ref: str
     ) -> AgentTuiDetailResponse | HoumaoManagedAgentDetailResponse | tuple[int, dict[str, Any]]:
-        """Return detailed observation state for an agent."""
+        """Return mode-specific detail, preserving raw terminal diagnostics for TUI."""
 
-        resolved = self._resolve_agent_or_error(agent_ref)
-        if isinstance(resolved, tuple):
-            return resolved
-        if resolved.record.identity.backend == "dsh_web":
+        tracked_id, resolved, error = self._resolve_managed_headless_target(agent_ref)
+        if error is not None:
+            return error
+        if tracked_id is not None:
+            return self._managed_headless_detail_response(
+                managed_tracked_agent_id=tracked_id, resolved=resolved
+            )
+        if resolved is None:
+            return (404, {"detail": f"Agent not found: {agent_ref}"})
+        if resolved.record.mode in {"headless", "service"}:
+            return self._managed_runtime_detail_response(resolved)
+        if resolved.record.mode == "web":
             return self.managed_agent_state_detail(agent_ref)
-        observer = self.m_observation.get_observer(resolved.record.agent_id)
+        observer = self._verified_terminal_observer(resolved)
         if observer is None:
             return (503, {"detail": "Observer not yet initialized for this agent"})
         return observer.current_detail()
@@ -1956,7 +2065,7 @@ class PassiveServerService:
         resolved = self._resolve_agent_or_error(agent_ref)
         if isinstance(resolved, tuple):
             return resolved
-        if resolved.record.identity.backend == "dsh_web":
+        if resolved.record.mode == "web":
             web_observer = self.m_observation.get_web_observer(resolved.record.agent_id)
             if web_observer is None:
                 return (503, {"detail": "Native Web observation is not initialized"})
@@ -1964,7 +2073,7 @@ class PassiveServerService:
                 return web_observer.history(limit=limit)
             except (RuntimeError, ValueError, OSError):
                 return (503, {"detail": "Verified native Web authority is unavailable"})
-        observer = self.m_observation.get_observer(resolved.record.agent_id)
+        observer = self._verified_terminal_observer(resolved)
         if observer is None:
             return (503, {"detail": "Observer not yet initialized for this agent"})
         return observer.history(limit=limit)

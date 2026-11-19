@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from houmao.agents.definition_parser import AgentPreset, parse_agent_preset
+from houmao.agents.realm_controller.run_modes import RUN_MODES, RunMode
 from houmao.project.catalog import (
     LaunchProfileCatalogEntry,
     LaunchProfilePrivateSkillCatalogEntry,
@@ -55,6 +57,31 @@ class ResolvedProjectLaunchProfile:
     recipe: AgentPreset | None = None
     gateway_mail_notifier_appendix_text: str | None = None
     private_skills: tuple[ResolvedLaunchProfilePrivateSkill, ...] = ()
+
+
+def profile_run_mode(
+    posture: Mapping[str, Any], *, tool: str | None, source: str
+) -> RunMode | None:
+    """Read a stored mode and report the explicit replacement for obsolete posture."""
+
+    choices = ", ".join(RUN_MODES)
+    if "headless" in posture:
+        dsh_hint = (
+            " For DSH, choose headless for the native one-shot CLI, service for persistent "
+            "ACP, or web for the browser interface."
+            if tool == "dsh"
+            else ""
+        )
+        raise ValueError(
+            f"{source} contains obsolete defaults.posture.headless. "
+            f"Set defaults.posture.mode ({choices}) or clear the stored mode.{dsh_hint}"
+        )
+    if "mode" not in posture:
+        return None
+    mode = posture["mode"]
+    if mode not in RUN_MODES:
+        raise ValueError(f"{source} defaults.posture.mode must be one of {choices}.")
+    return cast(RunMode, mode)
 
 
 def list_resolved_launch_profiles(

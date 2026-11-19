@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import threading
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -22,17 +23,17 @@ from tests.unit.passive_server.test_headless_service import (
 )
 
 
-def test_dsh_launch_persists_supported_authority(
+def test_dsh_passive_headless_birth_selects_the_native_one_shot_backend(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Resolve DSH through the public launch service and preserve follow-up authority."""
+    """Pass the qualified one-shot binding through the public passive launch."""
 
     arrange_passive_launch_access(monkeypatch, tmp_path)
     service = _make_service(tmp_path)
     request = _launch_request(tmp_path, tool="dsh")
     manifest = tmp_path / "runtime/manifest.json"
     manifest.parent.mkdir()
-    controller = _FakeRuntimeController(manifest_path=manifest, output_format="dsh-acp")
+    controller = _FakeRuntimeController(manifest_path=manifest, output_format="dsh-cli")
     start = Mock(return_value=controller)
     monkeypatch.setattr(
         "houmao.passive_server.headless.load_brain_manifest",
@@ -46,14 +47,13 @@ def test_dsh_launch_persists_supported_authority(
     response = service.m_headless.launch(request)
 
     assert not isinstance(response, tuple)
-    assert start.call_args.kwargs["backend"] == "dsh_acp"
+    assert response.status == "ok"
+    assert start.call_args.kwargs["backend"] == "dsh_headless"
+    assert start.call_args.kwargs["mode"] == "headless"
     authority = service.m_headless.m_store.read_authority(
         tracked_agent_id=response.tracked_agent_id
     )
-    assert authority is not None
-    assert authority.backend == "dsh_acp"
-    assert authority.tool == "dsh"
-    assert service.m_headless.interrupt_managed(authority.tracked_agent_id).status == "ok"
+    assert authority is not None and authority.backend == "dsh_headless"
 
 
 def test_kimi_launch_preserves_authority_and_accepts_managed_follow_up(
@@ -131,7 +131,8 @@ def test_unsupported_headless_backend_returns_422_before_runtime_start(
     )
     monkeypatch.setattr("houmao.passive_server.headless.load_role_package", lambda *_args: None)
     monkeypatch.setattr(
-        "houmao.passive_server.headless.backend_for_tool", lambda _tool: "local_interactive"
+        "houmao.passive_server.headless.resolve_run_mode",
+        lambda _tool, **_kwargs: SimpleNamespace(backend="local_interactive"),
     )
     monkeypatch.setattr("houmao.passive_server.headless.start_runtime_session", start)
 
@@ -298,3 +299,53 @@ def test_dsh_concurrent_turn_requests_reserve_only_one_worker(
         handle = service.m_headless._require_handle(authority.tracked_agent_id)
         assert handle.turn_worker is not None
         handle.turn_worker.join(3)
+
+
+def test_dsh_recovery_requires_exact_native_closure(tmp_path: Path) -> None:
+    """Retain the original slot until the saved worker has matching closure evidence."""
+
+    passive = _make_service(tmp_path)
+    service = passive.m_headless
+    authority = _seed_managed_handle(passive, tracked_agent_id="tracked-dsh")
+    authority = authority.model_copy(update={"backend": "dsh_headless", "tool": "dsh"})
+    service.m_store.write_authority(authority)
+    service.m_handles[authority.tracked_agent_id].authority = authority
+    turn_dir = Path(authority.session_root) / "manifest.turn-artifacts/original"
+    turn_dir.mkdir(parents=True)
+    common = {
+        "tracked_agent_id": authority.tracked_agent_id,
+        "turn_id": "original",
+        "turn_index": 1,
+        "turn_artifact_dir": str(turn_dir),
+        "started_at_utc": "2026-11-16T00:00:00+00:00",
+        "tmux_session_name": authority.tmux_session_name,
+    }
+    service.m_store.write_active_turn(ManagedHeadlessActiveTurnRecord(**common))
+    service.m_store.write_turn_record(ManagedHeadlessTurnRecord(**common))
+    (turn_dir / "exitcode").write_text("0\n")
+    (turn_dir / "process.json").write_text(
+        json.dumps({"child_pid": 1234, "child_birth_token": "actual-worker"})
+    )
+    closure = {
+        "version": 1,
+        "attempt_id": "original",
+        "native_session_id": "native-session",
+        "process_id": 1234,
+        "process_birth_token": "superseded-worker",
+        "source": "native_journal",
+        "returncode": 0,
+    }
+    closure_file = turn_dir / "dsh-native-closure.json"
+    closure_file.write_text(json.dumps(closure))
+
+    status = service.turn_status(authority.tracked_agent_id, "original")
+    assert not isinstance(status, tuple) and status.status == "unknown"
+    assert service.m_store.read_active_turn(tracked_agent_id=authority.tracked_agent_id) is not None
+    blocked = service.submit_turn(authority.tracked_agent_id, "duplicate")
+    assert isinstance(blocked, tuple) and blocked[0] == 409
+
+    closure_file.write_text(json.dumps({**closure, "process_birth_token": "actual-worker"}))
+    status = service.turn_status(authority.tracked_agent_id, "original")
+    assert not isinstance(status, tuple) and status.status == "completed"
+    assert status.completion_source == "native_journal"
+    assert service.m_store.read_active_turn(tracked_agent_id=authority.tracked_agent_id) is None

@@ -10,9 +10,13 @@ gateway prompt-admission policy.
 
 from __future__ import annotations
 
+from datetime import datetime
+import hashlib
+import json
 from pathlib import Path
 
 from houmao.agents.realm_controller.gateway_service import GatewayServiceRuntime
+from houmao.hook_observation.kimi_journal import KimiTurnJournal
 from houmao.hook_observation.reader import HookObservationChannel
 from houmao.hook_observation.store import HookObservationStore
 from houmao.server.models import (
@@ -161,12 +165,22 @@ class _Harness:
         *,
         adapter: str = "kimi",
         state: TrackedStateSnapshot | None = None,
+        kimi_journal: KimiTurnJournal | None = None,
     ) -> None:
         """Build the adapter-owned store and attach its channel."""
 
         self.adapter = adapter
         self.store = HookObservationStore(tmp_path, generation=1, adapter=adapter)
-        channel = HookObservationChannel.from_session_root(tmp_path, adapter=adapter)
+        channel = (
+            HookObservationChannel(
+                events_path=self.store.events_path,
+                channel_path=self.store.channel_path,
+                adapter=adapter,
+                kimi_journal=kimi_journal,
+            )
+            if kimi_journal is not None
+            else HookObservationChannel.from_session_root(tmp_path, adapter=adapter)
+        )
         assert channel is not None
         self.tracker = LiveSessionTracker(
             identity=_identity(tool=adapter),
@@ -283,6 +297,49 @@ def test_kimi_esc_interrupt_settles_interrupted_from_hook_evidence(
     assert harness.tracker.m_hook_posture is not None
     assert harness.tracker.m_hook_posture.counters.interrupts == 1
     assert "SECRET_PROMPT_TEXT" not in state.model_dump_json()
+
+
+def test_kimi_completed_wire_turn_recovers_without_stop_hook(tmp_path: Path) -> None:
+    """Only the complete, current main turn can release Kimi's missing Stop hook."""
+
+    home = tmp_path / "kimi-home"
+    workdir = tmp_path / "workdir"
+    workspace_hash = hashlib.sha256(str(workdir).encode()).hexdigest()[:12]
+    session = home / "sessions" / f"wd_workdir_{workspace_hash}" / SESSION_ID
+    wire = session / "agents/main/wire.jsonl"
+    wire.parent.mkdir(parents=True)
+    journal = KimiTurnJournal(home=home, working_directory=workdir)
+    harness = _Harness(tmp_path, kimi_journal=journal)
+    harness.append("SessionStart", source="startup", session_id=SESSION_ID)
+    arm_time = "2026-10-20T13:36:00+00:00"
+    arm_ms = round(datetime.fromisoformat(arm_time).timestamp() * 1000)
+    harness.store.append_event(
+        {"hook_event_name": "UserPromptSubmit", "session_id": SESSION_ID, "prompt": _prompt()},
+        received_at_utc=arm_time,
+    )
+    harness.append("TurnStarted", origin_kind="user", turn_id=0, session_id=SESSION_ID)
+    terminal = {"type": "turn.ended", "agentId": "main", "turnId": 0, "reason": "completed"}
+
+    wire.write_text(json.dumps({**terminal, "time": arm_ms - 1}) + "\n", encoding="utf-8")
+    assert harness.cycle(at=1.0).turn.phase == "active"
+    wire.write_text(
+        json.dumps({**terminal, "agentId": "child", "time": arm_ms + 1}) + "\n", encoding="utf-8"
+    )
+    assert harness.cycle(at=2.0).turn.phase == "active"
+    wire.write_text(json.dumps({**terminal, "time": arm_ms + 1}), encoding="utf-8")
+    assert harness.cycle(at=3.0).turn.phase == "active"
+    with wire.open("a", encoding="utf-8") as stream:
+        stream.write("\n")
+
+    busy = _tracker_state(turn_phase="active", surface_ready_posture="no")
+    assert harness.cycle(at=4.0, state=busy).turn.phase == "active"
+    rendered = _tracker_state(last_turn_result="success", last_turn_source="surface_inference")
+    state = harness.cycle(at=5.0, state=rendered)
+    assert state.turn.phase == "ready"
+    assert state.last_turn.source == "surface_inference"
+    assert state.diagnostics.hook_conflict_reasons == []
+    assert harness.tracker.m_hook_posture is not None
+    assert harness.tracker.m_hook_posture.armed_prompt_count == 0
 
 
 def test_kimi_permission_allow_window_settles_active_at_permission_result(

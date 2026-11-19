@@ -14,6 +14,7 @@ import pytest
 
 import houmao.agents.realm_controller.gateway_service as gateway_service
 from houmao.agents.realm_controller.gateway_service import GatewayServiceRuntime, create_app
+from houmao.agents.realm_controller.owner_admission import OwnerAdmissionError
 from houmao.gateway.access import (
     CHALLENGE_HEADER,
     SIGNATURE_HEADER,
@@ -70,6 +71,21 @@ def configure_fixture_gateway_access(
     store.provision_self(target.incarnation)
     access = FixtureGatewayAccess(store=store, target=target, private_root=private_root)
     monkeypatch.setattr(gateway_service, "gateway_access_for_manifest", lambda _path: access)
+
+    def verify_fixture_owner(
+        runtime: GatewayServiceRuntime, *, expected_generation: str | None = None
+    ) -> None:
+        """Use the isolated synthetic target while keeping request-generation checks."""
+
+        initialized = getattr(runtime, "m_access_runtime", None)
+        if initialized is None:
+            return None
+        current = runtime._current_access()
+        if expected_generation is not None and expected_generation != current.target.incarnation:
+            raise OwnerAdmissionError("unavailable", "Gateway fixture owner generation changed.")
+        return None
+
+    monkeypatch.setattr(GatewayServiceRuntime, "_verified_owner_manifest", verify_fixture_owner)
     monkeypatch.setattr(
         gateway_service, "load_gateway_deployment", lambda _path: GatewayDeployment()
     )

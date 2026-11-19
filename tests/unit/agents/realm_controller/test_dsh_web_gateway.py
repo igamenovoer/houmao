@@ -29,7 +29,7 @@ from houmao.agents.realm_controller.gateway_models import (
 from houmao.agents.realm_controller import runtime as runtime_module
 from houmao.agents.realm_controller.gateway_service import (
     GatewayServiceRuntime,
-    _DshWebGatewayAdapter,
+    _NativeWebGatewayAdapter,
 )
 from houmao.agents.realm_controller.web_observation import WebObservation
 from houmao.agents.realm_controller.models import SessionEvent
@@ -50,7 +50,7 @@ def test_web_internal_gateway_start_omits_terminal_timing_flags(
 
     captured: list[object] = []
     controller = SimpleNamespace(
-        launch_plan=SimpleNamespace(backend="dsh_web", working_directory=tmp_path),
+        launch_plan=SimpleNamespace(backend="dsh_web", mode="web", working_directory=tmp_path),
         _require_tmux_session_name=lambda: "owned-supervisor",
     )
     paths = SimpleNamespace(gateway_root=tmp_path, log_path=tmp_path / "gateway.log")
@@ -94,12 +94,12 @@ def test_web_internal_gateway_start_omits_terminal_timing_flags(
 
 def _runtime(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[GatewayServiceRuntime, _DshWebGatewayAdapter, Mock]:
+) -> tuple[GatewayServiceRuntime, _NativeWebGatewayAdapter, Mock]:
     """Create a semantic gateway with controlled native authority and no tmux access."""
 
     native = WebObservation(metadata=_metadata(), state=_state, history=lambda **_: _page(1))
     state = native.refresh()
-    adapter = object.__new__(_DshWebGatewayAdapter)
+    adapter = object.__new__(_NativeWebGatewayAdapter)
     adapter.m_attach_contract = SimpleNamespace(backend="dsh_web", native_surface=None)
     adapter.m_attempts = {}
     monkeypatch.setattr(
@@ -447,8 +447,79 @@ def test_web_public_request_returns_after_native_admission_and_stores_only_opera
         for worker in workers:
             worker.join(timeout=2)
     with sqlite3.connect(runtime.m_paths.queue_path) as connection:
-        assert connection.execute("SELECT state FROM gateway_requests").fetchone()[0] == "failed"
+        assert connection.execute("SELECT state FROM gateway_requests").fetchone()[0] == "uncertain"
     assert dispatched.call_count == 1
+
+
+@pytest.mark.parametrize("entrypoint", ["direct", "request", "plugin"])
+def test_kimi_web_reports_a_native_queue_race_without_replaying(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entrypoint: str
+) -> None:
+    """One stock native queue acknowledgement remains visible to the caller."""
+
+    runtime, adapter, _ = _runtime(tmp_path, monkeypatch)
+    metadata = _metadata().model_copy(update={"tool": "kimi"})
+    adapter.m_attach_contract.backend = "kimi_web"
+    adapter.m_attach_contract.backend_metadata = metadata
+    finish = threading.Event()
+    calls: list[str] = []
+    workers: list[threading.Thread] = []
+    claim = Mock(generation_id="generation", mode="web")
+
+    def reserve(*, request_id: str, **_kwargs: object) -> object:
+        """Record this operation as the only existing managed owner attempt."""
+
+        claim.turn_dir = tmp_path / "manifest.turn-artifacts" / request_id
+        return claim
+
+    def submit(*, turn_id: str, control: object, **_kwargs: object) -> None:
+        """Acknowledge Kimi accepting the competing input as queued."""
+
+        workers.append(threading.current_thread())
+        calls.append(turn_id)
+        claim.turn_dir.mkdir(parents=True)
+        (claim.turn_dir / "web-receipt.json").write_text(
+            json.dumps(
+                {
+                    "operation_id": turn_id,
+                    "identity": metadata.identity.model_dump(mode="json"),
+                    "status": "queued",
+                    "message_id": "msg_native-queue",
+                }
+            )
+        )
+        control.confirm_durable_handoff()
+        assert finish.wait(2)
+
+    monkeypatch.setattr(runtime, "_reserve_prompt", reserve)
+    monkeypatch.setattr(adapter, "submit_scoped_web_prompt", submit)
+    try:
+        if entrypoint == "direct":
+            result = runtime.control_prompt(GatewayPromptControlRequestV1(prompt="ordinary"))
+            assert result.outcome == "queued" and result.sent is False
+        elif entrypoint == "request":
+            request = GatewayRequestCreateV1(
+                kind="submit_prompt", payload={"prompt": "ordinary", "turn_id": "run-queue"}
+            )
+            result = runtime.create_request(request)
+            assert result.native_admission == "queued"
+            assert result.request_id == "run-queue" and result.queue_depth == 0
+        else:
+            result = runtime.dispatch_plugin_event(
+                _event(),
+                instance_id="owner",
+                binding_id="bound",
+                timeout_seconds=1,
+                is_active=lambda: True,
+            )
+            assert result.native_admission == "queued"
+        assert result.native_prompt_id == "msg_native-queue"
+        assert len(calls) == 1
+        assert queue_depth_from_sqlite(runtime.m_paths.queue_path) == 0
+    finally:
+        finish.set()
+        for worker in workers:
+            worker.join(timeout=2)
 
 
 @pytest.mark.parametrize("outcome", ["completed", "failed", "interrupted", None])
@@ -471,21 +542,39 @@ def test_web_public_request_completion_uses_proven_native_terminal_outcome(
         nonlocal control
         control = selected
 
-    def send(**_kwargs: object) -> list[SessionEvent]:
+    def send(*, turn_artifact_dir_name: str, **_kwargs: object) -> list[SessionEvent]:
         """Return native terminal evidence after independently confirming insertion."""
 
         assert control is not None
         control.confirm_handoff()
         assert finish.wait(2)
-        return (
-            []
-            if outcome is None
-            else [
-                SessionEvent(
-                    kind="done", message="Native result", turn_index=1, payload={"outcome": outcome}
-                )
-            ]
+        if outcome is None:
+            return []
+        observed = runtime._refresh_status_snapshot(active_execution="idle").web
+        assert observed is not None
+        identity = observed.identity.model_dump(mode="json")
+        artifact_dir = tmp_path / "manifest.turn-artifacts" / turn_artifact_dir_name
+        artifact_dir.mkdir(parents=True)
+        (artifact_dir / "web-result.json").write_text(
+            json.dumps(
+                {
+                    "operation_id": turn_artifact_dir_name,
+                    "outcome": outcome,
+                    "identity": identity,
+                    "receipt": {
+                        "operation_id": turn_artifact_dir_name,
+                        "identity": identity,
+                        "status": "terminal",
+                        "turns": [1],
+                    },
+                }
+            )
         )
+        return [
+            SessionEvent(
+                kind="done", message="Native result", turn_index=1, payload={"outcome": outcome}
+            )
+        ]
 
     backend.configure_request_dispatch.side_effect = configure
     backend.close_control_connection.side_effect = finished.set
@@ -502,10 +591,23 @@ def test_web_public_request_completion_uses_proven_native_terminal_outcome(
     if worker is not None:
         worker.join(timeout=2)
     with sqlite3.connect(runtime.m_paths.queue_path) as connection:
-        state = connection.execute(
-            "SELECT state FROM gateway_requests WHERE request_id=?", (accepted.request_id,)
-        ).fetchone()[0]
-    assert state == ("completed" if outcome == "completed" else "failed")
+        state, durable_result = connection.execute(
+            "SELECT state,result_json FROM gateway_requests WHERE request_id=?",
+            (accepted.request_id,),
+        ).fetchone()
+    if outcome is None:
+        assert state == "uncertain"
+        assert json.loads(durable_result)["outcome"] == "uncertain"
+    else:
+        assert state == ("completed" if outcome == "completed" else "failed")
+        assert json.loads(durable_result) == {
+            "operation_id": accepted.request_id,
+            "source": "web_native",
+            "outcome": outcome,
+            "native_session_id": "native",
+            "native_turn_ids": ["1"],
+            "identity": _metadata().identity.model_dump(mode="json"),
+        }
 
 
 def test_web_public_interrupt_is_immediate_and_never_becomes_later_cancellation(

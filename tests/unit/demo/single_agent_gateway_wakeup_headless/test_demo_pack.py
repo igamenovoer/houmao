@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -310,6 +311,40 @@ def test_command_matrix_runs_all_supported_tools(
     assert exit_code == 0
     assert tool_calls == ["claude", "codex"]
     assert [item["tool"] for item in payload["results"]] == ["claude", "codex"]
+
+
+@pytest.mark.parametrize("tool", ["claude", "codex"])
+def test_demo_launches_the_selected_specialist_in_headless_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tool: str
+) -> None:
+    """Both demo lanes call the public project agent birth surface."""
+
+    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
+
+    def capture(command: list[str], **kwargs: Path) -> SimpleNamespace:
+        """Check native mode selection without starting a process."""
+
+        assert command[4:7] == ["project", "agents", "launch"]
+        assert command[command.index("--mode") + 1] == "headless"
+        assert command[command.index("--specialist") + 1] == tool
+        return SimpleNamespace(
+            returncode=0,
+            stdout='{"manifest_path": "private-manifest.json"}',
+            stdout_path=kwargs["stdout_path"],
+            stderr_path=kwargs["stderr_path"],
+        )
+
+    monkeypatch.setattr(runtime, "run_command", capture)
+    result = runtime.launch_instance(
+        paths=paths,
+        env={},
+        specialist_name=tool,
+        instance_name="fixture",
+        session_name="fixture",
+        mail_root=tmp_path / "mail",
+        timeout_seconds=5,
+    )
+    assert result["specialist_name"] == tool
 
 
 def test_attach_gateway_can_request_foreground_window(

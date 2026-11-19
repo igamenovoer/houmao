@@ -21,6 +21,11 @@ from houmao.execution.models import ExecutionBindingV1
 from .agent_identity import normalize_managed_agent_id, normalize_managed_agent_name
 from .errors import SessionManifestError
 from .models import BackendKind, CaoParsingMode, RoleInjectionMethod
+from houmao.agents.realm_controller.run_modes import (
+    RunMode,
+    human_surface_for_mode,
+    validate_mode_binding,
+)
 from houmao.agents.realm_controller.native_surface import (
     NativeSurfaceKind,
     NativeSurfaceV1,
@@ -47,10 +52,14 @@ _TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
     {
         "local_interactive",
         "codex_headless",
+        "codex_app_server",
         "claude_headless",
         "kimi_headless",
+        "kimi_acp",
+        "dsh_headless",
         "dsh_acp",
         "dsh_web",
+        "kimi_web",
         "cao_rest",
         "houmao_server_rest",
     }
@@ -252,9 +261,11 @@ class LaunchPolicyProvenanceV1(_StrictBoundaryModel):
 
 
 class LaunchPlanPayloadV1(_StrictBoundaryModel):
-    """Persisted `launch_plan.v1` payload."""
+    """Persisted `launch_plan.v3` payload."""
 
+    schema_version: Literal[3]
     backend: BackendKind
+    mode: RunMode
     native_surface_kind: NativeSurfaceKind | None = None
     execution_binding: ExecutionBindingV1 | None = None
 
@@ -281,30 +292,15 @@ class LaunchPlanPayloadV1(_StrictBoundaryModel):
 
     @model_validator(mode="after")
     def _validate_native_surface(self) -> "LaunchPlanPayloadV1":
-        """Require Web posture without changing existing terminal launch defaults."""
+        """Keep the native surface consistent with the selected launch mode."""
 
-        if self.backend == "dsh_web" and (self.tool != "dsh" or self.native_surface_kind != "web"):
-            raise ValueError("dsh_web requires tool=dsh and native_surface_kind=web")
-        if self.backend != "dsh_web" and self.native_surface_kind == "web":
-            raise ValueError("a Web native surface requires backend=dsh_web")
-        if self.native_surface_kind == "terminal" and self.backend not in {
-            "local_interactive",
-            "cao_rest",
-            "houmao_server_rest",
-        }:
-            raise ValueError(
-                "a terminal native surface requires an actual interactive terminal backend"
-            )
+        validate_mode_binding(self.tool, self.mode, self.backend)
+        expected_surface = human_surface_for_mode(self.mode)
+        if self.native_surface_kind is not None and self.native_surface_kind != expected_surface:
+            raise ValueError("launch plan native surface differs from the selected mode")
+        if self.mode == "web" and self.native_surface_kind != "web":
+            raise ValueError("web mode requires a native Web surface")
         return self
-
-
-class CodexSectionV1(_StrictBoundaryModel):
-    """Persisted codex backend section."""
-
-    thread_id: str | None
-    turn_index: int
-    pid: int | None = None
-    process_started_at_utc: str | None = None
 
 
 class HeadlessSectionV1(_StrictBoundaryModel):
@@ -679,10 +675,11 @@ class SessionManifestGatewayAuthorityV1(_StrictBoundaryModel):
 
 
 class SessionManifestPayloadV4(_StrictBoundaryModel):
-    """Persisted ``session_manifest.v4`` payload."""
+    """Persisted ``session_manifest.v6`` payload."""
 
-    schema_version: Literal[5]
+    schema_version: Literal[6]
     backend: BackendKind
+    mode: RunMode
     tool: str
     role_name: str
     created_at_utc: str
@@ -704,7 +701,7 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
     launch_policy_provenance: LaunchPolicyProvenanceV1 | None = None
     system_prompt: SessionManifestSystemPromptSectionV1 | None = None
     backend_state: JsonObject
-    codex: CodexSectionV1 | None = None
+    codex: None = None
     headless: HeadlessSectionV1 | None = None
     local_interactive: LocalInteractiveSectionV1 | None = None
     cao: CaoSectionV2 | None = None
@@ -741,8 +738,6 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
 
     @model_validator(mode="after")
     def _validate_backend_sections_and_authority(self) -> "SessionManifestPayloadV4":
-        if self.schema_version != 5:
-            raise ValueError("schema_version must be 5; back up and rebootstrap unsupported state")
         for slot in (self.launch_plan.mailboxes.offline, self.launch_plan.mailboxes.online):
             if slot.binding is not None and slot.binding.agent_id != self.agent_id:
                 raise ValueError("mailbox binding agent_id differs from manifest owner")
@@ -750,12 +745,18 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
             raise ValueError("launch_plan.backend must match manifest backend")
         if self.launch_plan.tool != self.tool:
             raise ValueError("launch_plan.tool must match manifest tool")
-        if self.backend == "dsh_web":
+        if self.launch_plan.mode != self.mode:
+            raise ValueError("launch_plan.mode must match manifest mode")
+        if self.native_surface is not None and self.native_surface.kind != human_surface_for_mode(
+            self.mode
+        ):
+            raise ValueError("manifest native surface differs from the selected mode")
+        if self.mode == "web":
             surface = self.native_surface
             identity = self.backend_state.get("web_identity")
             if not isinstance(surface, WebNativeSurfaceV1) or not isinstance(identity, dict):
                 raise ValueError(
-                    "dsh_web requires a verified native Web surface and execution identity"
+                    "Web mode requires a verified native Web surface and execution identity"
                 )
             required = (
                 "agent_id",
@@ -772,7 +773,7 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
                     not isinstance(identity.get(key), str) or not identity[key] for key in required
                 )
             ):
-                raise ValueError("dsh_web requires a complete versioned execution identity")
+                raise ValueError("Web mode requires a complete versioned execution identity")
             if (
                 self.backend_state.get("origin") != surface.origin
                 or self.backend_state.get("browser_url") != surface.origin
@@ -790,7 +791,7 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
             if self.tmux is not None and self.tmux.primary_window_role != "supervisor_logs":
                 raise ValueError("Web tmux metadata must identify supervisory logs")
         elif isinstance(self.native_surface, WebNativeSurfaceV1):
-            raise ValueError("a Web native surface requires backend=dsh_web")
+            raise ValueError("a Web native surface requires Web mode")
         if (
             isinstance(self.native_surface, TerminalNativeSurfaceV1)
             and self.native_surface.tmux_session_name != self.tmux_session_name
@@ -866,91 +867,106 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
             if self.tmux is None or self.tmux.socket_path != binding.tmux_socket:
                 raise ValueError("tmux.socket_path must match the admitted execution binding")
 
-        if self.backend == "dsh_web":
+        if self.mode == "web" or self.backend == "codex_app_server":
             if any(
                 section is not None
                 for section in (
-                    self.codex,
                     self.headless,
                     self.local_interactive,
                     self.cao,
                     self.houmao_server,
                 )
             ):
-                raise ValueError("Web manifests must omit terminal/headless backend sections")
-        elif self.backend == "codex_app_server":
-            if self.codex is None:
-                raise ValueError("codex is required for backend=codex_app_server")
-            if (
-                self.headless is not None
-                or self.local_interactive is not None
-                or self.cao is not None
-                or self.houmao_server is not None
-            ):
                 raise ValueError(
-                    "headless/local_interactive/cao/houmao_server must be omitted for "
-                    "backend=codex_app_server"
+                    "Web and service manifests omit terminal/headless backend sections"
                 )
+            if self.backend == "codex_app_server":
+                self._validate_codex_service_state()
         elif self.backend in {
             "codex_headless",
             "claude_headless",
             "kimi_headless",
-            "dsh_acp",
+            "dsh_headless",
         }:
             if self.headless is None:
                 raise ValueError(
                     "headless is required for backend=codex_headless/claude_headless/kimi_headless"
                 )
             if (
-                self.codex is not None
-                or self.local_interactive is not None
+                self.local_interactive is not None
                 or self.cao is not None
                 or self.houmao_server is not None
             ):
                 raise ValueError(
-                    "codex/local_interactive/cao/houmao_server must be omitted for "
+                    "local_interactive/cao/houmao_server must be omitted for "
                     "backend=codex_headless/"
                     "claude_headless/kimi_headless"
                 )
         elif self.backend == "local_interactive":
             if self.local_interactive is None:
                 raise ValueError("local_interactive is required for backend=local_interactive")
-            if (
-                self.codex is not None
-                or self.headless is not None
-                or self.cao is not None
-                or self.houmao_server is not None
-            ):
+            if self.headless is not None or self.cao is not None or self.houmao_server is not None:
                 raise ValueError(
-                    "codex/headless/cao/houmao_server must be omitted for backend=local_interactive"
+                    "headless/cao/houmao_server must be omitted for backend=local_interactive"
                 )
         elif self.backend == "cao_rest":
             if self.cao is None:
                 raise ValueError("cao is required for backend=cao_rest")
             if (
-                self.codex is not None
-                or self.headless is not None
+                self.headless is not None
                 or self.local_interactive is not None
                 or self.houmao_server is not None
             ):
                 raise ValueError(
-                    "codex/headless/local_interactive/houmao_server must be omitted for "
-                    "backend=cao_rest"
+                    "headless/local_interactive/houmao_server must be omitted for backend=cao_rest"
                 )
         elif self.backend == "houmao_server_rest":
             if self.houmao_server is None:
                 raise ValueError("houmao_server is required for backend=houmao_server_rest")
             if (
-                self.codex is not None
-                or self.headless is not None
+                self.headless is not None
                 or self.local_interactive is not None
                 or self.cao is not None
             ):
                 raise ValueError(
-                    "codex/headless/local_interactive/cao must be omitted for "
-                    "backend=houmao_server_rest"
+                    "headless/local_interactive/cao must be omitted for backend=houmao_server_rest"
                 )
         return self
+
+    def _validate_codex_service_state(self) -> None:
+        """Require an exact current service binding for a saved Codex thread."""
+
+        from houmao.agents.realm_controller.backends.service_runtime import (
+            ManagedServiceSessionState,
+        )
+
+        try:
+            state = ManagedServiceSessionState.from_payload(self.backend_state)
+        except ValidationError as exc:
+            raise ValueError(
+                "Codex app-server authority requires current service state. Start a fresh runtime session."
+            ) from exc
+        if (
+            self.tmux is None
+            or self.tmux.primary_window_role != "supervisor_logs"
+            or state.tmux_session_name != self.tmux.session_name
+            or not state.tmux_window_id
+            or state.tmux_window_id != self.tmux.primary_window_id
+            or state.tmux_pane_id != self.tmux.primary_pane_id
+            or state.working_directory != self.working_directory
+            or state.working_directory != self.launch_plan.working_directory
+            or state.generation_id != self.registry_generation_id
+            or state.runtime_session_id != self.runtime.session_id
+            or not state.native_session_id.strip()
+            or not state.service_incarnation.strip()
+            or not state.generation_id.strip()
+            or not state.runtime_session_id.strip()
+            or self.registry_launch_authority != "runtime"
+            or self.runtime.execution_binding is None
+        ):
+            raise ValueError(
+                "Codex app-server current service identity differs from manifest authority"
+            )
 
 
 def format_pydantic_error(prefix: str, exc: ValidationError) -> str:

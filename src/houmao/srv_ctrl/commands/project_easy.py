@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
-from houmao.agents.realm_controller.errors import SessionManifestError
-from houmao.agents.realm_controller.gateway_access_runtime import load_gateway_admin_seed
-
 import json
+
 from houmao.agents.realm_controller.agent_identity import AgentIdMode
+from houmao.agents.realm_controller.errors import LaunchPlanError, SessionManifestError
+from houmao.agents.realm_controller.gateway_access_runtime import load_gateway_admin_seed
+from houmao.agents.realm_controller.run_modes import RUN_MODES, RunMode, resolve_run_mode
+from houmao.project.launch_profiles import profile_run_mode
 
 # ruff: noqa: F403,F405
 from .project_common import *
+
+
+class ProjectRunModePreflightError(click.ClickException):
+    """Report a failed project run-mode preflight without starting an agent."""
 
 
 @click.group(name="easy")
@@ -128,7 +134,12 @@ def easy_profile_group() -> None:
     default=None,
     help="Optional declarative Stalwart management URL.",
 )
-@click.option("--headless", is_flag=True, help="Persist headless launch as the default posture.")
+@click.option(
+    "--mode",
+    type=click.Choice(RUN_MODES),
+    default=None,
+    help="Persist the run mode for launches from this profile.",
+)
 @click.option("--no-gateway", is_flag=True, help="Persist gateway auto-attach disabled.")
 @click.option(
     "--managed-header/--no-managed-header",
@@ -221,7 +232,7 @@ def create_easy_profile_command(
     mail_base_url: str | None,
     mail_jmap_url: str | None,
     mail_management_url: str | None,
-    headless: bool,
+    mode: RunMode | None,
     no_gateway: bool,
     managed_header: bool | None,
     managed_header_section: tuple[str, ...],
@@ -280,8 +291,8 @@ def create_easy_profile_command(
         mail_base_url=mail_base_url,
         mail_jmap_url=mail_jmap_url,
         mail_management_url=mail_management_url,
-        headless=headless,
-        clear_headless=False,
+        mode=mode,
+        clear_mode=False,
         no_gateway=no_gateway,
         managed_header=managed_header,
         clear_managed_header=False,
@@ -437,8 +448,13 @@ def create_easy_profile_command(
 @click.option(
     "--clear-mailbox", is_flag=True, help="Clear the stored declarative mailbox defaults."
 )
-@click.option("--headless", is_flag=True, help="Persist headless launch as the default posture.")
-@click.option("--clear-headless", is_flag=True, help="Clear the stored headless launch posture.")
+@click.option(
+    "--mode",
+    type=click.Choice(RUN_MODES),
+    default=None,
+    help="Persist the run mode for launches from this profile.",
+)
+@click.option("--clear-mode", is_flag=True, help="Clear the stored run mode.")
 @click.option("--no-gateway", is_flag=True, help="Persist gateway auto-attach disabled.")
 @click.option(
     "--managed-header/--no-managed-header",
@@ -568,8 +584,8 @@ def set_easy_profile_command(
     mail_jmap_url: str | None,
     mail_management_url: str | None,
     clear_mailbox: bool,
-    headless: bool,
-    clear_headless: bool,
+    mode: RunMode | None,
+    clear_mode: bool,
     no_gateway: bool,
     managed_header: bool | None,
     clear_managed_header: bool,
@@ -636,8 +652,8 @@ def set_easy_profile_command(
         mail_base_url=mail_base_url,
         mail_jmap_url=mail_jmap_url,
         mail_management_url=mail_management_url,
-        headless=headless,
-        clear_headless=clear_headless,
+        mode=mode,
+        clear_mode=clear_mode,
         no_gateway=no_gateway,
         managed_header=managed_header,
         clear_managed_header=clear_managed_header,
@@ -1803,9 +1819,10 @@ def easy_instance_group() -> None:
 )
 @click.option("--session-name", default=None, help="Optional tmux session name.")
 @click.option(
-    "--headless/--no-headless",
+    "--mode",
+    type=click.Choice(RUN_MODES),
     default=None,
-    help="Override detached launch posture.",
+    help="Select the run mode for this launch.",
 )
 @click.option(
     "--no-gateway",
@@ -1933,7 +1950,7 @@ def launch_easy_instance_command(
     model: str | None,
     reasoning_level: int | None,
     session_name: str | None,
-    headless: bool | None,
+    mode: RunMode | None,
     no_gateway: bool,
     gateway_port: int | None,
     gateway_background: bool,
@@ -1979,7 +1996,7 @@ def launch_project_agent(
     model: str | None,
     reasoning_level: int | None,
     session_name: str | None,
-    headless: bool | None,
+    mode: RunMode | None,
     no_gateway: bool,
     gateway_port: int | None,
     gateway_background: bool,
@@ -2051,6 +2068,7 @@ def launch_project_agent(
     default_gateway_auto_attach = True
     default_gateway_host: str | None = "127.0.0.1"
     default_gateway_port: int | None = 0
+    stored_mode: RunMode | None = None
     if profile is not None:
         resolved_profile = _load_launch_profile_or_click(
             overlay=overlay,
@@ -2111,9 +2129,14 @@ def launch_project_agent(
             default_gateway_auto_attach = True
             default_gateway_port = int(posture_payload["gateway_port"])
             default_gateway_host = str(posture_payload.get("gateway_host") or "127.0.0.1")
-        resolved_headless = (
-            headless if headless is not None else bool(posture_payload.get("headless", False))
-        )
+        try:
+            stored_mode = profile_run_mode(
+                posture_payload,
+                tool=specialist_metadata.tool,
+                source=f"Project profile {resolved_profile.entry.name!r}",
+            )
+        except ValueError as exc:
+            raise ProjectRunModePreflightError(str(exc)) from None
         resolved_name = _optional_non_empty_value(name) or resolved_profile.entry.managed_agent_name
         if resolved_name is None:
             raise click.ClickException(
@@ -2132,7 +2155,6 @@ def launch_project_agent(
             overlay=overlay,
             name=_require_non_empty_name(specialist, field_name="--specialist"),
         )
-        resolved_headless = bool(headless)
         resolved_name = _optional_non_empty_value(name)
         if resolved_name is None:
             raise click.ClickException("`project agents launch --specialist` requires `--name`.")
@@ -2152,6 +2174,15 @@ def launch_project_agent(
             raise click.ClickException(
                 "`--runtime-set` requires a profile created by an Agent Definition deployment."
             )
+
+    try:
+        selection = resolve_run_mode(
+            specialist_metadata.tool,
+            mode=mode if mode is not None else stored_mode,
+            entrypoint="project",
+        )
+    except LaunchPlanError as exc:
+        raise ProjectRunModePreflightError(str(exc)) from None
 
     direct_tool_params = (
         _tool_params_or_click(specialist_metadata.tool, tool_params, source="launch --tool-params")
@@ -2250,7 +2281,7 @@ def launch_project_agent(
         agent_id_mode=agent_id_mode,
         auth=resolved_auth,
         session_name=_optional_non_empty_value(session_name),
-        headless=resolved_headless,
+        mode=selection.mode,
         provider=specialist_metadata.provider,
         working_directory=working_directory,
         source_working_directory=overlay.project_root,
@@ -2303,7 +2334,6 @@ def launch_project_agent(
         launch_result=launch_result,
         agent_name=resolved_name,
         session_name=session_name,
-        headless=resolved_headless,
     )
 
 

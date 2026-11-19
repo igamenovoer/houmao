@@ -717,8 +717,17 @@ class DshToolParamsAdapter(ToolParamsAdapter[DshPartialToolParams, DshEffectiveT
     def prepare_launch(self, effective: DshEffectiveToolParams, *, backend: str) -> tuple[str, ...]:
         """Validate the backend before native configuration is applied."""
 
-        if backend not in {"raw_launch", "dsh_acp", "dsh_web"}:
+        if backend not in {"raw_launch", "dsh_headless", "dsh_acp", "dsh_web"}:
             raise DshConfigurationError("DSH tool_params require a DSH launch backend")
+        if backend == "dsh_headless" and effective.mcp_servers:
+            declarations = ", ".join(
+                f"{server.name!r} ({server.type or 'stdio'})" for server in effective.mcp_servers
+            )
+            raise DshConfigurationError(
+                f"DSH headless cannot project ACP MCP declarations {declarations} to the native CLI."
+            )
         if backend == "dsh_web" and effective.mcp_servers:
-            raise DshConfigurationError("DSH tool_params MCP declarations require the ACP backend")
+            raise DshConfigurationError(
+                f"DSH tool_params MCP declarations are unsupported by backend {backend!r}."
+            )
         return ()

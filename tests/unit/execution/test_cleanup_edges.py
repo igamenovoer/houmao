@@ -259,7 +259,15 @@ def test_reconciliation_cannot_replace_existing_owner_binding(
             outcome="completed",
             admitted=True,
             binding=replacement,
-            result={"identity": {"agent_id": "agent-1", "agent_name": "reviewer"}},
+            result={
+                "identity": {
+                    "agent_id": "agent-1",
+                    "agent_name": "reviewer",
+                    "tool": "codex",
+                    "mode": "headless",
+                    "backend": "codex_headless",
+                }
+            },
         ),
     )
     monkeypatch.setattr(
@@ -281,8 +289,8 @@ def test_native_home_plain_output_qualifies_owner_context(monkeypatch: pytest.Mo
         "managed_agent_native_home",
         lambda target: NativeHomeV1(
             agent_id="agent-1",
-            backend="dsh_acp",
-            tool="dsh",
+            backend="codex_headless",
+            tool="codex",
             home_dir="/owner-only/native",
             identity={"execution_context_id": "owner-context"},
         ),

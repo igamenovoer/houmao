@@ -42,6 +42,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayTuiTrackingTimingOverridesV1,
 )
 from houmao.agents.realm_controller.manifest import load_session_manifest
+from houmao.agents.realm_controller.run_modes import RunMode
 from houmao.agents.system_skills import (
     PROFILE_SYSTEM_SKILL_POLICY_MODES,
     SOURCE_SYSTEM_SKILL_POLICY_MODES,
@@ -75,6 +76,7 @@ from houmao.project.launch_profiles import (
     launch_profile_relaunch_payload,
     launch_profile_source_payload,
     list_resolved_launch_profiles,
+    profile_run_mode,
     resolve_launch_profile,
 )
 from houmao.project.overlay import (
@@ -1106,23 +1108,30 @@ def _stored_mailbox_or_click(
 def _resolve_profile_posture_mapping(
     *,
     current: dict[str, Any] | None,
-    headless: bool,
-    clear_headless: bool,
+    mode: RunMode | None,
+    clear_mode: bool,
     no_gateway: bool,
     gateway_port: int | None,
+    tool: str,
+    source: str,
 ) -> dict[str, Any]:
     """Resolve one persisted launch-posture mapping."""
 
-    if clear_headless and headless:
-        raise click.ClickException("`--headless` cannot be combined with `--clear-headless`.")
+    if clear_mode and mode is not None:
+        raise click.ClickException("`--mode` cannot be combined with `--clear-mode`.")
     if no_gateway and gateway_port is not None:
         raise click.ClickException("`--no-gateway` and `--gateway-port` cannot be combined.")
 
     payload = dict(current or {})
-    if clear_headless:
+    if clear_mode or mode is not None:
         payload.pop("headless", None)
-    elif headless:
-        payload["headless"] = True
+        payload.pop("mode", None)
+    if mode is not None:
+        payload["mode"] = mode
+    try:
+        profile_run_mode(payload, tool=tool, source=source)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from None
 
     if no_gateway:
         payload["gateway_auto_attach"] = False
@@ -1459,8 +1468,8 @@ def _store_launch_profile_from_cli(
     mail_base_url: str | None,
     mail_jmap_url: str | None,
     mail_management_url: str | None,
-    headless: bool,
-    clear_headless: bool,
+    mode: RunMode | None,
+    clear_mode: bool,
     no_gateway: bool,
     managed_header: bool | None,
     clear_managed_header: bool,
@@ -1644,10 +1653,12 @@ def _store_launch_profile_from_cli(
         )
         resolved_posture = _resolve_profile_posture_mapping(
             current=None,
-            headless=headless,
-            clear_headless=clear_headless,
+            mode=mode,
+            clear_mode=clear_mode,
             no_gateway=no_gateway,
             gateway_port=gateway_port,
+            tool=source.tool,
+            source=f"Launch profile `{profile_name}`",
         )
         resolved_relaunch_chat_session = _resolve_relaunch_chat_session_mapping_or_click(
             mode=relaunch_chat_session_mode,
@@ -1755,10 +1766,12 @@ def _store_launch_profile_from_cli(
         )
         resolved_posture = _resolve_profile_posture_mapping(
             current=current.entry.posture_payload,
-            headless=headless,
-            clear_headless=clear_headless,
+            mode=mode,
+            clear_mode=clear_mode,
             no_gateway=no_gateway,
             gateway_port=gateway_port,
+            tool=source.tool,
+            source=f"Launch profile `{profile_name}`",
         )
         if clear_relaunch_chat_session and (
             relaunch_chat_session_mode is not None or relaunch_chat_session_id is not None
@@ -1862,8 +1875,8 @@ def _store_launch_profile_from_cli(
             bool(remove_private_skill),
             mail_transport is not None,
             clear_mailbox,
-            headless,
-            clear_headless,
+            mode is not None,
+            clear_mode,
             no_gateway,
             managed_header is not None,
             clear_managed_header,

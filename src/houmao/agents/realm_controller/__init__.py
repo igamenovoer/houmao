@@ -41,6 +41,8 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "RoleInjectionPlan": ("houmao.agents.realm_controller.models", "RoleInjectionPlan"),
     "RolePackage": ("houmao.agents.realm_controller.loaders", "RolePackage"),
+    "RunMode": ("houmao.agents.realm_controller.run_modes", "RunMode"),
+    "RunModeSelection": ("houmao.agents.realm_controller.run_modes", "RunModeSelection"),
     "RuntimeSessionController": (
         "houmao.agents.realm_controller.runtime",
         "RuntimeSessionController",
@@ -56,7 +58,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "SessionManifestError",
     ),
     "SessionResult": ("houmao.agents.realm_controller.models", "SessionResult"),
-    "backend_for_tool": ("houmao.agents.realm_controller.launch_plan", "backend_for_tool"),
     "build_launch_plan": ("houmao.agents.realm_controller.launch_plan", "build_launch_plan"),
     "load_blueprint": ("houmao.agents.realm_controller.loaders", "load_blueprint"),
     "load_brain_manifest": ("houmao.agents.realm_controller.loaders", "load_brain_manifest"),
@@ -64,6 +65,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "houmao.agents.realm_controller.loaders",
         "load_brain_recipe_from_path",
     ),
+    "resolve_run_mode": ("houmao.agents.realm_controller.run_modes", "resolve_run_mode"),
     "load_role_package": ("houmao.agents.realm_controller.loaders", "load_role_package"),
     "load_session_manifest": (
         "houmao.agents.realm_controller.manifest",

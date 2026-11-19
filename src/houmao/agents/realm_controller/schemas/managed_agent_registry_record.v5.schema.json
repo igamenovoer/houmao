@@ -177,6 +177,112 @@
       "title": "ExecutionBindingV1",
       "type": "object"
     },
+    "GatewayEndpointDescriptor": {
+      "additionalProperties": false,
+      "description": "Publish a live endpoint and its access requirements without credentials.",
+      "properties": {
+        "protocol": {
+          "title": "Protocol",
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/GatewayTarget"
+        },
+        "presence_id": {
+          "title": "Presence Id",
+          "type": "string"
+        },
+        "advertised_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Advertised Url"
+        },
+        "admin_access": {
+          "enum": [
+            "open",
+            "key_required",
+            "unavailable"
+          ],
+          "title": "Admin Access",
+          "type": "string"
+        },
+        "private_proof": {
+          "const": "self_or_admin",
+          "default": "self_or_admin",
+          "title": "Private Proof",
+          "type": "string"
+        },
+        "public_operations": {
+          "default": [],
+          "items": {
+            "enum": [
+              "messages",
+              "public_prompt"
+            ],
+            "type": "string"
+          },
+          "title": "Public Operations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "protocol",
+        "target",
+        "presence_id",
+        "advertised_url",
+        "admin_access"
+      ],
+      "title": "GatewayEndpointDescriptor",
+      "type": "object"
+    },
+    "GatewayOwner": {
+      "additionalProperties": false,
+      "description": "Pin a logical agent to its observed execution context.",
+      "properties": {
+        "agent_id": {
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "context_id": {
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Context Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id",
+        "context_id"
+      ],
+      "title": "GatewayOwner",
+      "type": "object"
+    },
+    "GatewayTarget": {
+      "additionalProperties": false,
+      "description": "Identify the current incarnation reachable through an ingress.",
+      "properties": {
+        "owner": {
+          "$ref": "#/$defs/GatewayOwner"
+        },
+        "incarnation": {
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Incarnation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "owner",
+        "incarnation"
+      ],
+      "title": "GatewayTarget",
+      "type": "object"
+    },
     "RegistryGatewayV1": {
       "additionalProperties": false,
       "description": "Optional live gateway connect metadata published into the registry.",
@@ -246,8 +352,11 @@
             "codex_app_server",
             "claude_headless",
             "kimi_headless",
+            "kimi_acp",
+            "dsh_headless",
             "dsh_acp",
             "dsh_web",
+            "kimi_web",
             "cao_rest",
             "houmao_server_rest"
           ],
@@ -592,120 +701,14 @@
       ],
       "title": "WebNativeSurfaceV1",
       "type": "object"
-    },
-    "GatewayEndpointDescriptor": {
-      "additionalProperties": false,
-      "description": "Publish a live endpoint and its access requirements without credentials.",
-      "properties": {
-        "protocol": {
-          "title": "Protocol",
-          "type": "string"
-        },
-        "target": {
-          "$ref": "#/$defs/GatewayTarget"
-        },
-        "presence_id": {
-          "title": "Presence Id",
-          "type": "string"
-        },
-        "advertised_url": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Advertised Url"
-        },
-        "admin_access": {
-          "enum": [
-            "open",
-            "key_required",
-            "unavailable"
-          ],
-          "title": "Admin Access",
-          "type": "string"
-        },
-        "private_proof": {
-          "const": "self_or_admin",
-          "default": "self_or_admin",
-          "title": "Private Proof",
-          "type": "string"
-        },
-        "public_operations": {
-          "default": [],
-          "items": {
-            "enum": [
-              "messages",
-              "public_prompt"
-            ],
-            "type": "string"
-          },
-          "title": "Public Operations",
-          "type": "array"
-        }
-      },
-      "required": [
-        "protocol",
-        "target",
-        "presence_id",
-        "advertised_url",
-        "admin_access"
-      ],
-      "title": "GatewayEndpointDescriptor",
-      "type": "object"
-    },
-    "GatewayOwner": {
-      "additionalProperties": false,
-      "description": "Pin a logical agent to its observed execution context.",
-      "properties": {
-        "agent_id": {
-          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$",
-          "title": "Agent Id",
-          "type": "string"
-        },
-        "context_id": {
-          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$",
-          "title": "Context Id",
-          "type": "string"
-        }
-      },
-      "required": [
-        "agent_id",
-        "context_id"
-      ],
-      "title": "GatewayOwner",
-      "type": "object"
-    },
-    "GatewayTarget": {
-      "additionalProperties": false,
-      "description": "Identify the current incarnation reachable through an ingress.",
-      "properties": {
-        "owner": {
-          "$ref": "#/$defs/GatewayOwner"
-        },
-        "incarnation": {
-          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$",
-          "title": "Incarnation",
-          "type": "string"
-        }
-      },
-      "required": [
-        "owner",
-        "incarnation"
-      ],
-      "title": "GatewayTarget",
-      "type": "object"
     }
   },
   "additionalProperties": false,
   "description": "Lifecycle-aware shared-registry ``record.json`` contract.",
   "properties": {
     "schema_version": {
-      "const": 4,
-      "default": 4,
+      "const": 5,
+      "default": 5,
       "title": "Schema Version",
       "type": "integer"
     },
@@ -737,6 +740,16 @@
     },
     "identity": {
       "$ref": "#/$defs/RegistryIdentityV1"
+    },
+    "mode": {
+      "enum": [
+        "headless",
+        "service",
+        "tui",
+        "web"
+      ],
+      "title": "Mode",
+      "type": "string"
     },
     "native_surface": {
       "anyOf": [
@@ -816,6 +829,7 @@
     "generation_id",
     "lifecycle",
     "identity",
+    "mode",
     "runtime",
     "terminal",
     "mailboxes",

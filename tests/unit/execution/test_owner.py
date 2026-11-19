@@ -239,7 +239,9 @@ def test_expected_binding_never_repairs_lost_context(policy: OwnerPolicyV1) -> N
     "operation,arguments",
     [
         ("launch", {"unknown_launch_parameter": True}),
-        ("launch", {"headless": "yes"}),
+        ("launch", {"headless": True}),
+        ("launch", {"mode": "detached"}),
+        ("launch", {"mode": True}),
         ("launch", {"reasoning_level": True}),
         ("launch", {"gateway_port": []}),
         ("launch", {"env_set": "NAME=value"}),
@@ -296,7 +298,7 @@ def test_valid_launch_value_shapes_reach_dispatch(policy: OwnerPolicyV1) -> None
         operation="launch",
         arguments={
             "specialist": "selected-source",
-            "headless": True,
+            "mode": "headless",
             "reasoning_level": 1,
             "gateway_port": 1234,
             "env_set": ["NAME=value"],

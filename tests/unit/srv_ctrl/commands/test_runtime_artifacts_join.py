@@ -177,12 +177,16 @@ def test_join_publishes_current_registry_record_without_publisher_stub(
     manifest = load_session_manifest(result.manifest_path).payload
     record = load_managed_agent_record_by_agent_id(result.agent_id)
     assert record is not None
-    assert record.schema_version == 4
+    assert record.schema_version == 5
     assert record.agent_id == manifest["agent_id"] == result.agent_id
     assert record.generation_id == manifest["registry_generation_id"]
     assert record.lifecycle.state == "active"
     assert record.lifecycle.relaunchable is True
     assert record.identity.backend == ("codex_headless" if headless else "local_interactive")
+    assert record.mode == manifest["mode"] == ("headless" if headless else "tui")
+    assert (record.native_surface.kind if record.native_surface else None) == (
+        None if headless else "terminal"
+    )
     assert record.terminal.current_session_name == "joined-real-publication"
     assert record.terminal.last_session_name == "joined-real-publication"
     assert record.liveness is not None

@@ -971,7 +971,8 @@ def test_houmao_mgr_project_agents_launch_defaults_gateway_auto_attach_to_foregr
             "researcher",
             "--name",
             "repo-research-1",
-            "--headless",
+            "--mode",
+            "headless",
         ],
     )
 
@@ -1023,7 +1024,8 @@ def test_houmao_mgr_project_agents_launch_supports_gateway_background_override(
             "researcher",
             "--name",
             "repo-research-1",
-            "--headless",
+            "--mode",
+            "headless",
             "--gateway-background",
         ],
     )

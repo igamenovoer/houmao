@@ -16,6 +16,7 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     tmux_session_exists,
 )
+from houmao.execution.tmux import tmux_server_scope, validate_tmux_socket_path
 from houmao.hook_observation.reader import HookObservationChannel
 from houmao.server.models import (
     HoumaoErrorDetail,
@@ -44,6 +45,7 @@ class SingleSessionTrackingRuntime:
         self,
         *,
         identity: HoumaoTrackedSessionIdentity,
+        tmux_socket_path: str | None = None,
         watch_poll_interval_seconds: float = 0.5,
         recent_transition_limit: int = 24,
         snapshot_history_limit: int = 1000,
@@ -56,6 +58,9 @@ class SingleSessionTrackingRuntime:
     ) -> None:
         """Initialize the single-session tracking runtime."""
 
+        self.m_tmux_socket_path: str | None = (
+            validate_tmux_socket_path(tmux_socket_path) if tmux_socket_path is not None else None
+        )
         self.m_watch_poll_interval_seconds = watch_poll_interval_seconds
         self.m_transport_resolver = TmuxTransportResolver()
         self.m_process_inspector = PaneProcessInspector(
@@ -144,7 +149,13 @@ class SingleSessionTrackingRuntime:
             self.m_stop_event.wait(self.m_watch_poll_interval_seconds)
 
     def _poll_once(self) -> None:
-        """Poll the tracked tmux session once."""
+        """Restore saved socket authority before probing the tracked terminal."""
+
+        with tmux_server_scope(self.m_tmux_socket_path):
+            self._poll_owned_session()
+
+    def _poll_owned_session(self) -> None:
+        """Poll the tracked terminal within its selected tmux server."""
 
         identity = self.m_tracker.current_state().tracked_session
         observed_at_utc = utc_now_iso()

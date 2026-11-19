@@ -6,8 +6,10 @@ from houmao.agents.mailbox_runtime_models import MailboxesResolvedConfig
 
 import json
 import os
+from contextlib import nullcontext
+from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
@@ -16,6 +18,14 @@ import pytest
 
 from houmao.agents.realm_controller.errors import GatewayHttpError
 from houmao.agents.realm_controller.gateway_client import GatewayClient
+from houmao.agents.realm_controller.backends.service_runtime import ManagedServiceSessionState
+from houmao.agents.realm_controller.managed_control import ManagedControlObservationV1
+from houmao.agents.realm_controller.manifest import (
+    SessionManifestRequest,
+    build_session_manifest_payload,
+    load_registry_mode_authority,
+    write_session_manifest,
+)
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayControlInputResultV1,
@@ -37,15 +47,22 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayReminderV1,
     GatewayStatusV1,
 )
-from houmao.agents.realm_controller.models import SessionEvent
+from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan, SessionEvent
+from houmao.agents.realm_controller.native_surface import TerminalNativeSurfaceV1
 from houmao.agents.realm_controller.registry_models import RegistryGatewayV1
+from houmao.execution.context import observed_local_binding
 from houmao.hook_observation.store import HookObservationStore
 from houmao.passive_server.app import create_app
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.discovery import DiscoveredAgent, _summary_from_record
 from houmao.passive_server.service import PassiveServerService
 from houmao.server.models import (
+    HoumaoManagedAgentDetailResponse,
     HoumaoManagedAgentGatewayPromptControlResponse,
+    HoumaoManagedAgentHeadlessDetailView,
+    HoumaoManagedAgentServiceDetailView,
+    HoumaoManagedAgentStateResponse,
+    HoumaoManagedAgentTuiDetailView,
     HoumaoTerminalSnapshotHistoryEntry,
     HoumaoTerminalSnapshotHistoryResponse,
     HoumaoTerminalStateResponse,
@@ -251,6 +268,9 @@ def _agent(
         tool=tool,
         backend=backend,
         session_root=session_root,
+        native_surface=TerminalNativeSurfaceV1(tmux_session_name=session_name, pane_id="%4")
+        if backend == "local_interactive"
+        else None,
     )
     return DiscoveredAgent(record=record, summary=_summary_from_record(record))
 
@@ -1669,7 +1689,7 @@ class TestAgentStateEndpoint:
     """GET /houmao/agents/{agent_ref}/state."""
 
     def test_returns_200_with_observer(self, tmp_path: object) -> None:
-        client = _make_agent_client_with_observer(tmp_path, [_agent()])
+        client = _make_agent_client_with_observer(tmp_path, [_agent(backend="local_interactive")])
         with client:
             resp = client.get("/houmao/agents/abc123/state")
         assert resp.status_code == 200
@@ -1681,8 +1701,6 @@ class TestAgentStateEndpoint:
         assert "turn" in body
         assert "last_turn" in body
         assert "stability" in body
-        # A non-hook-applicable backend exposes no observation channel.
-        assert body["observation_channels"] is None
         # Compact state should NOT include probe_snapshot or parsed_surface
         assert "probe_snapshot" not in body
         assert "parsed_surface" not in body
@@ -1702,7 +1720,9 @@ class TestAgentStateEndpoint:
         assert resp.status_code == 409
 
     def test_no_observer_returns_503(self, tmp_path: object) -> None:
-        client = _make_agent_client_with_observer(tmp_path, [_agent()], reconcile=False)
+        client = _make_agent_client_with_observer(
+            tmp_path, [_agent(backend="local_interactive")], reconcile=False
+        )
         with client:
             resp = client.get("/houmao/agents/abc123/state")
         assert resp.status_code == 503
@@ -1717,7 +1737,7 @@ class TestAgentStateDetailEndpoint:
     """GET /houmao/agents/{agent_ref}/state/detail."""
 
     def test_returns_200_with_observer(self, tmp_path: object) -> None:
-        client = _make_agent_client_with_observer(tmp_path, [_agent()])
+        client = _make_agent_client_with_observer(tmp_path, [_agent(backend="local_interactive")])
         with client:
             resp = client.get("/houmao/agents/abc123/state/detail")
         assert resp.status_code == 200
@@ -1745,7 +1765,9 @@ class TestAgentStateDetailEndpoint:
         assert resp.status_code == 409
 
     def test_no_observer_returns_503(self, tmp_path: object) -> None:
-        client = _make_agent_client_with_observer(tmp_path, [_agent()], reconcile=False)
+        client = _make_agent_client_with_observer(
+            tmp_path, [_agent(backend="local_interactive")], reconcile=False
+        )
         with client:
             resp = client.get("/houmao/agents/abc123/state/detail")
         assert resp.status_code == 503
@@ -1866,7 +1888,9 @@ class TestAgentStateObservationChannels:
         assert channels is not None
         assert channels[0]["state"] == "stopped"
 
-    def test_non_hook_backend_exposes_no_channel(self, tmp_path: object) -> None:
+    def test_headless_supervisor_without_native_authority_has_no_terminal_observation(
+        self, tmp_path: object
+    ) -> None:
         session_root = Path(str(tmp_path)) / "session"
         session_root.mkdir()
         _seed_hook_store(session_root)
@@ -1877,8 +1901,8 @@ class TestAgentStateObservationChannels:
         client = _make_agent_client_with_observer(tmp_path, [agent])
         with client:
             resp = client.get("/houmao/agents/abc123/state")
-        assert resp.status_code == 200
-        assert resp.json()["observation_channels"] is None
+        assert resp.status_code == 503
+        assert "observation_channels" not in resp.json()
 
 
 # ---------------------------------------------------------------------------
@@ -1890,7 +1914,7 @@ class TestAgentHistoryEndpoint:
     """GET /houmao/agents/{agent_ref}/history."""
 
     def test_returns_200_with_observer(self, tmp_path: object) -> None:
-        client = _make_agent_client_with_observer(tmp_path, [_agent()])
+        client = _make_agent_client_with_observer(tmp_path, [_agent(backend="local_interactive")])
         with client:
             resp = client.get("/houmao/agents/abc123/history")
         assert resp.status_code == 200
@@ -1914,13 +1938,15 @@ class TestAgentHistoryEndpoint:
         assert resp.status_code == 409
 
     def test_no_observer_returns_503(self, tmp_path: object) -> None:
-        client = _make_agent_client_with_observer(tmp_path, [_agent()], reconcile=False)
+        client = _make_agent_client_with_observer(
+            tmp_path, [_agent(backend="local_interactive")], reconcile=False
+        )
         with client:
             resp = client.get("/houmao/agents/abc123/history")
         assert resp.status_code == 503
 
     def test_limit_query_parameter(self, tmp_path: object) -> None:
-        client = _make_agent_client_with_observer(tmp_path, [_agent()])
+        client = _make_agent_client_with_observer(tmp_path, [_agent(backend="local_interactive")])
         with client:
             resp = client.get("/houmao/agents/abc123/history?limit=10")
         assert resp.status_code == 200
@@ -1937,17 +1963,26 @@ class TestManagedCompatibilityRoutes:
     def test_managed_state_returns_tui_summary(self, tmp_path: object) -> None:
         client = _make_agent_client_with_observer(
             tmp_path,
-            [_agent(tool="codex", backend="codex_app_server")],
+            [_agent(tool="codex", backend="local_interactive")],
         )
 
         with client:
             resp = client.get("/houmao/agents/abc123/managed-state")
+            detail_resp = client.get("/houmao/agents/abc123/managed-state/detail")
+            raw_resp = client.get("/houmao/agents/abc123/state/detail")
 
         assert resp.status_code == 200
         body = resp.json()
         assert body["tracked_agent_id"] == "abc123"
         assert body["identity"]["transport"] == "tui"
         assert "turn" in body
+        state = HoumaoManagedAgentStateResponse.model_validate(body)
+        assert state.capabilities is not None and "send_keys" in state.capabilities.operations
+        assert state.control is not None and state.control.source == "terminal_tracker"
+        detail = HoumaoManagedAgentDetailResponse.model_validate_json(detail_resp.text).detail
+        assert isinstance(detail, HoumaoManagedAgentTuiDetailView)
+        assert detail.canonical_terminal_state_route == raw_resp.request.url.path
+        assert raw_resp.status_code == 200 and "parsed_surface" in raw_resp.json()
 
     def test_managed_state_not_found_returns_404(self, tmp_path: object) -> None:
         client = _make_agent_client_with_observer(tmp_path, [])
@@ -2007,7 +2042,7 @@ class TestManagedCompatibilityRoutes:
         assert len(body["entries"]) == 1
         assert body["entries"][0]["turn_id"] == turn_id
 
-    def test_managed_headless_detail_returns_503_for_non_owned_headless(
+    def test_managed_headless_detail_returns_503_without_verified_owner_manifest(
         self,
         tmp_path: object,
     ) -> None:
@@ -2019,7 +2054,186 @@ class TestManagedCompatibilityRoutes:
             resp = client.get("/houmao/agents/abc123/managed-state/detail")
 
         assert resp.status_code == 503
-        assert "not owned by the current passive server" in resp.json()["detail"]
+        assert resp.json()["detail"] == "Verified runtime definition is unavailable"
+
+
+def _seed_discovered_owner(
+    tmp_path: Path, *, mode: str, monkeypatch: pytest.MonkeyPatch, tool: str = "codex"
+) -> tuple[DiscoveredAgent, Mock, Mock]:
+    """Persist mode authority while keeping the owner and provider fully controlled."""
+
+    headless = mode == "headless"
+    if tool == "kimi":
+        backend = "kimi_acp"
+        args = ["acp"]
+        home_env_var = "KIMI_CODE_HOME"
+    else:
+        backend = "codex_headless" if headless else "codex_app_server"
+        args = ["exec", "--json"] if headless else ["app-server", "--listen", "stdio://"]
+        home_env_var = "CODEX_HOME"
+    agent = _agent(tool=tool, backend=backend, session_name="isolated-supervisor")
+    record = agent.record
+    manifest_path = tmp_path / "manifest.json"
+    record.runtime.manifest_path = str(manifest_path)
+    record.runtime.agent_def_dir = str(tmp_path / "agent-defs")
+    socket_path = str(tmp_path / "tmux.sock")
+    record.terminal.socket_path = socket_path
+    record.execution_binding = observed_local_binding(
+        working_directory=tmp_path,
+        runtime_root=tmp_path / "runtime",
+        registry_root=tmp_path / "registry",
+        tmux_socket=socket_path,
+    )
+    backend_state = (
+        {"session_id": "native-thread"}
+        if headless
+        else ManagedServiceSessionState(
+            runtime_session_id="owned-runtime",
+            generation_id=record.generation_id,
+            service_incarnation="last-owner",
+            native_session_id="thread-last-known",
+            tmux_session_name=record.terminal.session_name,
+            tmux_pane_id="%0",
+            tmux_window_id="@0",
+            working_directory=str(tmp_path),
+        ).to_payload()
+    )
+    plan = LaunchPlan(
+        backend=record.identity.backend,
+        tool=tool,
+        executable=tool,
+        args=args,
+        working_directory=tmp_path,
+        home_env_var=home_env_var,
+        home_path=tmp_path / "home",
+        env={},
+        env_var_names=[],
+        role_injection=RoleInjectionPlan(
+            method="native_developer_instructions", role_name="test", prompt=""
+        ),
+        metadata={"tmux_socket_path": socket_path},
+        execution_binding=record.execution_binding,
+    )
+    write_session_manifest(
+        manifest_path,
+        build_session_manifest_payload(
+            SessionManifestRequest(
+                launch_plan=plan,
+                role_name="test",
+                brain_manifest_path=tmp_path / "brain.json",
+                backend_state=backend_state,
+                agent_id=record.agent_id,
+                agent_name=record.agent_name,
+                session_id="owned-runtime",
+                tmux_session_name=record.terminal.session_name,
+                registry_generation_id=record.generation_id,
+            )
+        ),
+    )
+    manifest = load_registry_mode_authority(record)
+    controller = Mock(
+        manifest_path=manifest_path,
+        require_managed_control_owner=Mock(return_value=manifest),
+        execution_scope=nullcontext,
+    )
+    resume = Mock(return_value=controller)
+    monkeypatch.setattr("houmao.passive_server.service.resume_runtime_session", resume)
+    return DiscoveredAgent(record=record, summary=_summary_from_record(record)), controller, resume
+
+
+@pytest.mark.parametrize("exit_evidence", [True, False])
+def test_manager_owned_headless_reads_exact_artifacts_without_terminal_observation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, exit_evidence: bool
+) -> None:
+    """A detached gateway and no passive headless binding still allow read-only inspection."""
+
+    agent, controller, resume = _seed_discovered_owner(
+        tmp_path, mode="headless", monkeypatch=monkeypatch
+    )
+    turn = tmp_path / "manifest.turn-artifacts" / "owner-request"
+    turn.mkdir(parents=True)
+    if exit_evidence:
+        (turn / "exitcode").write_text("0\n", encoding="utf-8")
+    monkeypatch.setattr("houmao.passive_server.service.tmux_session_exists", lambda **_: True)
+    client = _make_agent_client_with_observer(tmp_path, [agent])
+    service = client.app.state.passive_service
+    assert service.m_observation.get_observer(agent.record.agent_id) is None
+
+    with client:
+        for suffix in ("state", "managed-state"):
+            response = client.get(f"/houmao/agents/abc123/{suffix}")
+            assert response.status_code == 200, response.text
+            state = HoumaoManagedAgentStateResponse.model_validate_json(response.text)
+            assert state.identity.mode == "headless"
+            assert state.identity.native_surface is None
+            assert state.identity.runtime_session_id == "owned-runtime"
+            assert state.control is not None and state.control.source == "headless_artifacts"
+            assert state.control.native_session_id == "native-thread"
+            assert state.control.last_request_id == "owner-request"
+            assert state.control.last_outcome == ("completed" if exit_evidence else "uncertain")
+            assert state.control.can_accept_prompt_now is exit_evidence
+            assert state.last_turn.result == ("success" if exit_evidence else "unknown")
+        for suffix in ("state/detail", "managed-state/detail"):
+            response = client.get(f"/houmao/agents/abc123/{suffix}")
+            assert response.status_code == 200, response.text
+            detail = HoumaoManagedAgentDetailResponse.model_validate_json(response.text).detail
+            assert isinstance(detail, HoumaoManagedAgentHeadlessDetailView)
+            assert detail.last_turn_returncode == (0 if exit_evidence else None)
+            assert "parsed_surface" not in response.json()["detail"]
+    assert resume.call_count == 4
+    assert all(call.kwargs["read_only"] is True for call in resume.call_args_list)
+    assert controller.require_managed_control_owner.call_count == 8
+
+
+@pytest.mark.parametrize("tool", ["codex", "kimi"])
+def test_service_lost_connection_keeps_owner_and_native_evidence_separate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tool: str
+) -> None:
+    """A live supervisor has no terminal surface and cannot open native admission."""
+
+    agent, controller, resume = _seed_discovered_owner(
+        tmp_path, mode="service", monkeypatch=monkeypatch, tool=tool
+    )
+    observation = ManagedControlObservationV1(
+        source="service_native",
+        freshness="stale",
+        observed_at_utc=datetime.now(UTC).isoformat(),
+        owner_available=True,
+        connection_ready=False,
+        can_accept_prompt_now=False,
+        service_incarnation="last-owner",
+        native_session_id="thread-last-known",
+        last_request_id="request-last-known",
+        last_outcome="uncertain",
+    )
+    controller.observe_managed_service.return_value = observation
+    client = _make_agent_client_with_observer(tmp_path, [agent])
+    service = client.app.state.passive_service
+    assert service.m_observation.get_observer(agent.record.agent_id) is None
+    assert service.m_observation.get_web_observer(agent.record.agent_id) is None
+
+    with client:
+        for suffix in ("state", "managed-state"):
+            response = client.get(f"/houmao/agents/abc123/{suffix}")
+            assert response.status_code == 200, response.text
+            state = HoumaoManagedAgentStateResponse.model_validate_json(response.text)
+            assert state.identity.mode == "service"
+            assert state.identity.backend == agent.record.identity.backend
+            assert state.identity.native_surface is None
+            assert state.availability == "unavailable"
+            assert state.control == observation
+            assert state.capabilities is not None
+            assert {"prompt", "interrupt", "events"} <= set(state.capabilities.operations)
+            assert "send_keys" not in state.capabilities.operations
+        for suffix in ("state/detail", "managed-state/detail"):
+            response = client.get(f"/houmao/agents/abc123/{suffix}")
+            assert response.status_code == 200, response.text
+            detail = HoumaoManagedAgentDetailResponse.model_validate_json(response.text).detail
+            assert isinstance(detail, HoumaoManagedAgentServiceDetailView)
+            assert detail.state == observation
+            assert "parsed_surface" not in response.json()["detail"]
+    assert all(call.kwargs["read_only"] is True for call in resume.call_args_list)
+    assert controller.observe_managed_service.call_count == 4
 
 
 # ---------------------------------------------------------------------------

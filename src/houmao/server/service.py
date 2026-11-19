@@ -100,8 +100,8 @@ from houmao.agents.realm_controller.errors import (
     LaunchPlanError,
     SessionManifestError,
 )
-from houmao.agents.realm_controller.launch_plan import backend_for_tool
 from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
+from houmao.agents.realm_controller.run_modes import resolve_run_mode
 from houmao.agents.mailbox_runtime_support import resolve_live_mailbox_binding_from_manifest_path
 from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
@@ -895,29 +895,16 @@ class HoumaoServerService:
             )
 
         try:
-            resolved_backend = backend_for_tool(resolved_tool)
-            if resolved_backend not in {
-                "claude_headless",
-                "codex_headless",
-                "kimi_headless",
-                "dsh_acp",
-            }:
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        f"Native headless launch for tool `{resolved_tool}` did not resolve to "
-                        "a supported headless backend."
-                    ),
-                )
+            selection = resolve_run_mode(resolved_tool, entrypoint="passive_headless")
             resolved_headless_backend = cast(
-                Literal["claude_headless", "codex_headless", "kimi_headless", "dsh_acp"],
-                resolved_backend,
+                Literal["claude_headless", "codex_headless", "kimi_headless"], selection.backend
             )
             controller = start_runtime_session(
                 agent_def_dir=agent_def_dir,
                 brain_manifest_path=brain_manifest_path,
                 role_name=resolved_role_name,
                 backend=resolved_headless_backend,
+                mode=selection.mode,
                 working_directory=resolved_workdir,
                 api_base_url=self.m_config.api_base_url,
                 agent_identity=request_model.agent_name,
@@ -4013,6 +4000,7 @@ class HoumaoServerService:
             "claude_headless",
             "codex_headless",
             "kimi_headless",
+            "dsh_headless",
             "dsh_acp",
         }:
             return

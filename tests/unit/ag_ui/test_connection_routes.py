@@ -56,6 +56,7 @@ def _status(**overrides: object) -> GatewayStatusV1:
         "managed_agent_instance_id": "instance-1",
     }
     values.update(overrides)
+    values["mode"] = "headless" if values["backend"] == "codex_headless" else "tui"
     return GatewayStatusV1.model_validate(values)
 
 
@@ -133,9 +134,12 @@ class _SpyRuntime:
 
         self.prompt_submissions += 1
 
-    def create_request(self, payload: GatewayRequestCreateV1) -> GatewayAcceptedRequestV1:
+    def create_request(
+        self, payload: GatewayRequestCreateV1, *, ready_only: bool = False
+    ) -> GatewayAcceptedRequestV1:
         """Detect queued gateway request creation."""
 
+        assert ready_only
         self.queued_requests += 1
         self.created_requests.append(payload)
         return GatewayAcceptedRequestV1(
@@ -1199,7 +1203,7 @@ def test_runs_route_converts_post_admission_failure_to_run_error() -> None:
     runtime.assert_no_lifecycle_calls()
 
 
-def test_runs_route_streams_tui_activity_and_final_text_without_tool_calls() -> None:
+def test_runs_route_streams_shared_tui_activity_and_unconfirmed_handoff() -> None:
     runtime = _SpyRuntime(
         status_payload=_status(backend="local_interactive"),
         request_states=[_completed_request_state()],
@@ -1217,12 +1221,11 @@ def test_runs_route_streams_tui_activity_and_final_text_without_tool_calls() -> 
         "RUN_STARTED",
         "ACTIVITY_SNAPSHOT",
         "ACTIVITY_SNAPSHOT",
-        "TEXT_MESSAGE_START",
-        "TEXT_MESSAGE_CONTENT",
-        "TEXT_MESSAGE_END",
         "RUN_FINISHED",
     ]
-    assert payloads[4]["delta"] == "final TUI answer"
+    assert payloads[-1]["result"]["completionEvidence"] == "terminal_handoff"
+    assert payloads[-1]["result"]["providerCompletion"] == "unconfirmed"
+    assert "final TUI answer" not in response.text
     assert "TOOL_CALL_START" not in set(event_types)
     runtime.assert_no_lifecycle_calls()
 

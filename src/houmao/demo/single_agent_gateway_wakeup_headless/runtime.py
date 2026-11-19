@@ -637,8 +637,7 @@ def launch_instance(
         manager_cli_command(
             [
                 "project",
-                "easy",
-                "instance",
+                "agents",
                 "launch",
                 "--specialist",
                 specialist_name,
@@ -646,7 +645,8 @@ def launch_instance(
                 instance_name,
                 "--session-name",
                 session_name,
-                "--headless",
+                "--mode",
+                "headless",
                 "--mail-transport",
                 "filesystem",
                 "--mail-root",

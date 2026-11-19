@@ -20,10 +20,10 @@ from houmao.agents.realm_controller.registry_models import (
 @pytest.mark.parametrize(
     ("schema_name", "model"),
     [
-        ("launch_plan.v2.schema.json", LaunchPlanPayloadV1),
-        ("session_manifest.v5.schema.json", SessionManifestPayloadV4),
+        ("launch_plan.v3.schema.json", LaunchPlanPayloadV1),
+        ("session_manifest.v6.schema.json", SessionManifestPayloadV4),
         ("live_agent_registry_record.v2.schema.json", LiveAgentRegistryRecordV2),
-        ("managed_agent_registry_record.v4.schema.json", ManagedAgentRegistryRecordV3),
+        ("managed_agent_registry_record.v5.schema.json", ManagedAgentRegistryRecordV3),
         (
             "external_managed_agent_registry_record.v1.schema.json",
             ExternalManagedAgentRegistryRecordV1,

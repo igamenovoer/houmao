@@ -652,7 +652,7 @@ def _client_stub(path: Path, client: str) -> str:
         "import json, os, pathlib, sys, time\n"
         f"client = {client!r}\n"
         "if '--version' in sys.argv:\n"
-        " print(client + ' fixture 1.0'); sys.exit(0)\n"
+        " print({'claude':'1.0.0 (Claude Code)', 'codex':'codex-cli 1.0.0'}.get(client, '1.0.0')); sys.exit(0)\n"
         "keys=('ANTHROPIC_AUTH_TOKEN','ANTHROPIC_API_KEY','ANTHROPIC_BASE_URL',"
         "'OPENAI_API_KEY','OPENAI_BASE_URL','KIMI_MODEL_API_KEY','KIMI_MODEL_BASE_URL')\n"
         "pathlib.Path('effective-env.json').write_text(json.dumps({k:os.getenv(k) for k in keys}))\n"
@@ -663,6 +663,75 @@ def _client_stub(path: Path, client: str) -> str:
     )
     path.chmod(0o700)
     return str(path)
+
+
+@pytest.mark.parametrize("client", ["claude", "codex"])
+def test_managed_fixture_selects_headless_explicitly(
+    fixture_config: ModuleType,
+    fixture_prepare: ModuleType,
+    fixture_launch: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    client: str,
+) -> None:
+    """The headless demo and provider smoke issue the current manager launch arguments."""
+
+    config = fixture_config.resolve_config(
+        case="self-hosted", client=client, mode="headless", process_env=_env("self-hosted")
+    )
+    run = fixture_prepare.prepare_run(
+        config, run_root=tmp_path / "runs", executable=_client_stub(tmp_path / client, client)
+    )
+
+    def launch(project: Path, command: list[str], **kwargs: object) -> dict[str, object]:
+        """Capture arguments and return the normal public launch identity."""
+
+        assert command[:2] == ["agents", "launch"]
+        assert command[command.index("--mode") + 1] == "headless"
+        assert "--headless" not in command
+        return {
+            "agent_id": "fixture-agent",
+            "manifest_path": str(project / "manifest.json"),
+            "tool": client,
+            "mode": "headless",
+            "backend": f"{client}_headless",
+            "native_surface": None,
+        }
+
+    monkeypatch.setattr(fixture_launch, "manager_call", launch)
+    report = fixture_launch.launch_run(Path(run["run_dir"]))
+    assert report["backend"] == f"{client}_headless"
+    assert report["client_version"] == "1.0.0"
+    assert report["native_surface"] is None
+
+
+def test_missing_prepared_executable_reports_not_run(
+    fixture_config: ModuleType,
+    fixture_prepare: ModuleType,
+    fixture_launch: ModuleType,
+    tmp_path: Path,
+) -> None:
+    """The report identifies an executable removed between prepare and launch."""
+
+    config = fixture_config.resolve_config(
+        case="self-hosted",
+        client="kimi",
+        mode="tui",
+        surface="raw",
+        process_env=_env("self-hosted"),
+    )
+    executable = Path(_client_stub(tmp_path / "kimi", "kimi"))
+    run = fixture_prepare.prepare_run(
+        config, run_root=tmp_path / "runs", executable=str(executable)
+    )
+    root = Path(run["run_dir"])
+    executable.unlink()
+    with pytest.raises(fixture_config.FixtureError, match="executable is unavailable"):
+        fixture_launch.launch_run(root)
+    report = json.loads((root / "report.json").read_text())
+    assert report["status"] == "not_run"
+    assert report["prerequisites"]["missing"] == ["client_executable"]
+    assert "native_surface" not in report
 
 
 @pytest.mark.parametrize("client", ["claude", "codex", "kimi"])
