@@ -1,6 +1,6 @@
 # Debug Intent: Houmao 3.0 Interactive Feature Review
 
-Date: 2026-11-18. Updated: 2026-11-19. Status: [iteration 2](iterations/2026-11-19-plan-2-dsh-rc3-run-modes.md) G0 and H1 P1 passed for `3.0.0rc3` from physical checkout `tmp/` storage; [iteration 1](iterations/2026-11-18-plan-1-dsh-basic-functionality.md) partially executed on RC2 and superseded for RC3. Campaign directory: `context/campaigns/debug/2026-11-18-houmao-3-0-interactive-review/`.
+Date: 2026-11-18. Updated: 2026-11-19. Status: [iteration 2](iterations/2026-11-19-plan-2-dsh-rc3-run-modes.md) G0 passed and H1 completed on self-hosted Qwen with disposition **Needs revision** because detailed manager event replay rejects whitespace-only provider text chunks; the owned agent stopped cleanly. [Iteration 1](iterations/2026-11-18-plan-1-dsh-basic-functionality.md) was partially executed on RC2 and is superseded for RC3. Campaign directory: `context/campaigns/debug/2026-11-18-houmao-3-0-interactive-review/`.
 
 ## Problem Statement
 
@@ -12,11 +12,12 @@ Automated passes establish internal protocol compliance, yet they do not show wh
 
 ## Current RC3 Baseline
 
-- **Release identity**: `pixi run houmao-mgr --version` reports `3.0.0rc3`; HEAD is tag `v3.0.0rc3` at `4f3ba508`. The run-mode implementation landed in `3c5ac689`, with user documentation in `4109c0fb` and synchronized specifications in `d1c56998`.
+- **Release identity**: `pixi run houmao-mgr --version` reports `3.0.0rc3`; tag `v3.0.0rc3` is at `4f3ba508`. H1 executed at subsequent commit `007ae801`, containing the separately approved checkout-`tmp` storage-policy fix. The run-mode implementation landed in `3c5ac689`, with user documentation in `4109c0fb` and synchronized specifications in `d1c56998`.
 - **Qualified mode matrix**: Claude supports `headless` and `tui`; Codex adds `service`; DSH supports `headless`, `service`, and `web`; Kimi supports all four modes. Project launch defaults to `web` for DSH and `tui` for the other tools. The authoritative mapping is `src/houmao/agents/realm_controller/run_modes.py`.
 - **Lifecycle boundary**: RC3 uses launch plan schema 3, session manifest schema 6, registry schema 5, and execution locator schema 2. RC2 agents must be stopped through RC2 before an RC3 upgrade; RC3 must not adopt or relaunch retained RC2 B1 state.
 - **Existing campaign evidence**: the [B1 RC2 log](logs/2026-11-19-b1-rc2-qwen38-launch-and-gateway-prompt.md) establishes Qwen endpoint availability, basic RC2 ACP prompting, and signed gateway access. It leaves tool execution, exact continuation, interruption, Web, DeepSeek, and teardown incomplete, so it is not an RC3 result.
 - **Existing RC3 implementation evidence**: the archived run-mode changes include unit, integration, and change-local live Qwen qualification. The campaign must still test stepwise human operation, UX, cross-client admission, and teardown. Those logs are supporting evidence, not campaign completion.
+- **Executed RC3 H1 evidence**: the [native headless results](logs/2026-11-19-h1-rc3-headless-execution.md) record P1–P4, reasoning/streaming observation, next-invocation skill loading, negative capabilities, usage, and teardown on Qwen. The core lifecycle passed, but detailed manager event replay failed on whitespace-only assistant events, so H1 needs revision.
 - **Helper boundary**: `scripts/explore/houmao-3-0-interactive-review/iter1_dsh.py` still emits removed RC2 flags and is historical. RC3 execution uses the maintained `scripts/agents/test-fixtures/fixture.py` and canonical manager/gateway commands described by Iteration 2.
 
 ## Historical RC1 Starting Evidence
@@ -70,7 +71,7 @@ This campaign evaluates each feature area across two perspectives: the current R
 
 ## No-Product-Change Declaration
 
-This campaign is an isolated interactive diagnostic and review effort. Temporary campaign helpers, tmux isolation wrappers, and interactive step runners live strictly under [scripts/explore/houmao-3-0-interactive-review/](../../../../scripts/explore/houmao-3-0-interactive-review/). Diagnostic runs do not authorize modifying production code under `src/houmao/` or `packages/houmao-cccc/`, modifying existing tests under `tests/`, or editing OpenSpec specifications. The checkout-`tmp` storage-policy fix on 2026-11-19 was separately and explicitly requested by the operator and is documented in [its implementation log](logs/2026-11-19-checkout-tmp-storage-policy-fix.md). Any further fixes or revisions identified by human review require separate explicit approval outside this campaign.
+This campaign is an isolated interactive diagnostic and review effort. Temporary campaign helpers, tmux isolation wrappers, and interactive step runners live strictly under [scripts/explore/houmao-3-0-interactive-review/](../../../../scripts/explore/houmao-3-0-interactive-review/). Diagnostic runs do not authorize modifying production code under `src/houmao/` or `packages/houmao-cccc/`, modifying existing tests under `tests/`, or editing OpenSpec specifications. The checkout-`tmp` storage-policy fix on 2026-11-19 was separately and explicitly requested by the operator and is documented in [its implementation log](logs/2026-11-19-checkout-tmp-storage-policy-fix.md). On the same date, the operator separately approved a temporary experiment adding the shared-registry root to unattended DSH `additionalWritableRoots` after the live permission-denial observation. The experiment was validated, then reverted at operator direction; the finding and live proof are documented in the [registry-permission log](logs/2026-11-19-h1-live-hello-and-registry-permission-denial.md), and the proposed product fix is [issue #86](https://github.com/igamenovoer/houmao/issues/86). Any further fixes or revisions identified by human review require separate explicit approval outside this campaign.
 
 ## Key Questions and Iterations
 

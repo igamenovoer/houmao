@@ -1,6 +1,6 @@
 # Iteration Plan 2: DSH Run Modes and Unified Control on RC3
 
-Status: G0 passed for the H1 Qwen start; H1 launched from physical checkout `tmp/` storage and P1 completed through the signed gateway. P2–P4 and the other arms remain pending. Date: 2026-11-19. Campaign: [debug-intent.md](../debug-intent.md). Question owner: [KQ-1](../key-questions/KQ-1-dsh-basic-functionality.md). Evidence: [G0 and H1 preparation](../evidences/2026-11-19-rc3-iteration2-g0-and-h1-preparation.md). Supersedes the unexecuted RC1/RC2 work in [Iteration 1](2026-11-18-plan-1-dsh-basic-functionality.md).
+Status: G0 passed; H1 completed on self-hosted Qwen with disposition **Needs revision** because detailed manager event replay rejects whitespace-only provider text chunks. The H1 agent was stopped cleanly. R0 and the other arms remain pending. Date: 2026-11-19. Campaign: [debug-intent.md](../debug-intent.md). Question owner: [KQ-1](../key-questions/KQ-1-dsh-basic-functionality.md). Evidence: [G0 and H1 preparation](../evidences/2026-11-19-rc3-iteration2-g0-and-h1-preparation.md) and [H1 results](../logs/2026-11-19-h1-rc3-headless-execution.md). Supersedes the unexecuted RC1/RC2 work in [Iteration 1](2026-11-18-plan-1-dsh-basic-functionality.md).
 
 ## Question and Revision Reason
 
@@ -10,7 +10,7 @@ Iteration 1 targeted RC1 and used `dsh_acp` as the general headless path. RC3 ma
 
 ## Frozen Workload
 
-- **Houmao baseline**: `3.0.0rc3`, tag `v3.0.0rc3`, commit `4f3ba508`, invoked through `pixi run`. Record any later commit as a new baseline rather than mixing results.
+- **Houmao baseline**: `3.0.0rc3`, tag `v3.0.0rc3`, release commit `4f3ba508`, invoked through `pixi run`. H1 executed at the subsequent commit `007ae801`, which contains only the separately approved checkout-`tmp` storage-policy fix and its tests/documentation. Record any later implementation change as a new baseline rather than mixing results.
 - **DSH baseline**: explicitly selected `tmp/dsh/npm-runtime/node_modules/.bin/dsh`, version `0.2.2-rc.3`. Do not use ambient `dsh` resolution for qualification.
 - **Qualified DSH modes**: `headless` → `dsh_headless`, `service` → `dsh_acp`, and `web` → `dsh_web`. DSH `tui` is unsupported and is a negative preflight case. Omitting the mode on a project launch defaults to `web`.
 - **Runtime schemas**: launch plan 3, session manifest 6, managed-agent registry 5, and execution locator 2. RC2 agents must be stopped with RC2 before RC3 lifecycle operations. Retained RC2 records are diagnostic fixtures only, not service owners or relaunch candidates.
@@ -64,7 +64,15 @@ pixi run python "$FIXTURE" check --run-dir "$RUN_DIR" --live
 pixi run python "$FIXTURE" stop --run-dir "$RUN_DIR"
 ```
 
-For manager-owned agents, the canonical control shape is:
+For manager-owned agents, select the run-specific roots before direct manager follow-up. Without these exports, commands can incorrectly target the default pair authority at `127.0.0.1:9891`:
+
+```bash
+export HOUMAO_GLOBAL_REGISTRY_DIR="$RUN_DIR/registry"
+export HOUMAO_GLOBAL_RUNTIME_DIR="$RUN_DIR/workdir/.houmao/runtime"
+export HOUMAO_PROJECT_OVERLAY_DIR="$RUN_DIR/workdir/.houmao"
+```
+
+The canonical control shape is:
 
 ```bash
 pixi run houmao-mgr agents single --agent-id "$AGENT_ID" state
@@ -114,7 +122,7 @@ Gates are ordered. A failed gate blocks dependent arms but does not justify chan
 
 - [x] Complete G0 for the H1 start, including RC2 containment and fresh RC3 roots; repeat provider checks for each later lane
 - [ ] Complete R0 and record G1 results (DSH `tui` negative selection passed during preparation)
-- [ ] Complete H1 and evaluate G2 (physical `tmp/` launch and P1 passed; P2–P4 pending)
+- [x] Complete H1 and evaluate G2 (core lifecycle passed; detailed event replay failed, so H1 needs revision; owned agent stopped)
 - [ ] Run S1 and evaluate G3
 - [ ] Run W1 and evaluate G4
 - [ ] Run V1 and C1, then evaluate G5
@@ -124,7 +132,9 @@ Gates are ordered. A failed gate blocks dependent arms but does not justify chan
 
 ## Result
 
-G0 passed for the H1 Qwen start, and DSH `tui` was rejected correctly during an R0 negative check. The checkout-`tmp` storage-policy fix was separately requested, implemented, and verified with 4,946 passing unit tests, full Ruff lint, strict mypy, and a strict documentation build. H1 then launched directly from physical `tmp/houmao-30-iter2-rc3/` storage and completed P1 through the authenticated gateway with both literal markers and finalized usage. P2–P4, the remaining R0 checks, and all other arms stay pending. See the [preparation and P1 evidence](../evidences/2026-11-19-rc3-iteration2-g0-and-h1-preparation.md) and [storage-policy fix log](../logs/2026-11-19-checkout-tmp-storage-policy-fix.md).
+G0 passed for the H1 Qwen start, and DSH `tui` was rejected correctly during an R0 negative check. The checkout-`tmp` storage-policy fix was separately requested, implemented, and verified with 4,946 passing unit tests, full Ruff lint, strict mypy, and a strict documentation build. H1 completed P1–P4 with one native session, a different worker per prompt, correct file effects, finalized completed/interrupted usage, and clean teardown. Reasoning level 1 selected native `low`; provider reasoning and progress appeared in raw artifacts during execution, and a newly added skill loaded on the next invocation. `send-keys` and ACP-only MCP declarations failed explicitly. H1 is **Needs revision** because `turn events --detail detail` rejects whitespace-only assistant events with a `HoumaoHeadlessTurnEvent.message` validation error, and the supervisor pane showed no live output. R0 and all other arms stay pending. See the [preparation and P1 evidence](../evidences/2026-11-19-rc3-iteration2-g0-and-h1-preparation.md), [complete H1 evidence](../logs/2026-11-19-h1-rc3-headless-execution.md), and [storage-policy fix log](../logs/2026-11-19-checkout-tmp-storage-policy-fix.md).
+
+Separately, live H1 observation found that `houmao-mgr agents self state` and mailbox `status` were denied when they tried to acquire the shared-registry lock outside the DSH workspace sandbox. The operator approved a temporary experiment with DSH `additionalWritableRoots`. A local patch projected the run registry into the unattended sandbox profile; a fresh sandboxed run then executed `houmao-mgr agents self state` successfully. Focused tests, full unit tests (4,946 passed, 14 skipped), Ruff, and strict mypy passed. The operator directed that the product and test changes be reverted; no implementation remains. The proposed fix, privilege trade-offs, and verification evidence are recorded in [issue #86](https://github.com/igamenovoer/houmao/issues/86), with the campaign details in the [denial and experiment log](../logs/2026-11-19-h1-live-hello-and-registry-permission-denial.md).
 
 ## Required Follow-On Outside This Iteration
 

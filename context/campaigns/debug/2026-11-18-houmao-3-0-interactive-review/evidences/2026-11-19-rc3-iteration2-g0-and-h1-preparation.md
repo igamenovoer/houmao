@@ -1,6 +1,6 @@
 # RC3 Iteration 2 G0, H1 Preparation, and P1
 
-Date: 2026-11-19. Status: G0 passed for the H1 Qwen start; H1 materials prepared from physical checkout `tmp/` storage, launched, and P1 completed through the signed gateway. R0 has one passing negative case. P2–P4 remain pending.
+Date: 2026-11-19. Status: historical G0, launch, and P1 record. H1 subsequently completed and stopped with disposition **Needs revision**; see the [complete H1 results](../logs/2026-11-19-h1-rc3-headless-execution.md). R0 has one passing negative case.
 
 Plan: [Iteration 2](../iterations/2026-11-19-plan-2-dsh-rc3-run-modes.md). Question: [KQ-1](../key-questions/KQ-1-dsh-basic-functionality.md).
 
@@ -90,9 +90,9 @@ The preparation arguments recorded above are the original commands. Future prepa
 
 ## Live P1 Result and Next Command
 
-H1 launched successfully from the physical `tmp/` run. The authenticated gateway dispatched P1, the pane showed `{{ITER1_LITERAL}} $KEEP_LITERAL OK` and `[complete] native_completed`, and signed usage recorded `turn-2d66cb64e363` as completed with 6,786 total tokens. The agent is `fd4e2343-7ed5-4346-8105-a645933fde83`, with native session `session-5b3b8aa7-7390-4245-bcda-d8183c4cd968` and gateway `http://127.0.0.1:38605`. A live signed check returned healthy usage collection and no missing prerequisites. The agent remains running for subsequent prompts.
+H1 launched successfully from the physical `tmp/` run. The authenticated gateway dispatched P1, the pane showed `{{ITER1_LITERAL}} $KEEP_LITERAL OK` and `[complete] native_completed`, and signed usage recorded `turn-2d66cb64e363` as completed with 6,786 total tokens. The agent is `fd4e2343-7ed5-4346-8105-a645933fde83`, with native session `session-5b3b8aa7-7390-4245-bcda-d8183c4cd968` and gateway `http://127.0.0.1:38605`. A live signed check returned healthy usage collection and no missing prerequisites. The agent remained running for subsequent prompts at this checkpoint and was stopped after the completed H1 run.
 
-The next planned step submits P2 without relaunching:
+At this checkpoint, the next planned step submitted P2 without relaunching:
 
 ```bash
 pixi run python scripts/agents/test-fixtures/fixture.py prompt \

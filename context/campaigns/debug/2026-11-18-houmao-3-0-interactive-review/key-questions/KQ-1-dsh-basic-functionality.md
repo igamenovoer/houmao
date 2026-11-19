@@ -1,6 +1,6 @@
 # KQ-1: DSH Basic Functionality With Houmao
 
-Date: 2026-11-18. Updated: 2026-11-19. Status: partially answered for RC2; unresolved for RC3. Owners: [iteration 1](../iterations/2026-11-18-plan-1-dsh-basic-functionality.md) (historical) and [iteration 2](../iterations/2026-11-19-plan-2-dsh-rc3-run-modes.md) (current). Evidence: [B1 RC2 launch and gateway prompt](../logs/2026-11-19-b1-rc2-qwen38-launch-and-gateway-prompt.md).
+Date: 2026-11-18. Updated: 2026-11-19. Status: KQ-1.2 answered for the RC3 Qwen lane with revision needed; the full question remains unresolved. Owners: [iteration 1](../iterations/2026-11-18-plan-1-dsh-basic-functionality.md) (historical) and [iteration 2](../iterations/2026-11-19-plan-2-dsh-rc3-run-modes.md) (current). Evidence: [B1 RC2 launch and gateway prompt](../logs/2026-11-19-b1-rc2-qwen38-launch-and-gateway-prompt.md), [RC3 H1 preparation](../evidences/2026-11-19-rc3-iteration2-g0-and-h1-preparation.md), and [RC3 H1 results](../logs/2026-11-19-h1-rc3-headless-execution.md).
 
 Does Houmao prepare, launch, observe, control, resume, interrupt, account usage for, and stop DeepSeek Harness cleanly across its qualified run modes under live human observation on the DeepSeek API (`cloud-api`) and self-hosted Qwen 3.8 (`self-hosted`) model lanes? The current target is Houmao `3.0.0rc3` with DSH `0.2.2-rc.3`: `headless` uses one native CLI worker per prompt, `service` keeps one ACP process alive, and `web` shares a native conversation between browser and API clients.
 
@@ -40,9 +40,9 @@ Both selected provider lanes complete basic turns, tool calls, exact continuatio
 
 Partial RC2 evidence answered only a narrow predecessor of KQ-1.3 and KQ-1.5. On 2026-11-19, a fresh Houmao `3.0.0rc2` Qwen ACP agent completed P1 and a local `hello` turn. A signed gateway prompt also completed after the campaign's unsigned CLI route was refused and an enrolled admin binding was supplied explicitly. The gateway was healthy at the final check, and usage recorded P1. P2 tool execution, P3 exact continuation, P4 interruption, DeepSeek, Web, and teardown were not completed. That evidence does not qualify RC3 native headless workers or the RC3 persistent-service lifecycle.
 
-RC3 H1 subsequently launched from physical checkout `tmp/` storage and completed P1 through the signed gateway, with both literal markers visible and one finalized usage record. This verifies the new storage path and basic native headless dispatch, but not tool execution, exact continuation, interruption, or teardown.
+RC3 H1 completed on the Qwen lane from physical checkout `tmp/` storage. P1–P4 verified literal preservation, tool execution, exact native-session continuation through different workers, interruption with partial finalized usage, and clean teardown. Reasoning level 1 selected native `low`, provider reasoning and progress appeared in durable artifacts during execution, a newly added skill loaded on the next invocation, and unsupported `send-keys` and ACP-only MCP declarations failed explicitly. H1 nevertheless **Needs revision**: `turn events --detail detail` rejects whitespace-only assistant events with a `HoumaoHeadlessTurnEvent.message` validation error, and the supervisor pane showed no live output. Thus KQ-1.2 has a Qwen-lane answer with a concrete observability defect, while H2 has not run.
 
-KQ-1 remains unresolved for RC3 until the Iteration 2 gates are executed and recorded.
+KQ-1 remains unresolved for RC3 service, Web, passive recovery, fixture/auth ergonomics, remaining setup checks, and DeepSeek lanes until the other Iteration 2 gates are executed and recorded.
 
 ## Scope
 
