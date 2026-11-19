@@ -1,6 +1,6 @@
 # Houmao 3.0 Interactive Feature Review
 
-Validate and review the new features introduced in Houmao `3.0.0rc1` through live, human-watched interactive execution so an operator can observe the runtime behavior directly and decide what works as designed or needs revision.
+Validate and review features introduced across the Houmao 3.0 release candidates through live, human-watched interactive execution so an operator can observe runtime behavior directly and decide what works as designed or needs revision. The current qualification target is `3.0.0rc3`; RC1 and RC2 records remain release-specific historical evidence rather than current coverage.
 
 See [debug-intent.md](debug-intent.md) for the complete campaign description, and see [houmao-3-0-interactive-review harness](../../../../scripts/explore/houmao-3-0-interactive-review/README.md) for the temporary campaign helper scripts and isolation wrappers.
 

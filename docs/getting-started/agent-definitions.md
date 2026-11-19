@@ -338,4 +338,4 @@ The compatibility `.houmao/agents/` tree can still be inspected directly, but pr
 
 ## Test-Agent Credentials
 
-For test-oriented agents, use [the fixture helper](../../scripts/agents/test-fixtures/README.md) to select a generic API case with an explicit model or deliberately imported native state. Credential-bearing projects and runs live outside the checkout. API keys stay in local env/private credential files; never save them in tracked definitions.
+For test-oriented agents, use [the fixture helper](../../scripts/agents/test-fixtures/README.md) to select a generic API case with an explicit model or deliberately imported native state. Credential-bearing projects and runs live outside the checkout or in owner-private, purpose-specific subdirectories of its Git-ignored `tmp/` tree. API keys stay in local env/private credential files; never save them in tracked definitions.

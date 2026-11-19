@@ -1,8 +1,10 @@
 # Iteration Plan 1: DSH Basic Functionality With Houmao
 
-Status: planned (awaiting operator endpoint confirmation and execution start). Date: 2026-11-18. Campaign: [debug-intent.md](../debug-intent.md).
+Status: superseded for RC3; partially executed on RC2. Date: 2026-11-18. Revised: 2026-11-19. Campaign: [debug-intent.md](../debug-intent.md).
 
-Question owner: [KQ-1](../key-questions/KQ-1-dsh-basic-functionality.md). Evidence: pending execution.
+Question owner: [KQ-1](../key-questions/KQ-1-dsh-basic-functionality.md). Evidence: [B1 RC2 Qwen 3.8 launch and gateway prompt](../logs/2026-11-19-b1-rc2-qwen38-launch-and-gateway-prompt.md). Current execution plan: [Iteration 2](2026-11-19-plan-2-dsh-rc3-run-modes.md).
+
+This file preserves the original frozen RC1 plan for traceability. Do not run its commands unchanged against RC3. RC3 replaces `--headless` and `--no-headless` with `--mode`, maps the earlier DSH ACP workflow to `service`, and adds a distinct native one-shot `headless` mode. The Result section records which steps actually ran.
 
 ## Question / Answer Sought
 
@@ -12,7 +14,7 @@ Does DeepSeek Harness (`dsh` `>=0.2.2-rc.1`, release or `rc` only) work cleanly 
 
 - **Houmao codebase and CLI**: Branch `devel` (`3.0.0rc1`) with the 2026-11-18 DSH lower-bounded version floor revision (`>=0.2.2rc1`, release and `rc` only, no upper bound), invoked via `pixi run houmao-mgr`.
 - **DSH runtime**: Default `PATH` `dsh` (`~/.bun/bin/dsh`, `0.2.2-rc.1` = npm `latest`) or isolated `tmp/dsh/npm-runtime/node_modules/.bin/dsh` (`0.2.2-rc.3`). Both satisfy `>=0.2.2-rc.1`; Arm A0 verifies that default `PATH` `dsh` resolves cleanly without `PATH` overrides while synthetic `0.2.2-alpha.3` or `0.2.1` shims are rejected.
-- **Campaign runner and tmux isolation**: Iteration 1 helper implementations live in [scripts/explore/houmao-3-0-interactive-review/](../../../../scripts/explore/houmao-3-0-interactive-review/) (`common.py` and `iter1_dsh.py`). All managed launches clear inherited `TMUX` and `TMUX_PANE` and target an isolated tmux server `-L houmao-30-iter1` (via a `0700` `tmux` shim generated under `tmp/houmao-30-iter1/bin/tmux`, matching the [fixture helper convention](../../../../scripts/agents/test-fixtures/fixture.py)) plus `HOUMAO_GLOBAL_*` state directories under `tmp/houmao-30-iter1/houmao-state/`. Active user sessions (`mao-1..4`, `rsi-1..4`) remain untouched. The human watches live by attaching in a separate terminal with `env -u TMUX -u TMUX_PANE tmux -L houmao-30-iter1 attach`, or via explicit `capture-pane` snapshots at pause checkpoints.
+- **Campaign runner and tmux isolation**: Iteration 1 helper implementations live in [scripts/explore/houmao-3-0-interactive-review/](../../../../../scripts/explore/houmao-3-0-interactive-review/) (`common.py` and `iter1_dsh.py`). All managed launches clear inherited `TMUX` and `TMUX_PANE` and target an isolated tmux server `-L houmao-30-iter1` (via a `0700` `tmux` shim generated under `tmp/houmao-30-iter1/bin/tmux`, matching the [fixture helper convention](../../../../../scripts/agents/test-fixtures/fixture.py)) plus `HOUMAO_GLOBAL_*` state directories under `tmp/houmao-30-iter1/houmao-state/`. Active user sessions (`mao-1..4`, `rsi-1..4`) remain untouched. The human watches live by attaching in a separate terminal with `env -u TMUX -u TMUX_PANE tmux -L houmao-30-iter1 attach`, or via explicit `capture-pane` snapshots at pause checkpoints.
 - **Scratch and private access directories**: Project overlays, workdirs, launch profiles, and runtime artifacts live in the gitignored repository scratch directory `tmp/houmao-30-iter1/` rather than system `/tmp`. Because `houmao.gateway._access_storage` rejects any ancestor directory containing `.git`, generated Ed25519 admin keys, `gateway-admin-seed.json`, and `XDG_CONFIG_HOME` (`gateway-access/`) live under `~/.local/state/houmao-30-iter1/` (`0700`/`0600`).
 - **Model lanes**:
   - **DeepSeek API (`cloud-api`)**: Uses credentials sourced from project `.env` (`DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL_ANTHROPIC`) copied into an external `0600` file for fixture compatibility, `adapter: deepseek`, `protocol: messages`, `route: deepseek-official`, and an operator-confirmed DeepSeek model (for example `deepseek-chat`) with explicit `context_window`, `max_output_tokens`, and `reasoning` metadata.
@@ -75,4 +77,8 @@ Gates are evaluated in order before advancing to dependent arms:
 
 ## Result
 
-Pending execution.
+Partially executed on `3.0.0rc2`; incomplete and superseded for RC3. The fresh B1 Qwen ACP setup and launch passed, as did P1, a local `hello` turn, and a signed gateway prompt. The first gateway CLI submission was refused because it did not select the enrolled admin signer; an explicit admin `GatewayClient` binding completed the gateway check. P1 usage was recorded and the final observed gateway state was healthy.
+
+The earlier `tmp/houmao-30-iter1/` overlay also failed setup because it still used removed `launch.metadata.tool_params` configuration. That state was preserved and the successful run used fresh RC2 roots.
+
+P2 tool execution, P3 exact continuation, P4 interruption, A1, A2, B2, C1, and G4 teardown were not completed. The RC2 B1 agent was left running at the end of that session. These observations are recorded in the [B1 RC2 log](../logs/2026-11-19-b1-rc2-qwen38-launch-and-gateway-prompt.md); they are not RC3 pass results. Continue with [Iteration 2](2026-11-19-plan-2-dsh-rc3-run-modes.md).

@@ -653,9 +653,9 @@ def prepare_run(
 
 
 def load_run(path: Path) -> dict[str, Any]:
-    """Read a prepared external run while rejecting foreign path references."""
+    """Read a prepared run while rejecting foreign path references."""
 
-    root = validate_external_path(path)
+    root = validate_external_path(path, allow_checkout_tmp=True)
     try:
         result = json.loads((root / "run.json").read_text())
     except (OSError, ValueError) as exc:

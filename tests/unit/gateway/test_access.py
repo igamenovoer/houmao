@@ -234,6 +234,29 @@ def test_private_source_rejects_shared_symlink_checkout_and_oversize(tmp_path: P
         read_private_access_file(key)
 
 
+def test_private_source_allows_only_purpose_specific_checkout_tmp(tmp_path: Path) -> None:
+    """Permit campaign scratch credentials without weakening other checkout boundaries."""
+
+    repo = tmp_path / "repo"
+    campaign = repo / "tmp" / "campaign"
+    campaign.mkdir(parents=True)
+    (repo / ".git").mkdir()
+    key = campaign / "source"
+    key.write_bytes(b"abcd")
+    key.chmod(0o600)
+    assert read_private_access_file(key, limit=4) == b"abcd"
+
+    direct = repo / "tmp" / "source"
+    direct.write_bytes(b"abcd")
+    direct.chmod(0o600)
+    with pytest.raises(ValueError):
+        read_private_access_file(direct)
+
+    (campaign / ".git").mkdir()
+    with pytest.raises(ValueError):
+        read_private_access_file(key)
+
+
 @pytest.mark.parametrize(
     "base_url",
     [

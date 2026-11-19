@@ -54,7 +54,7 @@ def external_root(
     repo_root: Path = REPO_ROOT,
     create: bool = False,
 ) -> Path:
-    """Resolve a private purpose-specific root outside the repository checkout."""
+    """Resolve an external private root or a purpose-specific checkout tmp run root."""
 
     env = os.environ if process_env is None else process_env
     home = user_home or Path.home()
@@ -68,7 +68,7 @@ def external_root(
         .expanduser()
         .resolve()
     )
-    validate_external_path(resolved, repo_root=repo_root)
+    validate_external_path(resolved, repo_root=repo_root, allow_checkout_tmp=kind == "run")
     if resolved in {Path("/"), Path("/tmp"), home.resolve()}:
         raise FixtureError("Select a purpose-specific external directory")
     if create:
@@ -76,12 +76,20 @@ def external_root(
     return resolved
 
 
-def validate_external_path(path: Path, *, repo_root: Path = REPO_ROOT) -> Path:
-    """Reject credential-bearing state resolving inside the checkout."""
+def validate_external_path(
+    path: Path, *, repo_root: Path = REPO_ROOT, allow_checkout_tmp: bool = False
+) -> Path:
+    """Reject checkout state except for purpose-specific tmp run subdirectories."""
 
     resolved = path.expanduser().resolve()
-    if resolved.is_relative_to(repo_root.resolve()):
-        raise FixtureError("Credential and private run state must be outside the checkout")
+    checkout = repo_root.resolve()
+    scratch = checkout / "tmp"
+    if resolved.is_relative_to(checkout) and not (
+        allow_checkout_tmp and resolved != scratch and resolved.is_relative_to(scratch)
+    ):
+        raise FixtureError(
+            "Credential and private run state must be outside the checkout or in a tmp subdirectory"
+        )
     return resolved
 
 
@@ -119,7 +127,7 @@ def write_json(path: Path, payload: object) -> None:
 def allocate_run(
     config: ResolvedConfig, *, run_root: Path | None = None, repo_root: Path = REPO_ROOT
 ) -> Path:
-    """Allocate a fresh external run directory for one selected lane."""
+    """Allocate a fresh external or checkout-tmp run directory for one selected lane."""
 
     parent = external_root("run", override=run_root, repo_root=repo_root, create=True)
     prefix = f"{config.case or config.auth_method}-{config.client}-{config.mode}-{config.surface}"

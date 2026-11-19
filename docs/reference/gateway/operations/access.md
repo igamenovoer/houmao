@@ -12,11 +12,11 @@ First-key registration always requires proof of the proposed key. An invalid or 
 
 ## Provision and Retain Admin Access
 
-Use `houmao-mgr agents launch --gateway-admin-seed "$seed_file" ...` to record initial enrollment in the owner-written manifest. The seed file is owner-private JSON outside the checkout. It contains an `admin_keys` array of objects with `principal` and `public_key` fields. Use a complete OpenSSH public key line for each entry and a distinct public key for each enrollment. An omitted file or `{"admin_keys":[]}` selects the empty initial list.
+Use `houmao-mgr agents launch --gateway-admin-seed "$seed_file" ...` to record initial enrollment in the owner-written manifest. The seed file is owner-private JSON outside the checkout or in a purpose-specific subdirectory of its Git-ignored `tmp/` tree. It contains an `admin_keys` array of objects with `principal` and `public_key` fields. Use a complete OpenSSH public key line for each entry and a distinct public key for each enrollment. An omitted file or `{"admin_keys":[]}` selects the empty initial list.
 
 Each supported launch or join generation gets a new Ed25519 self key pair. Detaching and reattaching the gateway within that generation preserves the same self identity. An ended or replaced generation loses self access. Managed self commands resolve current runtime authority and sign locally. The gateway retains the live admin list across detach, restart, and relaunch of the same owner binding. The launch seed never restores a removed key.
 
-Owner-private gateway access storage lives outside the project checkout. Keep launch and attach input files and signer files outside it too. Processes running under the same UID share that account's filesystem authority. Use separate OS accounts or container isolation when one process must be unable to read or replace another process's access state.
+Owner-private gateway access storage lives outside the project checkout or in a purpose-specific subdirectory of its Git-ignored `tmp/` tree. Keep launch and attach input files and signer files in approved private storage too. Other checkout directories and nested worktrees remain rejected. Processes running under the same UID share that account's filesystem authority. Use separate OS accounts or container isolation when one process must be unable to read or replace another process's access state.
 
 ## Bind, Connect, and Advertise
 
@@ -46,7 +46,7 @@ Remote clients verify HTTPS through platform certificate trust or a deployment C
 
 ## Enroll or Rotate a Key
 
-This Python example uses a private signer already provisioned outside the checkout and its corresponding public key. Set `GATEWAY_URL` to the selected advertised base URL and `GATEWAY_CA` to the deployment CA bundle when needed. Confirm `GATEWAY_AGENT_ID` and `GATEWAY_CONTEXT_ID` from the owner's deployment record before binding a signer.
+This Python example uses a private signer already provisioned in approved private storage and its corresponding public key. Set `GATEWAY_URL` to the selected advertised base URL and `GATEWAY_CA` to the deployment CA bundle when needed. Confirm `GATEWAY_AGENT_ID` and `GATEWAY_CONTEXT_ID` from the owner's deployment record before binding a signer.
 
 ```python
 import os

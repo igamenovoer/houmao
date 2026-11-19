@@ -14,7 +14,7 @@ from houmao.gateway.access import (
 
 
 def load_gateway_client_binding(path: Path) -> GatewayClientBinding:
-    """Load one explicit private client binding outside a project checkout."""
+    """Load one explicit private client binding from approved private storage."""
 
     try:
         return parse_access_document(GatewayClientBinding, read_private_access_file(path))

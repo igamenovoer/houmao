@@ -261,6 +261,39 @@ def test_private_roots_respect_xdg_and_reject_checkout_symlinks(
     assert not (repo / "auth").exists()
 
 
+def test_run_root_allows_only_purpose_specific_checkout_tmp(
+    fixture_auth: ModuleType, tmp_path: Path
+) -> None:
+    """Run state may use checkout tmp while auth and other checkout paths stay external."""
+
+    repo = tmp_path / "repo"
+    (repo / "tmp").mkdir(parents=True)
+    root = fixture_auth.external_root(
+        "run",
+        override=repo / "tmp" / "campaign",
+        process_env={},
+        user_home=tmp_path / "home",
+        repo_root=repo,
+        create=True,
+    )
+    assert root == repo / "tmp" / "campaign"
+    assert root.stat().st_mode & 0o777 == 0o700
+    for kind, path in (
+        ("auth", repo / "tmp" / "auth"),
+        ("run", repo / "elsewhere"),
+        ("run", repo / "tmp"),
+    ):
+        with pytest.raises(ValueError, match="outside the checkout"):
+            fixture_auth.external_root(
+                kind,
+                override=path,
+                process_env={},
+                user_home=tmp_path / "home",
+                repo_root=repo,
+                create=True,
+            )
+
+
 def _native_home(tmp_path: Path, client: str) -> tuple[Path, Path]:
     """Write one entirely synthetic native auth source and unrelated history."""
 

@@ -264,7 +264,7 @@ class GatewayAccessStore:
 
 
 def read_private_access_file(path: Path, *, limit: int = MAX_ACCESS_DOCUMENT) -> bytes:
-    """Read one bounded owner-only regular source outside project checkouts."""
+    """Read one bounded owner-only regular source from approved private storage."""
 
     try:
         with _open_directory(path.parent) as parent:
@@ -287,9 +287,10 @@ def _open_directory(path: Path, *, create: bool = False) -> Iterator[int]:
 
     if not path.is_absolute() or ".." in path.parts:
         raise ValueError("invalid private directory")
+    current = Path(path.anchor)
     descriptor = os.open(path.anchor, _DIR_FLAGS)
     try:
-        _reject_checkout(descriptor)
+        _reject_checkout(descriptor, checkout_root=current, destination=path)
         for part in path.parts[1:]:
             try:
                 child = os.open(part, _DIR_FLAGS, dir_fd=descriptor)
@@ -304,20 +305,23 @@ def _open_directory(path: Path, *, create: bool = False) -> Iterator[int]:
                 child = os.open(part, _DIR_FLAGS, dir_fd=descriptor)
             os.close(descriptor)
             descriptor = child
-            _reject_checkout(descriptor)
+            current = current / part
+            _reject_checkout(descriptor, checkout_root=current, destination=path)
         yield descriptor
     finally:
         os.close(descriptor)
 
 
-def _reject_checkout(directory: int) -> None:
-    """Reject a worktree marker before reading or creating private sources."""
+def _reject_checkout(directory: int, *, checkout_root: Path, destination: Path) -> None:
+    """Reject worktrees except for purpose-specific subdirectories of their tmp root."""
 
     try:
         os.stat(".git", dir_fd=directory, follow_symlinks=False)
     except FileNotFoundError:
         return
-    raise ValueError("private access source is in a checkout")
+    scratch = checkout_root / "tmp"
+    if destination == scratch or not destination.is_relative_to(scratch):
+        raise ValueError("private access source is in a checkout")
 
 
 @contextmanager

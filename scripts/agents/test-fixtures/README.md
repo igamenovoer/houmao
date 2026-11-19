@@ -1,6 +1,6 @@
 # Test-Agent Fixture Tools
 
-Run this development utility through `pixi run python scripts/agents/test-fixtures/fixture.py`. It consumes the tracked [API case descriptors](../../../tests/fixtures/agent-launch/README.md) and keeps live credentials outside the checkout.
+Run this development utility through `pixi run python scripts/agents/test-fixtures/fixture.py`. It consumes the tracked [API case descriptors](../../../tests/fixtures/agent-launch/README.md) and keeps reusable live credentials outside the checkout.
 
 ## Discover and Import Native Login State
 
@@ -20,7 +20,7 @@ Discovery reports candidate IDs, paths, supported companion filenames, and local
 
 An import copies supported files byte-for-byte, preserves the original source, and publishes a user-private bundle. `--replace` is required to replace an existing name. Empty/malformed credentials, helper-only/keychain-only auth, and unsupported scoped OAuth files are not treated as usable saved login state. Local validation does not prove a credential is current.
 
-Reusable auth defaults to `${XDG_DATA_HOME:-~/.local/share}/houmao/test-fixtures/auth/`; override it with `--auth-root` or `HOUMAO_TEST_AUTH_ROOT`. Private runs default to `${XDG_STATE_HOME:-~/.local/state}/houmao/test-fixtures/runs/`, with `--run-root` or `HOUMAO_TEST_RUN_ROOT` overrides. Both must resolve outside the checkout, including symlinked paths.
+Reusable auth defaults to `${XDG_DATA_HOME:-~/.local/share}/houmao/test-fixtures/auth/`; override it with `--auth-root` or `HOUMAO_TEST_AUTH_ROOT`. Private runs default to `${XDG_STATE_HOME:-~/.local/state}/houmao/test-fixtures/runs/`, with `--run-root` or `HOUMAO_TEST_RUN_ROOT` overrides. Auth roots must resolve outside the checkout. Run roots may instead resolve to a purpose-specific subdirectory of the checkout's Git-ignored `tmp/` tree; the bare `tmp/` root and other checkout paths remain invalid. All private directories retain owner-only permissions, and gateway access paths retain no-follow traversal.
 
 The generic API cases require no imported native JSON. DeepSeek uses local key/endpoint references. Native login is a separately selected auth method and never becomes an API-key fallback.
 
