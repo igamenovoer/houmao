@@ -17,7 +17,7 @@ On the skill surface, a human operator uses `$houmao-admin-entrypoint agent-inst
 | `tui` | Native terminal UI | Verified tmux terminal target |
 | `web` | Native browser application | Token-free browser origin and bound native session ID |
 
-Claude, Codex, and Kimi currently support `headless` and `tui`, with `tui` the project default. DSH currently defaults to `web` and rejects other modes until their adapters qualify. Passive headless birth requires `headless`. The low-level Codex runtime start defaults to `headless` when both mode and backend are omitted.
+Claude supports `headless` and `tui`. Codex also supports `service`, and Kimi supports all four modes. DeepSeek Harness (DSH) supports `headless`, `service`, and `web`. Project launches default to `web` for DSH and `tui` for the other tools. Passive headless birth requires `headless`. The low-level Codex runtime start defaults to `headless` when both mode and backend are omitted.
 
 Launch and inspection report `tool`, `mode`, `backend`, and `native_surface`. A terminal launch from a script includes a tmux attach command. A Web launch reports the native browser origin and session ID. For a routed launch, browser origins and tmux targets refer to the execution owner. Service and headless supervision panes are available for diagnostics. Relaunch selects the saved mode and backend even if the profile has changed.
 

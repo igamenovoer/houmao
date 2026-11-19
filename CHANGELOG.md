@@ -4,6 +4,24 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [3.0.0rc3] - 2026-11-19
+
+### Changed
+
+- **Managed run modes.** Select `headless`, `service`, `tui`, or `web` with `--mode` or a launch profile's `defaults.posture.mode`. Configure prompt policy independently. Launch and inspection report the selected mode, backend, and native browser or terminal handoff when available.
+- **Shared lifecycle and control.** The manager and authenticated gateway use the current execution owner for prompt admission, interruption, and state. Passive API and AG-UI clients expose state and outcomes for supported managed sessions.
+- **Upgrade from RC2.** Stop existing agents with RC2 before upgrading and launch fresh sessions under RC3. Replace `defaults.posture.headless` with `defaults.posture.mode`. RC2 DSH over ACP maps to `service`. Select `headless` for DSH's new one-shot CLI worker.
+
+### Added
+
+- **Native DSH headless and persistent services.** DSH headless runs one CLI worker per prompt. Service mode keeps DSH ACP, Kimi Code ACP, or Codex app-server running across prompts.
+- **Kimi Web.** The browser and Houmao control the same native conversation. Houmao checks readiness before sending and reports Kimi's queued receipt if a browser prompt starts in the gap.
+
+### Notes
+
+- Install with `uv tool install 'houmao==3.0.0rc3'`. For the matching public skills, use `npx skills add https://github.com/igamenovoer/houmao-skills#v3.0.0rc3`.
+- See the [Session Lifecycle Guide](https://igamenovoer.github.io/houmao/reference/run-phase/session-lifecycle/) for mode selection and [the release comparison](https://github.com/igamenovoer/houmao/compare/v3.0.0rc2...v3.0.0rc3) for the full change range.
+
 ## [3.0.0rc2] - 2026-11-18
 
 ### Changed
