@@ -120,7 +120,10 @@ from .backends.headless_output import (
     resolve_headless_display_detail,
     resolve_headless_display_style,
 )
-from .backends.local_interactive import LocalInteractiveSession
+from .backends.local_interactive import (
+    LocalInteractiveSession,
+    validate_kimi_tui_chat_selection,
+)
 from .backends.tmux_runtime import (
     TmuxCommandError,
     TmuxPaneRecord,
@@ -1376,6 +1379,7 @@ class RuntimeSessionController:
         if _backend_requires_provider_start_relaunch(self.launch_plan.backend):
             try:
                 updated_launch_plan = _build_provider_start_launch_plan_for_relaunch(self)
+                validate_kimi_tui_chat_selection(updated_launch_plan, effective_chat_session)
                 updated_launch_plan = _activate_hook_observation_for_controller(
                     controller=self,
                     launch_plan=updated_launch_plan,
@@ -1476,6 +1480,7 @@ class RuntimeSessionController:
         if _backend_requires_provider_start_relaunch(self.launch_plan.backend):
             try:
                 updated_launch_plan = _build_provider_start_launch_plan_for_relaunch(self)
+                validate_kimi_tui_chat_selection(updated_launch_plan, effective_chat_session)
                 updated_launch_plan = _activate_hook_observation_for_controller(
                     controller=self,
                     launch_plan=updated_launch_plan,

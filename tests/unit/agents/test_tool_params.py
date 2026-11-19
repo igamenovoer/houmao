@@ -4,7 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from houmao.agents.launch_overrides import LaunchDefaults, resolve_launch_behavior
+from houmao.agents.launch_overrides import (
+    LaunchArgsSection,
+    LaunchDefaults,
+    LaunchOverrides,
+    resolve_launch_behavior,
+)
+from houmao.agents.launch_overrides.native import native_setup_permissions
 from houmao.agents.tool_params import (
     merge_partial_tool_params,
     parse_tool_params_cli_input,
@@ -138,6 +144,78 @@ def test_dsh_models_and_mcp_servers_merge_by_identity() -> None:
     assert merged["models"][0]["compat"]["supports_developer_role"] is False
     assert merged["mcp_servers"][0]["url"] == "http://localhost/audit"
     assert merged["mcp_servers"][0]["headers"] is None
+
+
+def test_native_setup_and_selected_argument_layers_follow_field_precedence(tmp_path: Path) -> None:
+    """Keep independent permission fields and let typed values win within a layer."""
+
+    config = tmp_path / "config.toml"
+    source = 'sandbox_mode = "workspace-write"\n'
+    config.write_text(source, encoding="utf-8")
+    setup = merge_partial_tool_params(
+        "codex",
+        [
+            ("native setup", native_setup_permissions("codex", tmp_path)),
+            ("setup tool-params.yaml", {"approval_policy": "on-request"}),
+        ],
+    )
+    layers = [
+        ("adapter", {}),
+        ("setup", setup),
+        ("preset", {}),
+        ("launch_profile", {}),
+        ("direct", {"sandbox_mode": "read-only"}),
+    ]
+    resolved = resolve_launch_behavior(
+        tool="codex",
+        backend="codex_headless",
+        adapter_defaults=LaunchDefaults(args=("-anever",)),
+        recipe_overrides=LaunchOverrides(LaunchArgsSection("append", ("-s", "read-only"))),
+        direct_overrides=LaunchOverrides(LaunchArgsSection("append", ("-sdanger-full-access",))),
+        tool_param_layers=layers,
+    )
+    assert resolved.tool_params == {"sandbox_mode": "read-only", "approval_policy": "on-request"}
+    assert resolved.tool_param_sources == {"sandbox_mode": "direct", "approval_policy": "setup"}
+    assert resolved.args_before_policy == ()
+    assert config.read_text(encoding="utf-8") == source
+    assert setup["sandbox_mode"] == "workspace-write"
+
+
+@pytest.mark.parametrize("value", ["stream-json", None])
+def test_managed_output_setting_rejects_authored_presence(value: str | None) -> None:
+    """A matching value and null both conflict with managed protocol ownership."""
+
+    with pytest.raises(ValueError, match=r"preset.output_format: reserved managed setting"):
+        validate_tool_params("claude", {"output_format": value}, source="preset")
+
+
+def test_shadowed_raw_protocol_override_still_fails_validation() -> None:
+    """Reject a reserved lower-layer option before merging argument sections."""
+
+    with pytest.raises(ValueError, match=r"preset launch args.*claude_headless.*--output-format"):
+        resolve_launch_behavior(
+            tool="claude",
+            backend="claude_headless",
+            adapter_defaults=LaunchDefaults(),
+            recipe_overrides=LaunchOverrides(
+                LaunchArgsSection("append", ("--output-format=stream-json",))
+            ),
+            direct_overrides=LaunchOverrides(LaunchArgsSection("replace", ())),
+            tool_param_layers=(("preset", {}), ("direct", {})),
+        )
+
+
+def test_codex_native_role_override_names_the_reserved_config_key() -> None:
+    """Identify the managed config field rather than reporting its generic flag."""
+
+    with pytest.raises(ValueError, match=r"reserved Codex config setting `developer_instructions`"):
+        resolve_launch_behavior(
+            tool="codex",
+            backend="codex_headless",
+            adapter_defaults=LaunchDefaults(args=('-c"developer_instructions"="role"',)),
+            recipe_overrides=None,
+            direct_overrides=None,
+        )
 
 
 def test_tool_params_cli_reads_json_and_owner_relative_yaml(

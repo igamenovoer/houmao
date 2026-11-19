@@ -12,9 +12,12 @@ from houmao.agents.dsh_configuration import (
     MATERIALIZED_DSH_TOOL_PARAMS,
     DshConfigurationError,
     DshEffectiveToolParams,
+    load_dsh_home,
     prepare_dsh_home,
+    project_dsh_home_permissions,
 )
 from houmao.agents.model_mapping_policy import resolve_reasoning_mapping
+from houmao.agents.tool_params.dsh import DshPermissionParams
 
 
 def _setup() -> dict:
@@ -99,7 +102,8 @@ def test_selected_route_credentials_are_private_and_isolated(tmp_path: Path) -> 
     assert patch["skill-filesystem"]["config"]["watch"] is False
     assert patch["hmr"]["disabled"] is True
     assert patch["approval"]["config"]["policy"] == "never"
-    assert patch["permission"]["config"]["defaultPreset"] == "houmao-unattended"
+    assert patch["sandbox-policy"]["config"]["mode"] == "danger-full-access"
+    assert patch["permission"]["config"]["defaultPreset"] == "danger-full-access"
     assert patch["session-persistence-jsonl"]["config"]["compression"] == "none"
     assert "synthetic-selected-key" not in first.patch_path.read_text()
 
@@ -368,13 +372,13 @@ def test_model_and_reasoning_selections_are_exact() -> None:
         setup.select_model(reasoning_level="high")
 
 
-@pytest.mark.parametrize("hmr", [True, 0])
-def test_managed_hmr_cannot_be_enabled(hmr: object) -> None:
-    """Make startup-only resource activation explicit."""
+@pytest.mark.parametrize("hmr", [False, True, 0, None])
+def test_managed_hmr_rejects_authored_values(hmr: object) -> None:
+    """Report a reserved field even when the supplied value matches the managed choice."""
 
     document = _setup()
     document["hmr"] = hmr
-    with pytest.raises(DshConfigurationError, match="startup-only"):
+    with pytest.raises(DshConfigurationError, match="reserves hmr.*startup-only"):
         DshEffectiveToolParams.from_mapping(document)
 
 
@@ -509,20 +513,85 @@ def test_as_is_preserves_native_permissions_while_unattended_is_explicit(tmp_pat
     assert "sandbox-policy" not in patch
     assert "permission" not in patch
     assert prepared.metadata["operator_prompt_mode"] == "as_is"
+    assert prepared.metadata["permissions"] == {}
     unattended = prepare_dsh_home(tmp_path / "unattended", setup, _environment(), "")
     patch = {entry["id"]: entry for entry in json.loads(unattended.patch_path.read_text())}
     assert patch["approval"]["config"]["policy"] == "never"
-    assert patch["sandbox-policy"]["config"]["mode"] == "workspace-write"
+    assert patch["sandbox-policy"]["config"]["mode"] == "danger-full-access"
     assert patch["permission"]["config"] == {
-        "defaultPreset": "houmao-unattended",
+        "defaultPreset": "danger-full-access",
         "presets": {
             "read-only": {"sandbox": "read-only", "approval": "ask"},
             "workspace-write": {"sandbox": "workspace-write", "approval": "ask"},
             "danger-full-access": {"sandbox": "danger-full-access", "approval": "never"},
-            "houmao-unattended": {"sandbox": "workspace-write", "approval": "never"},
         },
     }
     assert unattended.metadata["operator_prompt_mode"] == "unattended"
+
+
+@pytest.mark.parametrize(
+    "operator_prompt_mode,authored,expected",
+    [
+        ("unattended", {"sandbox": "workspace-write"}, ("workspace-write", "never")),
+        ("unattended", {"approval": "ask"}, ("danger-full-access", "ask")),
+        ("as_is", {"sandbox": "read-only"}, ("read-only", "ask")),
+        ("as_is", {"approval": "never"}, ("workspace-write", "never")),
+    ],
+)
+def test_dsh_permission_fields_compose_independently(
+    tmp_path: Path,
+    operator_prompt_mode: str,
+    authored: dict[str, str],
+    expected: tuple[str, str],
+) -> None:
+    """Use each authored field and the applicable default in a coherent preset."""
+
+    setup = DshEffectiveToolParams.from_mapping({**_setup(), "permissions": authored})
+    prepared = prepare_dsh_home(
+        tmp_path,
+        setup,
+        _environment(),
+        "",
+        operator_prompt_mode=operator_prompt_mode,
+        native_profile="headless",
+    )
+    patch = {
+        entry["id"]: entry["config"]
+        for entry in json.loads(prepared.patch_path.read_text())
+        if "config" in entry
+    }
+    selected = patch["permission"]["defaultPreset"]
+    assert patch["permission"]["presets"][selected] == dict(zip(("sandbox", "approval"), expected))
+    loaded = load_dsh_home(tmp_path, setup, _environment(), native_profile="headless")
+    assert loaded.permission_preset == selected
+    assert (
+        DshEffectiveToolParams.from_file(
+            tmp_path / MATERIALIZED_DSH_TOOL_PARAMS
+        ).permissions.model_dump()
+        == authored
+    )
+
+
+def test_raw_permission_projection_replaces_previous_defaults(tmp_path: Path) -> None:
+    """Restore native omissions and keep unrelated prepared state across raw starts."""
+
+    prepared = prepare_dsh_home(
+        tmp_path, DshEffectiveToolParams.from_mapping(_setup()), _environment(), "original role"
+    )
+    patch_path = prepared.patch_path
+    project_dsh_home_permissions(patch_path, DshPermissionParams(sandbox="read-only"))
+    patch = {entry["id"]: entry.get("config") for entry in json.loads(patch_path.read_text())}
+    assert patch["permission"]["defaultPreset"] == "read-only"
+    assert patch["sandbox-policy"]["mode"] == "read-only"
+    assert "approval" not in patch
+    project_dsh_home_permissions(patch_path, DshPermissionParams())
+    updated = {entry["id"]: entry.get("config") for entry in json.loads(patch_path.read_text())}
+    assert updated == {
+        name: config
+        for name, config in patch.items()
+        if name not in {"permission", "sandbox-policy"}
+    }
+    assert prepared.role_path.read_text() == "original role"
 
 
 @pytest.mark.parametrize("efforts", [{}, {"off": "none"}, {"high": ""}, {"high": None}, {0: "off"}])

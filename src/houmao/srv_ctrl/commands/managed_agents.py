@@ -1390,6 +1390,7 @@ def resolve_managed_agent_mail_target(
     agent_id: str | None,
     agent_name: str | None,
     port: int | None,
+    read_only_self: bool = False,
 ) -> ManagedAgentTarget:
     """Resolve one scoped managed-agent mail target."""
 
@@ -1398,6 +1399,7 @@ def resolve_managed_agent_mail_target(
         agent_name=agent_name,
         port=port,
         operation_family="scoped agents mail",
+        read_only_self=read_only_self,
     )
     if isinstance(scoped_target, ManagedAgentTarget):
         return scoped_target
@@ -1440,7 +1442,7 @@ def resolve_managed_agent_mail_target(
     return cast(ManagedAgentTarget, resolved_target)
 
 
-def resolve_current_session_managed_agent_target() -> ManagedAgentTarget:
+def resolve_current_session_managed_agent_target(*, read_only: bool = False) -> ManagedAgentTarget:
     """Resolve the current tmux session into one local managed-agent target."""
 
     gateway_commands = _gateway_command_helpers()
@@ -1453,7 +1455,9 @@ def resolve_current_session_managed_agent_target() -> ManagedAgentTarget:
         )
     return cast(
         ManagedAgentTarget,
-        gateway_commands._resolve_gateway_current_session_target(session_name=session_name),
+        gateway_commands._resolve_gateway_current_session_target(
+            session_name=session_name, read_only=read_only
+        ),
     )
 
 
@@ -1463,6 +1467,7 @@ def _resolve_target_from_scope_context(
     agent_name: str | None,
     port: int | None,
     operation_family: str,
+    read_only_self: bool = False,
 ) -> ManagedAgentTarget | ManagedAgentScopeContext | None:
     """Apply inherited `agents single` or `agents self` target scope."""
 
@@ -1484,7 +1489,7 @@ def _resolve_target_from_scope_context(
             f"`{operation_family}` is running under `agents self`; pair-authority port "
             "overrides are not supported because the target is the current managed tmux session."
         )
-    return resolve_current_session_managed_agent_target()
+    return resolve_current_session_managed_agent_target(read_only=read_only_self)
 
 
 def _resolve_local_managed_agent_record(

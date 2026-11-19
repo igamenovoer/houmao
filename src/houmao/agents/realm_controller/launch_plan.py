@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 import os
 from pathlib import Path
 import shutil
-from typing import Any, Final, Literal, cast
+from typing import Any, Final, Literal, Mapping, cast
 
 from houmao.agents.codex_cli_config import (
     CodexCliConfigOverride,
@@ -28,6 +28,7 @@ from houmao.agents.dsh_configuration import (
     read_dsh_mcp_environment,
 )
 from houmao.agents.dsh_credentials import require_dsh_credential_roles
+from houmao.agents.tool_params.dsh import DshPermissionParams
 from houmao.agents.launch_env import validate_persistent_env_records
 from houmao.agents.model_mapping_policy import resolve_reasoning_mapping
 from houmao.agents.model_selection import parse_model_config
@@ -184,32 +185,16 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         backend=launch_surface_for_backend(request.backend),
     )
     args = list(resolved_launch_behavior.args_before_policy)
-    if request.backend == "dsh_web" and args:
-        raise LaunchPlanError(
-            "DSH Web uses owned native configuration; raw launch arguments and terminal controls are unsupported"
-        )
-    if request.backend in {"dsh_headless", "dsh_acp"} and args:
-        raise LaunchPlanError(
-            f"DSH {mode} uses owned native configuration and rejects raw launch arguments"
-        )
     owned_kimi_session = request.backend in {"kimi_acp", "kimi_web"}
     kimi_entrypoint = "Kimi Web" if request.backend == "kimi_web" else "Kimi ACP"
-    if owned_kimi_session and args:
-        raise LaunchPlanError(
-            f"{kimi_entrypoint} uses owned native configuration and rejects raw launch arguments"
-        )
     if owned_kimi_session and home_env_var != "KIMI_CODE_HOME":
         raise LaunchPlanError(f"{kimi_entrypoint} requires the KIMI_CODE_HOME home selector")
     if request.backend == "codex_app_server":
-        if args:
-            raise LaunchPlanError(
-                "Codex app-server uses private stdio and rejects raw launch arguments."
-            )
         if home_env_var != "CODEX_HOME":
             raise LaunchPlanError("Codex app-server requires the CODEX_HOME home selector")
     codex_service_version = None
     if request.backend == "codex_app_server" and request.intent == "provider_start":
-        executable, codex_service_version = _resolve_codex_service_executable(executable)
+        executable, codex_service_version = resolve_codex_service_executable(executable)
         try:
             validate_codex_credential_readiness(home_path=home_path, env=env_values)
         except (LaunchPolicyError, OSError) as exc:
@@ -256,7 +241,6 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         _strip_kimi_observer_block_before_policy_synthesis(
             tool=tool,
             backend=request.backend,
-            operator_prompt_mode=requested_operator_prompt_mode,
             home_path=home_path,
         )
 
@@ -272,6 +256,8 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
                 home_path=home_path,
                 env=policy_env,
                 application_kind=request.intent,
+                tool_params=resolved_launch_behavior.tool_params,
+                tool_param_sources=resolved_launch_behavior.tool_param_sources,
             )
         )
     except LaunchPolicyCompatibilityError as exc:
@@ -286,6 +272,11 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         raise LaunchPlanError(str(exc)) from exc
 
     args = list(launch_policy_result.args)
+    permissions = launch_policy_result.permissions
+    metadata["launch_permissions"] = {
+        "effective": permissions,
+        "sources": launch_policy_result.permission_sources,
+    }
     role_injection = plan_role_injection(
         backend=request.backend,
         tool=tool,
@@ -329,6 +320,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
             "detected_version": codex_service_version,
             "operator_prompt_mode": requested_operator_prompt_mode,
             "thread_config": _codex_service_thread_config(home_path),
+            "permissions": permissions,
         }
     if tool == "dsh":
         assert request.backend in {"dsh_headless", "dsh_acp", "dsh_web"}
@@ -338,6 +330,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
             environment=env_values,
             credential_source=env_source,
             launch_contract=launch_contract,
+            permissions=permissions.get("permissions", {}),
             executable=executable,
             detected_version=(
                 launch_policy_result.provenance.detected_tool_version
@@ -379,6 +372,8 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
                 working_directory=request.working_directory,
                 home_path=home_path,
             )
+    if tool == "kimi" and request.backend == "local_interactive":
+        metadata["kimi_tui"] = {"permission_mode": permissions.get("permission_mode")}
     if owned_kimi_session:
         env_values[home_env_var] = str(home_path)
         env_var_names = sorted({*env_var_names, home_env_var})
@@ -394,11 +389,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
                 )
         if request.intent == "provider_start":
             try:
-                prepare_kimi_service_config(
-                    home_path,
-                    model_alias=model_alias,
-                    unattended=requested_operator_prompt_mode == "unattended",
-                )
+                prepare_kimi_service_config(home_path, model_alias=model_alias)
             except (LaunchPolicyError, OSError, ValueError) as exc:
                 raise LaunchPlanError(
                     f"Could not project the private {kimi_entrypoint} configuration"
@@ -406,6 +397,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         metadata[request.backend] = {
             "detected_version": kimi_native_version,
             "operator_prompt_mode": requested_operator_prompt_mode,
+            "permission_mode": permissions.get("permission_mode"),
             "configured_model": model_alias or env_values.get("KIMI_MODEL_NAME"),
         }
     if launch_policy_result.strategy is not None:
@@ -541,7 +533,7 @@ def _validate_kimi_native_version(*, executable: str, mode: str) -> str:
     return version
 
 
-def _resolve_codex_service_executable(executable: str) -> tuple[str, str]:
+def resolve_codex_service_executable(executable: str) -> tuple[str, str]:
     """Pin and version-check the executable allowed to start private stdio."""
 
     resolved = shutil.which(executable)
@@ -588,6 +580,7 @@ def _prepare_dsh_launch(
     environment: dict[str, str],
     credential_source: Path,
     launch_contract: dict[str, Any],
+    permissions: Mapping[str, Any],
     executable: str,
     detected_version: str | None,
 ) -> tuple[dict[str, Any], dict[str, str]]:
@@ -630,6 +623,7 @@ def _prepare_dsh_launch(
                 operator_prompt_mode=_requested_operator_prompt_mode(request.brain_manifest)
                 or "unattended",
                 native_profile="headless" if request.backend == "dsh_headless" else "acp",
+                permissions=DshPermissionParams.model_validate(dict(permissions)),
             )
             metadata = {
                 **prepared.metadata,
@@ -662,24 +656,11 @@ def _strip_kimi_observer_block_before_policy_synthesis(
     *,
     tool: str,
     backend: BackendKind,
-    operator_prompt_mode: OperatorPromptMode | None,
     home_path: Path,
 ) -> None:
-    """Remove a persisted Kimi observer block before the launch policy writes fields.
-
-    The launch policy's ``toml.set`` surface re-renders the whole run-time
-    ``config.toml`` with a minimal serializer that cannot represent an existing
-    ``[[hooks]]`` array-of-tables, so a block left by an earlier generation
-    would fail policy synthesis on relaunch. Stripping first keeps the two
-    writers ordered: policy fields are synthesized here, and
-    :func:`_install_hook_observation_for_launch` re-merges the block afterwards.
-    Only the Kimi TUI unattended strategy writes ``config.toml`` fields, so
-    every other tool/backend/mode combination is left untouched.
-    """
+    """Remove the prior Kimi observer block before rewriting startup settings."""
 
     if tool != "kimi" or backend != "local_interactive":
-        return
-    if operator_prompt_mode != "unattended":
         return
     remove_kimi_observer_configuration(home_path=home_path)
 
@@ -1645,6 +1626,12 @@ def _resolve_launch_behavior_from_contract(
     effective = raw_tool_params.get("effective") if raw_tool_params is not None else None
     if effective is not None and not isinstance(effective, dict):
         raise LaunchPlanError("Manifest effective tool_params must be a mapping.")
+    layers = raw_tool_params.get("layers") if raw_tool_params is not None else None
+    if layers is not None and (
+        not isinstance(layers, dict)
+        or any(not isinstance(patch, dict) for patch in layers.values())
+    ):
+        raise LaunchPlanError("Manifest tool_params layers must contain mappings.")
 
     try:
         return resolve_launch_behavior(
@@ -1660,6 +1647,14 @@ def _resolve_launch_behavior_from_contract(
                 layer="direct",
             ),
             tool_params=effective,
+            tool_param_layers=(
+                tuple(
+                    (name, layers.get(name, {}))
+                    for name in ("adapter", "setup", "preset", "launch_profile", "direct")
+                )
+                if layers is not None
+                else None
+            ),
         )
     except ValueError as exc:
         raise LaunchPlanError(str(exc)) from exc

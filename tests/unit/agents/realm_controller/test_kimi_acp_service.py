@@ -81,15 +81,16 @@ while (frame := receive()) is not None:
             wire.parent.mkdir(parents=True)
             (wire.parents[2] / "state.json").write_text(json.dumps({"id": session, "cwd": os.getcwd()}))
             record({"type": "metadata"})
-            reply(frame, {**config(), "sessionId": session})
+            reply(frame, {**config(os.environ.get("HOUMAO_PEER_START_MODE", "default")), "sessionId": session})
         else:
             assert params["sessionId"] == session
             if method == "session/load":
                 updates("HISTORICAL ACP TEXT")
-            reply(frame, config())
+            reply(frame, config(os.environ.get("HOUMAO_PEER_START_MODE", "default")))
     elif method == "session/set_config_option":
-        assert params == {"sessionId": session, "configId": "mode", "value": "auto"}
-        reply(frame, config("auto"))
+        expected_mode = os.environ.get("HOUMAO_PEER_EXPECT_MODE", "auto")
+        assert params == {"sessionId": session, "configId": "mode", "value": expected_mode}
+        reply(frame, config(os.environ.get("HOUMAO_PEER_ECHO_MODE", expected_mode)))
     elif method == "session/prompt":
         assert params["sessionId"] == session
         [block] = params["prompt"]
@@ -155,7 +156,7 @@ def peer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ServiceOwner
             "HOUMAO_PEER_ROOT": str(owner),
             "HOUMAO_PEER_WIRE": str(wire),
         },
-        metadata={"kimi_acp": {"operator_prompt_mode": "unattended"}},
+        metadata={"kimi_acp": {"permission_mode": "auto"}},
         root=owner,
         manifest_path=tmp_path / "manifest.json",
         agent_id="managed-agent",
@@ -312,6 +313,65 @@ def test_exact_load_requires_the_workspace_and_replay_cannot_create_output(
         assert "session/load" in (exact.root / "request-methods.jsonl").read_text()
     finally:
         provider.close()
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected"), [("auto", "auto"), ("manual", "default"), ("yolo", "yolo")]
+)
+def test_permission_mode_binds_on_fresh_and_exact_start(
+    peer_config: ServiceOwnerConfig, mode: str, expected: str
+) -> None:
+    """Project the selected mode on the original conversation and its exact continuation."""
+
+    config = peer_config.model_copy(
+        update={
+            "metadata": {"kimi_acp": {"permission_mode": mode}},
+            "environment": {
+                **peer_config.environment,
+                "HOUMAO_PEER_START_MODE": "plan",
+                "HOUMAO_PEER_EXPECT_MODE": expected,
+            },
+        }
+    )
+    provider = create_kimi_service_provider(config)
+    try:
+        session_id = provider.native_session_id
+        assert provider.connection_ready
+        assert json.loads((config.root / "kimi-acp-binding.json").read_text())["native_mode"] == (
+            expected
+        )
+    finally:
+        provider.close()
+
+    resumed_root = config.root / "resume"
+    resumed_root.mkdir()
+    exact = config.model_copy(
+        update={
+            "root": resumed_root,
+            "session_id": session_id,
+            "environment": {**config.environment, "HOUMAO_PEER_ROOT": str(resumed_root)},
+        }
+    )
+    provider = create_kimi_service_provider(exact)
+    try:
+        assert provider.native_session_id == session_id
+        assert provider.connection_ready
+        binding = json.loads((resumed_root / "kimi-acp-binding.json").read_text())
+        assert binding["binding_method"] == "session/resume"
+        assert binding["native_mode"] == expected
+    finally:
+        provider.close()
+
+
+def test_permission_mismatch_blocks_readiness(peer_config: ServiceOwnerConfig) -> None:
+    """Require the native binding to confirm the requested launch policy."""
+
+    config = peer_config.model_copy(
+        update={"environment": {**peer_config.environment, "HOUMAO_PEER_ECHO_MODE": "yolo"}}
+    )
+    with pytest.raises(BackendExecutionError, match="permission_mode='auto'"):
+        create_kimi_service_provider(config)
+    assert not (config.root / "kimi-acp-binding.json").exists()
 
 
 def test_unqualified_handshake_fails_before_session_creation(

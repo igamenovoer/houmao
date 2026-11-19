@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 import json
 import shutil
 import subprocess
@@ -187,7 +188,61 @@ def test_codex_unattended_strategy_preserves_explicit_model_selection(
     assert payload.get("notice", {}).get("model_migrations") is None
 
 
-def test_codex_unattended_strategy_canonicalizes_conflicting_launch_inputs(
+@pytest.mark.parametrize("prompt_mode", ["unattended", "as_is"])
+def test_codex_projects_resolved_permission_settings_above_project_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    prompt_mode: str,
+) -> None:
+    """Set both native precedence boundaries while preserving unrelated TOML."""
+
+    _stub_version(monkeypatch, output="codex-cli 0.169.0")
+    workspace = tmp_path / "workspace"
+    project_config = workspace / ".codex" / "config.toml"
+    project_config.parent.mkdir(parents=True)
+    project_content = 'sandbox_mode = "danger-full-access"\napproval_policy = "never"\n'
+    project_config.write_text(project_content, encoding="utf-8")
+    home = tmp_path / "codex-home"
+    home.mkdir()
+    (home / "auth.json").write_text('{"session_id":"abc"}\n', encoding="utf-8")
+    config_path = home / "config.toml"
+    config_path.write_text(
+        'model = "gpt-5.4-mini"\n'
+        'model_provider = "test"\n'
+        'sandbox_mode = "workspace-write"\n\n'
+        '[model_providers.test]\nname = "Test"\n\n'
+        '[[hooks.SessionStart]]\nmatcher = "resume"\n',
+        encoding="utf-8",
+    )
+
+    result = apply_launch_policy(
+        LaunchPolicyRequest(
+            tool="codex",
+            backend="codex_headless",
+            executable="codex",
+            base_args=(),
+            requested_operator_prompt_mode=prompt_mode,
+            working_directory=workspace,
+            home_path=home,
+            env={},
+            tool_params={"approval_policy": "on-request", "sandbox_mode": "read-only"},
+        )
+    )
+
+    effective = _load_toml(config_path)
+    assert effective["sandbox_mode"] == "read-only"
+    assert effective["approval_policy"] == "on-request"
+    assert effective["model"] == "gpt-5.4-mini"
+    assert effective["model_provider"] == "test"
+    assert effective["model_providers"] == {"test": {"name": "Test"}}
+    assert effective["hooks"] == {"SessionStart": [{"matcher": "resume"}]}
+    assert '--config=approval_policy="on-request"' in result.args
+    assert '--config=sandbox_mode="read-only"' in result.args
+    assert project_config.read_text(encoding="utf-8") == project_content
+    assert ("notice" in effective) == (prompt_mode == "unattended")
+
+
+def test_codex_unattended_strategy_resolves_authored_permission_aliases(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -202,7 +257,6 @@ def test_codex_unattended_strategy_canonicalizes_conflicting_launch_inputs(
             backend="codex_headless",
             executable="codex",
             base_args=(
-                "--full-auto",
                 "--yolo",
                 "-a",
                 "on-request",
@@ -237,11 +291,66 @@ def test_codex_unattended_strategy_canonicalizes_conflicting_launch_inputs(
         "gpt-5.2",
         "--config",
         'model_provider="yunwu-openai"',
-        '--config=approval_policy="never"',
-        '--config=sandbox_mode="danger-full-access"',
+        '--config=approval_policy="on-request"',
+        '--config=sandbox_mode="workspace-write"',
         "--config=notice.hide_full_access_warning=true",
         "--config=tui.show_tooltips=false",
     )
+    assert result.permission_sources == {
+        "approval_policy": "launch args",
+        "sandbox_mode": "launch args",
+    }
+
+
+def test_reused_codex_home_restores_native_permission_baseline(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An as-is provider start discards earlier permission projections only."""
+
+    _stub_version(monkeypatch, output="codex-cli 0.169.0")
+    home = tmp_path / "home"
+    home.mkdir()
+    config = home / "config.toml"
+    config.write_text('sandbox_mode = "read-only"\nmodel = "gpt-5.4-mini"\n')
+    auth = home / "auth.json"
+    auth.write_text('{"session_id":"test"}\n')
+    request = LaunchPolicyRequest(
+        tool="codex",
+        backend="codex_headless",
+        executable="codex",
+        base_args=(),
+        requested_operator_prompt_mode="unattended",
+        working_directory=tmp_path,
+        home_path=home,
+        env={},
+        tool_params={"sandbox_mode": "workspace-write"},
+        tool_param_sources={"sandbox_mode": "direct"},
+    )
+    first = apply_launch_policy(request)
+    assert first.permissions == {"sandbox_mode": "workspace-write", "approval_policy": "never"}
+    assert first.permission_sources["sandbox_mode"] == "direct"
+    assert first.permission_sources["approval_policy"].startswith("strategy:")
+    assert apply_launch_policy(request).permissions == first.permissions
+
+    observed = apply_launch_policy(
+        replace(request, application_kind="resume_control", requested_operator_prompt_mode="as_is")
+    )
+    assert observed.permissions == {"sandbox_mode": "workspace-write"}
+    assert _load_toml(config)["approval_policy"] == "never"
+    result = apply_launch_policy(
+        replace(
+            request,
+            requested_operator_prompt_mode="as_is",
+            tool_params={},
+            tool_param_sources={},
+        )
+    )
+    restored = _load_toml(config)
+    assert result.permissions == {}
+    assert restored["sandbox_mode"] == "read-only"
+    assert "approval_policy" not in restored
+    assert restored["model"] == "gpt-5.4-mini"
+    assert auth.read_text() == '{"session_id":"test"}\n'
 
 
 def test_codex_unattended_strategy_rejects_api_key_only_without_provider_contract(
@@ -298,6 +407,7 @@ def test_claude_unattended_strategy_synthesizes_runtime_state_from_api_key_only(
     assert result.provenance is not None
     assert result.provenance.selected_strategy_id == "claude-unattended-2.1.296"
     assert settings_payload["skipDangerousModePermissionPrompt"] is True
+    assert settings_payload["permissions"]["defaultMode"] == "bypassPermissions"
     assert state_payload["hasCompletedOnboarding"] is True
     assert state_payload["numStartups"] == 1
     assert state_payload["customApiKeyResponses"] == {
@@ -315,6 +425,43 @@ def test_claude_unattended_strategy_synthesizes_runtime_state_from_api_key_only(
         is True
     )
     assert api_key not in state_text
+
+
+@pytest.mark.parametrize("prompt_mode", ["unattended", "as_is"])
+def test_claude_projects_authored_permission_mode_without_bypass_warning_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    prompt_mode: str,
+) -> None:
+    """Use the resolved mode in both Claude's settings file and startup command."""
+
+    _stub_version(monkeypatch, output="2.1.296 (Claude Code)")
+    home = tmp_path / "claude-home"
+    home.mkdir()
+    settings_path = home / "settings.json"
+    settings_path.write_text(
+        json.dumps({"permissions": {"defaultMode": "acceptEdits", "deny": ["Bash(curl *)"]}}),
+        encoding="utf-8",
+    )
+    result = apply_launch_policy(
+        LaunchPolicyRequest(
+            tool="claude",
+            backend="claude_headless",
+            executable="claude",
+            base_args=("-p", "--include-partial-messages"),
+            requested_operator_prompt_mode=prompt_mode,
+            working_directory=tmp_path / "workspace",
+            home_path=home,
+            env={"ANTHROPIC_API_KEY": "sk-test"},
+            tool_params={"permission_mode": "dontAsk"},
+        )
+    )
+
+    assert result.args == ("-p", "--include-partial-messages", "--permission-mode", "dontAsk")
+    assert json.loads(settings_path.read_text(encoding="utf-8")) == {
+        "permissions": {"defaultMode": "dontAsk", "deny": ["Bash(curl *)"]}
+    }
+    assert (home / ".claude.json").exists() == (prompt_mode == "unattended")
 
 
 def test_claude_unattended_strategy_deduplicates_owned_launch_arg(
@@ -488,7 +635,8 @@ def test_claude_provider_start_repairs_blank_owned_files_via_atomic_replace(
     )
 
     assert json.loads(settings_path.read_text(encoding="utf-8")) == {
-        "skipDangerousModePermissionPrompt": True
+        "permissions": {"defaultMode": "bypassPermissions"},
+        "skipDangerousModePermissionPrompt": True,
     }
     state_payload = json.loads(state_path.read_text(encoding="utf-8"))
     assert state_payload["hasCompletedOnboarding"] is True
@@ -607,7 +755,7 @@ compaction_trigger_ratio = 0.85
     assert payload["extra_skill_dirs"] == [str(tmp_path / "skills")]
 
 
-def test_kimi_unattended_strategy_canonicalizes_prompt_mode_conflicts(
+def test_kimi_unattended_strategy_uses_native_prompt_permissions(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -622,16 +770,6 @@ def test_kimi_unattended_strategy_canonicalizes_prompt_mode_conflicts(
             executable="/opt/kimi/bin/kimi",
             base_args=(
                 "--auto",
-                "--yolo",
-                "--plan",
-                "--session",
-                "session-1",
-                "-p",
-                "bad prompt",
-                "--output-format",
-                "text",
-                "--skills-dir",
-                "/tmp/global-skills",
                 "--model",
                 "kimi-code/kimi-for-coding",
             ),
@@ -654,9 +792,16 @@ def test_kimi_unattended_strategy_canonicalizes_prompt_mode_conflicts(
     assert not (home / "config.toml").exists()
 
 
-def test_kimi_raw_launch_unattended_sets_auto_config_and_strips_tui_conflicts(
+@pytest.mark.parametrize(
+    ("authored_mode", "expected_mode", "expected_flags"),
+    [(None, "auto", ("--auto",)), ("manual", "manual", ()), ("yolo", "yolo", ("--yolo",))],
+)
+def test_kimi_raw_launch_projects_resolved_mode_and_preserves_other_settings(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    authored_mode: str | None,
+    expected_mode: str,
+    expected_flags: tuple[str, ...],
 ) -> None:
     _stub_version(monkeypatch, output="2.1.1")
     home = tmp_path / "kimi-home"
@@ -682,16 +827,7 @@ enabled = false
             backend="raw_launch",
             executable="kimi",
             base_args=(
-                "--auto",
-                "--yolo",
-                "-y",
                 "--plan",
-                "--continue",
-                "--session",
-                "session-1",
-                "-S=session-2",
-                "-r",
-                "session-3",
                 "--model",
                 "kimi-code/kimi-for-coding",
                 "--temperature",
@@ -701,16 +837,18 @@ enabled = false
             working_directory=tmp_path / "workspace",
             home_path=home,
             env={"KIMI_CODE_LEGACY_FLAG": "0"},
+            tool_params={"permission_mode": authored_mode} if authored_mode else {},
         )
     )
 
     payload = _load_toml(home / "config.toml")
     assert result.args == (
+        "--plan",
         "--model",
         "kimi-code/kimi-for-coding",
         "--temperature",
         "0",
-        "--auto",
+        *expected_flags,
     )
     assert result.provenance is not None
     assert result.provenance.selected_strategy_id == "kimi-tui-unattended-2.1-plus"
@@ -720,7 +858,7 @@ enabled = false
     assert result.strategy.owned_paths[0].keys == ("default_permission_mode",)
     assert result.strategy.owned_paths[1].path == ".skip-migration-from-kimi-cli"
     assert (home / ".skip-migration-from-kimi-cli").is_file()
-    assert payload["default_permission_mode"] == "auto"
+    assert payload["default_permission_mode"] == expected_mode
     assert payload["default_model"] == "kimi-code/kimi-for-coding"
     assert payload["extra_skill_dirs"] == ["/opt/project-skills"]
     assert payload["providers"]["managed:kimi-code"]["type"] == "moonshot"
@@ -739,7 +877,7 @@ def test_kimi_raw_launch_as_is_leaves_args_and_config_untouched(tmp_path: Path) 
             tool="kimi",
             backend="raw_launch",
             executable="kimi",
-            base_args=("--auto", "--session", "session-1", "--model", "kimi-code"),
+            base_args=("--model", "kimi-code"),
             requested_operator_prompt_mode="as_is",
             working_directory=tmp_path / "workspace",
             home_path=home,
@@ -747,7 +885,7 @@ def test_kimi_raw_launch_as_is_leaves_args_and_config_untouched(tmp_path: Path) 
         )
     )
 
-    assert result.args == ("--auto", "--session", "session-1", "--model", "kimi-code")
+    assert result.args == ("--model", "kimi-code")
     assert result.provenance is None
     assert result.strategy is None
     assert config_path.read_text(encoding="utf-8") == original_config
@@ -763,7 +901,7 @@ def test_kimi_registry_declares_separate_mode_strategies() -> None:
     assert strategies["kimi-web-unattended-2.6.0"].backends == ("kimi_web",)
     assert [action.kind for action in strategies["kimi-tui-unattended-2.1-plus"].actions] == [
         "provider_hook.call",
-        "toml.set",
+        "provider_hook.call",
         "provider_hook.call",
     ]
 
@@ -1012,7 +1150,7 @@ def test_codex_canonicalization_preserves_hook_config_overrides(
 
     assert state_override in result.args
     assert hooks_override in result.args
-    assert '--config=approval_policy="never"' in result.args
+    assert '--config=approval_policy="on-request"' in result.args
     assert 'approval_policy="on-request"' not in result.args
     assert "--dangerously-bypass-hook-trust" not in result.args
 
@@ -1044,7 +1182,7 @@ def test_codex_registry_documents_hook_observation_owned_surfaces() -> None:
     assert any("extern/orphan/codex/codex-rs/hooks/" in ref for ref in evidence_refs)
 
 
-def test_kimi_canonicalizers_leave_config_toml_hooks_untouched(tmp_path: Path) -> None:
+def test_kimi_permission_projection_preserves_native_config_hooks(tmp_path: Path) -> None:
     home = tmp_path / "kimi-home"
     home.mkdir()
     config_path = home / "config.toml"
@@ -1076,9 +1214,9 @@ def test_kimi_canonicalizers_leave_config_toml_hooks_untouched(tmp_path: Path) -
     assert headless_args == ["--model", "kimi-code"]
     assert config_path.read_text(encoding="utf-8") == original_config
 
-    tui_args = ["--continue", "--session", "session-1"]
+    tui_args = ["--model", "kimi-code"]
     provider_hooks.run_provider_hook(
-        hook_id="kimi.canonicalize_unattended_tui_launch_inputs",
+        hook_id="kimi.project_tui_permission",
         request=LaunchPolicyRequest(
             tool="kimi",
             backend="raw_launch",
@@ -1088,12 +1226,16 @@ def test_kimi_canonicalizers_leave_config_toml_hooks_untouched(tmp_path: Path) -
             working_directory=tmp_path / "workspace",
             home_path=home,
             env={"KIMI_CODE_LEGACY_FLAG": "0"},
+            tool_params={"permission_mode": "yolo"},
         ),
         args=tui_args,
     )
 
-    assert tui_args == ["--auto"]
-    assert config_path.read_text(encoding="utf-8") == original_config
+    assert tui_args == ["--model", "kimi-code", "--yolo"]
+    assert _load_toml(config_path) == {
+        **tomllib.loads(original_config),
+        "default_permission_mode": "yolo",
+    }
 
 
 def test_kimi_policy_toml_writer_cannot_serialize_an_existing_hooks_array(

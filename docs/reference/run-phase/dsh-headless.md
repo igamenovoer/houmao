@@ -37,7 +37,8 @@ The selected tool setup supplies a `tool-params.yaml` layer. Houmao merges it wi
 | `models[].reasoning_efforts` | `false` for a model without reasoning, or a map from DSH thinking slots to provider wire values. A reasoning-capable model requires at least one positive slot. |
 | `skill_roots` | Optional absolute directories added during launch materialization. The native skill-provider configuration disables user-global discovery and watching. Later invocations consume the current native configuration. |
 | `mcp_servers` | Leave this empty for headless mode. These declarations require an ACP session binding. |
-| `hmr` | `false` for this setup format. Native inputs take effect at the next worker start. |
+| `permissions.sandbox` | Optional native file policy. Use `read-only`, `workspace-write`, or `danger-full-access`. |
+| `permissions.approval` | Optional native approval policy. Use `ask` or `never`. |
 
 Use a provider endpoint that implements the selected protocol, including the base path required by the deployment. The URL must omit user information, query parameters, and fragments.
 
@@ -60,7 +61,6 @@ models:
     reasoning_efforts: false
 skill_roots: []
 mcp_servers: []
-hmr: false
 ```
 
 The packaged `openai-compatible` setup selects endpoint-only Chat Completions. Supply an exact model catalog. The following example shows a local route and a model-specific compatibility setting.
@@ -114,7 +114,19 @@ The launch command requires a qualified DSH executable and a model server at the
 
 ### Startup Permissions and Prompt Provenance
 
-The default `unattended` posture selects the `houmao-unattended` native permission preset with approval policy `never` and sandbox mode `workspace-write`. Native hard denies remain enforceable. Selecting `as_is` through the specialist's `--no-unattended` option preserves the native permission defaults. Later invocations use the materialized native permissions. Select `as_is` only when the task can run under the native permission policy.
+The `unattended` posture fills omitted fields with sandbox mode `danger-full-access` and approval policy `never`. An explicit value takes precedence for its field. Native hard denies and the selected execution user's operating-system permissions still apply. The specialist's `--no-unattended` option selects `as_is`, which uses the native baseline for omitted fields. Later workers read the materialized native permissions.
+
+To keep the previous workspace boundary, add this to the selected setup's `tool-params.yaml`. In a specialist or launch profile, place the same mapping under `tool_params`.
+
+```yaml
+permissions:
+  sandbox: workspace-write
+  approval: never
+```
+
+In an unattended launch, omitting `approval` also selects `never`. Use an explicit `ask` to request the native approval behavior. The headless profile has no interactive answerer and fails closed when a native request needs one. [DSH Web](dsh-web.md) can present approval requests in the browser.
+
+Remove any authored `hmr` entry, including `hmr: false`. Houmao reserves HMR to control when native settings take effect. Run a supported home refresh or relaunch to activate changes.
 
 Prompt provenance records the SHA-256 digest of the complete effective launch prompt. The private role file retains the literal bytes, while public metadata contains no prompt or key values. Rebuilding with an empty prompt replaces the old managed role file, and the companion registers no stale section. The companion and starter setup ship as package resources; provider launch requires no JavaScript build or package installation. DSH's built-in system sections, working-directory project instructions, and tool schemas remain native inputs alongside the additive Houmao section.
 

@@ -53,6 +53,7 @@ from houmao.agents.realm_controller.launch_plan import (
 from houmao.agents.realm_controller.loaders import RolePackage
 from houmao.agents.realm_controller.run_modes import resolve_run_mode
 from houmao.agents.realm_controller.runtime import RuntimeSessionController
+from houmao.agents.tool_params import validate_tool_params
 from houmao.project.catalog import ProjectCatalog
 from houmao.srv_ctrl.commands.main import cli
 from houmao.project.overlay import require_project_overlay
@@ -91,7 +92,6 @@ def _seed(tmp_path: Path) -> BuildRequest:
                 "reasoning_efforts": {"off": "off", "low": "low", "high": "high"},
             },
         ],
-        "hmr": False,
     }
     (tool / "setups/default/tool-params.yaml").write_text(yaml.safe_dump(setup))
     auth = tool / "auth/selected/env/vars.env"
@@ -523,6 +523,56 @@ def test_dsh_launch_plan_preserves_as_is_native_permissions(
     assert plan.metadata["dsh"]["operator_prompt_mode"] == "as_is"
     patch = json.loads(Path(plan.metadata["dsh"]["patch_path"]).read_text())
     assert {entry["id"] for entry in patch}.isdisjoint({"approval", "sandbox-policy"})
+
+
+@pytest.mark.parametrize("name", ["default", "openai-compatible"])
+def test_starter_dsh_setups_load_without_reserved_hmr(name: str) -> None:
+    """Validate both packaged setup layers independently of their model catalog."""
+
+    path = files("houmao.project").joinpath(
+        "assets", "starter_agents", "tools", "dsh", "setups", name, "tool-params.yaml"
+    )
+    payload = yaml.safe_load(path.read_text())
+    assert "hmr" not in payload
+    assert validate_tool_params("dsh", payload, source=str(path)) == payload
+
+
+@pytest.mark.parametrize("backend", ["dsh_acp", "dsh_headless", "dsh_web"])
+def test_dsh_provider_start_pins_resolved_permission_over_materialized_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
+) -> None:
+    """Reconstruct the authored workspace restriction at each provider start."""
+
+    request = replace(
+        _seed(tmp_path),
+        preset_tool_params={"permissions": {"sandbox": "workspace-write", "approval": "ask"}},
+        direct_tool_params={"permissions": {"approval": "never"}},
+    )
+    built = build_brain_home(request)
+    for detector in ("launch_policy.engine", "realm_controller.launch_plan"):
+        monkeypatch.setattr(
+            f"houmao.agents.{detector}.detect_tool_version",
+            lambda **_: ToolVersion.parse("0.2.2-rc.3"),
+        )
+    plan_request = LaunchPlanRequest(
+        brain_manifest=built.manifest,
+        role_package=RolePackage("role", "Literal role", tmp_path),
+        backend=backend,
+        working_directory=tmp_path,
+    )
+    for _ in range(2):
+        plan = build_launch_plan(plan_request)
+        metadata = plan.metadata["dsh"]
+        assert metadata["permissions"] == {"sandbox": "workspace-write", "approval": "never"}
+        profile_path = Path(metadata["patch_path"])
+        patch = {row["id"]: row.get("config") for row in json.loads(profile_path.read_text())}
+        assert patch["approval"]["policy"] == "never"
+        assert patch["sandbox-policy"]["mode"] == "workspace-write"
+        assert (
+            patch["permission"]["presets"][metadata["permission_preset"]] == metadata["permissions"]
+        )
+        assert patch["permission"]["defaultPreset"] == metadata["permission_preset"]
+        profile_path.write_text("[]")
 
 
 def test_dsh_headless_reads_edited_native_model_and_keeps_overrides_private(

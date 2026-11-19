@@ -303,15 +303,19 @@ def _raw_turn(run: dict[str, Any], prompt: str, timeout: float) -> None:
     client = run["configuration"]["client"]
     dsh = client == "dsh"
     env = run_environment(run)
+    command = raw_command(run, prompt=prompt)
     if dsh:
-        from fixturelib.dsh import raw_dsh_environment
+        from fixturelib.dsh import load_raw_dsh_home
 
-        env = raw_dsh_environment(run, env)
+        home = load_raw_dsh_home(run, env)
+        env = home.environment
+        if home.permission_preset is not None:
+            command.extend(["--permission-mode", home.permission_preset])
     private_write(stdout, b"")
     private_write(stderr, b"")
     with stdout.open("wb") as out, stderr.open("wb") as err:
         process = subprocess.Popen(
-            raw_command(run, prompt=prompt),
+            command,
             cwd=run["workdir"],
             env=env,
             stdin=subprocess.PIPE if dsh else subprocess.DEVNULL,

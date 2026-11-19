@@ -69,6 +69,8 @@ The primary backend for interactive agent sessions. The agent runs as a real int
 - **Role injection:** tool-dependent; see [Role Injection](role-injection.md).
 - **Use case:** development, debugging, and any workflow where direct interactive access to the agent is valuable.
 
+Claude and Codex use the same startup permission fields in TUI and headless mode. TUI access lets the operator respond when an authored policy requests approval. [Claude permission settings](#claude_headless), [Codex permission settings](#codex_headless).
+
 #### Kimi Code local interactive
 
 Kimi local interactive support starts the interactive `kimi` TUI under backend `local_interactive`; it does not reuse or rename `kimi_headless`.
@@ -78,9 +80,9 @@ Kimi local interactive support starts the interactive `kimi` TUI under backend `
 - **Model selection:** launch-owned Kimi model selection is projected as `--model <alias>` for fresh and resumed Kimi TUI startup.
 - **Update suppression:** managed Kimi TUI launches set `KIMI_CODE_NO_AUTO_UPDATE=1` so startup does not stop on the interactive update preflight.
 - **Managed skills:** Houmao does not add managed `--skills-dir` arguments to Kimi TUI launches. The maintained `--skills-dir <KIMI_CODE_HOME>/skills` projection remains Kimi headless prompt-mode behavior.
-- **Unattended prompt mode:** for maintained Kimi Code 2.1.1 or later, launch policy writes the migration marker and `default_permission_mode = "auto"` fallback, canonicalizes permission inputs, appends one native `--auto`, and pre-seeds the provider workspace-trust record for the launch working directory so startup does not stop on the "Trust this folder?" modal. The ready TUI is already unattended; `as_is` leaves provider approval and trust behavior unchanged.
+- **Permission mode:** Configure `tool_params.permission_mode` as `auto`, `yolo`, or `manual`. Unattended startup supplies `auto` when the field is omitted and pre-seeds the Kimi workspace-trust record. `as_is` uses the native permission settings for omissions. The private `config.toml` records the resolved mode, with native `--auto` or `--yolo` flags when applicable.
 - **Relaunch continuation:** `tool_last_or_new` maps to `kimi --continue`; `exact` maps to `kimi --session <session_id>`. The runtime never uses bare `kimi --session` for managed relaunch because that opens Kimi's interactive picker.
-- **Resume behavior:** Kimi Code 2.1.1 or later accepts native `--auto` with `--continue` and `--session <session_id>`. Houmao strips conflicting caller permission flags, preserves the resolved resume selector, verifies and repairs `SYSTEM.md`, and appends one strategy-owned `--auto`; `--model <alias>` remains allowed.
+- **Resume behavior:** Kimi Code 2.1.1 or later accepts `--auto` or `--yolo` with `--continue` or `--session <session_id>`. Houmao verifies `SYSTEM.md` before startup and preserves the exact session and configured model. An explicit `manual` mode requires a fresh TUI chat because Kimi restores saved permission on continuation and exposes no manual CLI switch.
 
 ### claude_headless
 
@@ -91,6 +93,7 @@ Runs Claude Code CLI in headless mode (`claude -p --verbose`). Output is capture
 - **Session class:** `ClaudeHeadlessSession` (extends `HeadlessInteractiveSession`)
 - **Resume:** `--continue` resumes the provider's latest stored conversation; `--resume <session_id>` resumes an exact provider session.
 - **Role injection:** when the role prompt is non-empty, Houmao passes `--append-system-prompt <prompt>` and sends one bootstrap message on the first turn. Empty prompts skip both startup inputs.
+- **Startup permissions:** `tool_params.permission_mode` selects `default`, `acceptEdits`, `plan`, `dontAsk`, `auto`, or `bypassPermissions`. Houmao projects the effective value into `settings.json` and the native startup options. Omission uses `bypassPermissions` in `unattended` and the native baseline in `as_is`. Claude's managed policy and explicit permission rules still apply. [Claude permission modes](https://code.claude.com/docs/en/permissions#permission-modes).
 - **Use case:** automated pipelines, batch processing, and non-interactive agent orchestration.
 
 ### codex_headless
@@ -102,6 +105,7 @@ Runs Codex CLI in headless mode (`codex exec --json`). Produces structured JSON 
 - **Session class:** `CodexHeadlessSession` (extends `HeadlessInteractiveSession`)
 - **Resume:** `resume --last` asks Codex to continue its latest stored chat; `resume <session_id>` resumes an exact provider session.
 - **Role injection:** when the role prompt is non-empty, Houmao passes `-c developer_instructions=<prompt>`. Empty prompts skip the developer-instructions flag.
+- **Startup permissions:** `tool_params.sandbox_mode` accepts `read-only`, `workspace-write`, and `danger-full-access`. `tool_params.approval_policy` accepts `never`, `on-request`, and `untrusted`. Houmao writes resolved settings to the private home and adds final config options so workspace settings cannot replace them. `unattended` fills omissions with `danger-full-access` and `never`. `as_is` uses the native baseline for omissions. [Launch Policy](../build-phase/launch-policy.md).
 - **Use case:** automated pipelines, structured output processing, and non-interactive agent orchestration.
 
 ### kimi_headless
@@ -114,6 +118,7 @@ Runs Kimi Code CLI in prompt mode (`kimi -p <prompt> --output-format stream-json
 - **Auth lanes:** managed Kimi homes use `KIMI_CODE_HOME` and support OAuth material through projected `config.toml` plus `credentials/kimi-code.json`, or env-model material through allowlisted `KIMI_MODEL_*` values.
 - **Managed skills:** Houmao-owned Kimi skills project into top-level `skills`, and managed launches pass `--skills-dir <KIMI_CODE_HOME>/skills` so they do not depend on user-global skill discovery.
 - **Resume:** `--continue` asks Kimi to continue the latest stored session for the working directory; `--session <session_id>` resumes an exact provider session. Resume stays bound to the same recorded working directory/project context.
+- **Permission mode:** Kimi's native `-p` entrypoint always uses `auto`. Select TUI, service, or Web for an explicit `manual` or `yolo` mode.
 - **Role injection:** managed-home native `SYSTEM.md`, verified before each fresh or resumed provider start. A promptless build removes a stale file.
 - **Use case:** automated pipelines and non-interactive agent orchestration for Kimi Code.
 

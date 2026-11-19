@@ -3,6 +3,8 @@ tool: claude
 strategies:
   - strategy_id: claude-unattended-2.1.296
     operator_prompt_mode: unattended
+    permission_defaults:
+      permission_mode: bypassPermissions
     backends:
       - raw_launch
       - claude_headless
@@ -41,6 +43,7 @@ strategies:
     owned_paths:
       - path: settings.json
         keys:
+          - permissions.defaultMode
           - skipDangerousModePermissionPrompt
       - path: .claude.json
         keys:
@@ -51,20 +54,9 @@ strategies:
           - projects.<resolved_workdir>.hasTrustDialogAccepted
           - projects.<resolved_workdir>.projectOnboardingSeenCount
     actions:
-      - kind: validate.reject_conflicting_launch_args
+      - kind: provider_hook.call
         params:
-          owned_args:
-            - --dangerously-skip-permissions
-          disallowed_args: []
-      - kind: cli_arg.ensure_present
-        params:
-          arg: --dangerously-skip-permissions
-      - kind: json.set
-        params:
-          path: settings.json
-          key_path:
-            - skipDangerousModePermissionPrompt
-          value: true
+          hook_id: claude.apply_permission_mode
       - kind: json.set
         params:
           path: .claude.json

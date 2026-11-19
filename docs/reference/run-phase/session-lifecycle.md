@@ -133,6 +133,8 @@ Resumes a previously started session from its persisted session manifest. The ma
 
 Read-only reconstruction reads the selected credential references and persisted launch intent. It does not run provider version probes, synthesize launch policy, normalize tmux surfaces, publish session environment, or repair missing materials. Owner-side query commands use this mode. An enclosing `execution_read_only_scope()` also suppresses implicit reconstruction effects and rejects controller mutations until that scope exits; a reconstructed controller can still service a later explicit mutation under its saved owner binding.
 
+`houmao-mgr agents self state` and `houmao-mgr agents self mail status` verify the current tmux session's manifest and identity through this read-only path. The commands use existing state even when the agent cannot write to the shared registry. Mail status uses the current self signing key for an attached gateway and reports local channel availability when the gateway is detached.
+
 ### Session manifest persistence
 
 Each session writes a manifest to its session root (`<runtime-root>/sessions/<backend>/<session-id>/`) upon creation. This manifest captures:
@@ -225,11 +227,13 @@ The optional relaunch chat-session selector controls provider-native startup beh
 
 For local interactive TUI sessions, the selector is translated into startup arguments before the provider process is respawned in tmux window `0`. The maintained mappings are Claude Code `--continue` or `--resume <session_id>`, Codex `resume --last` or `resume <session_id>`, and Kimi Code `--continue` or `--session <session_id>`. For native headless sessions, the selector is stored as the startup/default chat-session policy for the next managed headless prompt; relaunch itself does not send a provider turn.
 
+The relaunch uses the saved authoring inputs to resolve Claude or Codex permissions before provider startup. Claude and Codex TUI and headless startup use native configuration and CLI options. Exact Codex service continuation sends the resolved approval and sandbox settings to `thread/resume` and verifies the native response before reporting readiness. [Launch Policy](../build-phase/launch-policy.md), [Codex App-Server Service](codex-app-server-service.md).
+
 When a local interactive relaunch resumes an existing provider chat, the runtime does not replay bootstrap-message role injection into that resumed chat. For Kimi, it verifies and repairs the managed native system prompt before respawning the provider, without submitting any role turn.
 
-For Kimi Code 2.1.1 or later, resumed startup accepts native `--auto` with `--continue` or `--session <session_id>`. Houmao canonicalizes caller permission flags, preserves the selected resume selector, validates prompt precedence, repairs `$KIMI_CODE_HOME/SYSTEM.md` when needed, and appends exactly one strategy-owned `--auto`; `--model <alias>` remains valid.
+For Kimi Code 2.1.1 or later, resumed TUI startup accepts native `--auto` or `--yolo` with `--continue` or `--session <session_id>`. Houmao preserves the selected continuation and model, validates prompt precedence, and repairs `$KIMI_CODE_HOME/SYSTEM.md` when needed. Explicit `manual` mode uses the private home default on fresh startup and requires `--chat-session-mode new` for TUI relaunch.
 
-For Kimi Code local-interactive sessions built with `operator_prompt_mode = unattended`, both fresh and resumed launches reach initial readiness in native auto mode. The runtime does not send `/auto on`. `as_is` relaunch leaves the provider's approval behavior unchanged.
+The Kimi TUI unattended default is `auto` when the permission mode is omitted. An `as_is` relaunch with omitted permission mode restores the native session's permission settings. Houmao sets policy through startup options before sending any managed input.
 
 ## Degraded and stale recovery
 

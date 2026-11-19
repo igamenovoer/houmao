@@ -1126,6 +1126,26 @@ def test_kimi_local_interactive_relaunch_accepts_current_resume_options(
         assert command[-2:] == ["--session", "session_abc"]
 
 
+@pytest.mark.parametrize(
+    "selection",
+    [
+        RelaunchChatSessionSelection(mode="tool_last_or_new"),
+        RelaunchChatSessionSelection(mode="exact", session_id="session_abc"),
+    ],
+)
+def test_kimi_local_interactive_rejects_manual_continuation_before_respawn(
+    tmp_path: Path, selection: RelaunchChatSessionSelection
+) -> None:
+    """Fail when the startup CLI cannot replace the saved permission mode."""
+
+    session = _make_kimi_local_interactive_session(tmp_path)
+    session._plan.args.clear()  # noqa: SLF001
+    session._plan.metadata["kimi_tui"] = {"permission_mode": "manual"}  # noqa: SLF001
+    with pytest.raises(BackendExecutionError, match=r"permission_mode=manual.*continuation"):
+        session._build_launch_command(chat_session=selection)  # noqa: SLF001
+    assert session._build_launch_command() == ["kimi"]  # noqa: SLF001
+
+
 def test_local_interactive_relaunch_suppresses_bootstrap_when_resuming_chat(
     tmp_path: Path,
 ) -> None:

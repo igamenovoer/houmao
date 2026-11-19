@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import replace
 import json
+import os
 from pathlib import Path
+import subprocess
 import tomllib
 
 import pytest
@@ -1091,6 +1093,54 @@ def test_build_brain_home_routes_unattended_launch_helper_through_shared_policy_
     assert "houmao.agents.launch_policy.cli" in launch_script
     assert "--requested-operator-prompt-mode unattended" in launch_script
     assert "--backend raw_launch" in launch_script
+
+
+def test_generated_helper_preserves_explicit_permission_precedence(tmp_path: Path) -> None:
+    """Run the generated helper with an inherited native mode and a direct typed override."""
+
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir()
+    _seed_claude_repo(agent_def_dir)
+    settings = agent_def_dir / "tools/claude/setups/default/settings.json"
+    authored = '{"permissions":{"defaultMode":"acceptEdits","deny":["Read(.env)"]}}\n'
+    settings.write_text(authored, encoding="utf-8")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    executable = bin_dir / "claude"
+    executable.write_text(
+        '#!/bin/sh\nif [ "$1" = "--version" ]; then printf "2.1.296\\n"; '
+        'else printf "%s\\n" "$@"; fi\n',
+        encoding="utf-8",
+    )
+    executable.chmod(0o700)
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=tmp_path / "runtime",
+            tool="claude",
+            skills=[],
+            setup="default",
+            auth="personal-a",
+            home_id="helper-permissions",
+            direct_tool_params={"permission_mode": "plan"},
+            launch_overrides=LaunchOverrides(
+                LaunchArgsSection("append", ("--permission-mode=auto",))
+            ),
+        )
+    )
+    completed = subprocess.run(
+        [str(result.home_path / "launch.sh"), "--manual-extra"],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        env={**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"},
+        timeout=30,
+    )
+    assert completed.stdout.splitlines() == ["--permission-mode", "plan", "--manual-extra"]
+    private_settings = json.loads((result.home_path / "settings.json").read_text())
+    assert private_settings["permissions"] == {"defaultMode": "plan", "deny": ["Read(.env)"]}
+    assert settings.read_text(encoding="utf-8") == authored
 
 
 def test_build_brain_home_projects_kimi_oauth_files_and_skills(tmp_path: Path) -> None:

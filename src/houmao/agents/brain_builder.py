@@ -40,10 +40,10 @@ from houmao.agents.definition_parser import (
     resolve_explicit_or_named_preset_path,
 )
 from houmao.agents.launch_env import validate_persistent_env_records
-from houmao.agents.launch_policy.models import OperatorPromptMode
+from houmao.agents.launch_policy.engine import detect_tool_version, resolve_strategy
+from houmao.agents.launch_policy.models import LaunchPolicyRequest, OperatorPromptMode
 from houmao.agents.launch_overrides import (
     LaunchOverrides,
-    helper_launch_args,
     parse_launch_overrides,
     resolve_launch_behavior,
 )
@@ -75,10 +75,12 @@ from houmao.agents.model_selection import (
     resolve_model_config_layers,
 )
 from houmao.agents.tool_params import (
+    merge_partial_tool_params,
     parse_tool_params_cli_input,
     resolve_tool_params,
     validate_tool_params,
 )
+from houmao.agents.launch_overrides.native import native_setup_permissions
 from houmao.agents.system_skills import (
     SystemSkillCatalog,
     SystemSkillSelectionPolicy,
@@ -518,6 +520,7 @@ def _build_launch_helper(
     launch_args: list[str],
     env_exports: dict[str, str],
     operator_prompt_mode: OperatorPromptMode | None,
+    permission_params: Mapping[str, Any],
     dsh_credential_env_file: Path | None = None,
 ) -> str:
     """Build one runtime launch helper script.
@@ -565,7 +568,11 @@ def _build_launch_helper(
     for key in sorted(name for name in env_exports if name not in exported_names):
         script_lines.append(f"export {key}={shlex.quote(env_exports[key])}")
 
-    if operator_prompt_mode == "unattended" or dsh_credential_env_file is not None:
+    if (
+        operator_prompt_mode == "unattended"
+        or dsh_credential_env_file is not None
+        or permission_params
+    ):
         script_lines.extend(
             [
                 "BOOTSTRAP_PYTHON=()",
@@ -604,6 +611,10 @@ def _build_launch_helper(
             launch_policy_args.extend(
                 ["--dsh-credential-env-file", shlex.quote(str(dsh_credential_env_file))]
             )
+        if permission_params:
+            launch_policy_args.extend(
+                ["--permission-params", shlex.quote(json.dumps(permission_params))]
+            )
         for arg in launch_args:
             launch_policy_args.append(f"--launch-arg={shlex.quote(arg)}")
         launch_policy_args.extend(["--", '"${EXTRA_ARGS[@]}"'])
@@ -622,6 +633,7 @@ def validate_brain_inputs(
     *,
     backend: SupportedLaunchBackend | None = None,
     launch_env_overrides: Mapping[str, str] | None = None,
+    check_policy_version: bool = False,
 ) -> ValidatedBrainInputs:
     """Resolve setup, model, credentials, and tool parameters before home mutation."""
 
@@ -687,6 +699,14 @@ def validate_brain_inputs(
             name: validate_tool_params(request.tool, payload, source=source)
             for name, payload, source in raw_layers
         }
+        if Path(adapter.setup_destination) == Path("."):
+            layers["setup"] = merge_partial_tool_params(
+                request.tool,
+                (
+                    (str(setup_dir), native_setup_permissions(request.tool, setup_dir)),
+                    (str(setup_path), layers["setup"]),
+                ),
+            )
         effective = resolve_tool_params(request.tool, tuple(layers.items()))
         dsh_config = (
             DshEffectiveToolParams.from_mapping(effective) if request.tool == "dsh" else None
@@ -754,15 +774,24 @@ def validate_brain_inputs(
                 adapter_defaults=adapter.launch_defaults,
                 recipe_overrides=request.effective_preset_launch_overrides(),
                 direct_overrides=request.launch_overrides,
-                tool_params=effective,
+                tool_param_layers=tuple(layers.items()),
             )
-            if backend == "dsh_web" and behavior.args_before_policy:
-                raise BuildError(
-                    "DSH Web uses owned native configuration. Raw launch arguments are unsupported."
-                )
-            if backend == "kimi_web" and behavior.args_before_policy:
-                raise BuildError(
-                    "Kimi Web uses owned native configuration. Raw launch arguments are unsupported."
+            if (
+                check_policy_version
+                and _resolved_operator_prompt_mode(request.operator_prompt_mode) == "unattended"
+            ):
+                resolve_strategy(
+                    request=LaunchPolicyRequest(
+                        tool=request.tool,
+                        backend=backend,
+                        executable=adapter.launch_executable,
+                        base_args=behavior.args_before_policy,
+                        requested_operator_prompt_mode="unattended",
+                        working_directory=agent_def_dir,
+                        home_path=setup_dir,
+                        env=os.environ,
+                    ),
+                    detected_version=detect_tool_version(executable=adapter.launch_executable),
                 )
     except (OSError, ValueError) as exc:
         raise BuildError(str(exc)) from exc
@@ -793,11 +822,28 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         DshEffectiveToolParams.from_mapping(inputs.tool_params) if request.tool == "dsh" else None
     )
     auth_env_names = _auth_env_names(adapter, dsh_config)
-    launch_helper_args = helper_launch_args(
-        adapter_defaults=adapter.launch_defaults,
-        recipe_overrides=resolved_preset_launch_overrides,
-        direct_overrides=request.launch_overrides,
-    )
+    try:
+        helper_behavior = resolve_launch_behavior(
+            tool=request.tool,
+            backend="raw_launch",
+            adapter_defaults=adapter.launch_defaults,
+            recipe_overrides=resolved_preset_launch_overrides,
+            direct_overrides=request.launch_overrides,
+            tool_param_layers=tuple(
+                (
+                    name,
+                    {
+                        key: value
+                        for key, value in payload.items()
+                        if key != "include_partial_messages"
+                    },
+                )
+                for name, payload in inputs.layers.items()
+            ),
+        )
+    except ValueError as exc:
+        raise BuildError(str(exc)) from exc
+    launch_helper_args = list(helper_behavior.args_before_policy)
     skills_root = agent_def_dir / "skills"
 
     if not skills_root.is_dir():
@@ -1005,6 +1051,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
                 ),
                 skill_roots=(skill_destination_dir,),
                 operator_prompt_mode=_resolved_operator_prompt_mode(request.operator_prompt_mode),
+                permissions=dsh_config.permissions,
             )
         except DshConfigurationError as exc:
             raise BuildError(str(exc)) from exc
@@ -1045,6 +1092,12 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             **projected_model_env_exports,
         },
         operator_prompt_mode=resolved_operator_prompt_mode,
+        permission_params={
+            key: value
+            for key, value in helper_behavior.tool_params.items()
+            if key in {"permission_mode", "approval_policy", "sandbox_mode", "permissions"}
+            and value is not None
+        },
         dsh_credential_env_file=auth_env_file if dsh_config is not None else None,
     )
 

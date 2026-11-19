@@ -54,6 +54,9 @@ def run_provider_hook(
     if hook_id == "claude.ensure_project_trust":
         _claude_ensure_project_trust(request)
         return
+    if hook_id == "claude.apply_permission_mode":
+        _claude_apply_permission_mode(request, args)
+        return
     if hook_id == "codex.canonicalize_unattended_launch_inputs":
         _codex_canonicalize_unattended_launch_inputs(args)
         return
@@ -66,14 +69,20 @@ def run_provider_hook(
     if hook_id == "codex.ensure_model_migration_state":
         _codex_ensure_model_migration_state(request)
         return
+    if hook_id == "codex.apply_runtime_permissions":
+        _codex_apply_runtime_permissions(request)
+        return
     if hook_id == "codex.append_unattended_cli_overrides":
-        _codex_append_unattended_cli_overrides(args)
+        _codex_append_unattended_cli_overrides(request, args)
         return
     if hook_id == "kimi.canonicalize_unattended_launch_inputs":
         _kimi_canonicalize_unattended_launch_inputs(args)
         return
     if hook_id == "kimi.canonicalize_unattended_tui_launch_inputs":
-        _kimi_canonicalize_unattended_tui_launch_inputs(request, args)
+        _kimi_prepare_unattended_tui(request)
+        return
+    if hook_id in {"kimi.project_tui_permission", "kimi.project_service_permission"}:
+        _kimi_project_permission(request, args)
         return
     if hook_id == "kimi.validate_native_system_prompt_contract":
         _kimi_validate_native_system_prompt_contract(request, args)
@@ -192,24 +201,23 @@ def set_toml_key(
     _atomic_write_text(path, text)
 
 
-def prepare_kimi_service_config(
-    home_path: Path, *, model_alias: str | None, unattended: bool
-) -> None:
-    """Project Kimi ACP defaults without discarding native tables or hooks."""
+def write_toml_state(path: Path, payload: Mapping[str, Any]) -> None:
+    """Persist a native TOML object, including arrays of tables."""
 
-    updates: dict[str, str] = {}
-    if model_alias is not None:
-        updates["default_model"] = model_alias
-    if unattended:
-        updates["default_permission_mode"] = "auto"
-    if not updates:
+    _atomic_write_text(path, tomli_w.dumps(payload))
+
+
+def prepare_kimi_service_config(home_path: Path, *, model_alias: str | None) -> None:
+    """Project the configured model alias for a native Kimi service."""
+
+    if model_alias is None:
         return
     path = home_path / "config.toml"
     with provider_state_mutation_lock(home_path):
         payload = load_toml_state(path)
-        if any(payload.get(key) != value for key, value in updates.items()):
-            payload.update(updates)
-            _atomic_write_text(path, tomli_w.dumps(payload))
+        if payload.get("default_model") != model_alias:
+            payload["default_model"] = model_alias
+            write_toml_state(path, payload)
 
 
 def _load_json_state_with_template(path: Path, *, repair_invalid: bool = False) -> dict[str, Any]:
@@ -444,41 +452,6 @@ def canonicalize_kimi_unattended_launch_args(args: list[str]) -> None:
     args[:] = canonicalized
 
 
-def canonicalize_kimi_tui_unattended_launch_args(args: list[str]) -> None:
-    """Canonicalize Kimi TUI args and append strategy-owned native auto mode."""
-
-    flags_with_values = {
-        "-S",
-        "--session",
-        "-r",
-        "--resume",
-    }
-    scalar_flags = {"-C", "--continue", "--auto", "--yolo", "-y", "--plan"}
-    canonicalized: list[str] = []
-    index = 0
-    while index < len(args):
-        token = args[index]
-        next_token = args[index + 1] if index + 1 < len(args) else None
-
-        if token in scalar_flags:
-            index += 1
-            continue
-        if any(token.startswith(f"{flag}=") for flag in flags_with_values):
-            index += 1
-            continue
-        if token in flags_with_values:
-            index += 1
-            if next_token is not None and not next_token.startswith("-"):
-                index += 1
-            continue
-
-        canonicalized.append(token)
-        index += 1
-
-    args[:] = canonicalized
-    args.append("--auto")
-
-
 def _claude_ensure_api_key_approval(request: LaunchPolicyRequest) -> None:
     """Seed API-key approval state without storing the full key value."""
 
@@ -504,6 +477,30 @@ def _claude_ensure_api_key_approval(request: LaunchPolicyRequest) -> None:
             "into `.claude.json`."
         )
     write_json_state(state_path, payload)
+
+
+def _claude_apply_permission_mode(request: LaunchPolicyRequest, args: list[str] | None) -> None:
+    """Project the resolved mode before Claude reads settings or starts a session."""
+
+    permission_mode = request.tool_params.get("permission_mode")
+    if not isinstance(permission_mode, str):
+        return
+    bypass = permission_mode == "bypassPermissions"
+    if request.application_kind == "provider_start":
+        path = _claude_settings_path(request)
+        payload = _load_json_state_with_repair(path, repair_invalid=True)
+        permissions = payload.setdefault("permissions", {})
+        if not isinstance(permissions, dict):
+            raise LaunchPolicyError(f"Claude settings `{path}` permissions must be an object.")
+        permissions["defaultMode"] = permission_mode
+        if bypass and request.requested_operator_prompt_mode == "unattended":
+            payload["skipDangerousModePermissionPrompt"] = True
+        write_json_state(path, payload)
+    if args is not None:
+        if bypass:
+            args.append("--dangerously-skip-permissions")
+        else:
+            args.extend(("--permission-mode", permission_mode))
 
 
 def _claude_ensure_project_trust(request: LaunchPolicyRequest) -> None:
@@ -551,15 +548,28 @@ def _kimi_canonicalize_unattended_launch_inputs(args: list[str] | None) -> None:
     canonicalize_kimi_unattended_launch_args(args)
 
 
-def _kimi_canonicalize_unattended_tui_launch_inputs(
-    request: LaunchPolicyRequest,
-    args: list[str] | None,
-) -> None:
-    """Canonicalize caller launch args for the Kimi unattended TUI strategy."""
+def _kimi_prepare_unattended_tui(request: LaunchPolicyRequest) -> None:
+    """Suppress Kimi's legacy migration picker for unattended startup."""
 
-    if args is not None:
-        canonicalize_kimi_tui_unattended_launch_args(args)
     _atomic_write_text(request.home_path / _KIMI_SKIP_LEGACY_MIGRATION_FILENAME, "")
+
+
+def _kimi_project_permission(request: LaunchPolicyRequest, args: list[str] | None) -> None:
+    """Project the resolved permission into the private home and the TUI command."""
+
+    mode = request.tool_params.get("permission_mode")
+    if mode is None:
+        return
+    if request.application_kind == "provider_start":
+        set_toml_key(
+            path=request.home_path / "config.toml",
+            key_path=("default_permission_mode",),
+            value=mode,
+            repair_invalid=True,
+            preserve_native_arrays=True,
+        )
+    if request.backend == "raw_launch" and args is not None and mode in {"auto", "yolo"}:
+        args.append(f"--{mode}")
 
 
 def _kimi_validate_native_system_prompt_contract(
@@ -599,7 +609,7 @@ def _codex_ensure_project_trust(request: LaunchPolicyRequest) -> None:
             "trust_level",
         ),
         value="trusted",
-        preserve_native_arrays=request.backend == "codex_app_server",
+        preserve_native_arrays=True,
         repair_invalid=request.application_kind == "provider_start",
     )
 
@@ -610,29 +620,54 @@ def _codex_ensure_model_migration_state(request: LaunchPolicyRequest) -> None:
     _ensure_codex_model_migration_state(
         config_path=_codex_config_path(request),
         repair_invalid=request.application_kind == "provider_start",
+        preserve_native_arrays=True,
     )
 
 
-def _codex_append_unattended_cli_overrides(args: list[str] | None) -> None:
-    """Append final Codex unattended CLI config overrides."""
+def _codex_launch_config_overrides(request: LaunchPolicyRequest) -> list[CodexCliConfigOverride]:
+    """Return the Codex settings shared by its home and native CLI startup."""
 
-    if args is None:
+    overrides = [
+        CodexCliConfigOverride((key,), value)
+        for key in ("approval_policy", "sandbox_mode")
+        if isinstance(value := request.tool_params.get(key), str)
+    ]
+    if (
+        request.backend != "codex_app_server"
+        and request.requested_operator_prompt_mode == "unattended"
+    ):
+        overrides.extend(
+            (
+                CodexCliConfigOverride(("notice", "hide_full_access_warning"), True),
+                CodexCliConfigOverride(("tui", "show_tooltips"), _CODEX_UNATTENDED_SHOW_TOOLTIPS),
+            )
+        )
+    return overrides
+
+
+def _codex_apply_runtime_permissions(request: LaunchPolicyRequest) -> None:
+    """Project resolved Codex settings in the private home before provider start."""
+
+    if request.application_kind != "provider_start":
         return
-    append_or_replace_codex_config_overrides(
-        args,
-        (
-            CodexCliConfigOverride(
-                ("approval_policy",),
-                _CODEX_UNATTENDED_APPROVAL_POLICY,
-            ),
-            CodexCliConfigOverride(
-                ("sandbox_mode",),
-                _CODEX_UNATTENDED_SANDBOX_MODE,
-            ),
-            CodexCliConfigOverride(("notice", "hide_full_access_warning"), True),
-            CodexCliConfigOverride(("tui", "show_tooltips"), _CODEX_UNATTENDED_SHOW_TOOLTIPS),
-        ),
-    )
+    path = _codex_config_path(request)
+    for override in _codex_launch_config_overrides(request):
+        set_toml_key(
+            path=path,
+            key_path=override.key_path,
+            value=override.value,
+            repair_invalid=True,
+            preserve_native_arrays=True,
+        )
+
+
+def _codex_append_unattended_cli_overrides(
+    request: LaunchPolicyRequest, args: list[str] | None
+) -> None:
+    """Apply resolved Codex permissions over native project-local CLI layers."""
+
+    if args is not None:
+        append_or_replace_codex_config_overrides(args, _codex_launch_config_overrides(request))
 
 
 def _has_usable_auth_json(path: Path) -> bool:
@@ -753,7 +788,9 @@ def _delete_nested_json_key(payload: dict[str, Any], key_path: tuple[str, ...]) 
             parent.pop(key, None)
 
 
-def _ensure_codex_model_migration_state(*, config_path: Path, repair_invalid: bool) -> None:
+def _ensure_codex_model_migration_state(
+    *, config_path: Path, repair_invalid: bool, preserve_native_arrays: bool = False
+) -> None:
     """Seed Codex model-migration state in the runtime config."""
 
     payload = load_toml_state(
@@ -767,12 +804,14 @@ def _ensure_codex_model_migration_state(*, config_path: Path, repair_invalid: bo
             key_path=("model",),
             value=_CODEX_MODEL_MIGRATION_TARGET,
             repair_invalid=repair_invalid,
+            preserve_native_arrays=preserve_native_arrays,
         )
         set_toml_key(
             path=config_path,
             key_path=("notice", "model_migrations", _CODEX_MODEL_MIGRATION_SOURCE),
             value=_CODEX_MODEL_MIGRATION_TARGET,
             repair_invalid=repair_invalid,
+            preserve_native_arrays=preserve_native_arrays,
         )
 
 

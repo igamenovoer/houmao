@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+from dataclasses import replace
 import re
 import subprocess
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Any, Literal, Mapping, cast
 
 import yaml
 
+from houmao.agents.launch_overrides.native import split_permission_args
 from houmao.agents.launch_policy.models import (
     LaunchPolicyAction,
     LaunchPolicyCompatibilityError,
@@ -30,12 +32,14 @@ from houmao.agents.launch_policy.models import (
     StrategyEvidence,
     ToolVersion,
 )
+from houmao.agents.launch_policy.permission_state import permission_projection
 from houmao.agents.launch_policy.provider_hooks import (
     provider_state_mutation_lock,
     run_provider_hook,
     set_json_key,
     set_toml_key,
 )
+from houmao.agents.tool_params import get_tool_params_adapter, validate_tool_params
 
 _VERSION_PATTERN = re.compile(r"(\d+\.\d+\.\d+(?:[-+][A-Za-z0-9][A-Za-z0-9.-]*)?)")
 _OVERRIDE_ENV_VAR = "HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY"
@@ -80,55 +84,142 @@ _RESUME_CONTROL_ALLOWED_PROVIDER_HOOKS: frozenset[str] = frozenset(
         "codex.canonicalize_unattended_launch_inputs",
         "codex.append_unattended_cli_overrides",
         "kimi.canonicalize_unattended_launch_inputs",
-        "kimi.canonicalize_unattended_tui_launch_inputs",
+        "kimi.project_tui_permission",
+        "claude.apply_permission_mode",
     }
 )
+_PERMISSION_KEYS = {
+    "claude": ("permission_mode",),
+    "codex": ("approval_policy", "sandbox_mode"),
+    "kimi": ("permission_mode",),
+    "dsh": ("permissions",),
+}
 
 
 def apply_launch_policy(request: LaunchPolicyRequest) -> LaunchPolicyResult:
     """Resolve and apply launch policy for one launch request."""
 
-    if request.requested_operator_prompt_mode in {None, "as_is"}:
-        return LaunchPolicyResult(
-            executable=request.executable,
-            args=request.base_args,
-            provenance=None,
-            strategy=None,
+    strategy = None
+    provenance = None
+    mode = request.requested_operator_prompt_mode
+    if mode == "unattended":
+        detected_version = detect_tool_version(executable=request.executable)
+        strategy, selection_source = resolve_strategy(
+            request=request, detected_version=detected_version
         )
-
-    if request.requested_operator_prompt_mode != "unattended":
-        raise LaunchPolicyError(
-            f"Unsupported operator_prompt_mode `{request.requested_operator_prompt_mode}`."
+        provenance = LaunchPolicyProvenance(
+            requested_operator_prompt_mode=mode,
+            detected_tool_version=detected_version.raw,
+            selected_strategy_id=strategy.strategy_id,
+            selection_source=selection_source,
+            override_env_var_name=_OVERRIDE_ENV_VAR if selection_source == "env_override" else None,
         )
-
-    detected_version = detect_tool_version(executable=request.executable)
-    strategy, selection_source = resolve_strategy(
-        request=request, detected_version=detected_version
+    elif mode not in {None, "as_is"}:
+        raise LaunchPolicyError(f"Unsupported operator_prompt_mode `{mode}`.")
+    permission_keys = _PERMISSION_KEYS.get(request.tool, ())
+    try:
+        native_args, aliases = split_permission_args(
+            request.tool, request.base_args, source="launch args"
+        )
+        if aliases:
+            aliases = validate_tool_params(request.tool, aliases, source="launch args")
+    except ValueError as exc:
+        raise LaunchPolicyError(str(exc)) from exc
+    authored = {
+        key: value
+        for key, value in {**aliases, **request.tool_params}.items()
+        if key in permission_keys and value is not None
+    }
+    defaults = strategy.permission_defaults if strategy is not None else {}
+    permissions = {**defaults, **authored}
+    if request.tool == "dsh":
+        permissions["permissions"] = {
+            **defaults.get("permissions", {}),
+            **authored.get("permissions", {}),
+        }
+    if request.tool == "kimi" and permissions:
+        adapter = get_tool_params_adapter(request.tool)
+        try:
+            adapter.prepare_launch(
+                adapter.parse_effective(permissions, source="effective tool_params"),
+                backend=request.backend,
+            )
+        except ValueError as exc:
+            raise LaunchPolicyError(str(exc)) from exc
+    authored_fields = _permission_fields(authored)
+    sources = {
+        field: request.tool_param_sources.get(
+            field, "launch args" if field in aliases else "tool_params"
+        )
+        if field in authored_fields
+        else f"strategy:{strategy.strategy_id}"
+        if strategy is not None
+        else "native baseline"
+        for field in _permission_fields(permissions)
+    }
+    request = replace(request, tool_params={**request.tool_params, **permissions})
+    args = list(native_args)
+    actions = strategy.actions if strategy is not None else _as_is_actions(request, permissions)
+    project_home_permissions = (
+        request.application_kind == "provider_start"
+        and request.tool in {"claude", "codex", "kimi"}
+        and not (request.tool == "kimi" and request.backend == "kimi_headless")
+        and (permissions or (request.home_path / ".houmao-launch-permissions.json").is_file())
     )
-    args = list(request.base_args)
 
     mutation_context = (
         provider_state_mutation_lock(request.home_path)
-        if request.application_kind == "provider_start"
+        if request.application_kind == "provider_start" and (actions or project_home_permissions)
         else nullcontext()
     )
-    with mutation_context:
-        for action in strategy.actions:
+    with (
+        mutation_context,
+        (
+            permission_projection(tool=request.tool, home=request.home_path, effective=permissions)
+            if project_home_permissions
+            else nullcontext()
+        ),
+    ):
+        for action in actions:
             _apply_action(action=action, request=request, args=args)
-
-    provenance = LaunchPolicyProvenance(
-        requested_operator_prompt_mode=request.requested_operator_prompt_mode,
-        detected_tool_version=detected_version.raw,
-        selected_strategy_id=strategy.strategy_id,
-        selection_source=selection_source,
-        override_env_var_name=_OVERRIDE_ENV_VAR if selection_source == "env_override" else None,
-    )
     return LaunchPolicyResult(
         executable=request.executable,
         args=tuple(args),
         provenance=provenance,
         strategy=strategy,
+        permissions=permissions,
+        permission_sources=sources,
     )
+
+
+def _permission_fields(permissions: Mapping[str, Any]) -> set[str]:
+    """Describe permission values by their user-facing paths."""
+
+    return {
+        field
+        for key, value in permissions.items()
+        for field in ((f"{key}.{child}" for child in value) if isinstance(value, dict) else (key,))
+    }
+
+
+def _as_is_actions(
+    request: LaunchPolicyRequest, permissions: Mapping[str, Any]
+) -> tuple[LaunchPolicyAction, ...]:
+    """Project authored settings without adding unattended bootstrap actions."""
+
+    hooks: tuple[str, ...] = ()
+    if permissions:
+        if request.tool == "claude":
+            hooks = ("claude.apply_permission_mode",)
+        elif request.tool == "codex":
+            hooks = ("codex.apply_runtime_permissions",)
+            if request.backend != "codex_app_server":
+                hooks += ("codex.append_unattended_cli_overrides",)
+        elif request.tool == "kimi" and request.backend == "raw_launch":
+            hooks = ("kimi.project_tui_permission",)
+        elif request.tool == "kimi" and request.backend in {"kimi_acp", "kimi_web"}:
+            hooks = ("kimi.project_service_permission",)
+    return tuple(LaunchPolicyAction("provider_hook.call", {"hook_id": hook}) for hook in hooks)
 
 
 def detect_tool_version(*, executable: str) -> ToolVersion:
@@ -342,6 +433,9 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
         _parse_action(item=item, source=f"{source}.actions[{index}]")
         for index, item in enumerate(actions_payload)
     )
+    permission_defaults = payload.get("permission_defaults", {})
+    if not isinstance(permission_defaults, dict):
+        raise LaunchPolicyError(f"{source}.permission_defaults must be a mapping.")
 
     return LaunchPolicyStrategy(
         strategy_id=strategy_id,
@@ -353,6 +447,7 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
         evidence=evidence,
         owned_paths=owned_paths,
         actions=actions,
+        permission_defaults=permission_defaults,
     )
 
 

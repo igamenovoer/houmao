@@ -141,6 +141,8 @@ def _exec_native(input_path: Path) -> NoReturn:
         ]
         if private["session_id"] is not None:
             cli.extend(["--session-id", private["session_id"]])
+        if prepared.permission_preset is not None:
+            cli.extend(["--permission-mode", prepared.permission_preset])
 
         task_path = turn_dir / ".dsh-task"
         descriptor = os.open(task_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)

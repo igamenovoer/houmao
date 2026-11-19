@@ -18,6 +18,11 @@ PartialT = TypeVar("PartialT", bound=StrictToolParams)
 EffectiveT = TypeVar("EffectiveT", bound=StrictToolParams)
 ModelT = TypeVar("ModelT", bound=StrictToolParams)
 
+_MANAGED_FIELDS = {
+    "session_id": "Houmao binds native session identity. Use the Houmao relaunch session selector",
+    "output_format": "Houmao selects the managed output protocol",
+}
+
 
 class ToolParamsAdapter(Generic[PartialT, EffectiveT]):
     """Resolve settings for one tool and project its backend-specific arguments."""
@@ -29,6 +34,9 @@ class ToolParamsAdapter(Generic[PartialT, EffectiveT]):
     def parse_partial(self, raw: Mapping[str, Any], *, source: str) -> PartialT:
         """Validate one authoring layer while retaining explicit field presence."""
 
+        for field, reason in _MANAGED_FIELDS.items():
+            if field in raw:
+                raise ValueError(f"{source}.{field}: reserved managed setting. {reason}.")
         partial = _validate_model(self.partial_model, raw, source)
         payload = partial.model_dump(mode="json", exclude_unset=True)
         for field_name, identity in self.keyed_lists.items():

@@ -3,6 +3,10 @@ tool: dsh
 strategies:
   - strategy_id: dsh-headless-unattended-0.2.2rc3
     operator_prompt_mode: unattended
+    permission_defaults:
+      permissions:
+        sandbox: danger-full-access
+        approval: never
     backends:
       - dsh_headless
     supported_versions: ">=0.2.2rc3"
@@ -39,6 +43,10 @@ strategies:
     actions: []
   - strategy_id: dsh-acp-service-unattended-0.2.2rc3
     operator_prompt_mode: unattended
+    permission_defaults:
+      permissions:
+        sandbox: danger-full-access
+        approval: never
     backends:
       - dsh_acp
     supported_versions: ">=0.2.2rc3"
@@ -75,6 +83,10 @@ strategies:
     actions: []
   - strategy_id: dsh-acp-unattended-0.2.2-plus
     operator_prompt_mode: unattended
+    permission_defaults:
+      permissions:
+        sandbox: danger-full-access
+        approval: never
     backends:
       - raw_launch
     supported_versions: ">=0.2.2rc1"
@@ -115,6 +127,10 @@ strategies:
     actions: []
   - strategy_id: dsh-web-unattended-0.2.2-plus
     operator_prompt_mode: unattended
+    permission_defaults:
+      permissions:
+        sandbox: danger-full-access
+        approval: never
     backends:
       - dsh_web
     supported_versions: ">=0.2.2rc1"

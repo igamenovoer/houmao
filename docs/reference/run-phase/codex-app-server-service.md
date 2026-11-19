@@ -8,6 +8,17 @@ houmao-mgr agents single --agent-id "$agent_id" prompt --prompt 'Inspect the cur
 houmao-mgr agents single --agent-id "$agent_id" state
 ```
 
+## Startup Permissions
+
+Service startup uses the same `tool_params.approval_policy` and `tool_params.sandbox_mode` settings as Codex CLI modes. For example, this profile requests a read-only sandbox with the unattended default approval policy (`never`).
+
+```yaml
+tool_params:
+  sandbox_mode: read-only
+```
+
+With `as_is`, omitted fields follow the native baseline. Houmao sends the resolved settings to `thread/start` or `thread/resume` and verifies the effective native policy before declaring the owner ready. [Codex permission settings](backends.md#codex_headless).
+
 ## Request State
 
 The manager, signed gateway and AG-UI use the same owner reservation. Codex's `turn/start` acknowledgment identifies the accepted native turn. The owner matches `turn/completed` against that thread and turn before reporting a final outcome. It preserves partial assistant output when the turn fails or is interrupted. If the connection disappears before that outcome, use the exact managed request to inspect the retained evidence.

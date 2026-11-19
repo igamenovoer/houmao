@@ -36,6 +36,7 @@ from houmao.agents.realm_controller.errors import BackendExecutionError
 from houmao.agents.realm_controller.models import SessionEvent
 from houmao.agents.realm_controller.usage_store import UsageStoreError
 from houmao.agents.realm_controller.usage_support import UsageService, persist_terminal_evidence
+from houmao.agents.tool_params.kimi import KIMI_PERMISSION_MODES
 
 
 _QUALIFIED_VERSION = "2.6.0"
@@ -150,20 +151,20 @@ class KimiAcpServiceProvider:
         if model is None or (isinstance(configured, str) and configured and model != configured):
             raise BackendExecutionError("Kimi ACP did not bind the configured native model")
         mode = _advertised_selection(selected, "mode")
-        if metadata.get("operator_prompt_mode") == "unattended":
-            if mode != "auto":
-                updated = self._call(
-                    "session/set_config_option",
-                    {"sessionId": actual, "configId": "mode", "value": "auto"},
+        permission_mode = metadata.get("permission_mode")
+        if permission_mode is not None and permission_mode not in KIMI_PERMISSION_MODES:
+            raise BackendExecutionError("Kimi ACP launch permission_mode is invalid")
+        expected_mode = "default" if permission_mode == "manual" else permission_mode
+        if expected_mode is not None and mode != expected_mode:
+            updated = self._call(
+                "session/set_config_option",
+                {"sessionId": actual, "configId": "mode", "value": expected_mode},
+            )
+            mode = _advertised_selection(updated, "mode")
+            if mode != expected_mode or _advertised_selection(updated, "model") != model:
+                raise BackendExecutionError(
+                    f"Kimi ACP did not confirm its native permission_mode={permission_mode!r}"
                 )
-                if (
-                    _advertised_selection(updated, "mode") != "auto"
-                    or _advertised_selection(updated, "model") != model
-                ):
-                    raise BackendExecutionError(
-                        "Kimi ACP did not confirm its native unattended mode"
-                    )
-            mode = "auto"
         birth = self.process_birth_token
         if birth is None:
             raise BackendExecutionError("Kimi ACP process birth identity is unavailable")

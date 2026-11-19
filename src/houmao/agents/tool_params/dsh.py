@@ -43,6 +43,8 @@ DshProtocol = Literal[
     "anthropic-messages",
     "google-generative-ai",
 ]
+DshSandboxMode = Literal["read-only", "workspace-write", "danger-full-access"]
+DshApprovalPolicy = Literal["ask", "never"]
 
 _COMPAT_FIELDS = {
     "openai-completions": frozenset(
@@ -523,6 +525,22 @@ class DshMcpServer(DshPartialMcpServer):
         return self
 
 
+class DshPermissionParams(StrictToolParams):
+    """Describe independent authored sandbox and approval fields."""
+
+    sandbox: DshSandboxMode | None = Field(default=None, exclude_if=lambda value: value is None)
+    approval: DshApprovalPolicy | None = Field(default=None, exclude_if=lambda value: value is None)
+
+    @field_validator("sandbox", "approval")
+    @classmethod
+    def _reject_null(cls, value: str | None) -> str:
+        """Require a supported native value when the author supplies a field."""
+
+        if value is None:
+            raise ValueError("omit the field to use the applicable launch default")
+        return value
+
+
 class DshPartialToolParams(StrictToolParams):
     """Represent one secret-free, partially specified DSH configuration layer."""
 
@@ -530,17 +548,20 @@ class DshPartialToolParams(StrictToolParams):
     models: Sequence[DshPartialModel] | None = None
     skill_roots: list[str] | None = None
     mcp_servers: Sequence[DshPartialMcpServer] | None = None
-    hmr: Literal[False] = False
+    permissions: DshPermissionParams = Field(default_factory=DshPermissionParams)
 
     @model_validator(mode="before")
     @classmethod
-    def _reject_legacy(cls, value: object) -> object:
-        """Provide an actionable error for the retired shape."""
+    def _reject_legacy_and_reserved_fields(cls, value: object) -> object:
+        """Identify retired setup syntax and the managed activation boundary."""
 
         if isinstance(value, dict) and ("version" in value or "selected_model" in value):
             raise ValueError("use tool_params with model.name instead of legacy dsh-setup.yaml")
-        if isinstance(value, dict) and "hmr" in value and value["hmr"] is not False:
-            raise ValueError("managed DSH supports startup-only configuration")
+        if isinstance(value, dict) and "hmr" in value:
+            raise ValueError(
+                "DSH reserves hmr for startup-only configuration. "
+                "Omit it and use Houmao refresh or relaunch to activate native changes."
+            )
         return value
 
     @field_validator("skill_roots")
@@ -629,6 +650,13 @@ class DshEffectiveToolParams(DshPartialToolParams):
             data = yaml.safe_load(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, yaml.YAMLError):
             raise DshConfigurationError(f"Cannot read DSH {MATERIALIZED_DSH_TOOL_PARAMS}") from None
+        if (
+            path.name == MATERIALIZED_DSH_TOOL_PARAMS
+            and isinstance(data, dict)
+            and data.get("hmr") is False
+        ):
+            # Earlier Houmao versions recorded this derived flag in the runtime projection.
+            data.pop("hmr")
         return cls.from_mapping(data)
 
     @classmethod
@@ -673,6 +701,8 @@ class DshEffectiveToolParams(DshPartialToolParams):
                     "headers",
                     "command",
                     "url",
+                    "sandbox",
+                    "approval",
                 }
                 | DshCompat.model_fields.keys()
                 else "<field>"

@@ -117,10 +117,10 @@ class DshAcpServiceProvider:
 
         config = self.m_config
         setup_meta = config.metadata.get("dsh")
-        setup_path = setup_meta.get("setup_path") if isinstance(setup_meta, dict) else None
-        if not isinstance(setup_path, str):
+        if not isinstance(setup_meta, dict) or not isinstance(setup_meta.get("setup_path"), str):
             raise BackendExecutionError("DSH service setup projection is unavailable")
-        setup = DshEffectiveToolParams.from_file(Path(setup_path))
+        setup = DshEffectiveToolParams.from_file(Path(setup_meta["setup_path"]))
+        permission_preset = setup_meta.get("permission_preset")
         credentials = read_dsh_mcp_environment(setup, config.metadata.get("env_source_file"))
         loaded = load_dsh_home(
             config.home_path, setup, config.environment, credential_environment=credentials
@@ -147,6 +147,7 @@ class DshAcpServiceProvider:
                 "working_directory": str(config.working_directory.resolve()),
                 "persistence_root": str(loaded.persistence_root),
                 "source_revision": DSH_SOURCE_REVISION,
+                "permission_preset": permission_preset,
                 "service": {
                     "manifest_path": str(config.manifest_path),
                     "arm_path": str(self.m_arm),
@@ -227,6 +228,7 @@ class DshAcpServiceProvider:
         ):
             raise DshAcpProtocolError("DSH did not bind the requested native session")
         identity = _read_object(ready_path)
+        actual_permission_preset = identity.pop("permission_preset", None)
         expected = {
             "version": 1,
             "service_incarnation": config.service_incarnation,
@@ -244,6 +246,10 @@ class DshAcpServiceProvider:
             )
         ):
             raise DshAcpProtocolError("DSH native companion did not verify the selected session")
+        if permission_preset is not None and actual_permission_preset != permission_preset:
+            raise DshAcpProtocolError(
+                "DSH native companion reported an unexpected permission preset"
+            )
         self.m_native_identity = identity
         self.m_options = _options(selected)
         self.m_session_id = actual

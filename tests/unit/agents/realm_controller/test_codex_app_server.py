@@ -84,7 +84,10 @@ while (frame := receive()) is not None:
         initialized = True
     elif method in ("thread/start", "thread/resume"):
         assert initialized
-        assert params["approvalPolicy"] == "never" and params["sandbox"] == "danger-full-access"
+        approval = os.environ.get("HOUMAO_PEER_APPROVAL", "never")
+        sandbox = os.environ.get("HOUMAO_PEER_SANDBOX", "danger-full-access")
+        assert params.get("approvalPolicy") == (approval or None)
+        assert params.get("sandbox") == (sandbox or None)
         assert params["developerInstructions"] == "Private managed role"
         assert params["config"] == {"model": "local-qwen"}
         if method == "thread/start":
@@ -93,8 +96,14 @@ while (frame := receive()) is not None:
             assert params["threadId"] == thread and params["excludeTurns"] is True
             assert all(key not in params for key in ("cwd", "history", "path"))
         bound = True
+        sandbox_type = {"read-only": "readOnly", "workspace-write": "workspaceWrite",
+                        "danger-full-access": "dangerFullAccess", "": "workspaceWrite"}[sandbox]
+        if os.environ.get("HOUMAO_PEER_POLICY_MISMATCH") == "approval":
+            approval = "untrusted"
+        if os.environ.get("HOUMAO_PEER_POLICY_MISMATCH") == "sandbox":
+            sandbox_type = "dangerFullAccess"
         reply(frame, {"thread": thread_state("idle"), "cwd": os.getcwd(), "model": "local-qwen",
-                      "approvalPolicy": "never", "sandbox": {"type": "dangerFullAccess"}})
+                      "approvalPolicy": approval or "on-request", "sandbox": {"type": sandbox_type}})
     elif method == "thread/read":
         assert initialized and params == {"threadId": thread, "includeTurns": False}
         status = "idle" if bound else "notLoaded"
@@ -188,6 +197,10 @@ def peer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ServiceOwner
         metadata={
             "codex_app_server": {
                 "operator_prompt_mode": "unattended",
+                "permissions": {
+                    "approval_policy": "never",
+                    "sandbox_mode": "danger-full-access",
+                },
                 "thread_config": {"model": "local-qwen"},
             }
         },
@@ -342,10 +355,16 @@ def test_app_server_guards_native_idle_and_prewrite(
 
 
 @pytest.mark.parametrize("foreign_metadata", [False, True])
+@pytest.mark.parametrize("override", [False, True])
 def test_app_server_fresh_incarnation_resumes_only_exact_owned_rollout(
     peer_config: ServiceOwnerConfig,
     foreign_metadata: bool,
+    override: bool,
 ) -> None:
+    if override:
+        peer_config = _with_peer_permissions(
+            peer_config, approval="on-request", sandbox="read-only"
+        )
     provider = create_codex_service_provider(peer_config)
     operation, _, _ = _operation(peer_config, "initial")
     try:
@@ -385,6 +404,59 @@ def test_app_server_fresh_incarnation_resumes_only_exact_owned_rollout(
         replacement.close()
     methods = (other_root / "methods.jsonl").read_text()
     assert "thread/resume" in methods and "thread/start" not in methods
+
+
+def _with_peer_permissions(
+    config: ServiceOwnerConfig, *, approval: str, sandbox: str
+) -> ServiceOwnerConfig:
+    """Configure independent peer expectations and managed startup inputs."""
+
+    permissions = {
+        key: value
+        for key, value in (("approval_policy", approval), ("sandbox_mode", sandbox))
+        if value
+    }
+    return config.model_copy(
+        update={
+            "metadata": {
+                "codex_app_server": {
+                    **config.metadata["codex_app_server"],
+                    "permissions": permissions,
+                }
+            },
+            "environment": {
+                **config.environment,
+                "HOUMAO_PEER_APPROVAL": approval,
+                "HOUMAO_PEER_SANDBOX": sandbox,
+            },
+        }
+    )
+
+
+def test_app_server_leaves_each_omitted_permission_to_the_native_baseline(
+    peer_config: ServiceOwnerConfig,
+) -> None:
+    config = _with_peer_permissions(peer_config, approval="", sandbox="read-only")
+    provider = create_codex_service_provider(config)
+    try:
+        assert provider.connection_ready
+    finally:
+        provider.close()
+
+
+@pytest.mark.parametrize(
+    ("field", "message"), [("approval", "approval policy"), ("sandbox", "sandbox mode")]
+)
+def test_app_server_rejects_a_policy_echo_mismatch(
+    peer_config: ServiceOwnerConfig, field: str, message: str
+) -> None:
+    config = _with_peer_permissions(peer_config, approval="on-request", sandbox="workspace-write")
+    config = config.model_copy(
+        update={"environment": {**config.environment, "HOUMAO_PEER_POLICY_MISMATCH": field}}
+    )
+    with pytest.raises(BackendExecutionError, match=message):
+        create_codex_service_provider(config)
+    assert not (config.root / "codex-app-server-binding.json").exists()
 
 
 def test_app_server_pre_response_event_capacity_fails_closed(

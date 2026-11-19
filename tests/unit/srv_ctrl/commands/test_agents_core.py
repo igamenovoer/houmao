@@ -2207,10 +2207,23 @@ def test_launch_managed_agent_locally_reports_post_takeover_build_failure(
 
 
 @pytest.mark.parametrize("force_mode", ["keep-stale", "clean"])
+@pytest.mark.parametrize(
+    ("tool_params", "error"),
+    [
+        ({"include_partial_messages": True}, "include_partial_messages.*unsupported"),
+        ({"output_format": "stream-json"}, "output_format.*reserved"),
+        ({"session_id": None}, "session_id.*reserved.*relaunch"),
+        ({"permission_mode": "plan"}, "No compatible unattended launch strategy"),
+    ],
+)
 def test_invalid_merged_tool_params_leave_force_predecessor_intact(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, force_mode: str
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    force_mode: str,
+    tool_params: dict[str, object],
+    error: str,
 ) -> None:
-    """Reject a valid partial that makes the final configuration invalid for this backend."""
+    """Reject reserved values and unsupported backend settings before takeover."""
 
     source = tmp_path / "source"
     runtime = tmp_path / "runtime"
@@ -2223,6 +2236,12 @@ def test_invalid_merged_tool_params_leave_force_predecessor_intact(
         source_agent_def_dir=source,
     )
     from houmao.srv_ctrl.commands.agents import core
+    from houmao.agents.launch_policy.models import ToolVersion
+
+    monkeypatch.setattr(
+        "houmao.agents.brain_builder.detect_tool_version",
+        lambda **kwargs: ToolVersion.parse("0.1.0"),
+    )
 
     claude = source / "tools" / "claude"
     setup = claude / "setups" / "default"
@@ -2259,7 +2278,7 @@ def test_invalid_merged_tool_params_leave_force_predecessor_intact(
 
     monkeypatch.setattr(core, "_perform_managed_force_takeover", unexpected_mutation)
     monkeypatch.setattr(core, "build_brain_home", unexpected_mutation)
-    with pytest.raises(click.ClickException, match="include_partial_messages.*unsupported"):
+    with pytest.raises(click.ClickException, match=error):
         launch_managed_agent_locally(
             agents="researcher",
             agent_name="worker-a",
@@ -2274,7 +2293,7 @@ def test_invalid_merged_tool_params_leave_force_predecessor_intact(
             headless_display_style="plain",
             headless_display_detail="concise",
             force_mode=force_mode,
-            direct_tool_params={"include_partial_messages": True},
+            direct_tool_params=tool_params,
         )
     assert (previous / "manifest.json").read_text(encoding="utf-8") == "predecessor manifest"
     assert list(runtime.iterdir()) == [previous]

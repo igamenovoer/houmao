@@ -106,7 +106,9 @@ from houmao.agents.realm_controller.backends.headless_output import (
 )
 from houmao.agents.realm_controller.launch_plan import (
     launch_surface_for_backend,
+    resolve_codex_service_executable,
     validate_dsh_launch_version,
+    validate_kimi_service_launch_version,
     validate_kimi_web_launch_version,
 )
 from houmao.agents.realm_controller.native_surface import (
@@ -990,6 +992,8 @@ def launch_managed_agent_locally(
             build_request,
             backend=launch_surface_for_backend(resolved_backend),
             launch_env_overrides=effective_launch_env_overrides,
+            check_policy_version=predecessor_context is not None
+            and predecessor_context.target is not None,
         )
         if selection.tool == "dsh":
             validate_dsh_launch_version(
@@ -998,6 +1002,12 @@ def launch_managed_agent_locally(
         elif resolved_backend == "kimi_web":
             validate_kimi_web_launch_version(executable=validated_inputs.adapter.launch_executable)
         if predecessor_context is not None and predecessor_context.target is not None:
+            if resolved_backend == "codex_app_server":
+                resolve_codex_service_executable(validated_inputs.adapter.launch_executable)
+            elif resolved_backend == "kimi_acp":
+                validate_kimi_service_launch_version(
+                    executable=validated_inputs.adapter.launch_executable
+                )
             _perform_managed_force_takeover(predecessor_context)
             takeover_completed = True
         if launch_profile_memo_seed is not None:
@@ -1354,7 +1364,7 @@ def self_identity_agent_command() -> None:
 def self_state_agent_command() -> None:
     """Show the operational summary for the current managed tmux session."""
 
-    target = resolve_current_session_managed_agent_target()
+    target = resolve_current_session_managed_agent_target(read_only=True)
     emit(
         managed_agent_state_payload(target),
         plain_renderer=render_agent_state_plain,

@@ -6,6 +6,7 @@ from collections.abc import Callable
 import json
 from pathlib import Path
 import time
+from types import SimpleNamespace
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
@@ -19,6 +20,12 @@ from houmao.agents.realm_controller.backends.kimi_web import (
     recover_kimi_web_prompt_result,
 )
 from houmao.agents.realm_controller.backends.kimi_web_client import KimiWebClient
+from houmao.agents.realm_controller.models import (
+    LaunchPlan,
+    RelaunchChatSessionSelection,
+    RoleInjectionPlan,
+    SessionControlResult,
+)
 from houmao.hook_observation.kimi_journal import kimi_native_workspace_path
 
 
@@ -34,6 +41,7 @@ class _Native:
         self.m_lose_response: bool = False
         self.m_refuse_preflight: bool = False
         self.m_calls: list[tuple[str, str]] = []
+        self.m_permission: str = "manual"
 
     def append(self, *rows: dict[str, Any]) -> None:
         """Write native rows without coupling them to a gateway execution lifecycle."""
@@ -55,7 +63,14 @@ class _Native:
         if before_send:
             before_send()
         self.m_calls.append((method, path))
-        if method == "GET" and path == "/sessions/session_selected":
+        if path == "/sessions/session_selected/profile" and method == "POST":
+            assert body is not None
+            self.m_permission = body["agent_config"]["permission_mode"]
+        if (method, path) in {
+            ("GET", "/sessions/session_selected"),
+            ("POST", "/sessions/session_selected/profile"),
+            ("POST", "/sessions"),
+        }:
             return {
                 "id": "session_selected",
                 "metadata": {"cwd": str(self.m_workspace)},
@@ -160,6 +175,103 @@ def web(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[KimiWebSession
         lambda *_args, **_kwargs: None,
     )
     return adapter, native
+
+
+@pytest.mark.parametrize("permission_mode", ["auto", "manual", None])
+def test_web_projects_permission_only_during_native_startup(
+    web: tuple[KimiWebSession, _Native],
+    monkeypatch: pytest.MonkeyPatch,
+    permission_mode: str | None,
+) -> None:
+    """Apply the selected mode on birth and exact relaunch while observation remains passive."""
+
+    adapter, native = web
+    prior_state = adapter.state
+    home = Path(prior_state.cookie_path).parent
+    plan = LaunchPlan(
+        backend="kimi_web",
+        tool="kimi",
+        executable="kimi",
+        args=["web", "--no-open", "--host", "127.0.0.1", "--port", "0"],
+        working_directory=Path(prior_state.working_directory),
+        home_path=home,
+        home_env_var="KIMI_CODE_HOME",
+        env={},
+        env_var_names=[],
+        role_injection=RoleInjectionPlan(
+            method="native_home_system_prompt", role_name="r", prompt="role"
+        ),
+        metadata={
+            "kimi_web": {"detected_version": "2.6.0", "permission_mode": permission_mode},
+            "managed_web_identity": {
+                field: prior_state.web_identity[field]
+                for field in ("agent_id", "runtime_session_id", "generation")
+            },
+        },
+    )
+    module = "houmao.agents.realm_controller.backends.kimi_web"
+    process = {
+        "supervisor_pid": prior_state.supervisor_pid,
+        "supervisor_birth_token": prior_state.supervisor_birth_token,
+    }
+    client = SimpleNamespace(
+        origin=prior_state.origin,
+        pid=prior_state.native_pid,
+        birth=prior_state.native_birth_token,
+        token_file=Path(prior_state.cookie_path),
+        request=native.request,
+    )
+    monkeypatch.setattr(f"{module}.has_tmux_session", lambda **_: SimpleNamespace(returncode=1))
+    monkeypatch.setattr(f"{module}.create_tmux_session", lambda **_: None)
+    monkeypatch.setattr(f"{module}.run_tmux", lambda *_: SimpleNamespace(returncode=0))
+    monkeypatch.setattr(
+        f"{module}.prepare_headless_agent_window",
+        lambda **_: SimpleNamespace(pane_id="%1", window_id="@1"),
+    )
+    monkeypatch.setattr(
+        KimiWebSession,
+        "_wait_for_host",
+        staticmethod(lambda *_: (process, client, {"server_id": "host"})),
+    )
+    monkeypatch.setattr(KimiWebSession, "_client", lambda _: client)
+    monkeypatch.setattr(
+        KimiWebSession, "terminate", lambda _: SessionControlResult("ok", "terminate", "stopped")
+    )
+    launched = KimiWebSession.from_launch_plan(
+        launch_plan=plan,
+        session_manifest_path=adapter.manifest_path,
+        role_name="r",
+        provider_start=True,
+    )
+    profile_write = ("POST", "/sessions/session_selected/profile")
+    assert native.m_calls == [("POST", "/sessions"), *([profile_write] if permission_mode else [])]
+    assert native.m_permission == (permission_mode or "manual")
+    native.m_permission = "yolo"
+    native.m_calls.clear()
+    manifest = json.loads(adapter.manifest_path.read_text())
+    manifest["backend_state"] = launched.state.to_payload()
+    adapter.manifest_path.write_text(json.dumps(manifest))
+    reattached = KimiWebSession.from_launch_plan(
+        launch_plan=plan,
+        session_manifest_path=adapter.manifest_path,
+        role_name="r",
+        state=launched.state,
+    )
+    assert reattached.observe_web_state()["admission"]["ready_only"]
+    assert native.m_calls == [("GET", "/sessions/session_selected")]
+    assert native.m_permission == "yolo"
+
+    native.m_calls.clear()
+    result = reattached.relaunch(
+        chat_session=RelaunchChatSessionSelection(mode="exact", session_id="session_selected")
+    )
+    assert result.status == "ok"
+    assert native.m_calls == [
+        ("GET", "/sessions/session_selected"),
+        *([profile_write] if permission_mode else []),
+    ]
+    assert native.m_permission == (permission_mode or "yolo")
+    assert reattached.state.web_identity["native_session_id"] == "session_selected"
 
 
 def test_reports_native_queue_receipt_before_settlement(

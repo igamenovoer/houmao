@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import UTC, datetime, timedelta
 from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -28,7 +28,7 @@ import pytest
 import uvicorn
 
 from houmao.agents.realm_controller.run_modes import mode_for_backend
-from houmao.agents.realm_controller import gateway_access_runtime, gateway_service
+from houmao.agents.realm_controller import gateway_access_runtime, gateway_service, registry_storage
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
@@ -64,6 +64,7 @@ from houmao.agents.realm_controller.registry_models import (
     RegistryTerminalV2,
 )
 from houmao.agents.realm_controller.registry_storage import publish_managed_agent_record
+from houmao.agents.realm_controller.runtime import RuntimeSessionController
 from houmao.execution.context import observed_local_binding
 from houmao.execution.tmux import tmux_server_scope
 from houmao.gateway.access import (
@@ -528,6 +529,42 @@ def _serve_gateway(
         server.should_exit = True
         worker.join(5.0)
         assert not worker.is_alive()
+
+
+@pytest.mark.parametrize("attach", [False, True])
+def test_self_status_queries_use_authority_without_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, attach: bool
+) -> None:
+    """Verify owner-local and signed gateway self queries with publication disabled."""
+
+    monkeypatch.setattr(
+        gateway_access_runtime, "resolve_houmao_home_root", lambda: tmp_path / "owner"
+    )
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
+
+    def deny_publication(*args: object, **kwargs: object) -> None:
+        pytest.fail("Self status attempted registry or gateway publication")
+
+    with _isolated_tmux(tmp_path) as socket, tmux_server_scope(socket):
+        manifest, generation = _provision_runtime(
+            tmp_path, tmux_socket=socket, advertised_url="https://127.0.0.1:9443"
+        )
+        monkeypatch.setenv(AGENT_MANIFEST_PATH_ENV_VAR, str(manifest))
+        context = _serve_gateway(manifest, monkeypatch, generation) if attach else nullcontext()
+        with context, monkeypatch.context() as observation:
+            observation.setattr(registry_storage, "_managed_agent_record_lock", deny_publication)
+            observation.setattr(
+                RuntimeSessionController, "ensure_gateway_capability", deny_publication
+            )
+            runner = CliRunner()
+            state = runner.invoke(cli, ["--print-json", "agents", "self", "state"])
+            assert state.exit_code == 0, state.output
+            assert json.loads(state.output)["identity"]["agent_id"] == _AGENT
+            mail = runner.invoke(cli, ["--print-json", "agents", "self", "mail", "status"])
+            assert mail.exit_code == 0, mail.output
+            assert json.loads(mail.output)["execution_path"] == (
+                "gateway_backed" if attach else "manager_direct"
+            )
 
 
 def test_authenticated_gateway_over_a_verified_https_proxy(

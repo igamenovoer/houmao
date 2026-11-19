@@ -12,7 +12,7 @@ houmao-mgr agents single --agent-id "$agent_id" state
 
 The manager, authenticated gateway, and AG-UI use the same prompt reservation. The service reports the bound native session, its current incarnation, readiness, and an active request when it can verify one. Gateway request state distinguishes accepted work, native transport handoff, and a settled turn. The stdio endpoint stays private.
 
-Houmao sends ordinary text over ACP. Native slash commands and per-request model changes require a separate supported surface. Choose the model in the launch profile before starting or relaunching. Unattended mode uses Kimi's native `auto` permission policy. `as_is` retains the configured native policy. If Kimi asks for a human approval, a plan decision, or a question answer, the owner declines it. This service advertises an empty client capability set, which keeps filesystem and terminal work with the native process.
+Houmao sends ordinary text over ACP. Choose the model and any explicit `tool_params.permission_mode` (`auto`, `yolo`, or `manual`) before starting or relaunching. Unattended launch fills an omitted mode with `auto`. With `as_is`, an omitted field uses Kimi's native mode. On fresh and exact resumed startup, the owner verifies the selected ACP mode. Kimi calls `manual` permission `default` in ACP. If Kimi asks for a human approval, a plan decision, or a question answer, the owner declines it. The owner advertises an empty client capability set, which keeps filesystem and terminal work with the native process.
 
 ## Detach and Exact Continuation
 

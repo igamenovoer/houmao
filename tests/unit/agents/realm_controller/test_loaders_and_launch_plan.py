@@ -386,7 +386,7 @@ def test_build_codex_service_launch_owns_stdio_and_private_config(
     ("raw_args", "error"),
     [
         ([], r"requires Codex CLI 0\.169\.0.*headless and tui"),
-        (["--listen", "ws://127.0.0.1:9000"], "rejects raw launch arguments"),
+        (["--listen", "ws://127.0.0.1:9000"], "backend-reserved.*--listen"),
         (["daemon"], "rejects raw launch arguments"),
     ],
 )
@@ -1039,9 +1039,21 @@ def test_build_launch_plan_local_interactive_kimi_projects_tui_model_and_env(
     assert "kimi_tui_auto_mode_refresh" not in plan.metadata
 
 
-def test_build_launch_plan_local_interactive_kimi_unattended_uses_native_auto(
+@pytest.mark.parametrize(
+    ("policy", "authored", "permission", "permission_args"),
+    [
+        ("unattended", {}, "auto", ["--auto"]),
+        ("unattended", {"permission_mode": "yolo"}, "yolo", ["--yolo"]),
+        ("as_is", {"permission_mode": "manual"}, "manual", []),
+    ],
+)
+def test_build_launch_plan_local_interactive_kimi_applies_resolved_mode(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    policy: str,
+    authored: dict[str, str],
+    permission: str,
+    permission_args: list[str],
 ) -> None:
     env_file = tmp_path / "vars.env"
     env_file.write_text("\n", encoding="utf-8")
@@ -1061,9 +1073,13 @@ def test_build_launch_plan_local_interactive_kimi_unattended_uses_native_auto(
         home_path=home_path,
         env_file=env_file,
         allowlisted_env_vars=[],
-        launch_args=["--auto", "--continue", "--model", "caller-model"],
-        launch_policy={"operator_prompt_mode": "unattended"},
+        launch_args=["--model", "caller-model"],
+        launch_policy={"operator_prompt_mode": policy},
     )
+    manifest["runtime"]["launch_contract"]["tool_params"] = {
+        "layers": {"direct": authored},
+        "effective": authored,
+    }
     manifest["runtime"]["launch_contract"]["model_selection"] = {
         "resolved": {
             "effective": {"name": "kimi-code/kimi-for-coding"},
@@ -1085,17 +1101,17 @@ def test_build_launch_plan_local_interactive_kimi_unattended_uses_native_auto(
         )
     )
     payload = tomllib.loads((home_path / "config.toml").read_text(encoding="utf-8"))
-    assert plan.args == ["--auto", "--model", "kimi-code/kimi-for-coding"]
+    assert plan.args == [*permission_args, "--model", "kimi-code/kimi-for-coding"]
     assert plan.role_injection.method == "native_home_system_prompt"
     assert plan.role_injection.bootstrap_message is None
     assert (home_path / "SYSTEM.md").read_text(encoding="utf-8") == ("${base_prompt}\n\nprompt\n")
-    assert plan.launch_policy_provenance is not None
-    assert plan.launch_policy_provenance.selected_strategy_id == "kimi-tui-unattended-2.1-plus"
+    assert (plan.launch_policy_provenance is not None) == (policy == "unattended")
     assert plan.metadata["native_system_prompt"]["validation"] == "passed"
     assert plan.metadata["native_system_prompt"]["relative_path"] == "SYSTEM.md"
     assert plan.metadata["native_system_prompt"]["supported_versions"] == ">=2.1.1"
     assert "kimi_tui_auto_mode_refresh" not in plan.metadata
-    assert payload["default_permission_mode"] == "auto"
+    assert plan.metadata["kimi_tui"]["permission_mode"] == permission
+    assert payload["default_permission_mode"] == permission
     assert payload["extra_skill_dirs"] == ["/project/skills"]
 
 
@@ -1136,6 +1152,43 @@ def test_build_launch_plan_kimi_headless_unattended_uses_native_prompt_without_c
     assert (home_path / "SYSTEM.md").read_text(encoding="utf-8") == ("${base_prompt}\n\nprompt\n")
     assert plan.metadata["native_system_prompt"]["state"] == "projected"
     assert plan.env["KIMI_CODE_LEGACY_FLAG"] == "0"
+
+
+@pytest.mark.parametrize("policy", ["as_is", "unattended"])
+def test_kimi_headless_rejects_incompatible_permission_before_start(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, policy: str
+) -> None:
+    """Refuse a permission mode that native prompt execution cannot honor."""
+
+    _stub_tool_version(monkeypatch)
+    env_file = tmp_path / "vars.env"
+    _write(env_file, "")
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+    home_path = tmp_path / "home"
+    manifest = _manifest(
+        tool="kimi",
+        executable="kimi",
+        home_env_var="KIMI_CODE_HOME",
+        home_path=home_path,
+        env_file=env_file,
+        allowlisted_env_vars=[],
+        launch_policy={"operator_prompt_mode": policy},
+    )
+    manifest["runtime"]["launch_contract"]["tool_params"] = {
+        "layers": {"direct": {"permission_mode": "manual"}},
+        "effective": {"permission_mode": "manual"},
+    }
+    with pytest.raises(LaunchPlanError, match=r"permission_mode=manual.*kimi_headless"):
+        build_launch_plan(
+            LaunchPlanRequest(
+                brain_manifest=manifest,
+                role_package=load_role_package(tmp_path / "repo", "r"),
+                backend="kimi_headless",
+                working_directory=tmp_path,
+            )
+        )
+    assert not (home_path / "SYSTEM.md").exists()
+    assert not (home_path / "config.toml").exists()
 
 
 def test_build_launch_plan_kimi_repairs_native_prompt_drift_before_provider_start(
@@ -1279,7 +1332,10 @@ def test_build_launch_plan_kimi_as_is_does_not_preseed_workspace_trust(
     assert not (home_path / "workspace-trust").exists()
 
 
-@pytest.mark.parametrize("policy", ["as_is", "unattended"])
+@pytest.mark.parametrize(
+    ("policy", "authored_mode", "expected_mode"),
+    [("as_is", None, None), ("unattended", None, "auto"), ("unattended", "manual", "manual")],
+)
 @pytest.mark.parametrize(
     ("backend", "mode", "surface", "args"),
     [
@@ -1296,6 +1352,8 @@ def test_kimi_owned_plan_projects_private_inputs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     policy: str,
+    authored_mode: str | None,
+    expected_mode: str | None,
     backend: Literal["kimi_acp", "kimi_web"],
     mode: str,
     surface: str | None,
@@ -1330,6 +1388,11 @@ def test_kimi_owned_plan_projects_private_inputs(
     request["runtime"]["launch_contract"]["model_selection"] = {
         "provider_cli_args": {"tool": "kimi", "args": ["--model=configured-model"]}
     }
+    if authored_mode is not None:
+        request["runtime"]["launch_contract"]["tool_params"] = {
+            "layers": {"direct": {"permission_mode": authored_mode}},
+            "effective": {"permission_mode": authored_mode},
+        }
 
     plan = build_launch_plan(
         LaunchPlanRequest(
@@ -1352,11 +1415,12 @@ def test_kimi_owned_plan_projects_private_inputs(
         "detected_version": "2.6.0",
         "operator_prompt_mode": policy,
         "configured_model": "configured-model",
+        "permission_mode": expected_mode,
     }
     assert (home / "SYSTEM.md").read_text() == "${base_prompt}\n\nrole marker\n"
     config = tomllib.loads((home / "config.toml").read_text())
     assert config["default_model"] == "configured-model"
-    assert config["default_permission_mode"] == ("auto" if policy == "unattended" else "yolo")
+    assert config["default_permission_mode"] == (expected_mode or "yolo")
     assert config["hooks"] == [{"event": "SessionStart", "command": "test-command"}]
 
 

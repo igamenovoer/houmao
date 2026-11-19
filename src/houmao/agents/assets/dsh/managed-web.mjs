@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { createCommonRefresh } from './managed-refresh.mjs';
 
 export const name = 'houmao-managed-web';
-export const inject = ['agents', 'sessions', 'agentPresets', 'llm', 'systemPrompt', 'sessionPersistence', 'sessionQuery', 'connection', 'webServer', 'typertGateway', 'attachments'];
+export const inject = ['agents', 'sessions', 'agentPresets', 'llm', 'systemPrompt', 'sessionPersistence', 'sessionQuery', 'connection', 'webServer', 'typertGateway', 'attachments', 'permissionPresets'];
 const VERSION = 1;
 const IDENTITY_KEYS = ['agent_id', 'runtime_session_id', 'generation', 'host_incarnation', 'native_session_id', 'agent_incarnation'];
 
@@ -269,6 +269,12 @@ export function apply(ctx, config) {
         if (!agent.inbox.remove(message.id)) fail('reconciliation_required', 'Pending input changed');
         receipt.status = 'abandoned';
         record('reconciled', agent, {operation_id: receipt.operation_id, message_id: message.id});
+      }
+    }
+    if (typeof control.permission_preset === 'string') {
+      ctx.permissionPresets.set(agent.session, control.permission_preset);
+      if (ctx.permissionPresets.current(agent.session) !== control.permission_preset) {
+        fail('permission_mismatch', 'Native agent did not apply the requested permission preset');
       }
     }
     root = agent;

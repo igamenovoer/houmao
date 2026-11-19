@@ -241,6 +241,7 @@ class LaunchPolicyStrategy:
     evidence: tuple[StrategyEvidence, ...]
     owned_paths: tuple[OwnedPathSpec, ...]
     actions: tuple[LaunchPolicyAction, ...]
+    permission_defaults: Mapping[str, Any] = field(default_factory=dict)
 
     def to_metadata_payload(self) -> dict[str, Any]:
         """Return diagnostic metadata for one resolved strategy."""
@@ -254,6 +255,7 @@ class LaunchPolicyStrategy:
             "system_prompt": self.system_prompt.to_payload(),
             "evidence": [item.to_payload() for item in self.evidence],
             "owned_paths": [item.to_payload() for item in self.owned_paths],
+            "permission_defaults": dict(self.permission_defaults),
         }
 
 
@@ -279,6 +281,8 @@ class LaunchPolicyRequest:
     home_path: Path
     env: Mapping[str, str]
     application_kind: LaunchPolicyApplicationKind = "provider_start"
+    tool_params: Mapping[str, Any] = field(default_factory=dict)
+    tool_param_sources: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -311,3 +315,5 @@ class LaunchPolicyResult:
     args: tuple[str, ...]
     provenance: LaunchPolicyProvenance | None
     strategy: LaunchPolicyStrategy | None
+    permissions: dict[str, Any] = field(default_factory=dict)
+    permission_sources: dict[str, str] = field(default_factory=dict)

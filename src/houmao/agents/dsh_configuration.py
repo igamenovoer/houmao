@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import stat
+from tempfile import mkstemp
 from typing import Any, Literal
 
 import yaml
@@ -19,12 +20,19 @@ from houmao.agents.tool_params.dsh import (
     DshConfigurationError as DshConfigurationError,
     DshEffectiveToolParams as DshEffectiveToolParams,
     DshModel,
+    DshPermissionParams,
     DshToolParamsAdapter,
     validate_http_url,
 )
 
 DSH_LOCAL_API_KEY_ENV = "HOUMAO_DSH_LOCAL_API_KEY"
 _DSH_LOCAL_API_KEY_VALUE = "houmao-local-no-auth"
+_NATIVE_PERMISSION_PRESETS = {
+    "read-only": {"sandbox": "read-only", "approval": "ask"},
+    "workspace-write": {"sandbox": "workspace-write", "approval": "ask"},
+    "danger-full-access": {"sandbox": "danger-full-access", "approval": "never"},
+}
+_PERMISSION_CONFIG_ROWS = frozenset({"approval", "sandbox-policy", "permission"})
 
 
 @dataclass(frozen=True)
@@ -55,6 +63,7 @@ class DshLoadedHome:
     model: tuple[str, str]
     reasoning_effort: str | None
     invocation_patch: tuple[dict[str, Any], ...]
+    permission_preset: str | None
 
 
 def load_dsh_home(
@@ -180,6 +189,12 @@ def load_dsh_home(
             selection["reasoningEffort"] = effort
         if selected_model is not None or native_profile == "headless":
             patch.append({"id": selection_row, "config": selection})
+    permission_config = configs.get("permission")
+    permission_preset = (
+        _mapping(permission_config, "materialized permission config").get("defaultPreset")
+        if permission_config is not None
+        else None
+    )
     return DshLoadedHome(
         patch_path,
         role_path,
@@ -190,6 +205,9 @@ def load_dsh_home(
         model_selection,
         effort,
         tuple(patch),
+        _text(permission_preset, "materialized permission preset")
+        if permission_preset is not None
+        else None,
     )
 
 
@@ -399,6 +417,7 @@ def prepare_dsh_home(
     skill_roots: Sequence[Path] = (),
     operator_prompt_mode: str = "unattended",
     native_profile: Literal["acp", "headless"] = "acp",
+    permissions: DshPermissionParams | None = None,
 ) -> DshPreparedHome:
     """Project an isolated native profile and literal role without installing software.
 
@@ -423,6 +442,9 @@ def prepare_dsh_home(
         preserves native permission defaults without adding unattended overrides.
     native_profile:
         Select the native profile that receives the managed model defaults.
+    permissions:
+        Permission fields resolved for this startup. Standalone preparation
+        without a versioned policy uses the supported DSH profile defaults.
 
     Returns
     -------
@@ -503,31 +525,15 @@ def prepare_dsh_home(
     ]
     if native_profile == "headless":
         patch.append({"id": "session-title-llm", "disabled": True})
-    if operator_prompt_mode == "unattended":
-        patch.extend(
-            [
-                {"id": "approval", "config": {"policy": "never"}},
-                {"id": "sandbox-policy", "config": {"mode": "workspace-write"}},
-                {
-                    "id": "permission",
-                    "config": {
-                        "presets": {
-                            "read-only": {"sandbox": "read-only", "approval": "ask"},
-                            "workspace-write": {"sandbox": "workspace-write", "approval": "ask"},
-                            "danger-full-access": {
-                                "sandbox": "danger-full-access",
-                                "approval": "never",
-                            },
-                            "houmao-unattended": {
-                                "sandbox": "workspace-write",
-                                "approval": "never",
-                            },
-                        },
-                        "defaultPreset": "houmao-unattended",
-                    },
-                },
-            ]
-        )
+    if permissions is None:
+        permissions = setup.permissions
+        if operator_prompt_mode == "unattended":
+            permissions = DshPermissionParams(
+                sandbox=permissions.sandbox or "danger-full-access",
+                approval=permissions.approval or "never",
+            )
+    permission_rows, preset = _dsh_permission_configuration(permissions)
+    patch.extend(permission_rows)
     if setup.adapter == "deepseek":
         provider_options["maxTokens"] = model.max_output_tokens
         _project_deepseek_reasoning(provider_options, model, effort)
@@ -568,6 +574,8 @@ def prepare_dsh_home(
         "role_sha256": hashlib.sha256(role_prompt.encode()).hexdigest(),
         "activation": "startup-only",
         "operator_prompt_mode": operator_prompt_mode,
+        "permissions": permissions.model_dump(mode="json", exclude_none=True),
+        "permission_preset": preset,
         "journal_format": 4,
         "journal_compression": "none",
     }
@@ -582,6 +590,47 @@ def prepare_dsh_home(
         metadata,
         mcp_servers,
     )
+
+
+def project_dsh_home_permissions(patch_path: Path, permissions: DshPermissionParams) -> None:
+    """Replace the generated permission fragments in a prepared raw ACP launch patch."""
+
+    try:
+        patch = json.loads(patch_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise DshConfigurationError("Cannot read the materialized DSH native patch") from exc
+    if not isinstance(patch, list) or any(not isinstance(row, dict) for row in patch):
+        raise DshConfigurationError("DSH native patch must contain a list of rows")
+    rows, _ = _dsh_permission_configuration(permissions)
+    updated = [row for row in patch if row.get("id") not in _PERMISSION_CONFIG_ROWS] + rows
+    if updated != patch:
+        _write_private(patch_path, json.dumps(updated, ensure_ascii=False, indent=2) + "\n")
+
+
+def _dsh_permission_configuration(
+    permissions: DshPermissionParams,
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Compose one native preset with the same sandbox and approval as service defaults."""
+
+    if permissions.sandbox is None and permissions.approval is None:
+        return [], None
+    # The DSH base profile uses workspace-write + ask with DSH_PERMISSION_MODE unset.
+    pair: dict[str, str] = {
+        "sandbox": permissions.sandbox or "workspace-write",
+        "approval": permissions.approval or "ask",
+    }
+    presets = dict(_NATIVE_PERMISSION_PRESETS)
+    preset = next((name for name, value in presets.items() if value == pair), None)
+    if preset is None:
+        preset = "houmao-managed"
+        presets[preset] = pair
+    patch: list[dict[str, Any]] = []
+    if permissions.sandbox is not None:
+        patch.append({"id": "sandbox-policy", "config": {"mode": pair["sandbox"]}})
+    if permissions.approval is not None:
+        patch.append({"id": "approval", "config": {"policy": pair["approval"]}})
+    patch.append({"id": "permission", "config": {"presets": presets, "defaultPreset": preset}})
+    return patch, preset
 
 
 def _mapping(value: object, field: str) -> dict[str, Any]:
@@ -601,7 +650,13 @@ def _text(value: object, field: str) -> str:
 
 
 def _write_private(path: Path, text: str) -> None:
-    """Replace Houmao-owned generated state with owner-only permissions."""
+    """Publish complete Houmao-owned generated state with owner-only permissions."""
 
-    path.write_text(text, encoding="utf-8")
-    path.chmod(0o600)
+    descriptor, name = mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    temporary_path = Path(name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(text)
+        temporary_path.replace(path)
+    finally:
+        temporary_path.unlink(missing_ok=True)

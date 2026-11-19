@@ -46,8 +46,32 @@ def controlled_browser_model() -> Iterator[BrowserModel]:
                 if isinstance(block, dict)
             )
             question = "BROWSER_QUESTION" in content and not answered
+            approval = "BROWSER_APPROVAL" in content and not answered
             blocked = "BROWSER_BLOCK" in content and not answered
-            call_id = "browser-question-call"
+            tool_call: tuple[str, dict[str, Any]] | None = None
+            if question:
+                tool_call = (
+                    "ask_user_question",
+                    {
+                        "questions": [
+                            {
+                                "id": "choice",
+                                "question": "Controlled browser question",
+                                "options": [{"label": "Proceed"}, {"label": "Wait"}],
+                            }
+                        ]
+                    },
+                )
+            elif approval:
+                tool_call = (
+                    "bash",
+                    {
+                        "description": "Run a harmless approval probe",
+                        "command": "printf APPROVAL_PROBE",
+                        "sandbox_permissions": "danger-full-access",
+                        "justification": "Controlled browser approval probe",
+                    },
+                )
             frames: list[dict[str, Any]] = [
                 {
                     "type": "message_start",
@@ -70,11 +94,11 @@ def controlled_browser_model() -> Iterator[BrowserModel]:
                     "index": 0,
                     "content_block": {
                         "type": "tool_use",
-                        "id": call_id,
-                        "name": "ask_user_question",
+                        "id": "browser-tool-call",
+                        "name": tool_call[0],
                         "input": {},
                     }
-                    if question
+                    if tool_call
                     else {"type": "text", "text": ""},
                 },
                 {
@@ -82,19 +106,9 @@ def controlled_browser_model() -> Iterator[BrowserModel]:
                     "index": 0,
                     "delta": {
                         "type": "input_json_delta",
-                        "partial_json": json.dumps(
-                            {
-                                "questions": [
-                                    {
-                                        "id": "choice",
-                                        "question": "Controlled browser question",
-                                        "options": [{"label": "Proceed"}, {"label": "Wait"}],
-                                    }
-                                ]
-                            }
-                        ),
+                        "partial_json": json.dumps(tool_call[1]),
                     }
-                    if question
+                    if tool_call
                     else {
                         "type": "text_delta",
                         "text": "Controlled active browser progress"
@@ -116,7 +130,7 @@ def controlled_browser_model() -> Iterator[BrowserModel]:
                         {"type": "content_block_stop", "index": 0},
                         {
                             "type": "message_delta",
-                            "delta": {"stop_reason": "tool_use" if question else "end_turn"},
+                            "delta": {"stop_reason": "tool_use" if tool_call else "end_turn"},
                             "usage": {"output_tokens": 5},
                         },
                         {"type": "message_stop"},

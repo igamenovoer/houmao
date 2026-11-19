@@ -52,6 +52,7 @@ from houmao.agents.realm_controller.models import (
 )
 from houmao.agents.realm_controller.native_surface import WebNativeSurfaceV1
 from houmao.agents.realm_controller.usage_support import UsageService, write_usage_json
+from houmao.agents.tool_params.dsh import DshPermissionParams
 
 _STARTUP_TIMEOUT_SECONDS = 45.0
 _SUPERVISOR_STOP_TIMEOUT_SECONDS = 25.0
@@ -346,6 +347,7 @@ class DshWebSession:
         ):
             raise BackendExecutionError("DSH Web requires an explicitly prepared tool setup")
         setup = DshEffectiveToolParams.from_file(Path(setup_metadata["setup_path"]))
+        permissions = setup_metadata.get("permissions")
         prepared = prepare_dsh_home(
             self.plan.home_path,
             setup,
@@ -362,6 +364,9 @@ class DshWebSession:
             reasoning_level=setup_metadata.get("reasoning_level"),
             skill_roots=(self.plan.home_path / "skills",),
             operator_prompt_mode=setup_metadata.get("operator_prompt_mode", "unattended"),
+            permissions=(
+                DshPermissionParams.model_validate(permissions) if permissions is not None else None
+            ),
         )
         secret_values = dsh_diagnostic_secrets(prepared.environment, key_name=setup.api_key_env)
         try:
@@ -411,6 +416,7 @@ class DshWebSession:
                 "provider": prepared.provider,
                 "model": prepared.model,
                 "native_version": version,
+                "permission_preset": prepared.metadata["permission_preset"],
             },
         )
         patch = [

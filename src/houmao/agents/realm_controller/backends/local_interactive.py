@@ -64,6 +64,25 @@ def _relaunch_starts_fresh_chat(selection: RelaunchChatSessionSelection | None) 
     return selection is None or selection.mode == "new"
 
 
+def validate_kimi_tui_chat_selection(
+    plan: LaunchPlan, selection: RelaunchChatSessionSelection | None
+) -> None:
+    """Reject continuation when Kimi cannot force the requested native mode."""
+
+    if plan.tool != "kimi" or plan.backend != "local_interactive":
+        return
+    settings = plan.metadata.get("kimi_tui")
+    if (
+        isinstance(settings, dict)
+        and settings.get("permission_mode") == "manual"
+        and not _relaunch_starts_fresh_chat(selection)
+    ):
+        raise BackendExecutionError(
+            "Kimi TUI cannot apply `tool_params.permission_mode=manual` on continuation. "
+            "Use a new chat or select `auto` or `yolo` for resumed startup."
+        )
+
+
 def _tui_relaunch_chat_session_args(
     *,
     tool: str,
@@ -381,6 +400,7 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
         *,
         chat_session: RelaunchChatSessionSelection | None = None,
     ) -> list[str]:
+        validate_kimi_tui_chat_selection(self._plan, chat_session)
         command = [self._plan.executable, *self._plan.args]
         if (
             self._plan.role_injection.method == "native_developer_instructions"

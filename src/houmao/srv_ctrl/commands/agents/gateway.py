@@ -1529,7 +1529,7 @@ def _ag_ui_error_message(exc: HoumaoAgUiValidationError) -> str:
 
 
 def _resolve_gateway_current_session_target(
-    *, session_name: str | None = None
+    *, session_name: str | None = None, read_only: bool = False
 ) -> ManagedAgentTarget:
     """Resolve one managed-agent target from current-session tmux metadata."""
 
@@ -1537,6 +1537,7 @@ def _resolve_gateway_current_session_target(
     return _resolve_gateway_tmux_session_target(
         session_name=resolved_session_name,
         context=_CURRENT_SESSION_RESOLUTION_CONTEXT,
+        read_only=read_only,
     )
 
 
@@ -1561,6 +1562,7 @@ def _resolve_gateway_tmux_session_target(
     *,
     session_name: str,
     context: _TmuxSessionResolutionContext,
+    read_only: bool = False,
 ) -> ManagedAgentTarget:
     """Resolve one managed-agent target from tmux-session metadata."""
 
@@ -1569,6 +1571,12 @@ def _resolve_gateway_tmux_session_target(
         context=context,
     )
     authority = resolution.authority
+    if read_only:
+        published_agent_id = _read_current_session_agent_id(session_name=session_name)
+        if published_agent_id is not None and published_agent_id != authority.agent_id:
+            raise click.ClickException(
+                "Current-session metadata is stale: the manifest and tmux agent IDs differ."
+            )
 
     try:
         if authority.backend == "houmao_server_rest":
@@ -1586,6 +1594,7 @@ def _resolve_gateway_tmux_session_target(
         controller = resume_runtime_session(
             agent_def_dir=agent_def_dir,
             session_manifest_path=resolution.manifest_path,
+            read_only=read_only,
         )
         return ManagedAgentTarget(
             mode="local",

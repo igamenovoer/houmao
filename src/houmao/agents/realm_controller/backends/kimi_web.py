@@ -52,6 +52,7 @@ from houmao.agents.realm_controller.models import (
 )
 from houmao.agents.realm_controller.native_surface import WebNativeSurfaceV1
 from houmao.agents.realm_controller.usage_support import UsageService
+from houmao.agents.tool_params.kimi import KIMI_PERMISSION_MODES
 
 _NATIVE_ARGS = ["web", "--no-open", "--host", "127.0.0.1", "--port", "0"]
 _TMUX_OPTION = "@houmao_kimi_web_owner"
@@ -272,6 +273,9 @@ class KimiWebSession:
             raise BackendExecutionError(
                 "Kimi Web requires a qualified launch and managed owner identity"
             )
+        permission_mode = options.get("permission_mode")
+        if permission_mode is not None and permission_mode not in KIMI_PERMISSION_MODES:
+            raise BackendExecutionError("Kimi Web launch permission_mode is invalid")
         home = plan.home_path.resolve()
         workspace = plan.working_directory.resolve()
         if resume_id is not None:
@@ -335,6 +339,10 @@ class KimiWebSession:
                 descriptor, session_id=resume_id or session_id, workspace=workspace
             )
             journal = kimi_session_journal(home, workspace, session_id)
+            if permission_mode is not None:
+                self._apply_startup_permission(
+                    client, session_id=session_id, workspace=workspace, mode=permission_mode
+                )
             identity = {
                 "protocol_version": 1,
                 **{key: selection[key] for key in ("agent_id", "runtime_session_id", "generation")},
@@ -427,6 +435,26 @@ class KimiWebSession:
             or payload.get("archived") is not False
         ):
             raise DshWebError("identity_mismatch", "Kimi Web session or workspace changed")
+
+    @classmethod
+    def _apply_startup_permission(
+        cls, client: KimiWebClient, *, session_id: str, workspace: Path, mode: str
+    ) -> None:
+        """Set policy once on the exact session before publishing the Web binding."""
+
+        updated = client.request(
+            "POST",
+            f"/sessions/{native_id(session_id)}/profile",
+            {"agent_config": {"permission_mode": mode}},
+        )
+        cls._verify_session(updated, session_id=session_id, workspace=workspace)
+        config = updated.get("agent_config")
+        # The qualified 2.6.0 build acknowledges the profile mutation without a mode echo.
+        if isinstance(config, dict) and "permission_mode" in config:
+            if config["permission_mode"] != mode:
+                raise BackendExecutionError(
+                    f"Kimi Web reported a different permission mode than {mode!r}"
+                )
 
     def _require_current(self) -> None:
         """Fence mutations by exact persisted owner and host generation."""

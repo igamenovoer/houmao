@@ -1,12 +1,28 @@
 """Typed Claude launch settings."""
 
+from typing import Literal
+
+from pydantic import Field, field_validator
+
 from houmao.agents.tool_params.base import StrictToolParams, ToolParamsAdapter
 
 
 class ClaudeToolParams(StrictToolParams):
-    """Claude settings owned by Houmao's launch pipeline."""
+    """Authored Claude permission and headless output preferences."""
 
     include_partial_messages: bool = False
+    permission_mode: (
+        Literal["default", "acceptEdits", "plan", "dontAsk", "auto", "bypassPermissions"] | None
+    ) = Field(default=None, exclude_if=lambda value: value is None)
+
+    @field_validator("permission_mode", mode="before")
+    @classmethod
+    def _normalize_permission_mode(cls, value: object) -> object:
+        """Treat Claude's Manual label as its native default mode."""
+
+        if value is None:
+            raise ValueError("Claude permission_mode requires a native mode")
+        return "default" if value == "manual" else value
 
 
 class ClaudeToolParamsAdapter(ToolParamsAdapter[ClaudeToolParams, ClaudeToolParams]):

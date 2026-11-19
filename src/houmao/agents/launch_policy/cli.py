@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 from typing import cast
@@ -26,6 +27,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--home-path", required=True)
     parser.add_argument("--requested-operator-prompt-mode", default=None)
     parser.add_argument("--dsh-credential-env-file", type=Path)
+    parser.add_argument("--permission-params", type=json.loads, default={})
     parser.add_argument(
         "--launch-arg",
         dest="launch_args",
@@ -63,8 +65,17 @@ def main(argv: list[str] | None = None) -> int:
             working_directory=Path(str(namespace.working_directory)).resolve(),
             home_path=home,
             env=environment,
+            tool_params=namespace.permission_params,
         )
     )
+    if namespace.dsh_credential_env_file is not None:
+        from houmao.agents.dsh_configuration import project_dsh_home_permissions
+        from houmao.agents.tool_params.dsh import DshPermissionParams
+
+        project_dsh_home_permissions(
+            home / "houmao-profile.patch.json",
+            DshPermissionParams.model_validate(result.permissions.get("permissions", {})),
+        )
     command = [result.executable, *result.args, *passthrough]
     os.execvpe(result.executable, command, environment)
     return 0

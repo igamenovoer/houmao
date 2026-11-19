@@ -30,7 +30,7 @@ DSH selects `dsh_web` in `web` mode. A Web host uses a private DSH home, an expl
 | --- | --- |
 | Specialist/recipe `tool: dsh` | Selects the maintained DSH tool and explicit API setup. |
 | Profile `defaults.posture.mode` | `web` selects the browser host. An omitted mode uses the DSH project default of `web`. A direct `--mode` overrides the profile for that invocation. |
-| Recipe `launch.prompt_mode` / profile `defaults.prompt_mode` | `unattended` is the automation default; deliberate `as_is` retains native human approval behavior. |
+| Recipe `launch.prompt_mode` / profile `defaults.prompt_mode` | `unattended` supplies omitted permissions. `as_is` uses the native baseline for omitted permissions. |
 | Explicit model/setup metadata | Reuses DSH provider/protocol, context/output capacities, reasoning, and credential-reference validation. No ambient route is substituted. |
 | `LaunchPlan.native_surface_kind` | `web`; published `native_surface` carries only verified origin and native session ID. |
 
@@ -69,7 +69,7 @@ Native DSH normally accepts browser queueing and steering. Houmao adds condition
 
 An insertion acknowledgement proves that native input was admitted. It does not prove a turn started or finished. Input and turn receipts correlate the operation with native claims; shared state separately shows browser-origin turns, queued input, interaction waits, maintenance, and terminal outcomes. Unsubmitted browser drafts remain local and never become fabricated native pending-input or typing state.
 
-Automation defaults to `unattended`. Select `as_is` deliberately for human approval/question qualification; that posture preserves native approval and sandbox behavior. The API remains `interactions=none` in either posture, leaving the browser to answer human interactions. A blocked question remains visible and refuses ordinary programmatic delivery.
+Automation defaults to `unattended` with sandbox mode `danger-full-access` and approval policy `never`. To present native escalation requests in the browser, set `permissions.approval: ask` and choose a sandbox boundary such as `permissions.sandbox: workspace-write`. Explicit permissions apply with either prompt mode. The API uses `interactions=none` in both modes, leaving the browser to answer human interactions. A blocked question or approval request remains visible and refuses ordinary programmatic delivery. [DSH permission fields](dsh-headless.md#startup-permissions-and-prompt-provenance).
 
 ## Interruption, Failure, and Recovery
 

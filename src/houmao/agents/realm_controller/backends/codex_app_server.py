@@ -50,6 +50,11 @@ _MAX_EVENT_BUFFER = 4 * 1024 * 1024
 _MAX_ITEMS = 256
 _MAX_ITEM_CHARS = 128 * 1024
 _MAX_ROLLOUT_META = 4 * 1024 * 1024
+_SANDBOX_POLICY_TYPES = {
+    "read-only": "readOnly",
+    "workspace-write": "workspaceWrite",
+    "danger-full-access": "dangerFullAccess",
+}
 _TERMINAL_OUTCOMES: dict[str, ServiceOutcome] = {
     "completed": "completed",
     "failed": "failed",
@@ -182,9 +187,19 @@ class CodexAppServerProvider:
             parameters["config"] = native_config
         if config.role_prompt:
             parameters["developerInstructions"] = config.role_prompt
-        unattended = metadata.get("operator_prompt_mode") == "unattended"
-        if unattended:
-            parameters.update(approvalPolicy="never", sandbox="danger-full-access")
+        permissions = metadata.get("permissions", {})
+        if not isinstance(permissions, dict):
+            raise BackendExecutionError("Codex app-server launch permissions are invalid")
+        approval_policy = permissions.get("approval_policy")
+        if approval_policy is not None:
+            if approval_policy not in ("never", "on-request", "untrusted"):
+                raise BackendExecutionError("Codex app-server approval policy is invalid")
+            parameters["approvalPolicy"] = approval_policy
+        sandbox_mode = permissions.get("sandbox_mode")
+        if sandbox_mode is not None:
+            if not isinstance(sandbox_mode, str) or sandbox_mode not in _SANDBOX_POLICY_TYPES:
+                raise BackendExecutionError("Codex app-server sandbox mode is invalid")
+            parameters["sandbox"] = sandbox_mode
         expected = config.session_id
         prior_rollout: Path | None = None
         if expected is None:
@@ -209,15 +224,18 @@ class CodexAppServerProvider:
             )
         if prior_rollout is not None and rollout != prior_rollout:
             raise BackendExecutionError("Codex app-server changed the exact thread rollout")
-        if unattended:
-            approval, sandbox = response.get("approvalPolicy"), response.get("sandbox")
+        if approval_policy is not None and response.get("approvalPolicy") != approval_policy:
+            raise BackendExecutionError(
+                "Codex app-server did not confirm the requested approval policy"
+            )
+        if sandbox_mode is not None:
+            sandbox = response.get("sandbox")
             if (
-                approval != "never"
-                or not isinstance(sandbox, dict)
-                or sandbox.get("type") != "dangerFullAccess"
+                not isinstance(sandbox, dict)
+                or sandbox.get("type") != _SANDBOX_POLICY_TYPES[sandbox_mode]
             ):
                 raise BackendExecutionError(
-                    "Codex app-server did not confirm the requested native policy"
+                    "Codex app-server did not confirm the requested sandbox mode"
                 )
         if isinstance(native_config, dict):
             for key, native_key in (("model", "model"), ("model_provider", "modelProvider")):

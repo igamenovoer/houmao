@@ -1,6 +1,6 @@
 # Launch Policy
 
-The launch policy engine governs agent behavior during the run phase by applying a set of typed mutations to the launch environment. Policies are resolved during the build phase and control agent autonomy, prompt modes, and provider-specific configuration.
+The brain manifest records the authored launch inputs. At provider start, the launch policy engine resolves permission settings for the selected backend and projects them into native configuration, launch arguments, or session startup requests.
 
 ## Operator Prompt Mode
 
@@ -8,10 +8,27 @@ The `OperatorPromptMode` determines how the agent interacts with the operator du
 
 | Mode | Description |
 |---|---|
-| `as_is` | Standard mode. Normal operator interaction and prompts are enabled. No launch policy is applied. |
-| `unattended` | Fully automated mode. All interactive prompts are suppressed and the launch policy strategy configures the tool for hands-off execution. |
+| `as_is` | Applies supported authored values and uses the native baseline for omitted settings. |
+| `unattended` | Supplies the most permissive supported native permission defaults with routine approvals disabled for omitted settings. |
 
-When no mode is specified or `as_is` is selected, the policy engine returns the executable and base arguments without applying any strategy.
+An explicit supported value takes precedence in either mode and can require operator approval. Native administrative rules and the selected execution owner still bound the agent's authority.
+
+| Tool | Native Fields in `tool_params` | Omitted Unattended Defaults |
+|---|---|---|
+| Claude | `permission_mode` | `bypassPermissions` |
+| Codex | `approval_policy`, `sandbox_mode` | `never`, `danger-full-access` |
+| Kimi | `permission_mode` | `auto` |
+| DSH | `permissions.sandbox`, `permissions.approval` | `danger-full-access`, `never` |
+
+Use the [launch override layers](launch-overrides.md) for configurable values. Machine-readable output, native session identity, private service endpoints, and DSH's `hmr` activation boundary belong to Houmao. A supplied value for a reserved setting causes a validation error, even if it is identical to the value Houmao derives.
+
+To retain DSH's previous workspace restriction, set the following in a specialist or launch profile. Under unattended mode, the omitted approval field still resolves to `never`. The same settings apply to headless, ACP service, and Web.
+
+```yaml
+tool_params:
+  permissions:
+    sandbox: workspace-write
+```
 
 ## Policy Strategy
 
@@ -23,7 +40,8 @@ A `LaunchPolicyStrategy` is the core unit of the policy engine. Each strategy co
 - **supported_versions**: PEP 440-style version specifier for tool version compatibility (e.g., `>=2.1.296`).
 - **minimal_inputs**: Contract requirements — acceptable credential forms, whether user-prepared state is needed.
 - **system_prompt**: Explicit provider-native prompt method, owned surface, precedence conflicts, required engine environment, and source evidence.
-- **owned_paths**: File paths and keys the strategy manages to avoid conflicts with user configuration.
+- **owned_paths**: Files and keys used for startup projection and reserved runtime state.
+- **permission_defaults**: Native defaults for permission fields omitted by the author.
 - **actions**: Ordered list of mutations to apply to the launch environment.
 
 ## Policy Resolution
@@ -34,9 +52,8 @@ Strategies are resolved from the versioned registry with this precedence:
 |---|---|---|
 | 1 | `HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY` | Environment variable. Must name a strategy_id that matches the requested mode and backend. |
 | 2 | Registry documents | Tool-specific YAML files in `agents/launch_policy/registry/`. Filtered by mode, backend, and detected tool version. Must produce exactly one match. |
-| 3 | No policy | When mode is `None` or `as_is`, the engine returns the raw executable with no mutations. |
 
-Resolution detects the tool version by running `<executable> --version` and parsing the semantic version. The detected version is matched against each strategy's `supported_versions` specifier.
+Unattended resolution matches the detected tool version against each strategy's `supported_versions` specifier. It fills gaps after resolving authored layers. The launch diagnostics record the effective permission values and their sources. When reusing a home, Houmao distinguishes its prior permission projections from the native baseline.
 
 ## Provider Hooks
 
@@ -46,6 +63,7 @@ Provider hooks are named actions within a strategy that perform provider-specifi
 
 | Hook | Description |
 |---|---|
+| `claude.apply_permission_mode` | Projects the resolved mode into private settings and startup arguments. Bypass mode seeds its startup warning preference. |
 | `claude.ensure_api_key_approval` | Seeds API-key approval state in `.claude.json` without storing the full key. |
 | `claude.ensure_project_trust` | Seeds workspace trust state for the resolved working directory. |
 
@@ -53,11 +71,12 @@ Provider hooks are named actions within a strategy that perform provider-specifi
 
 | Hook | Description |
 |---|---|
-| `codex.canonicalize_unattended_launch_inputs` | Strips caller-supplied overrides that target unattended surfaces (e.g., `--full-auto`, `--sandbox`). |
+| `codex.canonicalize_unattended_launch_inputs` | Normalizes the remaining arguments after recognized permission aliases have been resolved. |
 | `codex.validate_credential_readiness` | Ensures `auth.json` exists or a config-backed env-only provider is set up. |
 | `codex.ensure_project_trust` | Seeds project trust level in `config.toml`. |
 | `codex.ensure_model_migration_state` | Migrates known legacy Codex model pins without creating a model selection when none exists. |
-| `codex.append_unattended_cli_overrides` | Appends final Codex CLI `-c` override arguments for `approval_policy`, `sandbox_mode`, `notice.hide_full_access_warning`, and `tui.show_tooltips` so project-local `config.toml` cannot weaken unattended posture. |
+| `codex.apply_runtime_permissions` | Writes the resolved policy to the private runtime home. |
+| `codex.append_unattended_cli_overrides` | Appends the resolved approval and sandbox values as final non-secret config arguments so project-local preferences cannot replace them. |
 
 ### Codex Hook Observation Pre-Trust
 
@@ -76,8 +95,10 @@ The evidence for this surface is the 2026-10-20 debug campaign (`context/campaig
 
 | Hook | Description |
 |---|---|
-| `kimi.canonicalize_unattended_launch_inputs` | Strips caller-supplied Kimi prompt-mode-owned args such as `-p`, `--prompt`, `--output-format`, `--session`, `--continue`, `--skills-dir`, `--auto`, `--yolo`, and `--plan` before the `kimi_headless` backend builds the final command. |
-| `kimi.canonicalize_unattended_tui_launch_inputs` | Strips caller-supplied permission and session-startup flags before the `raw_launch` strategy restores its selected session selector and appends exactly one strategy-owned native `--auto`. |
+| `kimi.canonicalize_unattended_launch_inputs` | Prepares native prompt startup after managed input validation. |
+| `kimi.canonicalize_unattended_tui_launch_inputs` | Seeds the marker that skips legacy Kimi startup migration. |
+| `kimi.project_tui_permission` | Applies the resolved mode in the private config and adds the matching native flag when available. |
+| `kimi.project_service_permission` | Applies the resolved private config for the ACP or Web owner. |
 | `kimi.validate_native_system_prompt_contract` | Requires the v2 engine and rejects launch or project agent selection that would outrank the managed native prompt. |
 
 Hooks run within a provider state mutation lock for thread-safe file access.
@@ -100,12 +121,13 @@ The supported floor is Kimi Code 2.1.1, the same floor as TUI tracking. The full
 
 ## Kimi Unattended Posture
 
-Maintained Kimi unattended startup requires Kimi Code 2.1.1 or later, with no upper version limit, and has two backend contracts:
+Kimi headless and TUI startup require Kimi Code 2.1.1 or later with no upper version limit. Houmao rejects versions below the floor.
 
-- `kimi_headless` owns prompt-mode command placement. Exact resume uses `--session <session_id>`, latest resume uses `--continue`, the prompt value follows `-p`, output format is `stream-json`, and managed skills use `--skills-dir <KIMI_CODE_HOME>/skills`. Prompt mode removes TUI permission flags because `-p` is already non-interactive.
-- Kimi TUI launch uses the `raw_launch` surface, which maps to `local_interactive`. The strategy strips caller-owned permission and session selectors, restores the selected fresh/latest/exact session selector, writes `.skip-migration-from-kimi-cli`, keeps `default_permission_mode = "auto"` as a managed-home fallback, and appends one native `--auto` argument.
+- Native `-p` selects `auto`. Houmao rejects incompatible permissions such as `manual` or `yolo` before starting a managed headless agent. The final command uses the managed prompt and continuity arguments, with no `--auto`, `--yolo`, or `--plan` flag.
+- Kimi TUI startup uses the resolved mode. For `auto` or `yolo`, Houmao supplies the corresponding native flag on fresh or resumed startup with `--continue` or `--session <session_id>`. A fresh TUI supports `manual` through the native config. The resumed TUI restores session permissions and lacks a native manual override flag, so Houmao rejects an explicit `manual` on native continuation.
+- Kimi ACP and Web use their native session APIs on the supported 2.6.0 build to apply the resolved setting at launch or exact continuation. Later observation or gateway reattachment preserves native changes made during the session.
 
-Kimi Code 2.1.1 or later accepts native `--auto` with fresh, `--continue`, and `--session <session_id>` TUI startup. Houmao sends no post-readiness permission command. `as_is` launches preserve native approval behavior and do not receive the strategy-owned `--auto` argument.
+Policy and role setup happen outside the conversation. Kimi `as_is` uses native behavior for an omitted mode.
 
 Kimi auto permission mode is the provider-native no-question posture: normal tool approvals are automatic and `AskUserQuestion` requests are denied so the agent must decide and continue. It does not bypass explicit Kimi hard-deny policies or user-configured deny rules.
 

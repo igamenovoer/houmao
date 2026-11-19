@@ -1084,9 +1084,12 @@ def test_agents_gateway_attach_current_session_falls_back_to_registry_agent_id(
         gateway_status=lambda: {"status": "local-attached"},
     )
 
-    def _resume_runtime_session(*, agent_def_dir: Path, session_manifest_path: Path) -> object:
+    def _resume_runtime_session(
+        *, agent_def_dir: Path, session_manifest_path: Path, read_only: bool = False
+    ) -> object:
         captured["agent_def_dir"] = agent_def_dir
         captured["session_manifest_path"] = session_manifest_path
+        assert not read_only
         return controller
 
     monkeypatch.setattr(
@@ -1153,6 +1156,56 @@ def test_agents_gateway_target_tmux_session_option_is_not_public_under_scopes() 
     assert result.exit_code != 0
     assert "No such option" in result.output
     assert "--target-tmux-session" in result.output
+
+
+@pytest.mark.parametrize("operation", [("state",), ("mail", "status")])
+@pytest.mark.parametrize("stale", [False, True])
+def test_self_status_uses_verified_read_only_tmux_authority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: tuple[str, ...], stale: bool
+) -> None:
+    """Pass observation intent through the command and reject mismatched tmux authority."""
+
+    from houmao.srv_ctrl.commands.agents import core, gateway, mail
+
+    manifest = tmp_path / "session.json"
+    monkeypatch.setattr(gateway, "_try_current_tmux_session_name", lambda: "dsh-session")
+    monkeypatch.setattr(
+        gateway,
+        "_resolve_tmux_session_manifest",
+        lambda **kwargs: SimpleNamespace(
+            authority=SimpleNamespace(agent_id="current-agent", backend="dsh_headless"),
+            manifest_path=manifest,
+            registry_record=None,
+        ),
+    )
+    monkeypatch.setattr(
+        gateway,
+        "_read_current_session_agent_id",
+        lambda **kwargs: "prior-agent" if stale else "current-agent",
+    )
+    monkeypatch.setattr(gateway, "_resolve_tmux_session_agent_def_dir", lambda **kwargs: tmp_path)
+    controller = SimpleNamespace(
+        agent_id="current-agent", agent_identity="dsh-session", manifest_path=manifest
+    )
+
+    def resume(*, agent_def_dir: Path, session_manifest_path: Path, read_only: bool) -> object:
+        assert not stale
+        assert read_only
+        assert agent_def_dir == tmp_path and session_manifest_path == manifest
+        return controller
+
+    monkeypatch.setattr(gateway, "resume_runtime_session", resume)
+    monkeypatch.setattr(gateway, "_identity_from_controller", lambda _: object())
+    for module, name in ((core, "managed_agent_state_payload"), (mail, "mail_status")):
+        monkeypatch.setattr(module, name, lambda target: {"agent_id": target.agent_ref})
+
+    result = CliRunner().invoke(cli, ["agents", "self", *operation])
+    if stale:
+        assert result.exit_code != 0
+        assert "the manifest and tmux agent IDs differ" in result.output
+    else:
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output) == {"agent_id": "current-agent"}
 
 
 def test_agents_gateway_send_keys_with_explicit_selector_forwards_options(

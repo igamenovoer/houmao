@@ -154,6 +154,7 @@ def native_web_factory(
         abandoned_operation_ids: Sequence[str] = (),
         endpoint: str | None = None,
         operator_prompt_mode: str = "unattended",
+        permissions: dict[str, str] | None = None,
         models: list[dict[str, Any]] | None = None,
         generation: str = "web-generation",
     ) -> NativeWebHost:
@@ -164,6 +165,7 @@ def native_web_factory(
         (selected_root / "user-home").mkdir(exist_ok=True)
         setup = DshEffectiveToolParams.from_mapping(
             {
+                "permissions": permissions or {},
                 "provider": {
                     "adapter": "deepseek",
                     "protocol": "messages",
@@ -214,6 +216,7 @@ def native_web_factory(
                     "roleFile": str(prepared.role_path),
                     "provider": "deepseek-official",
                     "model": "controlled",
+                    "permission_preset": prepared.metadata["permission_preset"],
                 }
             )
         )
@@ -242,18 +245,6 @@ def native_web_factory(
                 },
             ]
         )
-        if operator_prompt_mode == "unattended":
-            patch.append(
-                {
-                    "id": "permission",
-                    "config": {
-                        "presets": {
-                            "houmao-unattended": {"sandbox": "workspace-write", "approval": "never"}
-                        },
-                        "defaultPreset": "houmao-unattended",
-                    },
-                }
-            )
         if extra_plugins:
             patch.append({"insert": extra_plugins})
         patch_path = selected_root / "web.patch.json"

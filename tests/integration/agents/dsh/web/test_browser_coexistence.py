@@ -234,6 +234,34 @@ def test_as_is_browser_answers_question_while_api_only_observes(
             browser.close()
 
 
+def test_unattended_web_preserves_explicit_interactive_approval(
+    native_web_factory: Callable[..., NativeWebHost],
+) -> None:
+    """Render an authored approval prompt through native Web interaction."""
+
+    with controlled_browser_model() as model:
+        host = native_web_factory(
+            endpoint=model.endpoint,
+            permissions={"sandbox": "workspace-write", "approval": "ask"},
+        )
+        _api_prompt(host, "Seed explicit approval session", "seed-approval")
+        _wait_ready(host, minimum_turn=1)
+        browser = NativeBrowser.from_connection_file(host.browser_connection_file())
+        try:
+            browser.call("submit", text="BROWSER_APPROVAL request the controlled operation")
+            deadline = time.monotonic() + 10
+            state = host.client.state(host.identity)
+            while "approval" not in state["interaction_waits"] and time.monotonic() < deadline:
+                time.sleep(0.02)
+                state = host.client.state(host.identity)
+            assert state["interaction_waits"] == ["approval"]
+            assert not state["admission"]["ready_only"]
+            assert len(model.requests) == 2
+            browser.call("contains", text="Controlled browser approval probe")
+        finally:
+            browser.close()
+
+
 def test_browser_wins_after_api_readiness_before_native_handoff(
     native_web_factory: Callable[..., NativeWebHost],
     native_web_gates: NativeWebGates,

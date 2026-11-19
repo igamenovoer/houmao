@@ -6,7 +6,7 @@ import { closeSync, fsyncSync, openSync, readFileSync, renameSync, unlinkSync, w
 import { isAbsolute, join } from 'node:path';
 
 export const name = 'houmao-managed-companion';
-export const inject = ['agents', 'systemPrompt', 'sessionPersistence'];
+export const inject = ['agents', 'systemPrompt', 'sessionPersistence', 'permissionPresets'];
 
 /** Refuse malformed private controls before registering native lifecycle hooks. */
 function readControl(filename) {
@@ -261,12 +261,19 @@ function applyService(ctx, control, role) {
         || created.inbox.nextTurn.length !== 0 || created.inbox.nextStep.length !== 0) {
       throw new Error('Houmao DSH service could not bind an idle exact native session');
     }
+    if (typeof control.permission_preset === 'string') {
+      ctx.permissionPresets.set(created.session, control.permission_preset);
+      if (ctx.permissionPresets.current(created.session) !== control.permission_preset) {
+        throw new Error('Houmao DSH service could not establish the requested native permission preset');
+      }
+    }
     root = created;
     writeBinding(control.evidence_path, {
       version: 1, service_incarnation: control.attempt_id, generation: control.generation,
       runtime_session_id: control.runtime_session_id, native_session_id: root.session.id,
       process_id: process.pid, host_incarnation: host, agent_incarnation: agent,
       role_sha256: createHash('sha256').update(role).digest('hex'),
+      permission_preset: control.permission_preset ?? null,
     });
     const followup = root.followup.bind(root);
     root.followup = message => {

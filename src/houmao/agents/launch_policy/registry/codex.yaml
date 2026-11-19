@@ -3,6 +3,9 @@ tool: codex
 strategies:
   - strategy_id: codex-unattended-0.162-plus
     operator_prompt_mode: unattended
+    permission_defaults:
+      approval_policy: never
+      sandbox_mode: danger-full-access
     backends:
       - raw_launch
       - codex_headless
@@ -80,32 +83,9 @@ strategies:
       - kind: provider_hook.call
         params:
           hook_id: codex.validate_credential_readiness
-      - kind: toml.set
+      - kind: provider_hook.call
         params:
-          path: config.toml
-          key_path:
-            - approval_policy
-          value: never
-      - kind: toml.set
-        params:
-          path: config.toml
-          key_path:
-            - sandbox_mode
-          value: danger-full-access
-      - kind: toml.set
-        params:
-          path: config.toml
-          key_path:
-            - notice
-            - hide_full_access_warning
-          value: true
-      - kind: toml.set
-        params:
-          path: config.toml
-          key_path:
-            - tui
-            - show_tooltips
-          value: false
+          hook_id: codex.apply_runtime_permissions
       - kind: provider_hook.call
         params:
           hook_id: codex.ensure_project_trust
@@ -117,6 +97,9 @@ strategies:
           hook_id: codex.append_unattended_cli_overrides
   - strategy_id: codex-app-server-unattended-0.169.0
     operator_prompt_mode: unattended
+    permission_defaults:
+      approval_policy: never
+      sandbox_mode: danger-full-access
     backends:
       - codex_app_server
     supported_versions: "==0.169.0"
@@ -144,11 +127,16 @@ strategies:
     owned_paths:
       - path: config.toml
         keys:
+          - approval_policy
+          - sandbox_mode
           - projects.<resolved_workdir>.trust_level
     actions:
       - kind: provider_hook.call
         params:
           hook_id: codex.validate_credential_readiness
+      - kind: provider_hook.call
+        params:
+          hook_id: codex.apply_runtime_permissions
       - kind: provider_hook.call
         params:
           hook_id: codex.ensure_project_trust

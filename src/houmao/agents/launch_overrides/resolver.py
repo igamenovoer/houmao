@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Any, Final
 
 from houmao.agents.launch_overrides.models import (
@@ -12,13 +12,30 @@ from houmao.agents.launch_overrides.models import (
     LaunchOverrides,
     SupportedLaunchBackend,
 )
-from houmao.agents.tool_params import get_tool_params_adapter
+from houmao.agents.launch_overrides.native import split_permission_args
+from houmao.agents.tool_params import (
+    get_tool_params_adapter,
+    resolve_tool_params,
+    validate_tool_params,
+)
 
 _RESERVED_ARGS_BY_BACKEND: Final[dict[SupportedLaunchBackend, tuple[str, ...]]] = {
     "raw_launch": (),
-    "codex_headless": ("-c", "app-server", "exec", "resume", "--json"),
-    "codex_app_server": ("app-server",),
-    "claude_headless": ("-p", "--append-system-prompt", "--output-format", "--resume"),
+    "codex_headless": ("-c", "--config", "app-server", "exec", "resume", "--json", "--last"),
+    "codex_app_server": ("app-server", "--listen", "--stdio"),
+    "claude_headless": (
+        "-p",
+        "--print",
+        "--append-system-prompt",
+        "--output-format",
+        "--input-format",
+        "--resume",
+        "--session-id",
+        "--continue",
+        "--fork-session",
+        "-r",
+        "-c",
+    ),
     "kimi_headless": (
         "-p",
         "--prompt",
@@ -27,11 +44,9 @@ _RESERVED_ARGS_BY_BACKEND: Final[dict[SupportedLaunchBackend, tuple[str, ...]]] 
         "--resume",
         "--continue",
         "--skills-dir",
-        "--auto",
-        "--yolo",
         "--plan",
     ),
-    "kimi_acp": (),
+    "kimi_acp": ("acp",),
     "kimi_web": ("web", "--host", "--port", "--no-open"),
     "cao_rest": (),
     "dsh_headless": (
@@ -59,6 +74,16 @@ _RESERVED_ARGS_BY_BACKEND: Final[dict[SupportedLaunchBackend, tuple[str, ...]]] 
     ),
 }
 _UNSUPPORTED_OVERRIDE_BACKENDS: Final[frozenset[SupportedLaunchBackend]] = frozenset({"cao_rest"})
+_KIMI_SESSION_ARGS = ("--session", "-S", "--resume", "--continue", "-c")
+_KIMI_ROLE_ARGS = ("--agent", "--agent-file")
+_TUI_IDENTITY_ARGS: Final[dict[str, tuple[str, ...]]] = {
+    "claude": ("--session-id", "--resume", "-r", "--continue", "-c", "--fork-session"),
+    "codex": ("resume", "--last"),
+    "kimi": _KIMI_SESSION_ARGS,
+}
+_OWNED_CONFIG_BACKENDS = frozenset(
+    {"codex_app_server", "kimi_acp", "kimi_web", "dsh_headless", "dsh_acp", "dsh_web"}
+)
 
 
 @dataclass(frozen=True)
@@ -86,6 +111,8 @@ class ResolvedLaunchBehavior:
     merged: MergedLaunchIntent
     translated_args: tuple[str, ...]
     args_before_policy: tuple[str, ...]
+    tool_params: dict[str, Any] = field(default_factory=dict)
+    tool_param_sources: dict[str, str] = field(default_factory=dict)
 
     def to_payload(
         self,
@@ -167,6 +194,7 @@ def resolve_launch_behavior(
     recipe_overrides: LaunchOverrides | None,
     direct_overrides: LaunchOverrides | None,
     tool_params: Mapping[str, Any] | None = None,
+    tool_param_layers: Sequence[tuple[str, Mapping[str, Any]]] | None = None,
 ) -> ResolvedLaunchBehavior:
     """Resolve effective launch behavior for one backend."""
 
@@ -175,6 +203,25 @@ def resolve_launch_behavior(
         recipe_overrides=recipe_overrides,
         direct_overrides=direct_overrides,
     )
+    if tool_param_layers is not None:
+        native_args, layers = _resolve_parameter_layers(
+            tool=tool,
+            backend=backend,
+            adapter_defaults=adapter_defaults,
+            recipe_overrides=recipe_overrides,
+            direct_overrides=direct_overrides,
+            typed_layers=tool_param_layers,
+        )
+        tool_params = resolve_tool_params(tool, layers)
+    else:
+        native_args, aliases = split_permission_args(
+            tool, merged.args, source="launch args", backend=backend
+        )
+        _validate_reserved_args(tool, backend, native_args, source="launch args")
+        layers = [("launch args", aliases), ("effective tool_params", tool_params or {})]
+        if aliases:
+            tool_params = resolve_tool_params(tool, layers)
+
     adapter = get_tool_params_adapter(tool) if tool_params is not None else None
     effective = (
         adapter.parse_effective(tool_params, source="effective tool_params")
@@ -184,7 +231,7 @@ def resolve_launch_behavior(
 
     if backend in _UNSUPPORTED_OVERRIDE_BACKENDS:
         unsupported_fields: list[str] = []
-        if merged.args:
+        if native_args:
             unsupported_fields.append("args")
         if effective is not None and effective.model_dump(exclude_defaults=True):
             unsupported_fields.append("tool_params")
@@ -204,35 +251,89 @@ def resolve_launch_behavior(
     if adapter is not None and effective is not None:
         translated_args = adapter.prepare_launch(effective, backend=backend)
 
-    args_before_policy = (*merged.args, *translated_args)
-    conflicts = _find_reserved_arg_conflicts(
-        args=list(args_before_policy),
-        reserved_args=_RESERVED_ARGS_BY_BACKEND[backend],
-    )
-    if conflicts:
-        joined = ", ".join(conflicts)
+    args_before_policy = (*native_args, *translated_args)
+    if backend in _OWNED_CONFIG_BACKENDS and args_before_policy:
         raise ValueError(
-            "Launch overrides contain backend-reserved argument(s): "
-            f"{joined}. Remove those from adapter defaults or launch overrides; the backend "
-            "injects them automatically."
+            f"backend={backend!r} uses owned native configuration and rejects raw launch arguments."
         )
 
+    sources = {}
+    for source, payload in layers:
+        for name, value in payload.items():
+            if name == "permissions" and isinstance(value, dict):
+                sources.update({f"permissions.{key}": source for key in value})
+            else:
+                sources[name] = source
     return ResolvedLaunchBehavior(
         merged=merged,
         translated_args=translated_args,
         args_before_policy=args_before_policy,
+        tool_params=dict(tool_params or {}),
+        tool_param_sources=sources,
     )
 
 
-def _find_reserved_arg_conflicts(*, args: list[str], reserved_args: tuple[str, ...]) -> list[str]:
-    """Return reserved args that conflict with the requested launch behavior."""
+def _resolve_parameter_layers(
+    *,
+    tool: str,
+    backend: SupportedLaunchBackend,
+    adapter_defaults: LaunchDefaults,
+    recipe_overrides: LaunchOverrides | None,
+    direct_overrides: LaunchOverrides | None,
+    typed_layers: Sequence[tuple[str, Mapping[str, Any]]],
+) -> tuple[tuple[str, ...], list[tuple[str, Mapping[str, Any]]]]:
+    """Validate raw inputs and normalize the selected arguments at their own layer."""
 
-    conflicts: set[str] = set()
-    for arg in args:
-        for reserved in reserved_args:
-            if arg == reserved or arg.startswith(f"{reserved}="):
-                conflicts.add(reserved)
-    return sorted(conflicts)
+    direct = direct_overrides.args if direct_overrides else None
+    preset = recipe_overrides.args if recipe_overrides else None
+    selected = direct or preset
+    args: list[str] = []
+    supplied: dict[str, Mapping[str, Any]] = {}
+    for source, original, use in (
+        ("adapter", adapter_defaults.args, selected is None or selected.mode == "append"),
+        ("preset", preset.values if preset else (), direct is None),
+        ("direct", direct.values if direct else (), direct is not None),
+    ):
+        remaining, aliases = split_permission_args(
+            tool, original, source=f"{source} launch args", backend=backend
+        )
+        _validate_reserved_args(tool, backend, remaining, source=f"{source} launch args")
+        if use:
+            args.extend(remaining)
+            supplied[source] = validate_tool_params(tool, aliases, source=f"{source} launch args")
+
+    layers: list[tuple[str, Mapping[str, Any]]] = []
+    for source, payload in typed_layers:
+        layers.append((f"{source} launch args", supplied.get(source, {})))
+        layers.append((source, payload))
+    return tuple(args), layers
+
+
+def _validate_reserved_args(
+    tool: str, backend: SupportedLaunchBackend, args: tuple[str, ...], *, source: str
+) -> None:
+    """Reject authored protocol controls even when another argument layer wins."""
+
+    reserved_args = ("--", *_RESERVED_ARGS_BY_BACKEND[backend])
+    if backend == "raw_launch":
+        reserved_args = (*reserved_args, *_TUI_IDENTITY_ARGS.get(tool, ()))
+    if tool == "kimi":
+        reserved_args = (*reserved_args, *_KIMI_SESSION_ARGS, *_KIMI_ROLE_ARGS)
+
+    conflicts = sorted(
+        {
+            "-c" if tool == "codex" and arg.startswith("-c") else arg.partition("=")[0]
+            for arg in args
+            if arg != '--config=approvals_reviewer="auto_review"'
+        }.intersection(reserved_args)
+    )
+    if conflicts:
+        joined = ", ".join(conflicts)
+        raise ValueError(
+            f"{source} contains backend-reserved argument(s) for backend={backend!r}: "
+            f"{joined}. Houmao applies the managed startup protocol and session identity. "
+            "For continuation use the Houmao relaunch session selector."
+        )
 
 
 def _select_args_section(

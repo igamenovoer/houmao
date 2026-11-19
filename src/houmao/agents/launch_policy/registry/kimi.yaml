@@ -3,6 +3,8 @@ tool: kimi
 strategies:
   - strategy_id: kimi-acp-unattended-2.6.0
     operator_prompt_mode: unattended
+    permission_defaults:
+      permission_mode: auto
     backends:
       - kimi_acp
     supported_versions: "==2.6.0"
@@ -39,8 +41,13 @@ strategies:
       - kind: provider_hook.call
         params:
           hook_id: kimi.validate_native_system_prompt_contract
+      - kind: provider_hook.call
+        params:
+          hook_id: kimi.project_service_permission
   - strategy_id: kimi-web-unattended-2.6.0
     operator_prompt_mode: unattended
+    permission_defaults:
+      permission_mode: auto
     backends:
       - kimi_web
     supported_versions: "==2.6.0"
@@ -77,8 +84,13 @@ strategies:
       - kind: provider_hook.call
         params:
           hook_id: kimi.validate_native_system_prompt_contract
+      - kind: provider_hook.call
+        params:
+          hook_id: kimi.project_service_permission
   - strategy_id: kimi-unattended-2.1-plus
     operator_prompt_mode: unattended
+    permission_defaults:
+      permission_mode: auto
     backends:
       - kimi_headless
     supported_versions: ">=2.1.1"
@@ -156,6 +168,8 @@ strategies:
           hook_id: kimi.validate_native_system_prompt_contract
   - strategy_id: kimi-tui-unattended-2.1-plus
     operator_prompt_mode: unattended
+    permission_defaults:
+      permission_mode: auto
     backends:
       - raw_launch
     supported_versions: ">=2.1.1"
@@ -231,12 +245,9 @@ strategies:
       - kind: provider_hook.call
         params:
           hook_id: kimi.canonicalize_unattended_tui_launch_inputs
-      - kind: toml.set
+      - kind: provider_hook.call
         params:
-          path: config.toml
-          key_path:
-            - default_permission_mode
-          value: auto
+          hook_id: kimi.project_tui_permission
       - kind: provider_hook.call
         params:
           hook_id: kimi.validate_native_system_prompt_contract
