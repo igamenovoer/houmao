@@ -176,13 +176,13 @@ Direct easy-instance override SHALL NOT rewrite the stored specialist or project
 ### Requirement: Project-backed Kimi unattended launch delegates to maintained automatic posture
 When a selected Kimi specialist or Kimi-backed project profile resolves `launch.prompt_mode: unattended`, `houmao-mgr project agents launch` SHALL delegate to the managed native launch path in a way that lets downstream Kimi launch policy and runtime force Kimi auto permission mode.
 
-For Kimi specialists and profiles, unattended prompt mode SHALL NOT imply headless launch. If the operator does not request `--headless`, Kimi SHALL remain eligible for the maintained local-interactive TUI backend while still receiving the maintained no-question unattended posture.
+For Kimi specialists and profiles, unattended prompt mode SHALL NOT imply headless launch. Kimi project launch SHALL apply unattended policy to the selected run mode. With no selected mode, the maintained TUI remains the project default.
 
 When a selected Kimi specialist or Kimi-backed project profile resolves `launch.prompt_mode: as_is`, project launch SHALL preserve as-is behavior and SHALL NOT inject a separate provider auto, yolo, or unattended override.
 
 #### Scenario: Kimi project specialist launches TUI unattended automatically
 - **WHEN** a project specialist `writer` exists with tool `kimi` and stored `launch.prompt_mode: unattended`
-- **AND WHEN** an operator runs `houmao-mgr project agents launch --specialist writer --name writer-1` without `--headless`
+- **AND WHEN** an operator runs `houmao-mgr project agents launch --specialist writer --name writer-1` without a mode override
 - **THEN** the command delegates to native launch with Kimi local-interactive posture
 - **AND THEN** the resulting launch resolves the maintained Kimi unattended local-interactive policy
 
@@ -1300,46 +1300,6 @@ When a specialist command receives one or more system-skill selectors without an
 - **THEN** the command fails before writing specialist or profile configuration
 - **AND THEN** the error identifies `houmao-utils-llm-wiki` as an unknown system skill
 
-### Requirement: Kimi project agents launch through local interactive posture by default
-
-`houmao-mgr project agents launch` SHALL treat Kimi specialists and Kimi-backed project profiles as maintained TUI/local-interactive launch candidates when the operator does not request headless posture.
-
-When a selected specialist or selected project profile resolves to tool `kimi` and no direct or stored headless posture applies, the command SHALL delegate to the native managed-agent launch flow without rejecting the launch as headless-only.
-
-When a selected specialist or selected project profile resolves to tool `kimi` and the operator explicitly passes `--headless`, the command SHALL preserve the explicit headless request and delegate to the maintained Kimi headless backend.
-
-The existing Gemini headless-only rule SHALL remain unchanged. A Gemini-backed launch without `--headless` SHALL still fail clearly and identify Gemini as the required-headless exception.
-
-#### Scenario: Kimi specialist launches without `--headless`
-
-- **WHEN** a project specialist `kimi-reviewer` exists with tool `kimi`
-- **AND WHEN** an operator runs `houmao-mgr project agents launch --specialist kimi-reviewer --name kimi-reviewer-1` without `--headless`
-- **THEN** the command delegates to native managed-agent launch for tool `kimi`
-- **AND THEN** the launch resolves to TUI/local-interactive posture when no stronger stored posture requires headless
-- **AND THEN** the command does not fail with a Gemini-and-Kimi headless-only error
-
-#### Scenario: Kimi project profile launches without `--headless`
-
-- **WHEN** project profile `kimi-reviewer-profile` targets a specialist whose tool is `kimi`
-- **AND WHEN** the profile does not store headless posture
-- **AND WHEN** an operator runs `houmao-mgr project agents launch --profile kimi-reviewer-profile`
-- **THEN** the command delegates to native managed-agent launch for tool `kimi`
-- **AND THEN** the launch resolves to TUI/local-interactive posture when no direct override requests headless
-
-#### Scenario: Explicit Kimi headless launch remains supported
-
-- **WHEN** a project specialist `kimi-reviewer` exists with tool `kimi`
-- **AND WHEN** an operator runs `houmao-mgr project agents launch --specialist kimi-reviewer --name kimi-reviewer-1 --headless`
-- **THEN** the command preserves the explicit headless request
-- **AND THEN** the delegated launch uses the maintained Kimi headless backend instead of local interactive TUI posture
-
-#### Scenario: Gemini remains required-headless
-
-- **WHEN** a project specialist `gemini-reviewer` exists with tool `gemini`
-- **AND WHEN** an operator runs `houmao-mgr project agents launch --specialist gemini-reviewer --name gemini-reviewer-1` without `--headless`
-- **THEN** the command fails clearly before launch
-- **AND THEN** it identifies Gemini as the project easy launch surface's required-headless provider
-
 ### Requirement: Project-easy commands exclude Gemini
 Project specialist, profile, and agent commands SHALL NOT accept Gemini as a tool or launch lane.
 
@@ -1378,3 +1338,27 @@ Tests MAY name or inspect internal implementation modules that retain `easy` ter
 - **WHEN** an operator runs `houmao-mgr project profile set --name b1 --tool-params '{"mcp_servers":[]}'` and later runs `houmao-mgr project profile set --name b1 --clear-tool-params`
 - **THEN** the first command merges the partial `tool_params` into `b1` and refreshes `.houmao/agents/launch-profiles/b1.yaml`
 - **AND THEN** `--clear-tool-params` removes profile-owned `tool_params` so future launches inherit lower layers
+
+### Requirement: Kimi project launch resolves its run mode through the shared selector
+
+Project birth for Kimi SHALL select tui when no stored mode or direct override applies. Direct `--mode headless` SHALL select `kimi_headless`. Other explicit modes SHALL require a qualified Kimi adapter. The maintained native tool set governs provider validation.
+
+#### Scenario: Kimi specialist launches with its default
+
+- **WHEN** a project launches a Kimi specialist without a stored or direct mode
+- **THEN** the native tool starts with local_interactive in tui mode
+
+#### Scenario: Kimi project profile launches with its default
+
+- **WHEN** a project launches a Kimi profile that omits mode and the caller also omits it
+- **THEN** the manager delegates to the maintained Kimi TUI
+
+#### Scenario: Explicit Kimi headless launch remains supported
+
+- **WHEN** an operator passes `--mode headless` to a Kimi specialist launch
+- **THEN** the manager launches the one-shot `kimi_headless` backend
+
+#### Scenario: Removed providers are rejected
+
+- **WHEN** a project selects a provider outside the maintained native tool set
+- **THEN** the project launch fails before provider startup for every run mode

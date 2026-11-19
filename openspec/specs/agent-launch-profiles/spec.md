@@ -47,7 +47,7 @@ At minimum, the shared model SHALL support:
 - operator prompt-mode override
 - durable non-secret env records
 - declarative mailbox configuration
-- launch posture such as headless or gateway defaults
+- optional `defaults.posture.mode` and independently configured gateway defaults
 - prompt overlay
 - optional gateway mail-notifier appendix default
 
@@ -68,6 +68,17 @@ The gateway mail-notifier appendix default SHALL be treated as reusable birth-ti
 - **AND WHEN** an operator inspects that profile
 - **THEN** the profile reports that stored appendix default
 - **AND THEN** the stored profile does not imply that gateway mail-notifier polling is already enabled for future launches
+
+#### Scenario: A one-shot mode override leaves the stored default intact
+
+- **WHEN** a profile stores `defaults.posture.mode: web` for a tool that supports web and service and a caller explicitly launches with `--mode service`
+- **THEN** the new instance records service and profile inspection continues to report web
+
+#### Scenario: An old Boolean is present in the selected profile
+
+- **WHEN** the selected profile contains `defaults.posture.headless`
+- **THEN** validation identifies the field and the valid explicit modes before starting a provider
+- **AND** for DSH the diagnostic explains the choice between the native one-shot CLI and the persistent ACP service
 
 ### Requirement: Launch-profile resolution applies explicit precedence
 The system SHALL resolve effective launch inputs with this precedence order:

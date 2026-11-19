@@ -434,6 +434,7 @@ When more than one known agent matches the same friendly `agent_name`, the regis
 - **AND WHEN** a caller resolves friendly name `alpha`
 - **THEN** the registry reports an ambiguous-name result
 - **AND THEN** the result requires the caller to select an `agent_id`
+
 ### Requirement: Durable mail membership is separate from local runtime presence
 Local presence cleanup SHALL NOT delete offline membership, release addresses, or infer remote agent absence from local tmux probes. Registry-host membership SHALL be resolvable by `agent_id` while the body is stopped. A remote locator SHALL remain remote metadata rather than a path the registry host must open locally.
 
@@ -584,3 +585,21 @@ Discovery SHALL treat endpoint metadata as a locator. Protected credential selec
 - **WHEN** a remote execution record contains owner-local loopback listener coordinates
 - **THEN** remote discovery does not authorize connecting to the same port on the caller host as a substitute
 
+### Requirement: Managed presence identifies the run mode and native surface
+
+A current local managed presence record SHALL identify the selected tool, run mode, concrete backend, managed generation, and optional native human surface consistently with the current manifest. Public Web location metadata SHALL contain only a token-free origin and the bound session identity. A service control socket, stdio handle, or supervisor pane SHALL confer no human interface.
+
+#### Scenario: Web presence survives gateway detach
+
+- **WHEN** an operator detaches the gateway from a live owned Web host
+- **THEN** the record retains its safe browser reference and mode and omits any discarded gateway endpoint
+
+#### Scenario: A joined terminal publishes its identity
+
+- **WHEN** a supported current-session TUI is adopted with verified terminal authority
+- **THEN** its new record reports tui and the verified terminal surface
+
+#### Scenario: A record disagrees with the manifest
+
+- **WHEN** a service record claims a terminal UI or names a backend belonging to another mode
+- **THEN** the reader reports unusable authority before routing an operation

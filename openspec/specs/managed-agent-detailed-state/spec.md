@@ -7,13 +7,15 @@ TBD - created by archiving change server-managed-agent-gateway-state. Update Pur
 ### Requirement: Managed agents expose a transport-specific detailed state route
 The system SHALL expose `GET /houmao/agents/{agent_ref}/state/detail` as the transport-specific inspection route for managed agents.
 
+The maintained passive server SHALL retain canonical raw TUI detail at `/houmao/agents/{agent_ref}/state/detail` for verified terminal agents. Its curated transport-specific managed response SHALL use `/houmao/agents/{agent_ref}/managed-state/detail` and reference that canonical raw route for TUI. Other modes SHALL receive structured detail in both route families.
+
 That route SHALL use the same managed-agent alias resolution contract as the rest of `/houmao/agents/{agent_ref}`.
 
 The response SHALL include:
 
 - the managed-agent identity,
 - the current coarse summary state for that managed agent, and
-- a transport-discriminated detail payload.
+- a detail payload discriminated by the recorded run mode and its actual observation source. For service mode the payload SHALL identify owner and native connection readiness, the bound logical session when available, and current correlated work.
 
 For terminal TUI-backed managed agents, the detail payload SHALL expose a curated projection of key TUI state together with a reference to the canonical terminal-keyed TUI inspection route rather than defining a second incompatible TUI state model.
 
@@ -32,10 +34,14 @@ For Web-backed interactive managed agents, the detail payload SHALL expose struc
 - **AND THEN** the caller does not need to switch to raw turn artifacts merely to understand current runtime posture
 
 #### Scenario: Caller Inspects a DSH Interactive Web Agent
-- **WHEN** a caller requests managed detail for an agent launched with DSH's `tui` posture
+- **WHEN** a caller requests managed detail for an agent launched with DSH's `web` mode
 - **THEN** detail identifies a Web native surface and its structured control state
 - **AND THEN** terminal-parser fields and canonical terminal-route references are not invented
 
+#### Scenario: Caller inspects service state
+
+- **WHEN** the selected owner reports a connected native service
+- **THEN** detail exposes its service readiness and active request evidence without terminal-parser fields
 
 ### Requirement: Headless detailed state is execution-centric and queryable without raw artifact scraping
 For managed headless agents, the detailed state model SHALL describe execution posture rather than parsed UI posture.
@@ -69,7 +75,7 @@ The headless detail route SHALL NOT require the caller to inspect raw stdout, st
 
 ### Requirement: Detailed state preserves TUI canonicality while giving headless parity
 
-The managed-agent detail route SHALL query terminal TUI, Web interactive, and headless agents under one namespace with distinct observation models. Terminal-keyed TUI detail SHALL remain canonical for raw terminal inspection; managed detail SHALL be canonical for rich headless and Web inspection. Web state SHALL use native control/observation evidence and report transport-specific unavailability when no safe live source exists.
+The managed-agent detail route SHALL query TUI, Web, headless, and service agents under one namespace with distinct observation models. Terminal-keyed TUI detail SHALL remain canonical for raw terminal inspection; managed detail SHALL be canonical for rich headless, Web, and service inspection. Web state SHALL use native control/observation evidence and report transport-specific unavailability when no safe live source exists.
 
 #### Scenario: TUI detail remains canonical while managed-agent detail stays discoverable
 - **WHEN** a caller needs raw TUI-specific observation for a managed TUI agent
@@ -85,6 +91,10 @@ The managed-agent detail route SHALL query terminal TUI, Web interactive, and he
 - **WHEN** the supervisor remains alive but verified Web control is unavailable
 - **THEN** detail reports Web control as unavailable without treating the supervisor pane as a replacement observation source
 
+#### Scenario: Provider connection is unverified
+
+- **WHEN** the service owner is live but cannot verify its native connection
+- **THEN** managed detail distinguishes owner liveness from provider readiness and reports the source and freshness of its last evidence
 
 ### Requirement: Headless detailed state treats tmux liveness as auxiliary diagnostics
 For managed headless agents, `GET /houmao/agents/{agent_ref}/state/detail` SHALL describe active-turn and last-turn posture from controller-owned execution state and durable turn records.

@@ -40,11 +40,11 @@ The supported runner interface for `scripts/demo/minimal-agent-launch/` SHALL re
 
 #### Scenario: Runner accepts `--headless` for the headless lane
 - **WHEN** an operator invokes the demo runner with `--headless`
-- **THEN** the runner translates that selection into a managed-agent launch that uses `--headless`
+- **THEN** the runner translates that selection into a managed-agent launch that uses `--mode headless`
 
 #### Scenario: Runner defaults to the TUI lane
 - **WHEN** an operator invokes the demo runner without `--headless`
-- **THEN** the runner translates that invocation into a managed-agent launch without `--headless`
+- **THEN** the runner translates that invocation into a managed-agent launch selecting `tui` explicitly or using that provider's TUI project default
 
 ### Requirement: Generated outputs are partitioned by lane
 

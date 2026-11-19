@@ -45,10 +45,10 @@ The runtime SHALL:
 - **AND THEN** the reply is produced within the same logical Codex session context
 
 ### Requirement: Default non-CAO Codex backend is resumable headless CLI turns
-When tool selection is `codex` and the caller does not explicitly request CAO, the runtime SHALL default to a resumable headless CLI backend rather than a long-lived server mode.
+A low-level Codex runtime start without a resolved mode, backend override, or CAO request SHALL default to resumable headless CLI turns. Project birth SHALL pass its separately resolved mode, including its tui default.
 
 #### Scenario: Starting Codex without backend override selects headless backend
-- **WHEN** a developer starts a Codex session without specifying a backend override
+- **WHEN** a developer uses the low-level runtime start for Codex without specifying a mode or backend override
 - **AND WHEN** the session is not CAO-backed
 - **THEN** the runtime selects the Codex headless CLI backend as the default execution mode
 
@@ -78,23 +78,6 @@ Deprecated standalone build/start entrypoints SHALL resolve agent-definition roo
 - **WHEN** `HOUMAO_NATIVE_AGENT_ROOT=/tmp/agents`
 - **AND WHEN** no explicit CLI `--agent-def-dir` is supplied
 - **THEN** the effective agent-definition root is `/tmp/agents`
-
-### Requirement: `codex_app_server` is unmaintained and blocked at launch
-The `codex_app_server` backend is unmaintained and no longer supported for launching. The runtime SHALL reject session-start requests with `backend=codex_app_server` via an explicit unmaintained-backend error before provider start, naming the backend and the maintained alternatives; retained manifests naming it SHALL be rejected before new session creation. The module MAY remain as dead code; no runtime path SHALL silently honor or substitute it.
-
-#### Scenario: Explicit codex_app_server request is rejected
-- **WHEN** a developer requests `backend=codex_app_server` for a new session
-- **THEN** the runtime fails with an explicit unmaintained-backend error naming `codex_app_server`
-- **AND THEN** no Codex process is started
-
-#### Scenario: Retained codex_app_server manifest is rejected
-- **WHEN** a persisted session manifest names `codex_app_server` and a new session creation is attempted from it
-- **THEN** the runtime rejects the request with the same explicit unmaintained-backend error
-- **AND THEN** it does not silently substitute another backend
-
-#### Scenario: Error names maintained alternatives
-- **WHEN** the unmaintained-backend error surfaces to an operator
-- **THEN** the message names `codex_headless` and `local_interactive` as the maintained Codex backends
 
 ### Requirement: Claude headless backend via `claude -p` + `--resume`
 For Claude, the system SHALL support a non-CAO interactive backend using repeated headless CLI invocations with machine-readable output and session resume.
@@ -3266,19 +3249,6 @@ For maintained Kimi Code >=2.1.1, Houmao SHALL project the complete effective la
 - **THEN** the brain manifest records the native injection method, managed relative path, effective-prompt digest, projected-file digest, and required Kimi engine
 - **AND THEN** provenance introduces no secret content beyond the effective prompt already owned by the managed brain
 
-### Requirement: DSH Headless Selection Resolves to Its ACP Backend
-
-An explicitly headless DSH launch SHALL resolve to backend `dsh_acp` through maintained definitions, profiles, and manager paths. Runtime manifests SHALL preserve the logical agent, runtime session, generation, native session, and qualified tool-build identities. Unsupported mode or backend combinations SHALL fail before provider launch.
-
-#### Scenario: Project Launch Selects DSH Headless
-- **WHEN** a valid project launch profile selects tool `dsh` and headless posture
-- **THEN** launch selects `dsh_acp` and publishes ordinary managed-agent identity and discovery state
-- **AND THEN** the launch does not require a separate custom launcher
-
-#### Scenario: Stale Controller Inspects a Completed Native Turn
-- **WHEN** another controller has persisted a newer DSH native session or turn binding
-- **THEN** later capability, status, attach, or detach operations preserve that newer persisted state
-
 ### Requirement: DSH Runtime Configuration Is Explicit and Isolated
 
 Managed DSH launches SHALL isolate the Harness home, shared-agent root, profile, persistence, and selected skill roots from resolved `DshToolParams` (`tool_params` layers materialized to `<DSH_HOME>/houmao-tool-params.yaml` and `<DSH_HOME>/houmao-profile.patch.json`). Provider adapter, wire protocol, credential roles, Houmao `model.name` selection, model catalog, and compatibility metadata SHALL resolve explicitly. The model catalog SHALL use `reasoning_efforts`, and secrets SHALL stay outside persisted public launch metadata. Native DeepSeek Messages and compatible routes SHALL remain distinct configurations.
@@ -3323,7 +3293,7 @@ Before DSH processes the first user prompt, the complete effective Houmao launch
 DSH headless turns SHALL use the maintained tmux-backed managed turn envelope, canonical semantic events, durable terminal evidence, and exact native continuation. Stop, interrupt, relaunch, reset, gateway attachment, and usage recovery SHALL retain their established identity boundaries. Starting an explicitly new conversation SHALL create a new source binding without discarding runtime-session history.
 
 #### Scenario: A Headless Turn Exits Between Prompts
-- **WHEN** a DSH turn completes and its ACP worker exits while the managed tmux session remains live
+- **WHEN** a DSH turn completes and its one-shot CLI worker exits while the managed tmux session remains live
 - **THEN** the logical agent remains discoverable and gateway-attachable
 - **AND THEN** a later explicit prompt can resume the saved native conversation
 
@@ -3336,19 +3306,6 @@ DSH headless turns SHALL use the maintained tmux-backed managed turn envelope, c
 - **WHEN** an admitted DSH attempt loses its owned process or execution generation
 - **THEN** its response or recorded outcome reports failure or uncertainty
 - **AND THEN** relaunch does not automatically resend that attempt's prompt
-
-### Requirement: DSH TUI Posture Resolves to a Web Backend
-
-Selecting DSH through Houmao's existing `tui` or non-headless interactive posture SHALL resolve to backend `dsh_web`. Its human interface SHALL be the native DSH Web application, and semantic control SHALL use the same host/session's Web API. Explicit headless selection SHALL continue resolving to `dsh_acp`.
-
-#### Scenario: Developer Launches DSH Interactively
-- **WHEN** a valid DSH definition or profile is launched through the maintained interactive manager path
-- **THEN** Houmao starts its managed Web Host and returns its bound native session and browser-surface metadata
-- **AND THEN** the developer does not need a new DSH-specific interaction-mode flag
-
-#### Scenario: A DSH Headless Profile Is Launched
-- **WHEN** the selected DSH launch posture is headless
-- **THEN** it retains the qualified ACP behavior from change 01 without starting a Web listener
 
 ### Requirement: Native Human Surface Is Distinct From Process Supervision
 
@@ -3436,13 +3393,60 @@ Managed DSH compatible-adapter `tool_params` SHALL validate and project supporte
 
 ### Requirement: Unattended DSH Launch Composes Coherent Permission Presets
 
-When a managed DSH headless or Web launch applies unattended operator policy, profile generation SHALL register a matching unattended preset in the native permission-presets service and select it as the default preset alongside matching approval and sandbox-policy defaults so native permission-service activation succeeds without preset-mismatch errors. Launches in `as_is` operator mode SHALL omit unattended permission, approval, and sandbox-policy overrides.
+When a managed DSH headless, service, or Web launch applies unattended operator policy, profile generation SHALL register a matching unattended preset in the native permission-presets service and select it as the default preset alongside matching approval and sandbox-policy defaults so native permission-service activation succeeds without preset-mismatch errors. Launches in `as_is` operator mode SHALL omit unattended permission, approval, and sandbox-policy overrides.
 
 #### Scenario: Unattended Launch Activates Native Permission Service Cleanly
-- **WHEN** a managed DSH ACP or Web agent starts in `unattended` operator mode
+- **WHEN** a managed DSH native headless, ACP service, or Web agent starts in `unattended` operator mode
 - **THEN** the generated profile patch configures a named unattended permission preset alongside DSH's standard presets, sets it as `defaultPreset`, and aligns `approval` and `sandbox-policy` with that preset
 - **AND THEN** DSH starts without a `permission` plugin preset-mismatch activation error in stderr
 
 #### Scenario: As-Is Launch Preserves Native Permission Defaults
-- **WHEN** a managed DSH Web agent starts in `as_is` operator mode
+- **WHEN** a managed DSH agent starts in `as_is` operator mode
 - **THEN** the generated profile patch omits unattended `permission`, `approval`, and `sandbox-policy` overrides so native interactive approval behavior remains active
+
+### Requirement: DSH Web selection launches its native browser host
+
+DSH's explicit web mode and its ordinary interactive project default SHALL select `dsh_web`. The browser and structured programmatic controls SHALL target the same owned native host and session. Requesting tui SHALL fail before provider startup until a DSH terminal adapter is qualified.
+
+#### Scenario: A project selects DSH Web
+
+- **WHEN** a DSH project launch has no stored or direct override, or explicitly selects web
+- **THEN** the manager publishes the verified native Web surface and the supervised backend dsh_web
+
+#### Scenario: An unsupported DSH terminal is requested
+
+- **WHEN** a caller explicitly selects tui for the supported DSH build
+- **THEN** the runtime reports the unsupported pair without starting a browser host
+
+### Requirement: DSH headless selection resolves to the native CLI backend
+
+Project launch, definitions, and headless-only server birth SHALL select `dsh_headless` for qualified DSH headless execution. The manifest SHALL bind logical agent, runtime session, generation, native session when known, and tool build. Stale readers SHALL preserve newer turn or native-session bindings.
+
+#### Scenario: Project launches DSH headless
+
+- **WHEN** a valid project profile selects `dsh` and `headless`
+- **THEN** the manager publishes normal discovery metadata for the `dsh_headless` managed turn envelope
+
+#### Scenario: A stale controller inspects completed work
+
+- **WHEN** another controller has saved a newer native session or turn binding
+- **THEN** capability, status, attach, and detach preserve the newer state
+
+### Requirement: Codex app-server selection requires a qualified service launch
+
+A fresh current-schema `(codex, service)` launch SHALL select the maintained app-server adapter. It SHALL reject retained incompatible manifests, other mode/backend pairs, and unqualified native builds with actionable diagnostics. It SHALL preserve the existing headless and terminal alternatives.
+
+#### Scenario: Codex service is explicitly requested
+
+- **WHEN** the operator selects service mode for a qualified Codex build
+- **THEN** the runtime creates a new managed service owner and negotiates the app-server protocol before publishing readiness
+
+#### Scenario: A retained incompatible app-server manifest is supplied
+
+- **WHEN** a controller attempts to revive an old blocked adapter record as a current service
+- **THEN** the runtime fails before provider start and directs the operator to a fresh launch
+
+#### Scenario: A Codex build cannot support service
+
+- **WHEN** the selection fails its version or protocol check
+- **THEN** the error identifies the required service capability and the available headless and TUI modes

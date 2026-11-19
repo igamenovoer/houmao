@@ -1,0 +1,15 @@
+# Gateway, Passive State, and AG-UI Verification
+
+Kimi ACP uses the shared persistent-service gateway adapter and administrator policy. Attach metadata identifies `kimi` and the `service` control kind. The gateway and passive server derive capabilities from the saved `kimi_acp` binding. Neither publishes a human control surface. The gateway reads native state and exact request events through the same owner used by the manager. Its accounting path leaves Kimi service usage to the provider's verified journal collector.
+
+The signed gateway test starts with a busy controlled service. It verifies that unsigned state inspection receives HTTP 401, a signed prompt receives HTTP 409, and requests to change the current conversation or override the bound model receive HTTP 422. Raw control keys receive the existing HTTP 501 `unsupported_capability` result. The signed request endpoint returns the bounded assistant event for native turn `0` and returns HTTP 404 for an unknown request. The persisted gateway attach record rejects a DSH tool substituted for `kimi_acp`.
+
+The passive contract test observes a live supervisor with a stale Kimi connection and confirms unavailable native readiness in both compact and detailed reads. It checks that the terminal observer stays unused. AG-UI tests verify the admitted service incarnation and conversation before emitting assistant text from native turn `0`. A replacement incarnation or failed native turn ends with `RUN_ERROR`.
+
+AG-UI previously read the native request once for events and again while checking the terminal state. A turn settling between the two reads could finish the stream without emitting its assistant text. AG-UI now uses the same owner snapshot for the outcome and events. A terminal queue receipt with missing native evidence cannot finish a service stream successfully.
+
+The broad gateway, capability, AG-UI, and passive projection unit suites passed with 464 tests and one skip before the final observation fix. The AG-UI, capability, signed gateway, and passive contract rerun after the fix passed with 301 tests and one skip. Scoped Ruff, strict mypy, and `git diff --check` passed. These tests use controlled owner evidence and real gateway signature checking.
+
+After the observation fix, `test_gateway_reconnects_to_exact_active_service_request` passed in 10.17 seconds against controlled DSH `0.2.2-rc.3`. The signed SSE run returned the exact native assistant text after gateway reattachment.
+
+The fresh Kimi Code `2.6.0` fixture `self-hosted-kimi-service-manager-5ec056968dc2` ran against `Qwen/Qwen3.8-27B-FP8`. Signed AG-UI run `kimi-05-qualified-agui` returned `KIMI05AGUI` and `RUN_FINISHED` on native turn `3` in service incarnation `c1cc5ba0f8d24a658ae5d5a2c779033f`. Both the signed gateway and signed passive usage routes returned the four attributed requests. After explicit stop and exact relaunch, native session `session_f73c9114-8714-4fcb-b38d-d93018016d86` continued on turn `4` with a new incarnation. Scoped cleanup returned `stopped_owned_identity`.

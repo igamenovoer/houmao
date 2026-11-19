@@ -6,89 +6,59 @@ Define structured control of managed DeepSeek Harness headless agents through AC
 
 ## Requirements
 
-### Requirement: DSH Headless Control Uses a Qualified ACP Connection
-
-Managed DSH headless execution SHALL use ACP over stdio with a qualified executable and negotiated capabilities. Protocol traffic and diagnostics SHALL remain separate. Missing required capabilities or malformed protocol input SHALL fail explicitly before unsupported operations are attempted.
-
-#### Scenario: Required Resume Capability Is Missing
-- **WHEN** continuation targets a saved native session but initialization does not advertise supported resume
-- **THEN** the attempt fails with an unsupported-operation diagnostic
-- **AND THEN** no replacement conversation or prompt is created
-
-#### Scenario: Provider Emits Invalid Protocol Output
-- **WHEN** DSH emits malformed stdout or the connection closes unexpectedly
-- **THEN** the attempt reports a protocol or execution failure and preserves safe diagnostics
-- **AND THEN** rendered terminal text is not used to infer successful execution
-
 ### Requirement: DSH Continuation Selects an Exact Native Session
 
 The adapter SHALL create a native session only for an explicit new-conversation selection. Subsequent managed turns SHALL resume the saved exact native session in its recorded workspace. Missing, incompatible, occupied, or mismatched sessions SHALL fail without falling back to a new or latest conversation.
 
 #### Scenario: A Later Process Continues the Conversation
-- **WHEN** a completed turn's ACP process has exited and the caller submits another prompt to the same managed conversation
-- **THEN** the new process resumes the saved native session and preserves its history
+- **WHEN** a completed turn's one-shot CLI process has exited and the caller submits another prompt to the same managed conversation
+- **THEN** the new process passes `--session-id` with the exact saved ID and resumes that native session and preserves its history
 
 #### Scenario: Saved Session Cannot Be Resumed
 - **WHEN** the saved native session is missing or belongs to a different workspace
 - **THEN** continuation fails before prompt submission and preserves the saved identity for diagnosis
 
-### Requirement: ACP Updates and Client Requests Remain Serviceable During a Prompt
+#### Scenario: Native continuation fails its adoption checks
 
-The connection SHALL consume session updates, correlate responses, and answer supported permission requests while a prompt is pending. Assistant messages, thoughts, tool lifecycle, configuration changes, and terminal outcomes SHALL retain their distinct semantic kinds. Unsupported interaction requests SHALL terminate or fail safely without an unattended hang.
-
-#### Scenario: Permission Arrives Before Completion
-- **WHEN** DSH asks for a permission decision during a pending prompt
-- **THEN** the qualified unattended policy answers without blocking the protocol reader
-- **AND THEN** native hard-deny rules remain enforceable
-
-#### Scenario: An Update Belongs to Another Session
-- **WHEN** an ACP update identifies a session other than the one bound to the managed attempt
-- **THEN** it does not become output or handoff evidence for that attempt
+- **WHEN** the selected native session has an incompatible preset, is a subagent, or fails native workspace or continuity checks
+- **THEN** the attempt reports the failure without retrying against any other session
 
 ### Requirement: Prompt Dispatch and Completion Have Distinct Evidence
 
-A sent request SHALL NOT by itself establish native admission or completion. Confirmed handoff SHALL require bound native admission or turn evidence, or successful correlated prompt settlement. A prompt response SHALL produce a terminal result from its stop reason, and incomplete or failed work SHALL NOT be reported as successful completion.
+A sent request SHALL NOT by itself establish native admission or completion. Confirmed handoff SHALL require bound native admission or turn evidence, or successful correlated prompt settlement. A native `final` event SHALL produce a result from its reported reason after worker exit and stream closure are reconciled, and incomplete or failed work SHALL NOT be reported as successful completion.
 
 #### Scenario: Driver Starts Before Native Admission
 - **WHEN** the Houmao driver process starts but DSH fails initialization or prompt admission
 - **THEN** the request fails without a successful semantic-handoff claim
 
 #### Scenario: Provider Stops at an Output Limit
-- **WHEN** a prompt settles with a stop reason indicating a limit or other incomplete outcome
+- **WHEN** a native terminal event carries a reason indicating a limit or other incomplete outcome
 - **THEN** the managed result retains that reason and is not reported as normally completed
 
-### Requirement: DSH Interruption Uses Native Cancellation Before Forced Exit
+#### Scenario: Only a native session ID is available
 
-Interruption SHALL target the active attempt's native session through ACP cancellation while continuing to consume its response and updates. A bounded cancellation failure SHALL permit terminating and reaping that attempt's process tree. Cancellation acknowledgement alone SHALL NOT imply completed work or authorize a retry.
-
-#### Scenario: Native Cancellation Settles
-- **WHEN** an operator interrupts active DSH work and ACP returns a cancelled outcome
-- **THEN** the turn is finalized as interrupted and its partial output and usage remain available
-
-#### Scenario: Native Cancellation Stalls
-- **WHEN** cancellation fails to settle within its configured bound
-- **THEN** Houmao terminates only the captured attempt's process tree and records the fallback
-- **AND THEN** an unrelated or replacement process is not signalled
+- **WHEN** the worker emits a session ID but dies before any bound input or turn evidence
+- **THEN** the request preserves its actual dispatch uncertainty and does not claim a successful handoff
 
 ### Requirement: Turn Closure Preserves Native Persistence and Process Ownership
 
-Each headless turn SHALL close and flush its native session and reap its ACP process before relinquishing owned execution resources. Cleanup failure SHALL remain explicit. A controller timeout with execution still active SHALL preserve a pending attempt rather than falsely finalizing it or starting an overlapping process.
+Each headless turn SHALL close and flush its native session and reap its one-shot CLI process before relinquishing owned execution resources. Cleanup failure SHALL remain explicit. A controller timeout with execution still active SHALL preserve a pending attempt rather than falsely finalizing it or starting an overlapping process.
 
 #### Scenario: Prompt Completes Before Persistence Flush Fails
-- **WHEN** ACP reports a terminal prompt outcome but session closure cannot confirm its persistence flush
+- **WHEN** native events or the journal show a turn outcome but a persistence failure or abnormal process exit prevents verified closure
 - **THEN** the managed result exposes that failure separately from the observed native outcome
 - **AND THEN** a later attempt is not silently substituted for the failed closure
 
 #### Scenario: Controller Times Out During Active Execution
-- **WHEN** a controller stops waiting while the owned ACP attempt is still running
+- **WHEN** a controller stops waiting while the owned one-shot attempt is still running
 - **THEN** recovery retains that attempt's identity and active or uncertain posture until terminal evidence exists
 
 ### Requirement: DSH Operation Support Is Explicit
 
-DSH headless capability inspection SHALL identify supported creation, exact resume, prompting, cancellation, closure, native prompt, skills, accounting sources, common-plugin observation, and home refresh. Qualified skills/MCP discovery SHALL remain distinct from ACP wire reload. Unsupported load, transcript replay, deletion, fork, additional-workspace, raw-key, or ACP reload SHALL fail explicitly without emulation through ordinary chat.
+DSH headless capability inspection SHALL identify supported creation, exact resume, prompting, cancellation, closure, native prompt, skills, accounting sources, common-plugin observation, and home refresh. Skills and MCP discovery SHALL report only capabilities independently qualified for the native CLI. An input requiring ACP initialization or a wire request SHALL be refused before invocation. Unsupported load, transcript replay, deletion, fork, additional-workspace, raw-key, or ACP reload SHALL fail explicitly without emulation through ordinary chat.
 
 #### Scenario: Caller Requests Unsupported Session Fork
-- **WHEN** a caller requests a DSH operation that the qualified ACP implementation does not support
+- **WHEN** a caller requests a DSH operation that the qualified native CLI does not support
 - **THEN** Houmao reports that operation as unsupported without creating another native session
 
 #### Scenario: Profile Files Change During a Turn
@@ -96,8 +66,8 @@ DSH headless capability inspection SHALL identify supported creation, exact resu
 - **THEN** Houmao does not claim coordinated live activation merely because the files changed
 
 #### Scenario: Qualified Home Refresh Needs No ACP Request
-- **WHEN** an active DSH envelope has qualified next-invocation skills/MCP discovery and receives home refresh between workers
-- **THEN** refresh reports an automatic future-boundary result without creating an ACP process or sending an ACP reload request
+- **WHEN** an active DSH envelope has qualified next-invocation discovery for a requested resource and receives home refresh between workers
+- **THEN** refresh reports an automatic future-boundary result without starting a CLI worker or sending a provider request
 - **AND** it does not claim that a worker's live common state has already been inspected
 
 #### Scenario: Unsupported Native Reload Remains Explicit
@@ -107,7 +77,7 @@ DSH headless capability inspection SHALL identify supported creation, exact resu
 
 ### Requirement: DSH Turn Preparation Preserves Current Materialized Home Inputs
 
-Ordinary DSH ACP invocation SHALL consume current materialized native inputs, including skills/MCP, without regenerating profile, role, or persistent configuration from launch manifests. Per-attempt control and evidence SHALL remain private transient inputs. Native precedence SHALL remain explicit and launch/relaunch SHALL retain their separate materialization rules.
+Ordinary DSH CLI invocation SHALL consume current materialized native inputs, including independently qualified skills or MCP declarations, without regenerating profile, role, or persistent configuration from launch manifests. Per-attempt control and evidence SHALL remain private transient inputs. Native precedence SHALL remain explicit and launch/relaunch SHALL retain their separate materialization rules.
 
 #### Scenario: Native Configuration Was Edited Before the Next Turn
 - **WHEN** an operator edits the materialized DSH profile or supported MCP declarations and later submits an ordinary prompt after qualified automatic refresh
@@ -121,21 +91,61 @@ Ordinary DSH ACP invocation SHALL consume current materialized native inputs, in
 - **AND** they do not recompose a new system prompt from the edited launch profile
 
 #### Scenario: Required Materialized Input Was Removed
-- **WHEN** a caller removes a required materialized native input before the next ACP invocation
+- **WHEN** a caller removes a required materialized native input before the next CLI invocation
 - **THEN** native validation fails explicitly if that input is required
 - **AND** the invocation does not repair it by regenerating launch material or creating a different conversation
 
-### Requirement: DSH Automatic Home Discovery Preserves Native Continuity
+#### Scenario: A declaration requires ACP injection
 
-Qualified next-invocation skills/MCP discovery SHALL preserve exact native conversation, dispatch, credential-isolation, and usage contracts. Refresh SHALL neither replay input nor restart an active attempt. Common limitations SHALL remain explicit; unrelated pending native-special-plugin changes SHALL NOT invalidate confirmed common discovery.
+- **WHEN** the selected MCP input is available only through ACP initialization and no qualified CLI projection exists
+- **THEN** launch or turn preflight rejects that combination before provider invocation and identifies the declaration without exposing credentials
+
+### Requirement: DSH headless executes the native one-shot profile
+
+For each accepted headless prompt Houmao SHALL start exactly one qualified `dsh --profile headless --json` worker in the selected home and workspace, parse its newline-delimited JSON stdout, and preserve diagnostics separately. A malformed stream, unsupported build, or unexpected exit SHALL produce a bounded failure or uncertain outcome.
+
+#### Scenario: A new prompt starts
+
+- **WHEN** the verified headless owner admits input for a new conversation
+- **THEN** one native CLI worker starts and its session record binds the attempt to the reported native ID
+- **AND** a session record alone does not establish native prompt admission
+
+#### Scenario: Permission is revoked after worker startup
+
+- **WHEN** the attempt's caller or current owner permission ends between startup and the initial native `followup`
+- **THEN** the worker refuses the initial user input before the native inbox changes
+- **AND** the operation records the admitted request's actual failure or uncertainty without replay
+
+#### Scenario: A stream ends without settlement
+
+- **WHEN** the native worker emits partial events and exits without a recognized terminal outcome
+- **THEN** the owner preserves private artifacts and partial evidence and does not mark the turn complete
+
+### Requirement: Interruption targets the verified one-shot attempt
+
+Houmao SHALL interrupt and reap only the captured process tree of the active one-shot attempt. The owner SHALL fence replacement processes and preserve partial native evidence. A signal or a controller timeout alone SHALL NOT count as provider-confirmed interruption or release an unresolved slot.
+
+#### Scenario: Native CLI worker is still active
+
+- **WHEN** an operator targets the current attempt for interruption
+- **THEN** the owner verifies its identity, applies bounded process interruption, and records native or owner-observed termination and its evidence source
+
+#### Scenario: A stale interrupt arrives
+
+- **WHEN** the requested attempt has exited and the next attempt owns the slot
+- **THEN** the interrupt leaves the replacement worker untouched
+
+### Requirement: DSH CLI home discovery preserves exact one-shot continuity
+
+CLI-qualified next-invocation discovery for skills or MCP SHALL preserve exact native conversation, dispatch, credential-isolation, and usage contracts. Refresh SHALL neither replay input nor restart an active attempt. Common limitations SHALL remain explicit; unrelated pending native-special-plugin changes SHALL NOT invalidate confirmed common discovery.
 
 #### Scenario: Skills Are Added Updated and Removed Between Workers
 - **WHEN** a caller adds, edits, or removes skills in one DSH native home and requests qualified automatic refresh
 - **THEN** the next ordinary invocation discovers that home's current skill state in the same selected conversation
 - **AND** the refresh itself launches no worker and changes no other agent's home
 
-#### Scenario: Current ACP Attempt Is Still Running
-- **WHEN** home refresh is requested while an ACP attempt is active
+#### Scenario: Current CLI Attempt Is Still Running
+- **WHEN** home refresh is requested while a one-shot CLI attempt is active
 - **THEN** a qualified automatic result refers only to its later native boundary, or an unsupported live action is refused explicitly
 - **AND** the active attempt is not interrupted, restarted, replayed, or replaced
 
@@ -144,11 +154,11 @@ Qualified next-invocation skills/MCP discovery SHALL preserve exact native conve
 - **THEN** those controls retain their documented temporary precedence without rewriting persistent home files
 - **AND** exact continuation, dispatch fencing, and accounting remain bound to the original managed authority
 
-### Requirement: DSH Headless Observation Does Not Fabricate Live Freshness
+### Requirement: DSH CLI headless observation reports verified freshness
 
 DSH headless observation SHALL identify common coverage, evidence, and native boundaries independently of Houmao update receipts. Between workers it SHALL report qualified future behavior and unavailable live evidence explicitly. Automatic native updates SHALL be accepted, while unknown coverage SHALL NOT justify an already-current no-op.
 
-#### Scenario: No ACP Worker Is Live
+#### Scenario: No CLI Worker Is Live
 - **WHEN** a valid headless envelope is inspected between invocations
 - **THEN** the result distinguishes current-input evidence from qualified next-turn discovery and unavailable live-worker observations
 - **AND** no worker is started to manufacture evidence
@@ -163,22 +173,22 @@ DSH headless observation SHALL identify common coverage, evidence, and native bo
 - **AND** it does not infer current common state merely from the edited file's presence
 
 #### Scenario: A Read Would Require Forced Native Work
-- **WHEN** complete freshness would require starting ACP or issuing a mutating refresh request
+- **WHEN** complete freshness would require starting a new CLI invocation or issuing a mutating refresh request
 - **THEN** the read-only observation preserves the evidence limitation instead of performing that work
 
-### Requirement: DSH Headless Failures Surface Secret-Redacted Provider Diagnostics
+### Requirement: DSH CLI failures expose bounded redacted native diagnostics
 
-When a managed DSH ACP request returns a JSON-RPC error or an ACP worker fails before completing initialization or prompt settlement, Houmao SHALL include a bounded, secret-redacted diagnostic summary of the remote error message or worker failure output in the surfaced execution error while preserving full raw diagnostics only in user-private turn artifacts. Resolved secret environment values and bearer or API-key tokens SHALL never appear in surfaced error text.
+When a managed DSH CLI emits a native error or its worker fails during startup, execution, or closure, Houmao SHALL include a bounded, secret-redacted diagnostic summary of the remote error message or worker failure output in the surfaced execution error while preserving full raw diagnostics only in user-private turn artifacts. Resolved secret environment values and bearer or API-key tokens SHALL never appear in surfaced error text.
 
 #### Scenario: Upstream HTTP Rejection Surfaces Redacted Detail
-- **WHEN** an upstream model endpoint rejects a DSH ACP turn with an HTTP or provider validation message carried inside a JSON-RPC error response
-- **THEN** the failed turn reports both the JSON-RPC error code and the sanitized error message across CLI stderr and gateway turn status
-- **AND THEN** operators are not left with a bare `ACP request failed (-32603)` string
+- **WHEN** an upstream model endpoint rejects a DSH CLI turn with an HTTP or provider validation message in its native error or diagnostics
+- **THEN** the failed turn reports the available native status and sanitized error message across CLI stderr and gateway turn status
+- **AND THEN** the managed diagnostic preserves the available provider cause
 
-#### Scenario: Secret Values Are Redacted From Surfaced ACP Errors
-- **WHEN** a JSON-RPC error payload or worker stderr output contains a resolved API key value or bearer token from the DSH private environment
+#### Scenario: Secret Values Are Redacted From Surfaced CLI Errors
+- **WHEN** a CLI error event or worker stderr output contains a resolved API key value or bearer token from the DSH private environment
 - **THEN** Houmao replaces the secret value with `[REDACTED]` before surfacing the diagnostic in exceptions, gateway responses, or console logs
 
 #### Scenario: Worker Startup Crash Surfaces Sanitized Stderr Summary
-- **WHEN** the DSH ACP worker exits or closes stdout before answering initialization due to a configuration or plugin error written to stderr
+- **WHEN** the DSH CLI worker exits or closes stdout before producing a terminal result due to a configuration or plugin error written to stderr
 - **THEN** the surfaced protocol failure includes a bounded, secret-redacted summary of the worker stderr output alongside the failure status

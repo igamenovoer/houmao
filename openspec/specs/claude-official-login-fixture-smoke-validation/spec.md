@@ -20,7 +20,7 @@ The optional Claude vendor-login smoke SHALL select an imported bundle in the ex
 
 ### Requirement: Repository provides a reproducible `official-login` Claude smoke launch flow
 
-The smoke SHALL create a fresh external private workdir/project overlay, seed the `server-api-smoke` role, import the selected local vendor bundle through maintained credential behavior, and create a temporary specialist. It SHALL launch through `houmao-mgr project agents launch --headless` with unattended posture and use scoped agent stop/cleanup. It SHALL preserve native routing and require no state template.
+The smoke SHALL create a fresh external private workdir/project overlay, seed the `server-api-smoke` role, import the selected local vendor bundle through maintained credential behavior, and create a temporary specialist. It SHALL launch through `houmao-mgr project agents launch --mode headless` with unattended posture and use scoped agent stop/cleanup. It SHALL preserve native routing and require no state template.
 
 #### Scenario: Smoke flow launches from a fresh temp workdir with a temporary project overlay
 - **WHEN** a maintainer runs the vendor-login smoke with a selected imported bundle

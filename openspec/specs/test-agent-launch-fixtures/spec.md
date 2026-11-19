@@ -155,7 +155,7 @@ Raw client qualification and managed test-agent creation SHALL consume the same 
 
 ### Requirement: Automated test launches default to unattended posture
 
-Headless and TUI fixture launches SHALL request unattended posture by default. Client-specific invocation SHALL use qualified flags and bootstrap configuration for the installed version. The helper SHALL preserve the distinction between headless prompt mode and TUI permission flags.
+Every supported fixture run mode SHALL request unattended posture by default. Client-specific invocation SHALL use qualified flags and bootstrap configuration for the installed version. The helper SHALL preserve the distinction between the chosen entrypoint, its supported native controls, and the independent operator prompt policy.
 
 #### Scenario: Kimi prompt mode is selected
 - **WHEN** a Kimi headless launch uses its noninteractive prompt mode
@@ -165,34 +165,9 @@ Headless and TUI fixture launches SHALL request unattended posture by default. C
 - **WHEN** the installed client cannot satisfy the selected unattended launch contract
 - **THEN** qualification reports that limitation rather than recording an interactive stall as a passing run
 
-### Requirement: Fixture qualification records actual evidence and limitations
-
-Qualification SHALL record actual client version/build, model, protocol, case, native surface, and outcome without credentials. DeepSeek SHALL be exercised for every supported client/mode pair, including DSH ACP headless and interactive Web. The three terminal clients retain their headless and TUI lanes. Self-hosted live qualification SHALL use an explicitly configured model other than Qwen3.8 when available; unavailable prerequisites SHALL be reported without a success claim.
-
-#### Scenario: Self-hosted endpoint is not configured
-- **WHEN** live qualification has no configured compatible self-hosted endpoint/model
-- **THEN** its report marks those live lanes as not run with the missing prerequisite
-- **AND THEN** passing hermetic tests do not become a live qualification claim
-
-#### Scenario: Historical capture records Qwen usage
-- **WHEN** an existing sanitized accounting fixture records an earlier Qwen capture
-- **THEN** it retains its factual model/version metadata
-- **AND THEN** maintained launch helpers do not depend on the historical change-local wrapper
-
-#### Scenario: DSH Headless Qualification Does Not Imply Interactive Support
-- **WHEN** a DSH ACP cloud smoke passes
-- **THEN** its report records headless ACP as the qualified control surface
-- **AND THEN** Claude, Codex, and Kimi retain their required headless and unattended TUI lanes
-
-#### Scenario: DSH TUI Qualification Uses the Native Web Surface
-- **WHEN** a DSH fixture selects `mode=tui`
-- **THEN** qualification launches its Web Host and records Web API and browser evidence
-- **AND THEN** a tmux log capture or passing ACP run does not qualify the interactive lane
-
-
 ### Requirement: Automated fixture tests use synthetic credentials
 
-Unit and integration coverage SHALL exercise both cases, all three clients, credential discovery/import, and headless/TUI preparation with synthetic credentials and controlled endpoints/processes. Default automated tests SHALL NOT require the developer's env file, saved vendor login, or cloud access.
+Unit and integration coverage SHALL exercise both cases, the qualified tool/mode matrix, credential discovery/import, and mode-specific preparation with synthetic credentials and controlled endpoints/processes. Default automated tests SHALL NOT require the developer's env file, saved vendor login, or cloud access.
 
 #### Scenario: CI runs without local accounts
 - **WHEN** automated fixture tests execute on a machine without live credentials
@@ -200,11 +175,11 @@ Unit and integration coverage SHALL exercise both cases, all three clients, cred
 
 ### Requirement: DSH Headless Fixtures Reuse Generic Local Configuration
 
-The fixture helper SHALL prepare raw and managed DSH ACP launches for `self-hosted` and `cloud-api` using resolved `tool_params`, explicit model and compatibility metadata, and private isolated homes. Cloud preparation SHALL use local key and endpoint references without auth JSON. Explicit endpoint-only `pi-ai/openai-completions` fixtures SHALL use the native authorization placeholder. Unsupported DSH modes and native login SHALL fail explicitly before authenticated run state is created.
+The fixture helper SHALL prepare raw and managed one-shot DSH headless CLI launches for `self-hosted` and `cloud-api` using resolved `tool_params`, explicit model and compatibility metadata, and private isolated homes. Cloud preparation SHALL use local key and endpoint references without auth JSON. Explicit endpoint-only `pi-ai/openai-completions` fixtures SHALL use the native authorization placeholder. Unsupported DSH modes and native login SHALL fail explicitly before authenticated run state is created.
 
 #### Scenario: Fresh Host Uses DeepSeek Without a Local Model
 - **WHEN** a developer provides the cloud key, the selected Messages-compatible endpoint, and an explicit model through the local fixture configuration
-- **THEN** a DSH ACP test agent can be prepared without a deployed self-hosted model or saved vendor-login files
+- **THEN** a native DSH headless test agent can be prepared without a deployed self-hosted model or saved vendor-login files
 
 #### Scenario: Generic Self-Hosted Route Has No Explicit Capabilities
 - **WHEN** a self-hosted DSH route lacks model capacity or `reasoning_efforts` metadata required by its selected adapter
@@ -219,9 +194,14 @@ The fixture helper SHALL prepare raw and managed DSH ACP launches for `self-host
 - **THEN** fixture preparation emits `tool_params` with `api_key_env: null`, the configured `compat` mapping, and `reasoning_efforts`
 - **AND THEN** the launched fixture completes a prompt with the native placeholder and without an operator-supplied API key
 
+#### Scenario: Managed and raw fixtures select the same native profile
+
+- **WHEN** a developer qualifies the raw and managed headless fixtures with matching inputs
+- **THEN** both exercise `--profile headless --json` and exact native continuation through a new worker per prompt
+
 ### Requirement: DSH Web Fixtures Share the Existing Generic Endpoint Cases
 
-DSH `tui` fixture preparation SHALL reuse the `self-hosted` and `cloud-api` cases, `DshToolParams` compatibility and reasoning inputs, and private credential/run roots established for headless DSH. Raw and managed preparation SHALL expose the same native Web behavior. Browser startup and connection credentials SHALL remain controlled locally without entering tracked reports.
+DSH `web` fixture preparation SHALL reuse the `self-hosted` and `cloud-api` cases, `DshToolParams` compatibility and reasoning inputs, and private credential/run roots established for headless DSH. Raw and managed preparation SHALL expose the same native Web behavior. Browser startup and connection credentials SHALL remain controlled locally without entering tracked reports.
 
 #### Scenario: A Fresh Host Uses Cloud DSH Interactively
 - **WHEN** a developer configures only the selected DeepSeek key, endpoint, and model
@@ -233,7 +213,7 @@ DSH `tui` fixture preparation SHALL reuse the `self-hosted` and `cloud-api` case
 - **AND THEN** public fixture summaries contain only non-secret location and identity metadata
 
 #### Scenario: Self-Hosted Web Fixture Shares Tool-Params Compatibility Inputs
-- **WHEN** a developer prepares a `mode=tui` self-hosted `pi-ai/openai-completions` DSH fixture with explicit `compat` and `reasoning_efforts` settings
+- **WHEN** a developer prepares a `mode=web` self-hosted `pi-ai/openai-completions` DSH fixture with explicit `compat` and `reasoning_efforts` settings
 - **THEN** raw and managed Web preparations emit the same DSH `tool_params` compatibility, reasoning, and endpoint-only contract as headless DSH
 
 ### Requirement: DSH Web Qualification Exercises Mixed Control and Admission Races
@@ -255,3 +235,27 @@ Qualification SHALL exercise actual browser and API clients on the same native s
 #### Scenario: No Real Account Exists in CI
 - **WHEN** hermetic Web qualification runs without developer credentials
 - **THEN** browser/API coexistence and lifecycle behavior are tested using controlled endpoints without paid provider calls
+
+### Requirement: Fixture qualification records build and evidence for each native run mode
+
+Qualification SHALL record build, model, protocol, case, run mode, backend, native surface, and outcome without credentials. Live tests for the run-mode changes SHALL use the explicitly selected self-hosted Qwen 3.8 model and record missing prerequisites per client and mode. The fixture SHALL retain its supported DeepSeek configuration and validate that path with synthetic credentials in automated tests.
+
+#### Scenario: Self-hosted endpoint is not configured
+- **WHEN** live qualification has no configured compatible self-hosted endpoint/model
+- **THEN** its report marks those live lanes as not run with the missing prerequisite
+- **AND THEN** passing hermetic tests do not become a live qualification claim
+
+#### Scenario: Historical capture records Qwen usage
+- **WHEN** an existing sanitized accounting fixture records an earlier Qwen capture
+- **THEN** it retains its factual model/version metadata
+- **AND THEN** maintained launch helpers do not depend on the historical change-local wrapper
+
+#### Scenario: DSH Service Evidence Identifies Its Mode
+- **WHEN** a DSH ACP service smoke passes against the selected endpoint
+- **THEN** its report records service with the qualified ACP backend
+- **AND THEN** Claude, Codex, and Kimi retain their required headless and unattended TUI lanes
+
+#### Scenario: DSH Web Qualification Uses the Native Browser Surface
+- **WHEN** a DSH fixture selects `mode=web`
+- **THEN** qualification launches its Web Host and records Web API and browser evidence
+- **AND THEN** a tmux log capture or passing ACP run does not qualify the interactive lane

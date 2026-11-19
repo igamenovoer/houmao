@@ -9,14 +9,14 @@ Define how the passive server observes discovered tmux-backed agents, tracks the
 ### Requirement: Passive server creates and removes per-agent TUI observers based on the discovery index
 The passive server SHALL maintain a `TuiObservationService` that reconciles active observers against the current discovery index on each observation poll cycle.
 
-When a newly discovered agent appears in the index and declares a terminal native surface with a tmux-based terminal (`terminal.session_name` is present), the service SHALL create an `AgentTuiObserver` for that agent. When an agent disappears from the index, the service SHALL remove and clean up its observer.
+When a newly discovered agent appears in the index and declares `tui` mode and a terminal native surface with a tmux-based terminal (`terminal.session_name` is present), the service SHALL create an `AgentTuiObserver` for that agent. When an agent disappears from the index, the service SHALL remove and clean up its observer.
 
 The observation service SHALL start during server startup (after discovery) and stop during server shutdown.
 
 An interactive Web agent SHALL use structured native observation instead of an `AgentTuiObserver`, even when registry metadata includes its supervisory tmux session. Disappearance SHALL clean up that agent's Web observation independently of terminal observers.
 
 #### Scenario: Observer created when agent is discovered
-- **WHEN** the discovery index contains an agent with agent_id `abc123` and a live tmux session
+- **WHEN** the discovery index contains an `tui` agent with agent_id `abc123`, a terminal surface, and a live tmux session
 - **AND WHEN** no observer exists for `abc123`
 - **THEN** the observation service creates an `AgentTuiObserver` for `abc123`
 
@@ -34,6 +34,10 @@ An interactive Web agent SHALL use structured native observation instead of an `
 - **WHEN** discovery finds `dsh_web` with a Web native surface and a tmux supervisor
 - **THEN** the passive server selects native Web observation and creates no terminal TUI parser for that pane
 
+#### Scenario: A service has a supervisory tmux session
+
+- **WHEN** the passive server discovers a `service` agent with an owner pane
+- **THEN** it reads verified native service observation and never installs a TUI parser for the owner pane
 
 ### Requirement: Each agent observer polls the tmux pane and produces tracked state
 Each `AgentTuiObserver` SHALL execute a polling pipeline on each observation cycle that:
@@ -90,9 +94,9 @@ Each iteration SHALL:
 
 The compact endpoint SHALL NOT include `probe_snapshot` or `parsed_surface`.
 
-The endpoint SHALL return 404 if the agent is not found, 409 if ambiguous, and 503 if no observer exists for the agent (agent discovered but observation not yet initialized).
+The endpoint SHALL return 404 if the agent is not found, 409 if ambiguous, and 503 if its required observation source has not initialized.
 
-For an interactive Web agent, the endpoint SHALL return a Web-discriminated compact state with common identity, diagnostics, turn, and admission facts sourced from native observation. It SHALL NOT require a terminal observer or fabricate terminal signal fields. Missing or stale Web authority SHALL produce explicit unavailable semantics.
+For headless and service modes, the endpoint SHALL project native turn or connection evidence for the recorded mode and expose unavailable evidence explicitly. For an interactive Web agent, the endpoint SHALL return a Web-discriminated compact state with common identity, diagnostics, turn, and admission facts sourced from native observation. It SHALL NOT require a terminal observer or fabricate terminal signal fields. Missing or stale Web authority SHALL produce explicit unavailable semantics.
 
 #### Scenario: Compact state returned for observed agent
 - **WHEN** the agent `abc123` has an active observer with tracked state
@@ -110,10 +114,14 @@ For an interactive Web agent, the endpoint SHALL return a Web-discriminated comp
 - **WHEN** verified structured Web observation exists for the bound DSH session
 - **THEN** the compact state route returns native Web state without requiring a terminal observer
 
+#### Scenario: Idle service without a terminal observer
+
+- **WHEN** a service owner reports a verified idle session
+- **THEN** the compact response uses the service observation source and includes its actual admission state
 
 ### Requirement: Detailed agent state endpoint returns full observation
 
-`GET /houmao/agents/{agent_ref}/state/detail` SHALL add probe_snapshot(observed_at_utc,pane_id,pane_pid,captured_text_hash,captured_text_length,captured_text_excerpt,matched_process_names) and parsed_surface(parser_family,availability,business_state,input_mode,ui_context,etc.) to compact terminal state, using its 404/409/503 rules. Web agents SHALL use the managed-agent structured Web variant; supervisor output SHALL NOT synthesize terminal probe/parser fields.
+`GET /houmao/agents/{agent_ref}/state/detail` SHALL add probe_snapshot(observed_at_utc,pane_id,pane_pid,captured_text_hash,captured_text_length,captured_text_excerpt,matched_process_names) and parsed_surface(parser_family,availability,business_state,input_mode,ui_context,etc.) to compact terminal state, using its 404/409/503 rules. Headless, service, and Web agents SHALL use their respective managed-agent structured variants; supervisor output SHALL NOT synthesize terminal probe/parser fields.
 
 #### Scenario: Detail state includes probe and parsed surface
 - **WHEN** the agent has a fully parsed observation
@@ -128,6 +136,10 @@ For an interactive Web agent, the endpoint SHALL return a Web-discriminated comp
 - **THEN** the detail response identifies its Web surface and native execution state
 - **AND THEN** the supervisor's log excerpt is not represented as a parsed agent interface
 
+#### Scenario: Service owner loses its native connection
+
+- **WHEN** the owner remains discoverable after a service exits
+- **THEN** detail reports the unavailable connection and retains only attributable last-known evidence
 
 ### Requirement: Agent history endpoint returns recent transitions
 
@@ -144,7 +156,6 @@ For an interactive Web agent, the endpoint SHALL return a Web-discriminated comp
 #### Scenario: Human Web Input Changes Shared History
 - **WHEN** a human starts or interrupts work through the bound browser session
 - **THEN** Web observation history records the corresponding native transitions within its bounded retention
-
 
 ### Requirement: Observation poll interval is configurable
 `PassiveServerConfig` SHALL include an `observation_poll_interval_seconds` field with a default of 2.0 seconds and a minimum of 0.5 seconds.

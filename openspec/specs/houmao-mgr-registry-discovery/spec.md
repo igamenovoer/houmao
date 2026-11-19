@@ -43,9 +43,9 @@ The active discovery chain SHALL be:
 1. Look up `<agent_ref>` in the shared managed-agent registry's owner-local and execution-locator collections and reject conflicting or ambiguous matches
 2. For an execution locator, enter its saved route, verify the execution binding, and resolve the owner's lifecycle record before interpreting runtime paths or control endpoints
 3. Require the selected owner lifecycle record to be active for live prompt, stop, interrupt, state, and live subgroup commands unless the command explicitly supports stopped lifecycle records
-4. From an active owner lifecycle record, determine the backend type and control path inside that owner context
+4. From an active owner lifecycle record, determine the recorded run mode, backend and control path inside that owner context
 5. For `houmao_server_rest` backends: extract server URL from the manifest's backend state
-6. For owner-local tmux-backed backends, including `local_interactive`, `claude_headless`, `codex_headless`, `gemini_headless`, `dsh_acp`, and `dsh_web`: control directly via the owner-side `RuntimeSessionController`
+6. For owner-local managed agents, resolve the qualified mode/backend pair in the saved execution context and call the owner-side controller. Communication commands SHALL share admission with the gateway. Lifecycle commands SHALL remain available through the owner when the gateway is detached
 7. If no matching lifecycle record or execution locator exists, retain the external communication-only lookup and existing pair-server fallback; explicit `--port` continues to bypass registry lookup
 
 A matching execution locator whose owner is unreachable, unauthorized, stale, or incompatible SHALL report that outcome and SHALL NOT continue into caller-local or default-server fallback.
@@ -78,13 +78,23 @@ Stopped lifecycle records SHALL NOT be treated as active live targets for prompt
 - **WHEN** an operator runs `houmao-mgr agents prompt --agent-name reviewer --prompt "..."`
 - **AND WHEN** the shared registry record indicates an active local tmux-backed backend
 - **THEN** `houmao-mgr` loads the `RuntimeSessionController` from the manifest path in the registry record
-- **AND THEN** the prompt is submitted directly without contacting `houmao-server`
+- **AND THEN** the owner admits and dispatches the prompt using the same arbiter as the gateway without contacting a pair server
 
 #### Scenario: Unreachable executor does not fall through to a local namesake
 
 - **WHEN** the selector resolves to a known execution locator but its owner route cannot be reached
 - **THEN** the command reports owner unavailability for that agent and execution context
 - **AND THEN** it does not use the caller's tmux server, open the owner manifest locally, or contact the default pair server
+
+#### Scenario: A manager prompt loses the attached gateway during submission
+
+- **WHEN** the manager cannot determine whether the current gateway admitted the request
+- **THEN** the manager returns an uncertain result and does not dispatch the prompt through a second path
+
+#### Scenario: Owner is reachable while the gateway is unavailable
+
+- **WHEN** the manager resolves an active agent with a stopped gateway
+- **THEN** it can still stop or inspect the agent through the verified execution owner without launching another provider
 
 ### Requirement: `houmao-mgr agents list` aggregates from shared registry
 `houmao-mgr agents list` SHALL read active agents from the shared managed-agent registry as its primary data source.
@@ -415,5 +425,3 @@ Registry-backed listing SHALL include executor-managed agents using owner-observ
 - **WHEN** lifecycle-inclusive listing encounters an execution locator whose owner cannot be contacted
 - **THEN** output retains that known identity with unavailable or unverified status
 - **AND THEN** it does not claim stopped state, remove the locator, or report a caller-local namesake as that agent
-
-

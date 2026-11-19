@@ -562,7 +562,6 @@ When the gateway cannot safely classify the managed native surface, it SHALL pub
 - **THEN** status exposes its Web identity, native readiness, pending-input, and execution facts
 - **AND THEN** a healthy supervisory tmux pane cannot substitute for native Web readiness
 
-
 ### Requirement: The gateway serializes terminal-mutating work and applies admission policy
 The gateway SHALL accept structured local requests for gateway-managed work and SHALL apply gateway-owned admission policy before execution.
 
@@ -852,22 +851,23 @@ Detailed per-poll decision history SHALL remain available through that durable a
 - **AND THEN** the gateway does not need to expose additional last-decision summary fields on `GET /v1/mail-notifier/{channel}` in order to satisfy this requirement
 
 ### Requirement: Gateway execution adapters support REST-backed, local-headless, and server-managed targets
-The gateway SHALL execute accepted terminal-mutating request kinds through an explicit execution-adapter boundary selected from durable attach metadata and manifest-backed runtime authority.
+The gateway SHALL execute accepted terminal-mutating request kinds through an explicit execution-adapter boundary selected from durable attach metadata and manifest-backed runtime authority. The gateway SHALL bind managed work to the recorded run mode, current owner generation, and supported operations before dispatch. A supervisor pane or reachable listener alone SHALL NOT authorize a fallback adapter.
 
 In this change, the gateway execution layer SHALL support at minimum:
 
 - a direct REST-backed terminal adapter for the existing runtime-owned REST-backed sessions,
-- a local tmux-backed adapter for runtime-owned native headless sessions and runtime-owned `local_interactive` sessions outside `houmao-server`, and
-- a server-managed-agent adapter for managed-agent execution owned by `houmao-server`.
+- a local tmux-backed adapter for runtime-owned native headless and `local_interactive` sessions,
+- a structured native adapter for the existing `dsh_web` owner, and
+- a passive-server backing adapter for headless execution admitted by `houmao-passive-server`.
 
-For server-managed agents, the gateway SHALL submit prompt and interrupt work through the server-owned managed-agent API rather than locally resuming the session and bypassing server-owned turn or interrupt authority.
+For passive-server-owned headless agents, the gateway SHALL submit prompt and interrupt work through the admitted passive backing API so both surfaces preserve a single turn authority. Retained REST-backed sessions continue to use their saved authority.
 
 The gateway SHALL preserve the same durable queueing, serialization, and admission semantics regardless of which execution adapter is selected.
 
 #### Scenario: Gateway prompt for a server-managed headless agent flows through `houmao-server`
 - **WHEN** a live gateway executes an accepted `submit_prompt` request for a server-managed native headless agent
-- **THEN** the gateway delivers that work through the server-owned managed-agent API
-- **AND THEN** the gateway does not bypass server-owned headless turn authority by privately resuming the managed session itself
+- **THEN** the gateway delivers that work through the admitted passive backing API
+- **AND THEN** the gateway preserves the passive server's managed headless turn authority
 
 #### Scenario: Gateway prompt for a runtime-owned headless session uses the local tmux-backed adapter
 - **WHEN** a live gateway executes an accepted `submit_prompt` request for a runtime-owned native headless session outside `houmao-server`
@@ -888,6 +888,11 @@ The gateway SHALL preserve the same durable queueing, serialization, and admissi
 - **WHEN** a live gateway executes an accepted request for an existing runtime-owned REST-backed session
 - **THEN** the gateway may continue using the direct REST-backed execution adapter for that session
 - **AND THEN** adding local tmux-backed or server-managed adapters does not require the REST-backed path to change its public request semantics
+
+#### Scenario: Detached owner refuses stale control
+
+- **WHEN** a gateway holds an execution handle from before owner replacement
+- **THEN** the gateway rejects dispatch on that handle and resolves the current owner before accepting more work
 
 ### Requirement: Gateway-owned TUI history exposes bounded recent tracked snapshots
 For attached TUI-backed sessions whose gateway owns live tracking authority, `GET /v1/control/tui/history` SHALL return recent tracked snapshots from that gateway-owned tracking runtime rather than only coarse transition summaries.
@@ -1945,7 +1950,6 @@ For a Web interactive target, `ready_only` SHALL require native idle, unblocked,
 - **WHEN** a Web `always` request carries a stale execution incarnation
 - **THEN** it is refused without activating or targeting a replacement agent
 
-
 ### Requirement: Gateway prompt-control schema and CLI remove binary force behavior
 
 The direct prompt-control request schema SHALL advance to schema version 2, SHALL contain `admission_policy`, and SHALL NOT contain `force`. Success and structured-refusal payloads SHALL report `admission_policy` and SHALL NOT report a boolean `forced` field.
@@ -2242,16 +2246,21 @@ Gateway restart SHALL restore plugin selections and service resources without re
 
 ### Requirement: DSH ACP Agents Support Managed Gateway Operations
 
-Runtime-owned DSH ACP agents SHALL support gateway attach, detach, semantic prompt, interruption, status, canonical events, and shared usage access through the maintained headless contract. Readiness SHALL describe the resumable logical agent and active execution, without requiring a worker process between turns or inventing terminal-parser state.
+Runtime-owned DSH ACP agents SHALL support gateway attach, detach, semantic prompt, interruption, status, canonical events, and shared usage access through the persistent service owner. Readiness SHALL reflect the verified ACP connection, bound session, and active execution throughout the service lifetime.
 
 #### Scenario: Gateway Attaches Between DSH Turns
-- **WHEN** the managed DSH headless envelope is live and resumable with no active worker
+- **WHEN** the managed DSH service owner has an initialized ACP connection and an idle bound session
 - **THEN** gateway attach succeeds and exposes the agent's actual idle or unavailable posture
 
 #### Scenario: DSH Work Is Already Active
 - **WHEN** an ordinary plugin event arrives while DSH has an active managed turn
 - **THEN** the gateway returns an immediate retryable conflict
-- **AND THEN** no plugin payload enters a delayed queue or overlapping ACP process
+- **AND THEN** no plugin payload enters a delayed queue or overlapping ACP request
+
+#### Scenario: Gateway reattaches with the service down
+
+- **WHEN** the supervisor exists but its ACP connection was lost
+- **THEN** the gateway reports native control unavailable and does not start a replacement provider to answer a read
 
 ### Requirement: DSH Immediate Dispatch Is Fenced at Native Handoff
 
@@ -2272,7 +2281,7 @@ An immediate DSH event attempt SHALL bind its dispatch permission to the capture
 
 ### Requirement: DSH Mail and Plugin Integrations Reuse Core Admission
 
-Mail reminders, CCCC chat, explicit deferred-message consumption, and other plugins targeting a DSH headless agent SHALL use the existing owner-bound semantic dispatch and shared core admission. Adding DSH SHALL NOT create another mailbox identity, bypass delivery selection, or change existing periodic reminder semantics.
+Mail reminders, CCCC chat, explicit deferred-message consumption, and other plugins targeting a qualified DSH headless, service, or Web agent SHALL use the existing owner-bound semantic dispatch and shared core admission. Adding DSH SHALL NOT create another mailbox identity, bypass delivery selection, or change existing periodic reminder semantics.
 
 #### Scenario: An Eligible Mail Reminder Wakes a DSH Agent
 - **WHEN** an existing mailbox notifier finds eligible work while the DSH agent is ready
@@ -2282,6 +2291,11 @@ Mail reminders, CCCC chat, explicit deferred-message consumption, and other plug
 #### Scenario: A Plugin Calls the DSH Agent Through Its Owner
 - **WHEN** an enabled owner-bound plugin delivers an event to the DSH gateway
 - **THEN** existing plugin ownership, readiness, and execution-generation checks remain in force
+
+#### Scenario: A service is disconnected at dispatch
+
+- **WHEN** an ordinary reminder or plugin wake targets a DSH owner without a verified ACP connection
+- **THEN** core admission reports the unavailable target and does not enqueue a later native prompt
 
 ### Requirement: DSH Web Ordinary Events Use Native Immediate Admission
 

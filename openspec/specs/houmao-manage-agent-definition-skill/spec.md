@@ -245,40 +245,6 @@ It SHALL route those concerns to `houmao-credential-mgr`, `houmao-mailbox-mgr`, 
 - **THEN** the skill routes the request to `houmao-credential-mgr`
 - **AND THEN** it does not treat credential-bundle content mutation as specialist, recipe, or profile authoring
 
-### Requirement: `houmao-agent-definition` prefers TUI-supported launch posture when unspecified
-The packaged `houmao-agent-definition` skill SHALL instruct agents that omitted headless/TUI launch posture means "prefer TUI/local interactive when the selected tool or launch lane supports it."
-
-This default SHALL apply to skill guidance for specialist-backed project profile authoring, raw recipe-backed launch-profile authoring, create-agent-fast-forward profile preparation, and the specialist-scoped easy launch entry point.
-
-The skill SHALL NOT tell agents to add `--headless`, persist profile `--headless`, or report headless as a stored default unless the user explicitly asks for headless posture or the selected tool/lane is known to require headless.
-
-The skill SHALL keep prompt mode separate from launch posture: `--prompt-mode unattended` SHALL NOT imply `--headless`, and an unspecified headless/TUI posture SHALL remain TUI-preferred when supported even if prompt mode defaults to unattended.
-
-The skill SHALL identify Gemini easy launches as a known required-headless exception and SHALL preserve explicit stored headless posture when inspecting or launching from an existing profile.
-
-#### Scenario: Project profile creation omits headless by default
-- **WHEN** a user asks `houmao-agent-definition profiles` or `create-agent-fast-forward` to create a Codex or Claude project profile
-- **AND WHEN** the user does not request headless execution
-- **THEN** the skill guidance directs the agent to omit `--headless` from `project profile create`
-- **AND THEN** it treats the resulting profile as TUI/local-interactive preferred for later launch when supported
-
-#### Scenario: Launch dossier authoring omits headless by default
-- **WHEN** a user asks `houmao-agent-definition launch-dossiers` to add or update a recipe-backed launch profile
-- **AND WHEN** the user does not request headless execution
-- **THEN** the skill guidance directs the agent to omit `--headless`
-- **AND THEN** it does not infer headless from unattended prompt mode, gateway defaults, mailbox defaults, or model defaults
-
-#### Scenario: Fast-forward launch command stays TUI-preferred when supported
-- **WHEN** `create-agent-fast-forward` prepares a launchable project profile for a TUI-capable tool
-- **AND WHEN** the user does not request headless execution
-- **THEN** the workflow reports a launch command without `--headless`
-- **AND THEN** it reports that launch posture is TUI/local-interactive preferred when supported
-
-#### Scenario: Required-headless exception remains explicit
-- **WHEN** `houmao-agent-definition launch-agent` prepares a Gemini easy launch command
-- **THEN** the skill guidance may require `--headless`
-- **AND THEN** it describes that as a selected-tool requirement rather than the default for unspecified launch posture
-
 ### Requirement: `houmao-agent-definition` uses config drafts for supported config authoring flows
 The packaged `houmao-agent-definition` skill SHALL instruct agents to use `houmao-mgr internals config-drafts generate` before authoring supported project configuration documents for these skill subcommands:
 
@@ -340,50 +306,6 @@ The skill SHALL preserve required-input and conflict guardrails in prose before 
 - **WHEN** a user asks the skill to print or run a managed launch command
 - **THEN** the skill guidance shows a direct `houmao-mgr project agents launch ...` command in a fenced `bash` block
 - **AND THEN** omitted optional flags remain absent unless explicitly requested
-
-### Requirement: `houmao-agent-definition` supports Kimi specialists, profiles, and launch posture
-
-The packaged `houmao-agent-definition` skill SHALL describe Kimi as a supported tool for project specialist authoring, project profile authoring, create-agent-fast-forward preparation, and the limited launch-agent handoff.
-
-When guidance creates or edits Kimi specialists, examples and config-draft inputs SHALL use tool `kimi` rather than using another provider as a placeholder.
-
-When guidance creates or edits Kimi-backed project profiles, omitted headless/TUI launch posture SHALL mean TUI/local-interactive preferred when supported. Kimi launch examples SHALL omit `--headless` unless the user explicitly asks for headless posture or an existing profile already stores headless posture.
-
-The skill SHALL keep Gemini as the known required-headless exception for project easy launch. The skill SHALL NOT describe Kimi as required-headless on the project easy launch surface.
-
-The skill SHALL provide resolvable credential-reference links for Claude, Codex, Kimi, and Gemini credential selection guidance. Those links MAY point to local references within `houmao-agent-definition` or to packaged `houmao-credential-mgr` references, but installed skill content SHALL NOT contain broken relative links for credential references.
-
-#### Scenario: Kimi specialist authoring uses Kimi as the selected tool
-
-- **WHEN** a user asks `houmao-agent-definition specialists` to create a reusable Kimi specialist
-- **THEN** the guidance routes to `houmao-mgr project specialist create --tool kimi` or a `project.specialist` config draft with tool `kimi`
-- **AND THEN** it does not show a Kimi-named example whose tool field is Claude, Codex, or Gemini
-
-#### Scenario: Kimi profile authoring omits headless by default
-
-- **WHEN** a user asks `houmao-agent-definition profiles` or `create-agent-fast-forward` to create a Kimi-backed project profile
-- **AND WHEN** the user does not request headless execution
-- **THEN** the guidance omits `--headless`
-- **AND THEN** it describes the resulting launch posture as TUI/local-interactive preferred when supported
-
-#### Scenario: Kimi launch-agent guidance omits headless by default
-
-- **WHEN** a user asks `houmao-agent-definition launch-agent` to launch an existing Kimi specialist or Kimi-backed profile
-- **AND WHEN** no explicit headless posture is requested or stored
-- **THEN** the reported launch command omits `--headless`
-- **AND THEN** it does not claim that Kimi must launch headless on the project easy surface
-
-#### Scenario: Gemini remains the explicit required-headless exception
-
-- **WHEN** `houmao-agent-definition launch-agent` prepares a Gemini project easy launch command
-- **THEN** the guidance may require `--headless`
-- **AND THEN** it describes that requirement as Gemini-specific rather than applying it to Kimi
-
-#### Scenario: Credential reference links are resolvable
-
-- **WHEN** an installed `houmao-agent-definition` page links to credential reference material for Claude, Codex, Kimi, or Gemini
-- **THEN** the referenced Markdown file exists in the installed skill tree or is a valid packaged relative link
-- **AND THEN** the linked reference explains how to select or create credentials without directing the agent to hand-edit credential files
 
 ### Requirement: Agent-definition skill excludes Gemini
 The unified agent-definition skill SHALL contain no Gemini credential routing, specialist flags, profiles, recipes, or launch examples.
@@ -459,3 +381,41 @@ The packaged `houmao-shared-routines->houmao-agent-definition` skill SHALL tell 
 - **WHEN** the authoring route generates or refreshes workspace orientation
 - **THEN** it continues using maintained `houmao-mgr` commands for initialization, derivation, approval, materialization, and validation
 - **AND THEN** it does not claim that README generation is a `houmao-mgr` subcommand
+
+### Requirement: Definition guidance authors an explicit managed run mode
+
+The packaged definition guidance SHALL use the mode resolver for specialist/profile and raw dossier authoring, fast-forward preparation, and project launch. It SHALL preserve explicit profile defaults and omit an unspecified mode. Unattended policy, gateway attachment, and mailbox defaults SHALL remain independent of mode.
+
+#### Scenario: Profile preparation omits a mode
+
+- **WHEN** the operator prepares an unattended Codex or Claude profile or raw launch dossier without specifying a mode
+- **THEN** the instructions omit a mode override and describe the TUI project default
+
+#### Scenario: Fast-forward prepares a DSH profile
+
+- **WHEN** the operator asks for a launchable DSH profile with ordinary interactive defaults
+- **THEN** the instructions report the native Web default and a usable launch command
+
+#### Scenario: A specific mode is required
+
+- **WHEN** a caller requests a qualified service or a headless-only lane
+- **THEN** the workflow authors that explicit mode and explains an unavailable pair through the supported matrix
+
+### Requirement: Definition guidance uses Kimi's supported project modes
+
+Kimi specialist examples SHALL select `kimi` in project commands and config drafts. Profile and launch guidance SHALL preserve its ordinary TUI default and honor explicitly selected qualified modes. Credential references for supported tools SHALL resolve in the installed skill and route through the documented selection flow.
+
+#### Scenario: A caller authors a Kimi specialist
+
+- **WHEN** the packaged guidance shows a Kimi specialist or project draft
+- **THEN** the selected tool is Kimi and the later launch takes the saved or requested mode
+
+#### Scenario: An operator requests another Kimi mode
+
+- **WHEN** a Kimi profile selects an implemented service or Web mode
+- **THEN** the launch handoff preserves that mode and reports a limitation for an unsupported installed build
+
+#### Scenario: A credential link is shown
+
+- **WHEN** the installed guidance references Kimi or another maintained tool's credentials
+- **THEN** the referenced packaged location exists and documents the supported credential flow

@@ -1,0 +1,13 @@
+# Gateway, Passive State, and AG-UI Verification
+
+The Codex app-server uses the shared persistent-service gateway. Its attach metadata identifies `codex` and the `service` control kind. The gateway checks the current owner manifest before using the native connection, and its passive and signed projections omit a human control surface. Codex advertises usage based on verified native rollout evidence. The provider owns accounting registration for that evidence.
+
+`tests/unit/agents/realm_controller/test_service_gateway_contract.py` builds a current service manifest with its execution, supervisor, generation, and native thread identity. The test rejects invalid provider metadata and the retired gateway attach shape. It signs requests with an enrolled fixture admin key, checks HTTP 401 for unsigned state inspection and HTTP 409 for a busy owner, and confirms that unsupported new-chat selectors, model overrides, and raw terminal keys cannot dispatch. The active request route reports its native handle with no completion timestamp. The completed route returns the exact attributed assistant item. Connection loss preserves the same handle with `uncertain` and rejects a new prompt with HTTP 503.
+
+The passive contract tests verify that a stale native connection leaves an observable supervisor but withdraws input readiness. AG-UI emits activity while a Codex handle is active and uses a matching terminal owner snapshot for both the outcome and assistant text. The failed-turn and replacement-incarnation cases end with `RUN_ERROR`.
+
+The gateway, managed capability, AG-UI, and passive app-contract unit suites passed with 306 tests and one skip in a private tmux environment. The signed gateway and AG-UI rerun after the disconnect assertion passed in 20 cases. Scoped Ruff, strict mypy, and `git diff --check` passed.
+
+The older HTTP accounting fixtures constructed a gateway without the current plugin host and supplied no passive access policy. The fixtures now use runtime-owned manifests, the initialized gateway, and signed gateway and passive fixture clients. The original usage and replay assertions passed in all 15 `test_agent_usage_workflows.py` cases in 2.09 seconds.
+
+The live `self-hosted-codex-service-manager-3c886087d753` fixture used Codex CLI `0.169.0` and self-hosted `Qwen/Qwen3.8-27B-FP8` over Responses. Manager and signed gateway prompts, a scoped native interruption, and signed AG-UI run `codex-06-qualified-agui` stayed on thread `01a1f2c9-2cd0-70c2-b9a5-b4b235e68623` and incarnation `0f7be72155ed4c858bd5539930c6c9f6`. Signed gateway and passive usage reads retained the attributed requests. Explicit stop and exact relaunch created a new owner generation on the same thread. Fixture cleanup returned `stopped_owned_identity`.
