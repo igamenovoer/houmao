@@ -47,7 +47,7 @@ pixi run python "$FIXTURE" prepare \
   --case self-hosted --client dsh --mode headless --surface manager \
   --model Qwen/Qwen3.8-27B-FP8 --base-url http://127.0.0.1:14888/v1 \
   --context-window 262144 --max-output-tokens 8192 \
-  --dsh-reasoning '{"off":"none","low":"low","medium":"medium","high":"high"}' \
+  --dsh-reasoning '{"off":"none","low":"low","medium":"medium","xhigh":"xhigh"}' \
   --dsh-compat '{"supports_developer_role":false}' \
   --system-prompt-file tmp/houmao-30-iter2-rc3/inputs/iter2_dsh_system_prompt.txt \
   --run-root tmp/houmao-30-iter2-rc3/runs \
@@ -135,6 +135,10 @@ Gates are ordered. A failed gate blocks dependent arms but does not justify chan
 G0 passed for the H1 Qwen start, and DSH `tui` was rejected correctly during an R0 negative check. The checkout-`tmp` storage-policy fix was separately requested, implemented, and verified with 4,946 passing unit tests, full Ruff lint, strict mypy, and a strict documentation build. H1 completed P1–P4 with one native session, a different worker per prompt, correct file effects, finalized completed/interrupted usage, and clean teardown. Reasoning level 1 selected native `low`; provider reasoning and progress appeared in raw artifacts during execution, and a newly added skill loaded on the next invocation. `send-keys` and ACP-only MCP declarations failed explicitly. H1 is **Needs revision** because `turn events --detail detail` rejects whitespace-only assistant events with a `HoumaoHeadlessTurnEvent.message` validation error, and the supervisor pane showed no live output. R0 and all other arms stay pending. See the [preparation and P1 evidence](../evidences/2026-11-19-rc3-iteration2-g0-and-h1-preparation.md), [complete H1 evidence](../logs/2026-11-19-h1-rc3-headless-execution.md), and [storage-policy fix log](../logs/2026-11-19-checkout-tmp-storage-policy-fix.md).
 
 Separately, live H1 observation found that `houmao-mgr agents self state` and mailbox `status` were denied when they tried to acquire the shared-registry lock outside the DSH workspace sandbox. The operator approved a temporary experiment with DSH `additionalWritableRoots`. A local patch projected the run registry into the unattended sandbox profile; a fresh sandboxed run then executed `houmao-mgr agents self state` successfully. Focused tests, full unit tests (4,946 passed, 14 skipped), Ruff, and strict mypy passed. The operator directed that the product and test changes be reverted; no implementation remains. The proposed fix, privilege trade-offs, and verification evidence are recorded in [issue #86](https://github.com/igamenovoer/houmao/issues/86), with the campaign details in the [denial and experiment log](../logs/2026-11-19-h1-live-hello-and-registry-permission-denial.md).
+
+DSH Web was then launched on self-hosted Qwen. Authentication was confirmed as native DSH launch-token behavior, not a Houmao addition. The first Qwen reasoning mapping incorrectly sent `high`; the SGLang endpoint accepts `low`, `medium`, and `xhigh` and rejects `high`. The mapping was corrected to `xhigh`, and a rebuilt Web run verified `reasoningEffort: xhigh`, browser sign-in, native-session selection, and a completed `XHIGH-OK` prompt. See the [Web authentication and xhigh log](../logs/2026-11-19-dsh-web-auth-and-xhigh-mapping.md).
+
+The same Web flow was then exercised through the uv-installed package after reinstalling it from the checkout. Python 3.13 with Pydantic 2.13.4 completed the gateway, browser, native-session, and `UV-WEB-XHIGH-OK` checks. The tool failed during gateway startup under Python 3.12 even with the same Pydantic pin. See the [uv-installed Web test log](../logs/2026-11-20-uv-installed-dsh-web-test.md).
 
 ## Required Follow-On Outside This Iteration
 

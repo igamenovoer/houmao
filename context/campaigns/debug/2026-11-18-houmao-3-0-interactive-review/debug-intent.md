@@ -1,6 +1,6 @@
 # Debug Intent: Houmao 3.0 Interactive Feature Review
 
-Date: 2026-11-18. Updated: 2026-11-19. Status: [iteration 2](iterations/2026-11-19-plan-2-dsh-rc3-run-modes.md) G0 passed and H1 completed on self-hosted Qwen with disposition **Needs revision** because detailed manager event replay rejects whitespace-only provider text chunks; the owned agent stopped cleanly. [Iteration 1](iterations/2026-11-18-plan-1-dsh-basic-functionality.md) was partially executed on RC2 and is superseded for RC3. Campaign directory: `context/campaigns/debug/2026-11-18-houmao-3-0-interactive-review/`.
+Date: 2026-11-18. Updated: 2026-11-20. Status: [iteration 2](iterations/2026-11-19-plan-2-dsh-rc3-run-modes.md) G0 passed and H1 completed on self-hosted Qwen with disposition **Needs revision** because detailed manager event replay rejects whitespace-only provider text chunks; the owned agent stopped cleanly. [Iteration 1](iterations/2026-11-18-plan-1-dsh-basic-functionality.md) was partially executed on RC2 and is superseded for RC3. Campaign directory: `context/campaigns/debug/2026-11-18-houmao-3-0-interactive-review/`.
 
 ## Problem Statement
 
@@ -62,6 +62,19 @@ This campaign evaluates each feature area across two perspectives: the current R
 - **In scope**: Human-watched interactive walkthroughs executed via the maintained launch fixture and reusable campaign helpers in [scripts/explore/houmao-3-0-interactive-review/](../../../../scripts/explore/houmao-3-0-interactive-review/). Each iteration uses fresh release-specific roots. For RC3, all generated inputs and fixture runs are stored physically under the Git-ignored `tmp/houmao-30-iter2-rc3/` directory, including private `assets`, `home`, `workdir`, gateway access state, and `run.json`. An explicitly operator-approved support change permits purpose-specific checkout `tmp/` run roots in the fixture and gateway storage policies; other checkout locations remain rejected. Every run uses an explicit isolated `-L` or `-S` tmux server and exact attach details, with browser UIs, CCCC Web UI, Stalwart logs, gateway HTTP traffic, and CLI outputs as applicable. Every step pauses at human review checkpoints before advancing. Historical RC1/RC2 roots and manifests are evidence, not reusable RC3 runtime state.
 - **Read-only assets**: Production source code under `src/houmao/` and `packages/houmao-cccc/`, committed tests under `tests/`, OpenSpec specifications under `openspec/`, active user tmux sessions (`mao-1..4`, `rsi-1..4`) on the default server, and secret credential files remain untouched during diagnostic execution. The sole exception is the separately and explicitly operator-requested 2026-11-19 fixture/gateway checkout-`tmp` storage-policy fix with its focused tests and documentation.
 - **Out of scope**: Postponed Pi backend (`#75`), live Docker container execution (no Docker daemon or socket is present in this environment per [execution README](../../../../tests/integration/execution/README.md)), physical multi-host networking across separate machines, and direct product code edits during diagnostic runs.
+
+## Operator Watch Scripts
+
+Every agent launch in this campaign must deliver an executable attach script so the operator can watch the run without reconstructing registry, runtime, or manifest paths. Store it in the iteration scratch root as `tmp/<iteration-root>/attach-<run-label>.sh`, mark it executable and owner-only, and name its exact path in the iteration log.
+
+The script must resolve the tmux target through Houmao at execution time. It must not embed a session name, socket path, pane id, or window index:
+
+1. `houmao-mgr --print-json agents single --agent-id <id> state`, with run-scoped `HOUMAO_GLOBAL_REGISTRY_DIR`, `HOUMAO_GLOBAL_RUNTIME_DIR`, and `HOUMAO_PROJECT_OVERLAY_DIR`, yields `identity.manifest_path`.
+2. `houmao.agents.realm_controller.manifest.load_session_manifest()` validates the manifest.
+3. The script reads `tmux.session_name` and `tmux.socket_path`, falling back to the top-level `tmux_session_name` for the name.
+4. It clears `TMUX`, `TMUX_PANE`, and `TMUX_TMPDIR`, then attaches with `tmux -S <socket> attach-session -t <session>`.
+
+A relaunch creates a new session name, so regenerate the script from the new manifest instead of editing the old one. While the checkout is under active development, the script must call the uv-installed `houmao-mgr` and Python under `/home/huangzhe/.local/share/uv/tools/houmao/bin/`, not the Pixi checkout. The script is campaign scratch state under the Git-ignored `tmp/` tree, not product code.
 
 ## Success Criteria
 

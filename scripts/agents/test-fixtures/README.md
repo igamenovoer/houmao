@@ -103,7 +103,7 @@ pixi run python scripts/agents/test-fixtures/fixture.py prepare \
   --case self-hosted --client dsh --mode headless --surface raw \
   --model Qwen/Qwen3.8-27B-FP8 --base-url http://127.0.0.1:14888/v1 \
   --context-window 262144 --max-output-tokens 8192 \
-  --dsh-reasoning '{"off":"none","low":"low","medium":"medium","high":"high"}' \
+  --dsh-reasoning '{"off":"none","low":"low","medium":"medium","xhigh":"xhigh"}' \
   --dsh-compat '{"supports_developer_role":false}' \
   --executable /selected/qualified-runtime/node_modules/.bin/dsh
 ```
@@ -118,7 +118,7 @@ Use `--client dsh --mode service --surface manager` with the same model, endpoin
 
 Use `--client dsh --mode web` with `--surface raw` or `--surface manager`. The helper reports unavailable modes before creating a run. Use a qualified installed executable. [DSH preparation](../../../tools/dsh/README.md), [Web qualification scenarios](../../../docs/reference/run-phase/dsh-web-acceptance.md).
 
-Cloud configuration defaults to the native DeepSeek Messages adapter. Self-hosted configuration defaults to pi-ai `openai-completions`. Both require an exact model, context window, maximum output tokens, and declared reasoning support. Use `--dsh-reasoning false` for a model without reasoning or a JSON slot-to-wire map such as `'{"off":"none","low":"low","high":"high"}'` for supported efforts. Use `--dsh-compat '{"supports_developer_role":false}'` to set model compatibility on OpenAI Completions. Case descriptors can name environment references for capacities, reasoning, and compatibility. Use `--dsh-protocol` to select a protocol supported by the descriptor's adapter. DeepSeek Messages preserves a trailing `/v1` and appends it when absent. Supply the base URL before `/messages`.
+Cloud configuration defaults to the native DeepSeek Messages adapter. Self-hosted configuration defaults to pi-ai `openai-completions`. Both require an exact model, context window, maximum output tokens, and declared reasoning support. Use `--dsh-reasoning false` for a model without reasoning or a JSON slot-to-wire map such as `'{"off":"none","low":"low","xhigh":"xhigh"}'` for supported efforts. Use `--dsh-compat '{"supports_developer_role":false}'` to set model compatibility on OpenAI Completions. Case descriptors can name environment references for capacities, reasoning, and compatibility. Use `--dsh-protocol` to select a protocol supported by the descriptor's adapter. DeepSeek Messages preserves a trailing `/v1` and appends it when absent. Supply the base URL before `/messages`.
 
 ```bash
 pixi run python scripts/agents/test-fixtures/fixture.py check \

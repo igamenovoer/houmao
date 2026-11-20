@@ -57,6 +57,8 @@ pixi run python scripts/agents/test-fixtures/fixture.py check \
   --dsh-compat '{"supports_developer_role":false}'
 ```
 
+Correction after the Web-mode provider probe: this Qwen/SGLang endpoint supports `low`, `medium`, and `xhigh`, not `high`. The original preparation command above records the mapping used at the time; current fixture examples and the Iteration 2 plan use `xhigh`.
+
 Preparation used the same parameters plus:
 
 ```bash
