@@ -233,7 +233,7 @@ async def _wait_running(runtime: GatewayServiceRuntime) -> None:
 def test_plugin_private_access_precedes_lifecycle_and_uses_current_policy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A private route checks caller proof even while the instance is starting."""
+    """Plugin routes apply open and keyed admission before handling lifecycle."""
 
     runtime, observed, _ = _runtime(tmp_path, monkeypatch, hold_start=True)
     app = create_app(runtime=runtime)
@@ -241,19 +241,21 @@ def test_plugin_private_access_precedes_lifecycle_and_uses_current_policy(
     control_path = "/v1/plugins/one/control"
     with TestClient(app, base_url=runtime.owner_connect_url) as client:
         self_auth = self_fixture_auth(runtime)
-        assert client.get(ordinary_path).status_code == 401
+        assert client.get(ordinary_path).status_code == 503
         assert client.get(ordinary_path, auth=self_auth).status_code == 503
         assert client.post(control_path).status_code == 503
         assert client.portal is not None
         client.portal.call(observed[0].m_gate.set)
         client.portal.call(_wait_running, runtime)
         assert client.post(control_path).status_code == 200
+        assert client.get(ordinary_path).json() == {"instance": "one"}
         assert client.get(ordinary_path, auth=self_auth).json() == {"instance": "one"}
 
         key, signer = fixture_admin_key(tmp_path, "plugin-admin")
         enroll_fixture_admin(client, key, signer)
         admin_auth = FixtureProofAuth(signer, purpose="admin")
         assert client.post(control_path).status_code == 401
+        assert client.get(ordinary_path).status_code == 401
         assert client.post(control_path, auth=self_auth).status_code == 403
         assert client.post(control_path, auth=admin_auth).status_code == 200
         assert client.get(ordinary_path, auth=self_auth).status_code == 200

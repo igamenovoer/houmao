@@ -25,7 +25,7 @@ Detach and reattach the gateway when changing that selection or upgrading code. 
 
 Use `--instance NAME` when selecting a different instance. All routes are relative to `/v1/plugins/NAME`. The CLI requires `--gateway-url` and accepts verified HTTPS or numeric loopback HTTP. It selects the current managed self key for ordinary operations when invoked from a managed generation. An external caller supplies `--signer-binding PATH` with private client binding JSON containing the exact `base_url`, `owner` (agent and context IDs), `purpose`, `private_key_path`, and optional `ca_bundle_path`. The configured Actor credentials stay with the gateway worker.
 
-Binding, capabilities, members, chat, and deferred Mail require private access. Connection and credential controls use the admin rule. An empty list permits anonymous control, and a nonempty list requires verified admin proof. Plugin activation and worker delivery use the validated gateway deployment on either listener. [Gateway Access and Remote Deployment](operations/access.md)
+Binding, capabilities, members, chat, and deferred Mail use private access. Connection and credential controls use admin access. A valid empty roster admits anonymous callers to both classes. With enrolled keys, private calls use self or admin proof and controls use admin proof. Plugin activation and worker delivery use the validated gateway deployment on either listener. [Gateway Access and Remote Deployment](operations/access.md)
 
 ## Inspect Connection State
 

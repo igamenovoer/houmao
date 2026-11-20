@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 import json
 from pathlib import Path
 from unittest.mock import Mock
@@ -22,10 +23,14 @@ from houmao.agents.realm_controller.gateway_web_entry import (
     WebEntryBinding,
 )
 from houmao.gateway.access import (
+    CHALLENGE_HEADER,
+    SIGNATURE_HEADER,
+    GatewayChallengeRequest,
     GatewayGrant,
     GatewayRequestBinding,
     load_gateway_signer,
     sign_sshsig,
+    sshsig_header,
 )
 from houmao.gateway._web_login import WEB_LOGIN_NAMESPACE, WEB_LOGIN_PROOF_MAX_BYTES
 from houmao.gateway.deployment import GatewayDeployment
@@ -35,7 +40,6 @@ from tests.fixtures.gateway_access import (
     FixtureProofAuth,
     enroll_fixture_admin,
     fixture_admin_key,
-    self_fixture_auth,
 )
 from tests.unit.agents.realm_controller.test_gateway_access_http import _runtime
 
@@ -97,8 +101,8 @@ def _no_disclosure(response, *secrets: str) -> None:
         assert secret not in str(response.headers)
 
 
-def _ticket(client: TestClient, auth: FixtureProofAuth) -> str:
-    """Obtain one normal ticket using request-bound SSHSIG proof."""
+def _ticket(client: TestClient, auth: FixtureProofAuth | None = None) -> str:
+    """Obtain a normal ticket with open admission or request-bound SSHSIG proof."""
 
     response = client.post(WEB_TICKET_PATH, auth=auth)
     assert response.status_code == 200, response.text
@@ -142,21 +146,115 @@ def _claim(client: TestClient, login: dict[str, str], secret: str | None = None)
     )
 
 
-def test_direct_admin_admission_precedes_any_native_access(entry, tmp_path: Path) -> None:
-    """Open admin policy, self proof, and delegated authority grant no entry."""
+@pytest.mark.parametrize(
+    "location",
+    [_LOCATION, f"{_NATIVE}/sessions/session#token=synthetic-native-secret"],
+    ids=["dsh", "kimi"],
+)
+def test_bare_entry_redirects_anonymously(entry, location: str) -> None:
+    """Open Web entry passes the verified provider destination to the browser."""
+
+    _, app, native, read_binding = entry
+    native.return_value = location
+
+    response = _client(app).get(WEB_ENTER_PATH)
+
+    assert response.status_code == 302
+    assert response.headers["location"] == location
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.text == ""
+    native.assert_called_once_with(read_binding.return_value)
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "enrollment_status"),
+    [("GET", WEB_ENTER_PATH, 410), ("POST", WEB_TICKET_PATH, 403)],
+)
+@pytest.mark.parametrize("change", ["enrollment", "replacement"])
+def test_open_entry_rechecks_authority_after_native_lookup(
+    entry, tmp_path: Path, change: str, method: str, path: str, enrollment_status: int
+) -> None:
+    """A changed roster or native binding withdraws the open destination."""
+
+    _, app, native, read_binding = entry
+    client = _client(app)
+
+    def change_during_lookup(binding: WebEntryBinding) -> str:
+        """Update live state after the owner has selected the Web execution."""
+
+        if change == "enrollment":
+            _enroll(_client(app), tmp_path)
+        else:
+            identity = binding.execution.model_copy(update={"host_incarnation": "new"})
+            read_binding.return_value = replace(binding, execution=identity)
+        return _LOCATION
+
+    native.side_effect = change_during_lookup
+    response = client.request(method, path)
+    assert response.status_code == (enrollment_status if change == "enrollment" else 409)
+    _no_disclosure(response, "synthetic-native-secret")
+    native.assert_called_once()
+    if change == "enrollment":
+        page = client.get(WEB_ENTER_PATH)
+        assert page.status_code == 200 and "start-login" in page.text
+        native.assert_called_once()
+
+
+def test_missing_policy_denies_entry(entry, gateway_fixture_access: FixtureGatewayAccess) -> None:
+    """Loss of initialized state leaves both browser and ticket grants unavailable."""
+
+    _, app, native, _ = entry
+    client = _client(app)
+    ticket = _ticket(client)
+    next(gateway_fixture_access.private_root.glob("*/admin.json")).unlink()
+    for response in (
+        client.get(WEB_ENTER_PATH),
+        client.post(WEB_TICKET_PATH),
+        client.get(ticket),
+    ):
+        assert response.status_code == 503
+        assert response.json()["detail"]["error_code"] == "policy_unavailable"
+        _no_disclosure(response, "synthetic-native-secret", ticket)
+    native.assert_called_once()
+
+
+def test_direct_ticket_admission_precedes_any_native_access(entry, tmp_path: Path) -> None:
+    """Only an open unsigned request or a directly signed admin can issue a ticket."""
 
     runtime, app, native, _ = entry
     client = _client(app)
     denied = client.post(WEB_TICKET_PATH, content=b"untrusted-body")
+    assert denied.status_code == 422
+    _no_disclosure(denied, "untrusted-body")
+    denied = client.post(WEB_TICKET_PATH, headers={CHALLENGE_HEADER: "malformed"})
     assert denied.status_code == 401
     assert denied.json()["detail"]["purposes"] == ["admin"]
-    _no_disclosure(denied, "untrusted-body")
-    assert client.post(WEB_TICKET_PATH, auth=self_fixture_auth(runtime)).status_code == 403
+    _no_disclosure(denied, "malformed")
+    policy = runtime._require_access_policy()
+    challenge = policy.issue(
+        _ORIGIN,
+        GatewayChallengeRequest(
+            purpose="self",
+            request=GatewayRequestBinding.from_request("POST", WEB_TICKET_PATH, "", b""),
+        ),
+    )
+    signer = load_gateway_signer(policy.store.self_signer_path(challenge.target.incarnation))
+    self_proof = {
+        CHALLENGE_HEADER: challenge.challenge_id,
+        SIGNATURE_HEADER: sshsig_header(sign_sshsig(signer, challenge.signing_bytes())),
+    }
+    assert client.post(WEB_TICKET_PATH, headers=self_proof).status_code == 403
     for header in (RELAY_HEADER, BACKING_HEADER):
         assert client.post(WEB_TICKET_PATH, headers={header: "delegated"}).status_code == 403
+    assert client.post(WEB_TICKET_PATH, headers={"Forwarded": "proto=http"}).status_code == 403
     native.assert_not_called()
 
     key, _, auth = _enroll(client, tmp_path)
+    denied = client.post(WEB_TICKET_PATH)
+    assert denied.status_code == 401
+    assert denied.json()["detail"]["purposes"] == ["admin"]
+    _no_disclosure(denied, "synthetic-native-secret")
     access = runtime.m_access_runtime
     state = access.store.load()
     relay = issue_gateway_relay(
@@ -184,6 +282,47 @@ def test_direct_admin_admission_precedes_any_native_access(entry, tmp_path: Path
     native.assert_not_called()
     _ticket(client, auth)
     native.assert_called_once()
+
+
+def test_open_ticket_expires_in_one_minute_and_redeems_once(entry) -> None:
+    """Open issuance keeps the regular ticket shape and one-time exchange."""
+
+    _, app, native, _ = entry
+    client = _client(app)
+    before = datetime.now(UTC)
+    issued = client.post(WEB_TICKET_PATH)
+    after = datetime.now(UTC)
+
+    assert issued.status_code == 200
+    assert set(issued.json()) == {"url", "expires_at_utc"}
+    _no_disclosure(issued, "synthetic-native-secret")
+    expiry = datetime.fromisoformat(issued.json()["expires_at_utc"])
+    assert before + timedelta(seconds=60) <= expiry <= after + timedelta(seconds=60)
+    url = issued.json()["url"]
+    assert client.get(url).headers["location"] == _LOCATION
+    refused = client.get(url)
+    assert refused.status_code == 410
+    _no_disclosure(refused, "synthetic-native-secret", url)
+    assert native.call_count == 2
+
+
+@pytest.mark.parametrize("reopen", [False, True])
+def test_anonymous_ticket_rejects_a_changed_roster(entry, tmp_path: Path, reopen: bool) -> None:
+    """Anonymous tickets require the exact still-open revision at redemption."""
+
+    _, app, native, _ = entry
+    client = _client(app)
+    ticket = _ticket(client)
+    key, _, admin = _enroll(client, tmp_path)
+    if reopen:
+        assert client.delete(f"/v1/admin/keys/{key.key_id}", auth=admin).status_code == 204
+
+    response = client.get(ticket)
+    assert response.status_code == 410
+    _no_disclosure(response, "synthetic-native-secret", ticket)
+    native.assert_called_once()
+    if reopen:
+        assert client.get(_ticket(client)).status_code == 302
 
 
 @pytest.mark.parametrize("new_port", [43123, 43125])
@@ -252,14 +391,15 @@ def test_native_entry_ignores_prompt_admission_and_refuses_unavailable_targets(
     lifecycle.assert_not_called()
 
 
-def test_issued_ticket_rechecks_lifetime_after_io(entry, tmp_path, monkeypatch):
+@pytest.mark.parametrize("signed", [False, True])
+def test_issued_ticket_rechecks_lifetime_after_io(entry, tmp_path, monkeypatch, signed):
     """A response that finishes after the original deadline cannot redirect."""
 
     _, app, native, _ = entry
     clock = Mock(return_value=1000.0)
     monkeypatch.setattr(gateway_web_entry, "time", type("Clock", (), {"monotonic": clock}))
     client = _client(app)
-    _, _, auth = _enroll(client, tmp_path)
+    auth = _enroll(client, tmp_path)[2] if signed else None
     ticket = _ticket(client, auth)
 
     def expires_during_io(_):
@@ -311,6 +451,7 @@ def test_nonlocal_ingress_and_secret_failures_are_sanitized(entry, tmp_path, mon
     )
     for response in (
         client.get("https://example.test/v1/web/enter?ticket=advertised-secret"),
+        client.get(WEB_ENTER_PATH, headers={"X-Forwarded-Host": "fake-proxy"}),
         client.post("https://example.test" + WEB_TICKET_PATH, auth=auth),
         client.get(ticket, headers={"X-Forwarded-Host": "fake-proxy"}),
         client.get(ticket, headers={"Forwarded": "proto=http"}),
@@ -338,13 +479,13 @@ def test_interactive_login_binds_proof_and_tab_and_claims_once(entry, tmp_path):
 
     runtime, app, _, _ = entry
     client = _client(app)
+    _, path, _ = _enroll(client, tmp_path)
     page = client.get(WEB_ENTER_PATH)
     assert page.status_code == 200
     assert "start-login" in page.text
     assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
     assert "fixture-agent" in page.text
     _no_disclosure(page, "synthetic-native-secret")
-    _, path, _ = _enroll(client, tmp_path)
     _, outsider = fixture_admin_key(tmp_path, "outsider")
     login = _start(client)
     challenge = json.loads(base64.urlsafe_b64decode(login["challenge"] + "==="))

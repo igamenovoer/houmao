@@ -179,6 +179,8 @@ def test_login_page_escapes_identity_and_applies_nonce() -> None:
     assert '<p id="login-target">&lt;operator&gt;&amp;admin</p>' in page
     assert page.count('nonce="expected-nonce"') == 2
     assert 'id="command-section" hidden' in page
+    assert 'aria-describedby="key-path-help"' in page
+    assert "Surrounding whitespace is trimmed." in page
     assert "claim_secret" in page
     assert "localStorage" not in page and "sessionStorage" not in page
 
@@ -224,7 +226,7 @@ def test_approval_refuses_wrong_scope_target_self_and_oversized_batch(tmp_path: 
 def test_explicit_command_signs_with_literal_path_and_direct_curl(tmp_path: Path) -> None:
     """Quote whitespace, leading tilde, and shell metacharacters without interpretation."""
 
-    name = """~operator's `touch backtick` $(touch interpreted) "$HOME" """
+    name = """~operator's `touch backtick` $(touch interpreted) "$HOME" key"""
     policy = _policy(tmp_path, _keygen(tmp_path / name))
     environment = _fake_curl(tmp_path)
     command = _command(name)
@@ -248,7 +250,16 @@ def test_explicit_command_signs_with_literal_path_and_direct_curl(tmp_path: Path
     assert b"Select an enrolled key file" in refused.stderr
 
 
-def test_blank_path_submits_all_supported_agent_signatures(tmp_path: Path) -> None:
+def test_absolute_key_path_ignores_surrounding_whitespace() -> None:
+    """Classify the trimmed value as an absolute path and keep interior spaces."""
+
+    path = "/home/operator/key files/admin_ed25519"
+    command = _command(f"  {path}\t ")
+    assert f"-f '{path}'" in command
+
+
+@pytest.mark.parametrize("key_path", ["", " \t "])
+def test_blank_path_submits_all_supported_agent_signatures(tmp_path: Path, key_path: str) -> None:
     """Use an isolated SSH agent holding an unenrolled and an enrolled key."""
 
     _require("ssh-agent", "ssh-add")
@@ -257,7 +268,7 @@ def test_blank_path_submits_all_supported_agent_signatures(tmp_path: Path) -> No
     policy = _policy(tmp_path, _keygen(admin))
     _keygen(other)
     environment = _fake_curl(tmp_path)
-    command = _command("")
+    command = _command(key_path)
     with tempfile.TemporaryDirectory(prefix="houmao-web-login-") as socket_root:
         socket_path = Path(socket_root) / "agent"
         environment["SSH_AUTH_SOCK"] = str(socket_path)

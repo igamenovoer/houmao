@@ -213,8 +213,12 @@
           "type": "string"
         },
         "private_proof": {
-          "const": "self_or_admin",
           "default": "self_or_admin",
+          "enum": [
+            "none",
+            "self_or_admin",
+            "unavailable"
+          ],
           "title": "Private Proof",
           "type": "string"
         },

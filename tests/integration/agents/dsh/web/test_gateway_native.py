@@ -41,6 +41,8 @@ from tests.integration.agents.dsh.test_managed_acp import _launch_plan
 from tests.integration.agents.dsh.test_gateway_passive import bind_fixture_gateway_owner
 from tests.fixtures.gateway_access import (
     FixtureProofAuth,
+    enroll_fixture_admin,
+    fixture_admin_key,
     gateway_fixture_client,
     self_fixture_auth,
 )
@@ -302,6 +304,8 @@ def test_owned_web_exact_relaunch_atomically_hands_registry_and_gateway_to_new_g
     )
     try:
         client = TestClient(create_app(runtime=runtime), base_url=runtime.owner_connect_url)
+        admin_key, admin_signer = fixture_admin_key(tmp_path, "relaunch-admin")
+        enroll_fixture_admin(client, admin_key, admin_signer)
         stale_self = self_fixture_auth(runtime)
         assert client.get("/v1/status", auth=stale_self).status_code == 200
         original = dict(backend.state.web_identity)

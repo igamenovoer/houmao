@@ -1,4 +1,4 @@
-"""Exercise signed Web entry through the scoped manager command."""
+"""Exercise open and signed Web entry through the scoped manager command."""
 
 from __future__ import annotations
 
@@ -10,8 +10,12 @@ from click.testing import CliRunner
 import pytest
 
 from houmao.agents.realm_controller.errors import GatewayHttpError, SessionManifestError
-from houmao.agents.realm_controller.gateway_models import GatewayWebEntryTicketV1
-from houmao.gateway.access import GatewayClientBinding, GatewayOwner
+from houmao.agents.realm_controller.gateway_models import (
+    GATEWAY_PROTOCOL_VERSION,
+    GatewayWebEntryTicketV1,
+)
+from houmao.gateway.access import GatewayClientBinding, GatewayOwner, GatewayTarget
+from houmao.gateway.deployment import GatewayEndpointDescriptor
 from houmao.srv_ctrl.commands import managed_agents
 from houmao.srv_ctrl.commands.main import cli
 
@@ -44,14 +48,25 @@ def web_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespa
         execution_binding=SimpleNamespace(context_id=owner.context_id),
         runtime=SimpleNamespace(manifest_path=str(manifest_path)),
     )
+    descriptor = GatewayEndpointDescriptor(
+        protocol=GATEWAY_PROTOCOL_VERSION,
+        target=GatewayTarget(owner=owner, incarnation=_GENERATION),
+        presence_id="test-gateway-presence",
+        advertised_url=None,
+        admin_access="key_required",
+    )
     target = SimpleNamespace(
         record=record,
         binding=binding,
+        descriptor=descriptor,
+        retained_descriptor=descriptor,
         locator=None,
         client_settings=[],
         signer_calls=[],
+        describe_calls=0,
         issue_calls=0,
         detached=False,
+        descriptor_unavailable=False,
         proof_error=None,
     )
 
@@ -67,17 +82,31 @@ def web_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespa
         assert path == current_path
         if target.detached:
             raise SessionManifestError("Missing current gateway.")
-        return SimpleNamespace(port=43123)
+        return SimpleNamespace(
+            port=43123,
+            endpoint_descriptor=target.retained_descriptor,
+            protocol_version=GATEWAY_PROTOCOL_VERSION,
+        )
 
-    def select_signer(path: Path, *, port: int, private: bool) -> tuple[GatewayClientBinding, str]:
+    def select_signer(
+        path: Path, *, port: int, private: bool
+    ) -> tuple[GatewayClientBinding | None, str]:
         """Record signer selection and return the chosen retained binding."""
 
         assert path == manifest_path
         target.signer_calls.append((port, private))
         return target.binding, _GENERATION
 
+    def describe_endpoint() -> GatewayEndpointDescriptor:
+        """Return the fresh descriptor or report a failed probe."""
+
+        target.describe_calls += 1
+        if target.descriptor_unavailable:
+            raise GatewayHttpError(method="GET", url=_OWNER_URL, detail="descriptor-error")
+        return target.descriptor
+
     def fake_request() -> GatewayWebEntryTicketV1:
-        """Issue one ticket with the selected admin or report its refusal."""
+        """Issue one ticket using the selected authority or report a refusal."""
 
         target.issue_calls += 1
         if target.proof_error is not None:
@@ -87,10 +116,13 @@ def web_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespa
         return _TICKET
 
     def fake_client(**kwargs: object) -> SimpleNamespace:
-        """Capture the exact transport config for the only permitted HTTP client."""
+        """Capture the transport settings for the probe and ticket requests."""
 
         target.client_settings.append(kwargs)
-        return SimpleNamespace(issue_web_entry_ticket=fake_request)
+        return SimpleNamespace(
+            describe_endpoint=describe_endpoint,
+            issue_web_entry_ticket=fake_request,
+        )
 
     def unexpected(*args: object, **kwargs: object) -> None:
         """Detect any attempt to route or resume the agent for Web entry."""
@@ -115,8 +147,17 @@ def web_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespa
 
 
 @pytest.mark.parametrize("style", ["plain", "json"])
-def test_web_entry_outputs_ticket_only(web_target: SimpleNamespace, style: str) -> None:
-    """Show just the bearer and expiry using the explicit pinned admin signer."""
+@pytest.mark.parametrize("open_gateway", [False, True], ids=["keyed", "open"])
+def test_web_entry_outputs_ticket_only(
+    web_target: SimpleNamespace, style: str, open_gateway: bool
+) -> None:
+    """Choose authority from the live descriptor and show only the ticket result."""
+
+    if open_gateway:
+        web_target.descriptor = web_target.descriptor.model_copy(
+            update={"admin_access": "open", "private_proof": "none"}
+        )
+        web_target.binding = None
 
     result = CliRunner().invoke(cli, [f"--print-{style}", *_COMMAND])
     assert result.exit_code == 0, result.output
@@ -126,14 +167,13 @@ def test_web_entry_outputs_ticket_only(web_target: SimpleNamespace, style: str) 
         assert dict(line.split() for line in result.output.splitlines()) == _TICKET.model_dump(
             mode="json"
         )
-    assert web_target.signer_calls == [(43123, False)]
-    assert web_target.client_settings == [
-        {
-            "binding": web_target.binding,
-            "target_incarnation": _GENERATION,
-            "respect_proxy_env": False,
-        }
-    ]
+    probe = {"base_url": _OWNER_URL, "respect_proxy_env": False}
+    assert web_target.signer_calls == ([] if open_gateway else [(43123, False)])
+    expected = [probe]
+    if not open_gateway:
+        expected.append({**probe, "binding": web_target.binding, "target_incarnation": _GENERATION})
+    assert web_target.client_settings == expected
+    assert web_target.describe_calls == 1
     assert web_target.issue_calls == 1
 
 
@@ -146,6 +186,10 @@ def test_web_entry_outputs_ticket_only(web_target: SimpleNamespace, style: str) 
         ("pair-selection", "owner's execution context"),
         ("executor-selection", "owner's execution context"),
         ("nonlocal-record", "requires a local managed agent"),
+        ("descriptor-unavailable", "could not verify the live owner-local gateway"),
+        ("policy-unavailable", "access policy is unavailable or unsupported"),
+        ("legacy-open", "access policy is unavailable or unsupported"),
+        ("missing-retained", "managed Web execution changed"),
     ],
 )
 def test_web_entry_refuses_unsupported_selection_without_fallback(
@@ -166,22 +210,79 @@ def test_web_entry_refuses_unsupported_selection_without_fallback(
         web_target.locator = object()
     elif state == "nonlocal-record":
         web_target.record = None
+    elif state == "descriptor-unavailable":
+        web_target.descriptor_unavailable = True
+    elif state == "policy-unavailable":
+        web_target.descriptor = web_target.descriptor.model_copy(
+            update={"admin_access": "unavailable", "private_proof": "unavailable"}
+        )
+    elif state == "legacy-open":
+        web_target.descriptor = web_target.descriptor.model_copy(update={"admin_access": "open"})
+    elif state == "missing-retained":
+        web_target.retained_descriptor = None
 
     result = CliRunner().invoke(cli, args)
     assert result.exit_code == 1, result.output
     assert expected in result.output
-    assert web_target.client_settings == []
+    needs_probe = state in {
+        "missing-signer",
+        "descriptor-unavailable",
+        "policy-unavailable",
+        "legacy-open",
+    }
+    assert web_target.describe_calls == int(needs_probe)
     assert web_target.issue_calls == 0
 
 
-def test_web_entry_reports_proof_refusal_without_retry(web_target: SimpleNamespace) -> None:
-    """Expose the fixed client error without a second or unsigned request."""
+@pytest.mark.parametrize("field", ["agent_id", "context_id", "incarnation", "presence_id"])
+def test_web_entry_refuses_mismatched_live_identity(
+    web_target: SimpleNamespace, field: str
+) -> None:
+    """Refuse to select a signer or request a link against a replacement gateway."""
 
-    web_target.proof_error = "Gateway proof was refused. Select a currently enrolled admin signer."
+    descriptor = web_target.descriptor
+    target = descriptor.target
+    if field == "presence_id":
+        descriptor = descriptor.model_copy(update={field: "different-gateway"})
+    elif field == "incarnation":
+        target = target.model_copy(update={field: "different-generation"})
+    else:
+        target = target.model_copy(
+            update={"owner": target.owner.model_copy(update={field: "other"})}
+        )
+    web_target.descriptor = descriptor.model_copy(update={"target": target})
+
+    result = CliRunner().invoke(cli, _COMMAND)
+    assert result.exit_code == 1, result.output
+    assert "managed Web execution changed" in result.output
+    assert web_target.describe_calls == 1
+    assert web_target.signer_calls == []
+    assert web_target.issue_calls == 0
+
+
+@pytest.mark.parametrize("open_gateway", [False, True], ids=["keyed", "open"])
+def test_web_entry_reports_proof_refusal_without_retry(
+    web_target: SimpleNamespace, open_gateway: bool
+) -> None:
+    """Report an admission refusal and finish the attempt after one POST."""
+
+    if open_gateway:
+        web_target.descriptor = web_target.descriptor.model_copy(
+            update={"admin_access": "open", "private_proof": "none"}
+        )
+        web_target.proof_error = (
+            "Gateway refused unsigned Web entry. Check its current access policy."
+        )
+    else:
+        web_target.proof_error = (
+            "Gateway proof was refused. Select a currently enrolled admin signer."
+        )
     result = CliRunner().invoke(cli, _COMMAND)
     assert result.exit_code == 1, result.output
     assert web_target.proof_error in result.output
     assert web_target.issue_calls == 1
+    assert web_target.describe_calls == 1
+    assert web_target.signer_calls == ([] if open_gateway else [(43123, False)])
     assert web_target.binding.private_key_path not in result.output
 
 
@@ -192,6 +293,7 @@ def test_web_entry_help_is_scoped_and_calls_out_bearer_handling() -> None:
     help_result = runner.invoke(cli, [*_COMMAND, "--help"])
     assert help_result.exit_code == 0
     assert "bearer secret" in help_result.output
+    assert "unsigned requests" in help_result.output
     self_result = runner.invoke(cli, ["agents", "self", "gateway", "--help"])
     assert self_result.exit_code == 0
     assert "web-entry" not in self_result.output

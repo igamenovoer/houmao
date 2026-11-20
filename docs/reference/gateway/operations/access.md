@@ -1,13 +1,13 @@
 # Gateway Access and Remote Deployment
 
-The gateway applies the same access rules on loopback and all-interface listeners. A new managed launch without an admin seed initializes a valid empty list. **Anyone who can reach a gateway with an empty admin list can invoke admin operations**, including interrupt and raw input. Keep that listener within the intended access boundary while enrolling the first key, or preload one or more admin keys before publishing it.
+The gateway applies the same access rules on loopback and all-interface listeners. A new managed launch without an admin seed initializes a valid empty list. **Anyone who can reach a gateway with a valid empty admin list can use its enabled private and admin operations.** This includes memory, mail, interrupt, and raw input. Enroll or seed an admin key before exposing an upgraded gateway whose callers should need proof.
 
 | Access | Admission | Operations |
 | --- | --- | --- |
 | Public | Anyone who can reach the listener, subject to operation enablement | Health, endpoint descriptor, challenge issuance, notifications, and public prompts |
-| Private | Current managed self or a listed admin with verified proof | Detailed status, usage, memory, routine mail, plugin inventory, and declared private plugin routes |
+| Private | Anonymous admission with an empty list, current managed self or listed admin proof with a nonempty list | Detailed status, usage, memory, routine mail, plugin inventory, and declared private plugin routes |
 | Admin | Anonymous admission with an empty list, listed admin proof with a nonempty list | Direct and queued controls, reminders, notifier controls, native inspection and refresh, mailbox binding and operator post, AG-UI, and plugin controls |
-| Web entry | Direct enrolled admin proof or a one-time Web entry ticket, depending on the request | Browser handoff to the live managed Web agent |
+| Web entry | Direct anonymous entry with an empty list, enrolled admin approval with a nonempty list, or a current one-time ticket | Browser handoff to the live managed Web agent |
 
 First-key registration always requires proof of the proposed key. An invalid or unavailable retained policy prevents protected access. The gateway returns HTTP 401 with `WWW-Authenticate: Houmao-SSHSIG` and an applicable challenge path for missing or invalid proof, HTTP 403 when valid proof lacks authority, and HTTP 503 when required policy is unavailable. A failed proof ends the attempt. Gateway access diagnostics can report the target, operation, outcome, and verified principal or anonymous origin. Service identities such as the mailbox sender or plugin Actor remain bound to their configured owner.
 
@@ -41,7 +41,7 @@ houmao-mgr agents single --agent-name writer gateway attach --access-config "$ac
 - The owner-local connection uses `http://127.0.0.1:<resolved-port>` even if the bind is wildcard. An owner-loopback URL from another execution context belongs to that context.
 - The advertised base URL is the client endpoint. Configure the proxy to strip its prefix once, preserve the original `Host`, set `X-Forwarded-Proto: https` on the trusted backend leg, and preserve the method, raw query, and request bytes. Protect that leg with owner loopback or a verified deployment boundary. Publish the per-agent gateway through the proxy and keep global passive administration isolated.
 
-The endpoint descriptor at `GET /v1/endpoint` gives the advertised URL, target, live presence, current access requirements, and enabled public operations. Registry metadata can lag membership changes. Live admission always reads retained authority. Detach removes live endpoint publication and preserves the roster. Detach before reattaching with changed deployment settings.
+The endpoint descriptor at `GET /v1/endpoint` gives the advertised URL, target, live presence, current access requirements, and enabled public operations. Its `private_proof` value is `none` in open mode, `self_or_admin` in keyed mode, and `unavailable` when required policy cannot be read. Registry metadata provides a locator and can lag membership changes. Live admission reads retained authority. Detach removes live endpoint publication and preserves the roster. Detach before reattaching with changed deployment settings.
 
 Remote clients verify HTTPS through platform certificate trust or a deployment CA bundle provisioned independently of the endpoint. Clients can also select an exact numeric loopback HTTP URL for a configured encrypted tunnel. Gateway clients refuse redirects and retain the selected URL prefix. If endpoint or target identity changes, explicitly select a new binding. For owner-local admin commands, an optional `admin_signer_path` in the private access configuration selects an absolute private key path. The signer must belong to a current admin when keys are required.
 
@@ -80,22 +80,22 @@ status = admin.status()
 
 The client requests a challenge from `POST /v1/auth/challenge`, checks the issuer, target, purpose, key, and exact operation, and signs the canonical challenge in the Houmao SSHSIG namespace. The operation carries the challenge ID in `Houmao-Challenge` and the encoded SSHSIG in `Houmao-Signature`. Challenges expire, authorize only the exact method, path, query, and body digest, and can be consumed once. Keep proof in headers and out of URLs and logs. The gateway verifies standard SSHSIG in process.
 
-Use an already listed key to add another with `admin.add_admin_key(other_key)`. After verifying the new signer, use `admin.remove_admin_key(key_id)` from a current admin to revoke the old enrollment. If two callers compete to register the first key, only the first successful commit changes the roster. **Removing the final key immediately reopens admin operations to anyone who can reach the listener.** Restrict reachability first when anonymous control is unintended.
+Use an already listed key to add another with `admin.add_admin_key(other_key)`. After verifying the new signer, use `admin.remove_admin_key(key_id)` from a current admin to revoke the old enrollment. If two callers compete to register the first key, only the first successful commit changes the roster. **Removing the final key immediately reopens enabled private and admin operations to anyone who can reach the listener.** Restrict reachability first when anonymous access is unintended.
 
 ## Open a Live Web Agent
 
-Web entry requires a running supported Web agent, an attached gateway, and an enrolled admin key. On the execution owner, use `houmao-mgr agents single --agent-id "$agent_id" gateway status` to find the gateway's `gateway_port`. The owner-local HTTP address uses `127.0.0.1` at that port. The managed agent's `native_surface` publishes the native origin and conversation ID. Browser entry works while the agent is busy or waiting for input.
+Web entry requires a running supported Web agent and an attached gateway. On the execution owner, use `houmao-mgr agents single --agent-id "$agent_id" gateway status` to find the gateway's `gateway_port`. The owner-local HTTP address uses `127.0.0.1` at that port. The managed agent's `native_surface` publishes the native origin and conversation ID. Browser entry works while the agent is busy or waiting for input.
 
 ### Sign In From the Browser
 
-1. Open the gateway's bare entry URL, for example `http://127.0.0.1:43123/v1/web/enter`.
-2. Select **Start Login**. To use one key, give its literal private key file path. Use an absolute path or one relative to the terminal's working directory. Write the full home path in place of `~`. A blank path selects supported keys from the terminal's SSH agent.
+1. Open the gateway's bare entry URL, for example `http://127.0.0.1:43123/v1/web/enter`. A valid empty roster opens the native app immediately. A gateway with enrolled keys opens the Houmao login page.
+2. Select **Start Login** on the login page. To use one key, enter an absolute private-key path or a path relative to the terminal's working directory. Write the full home path in place of `~`. The field trims surrounding whitespace and preserves spaces inside the path. An empty result selects supported keys from the terminal's SSH agent.
 3. Check the agent and gateway address shown by the page. Select **Copy Command** and run the command in a trusted POSIX-compatible shell with `ssh-keygen` supporting `-Y sign` and `curl`. Blank-path selection also needs `ssh-add`, an active SSH agent, and the standard `mktemp`, `wc`, `rm`, and `rmdir` utilities. OpenSSH signs locally and prompts for any passphrase in the terminal. Curl sends the proof directly to the displayed gateway address.
 4. Keep the initiating tab open. It continues to the native app after the terminal approves the login. The login attempt expires after two minutes. To recover after expiry, restart, or refusal, open the bare entry URL and start a new attempt.
 
-### Issue a Signed Link
+### Issue a One-Time Link
 
-On the execution owner, set `admin_signer_path` in the gateway's private access configuration and attach it with that configuration. The selected signer must be enrolled. Use the explicit selected-agent command for the live managed Web agent:
+On a gateway with enrolled keys, set `admin_signer_path` to a current enrolled signer in the gateway's private access configuration. With an empty roster the command issues the link unsigned. Run it on the execution owner:
 
 ```bash
 houmao-mgr --print-json agents single --agent-id "$agent_id" gateway web-entry
@@ -115,25 +115,34 @@ ticket = local_admin.issue_web_entry_ticket()
 
 The script receives the same one-time gateway URL. The client refuses HTTP redirects. Give the link to the browser for native authentication.
 
+For a gateway with a valid empty roster, use the unsigned owner-local client:
+
+```python
+local_gateway = GatewayClient(base_url="http://127.0.0.1:43123", respect_proxy_env=False)
+ticket = local_gateway.issue_web_entry_ticket()
+```
+
 ```mermaid
 sequenceDiagram
     participant B as Browser
     participant G as Owner Gateway
     participant T as Operator Terminal
     participant N as Native Web App
-    alt Interactive sign-in
+    alt Bare URL with an empty roster
+        B->>G: Open the owner-local URL
+    else Interactive sign-in with enrolled keys
         B->>G: Open entry page and start login
         G-->>B: Challenge and tab claim secret
         T->>G: Sign locally and submit proof with curl
         G-->>T: Approval outcome
         B->>G: Claim the approved login
         G-->>B: One-time URL and expiry
-    else Signed link
-        T->>G: Request a ticket with an enrolled admin signature
+        B->>G: Redeem the ticket
+    else One-time link
+        T->>G: Request a ticket using the live gateway policy
         G-->>T: One-time URL and expiry
-        T->>B: Open the private URL
+        B->>G: Redeem the ticket
     end
-    B->>G: Redeem the ticket
     G->>N: Verify the live Web binding
     G-->>B: Redirect to native sign-in
     B->>N: Authenticate to the native app
@@ -153,7 +162,7 @@ ssh -N -o ExitOnForwardFailure=yes \
   owner@example.org
 ```
 
-For a browser and terminal in separate network namespaces, make the exact gateway address reachable from both. Keep the native forward within the browser's private network boundary. The advertised HTTPS gateway continues to serve its signed API. Exclude Web entry and login routes from its reverse proxy and use the owner-local addresses for browser handoff. [Gateway Protocol and State Contracts](../contracts/protocol-and-state.md#web-entry-and-login)
+For a browser and terminal in separate network namespaces, make the exact gateway address reachable from both. Keep the native forward within the browser's private network boundary. The advertised HTTPS gateway applies the live roster to its API. Exclude Web entry and login routes from its reverse proxy and use the owner-local addresses for browser handoff. [Gateway Protocol and State Contracts](../contracts/protocol-and-state.md#web-entry-and-login)
 
 ## Submit an Authenticated Prompt
 
@@ -195,4 +204,4 @@ houmao-mgr agents self mail status
 houmao-mgr agents self mail list --channel offline --expected-binding-id "$binding_id"
 ```
 
-Commands sign live private operations inside the CLI. Select the current channel and binding ID from scoped mailbox output. Admin callers can use their own bound signer. Owner-file attachment paths on private mail forms require verified admin proof. See the mailbox facade for channel-specific behavior and the separately authorized manager path when the gateway is detached. [Gateway Mailbox Facade](mailbox-facade.md)
+The scoped self commands sign live private operations inside the CLI. Select the current channel and binding ID from scoped mailbox output. Admin callers can use their own bound signer. Owner-file attachment paths on private mail forms use the live admin policy. See the mailbox facade for channel-specific behavior and the separately authorized manager path when the gateway is detached. [Gateway Mailbox Facade](mailbox-facade.md)

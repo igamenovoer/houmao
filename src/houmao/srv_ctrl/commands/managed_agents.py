@@ -7,7 +7,7 @@ from houmao.agents.realm_controller.gateway_access_runtime import (
     owner_gateway_client_binding,
 )
 from houmao.gateway.access import GatewayAccessError
-from houmao.gateway.deployment import validate_gateway_access_config_path
+from houmao.gateway.deployment import owner_gateway_base_url, validate_gateway_access_config_path
 
 from houmao.mailbox.online_models import (
     OnlineAttachRequest,
@@ -3018,7 +3018,7 @@ def gateway_status(target: ManagedAgentTarget) -> GatewayStatusV1:
 
 
 def gateway_web_entry(*, agent_id: str | None, agent_name: str | None) -> GatewayWebEntryTicketV1:
-    """Request a signed ticket through the live local gateway without resuming the backend."""
+    """Request a ticket using the live owner-local gateway's access policy."""
 
     agent_id, agent_name = resolve_managed_agent_selector(agent_id=agent_id, agent_name=agent_name)
     try:
@@ -3058,32 +3058,59 @@ def gateway_web_entry(*, agent_id: str | None, agent_name: str | None) -> Gatewa
             "Use `houmao-mgr agents single --agent-id <id> gateway attach` to attach it explicitly."
         )
 
+    execution = record.execution_binding
+    retained = current.endpoint_descriptor
+    changed = "The managed Web execution changed. Select its live gateway and retry."
+    if execution is None or retained is None:
+        raise click.ClickException(changed)
     try:
-        binding, generation = owner_gateway_client_binding(
-            manifest_path, port=current.port, private=False
-        )
-    except (GatewayAccessError, SessionManifestError, ValueError):
+        base_url = owner_gateway_base_url(current.port)
+        client = GatewayClient(base_url=base_url, respect_proxy_env=False)
+        descriptor = client.describe_endpoint()
+    except (GatewayHttpError, ValueError):
         raise click.ClickException(
-            "Web entry requires a usable admin signer. Check `admin_signer_path` in the gateway access configuration."
+            "Web entry could not verify the live owner-local gateway."
         ) from None
-    if generation != record.generation_id:
-        raise click.ClickException(
-            "The managed Web execution changed. Select its live gateway and retry."
-        )
-    if binding is None or binding.purpose != "admin":
-        raise click.ClickException(
-            "Web entry requires an enrolled admin signer. Set `admin_signer_path` in the gateway access configuration."
-        )
     if (
-        record.execution_binding is None
-        or binding.owner.context_id != record.execution_binding.context_id
-        or binding.owner.agent_id != record.agent_id
+        descriptor.target.owner.agent_id != record.agent_id
+        or descriptor.target.owner.context_id != execution.context_id
+        or descriptor.target.incarnation != record.generation_id
+        or descriptor.presence_id != retained.presence_id
+        or descriptor.protocol != current.protocol_version
     ):
+        raise click.ClickException(changed)
+
+    policy = (descriptor.admin_access, descriptor.private_proof)
+    if policy == ("key_required", "self_or_admin"):
+        try:
+            binding, generation = owner_gateway_client_binding(
+                manifest_path, port=current.port, private=False
+            )
+        except (GatewayAccessError, SessionManifestError, ValueError):
+            raise click.ClickException(
+                "Web entry requires a usable admin signer. Check `admin_signer_path` in the gateway access configuration."
+            ) from None
+        if binding is None or binding.purpose != "admin":
+            raise click.ClickException(
+                "Web entry requires an enrolled admin signer. Set `admin_signer_path` in the gateway access configuration."
+            )
+        if (
+            generation != descriptor.target.incarnation
+            or binding.owner != descriptor.target.owner
+            or binding.base_url != base_url
+        ):
+            raise click.ClickException(changed)
+        client = GatewayClient(
+            base_url=base_url,
+            binding=binding,
+            target_incarnation=generation,
+            respect_proxy_env=False,
+        )
+    elif policy != ("open", "none"):
         raise click.ClickException(
-            "The managed Web execution changed. Select its live gateway and retry."
+            "Web entry access policy is unavailable or unsupported. Check the live owner-local gateway."
         )
 
-    client = GatewayClient(binding=binding, target_incarnation=generation, respect_proxy_env=False)
     try:
         return client.issue_web_entry_ticket()
     except GatewayHttpError as exc:

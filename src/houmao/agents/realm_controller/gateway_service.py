@@ -2595,6 +2595,8 @@ class GatewayServiceRuntime:
             redirect = adapter.browser_entry_redirect(binding)
             if self._web_entry_binding() != binding:
                 raise GatewayError("Native browser entry target changed.")
+        except GatewayAccessError:
+            raise
         except (KeyError, RuntimeError, OSError, ValueError):
             status = 410 if expected is not None else 409
             raise HTTPException(
@@ -2638,7 +2640,7 @@ class GatewayServiceRuntime:
     ) -> GatewayGrant:
         """Authorize one exact gateway request and preserve its admitted provenance."""
 
-        if operation.direct_admin:
+        if operation.direct_web_entry:
             try:
                 require_web_entry_origin(request, self.owner_connect_url)
             except HTTPException:
@@ -2680,7 +2682,7 @@ class GatewayServiceRuntime:
             signature=proof.get(SIGNATURE_HEADER),
             registration=operation.registration,
         )
-        if operation.direct_admin and grant.role != "admin":
+        if operation.direct_web_entry and grant.role != "admin":
             raise GatewayAccessError(403, "direct_admin_required")
         return grant
 
@@ -2699,17 +2701,21 @@ class GatewayServiceRuntime:
             raise GatewayAccessError(503, "policy_unavailable")
         target = access.target
         admin: Literal["open", "key_required", "unavailable"]
+        private: Literal["none", "self_or_admin", "unavailable"]
         try:
             target = self._access_target()
             admin = access.store.load().mode
+            private = "none" if admin == "open" else "self_or_admin"
         except GatewayAccessError:
             admin = "unavailable"
+            private = "unavailable"
         return GatewayEndpointDescriptor(
             protocol=GATEWAY_PROTOCOL_VERSION,
             target=target,
             presence_id=self.m_presence_id,
             advertised_url=self.m_deployment.advertised_url if self.m_deployment else None,
             admin_access=admin,
+            private_proof=private,
             public_operations=("messages", "public_prompt") if self.public_input_enabled else (),
         )
 
@@ -9489,11 +9495,18 @@ def _verified_gateway_grant(request: Request) -> GatewayGrant:
 
 
 def _require_owner_file_authority(
-    request: Request, payload: GatewayMailSendRequestV1 | GatewayMailReplyRequestV1
+    runtime: GatewayServiceRuntime,
+    request: Request,
+    payload: GatewayMailSendRequestV1 | GatewayMailReplyRequestV1,
 ) -> None:
-    """Require verified admin proof before opening any owner-local attachment."""
+    """Require current open or enrolled admin authority before file access."""
 
-    if payload.attachments and _verified_gateway_grant(request).role != "admin":
+    if not payload.attachments:
+        return
+    grant = _verified_gateway_grant(request)
+    if grant.role not in {"anonymous", "admin"} or not runtime._require_access_policy().revalidate(
+        grant
+    ):
         raise GatewayAccessError(403, "insufficient_authority")
 
 
@@ -10159,7 +10172,7 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
     ) -> GatewayMailActionResponseV1:
         """Run one shared mailbox send request."""
 
-        _require_owner_file_authority(request, request_payload)
+        _require_owner_file_authority(runtime, request, request_payload)
         return _mailbox_call(
             operation="send",
             request_payload=request_payload,
@@ -10184,7 +10197,7 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
     ) -> GatewayMailActionResponseV1:
         """Run one shared mailbox reply request."""
 
-        _require_owner_file_authority(request, request_payload)
+        _require_owner_file_authority(runtime, request, request_payload)
         return _mailbox_call(
             operation="reply",
             request_payload=request_payload,

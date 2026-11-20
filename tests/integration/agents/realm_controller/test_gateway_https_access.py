@@ -673,6 +673,7 @@ def _exercise_access(
     local = GatewayClient(base_url=local_url)
     descriptor = unsigned.describe_endpoint()
     assert descriptor.admin_access == "open"
+    assert descriptor.private_proof == "none"
     assert descriptor.advertised_url == advertised
     assert set(descriptor.public_operations) == {"messages", "public_prompt"}
     assert unsigned.health().model_dump() == {"protocol_version": "v1", "status": "ok"}
@@ -684,9 +685,13 @@ def _exercise_access(
             base_url=advertised.replace("127.0.0.1", "localhost"),
             ca_bundle_path=ca,
         ).health()
-    with pytest.raises(GatewayHttpError) as private:
-        unsigned.status()
-    assert private.value.status_code == 401
+    assert unsigned.status().gateway_health == "healthy"
+    if exercise_web_entry:
+        trust = ssl.create_default_context(cafile=str(ca))
+        with httpx.Client(base_url=advertised, verify=trust, trust_env=False) as caller:
+            for response in (caller.get("/v1/web/enter"), caller.post("/v1/web/entry-ticket")):
+                assert response.status_code == 403
+                assert "location" not in response.headers
 
     def admin_client(
         principal: str,
@@ -718,7 +723,12 @@ def _exercise_access(
     first, register, first_path = admin_client("first", "register")
     second, second_client, _ = admin_client("second", "admin")
     assert register.add_admin_key(first) == first.key_id
-    assert unsigned.describe_endpoint().admin_access == "key_required"
+    keyed = unsigned.describe_endpoint()
+    assert keyed.admin_access == "key_required"
+    assert keyed.private_proof == "self_or_admin"
+    with pytest.raises(GatewayHttpError) as private:
+        unsigned.status()
+    assert private.value.status_code == 401
     with pytest.raises(GatewayHttpError) as local_denial:
         local.list_reminders()
     assert local_denial.value.status_code == 401
@@ -781,9 +791,7 @@ def _exercise_access(
     second_client.remove_admin_key(second.key_id)
     assert unsigned.describe_endpoint().admin_access == "open"
     assert unsigned.list_reminders().reminders == []
-    with pytest.raises(GatewayHttpError) as still_private:
-        unsigned.status()
-    assert still_private.value.status_code == 401
+    assert unsigned.status().gateway_health == "healthy"
 
 
 def _assert_web_entry_requires_direct_ingress(

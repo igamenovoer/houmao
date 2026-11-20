@@ -7,7 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
 
@@ -29,6 +29,7 @@ from houmao.gateway.access import (
     sshsig_header,
 )
 from houmao.gateway.deployment import GatewayDeployment
+from houmao.mailbox.models import GatewayMailboxMessageV1, GatewayMailboxParticipantV1
 from tests.fixtures.gateway_access import (
     FixtureGatewayAccess,
     FixtureProofAuth,
@@ -101,25 +102,26 @@ def test_route_admission_and_live_enrollment(
     assert set(client.get("/health").json()) == {"protocol_version", "status"}
     assert client.get("/openapi.json").status_code == 404
     assert client.get("/v1/endpoint").json()["admin_access"] == "open"
-    unauthenticated = client.post("/v1/mail/offline/send", content=b"{malformed")
-    assert unauthenticated.status_code == 401
-    assert unauthenticated.json()["detail"]["purposes"] == ["self", "admin"]
-    assert "/v1/auth/challenge" in unauthenticated.headers["WWW-Authenticate"]
-    assert client.get("/v1/status").status_code == 401
-    status.assert_not_called()
-    assert client.get("/v1/memory").status_code == 401
-    assert client.get("/v1/usage").status_code == 401
-    memory.assert_not_called()
-    usage.assert_not_called()
+    assert client.get("/v1/endpoint").json()["private_proof"] == "none"
+    assert client.post("/v1/mail/offline/send", content=b"{malformed").status_code == 422
     for path in ("/v1/status", "/v1/memory", "/v1/usage"):
-        assert client.get(path, auth=self_auth).status_code == 200
+        assert client.get(path).status_code == 200
+        assert client.get(path, headers={CHALLENGE_HEADER: "invalid"}).status_code == 401
+    status.assert_called_once()
+    memory.assert_called_once()
+    usage.assert_called_once()
     assert client.post("/v1/requests", content=b"{malformed").status_code == 422
 
     first, signer = fixture_admin_key(tmp_path, "one")
     second, second_signer = fixture_admin_key(tmp_path, "two")
     enroll_fixture_admin(client, first, signer)
     assert client.get("/v1/endpoint").json()["admin_access"] == "key_required"
+    assert client.get("/v1/endpoint").json()["private_proof"] == "self_or_admin"
     assert first.public_key not in client.get("/v1/endpoint").text
+    unauthenticated = client.post("/v1/mail/offline/send", content=b"{malformed")
+    assert unauthenticated.status_code == 401
+    assert unauthenticated.json()["detail"]["purposes"] == ["self", "admin"]
+    assert "/v1/auth/challenge" in unauthenticated.headers["WWW-Authenticate"]
     assert client.post("/v1/requests", content=b"{malformed").status_code == 401
     assert client.post("/v1/requests", content=b"{malformed", auth=self_auth).status_code == 403
     assert client.get("/v1/ag-ui/capabilities").status_code == 401
@@ -127,6 +129,8 @@ def test_route_admission_and_live_enrollment(
     call.assert_not_called()
     admin_auth = FixtureProofAuth(signer, purpose="admin")
     for path in ("/v1/status", "/v1/memory", "/v1/usage"):
+        assert client.get(path).status_code == 401
+        assert client.get(path, auth=self_auth).status_code == 200
         assert client.get(path, auth=admin_auth).status_code == 200
     assert client.post("/v1/requests", content=b"{malformed", auth=admin_auth).status_code == 422
     assert (
@@ -139,19 +143,36 @@ def test_route_admission_and_live_enrollment(
     assert client.delete(f"/v1/admin/keys/{first.key_id}", auth=second_auth).status_code == 204
     assert client.delete(f"/v1/admin/keys/{second.key_id}", auth=second_auth).status_code == 204
     assert client.get("/v1/endpoint").json()["admin_access"] == "open"
+    assert client.get("/v1/endpoint").json()["private_proof"] == "none"
     assert client.post("/v1/requests", content=b"{malformed").status_code == 422
-    assert client.get("/v1/status").status_code == 401
+    assert client.get("/v1/status").status_code == 200
 
 
 @pytest.mark.parametrize("channel", ["online", "offline"])
-def test_owner_file_mail_forms_require_verified_admin(
+def test_owner_file_mail_forms_follow_current_access_policy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, channel: str
 ) -> None:
     """Check authority before loading a binding, opening a file, or calling a provider."""
 
     runtime = _runtime(tmp_path)
-    send = Mock(side_effect=HTTPException(status_code=409, detail="provider call reached"))
-    monkeypatch.setattr(runtime, "send_mail", send)
+    sender = GatewayMailboxParticipantV1(address="owner@example.test", principal_id="mail-owner")
+    adapter = Mock()
+    adapter.status.return_value = Mock(
+        transport="stalwart" if channel == "online" else "filesystem",
+        principal_id=sender.principal_id,
+        address=sender.address,
+    )
+    adapter.send.return_value = GatewayMailboxMessageV1(
+        message_ref="fixture-message",
+        created_at_utc="2026-11-20T00:00:00Z",
+        subject="test",
+        sender=sender,
+        to=[GatewayMailboxParticipantV1(address="recipient@example.test")],
+    )
+    bind = Mock(return_value=adapter)
+    diagnostic = Mock()
+    monkeypatch.setattr(runtime, "_mailbox_adapter_locked", bind)
+    monkeypatch.setattr(runtime, "emit_diagnostic", diagnostic)
     client = TestClient(create_app(runtime=runtime), base_url=runtime.owner_connect_url)
     body = {
         "expected_binding_id": "fixture-mailbox",
@@ -161,15 +182,27 @@ def test_owner_file_mail_forms_require_verified_admin(
         "attachments": [{"path": "/private/fixture-path"}],
     }
     path = f"/v1/mail/{channel}/send"
+    response = client.post(path, json=body)
+    assert response.status_code == 200, response.text
+    assert response.json()["principal_id"] == "mail-owner"
+    assert response.json()["message"]["sender"]["address"] == sender.address
+    bind.assert_called_once_with(channel=channel, expected_binding_id="fixture-mailbox")
+    assert diagnostic.call_args.kwargs["fields"]["principal"] == "anonymous"
+    adapter.send.assert_called_once()
+    bind.reset_mock()
+    adapter.send.reset_mock()
+
+    admin, signer = fixture_admin_key(tmp_path, "admin")
+    enroll_fixture_admin(client, admin, signer)
     refused = client.post(path, json=body, auth=self_fixture_auth(runtime))
     assert refused.status_code == 403
     assert "/private/fixture-path" not in refused.text
-    send.assert_not_called()
-    admin, signer = fixture_admin_key(tmp_path, "admin")
-    enroll_fixture_admin(client, admin, signer)
+    bind.assert_not_called()
+    adapter.send.assert_not_called()
     response = client.post(path, json=body, auth=FixtureProofAuth(signer, purpose="admin"))
-    assert response.status_code == 409
-    send.assert_called_once()
+    assert response.status_code == 200, response.text
+    assert diagnostic.call_args.kwargs["fields"]["principal"] == admin.principal
+    adapter.send.assert_called_once()
 
 
 def test_wildcard_attached_policy_and_policy_failure(
@@ -194,10 +227,11 @@ def test_wildcard_attached_policy_and_policy_failure(
     client = TestClient(create_app(runtime=runtime), base_url=runtime.owner_connect_url)
     descriptor = client.get("/v1/endpoint").json()
     assert descriptor["advertised_url"] == "https://hub.test/agent"
-    assert client.get("/v1/status").status_code == 401
     next(gateway_fixture_access.private_root.glob("*/admin.json")).unlink()
     assert client.get("/health").status_code == 200
     assert client.get("/v1/endpoint").json()["admin_access"] == "unavailable"
+    assert client.get("/v1/endpoint").json()["private_proof"] == "unavailable"
+    assert client.get("/v1/status").status_code == 503
     assert client.post("/v1/requests", content=b"{bad").status_code == 503
 
 

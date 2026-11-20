@@ -89,14 +89,13 @@ The mailbox facade is deliberately narrower than generic gateway availability.
 | Condition | Result |
 | --- | --- |
 | session is gateway-capable but no live gateway is attached | no `/v1/mail/*` routes are available |
-| live gateway is attached with a usable mailbox binding | routine mail accepts current self or verified admin proof on either listener |
-| live gateway has a valid empty admin list | operator post and mailbox binding controls admit anonymous callers |
-| live gateway has a nonempty admin list | operator post and mailbox binding controls require verified admin proof |
+| live gateway is attached with a usable mailbox binding and a valid empty admin list | routine mail, operator post, and mailbox binding controls admit anonymous callers |
+| live gateway has a nonempty admin list | routine mail accepts current self or verified admin proof. Operator post and mailbox binding controls require verified admin proof |
 | readable manifest with neither channel configured | summary status reports both channels absent |
 | a lifecycle request selects an absent channel, stale binding, or wrong-scope reference | explicit failure with no other-channel fallback |
 | manifest is unreadable | mailbox operations fail explicitly |
 
-Private send and reply forms that include owner-file attachment paths require verified admin proof before the gateway opens a file or calls the provider. The configured mailbox supplies the sender identity. The gateway tracks the initiating caller separately. [Gateway Access and Remote Deployment](access.md)
+Private send and reply forms with owner-file attachment paths accept current anonymous authority with an empty list or verified admin proof with a nonempty list. The gateway checks authority before opening a file or calling the provider. The configured mailbox supplies the sender identity. The gateway tracks the initiating caller separately. [Gateway Access and Remote Deployment](access.md)
 
 ## Direct Versus Gateway Mailbox Paths
 

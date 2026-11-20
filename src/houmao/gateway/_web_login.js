@@ -15,9 +15,10 @@ export function signingCommand(attempt, keyPath, origin, limits) {
   const prove = new URL("/v1/web/login/" + attempt.attempt_id + "/prove", origin);
   const namespace = shellQuote(limits.namespace);
   const challenge = shellQuote(challengeBytes(attempt.challenge));
+  const selectedPath = keyPath.trim();
   let signAndSubmit;
-  if (keyPath) {
-    const path = shellQuote(keyPath.startsWith("/") ? keyPath : "./" + keyPath);
+  if (selectedPath) {
+    const path = shellQuote(selectedPath.startsWith("/") ? selectedPath : "./" + selectedPath);
     signAndSubmit = `  proof=$(printf '%s' ${challenge} | ssh-keygen -Y sign -n ${namespace} -f ${path}) || denied
   printf '%s\\n' "$proof" | submit`;
   } else {

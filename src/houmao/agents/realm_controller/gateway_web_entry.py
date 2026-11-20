@@ -35,6 +35,7 @@ from houmao.gateway.access import (
     GatewayAccessError,
     GatewayAccessPolicy,
     GatewayGrant,
+    GatewayRequestBinding,
     GatewayTarget,
 )
 
@@ -50,7 +51,7 @@ _CAPACITY = 128
 _BEARER = re.compile(r"[A-Za-z0-9_-]{43}")
 _TICKET_QUERY = re.compile(rb"ticket=([A-Za-z0-9_-]{43})")
 _CLAIM_HEADER = "X-Houmao-Web-Claim"
-_ENTRY_ENDED = "Web entry expired or is unavailable. Start again from the owner-local login page."
+_ENTRY_ENDED = "Web entry expired or is unavailable. Start again from the owner-local entry URL."
 _OWNER_LOCAL_ONLY = "Use the owner-local gateway address directly or through a private TCP forward."
 _BAD_PROOF = "Choose an enrolled admin key or start again from the login page."
 _Result = TypeVar("_Result")
@@ -162,7 +163,7 @@ class _WebEntryStore:
     def mint(
         self, issuer: str, binding: WebEntryBinding, grant: GatewayGrant
     ) -> GatewayWebEntryTicketV1:
-        """Allocate a signed client's ticket."""
+        """Allocate an admitted client's ticket."""
 
         with self.m_lock:
             return self._mint_locked(issuer, binding, grant, now=time.monotonic())
@@ -304,62 +305,80 @@ def register_web_entry_routes(
 
     store = _WebEntryStore()
 
-    def require_admin(grant: GatewayGrant, target: GatewayTarget, *, status: int) -> None:
-        """Recheck exact enrollment and ownership after external reads."""
+    def require_current_grant(grant: GatewayGrant, target: GatewayTarget, *, status: int) -> None:
+        """Recheck the bound owner and current enrollment or empty revision."""
 
-        try:
-            if (
-                grant.role == "admin"
-                and grant.target == target
-                and access_policy().revalidate(grant)
-            ):
-                return
-        except GatewayAccessError:
-            pass
+        if (
+            grant.role in {"admin", "anonymous"}
+            and grant.target == target
+            and access_policy().revalidate(grant)
+        ):
+            return
         raise HTTPException(
             status,
-            "Enroll a current gateway admin key to open the Web agent."
+            "Web entry access changed. Check the current gateway policy and retry."
             if status == 403
             else _ENTRY_ENDED,
         )
 
-    def live_redirect(binding: WebEntryBinding, grant: GatewayGrant) -> str:
-        """Resolve the same owned execution and recheck the issuing admin."""
+    def resolve_authorized(
+        grant: GatewayGrant, expected: WebEntryBinding | None = None, *, stale_status: int = 410
+    ) -> tuple[WebEntryBinding, str]:
+        """Verify the caller before and after resolving the same live Web execution."""
 
-        require_admin(grant, binding.target, status=410)
-        _, destination = resolve(binding)
-        require_admin(grant, binding.target, status=410)
+        target = expected.target if expected is not None else grant.target
+        require_current_grant(grant, target, status=stale_status)
+        binding, destination = resolve(expected)
+        require_current_grant(grant, binding.target, status=stale_status)
+        return binding, destination
+
+    def open_destination(base: str) -> str | None:
+        """Resolve an anonymous handoff or signal that the login page is required."""
+
+        try:
+            grant = access_policy().admit(
+                "admin",
+                issuer=base,
+                request=GatewayRequestBinding.from_request("GET", WEB_ENTER_PATH, "", b""),
+            )
+        except GatewayAccessError as error:
+            if error.code == "proof_required":
+                return None
+            raise
+        _, destination = resolve_authorized(grant)
         return destination
 
     @app.post(WEB_TICKET_PATH, response_model=GatewayWebEntryTicketV1)
     async def _issue(request: Request) -> GatewayWebEntryTicketV1:
-        """Mint a ticket after signed, direct admin admission."""
+        """Mint a ticket after direct open or signed admin admission."""
 
         base = issuer()
         require_web_entry_origin(request, base)
         _require_no_query(request)
         grant = getattr(request.state, "gateway_grant", None)
-        if not isinstance(grant, GatewayGrant) or grant.role != "admin":
-            raise HTTPException(403, "Direct gateway admin proof is required.")
+        if not isinstance(grant, GatewayGrant) or grant.role not in {"admin", "anonymous"}:
+            raise HTTPException(403, "Direct open access or gateway admin proof is required.")
         await _bounded_request(request, 0)
 
         def issue() -> GatewayWebEntryTicketV1:
             """Keep retained authority and native observation outside the event loop."""
 
-            require_admin(grant, grant.target, status=403)
-            binding, _ = resolve(None)
-            require_admin(grant, binding.target, status=403)
+            binding, _ = resolve_authorized(grant, stale_status=403)
             return store.mint(base, binding, grant)
 
         return await run_in_threadpool(issue)
 
     @app.get(WEB_ENTER_PATH)
     async def _enter(request: Request) -> Response:
-        """Serve the login page or consume a ticket and redirect exactly once."""
+        """Open a live Web agent anonymously, through login, or by ticket."""
 
-        require_web_entry_origin(request, issuer())
+        base = issuer()
+        require_web_entry_origin(request, base)
         query = request.scope["query_string"]
         if not query:
+            open_url = await run_in_threadpool(open_destination, base)
+            if open_url is not None:
+                return RedirectResponse(open_url, status_code=302)
             nonce = secrets.token_urlsafe(24)
             return HTMLResponse(
                 render_web_login_page(nonce, agent_id=agent_id),
@@ -376,8 +395,8 @@ def register_web_entry_routes(
         if ticket is None:
             return _retry_page()
         try:
-            destination = await _within_deadline(
-                ticket.deadline, lambda: live_redirect(ticket.binding, ticket.grant)
+            _, destination = await _within_deadline(
+                ticket.deadline, lambda: resolve_authorized(ticket.grant, ticket.binding)
             )
         except HTTPException:
             return _retry_page()
@@ -411,7 +430,7 @@ def register_web_entry_routes(
                 grant = verify_web_login(access_policy(), proofs, login.challenge)
             except GatewayAccessError as error:
                 raise HTTPException(error.status_code, _BAD_PROOF) from None
-            live_redirect(login.binding, grant)
+            resolve_authorized(grant, login.binding)
             return grant
 
         proofs = await _bounded_request(request, WEB_LOGIN_PROOF_MAX_BYTES)
@@ -438,6 +457,6 @@ def register_web_entry_routes(
         grant = login.approval
         if grant is None:
             return JSONResponse({"status": "pending"}, status_code=202)
-        await _within_deadline(login.deadline, lambda: live_redirect(login.binding, grant))
+        await _within_deadline(login.deadline, lambda: resolve_authorized(grant, login.binding))
         ticket = store.claim(base, attempt_id, login, grant)
         return JSONResponse(ticket.model_dump(mode="json"))

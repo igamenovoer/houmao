@@ -229,10 +229,14 @@ class GatewayClient:
         return self._request_model("GET", "/v1/endpoint", GatewayEndpointDescriptor)
 
     def issue_web_entry_ticket(self) -> GatewayWebEntryTicketV1:
-        """Request a one-time browser entry link with direct enrolled-admin proof."""
+        """Request a one-time browser link using the selected direct gateway authority."""
 
-        if self.m_binding is None or self.m_binding.purpose != "admin":
-            raise ValueError("Web entry requires an explicit enrolled gateway admin signer.")
+        if self.m_request_proof is not None or (
+            self.m_binding is not None and self.m_binding.purpose != "admin"
+        ):
+            raise ValueError(
+                "Web entry accepts a direct enrolled gateway admin signer or an unsigned request."
+            )
         origin = parse.urlsplit(self.m_base_url)
         if (
             origin.port is None
@@ -248,13 +252,15 @@ class GatewayClient:
             payload = self._open_request(request_obj=request_obj, method="POST", url=url)
         except GatewayHttpError as exc:
             if exc.status_code in {401, 403}:
-                detail = "Gateway proof was refused. Select a currently enrolled admin signer."
+                detail = (
+                    "Gateway refused unsigned Web entry. Check its current access policy."
+                    if self.m_binding is None
+                    else "Gateway proof was refused. Select a currently enrolled admin signer."
+                )
             elif exc.status_code is not None and 300 <= exc.status_code < 400:
                 detail = "Gateway redirects are refused. Use the direct owner-local gateway."
             else:
-                detail = (
-                    "Web entry was refused. Check the live owner-local gateway and admin signer."
-                )
+                detail = "Web entry was refused. Check the live owner-local gateway."
             raise GatewayHttpError(
                 method="POST", url=url, status_code=exc.status_code, detail=detail
             ) from None

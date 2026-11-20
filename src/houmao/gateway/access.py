@@ -157,7 +157,7 @@ class GatewayAccessPolicy:
         with self.m_store.read_locked() as state:
             target = self._current_target()
             if challenge_id is None and signature is None:
-                if access == "admin" and state.mode == "open" and not registration:
+                if state.mode == "open" and not registration:
                     return GatewayGrant(role="anonymous", target=target, revision=state.revision)
                 raise GatewayAccessError(401, "proof_required")
             if challenge_id is None or signature is None:

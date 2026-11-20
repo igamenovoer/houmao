@@ -74,7 +74,7 @@ class GatewayEndpointDescriptor(BaseModel):
     presence_id: str
     advertised_url: str | None
     admin_access: Literal["open", "key_required", "unavailable"]
-    private_proof: Literal["self_or_admin"] = "self_or_admin"
+    private_proof: Literal["none", "self_or_admin", "unavailable"] = "self_or_admin"
     public_operations: tuple[Literal["messages", "public_prompt"], ...] = ()
 
     _validate_advertised_url = field_validator("advertised_url")(

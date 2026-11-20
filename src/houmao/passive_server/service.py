@@ -491,12 +491,43 @@ class PassiveServerService:
         ):
             raise GatewayAccessError(503, "policy_unavailable")
 
+    def _require_direct_anonymous_access(self) -> None:
+        """Recheck an anonymous grant before accessing the locally selected body."""
+
+        admission = CURRENT_ADMISSION.get()
+        if admission is None or admission.grant is None or admission.grant.role != "anonymous":
+            return
+        selected = admission.target
+        try:
+            self.require_access_target_current(selected)
+            if selected.tracked_agent_id is not None:
+                authority = self.m_headless.access_authority(selected.tracked_agent_id)
+                if (
+                    authority is None
+                    or Path(authority.manifest_path) != selected.manifest_path
+                    or authority.agent_id not in {None, selected.runtime.target.owner.agent_id}
+                ):
+                    raise GatewayAccessError(503, "policy_unavailable")
+            if not selected.policy.revalidate(admission.grant):
+                raise GatewayAccessError(401, "proof_required")
+        except GatewayAccessError:
+            raise
+        except (OSError, RuntimeError, ValueError):
+            raise GatewayAccessError(503, "policy_unavailable") from None
+
     def get_usage(
         self, agent_ref: str, *, after: str | None = None, limit: int = 100
     ) -> UsagePage | tuple[int, dict[str, Any]]:
         """Read managed-headless authority first, otherwise proxy a live gateway."""
 
-        matches = self.m_headless.resolve_usage_matches(agent_ref)
+        admitted = CURRENT_ADMISSION.get()
+        if admitted is not None and admitted.target.tracked_agent_id is not None:
+            self._require_direct_anonymous_access()
+            return self.m_headless.get_usage(
+                admitted.target.tracked_agent_id, after=after, limit=limit
+            )
+
+        matches = self.m_headless.resolve_usage_matches(agent_ref) if admitted is None else ()
         if len(matches) > 1:
             return (409, {"detail": "Ambiguous managed headless agent reference"})
         if len(matches) == 1:
@@ -514,11 +545,12 @@ class PassiveServerService:
         resolved = self._resolve_agent_or_error(agent_ref)
         if isinstance(resolved, tuple):
             return resolved
-        matches = self.m_headless.resolve_usage_matches(resolved.record.agent_id)
-        if len(matches) > 1:
-            return (409, {"detail": "Ambiguous managed headless agent reference"})
-        if len(matches) == 1:
-            return self.m_headless.get_usage(matches[0], after=after, limit=limit)
+        if admitted is None:
+            matches = self.m_headless.resolve_usage_matches(resolved.record.agent_id)
+            if len(matches) > 1:
+                return (409, {"detail": "Ambiguous managed headless agent reference"})
+            if len(matches) == 1:
+                return self.m_headless.get_usage(matches[0], after=after, limit=limit)
         client = self._gateway_client_for_agent(resolved)
         if client is None:
             return (502, {"detail": "Usage projection requires an attached gateway"})
@@ -1834,13 +1866,18 @@ class PassiveServerService:
         """Resolve one agent reference onto the authoritative managed headless id."""
 
         admitted = CURRENT_ADMISSION.get()
-        if admitted is not None and admitted.target.tracked_agent_id is not None:
+        if admitted is not None:
             resolved = self._resolve_agent_or_error(agent_ref)
-            return (
-                admitted.target.tracked_agent_id,
-                resolved if isinstance(resolved, DiscoveredAgent) else None,
-                None,
-            )
+            self._require_direct_anonymous_access()
+            if admitted.target.tracked_agent_id is not None:
+                return (
+                    admitted.target.tracked_agent_id,
+                    resolved if isinstance(resolved, DiscoveredAgent) else None,
+                    None,
+                )
+            if isinstance(resolved, tuple):
+                return (None, None, resolved)
+            return (None, resolved, None)
 
         direct_matches = self.m_headless.resolve_managed_matches(agent_ref)
         if len(direct_matches) > 1:
@@ -2065,6 +2102,7 @@ class PassiveServerService:
         resolved = self._resolve_agent_or_error(agent_ref)
         if isinstance(resolved, tuple):
             return resolved
+        self._require_direct_anonymous_access()
         if resolved.record.mode == "web":
             web_observer = self.m_observation.get_web_observer(resolved.record.agent_id)
             if web_observer is None:

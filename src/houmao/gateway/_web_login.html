@@ -20,8 +20,8 @@
     <p id="login-target">$agent_id</p>
     <p id="gateway-address"></p>
     <label for="key-path">Private key file path (optional)</label>
-    <input id="key-path" type="text" autocomplete="off" spellcheck="false" autocapitalize="off">
-    <p>Enter a literal path from your terminal, or leave it blank to use your SSH agent.</p>
+    <input id="key-path" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" aria-describedby="key-path-help">
+    <p id="key-path-help">Surrounding whitespace is trimmed. Leave the field blank to use your SSH agent.</p>
     <button id="start-login" type="button">Start Login</button>
     <section id="command-section" hidden>
       <label for="signing-command">Run This Command in Your Terminal</label>

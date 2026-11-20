@@ -558,13 +558,18 @@ def test_live_revocation_invalidates_only_affected_grants(authority: _Authority)
     first, first_signer = _admin("first")
     second, second_signer = _admin("second")
     open_grant = policy.admit("admin", issuer=ISSUER, request=REQUEST)
-    with pytest.raises(GatewayAccessError) as private_denial:
-        policy.admit("private", issuer=ISSUER, request=REQUEST)
-    assert private_denial.value.status_code == 401
+    assert open_grant.role == "anonymous"
+    assert policy.admit("private", issuer=ISSUER, request=REQUEST) == open_grant
+    with pytest.raises(GatewayAccessError) as invalid_proof:
+        policy.admit("private", issuer=ISSUER, request=REQUEST, challenge_id="invalid")
+    assert invalid_proof.value.code == "invalid_proof"
     signed_self = policy.issue(ISSUER, GatewayChallengeRequest(purpose="self", request=REQUEST))
     register = _registration(policy, first, first_signer)
     assert policy.add_key(register, first) == first
     assert not policy.revalidate(open_grant)
+    with pytest.raises(GatewayAccessError) as private_denial:
+        policy.admit("private", issuer=ISSUER, request=REQUEST)
+    assert private_denial.value.status_code == 401
     assert (
         policy.admit(
             "private",
@@ -601,6 +606,10 @@ def test_live_revocation_invalidates_only_affected_grants(authority: _Authority)
     assert not policy.revalidate(first_grant)
     policy.remove_key(_listed(policy, first, first_signer), second.key_id)
     policy.remove_key(_listed(policy, first, first_signer), first.key_id)
-    assert policy.admit("admin", issuer=ISSUER, request=REQUEST).role == "anonymous"
+    reopened = policy.admit("admin", issuer=ISSUER, request=REQUEST)
+    assert reopened.role == "anonymous"
+    assert policy.admit("private", issuer=ISSUER, request=REQUEST) == reopened
+    assert not policy.revalidate(open_grant)
+    assert policy.revalidate(reopened)
     policy.add_key(_registration(policy, second, second_signer), second)
     assert _listed(policy, second, second_signer).principal == "second"

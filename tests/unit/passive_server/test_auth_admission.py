@@ -9,6 +9,7 @@ import threading
 from types import SimpleNamespace
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
+from urllib.request import Request
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -18,9 +19,11 @@ import pytest
 from houmao.agents.realm_controller.errors import GatewayHttpError
 from houmao.agents.realm_controller.gateway_client import GatewayClient
 from houmao.agents.realm_controller.registry_models import RegistryGatewayV1
+from houmao.agents.realm_controller.usage_models import UsagePage
 from houmao.cao.rest_client import CaoApiError
 from houmao.execution.context import observed_local_binding
 from houmao.gateway.access import (
+    AccessClass,
     CHALLENGE_HEADER,
     SIGNATURE_HEADER,
     GatewayAccessError,
@@ -48,6 +51,7 @@ from houmao.gateway.owner_authority import (
     issue_passive_backing,
     provision_passive_backing,
 )
+from houmao.passive_server.admission import CURRENT_ADMISSION, PassiveAccessTarget
 from houmao.passive_server.app import create_app
 from houmao.passive_server.client import PassiveServerClient
 from houmao.passive_server.config import PassiveServerConfig
@@ -219,8 +223,10 @@ def test_retained_policy_survives_missing_discovery_and_checks_before_validation
         "turn_artifact_text",
         lambda *args: calls.append(args) or "artifact",
     )
+    usage = UsagePage(runtime_session_id="fixture-runtime")
+    monkeypatch.setattr(target.service.m_headless, "get_usage", lambda *_args, **_kwargs: usage)
     assert target.client.post(f"{target.base}/gateway/detach").status_code == 501
-    assert target.client.get(f"{target.base}/usage").status_code == 401
+    assert target.client.get(f"{target.base}/usage").json() == usage.model_dump(mode="json")
     artifact = f"{target.base}/turns/one/artifacts/stdout"
     assert target.client.get(artifact).text == "artifact"
     signer = Ed25519PrivateKey.generate()
@@ -230,6 +236,7 @@ def test_retained_policy_survives_missing_discovery_and_checks_before_validation
     assert f"{target.base}/auth/challenge" in rejected.headers["WWW-Authenticate"]
     assert target.client.get(artifact).status_code == 401
     assert len(calls) == 1
+    assert target.client.get(f"{target.base}/usage").status_code == 401
     assert target.client.get(artifact, headers=target.sign(artifact)).status_code == 403
     assert (
         target.client.get(artifact, headers=target.sign(artifact, admin=signer)).text == "artifact"
@@ -244,7 +251,7 @@ def test_retained_policy_survives_missing_discovery_and_checks_before_validation
 
 
 def test_missing_initialized_policy_remains_closed(target: _Target) -> None:
-    """A known target with unavailable policy never becomes open admin."""
+    """A known target with unavailable policy refuses unsigned protected calls."""
 
     target.service.m_discovery.index.replace({})
     documents = tuple(target.runtime.private_root.rglob("admin*.json"))
@@ -312,24 +319,58 @@ def test_signed_proxy_relays_translated_operation_once(
     assert len(received) == 1
 
 
-def test_anonymous_proxy_rechecks_first_enrollment_at_gateway(
+def test_private_proxy_preserves_anonymous_caller(
     target: _Target, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both ingresses use the empty roster without adding a credential."""
+
+    def receive(_client: GatewayClient, *, request_obj: Request, method: str, url: str) -> bytes:
+        parts = urlsplit(url)
+        assert parts.path == "/v1/memory/memo"
+        assert method == "GET"
+        headers = {name.lower() for name, _value in request_obj.header_items()}
+        assert not headers.intersection(
+            name.lower()
+            for name in (CHALLENGE_HEADER, SIGNATURE_HEADER, RELAY_HEADER, BACKING_HEADER)
+        )
+        grant = target.policy.admit(
+            "private",
+            issuer=f"{parts.scheme}://{parts.netloc}",
+            request=GatewayRequestBinding.from_request(method, parts.path, parts.query, b""),
+        )
+        admission = CURRENT_ADMISSION.get()
+        assert admission is not None and admission.grant == grant
+        assert grant.role == "anonymous"
+        return b'{"memo_file":"memo.md","content":"fixture memo"}'
+
+    monkeypatch.setattr(GatewayClient, "_open_request", receive)
+    response = target.client.get(f"{target.admin_base}/gateway/memory/memo")
+    assert response.status_code == 200, response.text
+    assert response.json()["content"] == "fixture memo"
+
+
+@pytest.mark.parametrize(
+    ("access", "method", "route"),
+    [("admin", "POST", "/requests"), ("private", "GET", "/gateway/memory/memo")],
+)
+def test_anonymous_proxy_rechecks_first_enrollment_at_gateway(
+    target: _Target, monkeypatch: pytest.MonkeyPatch, access: AccessClass, method: str, route: str
 ) -> None:
     """An enrollment after passive admission still requires proof downstream."""
 
     calls = []
 
-    def receive(_client: GatewayClient, *, request_obj: object, method: str, url: str) -> bytes:
+    def receive(_client: GatewayClient, *, request_obj: Request, method: str, url: str) -> bytes:
         headers = {name.lower(): value for name, value in request_obj.header_items()}
         assert RELAY_HEADER.lower() not in headers
         calls.append(method)
         _enroll(target, Ed25519PrivateKey.generate())
         parts = urlsplit(url)
         binding = GatewayRequestBinding.from_request(
-            method, parts.path, parts.query, request_obj.data
+            method, parts.path, parts.query, request_obj.data or b""
         )
         try:
-            target.policy.admit("admin", issuer=f"{parts.scheme}://{parts.netloc}", request=binding)
+            target.policy.admit(access, issuer=f"{parts.scheme}://{parts.netloc}", request=binding)
         except GatewayAccessError as exc:
             raise GatewayHttpError(
                 method=method,
@@ -337,14 +378,46 @@ def test_anonymous_proxy_rechecks_first_enrollment_at_gateway(
                 status_code=exc.status_code,
                 detail="untrusted upstream diagnostic",
             ) from None
-        raise AssertionError("Downstream admission accepted anonymous admin after enrollment")
+        pytest.fail("Downstream admission accepted an anonymous request after enrollment")
 
     monkeypatch.setattr(GatewayClient, "_open_request", receive)
-    response = target.client.post(f"{target.admin_base}/requests", json={"prompt": "fixture"})
+    response = target.client.request(
+        method,
+        f"{target.admin_base}{route}",
+        json={"prompt": "fixture"} if method == "POST" else None,
+    )
     assert response.status_code == 401
     assert response.headers["WWW-Authenticate"].endswith(f'{target.admin_base}/auth/challenge"')
     assert "untrusted" not in response.text
-    assert calls == ["POST"]
+    assert calls == [method]
+
+
+@pytest.mark.parametrize(
+    ("method", "route", "effect"),
+    [("GET", "/usage", "get_usage"), ("POST", "/stop", "stop_managed")],
+)
+def test_direct_anonymous_access_rechecks_roster_before_effect(
+    target: _Target, monkeypatch: pytest.MonkeyPatch, method: str, route: str, effect: str
+) -> None:
+    """An open grant expires if the roster changes after ingress admission."""
+
+    target.service.m_discovery.index.replace({})
+    require_current = target.service.require_access_target_current
+
+    def enroll_after_ingress(selected: PassiveAccessTarget) -> None:
+        require_current(selected)
+        if CURRENT_ADMISSION.get() is None:
+            _enroll(target, Ed25519PrivateKey.generate())
+
+    monkeypatch.setattr(target.service, "require_access_target_current", enroll_after_ingress)
+    monkeypatch.setattr(
+        target.service.m_headless,
+        effect,
+        lambda *_args, **_kwargs: pytest.fail("Stale anonymous grant reached the direct body"),
+    )
+    response = target.client.request(method, f"{target.base}{route}")
+    assert response.status_code == 401, response.text
+    assert response.headers["WWW-Authenticate"].endswith(f'{target.base}/auth/challenge"')
 
 
 @pytest.mark.parametrize("role", ["self", "admin"])

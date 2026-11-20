@@ -100,23 +100,24 @@ def test_gateway_client_refuses_redirects_and_retargeting() -> None:
 
 
 @pytest.mark.parametrize("outcome", ["ticket", "redirect", "native_url", "refused"])
-def test_web_entry_client_signs_only_issuance_and_keeps_native_results_private(
-    tmp_path: Path, outcome: str
+@pytest.mark.parametrize("signed", [False, True], ids=["open", "keyed"])
+def test_web_entry_client_uses_selected_direct_authority_and_keeps_native_results_private(
+    tmp_path: Path, outcome: str, signed: bool
 ) -> None:
-    """Verify a real signed empty-body request and refuse redirect and native payloads."""
+    """Verify empty-body issuance and refuse redirects and native payloads."""
 
     admin, signer = fixture_admin_key(tmp_path, "web-entry-admin")
     owner = GatewayOwner(agent_id="web-agent", context_id="web-owner")
     target = GatewayTarget(owner=owner, incarnation="generation-web")
     store = GatewayAccessStore.from_root(tmp_path / "access", owner)
-    store.initialize(GatewayLaunchSeed(admin_keys=(admin,)))
+    store.initialize(GatewayLaunchSeed(admin_keys=(admin,) if signed else ()))
     policy = GatewayAccessPolicy(store=store, target=lambda: target, current_self=lambda: None)
     calls: list[tuple[str, str]] = []
     issued_url = ""
     expiry = "2026-11-20T12:00:00.012345+00:00"
 
     class EntryHandler(_HealthHandler):
-        """Serve only the challenge and ticket paths expected by the client."""
+        """Serve the expected ticket route and the challenge route for signed requests."""
 
         def do_GET(self) -> None:
             """Record any unexpected follow or fallback."""
@@ -125,7 +126,7 @@ def test_web_entry_client_signs_only_issuance_and_keeps_native_results_private(
             self.send_error(404)
 
         def do_POST(self) -> None:
-            """Check exact signed scope before returning the configured response."""
+            """Check exact caller authority before returning the configured response."""
 
             calls.append(("POST", self.path))
             body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
@@ -133,6 +134,7 @@ def test_web_entry_client_signs_only_issuance_and_keeps_native_results_private(
                 "POST", "/v1/web/entry-ticket", "", b""
             )
             if self.path == "/v1/auth/challenge":
+                assert signed
                 challenge_request = GatewayChallengeRequest.model_validate_json(body)
                 assert challenge_request.purpose == "admin"
                 assert challenge_request.key_id == admin.key_id
@@ -144,6 +146,9 @@ def test_web_entry_client_signs_only_issuance_and_keeps_native_results_private(
                 return
             assert self.path == "/v1/web/entry-ticket"
             assert body == b""
+            if not signed:
+                assert self.headers.get(CHALLENGE_HEADER) is None
+                assert self.headers.get(SIGNATURE_HEADER) is None
             grant = policy.admit(
                 "private",
                 issuer=base,
@@ -151,7 +156,7 @@ def test_web_entry_client_signs_only_issuance_and_keeps_native_results_private(
                 challenge_id=self.headers.get(CHALLENGE_HEADER),
                 signature=self.headers.get(SIGNATURE_HEADER),
             )
-            assert grant.role == "admin"
+            assert grant.role == ("admin" if signed else "anonymous")
             if outcome == "redirect":
                 self.send_response(302)
                 self.send_header("Location", issued_url)
@@ -169,10 +174,16 @@ def test_web_entry_client_signs_only_issuance_and_keeps_native_results_private(
     with ThreadingHTTPServer(("127.0.0.1", 0), EntryHandler) as server:
         base = f"http://127.0.0.1:{server.server_port}"
         issued_url = f"{base}/v1/web/enter?ticket={'A' * 43}"
-        client = GatewayClient(
-            binding=GatewayClientBinding(
+        binding = (
+            GatewayClientBinding(
                 base_url=base, owner=owner, purpose="admin", private_key_path=str(signer)
-            ),
+            )
+            if signed
+            else None
+        )
+        client = GatewayClient(
+            base_url=base,
+            binding=binding,
             target_incarnation=target.incarnation,
             respect_proxy_env=False,
         )
@@ -191,12 +202,17 @@ def test_web_entry_client_signs_only_issuance_and_keeps_native_results_private(
                 expected = {
                     "redirect": "redirects are refused",
                     "native_url": "invalid Web entry ticket",
-                    "refused": "currently enrolled admin signer",
+                    "refused": (
+                        "currently enrolled admin signer"
+                        if signed
+                        else "Check its current access policy"
+                    ),
                 }[outcome]
                 assert expected in denied.value.detail
                 assert issued_url not in str(denied.value)
                 assert "native-secret" not in str(denied.value)
-            assert calls == [("POST", "/v1/auth/challenge"), ("POST", "/v1/web/entry-ticket")]
+            challenge_calls = [("POST", "/v1/auth/challenge")] if signed else []
+            assert calls == [*challenge_calls, ("POST", "/v1/web/entry-ticket")]
         finally:
             server.shutdown()
             worker.join(timeout=2)
@@ -205,17 +221,17 @@ def test_web_entry_client_signs_only_issuance_and_keeps_native_results_private(
 @pytest.mark.parametrize(
     ("base", "purpose", "proxy_env", "reason"),
     [
-        ("http://127.0.0.1:43123", None, False, "explicit enrolled gateway admin signer"),
-        ("http://127.0.0.1:43123", "self", False, "explicit enrolled gateway admin signer"),
+        ("http://127.0.0.1:43123", "self", False, "direct enrolled gateway admin signer"),
+        ("http://127.0.0.1:43123", None, True, "direct owner-local gateway"),
         ("http://127.0.0.1:43123", "admin", True, "direct owner-local gateway"),
         ("http://127.0.0.1:43123/prefix", "admin", False, "direct owner-local gateway"),
         ("https://gateway.example/agents/web", "admin", False, "direct owner-local gateway"),
     ],
 )
-def test_web_entry_client_requires_direct_admin_before_contacting_gateway(
+def test_web_entry_client_requires_direct_authority_before_contacting_gateway(
     base: str, purpose: str | None, proxy_env: bool, reason: str
 ) -> None:
-    """Reject unsigned, delegated, and proxy-selected issuance before signer access."""
+    """Reject self proof and proxy-selected issuance before signer access."""
 
     binding = None
     if purpose is not None:
@@ -229,6 +245,21 @@ def test_web_entry_client_requires_direct_admin_before_contacting_gateway(
         )
     client = GatewayClient(base_url=base, binding=binding, respect_proxy_env=proxy_env)
     with pytest.raises(ValueError, match=reason):
+        client.issue_web_entry_ticket()
+
+
+def test_web_entry_client_refuses_a_delegated_proof_source() -> None:
+    """Refuse to consult a relay proof source for Web entry."""
+
+    def unexpected_proof(method: str, path: str, body: bytes) -> dict[str, str]:
+        """Fail if Web ticket issuance asks for delegated authority."""
+
+        pytest.fail("Web entry consulted a delegated proof source")
+
+    client = GatewayClient(
+        base_url="http://127.0.0.1:43123", request_proof=unexpected_proof, respect_proxy_env=False
+    )
+    with pytest.raises(ValueError, match="direct enrolled gateway admin signer"):
         client.issue_web_entry_ticket()
 
 

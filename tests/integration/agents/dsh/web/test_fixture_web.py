@@ -96,8 +96,27 @@ def test_native_web_fixture_keeps_one_browser_api_session(
         observer = DshWebClient.from_connection(
             private["origin"], launch_token=private["launch_token"]
         )
-        browser = NativeBrowser.from_connection_file(connection_file)
+        browser_file = connection_file
+        if surface == "manager" and case == "self-hosted":
+            gateway = f"http://127.0.0.1:{run['identity']['gateway_port']}"
+            with httpx.Client(base_url=gateway, trust_env=False, timeout=10) as http:
+                assert http.get("/v1/endpoint").json()["admin_access"] == "open"
+                assert http.get("/v1/web/enter", follow_redirects=False).status_code == 302
+            browser_file = root / "gateway-browser-connection.json"
+            browser_file.write_text(
+                json.dumps(
+                    {
+                        "origin": state["origin"],
+                        "native_session_id": identity["native_session_id"],
+                        "gateway_entry_url": f"{gateway}/v1/web/enter",
+                    }
+                )
+            )
+            browser_file.chmod(0o600)
+        browser = NativeBrowser.from_connection_file(browser_file)
         assert browser.metadata["session_id"] == identity["native_session_id"]
+        assert browser.metadata["origin"] == state["origin"]
+        assert browser.metadata["clean_url"] is True
         browser.call("contains", text="Fixture first Web marker")
         browser.call("contains", text="Fixture second Web marker")
         browser.call("submit", text="Fixture human Web marker")

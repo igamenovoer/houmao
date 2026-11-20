@@ -51,7 +51,7 @@ Use the recorded managed ID for `houmao-mgr agents single --agent-id ID state` a
 
 ## Browser Entry and Exact Session Selection
 
-Open the owning gateway's `/v1/web/enter` page or ask the manager for a signed `gateway web-entry` link. After the gateway verifies the live DSH host and bound session, the intended browser receives the private native root destination. DSH exchanges `/?token=...` for its own HttpOnly browser cookie and redirects to the clean root URL. Keep sign-in links, credentials, and browser storage private. [Gateway Access](../gateway/operations/access.md).
+Open the owning gateway's `/v1/web/enter` URL. With an empty admin roster, the gateway redirects the browser into DSH after verifying the live host and bound session. With enrolled admins, the gateway shows the interactive sign-in page. The manager's `gateway web-entry` command also issues a one-time link under the live roster policy. DSH exchanges its private native root destination for an HttpOnly browser cookie and redirects to the clean root URL. Keep sign-in links, credentials, and browser storage private. [Gateway Access](../gateway/operations/access.md)
 
 The stock client opens at the origin and restores its own saved selection. It has no qualified `?sessionId=` deep-link contract. Select the exact native session from the sidebar, then verify it against the published native session identity before submitting browser work. Browser qualification clicks the native sidebar row keyed by that identity and verifies its selected state. Navigation to a different browser session does not retarget Houmao's programmatic binding.
 

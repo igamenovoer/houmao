@@ -1126,6 +1126,7 @@ def test_attach_and_detach_gateway_refreshes_registry_payload(
         presence_id="fixture-instance",
         advertised_url="https://gateway.example.org/agents/gpu",
         admin_access="open",
+        private_proof="none",
         public_operations=("messages", "public_prompt"),
     )
 
@@ -1182,6 +1183,11 @@ def test_attach_and_detach_gateway_refreshes_registry_payload(
     assert attached_record.gateway.port == 43123
     assert attached_record.gateway.owner_connect_url == "http://127.0.0.1:43123"
     assert attached_record.gateway.endpoint_descriptor == descriptor
+    older_record = attached_record.model_dump(mode="python")
+    older_record["gateway"]["endpoint_descriptor"].pop("private_proof")
+    legacy_gateway = type(attached_record).model_validate(older_record).gateway
+    assert legacy_gateway is not None and legacy_gateway.endpoint_descriptor is not None
+    assert legacy_gateway.endpoint_descriptor.private_proof == "self_or_admin"
 
     def _fake_detach_gateway_for_controller(controller: Any) -> GatewayControlResult:
         del controller

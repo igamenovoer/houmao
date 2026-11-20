@@ -72,14 +72,24 @@ async function execute(command: Command): Promise<Record<string, unknown>> {
         || origin.username || origin.password || origin.search || origin.hash || origin.pathname !== "/") {
         throw new Error("invalid_origin");
       }
-      if (typeof connection.launch_token !== "string" || !connection.launch_token) throw new Error("missing_token");
+      let signIn: URL;
+      if (connection.gateway_entry_url === undefined) {
+        if (typeof connection.launch_token !== "string" || !connection.launch_token) throw new Error("missing_token");
+        signIn = new URL(origin);
+        signIn.searchParams.set("token", connection.launch_token);
+      } else {
+        signIn = new URL(connection.gateway_entry_url);
+        if (signIn.protocol !== "http:" || signIn.hostname !== "127.0.0.1"
+          || signIn.username || signIn.password || signIn.search || signIn.hash
+          || signIn.pathname !== "/v1/web/enter" || connection.launch_token !== undefined) {
+          throw new Error("invalid_gateway_entry");
+        }
+      }
       stage = "browser_launch";
       browser = await chromium.launch({ headless: true, executablePath: installedBrowser() });
       context = await browser.newContext({ locale: "en-US", viewport: { width: 1440, height: 1000 } });
       page = await context.newPage();
       page.setDefaultTimeout(30_000);
-      const signIn = new URL(origin);
-      signIn.searchParams.set("token", connection.launch_token);
       stage = "sign_in";
       await page.goto(signIn.toString(), { waitUntil: "domcontentloaded" });
       await page.waitForURL((url) => url.origin === origin.origin && url.search === "" && url.hash === "");

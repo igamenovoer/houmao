@@ -358,7 +358,11 @@ def status_gateway_command(
 @click.command(name="web-entry")
 @_gateway_pair_port_option(help_text="Pair selection is unsupported for owner-local Web entry.")
 def web_entry_gateway_command(pair_port: int | None) -> None:
-    """Print a private, one-time browser URL and expiry. The URL is a bearer secret."""
+    """Print a private, one-time browser URL and expiry.
+
+    Open gateways accept unsigned requests. Keyed gateways require a configured
+    enrolled admin signer. The URL is a bearer secret.
+    """
 
     scope = get_managed_agent_scope_context()
     if scope is None or scope.scope != "single" or pair_port is not None:

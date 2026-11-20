@@ -74,7 +74,7 @@ houmao-mgr agents single --agent-id <id> gateway status [OPTIONS]
 
 ### `web-entry`
 
-Request a one-time browser entry link for a live managed Web agent with an attached gateway. Run the command in the execution owner's context with an enrolled admin signer selected by `admin_signer_path` in the gateway deployment.
+Request a one-time browser entry link for a live managed Web agent with an attached gateway. Run the command in the execution owner's context. A gateway with a valid empty admin roster issues the link without a signer. When keys are enrolled, select an enrolled admin signer with `admin_signer_path` in the gateway deployment.
 
 ```bash
 houmao-mgr agents single --agent-id "$agent_id" gateway web-entry

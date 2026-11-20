@@ -8,7 +8,7 @@ houmao-mgr agents single --agent-id "$agent_id" open-browser
 houmao-mgr agents single --agent-id "$agent_id" prompt --prompt 'Inspect the workspace.'
 ```
 
-The published browser surface contains a clean loopback origin and native session ID. `open-browser` opens the native UI from the owner execution context. For gateway entry, open the owning gateway's `/v1/web/enter` page or request a signed `gateway web-entry` link. [Gateway Access](../gateway/operations/access.md).
+The published browser surface contains a clean loopback origin and native session ID. `open-browser` opens the native UI from the owner execution context. The owning gateway's `/v1/web/enter` URL redirects to the verified Kimi Web destination with an empty admin roster and shows interactive sign-in with enrolled admins. The manager's `gateway web-entry` command also issues a one-time link under the live roster policy. [Gateway Access](../gateway/operations/access.md)
 
 The gateway verifies the Kimi listener, host, and exact conversation before handing off to `/sessions/<id>` with Kimi's private token fragment. The qualified Kimi Code `2.6.0` UI uses the fragment to authenticate and removes it from the URL while opening the bound conversation. Houmao's native API binding is independent of the browser session.
 

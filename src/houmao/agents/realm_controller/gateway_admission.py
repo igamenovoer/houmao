@@ -140,8 +140,8 @@ class GatewayOperation:
     access: AccessClass
 
     @property
-    def direct_admin(self) -> bool:
-        """Whether only a direct enrolled administrator may use this operation."""
+    def direct_web_entry(self) -> bool:
+        """Whether the operation requires direct owner-local Web entry authority."""
 
         return self.path == WEB_TICKET_PATH
 
@@ -256,7 +256,7 @@ class GatewayAdmissionMiddleware:
         headers = {name: request.headers.getlist(name) for name in _PROOF_HEADERS}
         signed = any(headers.values())
         try:
-            if operation.direct_admin and (headers[RELAY_HEADER] or headers[BACKING_HEADER]):
+            if operation.direct_web_entry and (headers[RELAY_HEADER] or headers[BACKING_HEADER]):
                 raise GatewayAccessError(403, "direct_admin_required")
             if operation.access == "public" and is_web_entry_path(operation.path) and signed:
                 raise GatewayAccessError(403, "interactive_web_proof_required")
@@ -369,7 +369,7 @@ def gateway_access_error_response(
             ("admin", "register")
             if operation.registration
             else ("admin",)
-            if operation.access == "admin" or operation.direct_admin
+            if operation.access == "admin" or operation.direct_web_entry
             else ("self", "admin")
         )
         detail.update(challenge_path=challenge_path, purposes=purposes)
