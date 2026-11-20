@@ -4,6 +4,23 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [3.0.0rc4] - 2026-11-20
+
+### Changed
+
+- **Unattended launch permissions.** Houmao fills omitted native permission settings with the broadest supported unattended defaults and honors explicit configurable tool parameters. To retain DSH's previous workspace boundary, set `tool_params.permissions.sandbox` to `workspace-write` in the specialist or launch profile. [Launch Policy](https://igamenovoer.github.io/houmao/reference/build-phase/launch-policy/)
+
+### Added
+
+- **Gateway browser entry.** Enrolled admins can open a live DSH or Kimi Web agent from the owner-local gateway. The browser offers a terminal command that signs a challenge locally. `gateway web-entry` issues a short-lived link for signed automation. [Gateway Access](https://igamenovoer.github.io/houmao/reference/gateway/operations/access/#open-a-live-web-agent)
+- **Operator manual.** Run `houmao-mgr manual` to find bundled guides for setup, launch, operations, communication, and coordination.
+- **Headless pane display options.** Choose `--headless-display-style` and `--headless-display-detail` on project launch or save them in a specialist-backed profile. Resume and relaunch use the instance's recorded settings. [Headless Display Options](https://igamenovoer.github.io/houmao/reference/cli/houmao-mgr/#headless-display-options)
+
+### Notes
+
+- Install with `uv tool install 'houmao==3.0.0rc4'`. For the matching public skills, use `npx skills add https://github.com/igamenovoer/houmao-skills#v3.0.0rc4`.
+- [Compare v3.0.0rc3 and v3.0.0rc4](https://github.com/igamenovoer/houmao/compare/v3.0.0rc3...v3.0.0rc4)
+
 ## [3.0.0rc3] - 2026-11-19
 
 ### Changed

@@ -1,6 +1,6 @@
 ---
 name: houmao-shared-routines
-houmao_version: "3.0.0rc3"
+houmao_version: "3.0.0rc4"
 description: Use when an advanced Houmao user explicitly wants direct access to an ordinary system routine, or when an admin or managed-agent entrypoint delegates project, credential, definition, mailbox, memory, messaging, gateway, workspace, inspection, lifecycle, graphing, or AG-UI work.
 license: MIT
 skill_invocation_notation: >
