@@ -5,9 +5,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, cast, get_args
 
 from houmao.agents.definition_parser import AgentPreset, parse_agent_preset
+from houmao.agents.realm_controller.backends.headless_output import (
+    HeadlessDisplayDetail,
+    HeadlessDisplayStyle,
+)
 from houmao.agents.realm_controller.run_modes import RUN_MODES, RunMode
 from houmao.project.catalog import (
     LaunchProfileCatalogEntry,
@@ -18,6 +22,9 @@ from houmao.project.catalog import (
 )
 from houmao.project.easy import TOOL_PROVIDER_MAP, SpecialistMetadata, load_specialist
 from houmao.project.overlay import HoumaoProjectOverlay
+
+HEADLESS_DISPLAY_STYLES: tuple[str, ...] = get_args(HeadlessDisplayStyle)
+HEADLESS_DISPLAY_DETAILS: tuple[str, ...] = get_args(HeadlessDisplayDetail)
 
 
 @dataclass(frozen=True)
@@ -82,6 +89,39 @@ def profile_run_mode(
     if mode not in RUN_MODES:
         raise ValueError(f"{source} defaults.posture.mode must be one of {choices}.")
     return cast(RunMode, mode)
+
+
+def profile_headless_display(
+    posture: Mapping[str, object], *, source: str
+) -> tuple[HeadlessDisplayStyle | None, HeadlessDisplayDetail | None]:
+    """Read the optional display settings and reject invalid authored values.
+
+    Parameters
+    ----------
+    posture
+        Stored launch profile posture.
+    source
+        Profile label to include in validation errors.
+
+    Returns
+    -------
+    tuple
+        The saved display style and detail, with `None` for each absent field.
+    """
+
+    style = posture.get("headless_display_style")
+    if "headless_display_style" in posture and style not in HEADLESS_DISPLAY_STYLES:
+        choices = ", ".join(HEADLESS_DISPLAY_STYLES)
+        raise ValueError(
+            f"{source} defaults.posture.headless_display_style must be one of {choices}."
+        )
+    detail = posture.get("headless_display_detail")
+    if "headless_display_detail" in posture and detail not in HEADLESS_DISPLAY_DETAILS:
+        choices = ", ".join(HEADLESS_DISPLAY_DETAILS)
+        raise ValueError(
+            f"{source} defaults.posture.headless_display_detail must be one of {choices}."
+        )
+    return cast(HeadlessDisplayStyle | None, style), cast(HeadlessDisplayDetail | None, detail)
 
 
 def list_resolved_launch_profiles(

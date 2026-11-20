@@ -37,6 +37,10 @@ from houmao.agents.model_selection import (
     model_config_to_payload,
     normalize_model_config,
 )
+from houmao.agents.realm_controller.backends.headless_output import (
+    HeadlessDisplayDetail,
+    HeadlessDisplayStyle,
+)
 from houmao.agents.realm_controller.gateway_models import (
     GatewayCurrentExecutionMode,
     GatewayTuiTrackingTimingOverridesV1,
@@ -76,6 +80,7 @@ from houmao.project.launch_profiles import (
     launch_profile_relaunch_payload,
     launch_profile_source_payload,
     list_resolved_launch_profiles,
+    profile_headless_display,
     profile_run_mode,
     resolve_launch_profile,
 )
@@ -1114,6 +1119,10 @@ def _resolve_profile_posture_mapping(
     gateway_port: int | None,
     tool: str,
     source: str,
+    headless_display_style: HeadlessDisplayStyle | None = None,
+    headless_display_detail: HeadlessDisplayDetail | None = None,
+    clear_headless_display_style: bool = False,
+    clear_headless_display_detail: bool = False,
 ) -> dict[str, Any]:
     """Resolve one persisted launch-posture mapping."""
 
@@ -1128,8 +1137,20 @@ def _resolve_profile_posture_mapping(
         payload.pop("mode", None)
     if mode is not None:
         payload["mode"] = mode
+    for field, value, clear in (
+        ("headless_display_style", headless_display_style, clear_headless_display_style),
+        ("headless_display_detail", headless_display_detail, clear_headless_display_detail),
+    ):
+        if clear and value is not None:
+            flag = field.replace("_", "-")
+            raise click.ClickException(f"`--{flag}` cannot be combined with `--clear-{flag}`.")
+        if clear:
+            payload.pop(field, None)
+        elif value is not None:
+            payload[field] = value
     try:
         profile_run_mode(payload, tool=tool, source=source)
+        profile_headless_display(payload, source=source)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from None
 
@@ -1501,6 +1522,10 @@ def _store_launch_profile_from_cli(
     clear_prompt_mode: bool,
     tool_params: str | None = None,
     clear_tool_params: bool = False,
+    headless_display_style: HeadlessDisplayStyle | None = None,
+    headless_display_detail: HeadlessDisplayDetail | None = None,
+    clear_headless_display_style: bool = False,
+    clear_headless_display_detail: bool = False,
 ) -> dict[str, object]:
     """Create or update one catalog-backed launch profile from CLI inputs."""
 
@@ -1655,6 +1680,10 @@ def _store_launch_profile_from_cli(
             current=None,
             mode=mode,
             clear_mode=clear_mode,
+            headless_display_style=headless_display_style,
+            headless_display_detail=headless_display_detail,
+            clear_headless_display_style=clear_headless_display_style,
+            clear_headless_display_detail=clear_headless_display_detail,
             no_gateway=no_gateway,
             gateway_port=gateway_port,
             tool=source.tool,
@@ -1768,6 +1797,10 @@ def _store_launch_profile_from_cli(
             current=current.entry.posture_payload,
             mode=mode,
             clear_mode=clear_mode,
+            headless_display_style=headless_display_style,
+            headless_display_detail=headless_display_detail,
+            clear_headless_display_style=clear_headless_display_style,
+            clear_headless_display_detail=clear_headless_display_detail,
             no_gateway=no_gateway,
             gateway_port=gateway_port,
             tool=source.tool,
@@ -1877,6 +1910,10 @@ def _store_launch_profile_from_cli(
             clear_mailbox,
             mode is not None,
             clear_mode,
+            headless_display_style is not None,
+            headless_display_detail is not None,
+            clear_headless_display_style,
+            clear_headless_display_detail,
             no_gateway,
             managed_header is not None,
             clear_managed_header,

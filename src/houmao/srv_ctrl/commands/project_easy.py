@@ -5,10 +5,19 @@ from __future__ import annotations
 import json
 
 from houmao.agents.realm_controller.agent_identity import AgentIdMode
+from houmao.agents.realm_controller.backends.headless_output import (
+    HeadlessDisplayDetail,
+    HeadlessDisplayStyle,
+)
 from houmao.agents.realm_controller.errors import LaunchPlanError, SessionManifestError
 from houmao.agents.realm_controller.gateway_access_runtime import load_gateway_admin_seed
 from houmao.agents.realm_controller.run_modes import RUN_MODES, RunMode, resolve_run_mode
-from houmao.project.launch_profiles import profile_run_mode
+from houmao.project.launch_profiles import (
+    HEADLESS_DISPLAY_DETAILS,
+    HEADLESS_DISPLAY_STYLES,
+    profile_headless_display,
+    profile_run_mode,
+)
 
 # ruff: noqa: F403,F405
 from .project_common import *
@@ -140,6 +149,18 @@ def easy_profile_group() -> None:
     default=None,
     help="Persist the run mode for launches from this profile.",
 )
+@click.option(
+    "--headless-display-style",
+    type=click.Choice(HEADLESS_DISPLAY_STYLES),
+    default=None,
+    help="Persist the live pane style for headless launches.",
+)
+@click.option(
+    "--headless-display-detail",
+    type=click.Choice(HEADLESS_DISPLAY_DETAILS),
+    default=None,
+    help="Persist the live pane detail for headless launches.",
+)
 @click.option("--no-gateway", is_flag=True, help="Persist gateway auto-attach disabled.")
 @click.option(
     "--managed-header/--no-managed-header",
@@ -248,6 +269,8 @@ def create_easy_profile_command(
     memo_seed_dir: Path | None,
     yes: bool,
     tool_params: str | None = None,
+    headless_display_style: HeadlessDisplayStyle | None = None,
+    headless_display_detail: HeadlessDisplayDetail | None = None,
 ) -> None:
     """Create one specialist-backed project profile."""
 
@@ -293,6 +316,8 @@ def create_easy_profile_command(
         mail_management_url=mail_management_url,
         mode=mode,
         clear_mode=False,
+        headless_display_style=headless_display_style,
+        headless_display_detail=headless_display_detail,
         no_gateway=no_gateway,
         managed_header=managed_header,
         clear_managed_header=False,
@@ -455,6 +480,28 @@ def create_easy_profile_command(
     help="Persist the run mode for launches from this profile.",
 )
 @click.option("--clear-mode", is_flag=True, help="Clear the stored run mode.")
+@click.option(
+    "--headless-display-style",
+    type=click.Choice(HEADLESS_DISPLAY_STYLES),
+    default=None,
+    help="Persist the live pane style for headless launches.",
+)
+@click.option(
+    "--clear-headless-display-style",
+    is_flag=True,
+    help="Clear the stored headless live pane style.",
+)
+@click.option(
+    "--headless-display-detail",
+    type=click.Choice(HEADLESS_DISPLAY_DETAILS),
+    default=None,
+    help="Persist the live pane detail for headless launches.",
+)
+@click.option(
+    "--clear-headless-display-detail",
+    is_flag=True,
+    help="Clear the stored headless live pane detail.",
+)
 @click.option("--no-gateway", is_flag=True, help="Persist gateway auto-attach disabled.")
 @click.option(
     "--managed-header/--no-managed-header",
@@ -608,6 +655,10 @@ def set_easy_profile_command(
     clear_memo_seed: bool,
     tool_params: str | None = None,
     clear_tool_params: bool = False,
+    headless_display_style: HeadlessDisplayStyle | None = None,
+    headless_display_detail: HeadlessDisplayDetail | None = None,
+    clear_headless_display_style: bool = False,
+    clear_headless_display_detail: bool = False,
 ) -> None:
     """Update one specialist-backed project profile."""
 
@@ -654,6 +705,10 @@ def set_easy_profile_command(
         mail_management_url=mail_management_url,
         mode=mode,
         clear_mode=clear_mode,
+        headless_display_style=headless_display_style,
+        headless_display_detail=headless_display_detail,
+        clear_headless_display_style=clear_headless_display_style,
+        clear_headless_display_detail=clear_headless_display_detail,
         no_gateway=no_gateway,
         managed_header=managed_header,
         clear_managed_header=clear_managed_header,
@@ -1825,6 +1880,16 @@ def easy_instance_group() -> None:
     help="Select the run mode for this launch.",
 )
 @click.option(
+    "--headless-display-style",
+    type=click.Choice(HEADLESS_DISPLAY_STYLES),
+    help="Override the live pane style for this headless launch.",
+)
+@click.option(
+    "--headless-display-detail",
+    type=click.Choice(HEADLESS_DISPLAY_DETAILS),
+    help="Override the live pane detail for this headless launch.",
+)
+@click.option(
     "--no-gateway",
     is_flag=True,
     help="Skip the default launch-time gateway attach for this instance.",
@@ -1973,6 +2038,8 @@ def launch_easy_instance_command(
     executor: str | None,
     gateway_admin_seed_path: Path | None = None,
     tool_params: str | None = None,
+    headless_display_style: HeadlessDisplayStyle | None = None,
+    headless_display_detail: HeadlessDisplayDetail | None = None,
 ) -> None:
     """Launch one managed-agent instance from a compiled specialist definition."""
 
@@ -2018,6 +2085,8 @@ def launch_project_agent(
     force_mode: str | None,
     gateway_admin_seed_path: Path | None = None,
     tool_params: str | None = None,
+    headless_display_style: HeadlessDisplayStyle | None = None,
+    headless_display_detail: HeadlessDisplayDetail | None = None,
 ) -> None:
     """Launch one managed-agent instance from a compiled specialist definition."""
 
@@ -2069,6 +2138,8 @@ def launch_project_agent(
     default_gateway_host: str | None = "127.0.0.1"
     default_gateway_port: int | None = 0
     stored_mode: RunMode | None = None
+    stored_display_style: HeadlessDisplayStyle | None = None
+    stored_display_detail: HeadlessDisplayDetail | None = None
     if profile is not None:
         resolved_profile = _load_launch_profile_or_click(
             overlay=overlay,
@@ -2184,6 +2255,31 @@ def launch_project_agent(
     except LaunchPlanError as exc:
         raise ProjectRunModePreflightError(str(exc)) from None
 
+    if resolved_profile is not None:
+        try:
+            stored_display_style, stored_display_detail = profile_headless_display(
+                resolved_profile.entry.posture_payload,
+                source=f"Project profile {resolved_profile.entry.name!r}",
+            )
+        except ValueError as exc:
+            raise ProjectRunModePreflightError(str(exc)) from None
+
+    display_style = headless_display_style or stored_display_style
+    display_detail = headless_display_detail or stored_display_detail
+    if selection.mode != "headless" and (display_style is not None or display_detail is not None):
+        options = ", ".join(
+            flag
+            for flag, value in (
+                ("--headless-display-style", display_style),
+                ("--headless-display-detail", display_detail),
+            )
+            if value is not None
+        )
+        raise ProjectRunModePreflightError(
+            f"Headless display settings ({options}) require headless mode. "
+            f"The launch resolves to {selection.mode!r}."
+        )
+
     direct_tool_params = (
         _tool_params_or_click(specialist_metadata.tool, tool_params, source="launch --tool-params")
         if tool_params is not None
@@ -2286,8 +2382,8 @@ def launch_project_agent(
         working_directory=working_directory,
         source_working_directory=overlay.project_root,
         source_agent_def_dir=source_agent_def_dir,
-        headless_display_style="plain",
-        headless_display_detail="concise",
+        headless_display_style=display_style or "plain",
+        headless_display_detail=display_detail or "concise",
         launch_env_overrides=launch_env_overrides,
         gateway_auto_attach=gateway_auto_attach,
         gateway_admin_seed=gateway_admin_seed,

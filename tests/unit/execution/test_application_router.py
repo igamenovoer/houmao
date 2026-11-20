@@ -369,13 +369,23 @@ def test_owner_launch_reuses_shared_service_and_output_collector(
 
     monkeypatch.setattr(project_easy, "launch_project_agent", launch)
     result = application.dispatch_operation(
-        ExecutionRequestV1(operation="launch", arguments={"profile": "reviewer", "mode": "tui"}),
+        ExecutionRequestV1(
+            operation="launch",
+            arguments={
+                "profile": "reviewer",
+                "mode": "headless",
+                "headless_display_style": "json",
+                "headless_display_detail": "detail",
+            },
+        ),
         boundary.binding,
         boundary.policy,
     )
     assert result["agent_id"] == "agent-1"
     assert len(seen) == 1 and seen[0]["profile"] == "reviewer"
-    assert seen[0]["mode"] == "tui"
+    assert seen[0]["mode"] == "headless"
+    assert seen[0]["headless_display_style"] == "json"
+    assert seen[0]["headless_display_detail"] == "detail"
     assert seen[0]["workdir"] == Path(boundary.profile.project_root)
     assert "executor" not in seen[0]
 
@@ -438,8 +448,19 @@ def test_owner_loads_tool_params_from_the_target_project(
     assert result["agent_id"] == "agent-1"
 
 
-def test_owner_rejects_unsupported_run_mode_before_force_launch(
-    boundary: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("mode", "display_settings", "message"),
+    [
+        ("tui", {}, r"dsh.*tui.*web"),
+        ("web", {"headless_display_detail": "detail"}, r"--headless-display-detail.*'web'"),
+    ],
+)
+def test_owner_rejects_invalid_launch_posture_before_force_launch(
+    boundary: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    display_settings: dict[str, str],
+    message: str,
 ) -> None:
     """An unsupported owner-side selection leaves the launch target untouched."""
 
@@ -465,14 +486,15 @@ def test_owner_rejects_unsupported_run_mode_before_force_launch(
             "name": "reviewer",
             "agent_id": "agent-1",
             "force_mode": "clean",
-            "mode": "tui",
+            "mode": mode,
+            **display_settings,
         },
     )
 
-    with pytest.raises(OwnerAdmissionError, match=r"dsh.*tui.*web") as error:
+    with pytest.raises(OwnerAdmissionError, match=message) as error:
         application.dispatch_operation(request, boundary.binding, boundary.policy)
     assert error.value.code == "invalid_run_mode"
-    with pytest.raises(click.ClickException, match=r"dsh.*tui.*web"):
+    with pytest.raises(click.ClickException, match=message):
         router.require_execution_result(
             ExecutionResponseV1(
                 request_id=request.request_id,

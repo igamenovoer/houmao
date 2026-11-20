@@ -74,7 +74,7 @@ A launch profile may store, with no inline secrets:
 - secret-free partial `tool_params` for the source tool,
 - managed system-skill policy for packaged Houmao-owned skills,
 - declarative mailbox configuration (transport, root, address, principal id, and Stalwart-only fields when applicable),
-- launch posture defaults (optional `defaults.posture.mode`, gateway auto-attach, fixed loopback gateway port),
+- launch posture defaults (optional `defaults.posture.mode`, headless pane display, gateway auto-attach, fixed loopback gateway port),
 - an optional gateway mail-notifier appendix default,
 - a relaunch-only provider chat-session policy for future selected-agent `agents single ... relaunch` operations,
 - a managed prompt-header whole-header policy (`inherit`, `enabled`, or `disabled`) plus optional per-section policy (`identity`, `memo-cue`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack` set to `enabled` or `disabled`),
@@ -119,6 +119,46 @@ Rules:
 - Live runtime mutations such as late filesystem mailbox registration are runtime-owned. They affect the running session and the runtime manifest, but they never rewrite the stored launch profile.
 - For project profiles, the easy lane compiles down through the same five layers — the specialist resolves into a recipe-backed source layer before the launch-profile layer applies.
 - Managed system-skill policy resolves as a source/profile pair before the managed home is built. Source specialists and recipes default to the managed `agent` pack; launch profiles default to inheriting the source's effective pack selection.
+
+## Headless Pane Display
+
+Use a specialist-backed project profile to save how Houmao renders live headless events in the managed tmux pane. For an existing specialist named `worker` that supports headless mode, create a profile with `fancy` style and the `detail` level.
+
+```bash
+houmao-mgr project profile create \
+  --name worker-display \
+  --specialist worker \
+  --agent-name display-worker \
+  --mode headless \
+  --headless-display-style fancy \
+  --headless-display-detail detail
+```
+
+Inspect the saved values with `houmao-mgr --print-json project profile get --name worker-display`. The command output and the profile's YAML projection show the authored values under `defaults.posture`.
+
+```yaml
+defaults:
+  posture:
+    mode: headless
+    headless_display_style: fancy
+    headless_display_detail: detail
+```
+
+Each field resolves independently. A launch flag takes precedence over the corresponding saved value. An unset style defaults to `plain` and an unset detail defaults to `concise`. This launch uses `json` style and the saved `detail` setting.
+
+```bash
+houmao-mgr project agents launch --profile worker-display --headless-display-style json
+```
+
+Use `project profile set` to update saved values. To remove only the saved detail, run the following command. Future launches from the profile keep the saved `fancy` style and fall back to `concise` detail unless you pass `--headless-display-detail`.
+
+```bash
+houmao-mgr project profile set --name worker-display --clear-headless-display-detail
+```
+
+Display settings require the resolved run mode to be `headless`. Select it with `--mode headless` or save it in the profile as shown above. Houmao rejects both direct and inherited display settings if the resolved mode is `tui`, `service`, or `web`.
+
+Houmao records the effective style and detail in the instance's runtime manifest and uses those values when the same instance resumes or relaunches. A fresh launch resolves them again from the current profile and launch flags. [Headless Display Options](../reference/cli/houmao-mgr.md#headless-display-options)
 
 ## Managed System-Skill Policy
 

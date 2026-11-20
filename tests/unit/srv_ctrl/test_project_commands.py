@@ -4947,6 +4947,126 @@ def test_project_profile_rejects_removed_system_skill_selector(
     assert not (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").exists()
 
 
+def test_project_profile_headless_display_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Persist, inspect, edit and clear each headless display field independently."""
+
+    runner, repo_root, _auth_json_path = _bootstrap_codex_researcher_project(monkeypatch, tmp_path)
+    projection_path = repo_root / ".houmao" / "agents" / "launch-profiles" / "worker.yaml"
+    catalog = ProjectCatalog.from_overlay(require_project_overlay(repo_root))
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "profile",
+            "create",
+            "--name",
+            "worker",
+            "--specialist",
+            "researcher",
+            "--mode",
+            "headless",
+            "--no-gateway",
+            "--headless-display-style",
+            "fancy",
+            "--headless-display-detail",
+            "detail",
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+
+    def assert_posture(**display: str) -> None:
+        """Compare catalog, inspection and YAML projections of the saved posture."""
+
+        expected = {"mode": "headless", "gateway_auto_attach": False, **display}
+        get_result = runner.invoke(cli, ["project", "profile", "get", "--name", "worker"])
+        assert get_result.exit_code == 0, get_result.output
+        assert json.loads(get_result.output)["defaults"]["posture"] == expected
+        projection = yaml.safe_load(projection_path.read_text(encoding="utf-8"))
+        assert projection["defaults"]["posture"] == expected
+        assert catalog.load_launch_profile("worker").posture_payload == expected
+
+    def update_profile(*flags: str) -> None:
+        """Apply an update that supplies only display flags."""
+
+        result = runner.invoke(cli, ["project", "profile", "set", "--name", "worker", *flags])
+        assert result.exit_code == 0, result.output
+
+    assert_posture(headless_display_style="fancy", headless_display_detail="detail")
+    update_profile("--headless-display-style", "json")
+    assert_posture(headless_display_style="json", headless_display_detail="detail")
+    update_profile("--clear-headless-display-detail")
+    assert_posture(headless_display_style="json")
+    update_profile("--headless-display-detail", "concise", "--clear-headless-display-style")
+    assert_posture(headless_display_detail="concise")
+    update_profile("--clear-headless-display-detail")
+    assert_posture()
+
+
+@pytest.mark.parametrize(
+    ("options", "diagnostic"),
+    [
+        (
+            ["--headless-display-style", "plain", "--clear-headless-display-style"],
+            "`--headless-display-style` cannot be combined with `--clear-headless-display-style`",
+        ),
+        (
+            ["--headless-display-detail", "concise", "--clear-headless-display-detail"],
+            "`--headless-display-detail` cannot be combined with `--clear-headless-display-detail`",
+        ),
+        (
+            ["--headless-display-style", "unsupported"],
+            "Invalid value for '--headless-display-style'",
+        ),
+        (
+            ["--headless-display-detail", "unsupported"],
+            "Invalid value for '--headless-display-detail'",
+        ),
+    ],
+)
+def test_project_profile_headless_display_rejects_invalid_update(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    options: list[str],
+    diagnostic: str,
+) -> None:
+    """Reject invalid values and conflicting options before changing saved data."""
+
+    runner, repo_root, _auth_json_path = _bootstrap_codex_researcher_project(monkeypatch, tmp_path)
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "profile",
+            "create",
+            "--name",
+            "worker",
+            "--specialist",
+            "researcher",
+            "--headless-display-style",
+            "json",
+            "--headless-display-detail",
+            "detail",
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+    projection_path = repo_root / ".houmao" / "agents" / "launch-profiles" / "worker.yaml"
+    original_projection = projection_path.read_bytes()
+
+    result = runner.invoke(cli, ["project", "profile", "set", "--name", "worker", *options])
+
+    assert result.exit_code != 0
+    assert diagnostic in result.output
+    assert projection_path.read_bytes() == original_projection
+    catalog = ProjectCatalog.from_overlay(require_project_overlay(repo_root))
+    assert catalog.load_launch_profile("worker").posture_payload == {
+        "headless_display_style": "json",
+        "headless_display_detail": "detail",
+    }
+
+
 def test_project_profile_set_patches_defaults_and_preserves_prompt_overlay(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -5231,6 +5351,10 @@ def test_project_profile_create_yes_replaces_and_clears_omitted_defaults(
             "researcher",
             "--workdir",
             "/repos/alice",
+            "--headless-display-style",
+            "plain",
+            "--headless-display-detail",
+            "concise",
             "--system-skill-pack",
             "agent",
             "--mail-transport",
@@ -5254,6 +5378,10 @@ def test_project_profile_create_yes_replaces_and_clears_omitted_defaults(
         ],
     )
     assert create_result.exit_code == 0, create_result.output
+    assert json.loads(create_result.output)["defaults"]["posture"] == {
+        "headless_display_style": "plain",
+        "headless_display_detail": "concise",
+    }
 
     replace_result = runner.invoke(
         cli,
@@ -5279,6 +5407,7 @@ def test_project_profile_create_yes_replaces_and_clears_omitted_defaults(
     assert "system_skills" not in replace_payload["defaults"]
     assert "prompt_overlay" not in replace_payload["defaults"]
     assert "memo_seed" not in replace_payload["defaults"]
+    assert "posture" not in replace_payload["defaults"]
     assert "relaunch" not in replace_payload
 
     projection = yaml.safe_load(
@@ -5292,6 +5421,7 @@ def test_project_profile_create_yes_replaces_and_clears_omitted_defaults(
     assert "system_skills" not in projection["defaults"]
     assert "prompt_overlay" not in projection["defaults"]
     assert "memo_seed" not in projection["defaults"]
+    assert "posture" not in projection["defaults"]
     assert "relaunch" not in projection
 
 

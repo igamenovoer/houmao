@@ -469,7 +469,8 @@ When name flags are omitted, `set` uses the bundle's recorded names. Use `--clea
 - Optional birth-time defaults: `--agent-name`, `--agent-id`, `--workdir`, `--auth`, `--prompt-mode {unattended|as_is}`, `--model`, `--reasoning-level`, repeatable `--env-set NAME=value`, managed system-skill flags (`--system-skill-pack admin|agent`, `--system-skills-mode {inherit|extend|replace|none}`, `--no-system-skills`), mailbox flags (`--mail-transport {filesystem|stalwart}`, `--mail-principal-id`, `--mail-address`, `--mail-root`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url`), launch posture flags (`--mode {headless|service|tui|web}`, `--no-gateway`, `--gateway-port`), relaunch chat-session flags (`--relaunch-chat-session-mode {new|tool_last_or_new|exact}`, `--relaunch-chat-session-id`), managed-header flags (`--managed-header`, `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled`), prompt-overlay flags (`--prompt-overlay-mode {append|replace}`, `--prompt-overlay-text`, `--prompt-overlay-file`), `--gateway-mail-notifier-appendix-text`, and memo-seed flags (`--memo-seed-text`, `--memo-seed-file`, `--memo-seed-dir`).
 - For Kimi-backed profiles, `--prompt-mode unattended` is the supported managed no-question control and applies independently to the selected run mode. Use `--prompt-mode as_is` only when the provider's normal approval posture should remain in charge.
 - `project profile create` rejects an existing profile name by default. Passing `--yes` confirms same-lane replacement of an existing project profile; replacement uses create semantics, so omitted optional fields are cleared instead of preserved. `--yes` does not allow replacing an explicit launch profile with an project profile.
-- `project profile set --name <profile>` patches stored defaults on an existing project profile while preserving unspecified fields. It accepts the same stored-default field families as explicit `launch-profiles set`, including clear flags such as `--clear-agent-name`, `--clear-agent-id`, `--clear-workdir`, `--clear-auth`, `--clear-prompt-mode`, `--clear-env`, `--clear-system-skills`, `--clear-mailbox`, `--clear-mode`, `--clear-relaunch-chat-session`, `--clear-managed-header`, `--clear-managed-header-section`, `--clear-managed-header-sections`, `--clear-prompt-overlay`, `--clear-gateway-mail-notifier-appendix`, and `--clear-memo-seed`.
+- `project profile set --name <profile>` patches stored defaults on an existing project profile while preserving unspecified fields. Clear flags include `--clear-agent-name`, `--clear-agent-id`, `--clear-workdir`, `--clear-auth`, `--clear-prompt-mode`, `--clear-env`, `--clear-system-skills`, `--clear-mailbox`, `--clear-mode`, `--clear-relaunch-chat-session`, `--clear-managed-header`, `--clear-managed-header-section`, `--clear-managed-header-sections`, `--clear-prompt-overlay`, `--clear-gateway-mail-notifier-appendix`, and `--clear-memo-seed`.
+- Use `project profile create` or `set` to store a live headless pane style and detail level. [Headless Display Options](#headless-display-options)
 - Easy-profile managed system-skill policy follows the shared launch-profile rules: omitted means inherit from the specialist/recipe source, pack selectors without mode infer `extend`, `replace` stores exact pack selection, and `none` disables Houmao system-skill packs for future launches.
 - Project profiles support the same stored notifier appendix default as native launch dossiers through `--gateway-mail-notifier-appendix-text`; launches seed it into runtime gateway notifier state without enabling polling.
 - Easy-profile memo seed semantics match native launch dossiers: stored seeds replace only represented memo/pages components, and `--clear-memo-seed` removes stored seed configuration rather than seeding an empty memo.
@@ -516,6 +517,33 @@ When name flags are omitted, `set` uses the bundle's recorded names. Use `--clea
 - when the managed session starts but launch-time gateway attach fails afterward, the command still reports the live session identity and manifest path, includes `gateway_auto_attach_error`, and exits with degraded-success status code `2`.
 - Project-backed launch also accepts `--workdir`; the selected project stays authoritative for overlay-local defaults even if the runtime cwd points somewhere else.
 - `agents self join` uses `--workdir` instead of `--working-directory`; when omitted, the adopted cwd comes from tmux window `0`, pane `0`.
+
+#### Headless Display Options
+
+`project profile create|set` saves these settings for future launches. `project agents launch` accepts the same flags as one-shot overrides with either `--specialist` or `--profile`.
+
+| Flag | Values | Fallback |
+|---|---|---|
+| `--headless-display-style` | `plain`, `json`, `fancy` | `plain` |
+| `--headless-display-detail` | `concise`, `detail` | `concise` |
+
+Each field uses the launch flag, then the stored profile value, then its fallback. Houmao rejects a direct or inherited display value if the resolved run mode is `tui`, `service`, or `web`. Use `--mode headless` when the tool supports headless mode.
+
+On an existing profile named `worker-display`, the following commands save `fancy` and `detail`, launch an instance with `json` and `detail`, then clear only the saved detail setting.
+
+```bash
+houmao-mgr project profile set --name worker-display \
+  --mode headless --headless-display-style fancy --headless-display-detail detail
+houmao-mgr project agents launch --profile worker-display --name display-worker \
+  --headless-display-style json
+houmao-mgr project profile set --name worker-display --clear-headless-display-detail
+```
+
+Use `--clear-headless-display-style` to clear just the saved style. A `set` command rejects setting and clearing the same field together. `project profile get` shows authored values under `defaults.posture`. The runtime manifest records the effective values under `launch_plan.metadata` and supplies them when the instance resumes or relaunches.
+
+`plain` and `fancy` omit reasoning text at `concise` detail and show provider-supplied reasoning at `detail`. `json` prints canonical events at both detail levels, including reasoning events when available. JSON `detail` adds `provider_event_type` and `raw` fields to each event payload.
+
+These flags configure the live headless tmux pane. Use `--print-json` for structured CLI responses and `turn events --detail detail` for detailed event replay. [Output Style](#output-style) · [Turn Events](agents-turn.md#events)
 
 #### Tool Parameter Options
 
