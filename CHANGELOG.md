@@ -4,6 +4,23 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [3.0.0rc5] - 2026-11-20
+
+### Changed
+
+- **Empty-roster access.** An agent with a valid empty admin roster accepts anonymous calls to enabled private and admin operations on its gateway and through selected-agent passive routes. The first key restores signed access. Enroll a key before upgrading any reachable gateway whose callers should require proof. [Gateway Access](https://igamenovoer.github.io/houmao/reference/gateway/operations/access/)
+- **Web entry.** The bare owner-local entry URL opens the live DSH or Kimi Web interface directly with an empty roster. The scoped `gateway web-entry` command can request its usual one-time link unsigned in that mode.
+- **Endpoint metadata.** Strict consumers of the gateway descriptor should accept `private_proof` values `none` for open policy and `unavailable` when required policy cannot be read.
+
+### Fixed
+
+- **Interactive key paths.** The Web login form trims surrounding whitespace before handling the local private-key path. A field that becomes empty selects the local SSH agent. [Issue #89](https://github.com/igamenovoer/houmao/issues/89)
+
+### Notes
+
+- Restart running gateways after upgrading. Install with `uv tool install 'houmao==3.0.0rc5'`. For the matching public skills, use `npx skills add https://github.com/igamenovoer/houmao-skills#v3.0.0rc5`.
+- [Compare v3.0.0rc4 and v3.0.0rc5](https://github.com/igamenovoer/houmao/compare/v3.0.0rc4...v3.0.0rc5)
+
 ## [3.0.0rc4] - 2026-11-20
 
 ### Changed
