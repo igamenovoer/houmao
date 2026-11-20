@@ -10,7 +10,7 @@ Houmao manager CLI for local projects and managed-agent workflows.
 houmao-mgr [--version] [--print-plain | --print-json | --print-fancy] COMMAND [ARGS]...
 ```
 
-The root help surface for `houmao-mgr --help` and bare `houmao-mgr` invocation includes a direct pointer to the published detailed docs site at `https://igamenovoer.github.io/houmao/`.
+Both `houmao-mgr --help` and bare `houmao-mgr` point to the packaged operator manual and the published documentation site at `https://igamenovoer.github.io/houmao/`.
 
 ## Root Options
 
@@ -40,6 +40,18 @@ Resolution precedence: explicit CLI flag → `HOUMAO_CLI_PRINT_STYLE` → `plain
 Scripts and automation that previously relied on JSON-by-default output must add `--print-json` or set `HOUMAO_CLI_PRINT_STYLE=json` to preserve machine-readable output.
 
 ## Command Groups
+
+### `manual`
+
+The packaged manual gives agents concise workflow guidance, from choosing a launch target to verifying a worker's result. It works offline from any directory, including before project setup, and works without the Houmao system skills.
+
+```text
+houmao-mgr manual
+houmao-mgr manual start
+houmao-mgr manual start first-agent
+```
+
+The first command opens the index, the second lists the guides in the `start` catalog, and the third reads one page. Use the manual for operating decisions and each command's `--help` for its arguments and options. The root `--print-json` option returns the selected `path` and Markdown `content`.
 
 ### `admin` — Administrative commands
 

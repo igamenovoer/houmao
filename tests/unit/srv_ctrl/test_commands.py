@@ -103,6 +103,7 @@ def test_top_level_command_inventory_exposes_new_native_surface() -> None:
         "agents",
         "internals",
         "mailbox",
+        "manual",
         "project",
         "system-skills",
     }
@@ -118,6 +119,7 @@ def test_bare_invocation_prints_help() -> None:
     assert "internals" in result.output
     assert "mailbox" in result.output
     assert "system-skills" in result.output
+    assert "houmao-mgr manual" in result.output
     assert "More detailed docs:" in result.output
     assert _HOUMAO_DOCS_URL in result.output
     assert "cao" not in result.output
@@ -129,6 +131,7 @@ def test_root_help_lists_version_flag() -> None:
 
     assert result.exit_code == 0
     assert "--version" in result.output
+    assert "houmao-mgr manual" in result.output
     assert "More detailed docs:" in result.output
     assert _HOUMAO_DOCS_URL in result.output
 
