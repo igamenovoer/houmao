@@ -528,8 +528,9 @@ def _prepare_project(
         "default",
         "--system-prompt-file",
         str(assets / "roles" / role / "system-prompt.md"),
-        "--no-system-skills",
     ]
+    if config.system_skill_policy == "none":
+        args.append("--no-system-skills")
     if config.operator_prompt_mode == "as_is":
         args.append("--no-unattended")
     if config.model:

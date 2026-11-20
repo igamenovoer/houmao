@@ -4,13 +4,31 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import time
+from typing import Literal
 
 import pytest
+import yaml
+
+from houmao.agents.realm_controller.backends.local_interactive import LocalInteractiveSession
+from houmao.agents.realm_controller.manifest import load_session_manifest
+from houmao.agents.system_skill_manifest import load_system_skill_manifest
+from houmao.agents.system_skills import discover_installed_system_skills
+
+
+def _wait_for_stub(self: LocalInteractiveSession, **_kwargs: object) -> None:
+    """Use the harmless child's handshake in place of vendor process names."""
+
+    output = self._plan.working_directory / "effective-env.json"
+    deadline = time.monotonic() + 10
+    while not output.is_file() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert output.is_file(), "The harmless provider process did not start"
 
 
 def test_fixture_refuses_raw_kimi_web_before_preparing_run(tmp_path: Path) -> None:
@@ -52,6 +70,100 @@ def test_fixture_refuses_raw_kimi_web_before_preparing_run(tmp_path: Path) -> No
     assert not run_root.exists()
 
 
+@pytest.mark.parametrize("policy", ["default", "none"])
+def test_manager_fixture_launch_projects_selected_system_skills(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, policy: Literal["default", "none"]
+) -> None:
+    """Managed launch installs the agent pack unless fixture preparation opts out."""
+
+    if shutil.which("tmux") is None:
+        pytest.skip("tmux is required for managed fixture launches")
+    helper = Path(__file__).resolve().parents[3] / "scripts/agents/test-fixtures/fixture.py"
+    monkeypatch.syspath_prepend(str(helper.parent))
+    launch = importlib.import_module("fixturelib.launch")
+    monkeypatch.setattr(LocalInteractiveSession, "_wait_for_provider_tui", _wait_for_stub)
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("HOUMAO_TEST_") and key not in {"TMUX", "TMUX_PANE"}
+    }
+    env["HOUMAO_TEST_SELF_HOSTED_API_KEY"] = "synthetic-fixture-key"
+    executable = tmp_path / "harmless-codex"
+    executable.write_text(
+        f"#!{sys.executable}\n"
+        "import pathlib, sys, time\n"
+        "if '--version' in sys.argv:\n"
+        "    print('codex-cli 0.167.2')\n"
+        "    sys.exit(0)\n"
+        "pathlib.Path('effective-env.json').write_text('{}')\n"
+        "time.sleep(120)\n"
+    )
+    executable.chmod(0o700)
+
+    policy_args = ["--no-system-skills"] if policy == "none" else []
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(helper),
+            "prepare",
+            "--case",
+            "self-hosted",
+            "--client",
+            "codex",
+            "--mode",
+            "tui",
+            "--surface",
+            "manager",
+            "--model",
+            "explicit-fixture-model",
+            "--base-url",
+            "http://127.0.0.1:19001/v1",
+            "--run-root",
+            str(tmp_path / "runs"),
+            "--executable",
+            str(executable),
+            *policy_args,
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    prepared = json.loads(result.stdout)
+    run_dir = Path(prepared["run_dir"])
+    assert prepared["configuration"]["system_skill_policy"] == policy
+    metadata = json.loads((run_dir / "run.json").read_text())
+    preset_path = Path(metadata["specialist"]["generated"]["preset"])
+    preset = yaml.safe_load(preset_path.read_text())
+    if policy == "default":
+        assert "system_skills" not in preset["launch"]
+    else:
+        assert preset["launch"]["system_skills"]["mode"] == "none"
+
+    try:
+        launched = launch.launch_run(run_dir)
+        assert launched["status"] == "launched"
+        assert (Path(metadata["workdir"]) / "effective-env.json").is_file()
+        metadata = json.loads((run_dir / "run.json").read_text())
+        assert metadata["configuration"]["system_skill_policy"] == policy
+        session = load_session_manifest(Path(launched["identity"]["manifest_path"]))
+        home = Path(session.payload["launch_plan"]["home_selector"]["home_path"])
+        assert home.is_dir() and home.is_relative_to(run_dir)
+        discovered = discover_installed_system_skills(tool="codex", home_path=home)
+        if policy == "default":
+            names = {skill.name for skill in discovered}
+            assert {"houmao-agent-entrypoint", "houmao-shared-routines"} <= names
+            assert names == set(load_system_skill_manifest().packs["agent"].standalone_skill_names)
+            for skill in discovered:
+                assert (home / skill.projected_relative_dir / "SKILL.md").is_file()
+        else:
+            assert discovered == ()
+    finally:
+        launch.stop_run(run_dir)
+
+
 @pytest.mark.parametrize("client", ["claude", "codex", "kimi"])
 @pytest.mark.parametrize("case", ["self-hosted", "cloud-api"])
 @pytest.mark.parametrize("surface", ["raw", "manager"])
@@ -73,28 +185,16 @@ def test_tui_fixture_launch_preserves_selected_env_and_scoped_identity(
     config_module = importlib.import_module("fixturelib.config")
     prepare = importlib.import_module("fixturelib.prepare")
     launch = importlib.import_module("fixturelib.launch")
-    from houmao.agents.realm_controller.backends import local_interactive
-
-    def wait_for_stub(self, **_kwargs):
-        """Use the harmless child's handshake in place of vendor process names."""
-
-        output = self._plan.working_directory / "effective-env.json"
-        deadline = time.monotonic() + 5
-        while not output.is_file() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        assert output.is_file(), "The harmless provider process did not start"
-
-    monkeypatch.setattr(
-        local_interactive.LocalInteractiveSession, "_wait_for_provider_tui", wait_for_stub
-    )
-    socket_root = tmp_path / "tmux-socket"
-    socket_root.mkdir(mode=0o700)
-    monkeypatch.setenv("TMUX_TMPDIR", str(socket_root))
+    monkeypatch.setattr(LocalInteractiveSession, "_wait_for_provider_tui", _wait_for_stub)
+    sentinel = ["tmux", "-S", str(tmp_path / "test-sentinel.sock"), "-f", os.devnull]
+    monkeypatch.setenv("TMUX_TMPDIR", str(tmp_path))
     monkeypatch.delenv("TMUX", raising=False)
+    monkeypatch.delenv("TMUX_PANE", raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "competing-parent-key")
-    subprocess.run(["tmux", "new-session", "-d", "-s", "test-sentinel"], check=True)
+    subprocess.run([*sentinel, "new-session", "-d", "-s", "test-sentinel"], check=True)
     subprocess.run(
-        ["tmux", "set-environment", "-g", "ANTHROPIC_API_KEY", "competing-server-key"], check=True
+        [*sentinel, "set-environment", "-g", "ANTHROPIC_API_KEY", "competing-server-key"],
+        check=True,
     )
     executable = tmp_path / "harmless-client"
     version = {"claude": "2.1.323", "codex": "0.167.2", "kimi": "2.6.0"}[client]
@@ -164,11 +264,11 @@ def test_tui_fixture_launch_preserves_selected_env_and_scoped_identity(
         assert launch.stop_run(root)["status"] == "stopped"
         assert (
             subprocess.run(
-                ["tmux", "has-session", "-t", "test-sentinel"], capture_output=True
+                [*sentinel, "has-session", "-t", "test-sentinel"], capture_output=True
             ).returncode
             == 0
         )
     finally:
         if root is not None:
             launch.stop_run(root)
-        subprocess.run(["tmux", "kill-server"], capture_output=True)
+        subprocess.run([*sentinel, "kill-server"], capture_output=True)

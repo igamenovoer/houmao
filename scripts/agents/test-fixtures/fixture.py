@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+from typing import Literal
 
 from houmao.agents.realm_controller.run_modes import RUN_MODES
 
@@ -58,6 +59,11 @@ def add_case_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--surface", choices=("raw", "manager", "passive-server"), default="manager"
     )
+    parser.add_argument(
+        "--no-system-skills",
+        action="store_true",
+        help="Disable the managed agent system-skill pack (manager surface only)",
+    )
 
 
 def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
@@ -109,6 +115,9 @@ def selected_configuration(args: argparse.Namespace) -> ResolvedConfig:
 
     if args.client is None:
         raise FixtureError("Select --client for configuration preparation")
+    if args.no_system_skills and args.surface != "manager":
+        raise FixtureError("--no-system-skills requires --surface manager")
+    system_skill_policy: Literal["default", "none"] = "none" if args.no_system_skills else "default"
     if args.auth_method == "native-login":
         if args.client == "dsh":
             raise FixtureError("DSH fixtures support explicitly selected API credentials only")
@@ -121,6 +130,7 @@ def selected_configuration(args: argparse.Namespace) -> ResolvedConfig:
             mode=fixture_run_mode(args.client, args.mode, args.surface).mode,
             surface=args.surface,
             operator_prompt_mode=args.prompt_mode,
+            system_skill_policy=system_skill_policy,
             auth_method="native-login",
             model=args.model,
             native_bundle=bundle_path(
@@ -135,6 +145,7 @@ def selected_configuration(args: argparse.Namespace) -> ResolvedConfig:
         mode=args.mode,
         surface=args.surface,
         operator_prompt_mode=args.prompt_mode,
+        system_skill_policy=system_skill_policy,
         model=args.model,
         base_url=args.base_url,
         env_file=args.env_file,
@@ -196,6 +207,8 @@ def main(argv: list[str] | None = None) -> int:
                     "bundle_path": str(destination),
                 }
         elif args.command == "check" and args.run_dir is not None:
+            if args.no_system_skills:
+                raise FixtureError("Omit --run-dir to select --no-system-skills")
             payload = check_run(args.run_dir, live=args.live)
         elif args.command == "launch":
             payload = launch_run(

@@ -36,7 +36,7 @@ Replace `MODEL` and `TOKENS` with explicit values for the selected model. Offlin
 ## Prepare and Launch
 
 ```bash
-pixi run python scripts/agents/test-fixtures/fixture.py prepare --case cloud-api --client claude --model MODEL --mode headless --surface manager --env-file .env
+pixi run python scripts/agents/test-fixtures/fixture.py prepare --case cloud-api --client claude --model MODEL --mode headless --surface manager --env-file /external/selected-deepseek.env
 pixi run python scripts/agents/test-fixtures/fixture.py launch --run-dir /external/prepared-run --prompt 'Reply exactly OK. Do not use tools.'
 pixi run python scripts/agents/test-fixtures/fixture.py prompt --run-dir /external/prepared-run --prompt 'Reply exactly DONE. Do not use tools.'
 pixi run python scripts/agents/test-fixtures/fixture.py check --run-dir /external/prepared-run
@@ -47,6 +47,8 @@ pixi run python scripts/agents/test-fixtures/fixture.py stop --run-dir /external
 Use the `run_dir` returned by `prepare`. Preparation performs local validation and project construction without contacting the model endpoint. Each invocation creates a unique run with private `assets/`, `home/`, `workdir/`, `private-env.json`, and `run.json`. Launch records the actual owned runtime path, including project-overlay runtime placement. Managed preparation uses current project/tool/credential/specialist behavior. Secret-bearing credential commands execute in-process, so keys do not become OS arguments. Generated setups contain routing and model metadata; private credential files hold keys.
 
 `--surface raw` starts the installed client for native-format qualification. Raw headless launch requires a prompt, writes `raw-turn-N.jsonl`/`.stderr` privately, and captures an exact provider session ID for later `prompt` calls. Terminal TUI clients use an owned tmux session. `--surface manager` uses `houmao-mgr project agents launch` with a project specialist. Headless and DSH Web prompts use semantic control; terminal TUI prompts send literal text and Enter separately. Automation defaults to `--prompt-mode unattended`; select `--prompt-mode as_is` deliberately for human interaction tests. Kimi prompt mode omits `--auto`, because that flag is incompatible with prompt mode.
+
+Manager launches install the managed `agent` system-skill pack by default. For isolation tests that need a minimal runtime home, add the manager-only `--no-system-skills` option to `prepare`. Use `check` with the same case arguments to preview the policy without launching. The prepared run records `configuration.system_skill_policy` in `run.json` as `default` or `none`.
 
 `--surface passive-server` supports headless birth only. Start `houmao-passive-server` with external runtime/registry roots, then pass its local authority URL with `launch --passive-url http://127.0.0.1:PORT`. The helper builds the selected brain and uses `/houmao/agents/headless/launches` and `/houmao/agents/{id}/turns`. The server runs on the same dev box and must be able to read those private paths. TUI birth uses the manager.
 

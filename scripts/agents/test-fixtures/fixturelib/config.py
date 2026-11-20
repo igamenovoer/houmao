@@ -133,6 +133,7 @@ class ResolvedConfig(BaseModel):
     mode: RunMode
     surface: Surface
     operator_prompt_mode: Literal["unattended", "as_is"] = "unattended"
+    system_skill_policy: Literal["default", "none"] = "default"
     auth_method: Literal["api-key", "endpoint-only", "native-login"] = "api-key"
     model: str | None = None
     protocol: Protocol | None = None
@@ -279,6 +280,7 @@ def resolve_config(
     mode: RunMode | None = None,
     surface: Surface = "manager",
     operator_prompt_mode: Literal["unattended", "as_is"] = "unattended",
+    system_skill_policy: Literal["default", "none"] = "default",
     model: str | None = None,
     base_url: str | None = None,
     env_file: Path | None = None,
@@ -399,6 +401,7 @@ def resolve_config(
         mode=selection.mode,
         surface=surface,
         operator_prompt_mode=operator_prompt_mode,
+        system_skill_policy=system_skill_policy,
         auth_method="endpoint-only" if endpoint_only else "api-key",
         model=selected_model,
         protocol=protocol,

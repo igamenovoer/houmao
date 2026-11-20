@@ -96,6 +96,19 @@ def test_case_resolution_has_no_model_or_account_defaults(
         assert config.api_key.get_secret_value() == "EMPTY"
 
 
+def test_resolved_configuration_reports_default_system_skill_policy(
+    fixture_config: ModuleType,
+) -> None:
+    """The resolved manager policy follows the product default and appears in reports."""
+
+    config = fixture_config.resolve_config(
+        case="self-hosted", client="codex", process_env=_env("self-hosted")
+    )
+
+    assert config.system_skill_policy == "default"
+    assert config.summary()["system_skill_policy"] == "default"
+
+
 def test_env_precedence_and_literal_quoting(fixture_config: ModuleType, tmp_path: Path) -> None:
     """Explicit input wins over process refs, which win over the selected file."""
 
@@ -479,6 +492,7 @@ def test_cli_offline_check_does_not_print_key(tmp_path: Path) -> None:
             "codex",
             "--model",
             "selected",
+            "--no-system-skills",
         ],
         env={"PATH": os.defpath, **_env("cloud-api")},
         capture_output=True,
@@ -486,8 +500,82 @@ def test_cli_offline_check_does_not_print_key(tmp_path: Path) -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout)["configuration"]["model"] == "selected"
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "configuration_valid"
+    assert payload["configuration"]["model"] == "selected"
+    assert payload["configuration"]["system_skill_policy"] == "none"
     assert "synthetic-fixture-secret" not in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("surface", ["raw", "passive-server"])
+def test_cli_prepare_rejects_system_skill_opt_out_outside_manager(
+    tmp_path: Path, surface: str
+) -> None:
+    """Reject an inapplicable system-skill policy before creating a run."""
+
+    run_root = tmp_path / "runs"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(_TOOL_ROOT / "fixture.py"),
+            "prepare",
+            "--client",
+            "codex",
+            "--case",
+            "self-hosted",
+            "--surface",
+            surface,
+            "--run-root",
+            str(run_root),
+            "--no-system-skills",
+        ],
+        env={"PATH": os.defpath, **_env("self-hosted")},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert json.loads(result.stderr)["error"] == "--no-system-skills requires --surface manager"
+    assert not run_root.exists()
+
+
+def test_cli_native_login_check_reports_system_skill_opt_out(
+    fixture_auth: ModuleType, tmp_path: Path
+) -> None:
+    """An offline native-login check preserves the same explicit policy as an API check."""
+
+    _, source = _native_home(tmp_path / "sources", "codex")
+    auth_root = tmp_path / "store"
+    fixture_auth.import_auth(
+        fixture_auth.candidate_from_source("codex", source), name="test", auth_root=auth_root
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(_TOOL_ROOT / "fixture.py"),
+            "check",
+            "--client",
+            "codex",
+            "--auth-method",
+            "native-login",
+            "--auth-bundle",
+            "test",
+            "--auth-root",
+            str(auth_root),
+            "--no-system-skills",
+        ],
+        env={"PATH": os.defpath},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "configuration_valid"
+    assert payload["configuration"]["auth_method"] == "native-login"
+    assert payload["configuration"]["system_skill_policy"] == "none"
 
 
 def test_native_codex_config_is_not_silently_retargeted(
