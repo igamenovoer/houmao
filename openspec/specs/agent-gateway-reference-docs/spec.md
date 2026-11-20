@@ -29,14 +29,7 @@ The gateway reference SHALL include at minimum one detailed page in each of thos
 - **AND THEN** those pages do not rely on one mixed catch-all page to explain all gateway topics
 
 ### Requirement: Agent gateway reference pages combine intuitive explanations with exact technical detail
-Each detailed agent gateway reference page SHALL be understandable to first-time readers while still preserving the exact technical details needed for implementation, debugging, or maintenance.
-
-At minimum, each detailed gateway reference page SHALL include:
-
-- a short explanation of what the page covers,
-- plain-language framing or mental-model guidance before dense technical detail,
-- the relevant exact technical specifics, constraints, or contracts,
-- at least one concrete example, representative payload, or artifact shape where it materially helps understanding.
+Each detailed gateway page SHALL start with a short scope and plain-language explanation, then give the exact constraints, contracts, and artifact details readers need for implementation, debugging, or maintenance. It SHALL include a concrete example, representative payload, or artifact shape when one materially helps readers understand the topic.
 
 #### Scenario: New reader can orient before reading exact gateway contracts
 - **WHEN** a first-time reader opens a detailed agent gateway reference page
@@ -49,16 +42,7 @@ At minimum, each detailed gateway reference page SHALL include:
 - **AND THEN** the page is not limited to high-level explanatory prose alone
 
 ### Requirement: Important gateway procedures include embedded Mermaid sequence diagrams
-When an agent gateway reference page introduces an important procedure involving multiple participants or steps, the page SHALL include an embedded Mermaid `sequenceDiagram` block directly in the Markdown page.
-
-These diagrams SHALL accompany the prose explanation rather than replace it.
-
-Important gateway procedures include at minimum:
-
-- launch-time auto-attach or attach-later flows,
-- request acceptance and queued execution flows,
-- detach, restart, or stale-live-binding cleanup flows,
-- recovery or reconciliation flows where managed-agent continuity changes the result.
+For important procedures with multiple participants or steps, gateway reference pages SHALL pair prose with an embedded Mermaid `sequenceDiagram`. At minimum this covers launch-time auto-attach and attach-later flows, request acceptance and queued execution, detach and restart, stale live-binding cleanup, and recovery or reconciliation affected by managed-agent continuity.
 
 #### Scenario: Procedure page includes an embedded sequence diagram
 - **WHEN** a gateway reference page introduces an important gateway procedure
@@ -71,20 +55,7 @@ Important gateway procedures include at minimum:
 - **AND THEN** the reader is not required to infer the full procedure from the diagram alone
 
 ### Requirement: Gateway contract documentation covers the implemented v1 gateway surfaces
-The agent gateway contract documentation SHALL describe the implemented v1 gateway surfaces that readers must follow.
-
-At minimum, that contract coverage SHALL include:
-
-- the distinction between gateway-capable and currently gateway-attached sessions,
-- stable attachability metadata versus live gateway bindings,
-- the strict attach contract and tmux-published environment pointers,
-- desired listener versus live listener concepts,
-- the implemented HTTP routes and request kinds,
-- the versioned status model and current status axes,
-- durable gateway state artifacts and their responsibilities,
-- current validation and error semantics that are observable in the implemented v1 flow.
-
-The gateway contract documentation SHALL reflect current implemented behavior and SHALL NOT imply unsupported live-adapter coverage or unimplemented request behavior as though it were already available.
+The gateway contract docs SHALL explain implemented v1 attach, listener, request, status, storage, validation, and error contracts. They SHALL identify supported live adapters and request behavior within the current implementation boundary.
 
 #### Scenario: Contract documentation covers attach, status, and request surfaces
 - **WHEN** a reader needs the normative gateway reference for current v1 behavior
@@ -96,21 +67,14 @@ The gateway contract documentation SHALL reflect current implemented behavior an
 - **THEN** the documentation makes clear the currently implemented v1 scope and boundaries
 - **AND THEN** the docs do not describe future extensibility as if it were already implemented behavior
 
+#### Scenario: Contract Pages Identify Binding and State Details
+- **WHEN** a reader follows the v1 gateway contract to attach a session or interpret its state
+- **THEN** the pages distinguish a gateway-capable session from a live attached session, and stable attachability metadata from live bindings
+- **AND THEN** the pages describe the strict attach contract, tmux-published environment pointers, and the distinction between desired and live listeners
+- **AND THEN** the pages specify the implemented HTTP routes, request kinds, versioned status model and current status axes, responsibilities of durable state artifacts, and observable validation and error semantics
+
 ### Requirement: Gateway operational documentation covers lifecycle and operator-facing workflows
-The agent gateway operational documentation SHALL explain how to work with the gateway safely in the implemented v1 flow, including the current managed-agent operator surfaces and the strict current-session attach discovery model.
-
-At minimum, that operational guidance SHALL cover:
-
-- launch-time auto-attach and attach-later behavior,
-- attach targeting through explicit selectors and current-session resolution,
-- current-session discovery through `HOUMAO_MANIFEST_PATH` with `HOUMAO_AGENT_ID` plus fresh shared-registry fallback,
-- the pair-managed registration precondition for current-session attach,
-- detach behavior and stop-session interaction,
-- status inspection and the difference between offline, unavailable, and live states,
-- stale live-binding invalidation or cleanup behavior where relevant to operator workflows,
-- operator-facing gateway command families for prompt, interrupt, send-keys, TUI inspection, and mail-notifier control,
-- `gateway/run/current-instance.json` as the authoritative same-session live execution record when the gateway is hosted in an auxiliary tmux window,
-- the difference between direct runtime control and gateway-routed queued control at the level needed to operate the system correctly.
+The gateway operations docs SHALL explain safe v1 attach, detach, status, recovery, and control workflows. They SHALL document current managed-agent command surfaces, strict current-session discovery, and the operating effects of direct and queued control.
 
 #### Scenario: Operational guidance covers gateway lifecycle actions
 - **WHEN** an operator or developer needs to understand how a gateway starts, attaches, detaches, or disappears from a running session
@@ -134,18 +98,15 @@ At minimum, that operational guidance SHALL cover:
 - **THEN** the gateway operations pages explain the purpose and boundary of each operator-facing surface
 - **AND THEN** the pages do not imply that non-zero tmux windows can be rediscovered heuristically instead of following the recorded `current-instance.json` handle
 
+#### Scenario: Operator Finds Lifecycle and Control Choices
+- **WHEN** an operator chooses a v1 gateway workflow
+- **THEN** the operations pages explain launch-time auto-attach, attach-later behavior, explicit selectors, current-session resolution and its pair-managed registration precondition
+- **AND THEN** they explain how detach interacts with stopping a session, how to inspect offline, unavailable and live states, and how stale live bindings are invalidated or cleaned up
+- **AND THEN** they identify `gateway/run/current-instance.json` as the authoritative same-session live execution record for a gateway hosted in an auxiliary tmux window
+- **AND THEN** they cover prompt, interrupt, send-keys, TUI inspection, and mail-notifier commands and explain when to use direct runtime control or gateway-routed queued control
+
 ### Requirement: Gateway internal documentation explains queueing, epochs, and recovery boundaries
-The agent gateway internal documentation SHALL explain how the gateway sidecar persists state, serializes work, and behaves when managed-agent continuity changes.
-
-At minimum, that internal coverage SHALL include:
-
-- the durable queue and event-log model,
-- current-instance state and epoch tracking,
-- queue admission and single active execution behavior,
-- restart recovery for previously accepted work,
-- replay blocking or reconciliation behavior when the managed-agent instance changes,
-- the separation between gateway-local health and managed-agent availability,
-- the current live-adapter boundary in v1.
+The gateway internals SHALL document the durable queue and event log, current-instance state and epochs, admission and single active execution, restart recovery for accepted work, and replay blocking or reconciliation after a managed-agent instance changes. They SHALL describe the v1 live-adapter boundary and explain why gateway-local health and managed-agent availability are separate.
 
 #### Scenario: Internal docs explain queueing and current-instance state
 - **WHEN** a maintainer needs to understand how gateway-managed work is accepted, persisted, and executed
@@ -178,15 +139,7 @@ At minimum, the documentation SHALL define or explain recurring terms such as ga
 - **AND THEN** the documentation does not rely on unexplained gateway jargon as the only way to understand gateway behavior
 
 ### Requirement: Gateway reference pages link to the centralized system-files reference when discussing broader session-root storage
-The agent gateway reference documentation SHALL keep gateway-specific contracts, queue semantics, and lifecycle behavior in the gateway subtree while pointing readers to the centralized system-files reference for the broader Houmao filesystem map.
-
-Gateway pages SHALL continue to document gateway-specific artifacts such as `attach.json`, `state.json`, queue state, and event logs, but they SHALL defer the broader relationship between those files and the surrounding runtime-managed session root to the centralized system-files reference when that broader filesystem map is the main topic.
-
-At minimum, the gateway reference SHALL link to the centralized system-files reference when discussing:
-
-- how gateway files are nested under runtime-managed session roots,
-- how gateway artifact paths relate to other Houmao-owned root families,
-- filesystem-preparation guidance that extends beyond gateway-specific behavior.
+Gateway docs SHALL explain gateway contracts, queueing, lifecycle, and artifacts such as `attach.json`, `state.json`, queue state, and event logs. They SHALL link to the centralized system-files reference for nesting under runtime-managed session roots, relationships to other Houmao-owned roots, and filesystem preparation that extends beyond the gateway.
 
 #### Scenario: Gateway docs explain local gateway artifacts and link out for the broader runtime tree
 - **WHEN** a reader opens the gateway reference to understand attach metadata, state files, or queue artifacts
@@ -199,17 +152,7 @@ At minimum, the gateway reference SHALL link to the centralized system-files ref
 - **AND THEN** they do not need to duplicate the full Houmao-owned filesystem model to explain those gateway behaviors
 
 ### Requirement: Gateway reference documentation covers the shared mailbox facade
-The agent gateway reference documentation SHALL document the gateway mailbox facade as a first-class gateway surface rather than leaving mailbox-gateway interaction implicit inside low-level contract pages alone.
-
-At minimum, the gateway reference SHALL explain:
-
-- that `/v1/mail/*` is the shared mailbox surface for supported mailbox operations,
-- how the gateway resolves mailbox capability from `attach.json` to the runtime-managed session manifest,
-- that the gateway constructs a transport-specific mailbox adapter behind one shared gateway-facing contract,
-- that the facade may serve either filesystem-backed or Stalwart-backed sessions,
-- that direct transport-specific mailbox behavior may still exist when no live gateway is attached.
-
-The gateway reference SHALL provide an operator-facing or maintainer-facing page under the gateway subtree that introduces this mailbox facade before or alongside the exact route contract page.
+The gateway reference SHALL make the `/v1/mail/*` facade discoverable from its entrypoint. It SHALL introduce the shared mailbox surface on an operator or maintainer page in the gateway subtree before or alongside the route contract.
 
 #### Scenario: Reader finds mailbox facade guidance from the gateway subtree
 - **WHEN** a reader opens the gateway reference to understand current gateway capabilities
@@ -221,17 +164,14 @@ The gateway reference SHALL provide an operator-facing or maintainer-facing page
 - **THEN** the gateway docs explain that the shared mailbox routes are backed by transport-specific adapters resolved from the attached session metadata
 - **AND THEN** the docs do not describe the shared gateway contract as if it were hard-wired to the filesystem transport alone
 
+#### Scenario: Reader Can Trace Mailbox Capability and Transport
+- **WHEN** a reader needs to establish how a mailbox operation reaches a session
+- **THEN** the docs present `/v1/mail/*` as the shared contract for supported mailbox operations and trace capability from `attach.json` to the runtime-managed session manifest
+- **AND THEN** the docs explain that the facade constructs an adapter for the filesystem or Stalwart transport and that direct transport-specific behavior may be available without a live attached gateway
+
 ### Requirement: Gateway reference documentation explains current mailbox facade boundaries
 
-The agent gateway reference documentation SHALL explain the current scope and boundaries of the mailbox facade in implemented v1 behavior.
-
-At minimum, that boundary guidance SHALL explain how:
-
-- `/v1/mail/*` uses current self or admin authorization on loopback and remote listeners
-- operator-origin post and mailbox binding controls follow the live admin access rule, and owner-local attachment paths on private forms require verified admin proof
-- live mailbox-facade availability differs from stable gateway-capability metadata
-- mailbox notifier polling reads unread state through the same mailbox facade
-- the gateway reference links to the mailbox reference for mailbox semantics and to the system-files reference for filesystem placement
+The gateway reference SHALL explain the v1 mailbox facade's caller authority, live availability, and role in notifier polling. It SHALL link to the mailbox reference for mailbox semantics and to the system-files reference for file placement.
 
 #### Scenario: Reader can distinguish gateway capability from live mailbox-facade availability
 
@@ -245,14 +185,13 @@ At minimum, that boundary guidance SHALL explain how:
 - **THEN** the docs explain that notifier unread checks use the same shared mailbox facade used for mailbox reads
 - **AND THEN** the docs describe transport-specific state through the mailbox reference
 
+#### Scenario: Reader Can Determine Mailbox Caller Authority
+- **WHEN** a reader checks which authorization a mailbox operation requires
+- **THEN** the reference explains that `/v1/mail/*` uses current self or admin authorization on both loopback and remote listeners
+- **AND THEN** it documents the live admin rule for operator-origin post and binding controls and the verified admin proof required for owner-local attachment paths on private forms
+
 ### Requirement: Gateway operational docs explain outside-tmux tmux-session targeting
-The gateway operational documentation SHALL explain when operators should use `--target-tmux-session` instead of `--current-session` or explicit managed-agent selectors.
-
-That guidance SHALL explain that tmux-session targeting is resolved locally from the addressed tmux session's manifest-backed authority, with fresh shared-registry `terminal.session_name` fallback when the tmux-published manifest pointer is missing or stale.
-
-The operational docs SHALL also explain that tmux-session targeting is a local host workflow and does not make tmux session names part of the remote managed-agent API contract.
-
-When the docs describe explicit pair-managed targeting, they SHALL use the name `--pair-port` for the Houmao pair-authority override and SHALL distinguish that selector from gateway listener port overrides such as lower-level `--gateway-port`.
+The gateway operations docs SHALL distinguish local `--target-tmux-session` from `--current-session` and explicit agent selectors. They SHALL explain manifest-first resolution and fresh shared-registry `terminal.session_name` fallback when the tmux pointer is missing or stale. They SHALL keep tmux aliases local and distinguish `--pair-port` for pair authority from lower-level `--gateway-port` for the gateway listener.
 
 #### Scenario: Reader can choose between current-session and tmux-session targeting
 - **WHEN** a reader needs to attach a gateway from a normal shell outside the owning tmux session
@@ -270,23 +209,7 @@ When the docs describe explicit pair-managed targeting, they SHALL use the name 
 - **AND THEN** the docs explain that gateway listener port overrides belong to lower-level gateway attach surfaces rather than `houmao-mgr agents gateway ...`
 
 ### Requirement: Gateway reminder reference documentation explains prompt and send-keys delivery
-The agent gateway reference documentation SHALL explain gateway reminders as supporting two different delivery kinds:
-
-- semantic `prompt`
-- raw `send_keys`
-
-That reminder documentation SHALL explain:
-
-- the purpose of `send_keys` reminders,
-- that `send_keys.sequence` uses the exact `<[key-name]>` raw control-input grammar,
-- that `send_keys` reminders do not submit reminder `title` or semantic `prompt` text,
-- that `send_keys.ensure_enter` defaults to `true`,
-- that `ensure_enter=false` is required for exact special-key-only reminders such as `<[Escape]>`,
-- that send-keys reminder support is limited by the current gateway backend's raw-control capability,
-- that `houmao-mgr agents gateway reminders ...` and `/houmao/agents/{agent_ref}/gateway/reminders...` are higher-level wrappers over the same live reminder model,
-- that direct `/v1/reminders` remains the lower-level live reminder contract for exact payload inspection and debugging.
-
-The documentation SHALL present that explanation in a gateway reminder reference page or equivalent gateway-reference entry path that is discoverable from `docs/reference/gateway/index.md`.
+The gateway reference SHALL explain semantic `prompt` and raw `send_keys` reminder delivery through a page reachable from `docs/reference/gateway/index.md`. It SHALL document raw input grammar, Enter handling, backend support, and how the CLI, managed proxy, and direct API expose the live reminder model.
 
 #### Scenario: Reader can distinguish prompt reminders from send-keys reminders
 - **WHEN** a reader opens the gateway reminder reference documentation
@@ -303,21 +226,15 @@ The documentation SHALL present that explanation in a gateway reminder reference
 - **THEN** the page explains that send-keys reminders depend on backend raw-control support while the CLI, pair-managed proxy, and direct `/v1/reminders` routes all project the same live reminder behavior
 - **AND THEN** it keeps the direct live route family positioned as the lower-level contract rather than the only documented operator surface
 
+#### Scenario: Reader Constructs a Raw Control Reminder
+- **WHEN** a reader checks how to send raw control input as a reminder
+- **THEN** the reference explains its purpose and defines `send_keys.sequence` using the exact `<[key-name]>` grammar
+- **AND THEN** the reference limits submitted input to that sequence and the optional Enter action, with `send_keys.ensure_enter` defaulting to `true`
+- **AND THEN** it states that the reminder `title` and semantic `prompt` stay outside the raw delivery
+- **AND THEN** it identifies `houmao-mgr agents gateway reminders ...` and `/houmao/agents/{agent_ref}/gateway/reminders...` as higher-level access to the same model and direct `/v1/reminders` as the route for exact payload inspection and debugging
+
 ### Requirement: Gateway reminder reference docs cover CLI, proxy, and direct reminder surfaces together
-The agent gateway reference documentation SHALL explain gateway reminders through three aligned operator layers:
-
-- `houmao-mgr agents gateway reminders ...` as the preferred operator-facing CLI surface,
-- managed-agent `/houmao/agents/{agent_ref}/gateway/reminders...` routes as the pair-managed proxy surface,
-- direct `/v1/reminders` routes as the lower-level live gateway contract.
-
-The gateway reminder docs SHALL explain when each layer is appropriate, and SHALL make clear that the CLI and pair-managed proxy surfaces are wrappers over the same underlying live reminder model.
-
-At minimum, the reminder reference docs SHALL explain:
-
-- that ranking remains numeric even when the CLI offers prepend and append placement flags,
-- that `--before-all` and `--after-all` are convenience placement modes rather than new gateway ranking semantics,
-- that direct `/v1/reminders` remains useful for exact contract inspection and debugging,
-- that pair-managed reminder operations do not require the operator to discover the live gateway listener directly.
+The gateway reminder docs SHALL explain when to use the operator CLI, pair-managed proxy, or direct live API for the same reminder model. They SHALL explain how CLI placement flags map to numeric ranking.
 
 #### Scenario: Reader learns the CLI-first reminder workflow from the gateway reference
 - **WHEN** a reader opens the gateway reminder operations page to learn how to create or inspect reminders
@@ -329,19 +246,13 @@ At minimum, the reminder reference docs SHALL explain:
 - **THEN** the page still points them to the exact `/v1/reminders` contract and representative payloads
 - **AND THEN** the page explains how the higher-level CLI and pair-managed proxy surfaces map onto that lower-level contract
 
+#### Scenario: Reader Uses Managed Reminder Access or CLI Placement
+- **WHEN** a reader needs to operate on reminders through pair authority
+- **THEN** the docs identify `/houmao/agents/{agent_ref}/gateway/reminders...` as the proxy and explain how to use it without discovering the live listener
+- **AND THEN** the docs describe `--before-all` and `--after-all` as CLI conveniences that keep the underlying ranking numeric
+
 ### Requirement: Gateway reference documents diagnostic logging
-The agent gateway reference documentation SHALL explain the opt-in gateway diagnostic logging feature.
-
-At minimum, the documentation SHALL cover:
-
-- how diagnostic logging differs from the human-oriented `gateway.log`,
-- where diagnostic log files live under the gateway-owned log directory,
-- how rotation and backup retention bound disk usage,
-- which gateway events are captured when diagnostic logging is enabled,
-- the redaction boundary for message bodies, prompt text, attachments, and secrets,
-- how consecutive warning and error deduplication is represented,
-- how diagnostic logs relate to durable state artifacts such as `queue.sqlite`, `events.jsonl`, `state.json`, and manifests,
-- how cleanup commands treat diagnostic log files.
+The gateway reference SHALL explain opt-in diagnostic logging, its role alongside human-oriented `gateway.log`, file placement, retention, event coverage, default redaction, and deduplication of consecutive warnings and errors. It SHALL explain how diagnostic logs relate to durable gateway artifacts and how cleanup treats diagnostic files.
 
 #### Scenario: Operator can find and interpret diagnostic logs
 - **WHEN** an operator opens the gateway reference after enabling gateway diagnostic logging
@@ -353,13 +264,14 @@ At minimum, the documentation SHALL cover:
 - **THEN** the documentation states that diagnostic logs do not include mailbox bodies, raw prompts, attachment contents, authorization headers, cookies, bearer tokens, credential material, or environment secrets by default
 - **AND THEN** the documentation points readers to durable gateway artifacts when queue or notifier state, rather than diagnostic logs, is the authoritative source of truth
 
+#### Scenario: Operator Finds Diagnostic Storage and Cleanup Rules
+- **WHEN** an operator needs to locate or clean up diagnostic files
+- **THEN** the reference identifies the gateway-owned log directory and explains how rotation and retained backups bound disk use
+- **AND THEN** it explains cleanup behavior and the role of `queue.sqlite`, `events.jsonl`, `state.json`, and manifests alongside diagnostic logs
+
 ### Requirement: Gateway reference explains pending-input state and prompt admission decisions
 
-The gateway contract and operations reference SHALL distinguish provider-native pending input from composer drafts, gateway-durable request queue entries, and Houmao prompt-submission notes.
-
-The reference SHALL document `surface.pending_input`, the `ready_only | if_no_pending | always` decision table, conservative unknown handling, structural gateway checks that no policy bypasses, TUI-only non-default policies, and the removal of binary force behavior.
-
-The gateway internals reference SHALL explain that admission uses one latest tracked snapshot without a queue-slot reservation. It SHALL state that multiple calls can dispatch before provider repaint and that later decisions react to the next observed pending-input state.
+Gateway contracts and operations SHALL distinguish provider-native pending input, composer drafts, durable gateway requests, and Houmao prompt-submission notes. The reference SHALL describe `surface.pending_input`, supported admission policies, and conservative handling of unknown observations. Internals SHALL explain that each admission decision uses the latest tracked snapshot and how several calls can dispatch before provider repaint.
 
 #### Scenario: Contract page distinguishes the three queue-like concepts
 
@@ -378,6 +290,11 @@ The gateway internals reference SHALL explain that admission uses one latest tra
 - **WHEN** a maintainer studies closely spaced if-no-pending submissions
 - **THEN** the gateway internals reference explains observation-to-repaint behavior and the absence of a pending-slot reservation
 - **AND THEN** it identifies the provider TUI observation as the authority for later decisions
+
+#### Scenario: Operator Checks Supported Prompt Policies
+- **WHEN** an operator checks which direct prompt policy applies
+- **THEN** the reference presents `ready_only`, `if_no_pending`, and `always` in a policy table with conservative unknown handling
+- **AND THEN** it documents the structural checks all policies enforce, the TUI-only scope of non-default policies, and the removal of binary force behavior
 
 ### Requirement: Gateway reference documents access classes and public handoff
 

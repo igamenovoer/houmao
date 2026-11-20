@@ -2,30 +2,22 @@
 Define the Houmao-owned native `houmao-mgr` command tree for covered pair workflows, including server-backed managed-agent operations and local utility commands.
 ## Requirements
 ### Requirement: `houmao-mgr` exposes a native pair-operations command tree
-`houmao-mgr` SHALL expose a Houmao-owned top-level native command tree.
+`houmao-mgr` SHALL expose a Houmao-owned root command tree. Bare invocation SHALL print help. Root options SHALL control output style and report the packaged version. Help SHALL link the published documentation.
 
-At minimum, that native tree SHALL include:
+#### Scenario: Root command families are documented
+- **WHEN** the manager exposes its root command tree
+- **THEN** it includes `server`, `agents`, `brains`, `credentials`, `admin`, `mailbox`, `project`, and `system-skills`
+- **AND THEN** the documentation identifies each as a Houmao-owned pair command or local operator command
+- **AND THEN** `cao` and top-level `launch` are absent
 
-- `server`
-- `agents`
-- `brains`
-- `credentials`
-- `admin`
-- `mailbox`
-- `project`
-- `system-skills`
+#### Scenario: Root flags configure formatting for subcommands
+- **WHEN** a caller selects `--print-plain`, `--print-json`, or `--print-fancy`
+- **THEN** the root treats the options as mutually exclusive flag values
+- **AND THEN** the selected style controls formatting for all subcommands through an `OutputContext` in `click.Context.obj["output"]`
 
-Those command families SHALL be documented as Houmao-owned pair commands or Houmao-owned local operator commands, as appropriate.
-
-The root group SHALL use `invoke_without_command=True` so that running `houmao-mgr` without arguments prints help text instead of raising a Python exception.
-
-The root group SHALL accept `--print-plain`, `--print-json`, and `--print-fancy` as mutually exclusive flag-value options that control the output formatting style for all subcommands. The resolved print style SHALL be stored in `click.Context.obj["output"]` as an `OutputContext` instance accessible to all subcommands.
-
-The root group SHALL also accept `--version` as a root-level version-reporting option. When invoked, `houmao-mgr --version` SHALL print the packaged Houmao version and exit successfully without requiring a subcommand.
-
-The root help surface SHALL point readers to the published detailed Houmao documentation at `https://igamenovoer.github.io/houmao/`.
-
-Top-level `launch` and the explicit `cao` namespace SHALL NOT remain part of the supported command tree.
+#### Scenario: The root group handles no-argument invocation
+- **WHEN** the entrypoint configures the root group
+- **THEN** it sets `invoke_without_command=True` to enable bare-invocation help
 
 #### Scenario: Native help surface shows the new top-level command families
 - **WHEN** an operator runs `houmao-mgr --help`
@@ -104,23 +96,14 @@ At minimum, this SHALL apply to status-style inspection and shutdown-style contr
 - **AND THEN** the command does not require the operator to switch back to the old server CLI
 
 ### Requirement: `houmao-mgr agents` is the preferred pair-native managed-agent command family
-`houmao-mgr agents ...` SHALL be the preferred pair-native command family for managed-agent operations.
+`houmao-mgr agents` SHALL be the preferred pair-native family for managing agents by identity. `join` SHALL adopt an existing tmux-backed session, and `state` SHALL present the operational summary for managed-agent inspection.
 
-At minimum, the `agents` family SHALL include commands for:
-
-- `launch`
-- `join`
-- `list`
-- `state`
-- `prompt`
-- `interrupt`
-- `relaunch`
-- `stop`
-
-Those commands SHALL target managed-agent identities rather than raw `terminal_id` or raw CAO session names as their normative addressing model.
-Within that family, `join` SHALL adopt an existing tmux-backed agent session into managed-agent control without requiring `houmao-server` or raw tmux attach scripts.
-Within that family, `state` SHALL present the operational summary view for supported managed-agent inspection.
-The native `agents` family SHALL NOT advertise or require a detail-oriented `show` command or a generic `history` command as part of its supported managed-agent inspection contract.
+#### Scenario: The agents family exposes managed operations
+- **WHEN** a caller works through the native agents family
+- **THEN** it exposes `launch`, `join`, `list`, `state`, `prompt`, `interrupt`, `relaunch`, and `stop`
+- **AND THEN** managed-agent identity is the addressing model rather than raw `terminal_id` or a raw CAO session name
+- **AND THEN** joining requires neither `houmao-server` nor raw tmux attach scripts
+- **AND THEN** managed-agent inspection does not require or advertise `show` or `history`
 
 #### Scenario: Operator inspects managed-agent state through the native `agents` tree
 - **WHEN** an operator runs `houmao-mgr agents state --agent-id abc123`
@@ -148,25 +131,22 @@ The native `agents` family SHALL NOT advertise or require a detail-oriented `sho
 - **AND THEN** supported inspection guidance points operators to `state`, `agents gateway tui ...`, or `agents turn ...` rather than removed managed-agent inspection commands
 
 ### Requirement: `houmao-mgr agents gateway` exposes gateway lifecycle and gateway-mediated request commands
-`houmao-mgr` SHALL expose a native `agents gateway ...` command family for managed-agent gateway operations.
+`houmao-mgr` SHALL expose `agents gateway` for gateway lifecycle and operations against the live gateway. Ordinary pair-native prompts SHALL be documented through `houmao-mgr agents prompt`.
 
-At minimum, that family SHALL include:
+#### Scenario: Gateway operations are exposed
+- **WHEN** a caller selects the native gateway family
+- **THEN** the family provides `attach`, `detach`, `status`, `prompt`, `interrupt`, `send-keys`, and `mail-notifier status|enable|disable`
 
-- `attach`
-- `detach`
-- `status`
-- `prompt`
-- `interrupt`
-- `send-keys`
-- `mail-notifier status`
-- `mail-notifier enable`
-- `mail-notifier disable`
+#### Scenario: Gateway prompt and interrupt select live routes
+- **WHEN** a caller uses `agents gateway prompt` or `interrupt`
+- **THEN** `prompt` uses direct live gateway prompt control instead of a transport-neutral or queued request
+- **AND THEN** `interrupt` uses live gateway-mediated interruption
+- **AND THEN** the documentation describes `gateway prompt` as the explicit ready-or-refuse path with optional `--force`
 
-`agents gateway prompt` SHALL target the managed agent's live gateway direct prompt-control path rather than the transport-neutral managed-agent request path or the queued gateway request path.
-`agents gateway interrupt` SHALL continue targeting the managed agent's live gateway-mediated interrupt path.
-`agents gateway send-keys` SHALL target the managed agent's dedicated live gateway raw control-input path rather than the queued gateway request path, and it SHALL NOT apply prompt-readiness or busy gating before forwarding that raw input.
-`agents gateway mail-notifier ...` SHALL target the managed agent's live gateway mail-notifier control path rather than the foreground managed-agent mail follow-up path.
-The documented default prompt path for ordinary pair-native prompt submission SHALL remain `houmao-mgr agents prompt ...`. `agents gateway prompt` SHALL be documented as the explicit live gateway prompt-control path for operators who want ready-or-refuse behavior and optional `--force` override semantics.
+#### Scenario: Gateway keys and notifier select dedicated controls
+- **WHEN** a caller uses `agents gateway send-keys` or `mail-notifier`
+- **THEN** `send-keys` uses live raw control input without queueing, prompt-readiness gating, or busy gating
+- **AND THEN** `mail-notifier` uses the live gateway notifier control instead of foreground managed-agent mail
 
 #### Scenario: Operator attaches a gateway through the native `agents gateway` tree
 - **WHEN** an operator runs `houmao-mgr agents gateway attach --agent-id abc123`
@@ -194,21 +174,7 @@ The documented default prompt path for ordinary pair-native prompt submission SH
 - **AND THEN** they present `houmao-mgr agents gateway prompt ...` as the explicit gateway-managed alternative rather than the default
 
 ### Requirement: `houmao-mgr agents gateway reminders` exposes a native reminder command family
-`houmao-mgr` SHALL expose a native `agents gateway reminders ...` command family for live gateway reminder operations on managed agents.
-
-At minimum, that family SHALL include:
-
-- `list`
-- `get`
-- `create`
-- `set`
-- `remove`
-
-Those commands SHALL operate through managed-agent resolution and live gateway authority rather than requiring operators to address raw gateway listener URLs directly.
-
-`create` SHALL accept exactly one reminder definition per invocation.
-
-`set` SHALL target exactly one existing reminder identified by `--reminder-id`.
+`houmao-mgr agents gateway reminders` SHALL expose `list`, `get`, `create`, `set`, and `remove` through managed-agent resolution and live gateway authority. `create` SHALL accept one definition per invocation. `set` SHALL target one existing reminder by `--reminder-id`.
 
 #### Scenario: Operator lists reminders through the native gateway tree
 - **WHEN** an operator runs `houmao-mgr agents gateway reminders list --agent-id abc123`
@@ -226,27 +192,11 @@ Those commands SHALL operate through managed-agent resolution and live gateway a
 - **AND THEN** the command returns a structured success result for that reminder id
 
 ### Requirement: `houmao-mgr agents gateway reminders` supports the same targeting contract as the rest of `agents gateway`
-Gateway-targeting `houmao-mgr agents gateway reminders ...` commands that operate on one managed agent SHALL support the same managed-agent selector contract as the rest of `agents gateway`.
+`list`, `get`, `create`, `set`, and `remove` in `agents gateway reminders` SHALL use the standard gateway selector contract. Server-backed commands SHALL accept `houmao-passive-server` for explicit pair authority.
 
-At minimum, this SHALL apply to:
-
-- `list`
-- `get`
-- `create`
-- `set`
-- `remove`
-
-Those commands SHALL accept:
-
-- `--agent-id`
-- `--agent-name`
-- `--current-session`
-- `--target-tmux-session`
-- `--pair-port`
-
-with the same mutual-exclusion and current-session rules used by the rest of `agents gateway`.
-
-Server-backed reminder command paths SHALL accept `houmao-passive-server` as a supported pair authority whenever reminder operations are routed through an explicit pair authority instead of a resumed local controller.
+#### Scenario: Reminder operations accept the standard gateway selectors
+- **WHEN** an operator targets one managed agent through a reminder command
+- **THEN** the command accepts `--agent-id`, `--agent-name`, `--current-session`, `--target-tmux-session`, and `--pair-port` under the gateway mutual-exclusion and current-session rules
 
 #### Scenario: Current-session reminder inspection resolves the owning managed session
 - **WHEN** an operator runs `houmao-mgr agents gateway reminders list` from inside the owning managed tmux session
@@ -260,25 +210,17 @@ Server-backed reminder command paths SHALL accept `houmao-passive-server` as a s
 - **AND THEN** the command does not reject the passive server as unsupported for reminder control
 
 ### Requirement: `houmao-mgr agents gateway reminders create` and `set` support numeric ranking plus prepend and append placement modes
-The native reminder CLI SHALL keep ranking numeric.
+Reminder `create` SHALL require one numeric ranking mode, and `set` SHALL accept at most one. The supported modes SHALL be `--ranking <int>`, `--before-all`, and `--after-all`. The CLI SHALL exclude named priority aliases such as `high`, `normal`, and `low`.
 
-`houmao-mgr agents gateway reminders create` SHALL require exactly one of:
+#### Scenario: Ranking placement resolves against the live set
+- **WHEN** a caller requests `--before-all` or `--after-all`
+- **THEN** the CLI computes one less than the smallest ranking or one more than the largest ranking, respectively
+- **AND THEN** either placement resolves to `0` when the set is empty
 
-- `--ranking <int>`
-- `--before-all`
-- `--after-all`
-
-`houmao-mgr agents gateway reminders set` SHALL preserve the existing ranking when no ranking option is supplied, and when ranking change is requested it SHALL accept at most one of those same ranking modes.
-
-The CLI SHALL NOT expose named priority aliases such as `high`, `normal`, or `low`.
-
-`--before-all` SHALL compute the concrete ranking as one less than the smallest current reminder ranking in the live reminder set.
-
-`--after-all` SHALL compute the concrete ranking as one more than the largest current reminder ranking in the live reminder set.
-
-When the live reminder set is empty, both `--before-all` and `--after-all` SHALL resolve to ranking `0`.
-
-`set` SHALL behave as a CLI-side partial update surface: unspecified reminder fields remain unchanged in the effective update even though the gateway reminder API remains full-replacement `PUT`.
+#### Scenario: Setting fields preserves an omitted ranking and other fields
+- **WHEN** a caller runs reminder `set` without specifying a ranking or other existing fields
+- **THEN** the CLI preserves every unspecified field and the existing ranking
+- **AND THEN** the gateway receives a full replacement `PUT` after the CLI applies the partial update
 
 #### Scenario: `--before-all` computes a higher-priority numeric ranking
 - **WHEN** the live reminder set contains reminders ranked `-20`, `-10`, and `0`
@@ -299,14 +241,11 @@ When the live reminder set is empty, both `--before-all` and `--after-all` SHALL
 - **AND THEN** the resulting full reminder update sent to the gateway reflects the new ranking and the original unchanged fields
 
 ### Requirement: `houmao-mgr agents gateway prompt` returns structured JSON send results and refusal errors
+`houmao-mgr agents gateway prompt` SHALL print structured JSON on success or live gateway refusal. Success SHALL report that the prompt was sent. Refusal SHALL exit non-zero. `--force` SHALL forward `force = true` to live gateway prompt control.
 
-`houmao-mgr agents gateway prompt` SHALL return structured JSON describing prompt dispatch outcome.
-
-On success, the command SHALL print a JSON success payload stating that the prompt was sent.
-
-When the live gateway refuses prompt control because the target is not ready, already busy, unavailable, unsupported, or otherwise cannot accept the prompt, the command SHALL print a structured JSON error payload and SHALL exit non-zero.
-
-The command SHALL accept `--force`, which forwards `force = true` to the live gateway prompt-control route.
+#### Scenario: A live gateway refusal retains structured diagnostics
+- **WHEN** the gateway refuses because the target is not ready, busy, unavailable, unsupported, or otherwise unable to accept the prompt
+- **THEN** the command reports the refusal as a structured JSON error and exits non-zero
 
 #### Scenario: Ready prompt dispatch prints JSON success
 - **WHEN** an operator runs `houmao-mgr agents gateway prompt --agent-id abc123 --prompt "..."`
@@ -327,25 +266,17 @@ The command SHALL accept `--force`, which forwards `force = true` to the live ga
 - **AND THEN** the command does not reject the prompt only because the target was not prompt-ready before dispatch
 
 ### Requirement: `houmao-mgr agents gateway` supports current-session targeting for same-session tmux operation
-Gateway-targeting `houmao-mgr agents gateway ...` commands that operate on one managed agent SHALL support both explicit identity selectors and same-session current-session targeting.
+Gateway commands that address one managed agent SHALL accept explicit identity selectors and current-session targeting. The CLI SHALL resolve an omitted selector inside the owning tmux session through manifest-first discovery.
 
-At minimum, this SHALL apply to:
+#### Scenario: Gateway current-session targeting applies to managed operations
+- **WHEN** a caller uses `attach`, `detach`, `status`, `prompt`, `interrupt`, `send-keys`, or `mail-notifier status|enable|disable` inside the owning tmux session
+- **THEN** omitting a selector selects the current session and has the same meaning as an explicit `--current-session` switch where offered
+- **AND THEN** the CLI discovers the target through `HOUMAO_MANIFEST_PATH` or `HOUMAO_AGENT_ID`
+- **AND THEN** local resumed control also recovers `agent_def_dir` from `HOUMAO_NATIVE_AGENT_ROOT` or shared-registry runtime metadata
 
-- `attach`
-- `detach`
-- `status`
-- `prompt`
-- `interrupt`
-- `send-keys`
-- `mail-notifier status`
-- `mail-notifier enable`
-- `mail-notifier disable`
-
-When an operator omits explicit selectors and runs one of those commands inside the owning tmux session, `houmao-mgr` SHALL resolve the target through manifest-first current-session discovery using `HOUMAO_MANIFEST_PATH` or `HOUMAO_AGENT_ID`, and local resumed-control paths SHALL additionally recover `agent_def_dir` through `HOUMAO_NATIVE_AGENT_ROOT` or shared-registry runtime metadata.
-
-When a command supports current-session targeting, `houmao-mgr` MAY also expose an explicit `--current-session` switch, but it SHALL treat omitted selectors inside tmux as the same current-session targeting mode.
-
-When an operator runs one of those commands outside tmux without explicit selectors, the command SHALL fail explicitly rather than guessing from cwd, gateway listener bindings, or ambient shell state.
+#### Scenario: Current-session targeting requires the owning tmux session
+- **WHEN** a caller supplies no selector outside tmux
+- **THEN** the CLI reports a missing target without guessing from cwd, gateway listener bindings, or ambient shell state
 
 #### Scenario: Same-session send-keys resolves from tmux discovery without explicit selectors
 - **WHEN** an operator runs `houmao-mgr agents gateway send-keys --sequence "<[Escape]>"` from inside the owning managed tmux session
@@ -366,22 +297,17 @@ When an operator runs one of those commands outside tmux without explicit select
 - **AND THEN** it does not guess a managed-agent target from cwd or ambient shell state
 
 ### Requirement: `houmao-mgr agents gateway tui` exposes raw gateway-owned TUI tracking commands
-`houmao-mgr` SHALL expose a native `agents gateway tui ...` command family for raw gateway-owned TUI tracking on managed agents.
+`houmao-mgr agents gateway tui` SHALL expose `state`, `history`, `watch`, and `note-prompt` over live gateway-owned TUI tracking.
 
-At minimum, that family SHALL include:
+#### Scenario: TUI inspection uses gateway-owned state and history
+- **WHEN** a caller runs the `state`, `watch`, or `history` TUI command
+- **THEN** `state` reads live gateway-owned TUI state instead of the transport-neutral summary
+- **AND THEN** `watch` repeatedly reads the same state
+- **AND THEN** `history` reads bounded gateway snapshots instead of the coarse managed-agent `/history`
 
-- `state`
-- `history`
-- `watch`
-- `note-prompt`
-
-`agents gateway tui state` SHALL read the managed agent's live gateway-owned TUI state path rather than the transport-neutral managed-agent summary view.
-
-`agents gateway tui history` SHALL read the managed agent's live gateway-owned bounded snapshot-history path rather than the coarse managed-agent `/history` surface.
-
-`agents gateway tui note-prompt` SHALL target the managed agent's live gateway prompt-note tracking path rather than the queued gateway request path.
-
-`agents gateway tui watch` SHALL act as an operator-facing repeated inspection surface over the same live gateway-owned TUI state path used by `agents gateway tui state`.
+#### Scenario: TUI prompt notes use tracking
+- **WHEN** a caller runs `note-prompt`
+- **THEN** the CLI sends the note to the live gateway prompt-note tracking path without creating a queued request
 
 #### Scenario: Operator reads raw gateway-owned TUI state through the native `agents gateway tui` tree
 - **WHEN** an operator runs `houmao-mgr agents gateway tui state --agent-id abc123`
@@ -402,18 +328,15 @@ At minimum, that family SHALL include:
 - **AND THEN** the command does not submit a queued gateway prompt request
 
 ### Requirement: `houmao-mgr agents gateway tui` supports the same managed-agent targeting contract as the rest of `agents gateway`
-Gateway-targeting `houmao-mgr agents gateway tui ...` commands that operate on one managed agent SHALL support both explicit managed-agent selectors and same-session current-session targeting.
+`agents gateway tui state|history|watch|note-prompt` SHALL accept explicit managed-agent targeting and the standard gateway current-session discovery.
 
-At minimum, this SHALL apply to:
+#### Scenario: TUI current-session discovery uses the gateway targeting rules
+- **WHEN** a caller omits selectors inside the owning tmux session
+- **THEN** the CLI uses the same manifest-first discovery as other gateway commands
 
-- `state`
-- `history`
-- `watch`
-- `note-prompt`
-
-When an operator omits explicit selectors and runs one of those commands inside the owning tmux session, `houmao-mgr` SHALL resolve the target through the same manifest-first current-session discovery contract used by the rest of `agents gateway`.
-
-When an operator runs one of those commands outside tmux without explicit selectors, the command SHALL fail explicitly rather than guessing from cwd, gateway listener bindings, or ambient shell state.
+#### Scenario: TUI commands fail without a target outside tmux
+- **WHEN** a caller omits selectors outside tmux
+- **THEN** the CLI fails explicitly without inferring a target from cwd, gateway listener bindings, or shell state
 
 #### Scenario: Same-session gateway TUI state resolves from tmux discovery without explicit selectors
 - **WHEN** an operator runs `houmao-mgr agents gateway tui state` from inside the owning managed tmux session
@@ -428,9 +351,7 @@ When an operator runs one of those commands outside tmux without explicit select
 - **AND THEN** it does not guess a managed-agent target from cwd or ambient shell state
 
 ### Requirement: Server-backed gateway raw control and notifier commands accept passive server pair authorities
-`houmao-mgr` server-backed `agents gateway send-keys` and `agents single ... gateway mail-notifier ...` command paths SHALL accept `houmao-passive-server` as a supported pair authority whenever those commands operate through an explicit pair authority instead of a resumed local controller.
-
-For these commands, `houmao-mgr` SHALL resolve the pair client through the supported pair-authority factory and SHALL use the passive server's managed-agent gateway proxy routes rather than requiring direct listener discovery from the caller.
+Explicit pair authority for `agents gateway send-keys` and `agents single ... gateway mail-notifier` SHALL support `houmao-passive-server`. The CLI SHALL use its supported pair-authority factory and managed-agent gateway proxy instead of requiring direct listener discovery.
 
 #### Scenario: Gateway raw control input works through a passive server
 - **WHEN** an operator runs `houmao-mgr agents gateway send-keys --agent-id abc123 --port 9891 --sequence "<[Escape]>"`
@@ -461,21 +382,21 @@ If the target cannot be resolved to a local registry-backed authority on the cur
 - **THEN** `houmao-mgr` fails explicitly that passive-server gateway detach requires local authority on the owning host
 
 ### Requirement: `houmao-mgr agents turn events` renders canonical headless events with a detail selector
-`houmao-mgr agents turn events` SHALL render canonical Houmao semantic headless turn events rather than raw provider stdout lines.
+`houmao-mgr agents turn events` SHALL replay canonical semantic events and honor root print style. It SHALL support `--detail concise|detail` with `concise` as the default.
 
-The command SHALL support `--detail concise|detail` with default `concise`.
+#### Scenario: Replay formats preserve canonical events
+- **WHEN** a caller selects plain, JSON, or fancy output
+- **THEN** plain prints human-readable summaries, JSON prints canonical semantic JSON, and fancy prints rich human-readable output
+- **AND THEN** plain and fancy reuse the live bridge's headless renderer for the selected style and detail
+- **AND THEN** replay does not emit raw provider stdout
 
-For default `concise` rendering, the command SHALL replay the same semantic summary used by the live bridge path: answer text as the primary body, concise action request/result lines, and provider-exposed completion or usage accounting when available.
+#### Scenario: Replay detail controls the evidence shown
+- **WHEN** a caller selects or defaults to `concise`
+- **THEN** the summary leads with answer text, includes concise action requests and results, and includes provider completion or usage accounting when available
 
-The command SHALL continue to honor the active root print style:
-
-- `plain`: human-readable text summaries of canonical events
-- `json`: canonical semantic JSON output
-- `fancy`: rich human-readable rendering of canonical events
-
-`detail` mode SHALL expose the extra structured event detail defined by the canonical headless event model.
-
-For `plain` and `fancy` styles, the command SHALL replay canonical events using the same headless-domain renderer core used by the live bridge path for the selected `style` and `detail`.
+#### Scenario: Detailed replay includes canonical model fields
+- **WHEN** a caller selects `--detail detail`
+- **THEN** the output includes the extra structured event detail defined by the canonical headless event model
 
 #### Scenario: Default event inspection is human-readable and concise
 - **WHEN** an operator runs `houmao-mgr agents turn events <agent-ref> <turn-id>` without overriding detail or root print style
@@ -510,37 +431,35 @@ Those commands SHALL not reinterpret raw provider artifacts as canonical semanti
 - **AND THEN** the command does not falsely claim that remote passive-server HTTP detach succeeded
 
 ### Requirement: `houmao-mgr agents mail` exposes pair-native mailbox follow-up commands
-`houmao-mgr` SHALL expose scoped `agents single ... mail ...` and `agents self mail ...` commands for mailbox discovery and follow-up on managed agents.
+`houmao-mgr` SHALL expose managed-agent mailbox discovery and follow-up under `agents single ... mail` and `agents self mail`. It SHALL resolve mailbox execution from the selected managed-agent authority.
 
-At minimum, that family SHALL include:
+#### Scenario: Scoped mail exposes discovery and lifecycle operations
+- **WHEN** a caller selects `agents single ... mail` or `agents self mail`
+- **THEN** the scope exposes `resolve-live`, `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`
+- **AND THEN** `resolve-live` returns machine-readable mailbox binding and live gateway discovery data
 
-- `resolve-live`
-- `status`
-- `list`
-- `peek`
-- `read`
-- `send`
-- `post`
-- `reply`
-- `mark`
-- `move`
-- `archive`
+#### Scenario: Scoped selection follows the chosen identity
+- **WHEN** a caller runs a scoped mail command
+- **THEN** `agents single` requires `--agent-id` or `--agent-name` before `mail` and preserves that explicit target inside another managed session
+- **AND THEN** `agents self` uses `HOUMAO_MANIFEST_PATH` and then `HOUMAO_AGENT_ID` for current-agent discovery
+- **AND THEN** self targeting fails outside a resolvable owning session without guessing from cwd or shell state
 
-Those commands SHALL address managed agents by managed-agent reference and SHALL dispatch mailbox work by the resolved managed-agent authority:
+#### Scenario: The CLI selects mailbox authority for the resolved agent
+- **WHEN** a command has resolved the managed agent
+- **THEN** pair-managed targets use pair-owned mail authority
+- **AND THEN** local targets use verified manager-owned or gateway-backed execution when available
+- **AND THEN** verified local execution does not require prompting the agent to interpret mailbox instructions
+- **AND THEN** the caller does not have to discover or call a gateway endpoint
 
-- pair-managed targets SHALL use pair-owned mail authority,
-- local managed targets SHALL use verified manager-owned local mail authority or verified gateway-backed authority when available,
-- when a local live-TUI target lacks verified direct or gateway authority for ordinary mailbox actions such as `list`, `send`, `reply`, or `archive`, the command MAY fall back to TUI-mediated submission and SHALL preserve a non-authoritative submission result instead of claiming mailbox success,
-- operator-origin `post` SHALL NOT fall back to TUI-mediated submission and SHALL fail explicitly when verified manager-owned, pair-owned, or gateway-backed authority is unavailable,
-- callers SHALL NOT be required to discover or call gateway endpoints directly themselves when using the CLI.
+#### Scenario: TUI fallback preserves uncertainty
+- **WHEN** a local live-TUI target lacks verified direct or gateway authority for an ordinary mailbox action such as `list`, `send`, `reply`, or `archive`
+- **THEN** the CLI may use TUI-mediated submission but reports an non-authoritative submission result instead of claiming mailbox success
+- **AND THEN** operator-origin `post` fails explicitly without verified manager-owned, pair-owned, or gateway-backed mail authority and never uses TUI submission
 
-The `agents single` scope SHALL require an explicit `--agent-id` or `--agent-name` before the mail command and SHALL preserve that target even inside another managed session. The `agents self` scope SHALL resolve the current managed agent through manifest-first discovery using `HOUMAO_MANIFEST_PATH` with `HOUMAO_AGENT_ID` as fallback. Outside a resolvable owning session, `agents self` SHALL fail rather than guessing from cwd or ambient shell state.
-
-`resolve-live` SHALL return machine-readable mailbox binding and live gateway discovery data for the resolved managed agent.
-
-For local managed targets, ordinary mailbox follow-up SHALL NOT require prompting the target agent to interpret mailbox instructions when verified manager-owned or gateway-backed mailbox execution is available.
-
-The maintained `agents single` and `agents self` scoped trees SHALL provide these operations. Mail lifecycle operations and notifier controls SHALL require `--channel offline|online`; only summary `mail status` and `resolve-live` SHALL return both channels without selecting one. Missing channel input SHALL fail rather than using canonical mail precedence.
+#### Scenario: Mailbox mutations and notifier controls require a channel
+- **WHEN** a caller runs a mail lifecycle operation or notifier control
+- **THEN** the command requires `--channel offline|online` and rejects missing input without inferring it from canonical mail precedence
+- **AND THEN** only summary `mail status` and `resolve-live` return both channels without a selection
 
 #### Scenario: Same-session resolve-live succeeds without explicit selectors
 - **WHEN** an operator or projected skill runs `houmao-mgr agents self mail resolve-live` inside the owning managed tmux session
@@ -603,21 +522,12 @@ The maintained `agents single` and `agents self` scopes SHALL expose `mailbox of
 - **AND THEN** it does not require a raw module entrypoint or body restart
 
 ### Requirement: `houmao-mgr` renders expected mailbox-related operator failures without Python tracebacks
-When a native `houmao-mgr` mailbox-management or gateway mail-notifier command hits an expected operator-facing failure, the CLI SHALL render that failure as explicit command-line error output rather than leaking a Python traceback from the top-level wrapper.
+Expected operator-facing mailbox-management and gateway notifier failures SHALL produce explicit CLI errors and a non-zero exit without a Python traceback.
 
-This SHALL apply at minimum to:
-
-- `houmao-mgr agents single ... mailbox offline join`
-- `houmao-mgr agents single ... mailbox offline leave`
-- `houmao-mgr agents single ... mailbox offline status`
-- `houmao-mgr agents self mail ...`
-- `houmao-mgr agents single ... gateway mail-notifier status`
-- `houmao-mgr agents single ... gateway mail-notifier enable`
-- `houmao-mgr agents single ... gateway mail-notifier disable`
-
-The wrapper SHALL preserve the command's non-zero exit behavior for those failures.
-This requirement covers expected operator-facing failures such as explicit Click-style usage errors, manifest/runtime readiness errors, and gateway readiness errors that the command path already classifies as normal command failures.
-The CLI SHALL NOT claim success or hide the failure reason; it SHALL surface the explicit operator-facing error text without the Python stack trace.
+#### Scenario: Mailbox error formatting covers every named command
+- **WHEN** an expected Click usage, manifest/runtime readiness, or gateway readiness failure reaches the root wrapper
+- **THEN** offline `join`, `leave`, and `status` under `agents single ... mailbox offline`, scoped `agents self mail`, and selected-agent `gateway mail-notifier status|enable|disable` all retain non-zero exit behavior
+- **AND THEN** the CLI surfaces the explicit failure reason without claiming success
 
 #### Scenario: Joined mailbox registration failure renders as a clean CLI error
 - **WHEN** an operator runs `houmao-mgr agents single --agent-name alice mailbox offline join --mailbox-root /tmp/shared-mail`
@@ -685,14 +595,11 @@ At minimum, that command SHALL support the local build inputs and outputs needed
 - **AND THEN** the command does not require a running `houmao-server` instance just to build those artifacts
 
 ### Requirement: Native `houmao-mgr` expansion retires `cao` namespace and top-level `launch`
-Expanding `houmao-mgr` SHALL retire the `cao` command group and the top-level `launch` command entirely.
+`houmao-mgr` SHALL remove the `cao` namespace and top-level `launch`. The `server` group SHALL replace `cao` lifecycle commands, including info and shutdown. `agents launch` SHALL replace `cao launch` and the former top-level command.
 
-- `houmao-mgr cao *` commands SHALL be removed from the supported command tree.
-- Top-level `houmao-mgr launch` SHALL be removed. Agent launch moves to `houmao-mgr agents launch`.
-- The `server` group replaces server-lifecycle commands previously under `cao` (info, shutdown).
-- The `agents launch` command replaces `cao launch` and top-level `launch`.
-
-Repo-owned docs, tests, examples, and scripts SHALL use `houmao-mgr agents launch` and `houmao-mgr server *` rather than `cao launch` or top-level `launch`.
+#### Scenario: Repository guidance uses the replacement commands
+- **WHEN** repository docs, tests, examples, or scripts reference agent launch or server lifecycle
+- **THEN** they use `houmao-mgr agents launch` and `houmao-mgr server *` instead of the retired command paths
 
 #### Scenario: `cao` namespace is no longer available
 - **WHEN** an operator runs `houmao-mgr cao launch --agents ...`
@@ -709,11 +616,11 @@ Repo-owned docs, tests, examples, and scripts SHALL use `houmao-mgr agents launc
 - **THEN** they use `houmao-mgr agents launch` rather than `houmao-mgr cao launch` or `houmao-mgr launch`
 
 ### Requirement: Repo-owned docs prefer `houmao-mgr` over `houmao-cli` for covered pair workflows
-Repo-owned active documentation under `docs/` SHALL present `houmao-mgr` and `houmao-server` as the supported operator surfaces for current managed-agent and pair workflows.
+Active documentation under `docs/` SHALL show `houmao-mgr` and `houmao-server` for current managed-agent and pair workflows. It SHALL confine `houmao-cli` references to explicit migration, legacy, retirement, or historical guidance. It SHALL omit `houmao-mgr agents history` from supported inspection commands.
 
-References to `houmao-cli` MAY remain only in explicit migration, legacy, retirement, or historical contexts. Active documentation SHALL NOT retain `houmao-cli` as the default example for uncovered current workflows just because a native replacement has not been implemented yet.
-
-Repo-owned documentation for managed-agent inspection SHALL NOT present `houmao-mgr agents history` as a supported native inspection surface.
+#### Scenario: Current examples omit `houmao-cli` even without a replacement
+- **WHEN** active documentation describes a current workflow that lacks a native replacement
+- **THEN** it does not retain `houmao-cli` as the default example
 
 #### Scenario: Active docs replace `houmao-cli` examples for supported workflows
 - **WHEN** a repo-owned document under `docs/` describes a current managed-agent or pair workflow that is supported by `houmao-mgr` or `houmao-server`
@@ -731,15 +638,16 @@ Repo-owned documentation for managed-agent inspection SHALL NOT present `houmao-
 - **AND THEN** they do not present `houmao-mgr agents show` or `houmao-mgr agents history` as supported native inspection commands
 
 ### Requirement: `houmao-mgr agents stop` recovers verified broken active local lifecycle authority
-When `houmao-mgr agents stop` resolves a local tmux-backed managed agent whose shared-registry record still claims `active` but local tmux authority is verified as stale or degraded, the command SHALL reconcile that broken active lifecycle state through a Houmao-native recovery path.
+`houmao-mgr agents stop` SHALL recover a local tmux-backed agent whose registry record is still active after verified stale or degraded tmux authority. It SHALL re-check the registry generation and tmux authority before changing lifecycle state.
 
-The command SHALL re-check the shared-registry generation and local tmux authority before mutating lifecycle state.
+#### Scenario: Broken active authority with relaunch data becomes stopped
+- **WHEN** the stored relaunch authority is readable
+- **THEN** the command transitions the same generation from active to stopped, clears active liveness and gateway metadata, and preserves runtime relaunch locators
+- **AND THEN** the command identifies `houmao-mgr agents relaunch` as the revival command and does not publish a new stopped generation while the old one owns the active record
 
-When preserved relaunch authority is readable, the command SHALL transition the same registry generation from `active` to `stopped`, clear active liveness and gateway metadata, preserve runtime relaunch locators, and report that the agent can be revived through `houmao-mgr agents relaunch`.
-
-When preserved relaunch authority is unreadable, the command SHALL retire or remove the broken active record through the supported registry cleanup semantics and report that a fresh launch is required.
-
-The command SHALL NOT publish the stopped transition with a new generation while the old generation still owns the active record.
+#### Scenario: Broken active authority without relaunch data is retired
+- **WHEN** the stored relaunch authority is unreadable
+- **THEN** the command retires or removes the broken record through supported registry cleanup and reports that a fresh launch is required
 
 #### Scenario: Stale active stop transitions the same generation to stopped
 - **WHEN** an operator runs `houmao-mgr agents stop --agent-name alice`
@@ -767,15 +675,17 @@ The command SHALL NOT publish the stopped transition with a new generation while
 - **AND THEN** the command reports that the managed-agent identity cannot be relaunched from preserved local authority
 
 ### Requirement: `houmao-mgr agents stop` provides actionable recovery guidance on unexpected failures
-When `houmao-mgr agents stop` cannot complete normally, the command SHALL include operator guidance that explains the safest supported next action.
+On an unexpected failure, `houmao-mgr agents stop` SHALL identify the failing phase and known target context and report the safest supported recovery step.
 
-The guidance SHALL include known target context when available, including `agent_name`, `agent_id`, `manifest_path`, `session_root`, and recorded tmux session name.
+#### Scenario: Stop guidance identifies the failed phase and target
+- **WHEN** a normal stop cannot complete
+- **THEN** the diagnostic distinguishes tmux teardown, manifest/controller reconstruction, registry lifecycle transition, or cleanup and reaping as applicable
+- **AND THEN** when known, it includes `agent_name`, `agent_id`, `manifest_path`, `session_root`, and the recorded tmux session name
 
-The guidance SHALL distinguish the operation phase that failed, including at least local tmux teardown, manifest/controller reconstruction, shared-registry lifecycle transition, and cleanup/reaping.
-
-When Houmao can construct a precise follow-up command, the guidance SHALL include that exact command. Destructive recovery guidance SHALL prefer a dry-run command first unless the operator already requested destructive recovery.
-
-The command SHALL NOT leave the operator needing to inspect `.houmao/runtime`, shared registry internals, or raw tmux state without a supported Houmao-native next step.
+#### Scenario: Stop guidance gives an actionable command
+- **WHEN** the CLI can construct a precise follow-up command
+- **THEN** the guidance shows that exact command and prefers a dry run before destructive recovery unless the caller already requested destructive recovery
+- **AND THEN** the caller receives a supported next step without needing to inspect runtime files, registry internals, or raw tmux state on their own
 
 #### Scenario: Registry transition failure includes cleanup dry-run guidance
 - **WHEN** an operator runs `houmao-mgr agents stop --agent-name alice`
@@ -797,19 +707,17 @@ The command SHALL NOT leave the operator needing to inspect `.houmao/runtime`, s
 - **AND THEN** the guidance does not tell the operator to kill every tmux session matching only a friendly-name or `HOUMAO-` prefix
 
 ### Requirement: `houmao-mgr agents relaunch` exposes tmux-backed managed-session recovery
-`houmao-mgr` SHALL expose `agents relaunch` as the native managed-session recovery command for tmux-backed managed agents.
+`houmao-mgr agents relaunch` SHALL recover tmux-backed managed sessions through explicit identity or owning-session targeting. It SHALL use manifest-first discovery and reuse the persisted session and built home instead of invoking build-time launch.
 
-`agents relaunch` SHALL support both explicit targeting by managed-agent identity and a current-session mode when the operator runs the command from inside the owning tmux session.
+#### Scenario: Relaunch selects a path from the verified broken authority
+- **WHEN** a resolved local active record has degraded or stale tmux authority
+- **THEN** if the session still exists but its primary surface is missing, the CLI uses degraded-active recovery for the same logical agent
+- **AND THEN** if the recorded session is gone, it revives the same agent through preserved relaunch authority when supported metadata remains
+- **AND THEN** it transitions the broken record out of active state with the expected generation before publishing a new live generation
 
-The command SHALL resolve the target session through manifest-first discovery, SHALL reuse the persisted session and built home, and SHALL NOT route through build-time `houmao-mgr agents launch`.
-
-When the resolved local target is an active tmux-backed managed agent whose current tmux session still exists but whose contractual primary surface is missing, the command SHALL use the degraded-active recovery path for that same logical managed agent.
-
-When the resolved local target is an active tmux-backed managed agent whose recorded tmux session no longer exists, the command SHALL use preserved relaunch authority to revive that same logical managed agent when supported runtime metadata remains available.
-
-For stale-active and degraded-active recovery, the command SHALL first transition the verified broken active record out of `active` using the expected existing generation before publishing a new live relaunch generation.
-
-The command SHALL fail explicitly when the target is not tmux-backed, lacks valid manifest-owned relaunch authority, or cannot be resolved through supported selector or current-session discovery.
+#### Scenario: Relaunch rejects missing or unsupported authority
+- **WHEN** a target is not tmux-backed, has no valid manifest-owned relaunch authority, or cannot be resolved by supported selectors or current-session discovery
+- **THEN** the CLI reports the failure explicitly
 
 #### Scenario: Current-session relaunch uses tmux-local discovery
 - **WHEN** an operator runs `houmao-mgr agents relaunch` from inside a tmux-backed managed session
@@ -847,20 +755,15 @@ The command SHALL fail explicitly when the target is not tmux-backed, lacks vali
 - **AND THEN** it does not pretend that build-time launch or a raw CAO path is a supported replacement
 
 ### Requirement: `houmao-mgr agents relaunch` exposes relaunch chat-session selection
-`houmao-mgr agents relaunch` SHALL expose optional relaunch chat-session selection for tmux-backed managed agents.
+`houmao-mgr agents relaunch` SHALL accept `new`, `tool_last_or_new`, and `exact` for tmux-backed chat-session selection. It SHALL default to `new` and accept a provider-native chat-session ID only with `exact`.
 
-The command SHALL accept a relaunch chat-session mode with values `new`, `tool_last_or_new`, and `exact`.
+#### Scenario: Chat-session selection preserves both forms of targeting
+- **WHEN** a caller chooses a relaunch chat-session mode
+- **THEN** the CLI accepts explicit `--agent-id` or `--agent-name`, or current-session targeting in the owning managed tmux session
 
-The command SHALL accept a provider-native chat-session id only when the mode is `exact`.
-
-When relaunch chat-session mode is omitted, the command SHALL default to `new`.
-
-The command SHALL preserve both existing target forms:
-
-- explicit targeting by `--agent-id` or `--agent-name`,
-- current-session targeting when invoked from inside the owning managed tmux session.
-
-The command SHALL fail clearly when a selector is invalid, the target is not relaunchable, or the selected provider/backend does not support the requested relaunch chat-session mode.
+#### Scenario: Relaunch rejects invalid selectors and unavailable conversation policy
+- **WHEN** the selector is invalid, the target cannot relaunch, or its provider/backend cannot use the requested mode
+- **THEN** the CLI reports a clear failure
 
 #### Scenario: Current-session relaunch continues latest provider chat
 - **WHEN** an operator runs `houmao-mgr agents relaunch --chat-session-mode tool_last_or_new` from inside a supported tmux-backed managed session
@@ -883,25 +786,25 @@ The command SHALL fail clearly when a selector is invalid, the target is not rel
 - **AND THEN** existing relaunch scripts keep their prior behavior
 
 ### Requirement: Managed-agent-targeting native CLI commands use explicit identity selectors
+Single-target commands in `agents`, `agents gateway`, `agents mail`, and `agents turn` SHALL use `--agent-id` or `--agent-name` instead of a positional reference. Commands SHALL require exactly one selector except where a separate current-session contract applies.
 
-`houmao-mgr agents` commands that target one managed agent SHALL accept explicit identity selectors instead of relying on one positional managed-agent reference.
+#### Scenario: Identity selectors use authoritative identity and unique names
+- **WHEN** a caller targets one managed agent
+- **THEN** `--agent-id` addresses the authoritative globally unique identity
+- **AND THEN** `--agent-name` succeeds only when the relevant authority can prove exactly one live agent uses that friendly name
 
-At minimum, managed-agent-targeting commands in the `agents`, `agents gateway`, `agents mail`, and `agents turn` families SHALL accept:
+#### Scenario: Local selector misses retain their context
+- **WHEN** registry-first discovery finds no live agent with the requested friendly name and resolution later fails
+- **THEN** the resulting failure retains the local friendly-name miss alongside any subsequent transport failure
 
-- `--agent-id <id>`
-- `--agent-name <name>`
+#### Scenario: Friendly-name fallback preserves local evidence
+- **WHEN** registry-first discovery finds no live agent with the requested friendly name and default pair fallback is unavailable
+- **THEN** the CLI reports the local miss and remote lookup failure together
+- **AND THEN** it suggests a correction such as `houmao-mgr agents list`, the correct friendly name, or `--agent-id`
 
-For these commands, callers SHALL provide exactly one of those selectors unless the command defines a separate current-session targeting contract.
-
-`--agent-id` SHALL target the authoritative globally unique managed-agent identity.
-
-`--agent-name` SHALL target the friendly managed-agent name and SHALL only succeed when the relevant authority can prove that exactly one live managed agent currently uses that name.
-
-When local registry-first discovery finds no live managed agent whose friendly name matches the supplied `--agent-name`, the command SHALL preserve that selector-miss context in any resulting failure instead of surfacing only a later transport-level fallback failure.
-
-If the command cannot complete fallback lookup through the default pair authority after such a local miss, it SHALL report both the local friendly-name miss and the remote lookup unavailability, and SHALL direct the operator toward a corrective retry path such as `houmao-mgr agents list`, the correct friendly managed-agent name, or `--agent-id`.
-
-If the supplied `--agent-name` exactly matches one unique live local tmux/session alias but not that agent's friendly managed-agent name, the command SHALL state that `--agent-name` expects the friendly managed-agent name and SHALL direct the operator to retry with the published `agent_name` or `--agent-id`.
+#### Scenario: A tmux alias receives a targeted correction
+- **WHEN** the supplied friendly-name selector matches a unique live local tmux or session alias but not that agent's friendly name
+- **THEN** the CLI explains that `--agent-name` expects the friendly name and directs the caller to the published `agent_name` or `--agent-id`
 
 #### Scenario: Exact selector by agent id is accepted
 
@@ -950,19 +853,21 @@ If the supplied `--agent-name` exactly matches one unique live local tmux/sessio
 - **AND THEN** the error states that exactly one of `--agent-id` or `--agent-name` is required
 
 ### Requirement: `houmao-mgr agents gateway attach` defaults tmux-backed managed sessions to foreground tmux-window mode with explicit background opt-out
-`houmao-mgr agents gateway attach` SHALL default tmux-backed managed sessions to same-session foreground tmux-window mode.
+`houmao-mgr agents gateway attach` SHALL default tmux-backed sessions to same-session foreground gateway execution and accept `--background` for detached execution.
 
-`houmao-mgr agents gateway attach` SHALL accept an explicit `--background` option for tmux-backed managed sessions.
+#### Scenario: Foreground attachment follows the managed session topology
+- **WHEN** a caller attaches without `--background`
+- **THEN** a runtime-owned tmux-backed session attaches or reuses a gateway in a same-session foreground window
+- **AND THEN** a pair-managed `houmao_server_rest` session uses its standard same-session auxiliary-window topology
 
-When no `--background` override is supplied for a runtime-owned tmux-backed managed session, `houmao-mgr` SHALL attach or reuse the gateway in same-session foreground tmux-window mode rather than detached-process mode.
+#### Scenario: Background mode uses a detached process
+- **WHEN** a caller requests `--background` for a tmux-backed managed session
+- **THEN** the CLI attaches or reuses a gateway in detached background execution
 
-When no `--background` override is supplied for a pair-managed `houmao_server_rest` session, `houmao-mgr` SHALL treat the attach as the standard same-session auxiliary-window topology for that managed session.
-
-When `--background` is requested for a tmux-backed managed session, `houmao-mgr` SHALL attach or reuse the gateway in detached background execution rather than same-session foreground tmux-window mode.
-
-When foreground tmux-window mode is active, `houmao-mgr agents gateway attach` and `houmao-mgr agents gateway status` SHALL surface the gateway execution mode and the authoritative tmux window index for the live gateway surface so operators can inspect that console directly.
-
-Foreground tmux-window mode SHALL NOT redefine the managed agent attach contract: tmux window `0` remains reserved for the agent surface, and the gateway window SHALL use index `>=1`.
+#### Scenario: Foreground mode publishes the gateway window
+- **WHEN** foreground tmux-window mode is active
+- **THEN** `attach` and `status` report the execution mode and authoritative live gateway window index
+- **AND THEN** the agent remains on window `0` and the gateway uses index `>=1`
 
 #### Scenario: Default gateway attach uses foreground mode for a runtime-owned tmux-backed session
 - **WHEN** an operator runs `houmao-mgr agents gateway attach --agent-id <id>`
@@ -994,19 +899,12 @@ Foreground tmux-window mode SHALL NOT redefine the managed agent attach contract
 - **AND THEN** tmux window `0` remains the managed agent surface
 
 ### Requirement: `houmao-mgr admin cleanup` exposes grouped local cleanup commands
-`houmao-mgr` SHALL expose a native `admin cleanup` command group for local cleanup operations.
+`houmao-mgr admin cleanup` SHALL provide local maintenance over Houmao-owned state. Its documented tree SHALL include `registry` and `runtime sessions|builds|logs|mailbox-credentials`.
 
-At minimum, the documented grouped cleanup tree SHALL include:
-
-- `registry`
-- `runtime sessions`
-- `runtime builds`
-- `runtime logs`
-- `runtime mailbox-credentials`
-
-This grouped cleanup tree SHALL be documented as local maintenance over local Houmao-owned state rather than as a pair-managed server API surface.
-
-Within that grouped tree, `houmao-mgr admin cleanup registry` SHALL perform local tmux liveness probing by default for tmux-backed records and SHALL expose `--no-tmux-check` as the explicit opt-out flag for lease-only behavior.
+#### Scenario: Registry cleanup uses local probes unless requested otherwise
+- **WHEN** a caller runs `admin cleanup registry`
+- **THEN** tmux-backed records receive a local liveness probe by default, and `--no-tmux-check` opts into lease-only behavior
+- **AND THEN** the documentation describes cleanup as local maintenance outside the pair-managed API
 
 #### Scenario: Native admin help surface shows only grouped cleanup entry
 - **WHEN** an operator runs `houmao-mgr admin --help`
@@ -1058,14 +956,16 @@ When the operator does not pass an explicit cleanup target and runs the command 
 - **AND THEN** the operator does not need to spell the target session again just to clean its local artifacts
 
 ### Requirement: `houmao-mgr mailbox messages` reports structural mailbox message inspection
+`houmao-mgr mailbox messages list` and `get` SHALL inspect the structure of one filesystem mailbox root and one selected address. Participant-local follow-up state SHALL use a supported scope.
 
-The native `houmao-mgr mailbox messages list` and `houmao-mgr mailbox messages get` commands SHALL act as structural inspection over one filesystem mailbox root and one selected mailbox address.
+#### Scenario: Structural inspection reports canonical and projection metadata
+- **WHEN** a caller inspects messages for the selected address
+- **THEN** the command may show message and thread identity, projection folder and path, canonical path, sender and recipient metadata, body, headers, and attachments
+- **AND THEN** its output omits mutable participant-local fields such as `read`, `starred`, `archived`, and `deleted`
 
-Those commands MAY return canonical message metadata and address-scoped projection metadata for the selected address, including message identity, thread identity, projection folder, projection path, canonical path, sender metadata, recipient metadata, body content, headers, and attachments.
-
-Those commands SHALL NOT report participant-local mutable mailbox view-state fields such as `read`, `starred`, `archived`, or `deleted`.
-
-When an operator needs participant-local read or unread follow-up state, the supported surface SHALL be actor-scoped mail commands such as `houmao-mgr agents self mail ...` or a future explicitly address-scoped state surface rather than mailbox-root administration commands.
+#### Scenario: Read state uses an actor-scoped command
+- **WHEN** a caller needs participant-local read or unread state
+- **THEN** the supported surface is actor-scoped mail, such as `houmao-mgr agents self mail ...`, or a future explicitly address-scoped state surface
 
 #### Scenario: Root mailbox message list omits participant-local view-state flags
 
@@ -1102,29 +1002,21 @@ Those project-scoped wrappers SHALL NOT add or reintroduce participant-local mut
 - **AND THEN** the payload does not claim a single authoritative participant-local read, starred, archived, or deleted state
 
 ### Requirement: `houmao-mgr agents gateway` exposes `--target-tmux-session` for explicit outside-tmux targeting
-Gateway-targeting `houmao-mgr agents gateway ...` commands that operate on one managed agent SHALL accept `--target-tmux-session <tmux-session-name>` as an explicit selector in addition to the existing `--agent-id`, `--agent-name`, and same-session current-session modes.
+Gateway commands targeting one managed agent SHALL support explicit `--target-tmux-session <tmux-session-name>` and call the pair-authority override `--pair-port`.
 
-At minimum, this SHALL apply to:
+#### Scenario: Gateway operations share the explicit tmux selector
+- **WHEN** a caller runs `attach`, `detach`, `status`, `prompt`, `interrupt`, `send-keys`, or `mail-notifier status|enable|disable`
+- **THEN** the command accepts exactly one of `--agent-id`, `--agent-name`, `--target-tmux-session`, or `--current-session`
+- **AND THEN** omitting selectors inside the owning tmux session selects that current session
 
-- `attach`
-- `detach`
-- `status`
-- `prompt`
-- `interrupt`
-- `send-keys`
-- `mail-notifier status`
-- `mail-notifier enable`
-- `mail-notifier disable`
+#### Scenario: An explicit tmux session supplies local authority
+- **WHEN** a caller outside tmux supplies `--target-tmux-session`
+- **THEN** the command resolves the target through the addressed local tmux session without requiring `--agent-id` or `--agent-name`
 
-For those commands, `houmao-mgr` SHALL name the explicit pair-authority override `--pair-port` rather than `--port`.
-
-For those commands, `houmao-mgr` SHALL accept exactly one of `--agent-id`, `--agent-name`, `--target-tmux-session`, or `--current-session`, except that omitted selectors inside the owning tmux session SHALL remain equivalent to current-session targeting.
-
-`--pair-port` SHALL remain valid only with `--agent-id` or `--agent-name`. The CLI SHALL reject `--pair-port` when the operator selects `--target-tmux-session` or `--current-session`.
-
-The help text and error messaging for `--pair-port` SHALL describe it as the Houmao pair-authority port so operators do not confuse it with gateway listener port overrides such as lower-level `--gateway-port`.
-
-When an operator runs one of those commands outside tmux with `--target-tmux-session`, `houmao-mgr` SHALL resolve the local managed-agent target through the addressed tmux session authority and SHALL NOT require `--agent-id` or `--agent-name`.
+#### Scenario: Pair ports apply only to identity selectors
+- **WHEN** a caller supplies the explicit pair port override
+- **THEN** the CLI accepts `--pair-port` only with `--agent-id` or `--agent-name` and rejects it with `--target-tmux-session` or `--current-session`
+- **AND THEN** help and errors identify it as the Houmao pair-authority port, distinct from listener options such as lower-level `--gateway-port`
 
 #### Scenario: Outside-tmux gateway status resolves by explicit tmux session selector
 - **WHEN** an operator runs `houmao-mgr agents gateway status --target-tmux-session HOUMAO-gpu-coder-1-1775467167530`
@@ -1149,13 +1041,16 @@ When an operator runs one of those commands outside tmux with `--target-tmux-ses
 - **AND THEN** the command surface does not describe that override as a generic `--port` that could be mistaken for the gateway listener port
 
 ### Requirement: `houmao-mgr agents interrupt` keeps TUI interrupt transport-neutral
-`houmao-mgr agents interrupt` SHALL keep one transport-neutral operator contract across managed-agent transports.
+`houmao-mgr agents interrupt` SHALL expose one transport-neutral operator contract. TUI interrupt SHALL send one best-effort `Escape` through resolved managed-agent authority. Headless interrupt SHALL use managed execution control.
 
-For TUI-backed managed agents, the command SHALL dispatch one best-effort `Escape` interrupt signal through the resolved managed-agent control authority and SHALL NOT require the operator to know or supply raw TUI key semantics.
+#### Scenario: TUI interrupt works across tracked phases
+- **WHEN** a caller interrupts a TUI-backed agent
+- **THEN** the CLI dispatches without requiring raw key input
+- **AND THEN** a coarse `idle` or other non-active phase alone does not veto the dispatch
 
-For TUI-backed managed agents, the command SHALL NOT reject or no-op solely because coarse tracked TUI phase currently reports `idle` or another non-active posture.
-
-For headless managed agents, the command SHALL continue using the managed execution interrupt path and MAY return no-op behavior when no headless work is active.
+#### Scenario: Idle headless interruption may be a no-op
+- **WHEN** a headless managed agent has no active work
+- **THEN** the managed execution interrupt command may return a no-op
 
 #### Scenario: Operator interrupts a server-backed TUI agent without tracking-phase veto
 - **WHEN** an operator runs `houmao-mgr agents interrupt --agent-id abc123` for a managed TUI agent
@@ -1170,20 +1065,17 @@ For headless managed agents, the command SHALL continue using the managed execut
 - **AND THEN** the command does not fabricate a delivered TUI-style `Escape` interrupt for headless state
 
 ### Requirement: Native managed-agent local resume failures render as clean CLI errors
-When a native `houmao-mgr agents ...` command resolves a local managed-agent target through shared-registry metadata and local controller resume or recovery fails with an expected realm-controller runtime-domain failure, `houmao-mgr` SHALL render that failure as explicit CLI error output rather than leaking a Python traceback.
+Native `houmao-mgr agents` commands SHALL report expected local realm-controller resume or recovery failures as explicit CLI errors without Python tracebacks.
 
-This SHALL apply at minimum to local managed-agent commands that resume or recover a local target before dispatch, including:
+#### Scenario: Local resume failures use clean CLI errors
+- **WHEN** registry-first discovery resolves a local target for `stop`, `prompt`, `interrupt`, or `relaunch` and controller resume or recovery fails with an expected runtime-domain error
+- **THEN** the CLI prints a clean error
+- **AND THEN** commands without a degraded-recovery contract also report stale or unusable tmux authority as a clean error
 
-- `houmao-mgr agents stop`
-- `houmao-mgr agents prompt`
-- `houmao-mgr agents interrupt`
-- `houmao-mgr agents relaunch`
-
-For `houmao-mgr agents stop` and `houmao-mgr agents relaunch`, the CLI SHALL attempt the supported degraded-active or stale-active recovery path before surfacing a contextual CLI error.
-
-For `houmao-mgr agents stop`, contextual CLI errors SHALL include actionable recovery guidance with known target context and exact supported follow-up commands when available.
-
-For commands that do not define a degraded recovery contract, stale or unusable local tmux-backed authority SHALL still surface as a clean non-traceback CLI error.
+#### Scenario: Lifecycle commands attempt broken-authority recovery first
+- **WHEN** `stop` or `relaunch` encounters degraded-active or stale-active authority
+- **THEN** the CLI attempts the supported recovery path before reporting a contextual CLI error
+- **AND THEN** a `stop` failure includes known target context and exact supported follow-up commands when available
 
 #### Scenario: Degraded active local stop succeeds without traceback
 - **WHEN** an operator runs `houmao-mgr agents stop --agent-name alice`
@@ -1217,30 +1109,20 @@ For commands that do not define a degraded recovery contract, stale or unusable 
 - **AND THEN** stderr does not include a Python traceback
 
 ### Requirement: `houmao-mgr` headless prompt commands expose request-scoped execution override flags
-The native `houmao-mgr` prompt submission surfaces for headless work SHALL expose request-scoped execution override flags.
+`agents turn submit`, `agents gateway prompt`, and `agents prompt` SHALL accept headless request overrides `--model <name>` and `--reasoning-level <non-negative integer>`. Overrides SHALL apply to the current request.
 
-At minimum, this SHALL apply to:
+#### Scenario: Override requests preserve inherited fields
+- **WHEN** a caller provides either execution override
+- **THEN** the CLI constructs `execution.model` with only supplied subfields so launch-resolved defaults can supply the remainder
+- **AND THEN** `turn submit` uses the managed headless route, `gateway prompt` uses direct gateway prompt control, and plain `prompt` uses the transport-neutral route
 
-- `houmao-mgr agents turn submit`
-- `houmao-mgr agents gateway prompt`
-- `houmao-mgr agents prompt`
+#### Scenario: Execution flags fail when unsupported
+- **WHEN** a caller supplies execution flags to `gateway prompt` or `prompt`
+- **THEN** the CLI resolves the target before dispatch and rejects the flags on TUI-backed targets with a clear error
 
-Those commands SHALL accept:
-
-- `--model <name>`
-- `--reasoning-level <integer>=non-negative`
-
-When either flag is supplied, the CLI SHALL construct request-scoped `execution.model` payload with the supplied subfields and omit unsupplied subfields so the server or gateway can inherit the remaining values from launch-resolved defaults.
-
-`houmao-mgr agents turn submit` SHALL send that payload through the managed headless turn route.
-
-`houmao-mgr agents gateway prompt` SHALL send that payload through the managed gateway direct prompt-control path.
-
-`houmao-mgr agents prompt` SHALL send that payload through the transport-neutral managed-agent prompt path.
-
-Before dispatch, `houmao-mgr agents gateway prompt` and `houmao-mgr agents prompt` SHALL resolve the addressed managed agent and reject these execution flags clearly when the resolved target is TUI-backed rather than silently dropping them.
-
-The native CLI surface SHALL reject negative reasoning levels clearly and SHALL NOT impose a portable `1..10` upper bound at the CLI layer.
+#### Scenario: Reasoning level validation permits backend-specific ranges
+- **WHEN** a caller supplies `--reasoning-level`
+- **THEN** the CLI rejects a negative value and does not impose a portable `1..10` upper bound
 
 #### Scenario: Managed headless turn submit accepts both execution flags
 - **WHEN** an operator runs `houmao-mgr agents turn submit --agent-id abc123 --prompt "review this" --model gpt-5.4-mini --reasoning-level 3`
@@ -1265,15 +1147,11 @@ The native CLI surface SHALL reject negative reasoning levels clearly and SHALL 
 - **AND THEN** the CLI does not construct or send an invalid request payload
 
 ### Requirement: `houmao-mgr` exposes `internals` as a top-level utility command family
-`houmao-mgr` SHALL expose `internals` as a top-level native command family.
+`houmao-mgr` SHALL expose `internals` at its root for agent and maintainer utilities, including NetworkX-backed `graph` tooling. The family SHALL appear in root help and SHALL use the shared output engine for structured results.
 
-The `internals` command family SHALL contain Houmao-owned internal utility surfaces that support agent and maintainer workflows without becoming user-facing managed-agent lifecycle commands.
-
-At minimum, `internals` SHALL include a nested `graph` command family for NetworkX-backed graph tooling.
-
-The root help surface SHALL list `internals` alongside the other top-level command families.
-
-The `internals` command family SHALL respect the root print-style flags by using the shared `houmao-mgr` output engine for structured command results.
+#### Scenario: Internals operations stay within the utility surface
+- **WHEN** the CLI registers internal utilities
+- **THEN** it places the utilities under `internals` without exposing them as managed-agent lifecycle commands
 
 #### Scenario: Root help shows internals
 - **WHEN** an operator runs `houmao-mgr --help`
@@ -1291,15 +1169,12 @@ The `internals` command family SHALL respect the root print-style flags by using
 - **AND THEN** it does not bypass the configured print style with ad hoc printing for structured payloads
 
 ### Requirement: `houmao-mgr agents mail post` defaults to operator mailbox replies
-`houmao-mgr agents single ... mail post` SHALL default omitted `--reply-policy` input to `operator_mailbox`.
+`agents single ... mail post` SHALL accept and default `--reply-policy` to `operator_mailbox`. It SHALL also accept `none` and document `operator_mailbox` as the default.
 
-The command SHALL continue to accept explicit `--reply-policy none` and explicit `--reply-policy operator_mailbox`.
-
-When `--reply-policy none` is supplied, the created operator-origin message SHALL remain no-reply and later replies against that message SHALL fail explicitly.
-
-When `--reply-policy` is omitted or supplied as `operator_mailbox`, the created operator-origin message SHALL allow replies back to the reserved operator mailbox `HOUMAO-operator@houmao.localhost`.
-
-The command help SHALL report the reply-policy default as `operator_mailbox`.
+#### Scenario: Reply policy controls operator-origin message handling
+- **WHEN** an operator posts a message
+- **THEN** the default or explicit `operator_mailbox` permits later replies to `HOUMAO-operator@houmao.localhost`
+- **AND THEN** explicit `none` creates a no-reply message and replies against that message fail explicitly
 
 #### Scenario: Omitted CLI reply policy creates a reply-enabled operator-origin post
 - **WHEN** an operator runs `houmao-mgr agents single --agent-name alice mail post --channel offline --subject "..." --body-content "..."` without `--reply-policy`
@@ -1317,39 +1192,26 @@ The command help SHALL report the reply-policy default as `operator_mailbox`.
 - **AND THEN** it still lists `none` as the no-reply opt-out value
 
 ### Requirement: `houmao-mgr agents mail` exposes mailbox lifecycle commands
-`houmao-mgr agents single ... mail` SHALL expose a mailbox lifecycle command family for managed-agent mailbox work.
+Scoped `agents single` and `agents self` mail commands SHALL provide lifecycle controls for the selected mailbox. Result reporting SHALL distinguish verified execution from non-authoritative fallback submission.
 
-At minimum, that family SHALL include:
+#### Scenario: Scoped mail exposes its lifecycle operations
+- **WHEN** an operator opens the mail family
+- **THEN** it includes `resolve-live`, `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`
+- **AND THEN** `list` accepts a mailbox box and defaults to the inbox
 
-- `resolve-live`,
-- `status`,
-- `list`,
-- `peek`,
-- `read`,
-- `send`,
-- `post`,
-- `reply`,
-- `mark`,
-- `move`,
-- `archive`.
+#### Scenario: Reading and replying record only the applicable changes
+- **WHEN** a caller retrieves or replies to one message
+- **THEN** `peek` retrieves it without marking it read, while `read` retrieves it and marks it read
+- **AND THEN** a successful `reply` marks the replied message answered
 
-`list` SHALL support selecting a mailbox box and SHALL default to the inbox when omitted.
+#### Scenario: Lifecycle commands update selected messages
+- **WHEN** a caller changes message state
+- **THEN** `mark` explicitly sets supported fields such as `read` and `answered`, `move` transfers selected messages among supported mailbox boxes, and `archive` is the shortcut for marking selected processed mail archived
 
-`peek` SHALL retrieve one message without marking it read.
-
-`read` SHALL retrieve one message and mark it read.
-
-`reply` SHALL mark the replied message answered after a successful reply.
-
-`mark` SHALL allow explicit manual marking of supported lifecycle fields such as `read` and `answered`.
-
-`move` SHALL move selected messages among supported mailbox boxes.
-
-`archive` SHALL archive selected messages and remain a shortcut for the common processed-mail completion operation.
-
-The CLI SHALL keep the existing authority-aware result contract for verified execution versus non-authoritative fallback submission.
-
-The maintained `agents single` and `agents self` scoped trees SHALL provide these operations. Mail lifecycle operations and notifier controls SHALL require `--channel offline|online`; only summary `mail status` and `resolve-live` SHALL return both channels without selecting one. Missing channel input SHALL fail rather than using canonical mail precedence.
+#### Scenario: Lifecycle and notifier requests use an explicit channel
+- **WHEN** a caller runs a mail lifecycle operation or notifier control
+- **THEN** the command requires `--channel offline|online` and rejects omission without inferring from canonical mail precedence
+- **AND THEN** only summary `mail status` and `resolve-live` return both channels without selection
 
 #### Scenario: Operator archives selected mail from the CLI
 - **WHEN** an operator runs `houmao-mgr agents single ... mail archive --channel offline` with one or more message refs
@@ -1367,23 +1229,18 @@ The maintained `agents single` and `agents self` scoped trees SHALL provide thes
 - **AND THEN** the selected message is marked read for the target mailbox principal
 
 ### Requirement: Native gateway mail-notifier CLI configures notification mode
-`houmao-mgr agents single ... gateway mail-notifier enable` SHALL accept an optional notifier mode argument with values `any_inbox` and `unread_only`.
+Scoped `gateway mail-notifier enable` SHALL accept the mode `any_inbox` or `unread_only` and optional `--appendix-text`. Notifier `status` and `enable` results SHALL show the effective mode and `appendix_text` returned by the gateway.
 
-When the operator omits the notifier mode, the command SHALL send the gateway notifier enable request with effective mode `any_inbox`.
+#### Scenario: Notifier enable sends the selected mode and appendix
+- **WHEN** a caller enables a notifier
+- **THEN** the CLI sends `any_inbox` when mode is omitted and `unread_only` when requested
+- **AND THEN** an omitted `--appendix-text` leaves the request field absent so the stored value remains
+- **AND THEN** a non-empty appendix is sent verbatim and an explicit empty string clears the stored appendix
 
-When the operator supplies `unread_only`, the command SHALL send the gateway notifier enable request with mode `unread_only`.
-
-`houmao-mgr agents single ... gateway mail-notifier enable` SHALL also accept an optional `--appendix-text` argument that updates notifier `appendix_text`.
-
-When the operator omits `--appendix-text`, the CLI SHALL send the notifier enable request without an appendix field so the gateway can preserve the stored appendix unchanged.
-
-When the operator supplies non-empty `--appendix-text`, the CLI SHALL send that exact string as notifier `appendix_text`.
-
-When the operator supplies `--appendix-text ""`, the CLI SHALL send `appendix_text=""` so the gateway clears the stored appendix.
-
-The command output for notifier status and enable results SHALL preserve both the `mode` field and the effective `appendix_text` returned by the gateway.
-
-The maintained `agents single` and `agents self` scoped trees SHALL provide these operations. Mail lifecycle operations and notifier controls SHALL require `--channel offline|online`; only summary `mail status` and `resolve-live` SHALL return both channels without selecting one. Missing channel input SHALL fail rather than using canonical mail precedence.
+#### Scenario: Scoped notifier controls require an explicit channel
+- **WHEN** a caller uses mail lifecycle operations or notifier controls under `agents single` or `agents self`
+- **THEN** the CLI requires `--channel offline|online` and rejects omission without applying canonical mail precedence
+- **AND THEN** only summary `mail status` and `resolve-live` return both channels without a selection
 
 #### Scenario: CLI enable defaults to any-inbox mode
 - **WHEN** an operator runs `houmao-mgr agents single --agent-id abc123 gateway mail-notifier enable --channel offline --interval-seconds 60` without a mode option
@@ -1416,23 +1273,12 @@ The maintained `agents single` and `agents self` scoped trees SHALL provide thes
 - **AND THEN** it does not reinterpret the empty string as omitted input
 
 ### Requirement: `houmao-mgr` root error handling does not leak uncaught maintained-command exceptions as Python tracebacks
+The `houmao-mgr` root wrapper SHALL convert uncaught maintained-command exceptions into stable CLI errors with a non-zero exit and without a Python traceback. It SHALL preserve already-normalized errors.
 
-The top-level `houmao-mgr` wrapper SHALL convert uncaught exceptions from maintained native command trees into non-zero CLI error output rather than allowing a Python traceback to reach the operator.
-
-This SHALL apply to maintained native subcommands under:
-
-- `server`
-- `agents`
-- `brains`
-- `credentials`
-- `admin`
-- `mailbox`
-- `project`
-- `system-skills`
-
-When a maintained command already normalizes a failure as explicit operator-facing CLI error output, the root wrapper SHALL preserve that non-zero failure behavior rather than treating the command as successful.
-
-When a maintained command still leaks a non-click exception to the root wrapper, the wrapper SHALL render stable CLI error text instead of a Python traceback and SHALL preserve non-zero exit behavior.
+#### Scenario: Root exception handling covers maintained command families
+- **WHEN** a maintained command under `server`, `agents`, `brains`, `credentials`, `admin`, `mailbox`, `project`, or `system-skills` reports an explicit CLI error or leaks a non-Click exception
+- **THEN** the wrapper keeps the explicit failure or renders a stable error for the uncaught exception
+- **AND THEN** both cases exit non-zero without a traceback
 
 #### Scenario: Project mailbox failure that reaches the root wrapper still renders without traceback
 
@@ -1449,17 +1295,27 @@ When a maintained command still leaks a non-click exception to the root wrapper,
 - **AND THEN** the operator sees CLI error text instead of a Python traceback
 
 ### Requirement: `houmao-mgr agents mail send` and `post` accept `--notify-block` and respect the houmao-notify body fence
-`houmao-mgr agents single ... mail send` and `houmao-mgr agents single ... mail post` SHALL accept an optional `--notify-block <text>` flag whose value populates the canonical envelope's `notify_block.text` field through the supported composition path.
+`agents single ... mail send` and `post` SHALL support canonical `notify_block` composition through an optional `--notify-block` or a `houmao-notify` body fence. The explicit flag SHALL take precedence.
 
-The two commands SHALL also accept an optional `--notify-block-placement [append|prepend]` flag whose value populates `notify_block.placement`. The flag SHALL default to `append`. When `--notify-block` is omitted, `--notify-block-placement` SHALL be ignored and SHALL NOT influence body-fence extraction.
+#### Scenario: Explicit notification text forms a typed envelope field
+- **WHEN** the caller supplies `--notify-block <text>`
+- **THEN** the CLI submits the text and `--notify-block-placement [append|prepend]` as `notify_block.text` and `notify_block.placement`, defaulting to `append`
+- **AND THEN** composition synthesizes a `houmao-notify` fence in `body_markdown` at the requested placement if one is absent
+- **AND THEN** the CLI does not independently extract a body fence over the explicit field
 
-When `--notify-block` is provided, the CLI SHALL submit the canonical envelope's typed `notify_block` shape with the supplied `text` and `placement` through the supported composition contract. The CLI SHALL NOT also re-extract `notify_block` from a `houmao-notify` body fence on top of the explicit value. Composition SHALL apply the canonical auto-mirror invariant (synthesize a `houmao-notify` fenced block in `body_markdown` at the requested `placement` when one is not already present).
+#### Scenario: A body fence follows canonical extraction rules
+- **WHEN** the caller omits `--notify-block` and `--body-content` or its equivalent contains a `houmao-notify` fence
+- **THEN** the CLI ignores `--notify-block-placement` and sends the body unchanged through canonical composition
+- **AND THEN** the extractor takes the first matching fence and defaults placement to `append`
 
-When `--notify-block` is omitted and `--body-content` (or the equivalent body-source flag) contains a Markdown fenced code block with info-string `houmao-notify`, the CLI SHALL submit the body source unchanged through the canonical composition contract so the protocol-side extractor populates `notify_block.text` from the first matching fence per the canonical rules and defaults `notify_block.placement` to `"append"`.
+#### Scenario: Notification failures are clean CLI errors
+- **WHEN** canonical composition reports the 512-character truncation outcome or a `verifier not yet supported` rejection
+- **THEN** the CLI gives an explicit command-line error without a traceback
 
-The CLI SHALL surface the canonical 512-character truncation outcome and the canonical "verifier not yet supported" rejection as explicit command-line errors, not as Python tracebacks.
-
-The CLI SHALL NOT introduce a separate `--notify-auth-*` family of flags in this change. Callers requiring `notify_auth` metadata SHALL set it through programmatic composition surfaces; the CLI SHALL accept an absent `notify_auth` (treated as no authentication metadata) for normal `send` and `post` invocations.
+#### Scenario: Notification authentication remains part of programmatic composition
+- **WHEN** a caller prepares a normal `send` or `post` request
+- **THEN** the CLI accepts omitted `notify_auth` and treats it as no authentication metadata
+- **AND THEN** callers supplying `notify_auth` use programmatic composition because the CLI has no `--notify-auth-*` flag family
 
 #### Scenario: Operator supplies an explicit notify-block on send with default placement
 - **WHEN** an operator runs `houmao-mgr agents single --agent-name alice mail send --channel offline --to bob@houmao.localhost --subject "..." --body-content "..." --notify-block "re-run on official path"`
