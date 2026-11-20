@@ -199,6 +199,11 @@ class HeadlessInteractiveSession:
 
         if not prompt.strip():
             raise BackendExecutionError("Prompt must not be empty")
+        if set(self._plan.env_var_names).difference(self._plan.env):
+            raise BackendExecutionError(
+                "The committed launch environment is incomplete. Relaunch the managed agent "
+                "to prepare its runtime inputs."
+            )
         turn_id = turn_artifact_dir_name or f"turn-{uuid.uuid4().hex[:12]}"
         if Path(turn_id).name != turn_id or turn_id in {".", ".."}:
             raise BackendExecutionError("Headless turn ID must be one directory name")

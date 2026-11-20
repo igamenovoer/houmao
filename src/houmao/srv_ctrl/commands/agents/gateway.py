@@ -21,7 +21,6 @@ from houmao.gateway.plugins import GatewayPluginConfiguration, PluginConfigurati
 from houmao.ag_ui.authoring import HoumaoAgUiValidationError, validate_ag_ui_event_sequence
 from houmao.ag_ui.models import AgUiEventPublishRequest
 from houmao.agents.realm_controller.agent_identity import (
-    AGENT_DEF_DIR_ENV_VAR,
     AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
     normalize_managed_agent_id,
@@ -101,6 +100,7 @@ from ..managed_agents import (
     gateway_tui_note_prompt,
     gateway_tui_state,
     gateway_web_entry,
+    resolve_current_session_managed_agent_target,
     resolve_managed_agent_target,
 )
 
@@ -1552,9 +1552,10 @@ def _resolve_gateway_current_session_target(
 ) -> ManagedAgentTarget:
     """Resolve one managed-agent target from current-session tmux metadata."""
 
-    resolved_session_name = session_name or _require_current_tmux_session_name()
+    if session_name is None:
+        return resolve_current_session_managed_agent_target()
     return _resolve_gateway_tmux_session_target(
-        session_name=resolved_session_name,
+        session_name=session_name,
         context=_CURRENT_SESSION_RESOLUTION_CONTEXT,
         read_only=read_only,
     )
@@ -1605,13 +1606,7 @@ def _resolve_gateway_tmux_session_target(
                 "agent through a maintained local/headless workflow."
             )
 
-        agent_def_dir = _resolve_tmux_session_agent_def_dir(
-            session_name=session_name,
-            registry_record=resolution.registry_record,
-            context=context,
-        )
         controller = resume_runtime_session(
-            agent_def_dir=agent_def_dir,
             session_manifest_path=resolution.manifest_path,
             read_only=read_only,
         )
@@ -1786,52 +1781,6 @@ def _load_tmux_session_manifest_authority(
     return authority
 
 
-def _resolve_tmux_session_agent_def_dir(
-    *,
-    session_name: str,
-    registry_record: ManagedAgentRegistryRecordV3 | None,
-    context: _TmuxSessionResolutionContext,
-) -> Path:
-    """Resolve local runtime authority needed to resume one tmux-targeted session."""
-
-    env_value = _read_tmux_env_value(
-        session_name=session_name,
-        variable_name=AGENT_DEF_DIR_ENV_VAR,
-    )
-    if env_value is not None:
-        return _require_directory_path(
-            env_value,
-            variable_name=AGENT_DEF_DIR_ENV_VAR,
-            context=context,
-        )
-
-    if registry_record is not None and registry_record.runtime.agent_def_dir is not None:
-        return _require_directory_path(
-            registry_record.runtime.agent_def_dir,
-            variable_name="runtime.agent_def_dir",
-            context=context,
-        )
-
-    raise click.ClickException(
-        f"{context.label} is unavailable for local tmux-backed control because neither "
-        f"`{AGENT_DEF_DIR_ENV_VAR}` nor shared-registry `runtime.agent_def_dir` is available."
-    )
-
-
-def _resolve_current_session_agent_def_dir(
-    *,
-    session_name: str,
-    registry_record: ManagedAgentRegistryRecordV3 | None,
-) -> Path:
-    """Backward-compatible current-session agent-def resolution wrapper."""
-
-    return _resolve_tmux_session_agent_def_dir(
-        session_name=session_name,
-        registry_record=registry_record,
-        context=_CURRENT_SESSION_RESOLUTION_CONTEXT,
-    )
-
-
 def _require_current_tmux_session_name() -> str:
     """Return the current tmux session name or fail clearly."""
 
@@ -1923,29 +1872,6 @@ def _require_registry_manifest_path(
         variable_name="runtime.manifest_path",
         context=context,
     )
-
-
-def _require_directory_path(
-    value: str,
-    *,
-    variable_name: str,
-    context: _TmuxSessionResolutionContext,
-) -> Path:
-    """Validate one directory pointer used for resumed local control."""
-
-    path = Path(value)
-    if not path.is_absolute():
-        raise click.ClickException(
-            f"{context.label} metadata is invalid: `{variable_name}` must be an "
-            f"absolute path, got `{path}`."
-        )
-    resolved = path.resolve()
-    if not resolved.is_dir():
-        raise click.ClickException(
-            f"{context.label} metadata is stale: `{variable_name}` points to missing directory "
-            f"`{resolved}`."
-        )
-    return resolved
 
 
 def _normalize_optional_tmux_session_selector(*, option_name: str, value: str | None) -> str | None:

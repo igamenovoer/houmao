@@ -168,6 +168,8 @@ class LaunchPlan:
         Additional backend-specific options and resolved runtime fields.
     mailboxes:
         Independent optional offline and online mailbox slot authorities.
+    runtime_launch_environment_file:
+        Relative name of the owner-private environment for this live session.
     """
 
     backend: BackendKind
@@ -186,6 +188,7 @@ class LaunchPlan:
     transient_env_var_names: frozenset[str] = field(default_factory=frozenset)
     native_surface_kind: NativeSurfaceKind | None = None
     execution_binding: ExecutionBindingV1 | None = None
+    runtime_launch_environment_file: str | None = None
 
     @property
     def mode(self) -> RunMode:

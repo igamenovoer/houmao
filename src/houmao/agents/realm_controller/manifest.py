@@ -736,6 +736,7 @@ def _build_manifest_runtime_section(
         agent_pid = raw_agent_pid if isinstance(raw_agent_pid, int) and raw_agent_pid > 0 else None
     return {
         "session_id": session_id,
+        "launch_environment_file": request.launch_plan.runtime_launch_environment_file,
         "execution_binding": (
             request.launch_plan.execution_binding.model_dump(mode="json")
             if request.launch_plan.execution_binding is not None
@@ -747,7 +748,7 @@ def _build_manifest_runtime_section(
         "memo_file": str(request.memo_file.resolve()) if request.memo_file is not None else None,
         "pages_dir": (str(request.pages_dir.resolve()) if request.pages_dir is not None else None),
         "agent_def_dir": (
-            str(request.agent_def_dir.resolve()) if request.agent_def_dir is not None else None
+            str(request.agent_def_dir) if request.agent_def_dir is not None else None
         ),
         "agent_pid": agent_pid,
         "registry_generation_id": request.registry_generation_id,

@@ -15,8 +15,11 @@ from houmao.agents.dsh_configuration import (
     load_dsh_home,
     prepare_dsh_home,
     project_dsh_home_permissions,
+    read_dsh_mcp_environment,
 )
 from houmao.agents.model_mapping_policy import resolve_reasoning_mapping
+from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
+from houmao.agents.realm_controller.runtime import persist_runtime_launch_inputs
 from houmao.agents.tool_params.dsh import DshPermissionParams
 
 
@@ -430,6 +433,38 @@ def test_mcp_entries_are_canonical_for_the_selected_route(adapter: str, tmp_path
     assert "env_ref: MCP_AUTH_EXAMPLE" in materialized.read_text()
     assert "synthetic-private-header" not in materialized.read_text()
     assert materialized.stat().st_mode & 0o777 == 0o600
+
+    private_source = tmp_path / "definition-vars.env"
+    private_source.write_text("MCP_AUTH_EXAMPLE=synthetic-private-header\nUNUSED=ignored\n")
+    private_source.chmod(0o600)
+    launch_plan = LaunchPlan(
+        backend="dsh_headless",
+        tool="dsh",
+        executable="dsh",
+        args=[],
+        working_directory=tmp_path,
+        home_env_var="DSH_HOME",
+        home_path=tmp_path,
+        env=prepared.environment,
+        env_var_names=sorted(prepared.environment),
+        role_injection=RoleInjectionPlan(
+            method="native_system_prompt_section", role_name="test-role", prompt=""
+        ),
+        metadata={
+            "env_source_file": str(private_source),
+            "dsh": {
+                "setup_path": str(materialized),
+                "mcp_server_names": ["local", "remote"],
+            },
+        },
+    )
+    committed = persist_runtime_launch_inputs(launch_plan, session_root=tmp_path / "runtime")
+    private_source.unlink()
+    assert read_dsh_mcp_environment(
+        DshEffectiveToolParams.from_file(materialized), committed.metadata["env_source_file"]
+    ) == {"MCP_AUTH_EXAMPLE": "synthetic-private-header"}
+    assert "synthetic-private-header" not in json.dumps(committed.redacted_payload())
+    assert "MCP_AUTH_EXAMPLE" not in committed.env
 
 
 @pytest.mark.parametrize("value", [None, "synthetic-private\r\nX-Injected: value"])

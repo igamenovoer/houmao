@@ -88,7 +88,7 @@ For dedicated coverage of complex nested command families, see:
 | `global` | Zero-or-many local managed-agent registry/fleet operations. Maintained command: `list`. |
 | `single --agent-id <id>` | Exactly one explicitly selected local managed-agent identity by authoritative id. |
 | `single --agent-name <name>` | Exactly one explicitly selected local managed-agent identity by friendly name. |
-| `self` | Exactly one current managed agent: the caller's registered tmux session. Includes current-session adoption through `join`. |
+| `self` | The caller's verified managed runtime. Includes tmux session adoption through `join`. |
 | `external` | External-agent registry/reference onboarding: `register`, `list`, `get`, `verify`, and `remove`. External lifecycle stays with the remote owner. |
 
 #### Target Cardinality And Authority
@@ -99,7 +99,8 @@ For dedicated coverage of complex nested command families, see:
 - `agents single` owns selected-agent lifecycle controls: `state`, `home`, `refresh`, `prompt`, `interrupt`, `stop`, `relaunch`, `gateway`, `mail`, `mailbox`, `memory`, `turn`, and `cleanup`.
 - `agents single relaunch` has selected-agent recovery authority. It may refresh an active tmux-backed surface, revive stopped relaunchable records, and recover degraded or stale active records where the runtime supports those paths.
 - `agents self join` adopts the current tmux session as one managed-agent identity. `join` may accept identity creation fields such as `--agent-name`; those fields do not select another existing agent.
-- `agents self` follow-up commands resolve the target from the caller's current managed tmux session and do not accept `--agent-id`, `--agent-name`, or `--current-session`.
+- `agents self` follow-up commands use the verified current runtime as their target. Tmux-backed runtimes use their owning socket and session. A supported headless runtime can supply its runtime manifest locator directly.
+- `agents self identity` reads the verified session manifest and checks the live registry generation. It works with a detached gateway and with the launch definition directory unavailable.
 - `agents self` exposes `identity`, `state`, `home`, `refresh`, `prompt`, `interrupt`, `relaunch`, `gateway`, `mail`, `mailbox`, `memory`, and `turn`. It intentionally does not expose `stop`, `cleanup`, or an effective-system-prompt retrieval command. Inspect secret-free prompt method and digest provenance in maintained manifests instead of retrieving prompt text through the manager.
 - `agents self relaunch` is active-current-session refresh only. Selected-agent stopped-record revival and degraded/stale recovery remain under `agents single --agent-id <id> relaunch` or `agents single --agent-name <name> relaunch`.
 - `agents external` manages remotely owned or communication-only references. It does not expose local lifecycle commands such as `prompt`, `interrupt`, `stop`, `relaunch`, `gateway`, `turn`, or `cleanup` under the `external` group.

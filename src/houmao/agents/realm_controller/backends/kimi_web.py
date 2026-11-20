@@ -21,6 +21,7 @@ from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDis
 from houmao.agents.realm_controller.backends.dsh_acp_driver import _write_private_json
 from houmao.agents.realm_controller.backends.dsh_web import DshWebSession
 from houmao.agents.realm_controller.backends.dsh_web_client import DshWebError
+from houmao.agents.realm_controller.backends.dsh_web_supervisor import web_tool_environment
 from houmao.agents.realm_controller.backends.kimi_acp_journal import (
     _native_turn_id,
     kimi_session_journal,
@@ -289,6 +290,7 @@ class KimiWebSession:
         bootstrap = root / "bootstrap.json"
         _write_private_json(control, cast(dict[str, Any], selection))
         invocation = root / "supervisor-input.json"
+        name = tmux_session_name or generate_tmux_session_name(tool="kimi", role_name=role_name)
         environment = {
             **{
                 key: os.environ[key]
@@ -303,12 +305,11 @@ class KimiWebSession:
             {
                 "root": str(root),
                 "working_directory": str(workspace),
-                "environment": environment,
+                "environment": web_tool_environment(environment, session_name=name),
                 "command": [plan.executable, *_NATIVE_ARGS],
                 "name": "Kimi Web",
             },
         )
-        name = tmux_session_name or generate_tmux_session_name(tool="kimi", role_name=role_name)
         previous = self.m_state
         created = has_tmux_session(session_name=name).returncode == 1
         if not created and (previous is None or not self._owns_tmux(name, previous.control_path)):

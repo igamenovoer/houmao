@@ -28,6 +28,9 @@ from houmao.agents.realm_controller.registry_storage import (
     record_path_for_agent_id,
 )
 from houmao.agents.realm_controller.runtime import resume_runtime_session
+from houmao.agents.realm_controller.runtime_launch_environment import (
+    read_runtime_launch_environment,
+)
 from houmao.agents.realm_controller import runtime as runtime_module
 from houmao.agents.system_skills import discover_installed_system_skills
 from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
@@ -261,6 +264,10 @@ def test_materialize_joined_headless_persists_resume_selection(
     assert payload.agent_launch_authority is not None
     assert payload.agent_launch_authority.posture_kind == "headless_launch_options"
     assert payload.agent_launch_authority.launch_args == ["exec", "--json"]
+    environment_name = payload.runtime.launch_environment_file
+    assert environment_name is not None
+    owned_environment = read_runtime_launch_environment(result.session_root / environment_name)
+    assert owned_environment.environment[HOUMAO_AGENT_MEMO_FILE_ENV_VAR] == str(result.memo_file)
 
 
 @pytest.mark.parametrize(

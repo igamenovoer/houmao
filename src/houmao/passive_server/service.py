@@ -1769,13 +1769,9 @@ class PassiveServerService:
         """Read one-shot or service state from the same verified runtime as the manager."""
 
         record = agent.record
-        agent_def_dir = record.runtime.agent_def_dir
-        if agent_def_dir is None:
-            return (503, {"detail": "Verified runtime definition is unavailable"})
         try:
             require_registry_mode_authority(record)
             controller = resume_runtime_session(
-                agent_def_dir=Path(agent_def_dir),
                 session_manifest_path=Path(record.runtime.manifest_path),
                 read_only=True,
             )

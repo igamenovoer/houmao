@@ -8,16 +8,24 @@ import click
 import pytest
 from click.testing import CliRunner
 
+from houmao.agents.mailbox_runtime_models import (
+    FilesystemMailboxResolvedConfig,
+    MailboxesResolvedConfig,
+)
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
+    SELF_TMUX_SESSION_ENV_VAR,
+    SELF_TMUX_SOCKET_ENV_VAR,
 )
 from houmao.agents.realm_controller.errors import (
     BackendExecutionError,
+    GatewayHttpError,
     SessionManifestError,
 )
 from houmao.agents.realm_controller.gateway_models import (
+    GatewayControlInputResultV1,
     GatewayPromptControlErrorV1,
     GatewayReminderCreateResultV1,
     GatewayReminderListV1,
@@ -26,6 +34,14 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayStatusV1,
     GatewayTuiTrackingTimingOverridesV1,
 )
+from houmao.agents.realm_controller.headless_snapshots import headless_turn_artifacts_root
+from houmao.agents.realm_controller.manifest import (
+    load_session_manifest,
+    mutate_session_mailbox_binding,
+    update_session_manifest,
+)
+from houmao.agents.realm_controller.self_manifest import VerifiedSelfManifest
+from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
 from houmao.server.models import (
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentListResponse,
@@ -34,35 +50,36 @@ from houmao.mailbox.protocol import (
     HOUMAO_NO_REPLY_POLICY_VALUE,
     HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
 )
+from houmao.srv_ctrl.commands import managed_agents
 from houmao.srv_ctrl.commands.managed_agents import GatewayPromptControlCliError, ManagedAgentTarget
 from houmao.srv_ctrl.commands.main import cli, main
 from houmao.version import get_version
+from tests.unit.srv_ctrl.commands.test_self_manifest import _publish_manifest
 
 _HOUMAO_DOCS_URL = "https://igamenovoer.github.io/houmao/"
 
 
-def _manifest_gateway_authority(
-    *,
-    api_base_url: str | None = None,
-    managed_agent_ref: str | None = None,
-    terminal_id: str | None = None,
-    profile_name: str | None = None,
-    profile_path: str | None = None,
-    parsing_mode: str | None = None,
-    tmux_window_name: str | None = None,
-) -> SimpleNamespace:
-    """Build a current v4 gateway-authority test double."""
+def _clear_self_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove inherited runtime locators so CLI tests stay isolated."""
 
-    endpoint = SimpleNamespace(
-        api_base_url=api_base_url,
-        managed_agent_ref=managed_agent_ref,
-        terminal_id=terminal_id,
-        profile_name=profile_name,
-        profile_path=profile_path,
-        parsing_mode=parsing_mode,
-        tmux_window_name=tmux_window_name,
-    )
-    return SimpleNamespace(attach=endpoint, control=endpoint)
+    for key in (
+        "TMUX",
+        "TMUX_PANE",
+        AGENT_DEF_DIR_ENV_VAR,
+        AGENT_MANIFEST_PATH_ENV_VAR,
+        SELF_TMUX_SOCKET_ENV_VAR,
+        SELF_TMUX_SESSION_ENV_VAR,
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+
+def _prepare_manifest_self(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Install one isolated headless locator from a committed manifest."""
+
+    _clear_self_context(monkeypatch)
+    path = _publish_manifest(tmp_path, "claude_headless")
+    monkeypatch.setenv(AGENT_MANIFEST_PATH_ENV_VAR, str(path))
+    return path
 
 
 _ACTIONABLE_SELECTOR_ERROR = "\n".join(
@@ -956,59 +973,11 @@ def test_agents_gateway_attach_forwards_background_flag(
 
 def test_agents_gateway_attach_current_session_rejects_retired_pair_backend(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
-    manifest_path = (tmp_path / "manifest.json").resolve()
-    manifest_path.write_text("{}\n", encoding="utf-8")
-
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway._try_current_tmux_session_name",
-        lambda: "pair-session",
+        "houmao.srv_ctrl.commands.managed_agents.resolve_self_manifest",
+        lambda: SimpleNamespace(payload=SimpleNamespace(backend="houmao_server_rest")),
     )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway._require_current_tmux_session_name",
-        lambda: "pair-session",
-    )
-
-    def _read_tmux_env(*, session_name: str, variable_name: str) -> str | None:
-        assert session_name == "pair-session"
-        assert variable_name == AGENT_MANIFEST_PATH_ENV_VAR
-        return str(manifest_path)
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.read_tmux_session_environment_value",
-        _read_tmux_env,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.load_session_manifest",
-        lambda path: SimpleNamespace(path=Path(path), payload={"manifest": "payload"}),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.parse_session_manifest_payload",
-        lambda payload, source: SimpleNamespace(
-            backend="houmao_server_rest",
-            tool="codex",
-            tmux_session_name="pair-session",
-            tmux=SimpleNamespace(session_name="pair-session"),
-            agent_name="HOUMAO-pair",
-            agent_id="agent-123",
-            gateway_authority=_manifest_gateway_authority(
-                api_base_url="http://127.0.0.1:9889",
-                managed_agent_ref="pair-session",
-                terminal_id="term-123",
-                parsing_mode="shadow_only",
-                tmux_window_name="agent",
-            ),
-            houmao_server=SimpleNamespace(
-                api_base_url="http://127.0.0.1:9889",
-                session_name="pair-session",
-                terminal_id="term-123",
-                parsing_mode="shadow_only",
-                tmux_window_name="agent",
-            ),
-        ),
-    )
-
     result = CliRunner().invoke(cli, ["agents", "self", "gateway", "attach"])
 
     assert result.exit_code != 0
@@ -1017,127 +986,34 @@ def test_agents_gateway_attach_current_session_rejects_retired_pair_backend(
 
 
 def test_agents_gateway_attach_current_session_falls_back_to_registry_agent_id(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    manifest_path = (tmp_path / "manifest.json").resolve()
-    manifest_path.write_text("{}\n", encoding="utf-8")
-    agent_def_dir = (tmp_path / "agent-def").resolve()
-    agent_def_dir.mkdir(parents=True)
-    captured: dict[str, object] = {}
+    from houmao.agents.realm_controller import self_manifest
+    from houmao.srv_ctrl.commands.agents import gateway
 
+    path = _prepare_manifest_self(tmp_path, monkeypatch)
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway._try_current_tmux_session_name",
-        lambda: "headless-session",
+        self_manifest, "_self_tmux_session", lambda: (str(tmp_path / "owned.sock"), "owner-session")
     )
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
+    session_env = {AGENT_ID_ENV_VAR: "agent-id", AGENT_MANIFEST_PATH_ENV_VAR: None}
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway._require_current_tmux_session_name",
-        lambda: "headless-session",
-    )
-
-    def _read_tmux_env(*, session_name: str, variable_name: str) -> str | None:
-        assert session_name == "headless-session"
-        mapping = {
-            AGENT_MANIFEST_PATH_ENV_VAR: None,
-            AGENT_ID_ENV_VAR: "published-alpha",
-            AGENT_DEF_DIR_ENV_VAR: None,
-        }
-        return mapping[variable_name]
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.read_tmux_session_environment_value",
-        _read_tmux_env,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.resolve_live_agent_record_by_agent_id",
-        lambda agent_id: SimpleNamespace(
-            runtime=SimpleNamespace(
-                manifest_path=str(manifest_path),
-                agent_def_dir=str(agent_def_dir),
-            )
-        ),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.load_session_manifest",
-        lambda path: SimpleNamespace(path=Path(path), payload={"manifest": "payload"}),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.parse_session_manifest_payload",
-        lambda payload, source: SimpleNamespace(
-            backend="claude_headless",
-            tool="claude",
-            tmux_session_name="headless-session",
-            tmux=SimpleNamespace(session_name="headless-session"),
-            agent_name="HOUMAO-headless",
-            agent_id="published-alpha",
-            gateway_authority=_manifest_gateway_authority(),
-            houmao_server=None,
-        ),
+        self_manifest,
+        "read_tmux_session_environment_value",
+        lambda *, session_name, variable_name: session_env[variable_name],
     )
 
-    def _attach_gateway(*, execution_mode_override: str | None = None) -> object:
-        captured["execution_mode_override"] = execution_mode_override
-        return SimpleNamespace(status="ok", detail="")
+    def attach(target: ManagedAgentTarget, *, background: bool, **kwargs: object) -> dict[str, str]:
+        assert target.agent_ref == "agent-id"
+        assert target.controller is None
+        assert target.self_manifest is not None and target.self_manifest.path == path
+        assert background is False and kwargs["tui_tracking_timing_overrides"] is None
+        return {"status": "local-attached"}
 
-    controller = SimpleNamespace(
-        agent_id="published-alpha",
-        agent_identity="HOUMAO-headless",
-        manifest_path=manifest_path,
-        attach_gateway=_attach_gateway,
-        gateway_status=lambda: {"status": "local-attached"},
-    )
-
-    def _resume_runtime_session(
-        *, agent_def_dir: Path, session_manifest_path: Path, read_only: bool = False
-    ) -> object:
-        captured["agent_def_dir"] = agent_def_dir
-        captured["session_manifest_path"] = session_manifest_path
-        assert not read_only
-        return controller
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.resume_runtime_session",
-        _resume_runtime_session,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway._identity_from_controller",
-        lambda resolved_controller: HoumaoManagedAgentIdentity(
-            tracked_agent_id="tracked-local",
-            transport="headless",
-            tool="claude",
-            session_name=None,
-            terminal_id=None,
-            runtime_session_id="tracked-local",
-            tmux_session_name="headless-session",
-            tmux_window_name="agent",
-            manifest_path=str(manifest_path),
-            session_root=str(tmp_path.resolve()),
-            agent_name="HOUMAO-headless",
-            agent_id="published-alpha",
-        ),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.attach_gateway",
-        lambda target, *, background=False, tui_tracking_timing_overrides=None, **kwargs: (
-            captured.update(
-                {
-                    "target": target,
-                    "background": background,
-                    "tui_tracking_timing_overrides": tui_tracking_timing_overrides,
-                }
-            )
-            or {"status": "local-attached"}
-        ),
-    )
-
+    monkeypatch.setattr(gateway, "attach_gateway", attach)
     result = CliRunner().invoke(cli, ["agents", "self", "gateway", "attach"])
 
     assert result.exit_code == 0, result.output
-    assert captured["agent_def_dir"] == agent_def_dir
-    assert captured["session_manifest_path"] == manifest_path
-    assert captured["target"].agent_ref == "published-alpha"
-    assert captured["background"] is False
-    assert captured["tui_tracking_timing_overrides"] is None
     assert json.loads(result.output) == {"status": "local-attached"}
 
 
@@ -1166,49 +1042,322 @@ def test_agents_gateway_target_tmux_session_option_is_not_public_under_scopes() 
 def test_self_status_uses_verified_read_only_tmux_authority(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: tuple[str, ...], stale: bool
 ) -> None:
-    """Pass observation intent through the command and reject mismatched tmux authority."""
+    """Pass the verified manifest to status handlers and reject invalid owner metadata."""
 
-    from houmao.srv_ctrl.commands.agents import core, gateway, mail
+    from houmao.agents.realm_controller import self_manifest
+    from houmao.srv_ctrl.commands.agents import core, mail
 
-    manifest = tmp_path / "session.json"
-    monkeypatch.setattr(gateway, "_try_current_tmux_session_name", lambda: "dsh-session")
+    manifest = _prepare_manifest_self(tmp_path, monkeypatch)
     monkeypatch.setattr(
-        gateway,
-        "_resolve_tmux_session_manifest",
-        lambda **kwargs: SimpleNamespace(
-            authority=SimpleNamespace(agent_id="current-agent", backend="dsh_headless"),
-            manifest_path=manifest,
-            registry_record=None,
-        ),
+        self_manifest, "_self_tmux_session", lambda: (str(tmp_path / "owned.sock"), "owner-session")
     )
+    session_env = {
+        AGENT_ID_ENV_VAR: "prior-agent" if stale else "agent-id",
+        AGENT_MANIFEST_PATH_ENV_VAR: str(manifest),
+    }
     monkeypatch.setattr(
-        gateway,
-        "_read_current_session_agent_id",
-        lambda **kwargs: "prior-agent" if stale else "current-agent",
-    )
-    monkeypatch.setattr(gateway, "_resolve_tmux_session_agent_def_dir", lambda **kwargs: tmp_path)
-    controller = SimpleNamespace(
-        agent_id="current-agent", agent_identity="dsh-session", manifest_path=manifest
+        self_manifest,
+        "read_tmux_session_environment_value",
+        lambda *, session_name, variable_name: session_env[variable_name],
     )
 
-    def resume(*, agent_def_dir: Path, session_manifest_path: Path, read_only: bool) -> object:
+    def observe(target: ManagedAgentTarget) -> dict[str, str]:
         assert not stale
-        assert read_only
-        assert agent_def_dir == tmp_path and session_manifest_path == manifest
-        return controller
+        assert target.controller is None
+        assert target.self_manifest is not None and target.self_manifest.path == manifest
+        return {"agent_id": target.agent_ref}
 
-    monkeypatch.setattr(gateway, "resume_runtime_session", resume)
-    monkeypatch.setattr(gateway, "_identity_from_controller", lambda _: object())
     for module, name in ((core, "managed_agent_state_payload"), (mail, "mail_status")):
-        monkeypatch.setattr(module, name, lambda target: {"agent_id": target.agent_ref})
+        monkeypatch.setattr(module, name, observe)
 
     result = CliRunner().invoke(cli, ["agents", "self", *operation])
     if stale:
         assert result.exit_code != 0
-        assert "the manifest and tmux agent IDs differ" in result.output
+        assert "does not match the current managed runtime" in result.output
     else:
         assert result.exit_code == 0, result.output
-        assert json.loads(result.output) == {"agent_id": "current-agent"}
+        assert json.loads(result.output) == {"agent_id": "agent-id"}
+
+
+def test_self_inspection_reads_memory_and_turn_artifacts_from_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Read current runtime data with the launch definition directory absent."""
+
+    manifest = _prepare_manifest_self(tmp_path, monkeypatch)
+    memory = tmp_path / "runtime" / "memory"
+    memory.mkdir()
+    memo = memory / "memo.md"
+    memo.write_text("runtime memo\n", encoding="utf-8")
+    runtime = load_session_manifest(manifest).payload["runtime"]
+    update_session_manifest(
+        manifest,
+        {
+            "runtime": runtime
+            | {
+                "memory_root": str(memory),
+                "memo_file": str(memo),
+                "pages_dir": str(memory / "pages"),
+            }
+        },
+    )
+    turn = headless_turn_artifacts_root(manifest) / "turn-1"
+    turn.mkdir(parents=True)
+    (turn / "exitcode").write_text("0\n", encoding="utf-8")
+    monkeypatch.setattr(
+        managed_agents,
+        "resume_runtime_session",
+        lambda **_: pytest.fail("stored runtime evidence needs no controller"),
+    )
+
+    memo_result = CliRunner().invoke(cli, ["agents", "self", "memory", "memo", "show"])
+    turn_result = CliRunner().invoke(cli, ["agents", "self", "turn", "status", "turn-1"])
+
+    assert memo_result.exit_code == 0, memo_result.output
+    assert json.loads(memo_result.output)["content"] == "runtime memo\n"
+    assert turn_result.exit_code == 0, turn_result.output
+    response = json.loads(turn_result.output)
+    assert (response["tracked_agent_id"], response["turn_id"], response["status"]) == (
+        "agent-id",
+        "turn-1",
+        "completed",
+    )
+
+
+def test_self_home_and_refresh_check_use_saved_runtime_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Inspect a committed home and report unavailable common-plugin evidence."""
+
+    from houmao.agents.realm_controller import native_refresh
+    from houmao.execution.tmux import current_tmux_socket_path
+
+    manifest = _prepare_manifest_self(tmp_path, monkeypatch)
+    home = tmp_path / "runtime" / "home"
+
+    def owns_tmux(*, session_name: str) -> bool:
+        assert session_name == "owner-session"
+        assert current_tmux_socket_path() == str(tmp_path / "owned.sock")
+        return True
+
+    monkeypatch.setattr(native_refresh, "tmux_session_exists", owns_tmux)
+    monkeypatch.setattr(
+        native_refresh,
+        "resolve_primary_tmux_surface",
+        lambda **_: SimpleNamespace(pane_dead=False),
+    )
+    hints = {AGENT_MANIFEST_PATH_ENV_VAR: str(manifest), AGENT_ID_ENV_VAR: "agent-id"}
+    monkeypatch.setattr(
+        native_refresh,
+        "read_tmux_session_environment_value",
+        lambda *, session_name, variable_name: hints[variable_name],
+    )
+    monkeypatch.setattr(
+        managed_agents,
+        "resume_runtime_session",
+        lambda **_: pytest.fail("home output must come directly from the manifest"),
+    )
+    result = CliRunner().invoke(cli, ["agents", "self", "home"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["home_dir"] == str(home)
+
+    def resume(*, session_manifest_path: Path, read_only: bool) -> SimpleNamespace:
+        assert session_manifest_path == manifest and read_only
+        return SimpleNamespace(
+            manifest_path=manifest,
+            agent_id="agent-id",
+            registry_generation_id="generation-1",
+            tmux_session_name="owner-session",
+            backend_session=object(),
+            launch_plan=SimpleNamespace(backend="claude_headless", home_path=home),
+        )
+
+    monkeypatch.setattr(managed_agents, "resume_runtime_session", resume)
+    before = {file: file.read_bytes() for file in tmp_path.rglob("*") if file.is_file()}
+    result = CliRunner().invoke(cli, ["agents", "self", "refresh", "--check"])
+
+    assert result.exit_code == 1, result.output
+    observation = json.loads(result.output)
+    assert observation["freshness"] == "unknown"
+    assert observation["home"]["home_dir"] == str(home)
+    assert {file: file.read_bytes() for file in tmp_path.rglob("*") if file.is_file()} == before
+
+
+@pytest.mark.parametrize("has_exitcode", [True, False])
+def test_self_state_observes_runtime_read_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, has_exitcode: bool
+) -> None:
+    """Report observed headless evidence and preserve uncertainty when it is missing."""
+
+    manifest = _prepare_manifest_self(tmp_path, monkeypatch)
+    turn = headless_turn_artifacts_root(manifest) / "turn-1"
+    turn.mkdir(parents=True)
+    if has_exitcode:
+        (turn / "exitcode").write_text("0\n", encoding="utf-8")
+
+    def resume(*, session_manifest_path: Path, read_only: bool) -> SimpleNamespace:
+        assert session_manifest_path == manifest and read_only
+        return SimpleNamespace(
+            manifest_path=manifest,
+            agent_id="agent-id",
+            registry_generation_id="generation-1",
+            backend_session=object(),
+            launch_plan=SimpleNamespace(
+                tool="claude", backend="claude_headless", mailboxes=MailboxesResolvedConfig()
+            ),
+        )
+
+    monkeypatch.setattr(managed_agents, "resume_runtime_session", resume)
+    result = CliRunner().invoke(cli, ["agents", "self", "state"])
+
+    assert result.exit_code == 0, result.output
+    response = json.loads(result.output)
+    assert response["identity"]["agent_id"] == "agent-id"
+    assert response["control"]["source"] == "headless_artifacts"
+    assert response["control"]["freshness"] == ("current" if has_exitcode else "unknown")
+
+
+def test_self_gateway_status_and_input_use_manifest_authority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bind gateway status and live input to the verified manifest and self signer."""
+
+    manifest = _prepare_manifest_self(tmp_path, monkeypatch)
+    gateway_status = GatewayStatusV1(
+        attach_identity="agent-id",
+        backend="claude_headless",
+        tmux_session_name="owner-session",
+        gateway_health="healthy",
+        managed_agent_connectivity="connected",
+        managed_agent_recovery="idle",
+        request_admission="open",
+        terminal_surface_eligibility="ready",
+        active_execution="idle",
+        execution_mode="tmux_auxiliary_window",
+        queue_depth=0,
+        gateway_host="127.0.0.1",
+        gateway_port=43123,
+        gateway_tmux_window_id="@2",
+        gateway_tmux_window_index="2",
+        managed_agent_instance_epoch=1,
+    )
+    signed_calls: list[bool] = []
+
+    def resolve_binding(
+        path: Path, *, port: int, private: bool, prefer_self: bool
+    ) -> tuple[None, str]:
+        assert path == manifest and port == 43123 and prefer_self
+        signed_calls.append(private)
+        return None, "generation-1"
+
+    monkeypatch.setattr(managed_agents, "_gateway_status_for_controller", lambda _: gateway_status)
+    monkeypatch.setattr(managed_agents, "owner_gateway_client_binding", resolve_binding)
+    monkeypatch.setattr(
+        managed_agents,
+        "GatewayClient",
+        lambda **_: SimpleNamespace(
+            health=lambda: None,
+            status=lambda: gateway_status,
+            send_control_input=lambda request: GatewayControlInputResultV1(detail=request.sequence),
+        ),
+    )
+    monkeypatch.setattr(
+        managed_agents,
+        "resume_runtime_session",
+        lambda **_: pytest.fail("live gateway routing needs no controller"),
+    )
+    status = CliRunner().invoke(cli, ["agents", "self", "gateway", "status"])
+    sent = CliRunner().invoke(
+        cli, ["agents", "self", "gateway", "send-keys", "--sequence", "bound-control"]
+    )
+
+    assert status.exit_code == 0, status.output
+    assert json.loads(status.output)["gateway_health"] == "healthy"
+    assert sent.exit_code == 0, sent.output
+    assert json.loads(sent.output)["detail"] == "bound-control"
+    assert signed_calls == [True, False]
+
+
+@pytest.mark.parametrize("gateway_attached", [True, False])
+def test_self_mail_status_uses_manifest_and_respects_gateway_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gateway_attached: bool
+) -> None:
+    """Use local manifest status only when the gateway is detached."""
+
+    manifest = _prepare_manifest_self(tmp_path, monkeypatch)
+
+    def no_local_controller(**_: object) -> None:
+        pytest.fail("mail status must stop at the manifest and its mailbox authority")
+
+    def status_denied() -> None:
+        raise GatewayHttpError(
+            method="GET",
+            url="http://127.0.0.1:43123/v1/mail/status",
+            status_code=401,
+            detail="Gateway proof was refused.",
+        )
+
+    def gateway_client(authority: VerifiedSelfManifest, **kwargs: object) -> SimpleNamespace | None:
+        assert authority.path == manifest
+        assert kwargs == {"private": True, "require_available": True}
+        return SimpleNamespace(mail_status=status_denied) if gateway_attached else None
+
+    monkeypatch.setattr(managed_agents, "resume_runtime_session", no_local_controller)
+    monkeypatch.setattr(managed_agents, "_live_gateway_client_for_controller", gateway_client)
+    if gateway_attached:
+        monkeypatch.setattr(
+            managed_agents,
+            "_local_manager_mail_status",
+            lambda _: pytest.fail("gateway refusal cannot fall back to local mailbox access"),
+        )
+    before = {file: file.read_bytes() for file in tmp_path.rglob("*") if file.is_file()}
+    result = CliRunner().invoke(cli, ["agents", "self", "mail", "status"])
+
+    if gateway_attached:
+        assert result.exit_code != 0 and "Gateway proof was refused" in result.output
+    else:
+        assert result.exit_code == 0, result.output
+        response = json.loads(result.output)
+        assert response["agent_id"] == "agent-id"
+        assert response["offline"] is None and response["execution_path"] == "manager_direct"
+    assert {file: file.read_bytes() for file in tmp_path.rglob("*") if file.is_file()} == before
+
+
+def test_self_mail_rejects_stale_binding_from_manifest_before_dispatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pin mail to the binding recorded on the verified runtime's current generation."""
+
+    manifest = _prepare_manifest_self(tmp_path, monkeypatch)
+    slot = load_session_manifest(manifest).payload["launch_plan"]["mailboxes"]["offline"]
+    mutate_session_mailbox_binding(
+        manifest,
+        channel="offline",
+        expected_revision=slot["revision"],
+        binding=FilesystemMailboxResolvedConfig(
+            transport="filesystem",
+            agent_id="agent-id",
+            principal_id="agent-id",
+            binding_id="replacement",
+            address="agent@houmao.localhost",
+            filesystem_root=tmp_path / "mailbox",
+            bindings_version="new-revision",
+        ),
+        agent_id="agent-id",
+        session_id="session-id",
+    )
+    monkeypatch.setattr(
+        managed_agents,
+        "_live_gateway_client_for_controller",
+        lambda *_, **__: pytest.fail("stale bindings must not reach the gateway"),
+    )
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "self", "mail", "list", "--channel", "offline", "--expected-binding-id", "old"],
+    )
+
+    assert result.exit_code != 0
+    assert "Mailbox binding changed" in result.output
 
 
 def test_agents_gateway_send_keys_with_explicit_selector_forwards_options(
@@ -1468,24 +1617,14 @@ def test_agents_gateway_send_keys_inside_tmux_uses_current_session_resolution(
 def test_agents_gateway_send_keys_without_selector_outside_tmux_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway._require_current_tmux_session_name",
-        lambda: (_ for _ in ()).throw(
-            click.ClickException(
-                "Current-session attach must be run from inside the target tmux session."
-            )
-        ),
-    )
-
+    _clear_self_context(monkeypatch)
     result = CliRunner().invoke(
         cli,
         ["agents", "self", "gateway", "send-keys", "--sequence", "<[Escape]>"],
     )
 
     assert result.exit_code != 0
-    assert (
-        "Current-session attach must be run from inside the target tmux session." in result.output
-    )
+    assert "require the manifest of the current managed runtime" in result.output
 
 
 def test_agents_self_gateway_rejects_pair_port() -> None:
@@ -2012,62 +2151,27 @@ def test_agents_relaunch_current_session_uses_manifest_first_runtime(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    manifest_path = (tmp_path / "manifest.json").resolve()
-    agent_def_dir = (tmp_path / "agent-def").resolve()
-    agent_def_dir.mkdir(parents=True)
-    captured: dict[str, object] = {}
+    from houmao.srv_ctrl.commands.agents import core
 
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core._require_current_tmux_session_name",
-        lambda: "headless-session",
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core._resolve_current_session_manifest",
-        lambda *, session_name: (
-            captured.setdefault("session_name", session_name),
-            SimpleNamespace(manifest_path=manifest_path, registry_record=None),
-        )[1],
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core._resolve_current_session_agent_def_dir",
-        lambda *, session_name, registry_record: (
-            captured.update(
-                {"agent_def_dir_session_name": session_name, "registry_record": registry_record}
-            )
-            or agent_def_dir
-        ),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resume_runtime_session",
-        lambda *, agent_def_dir, session_manifest_path: (
-            captured.update(
-                {
-                    "agent_def_dir": agent_def_dir,
-                    "session_manifest_path": session_manifest_path,
-                }
-            )
-            or SimpleNamespace(
-                agent_id="published-alpha",
-                agent_identity="HOUMAO-alpha",
-                manifest_path=manifest_path,
-                relaunch=lambda: SimpleNamespace(status="ok", detail="Runtime relaunched."),
-            )
-        ),
-    )
+    manifest = _prepare_manifest_self(tmp_path, monkeypatch)
 
+    def resume(target: ManagedAgentTarget, *, operation: str) -> SimpleNamespace:
+        assert operation == "relaunch the current agent"
+        assert target.self_manifest is not None and target.self_manifest.path == manifest
+        return SimpleNamespace(
+            agent_id=target.agent_ref,
+            agent_identity=target.identity.agent_name,
+            manifest_path=manifest,
+            relaunch=lambda: SimpleNamespace(status="ok", detail="Runtime relaunched."),
+        )
+
+    monkeypatch.setattr(core, "_require_live_local_controller", resume)
     result = CliRunner().invoke(cli, ["agents", "self", "relaunch"])
 
     assert result.exit_code == 0, result.output
-    assert captured == {
-        "session_name": "headless-session",
-        "agent_def_dir_session_name": "headless-session",
-        "registry_record": None,
-        "agent_def_dir": agent_def_dir,
-        "session_manifest_path": manifest_path,
-    }
     assert json.loads(result.output) == {
         "success": True,
-        "tracked_agent_id": "published-alpha",
+        "tracked_agent_id": "agent-id",
         "detail": "Runtime relaunched.",
     }
 
@@ -2094,41 +2198,25 @@ def test_agents_relaunch_current_session_forwards_chat_session_selection(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    manifest_path = (tmp_path / "manifest.json").resolve()
-    agent_def_dir = (tmp_path / "agent-def").resolve()
-    agent_def_dir.mkdir(parents=True)
+    from houmao.srv_ctrl.commands.agents import core
+
+    manifest = _prepare_manifest_self(tmp_path, monkeypatch)
     captured: dict[str, object] = {}
 
-    class _Controller:
-        agent_id = "published-alpha"
-        agent_identity = "HOUMAO-alpha"
+    def relaunch(*, chat_session: object) -> SimpleNamespace:
+        captured["chat_session"] = chat_session
+        return SimpleNamespace(status="ok", detail="Runtime relaunched.")
 
-        def relaunch(self, *, chat_session=None) -> SimpleNamespace:
-            captured["chat_session"] = chat_session
-            return SimpleNamespace(status="ok", detail="Runtime relaunched.")
+    def resume(target: ManagedAgentTarget, *, operation: str) -> SimpleNamespace:
+        assert target.self_manifest is not None and target.self_manifest.path == manifest
+        return SimpleNamespace(
+            agent_id=target.agent_ref,
+            agent_identity="agent-name",
+            manifest_path=manifest,
+            relaunch=relaunch,
+        )
 
-    _Controller.manifest_path = manifest_path
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core._require_current_tmux_session_name",
-        lambda: "headless-session",
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core._resolve_current_session_manifest",
-        lambda *, session_name: SimpleNamespace(
-            manifest_path=manifest_path,
-            registry_record=None,
-        ),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core._resolve_current_session_agent_def_dir",
-        lambda *, session_name, registry_record: agent_def_dir,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resume_runtime_session",
-        lambda *, agent_def_dir, session_manifest_path: _Controller(),
-    )
-
+    monkeypatch.setattr(core, "_require_live_local_controller", resume)
     result = CliRunner().invoke(
         cli,
         [

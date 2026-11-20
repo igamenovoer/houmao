@@ -1092,8 +1092,7 @@ class HeadlessAgentService:
                 continue
 
             manifest_path = Path(authority.manifest_path).expanduser().resolve()
-            agent_def_dir = Path(authority.agent_def_dir).expanduser().resolve()
-            if not manifest_path.is_file() or not agent_def_dir.is_dir():
+            if not manifest_path.is_file():
                 if preserve_history:
                     rebuilt[tracked_agent_id] = _ManagedHeadlessHandle(
                         authority=authority, controller=None
@@ -1101,17 +1100,14 @@ class HeadlessAgentService:
                     self._reconcile_usage(authority)
                     continue
                 log.warning(
-                    "Cleaning up stale managed headless agent %s (manifest or agent_def_dir missing)",
+                    "Cleaning up stale managed headless agent %s (runtime manifest missing)",
                     tracked_agent_id,
                 )
                 self._delete_authority(authority)
                 continue
 
             try:
-                controller = resume_runtime_session(
-                    agent_def_dir=agent_def_dir,
-                    session_manifest_path=manifest_path,
-                )
+                controller = resume_runtime_session(session_manifest_path=manifest_path)
             except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
                 if preserve_history:
                     rebuilt[tracked_agent_id] = _ManagedHeadlessHandle(

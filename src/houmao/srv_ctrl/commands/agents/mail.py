@@ -53,9 +53,7 @@ def mail_group() -> None:
 def status_mail_command(port: int | None, agent_id: str | None, agent_name: str | None) -> None:
     """Show mailbox status for one managed agent."""
 
-    target = resolve_managed_agent_mail_target(
-        agent_id=agent_id, agent_name=agent_name, port=port, read_only_self=True
-    )
+    target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
     emit(mail_status(target))
 
 

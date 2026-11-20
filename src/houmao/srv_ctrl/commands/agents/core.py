@@ -122,7 +122,7 @@ from houmao.agents.realm_controller.manifest import (
     parse_session_manifest_payload,
     runtime_owned_session_root_from_manifest_path,
 )
-from houmao.agents.realm_controller.runtime import resume_runtime_session, start_runtime_session
+from houmao.agents.realm_controller.runtime import start_runtime_session
 from houmao.agents.realm_controller.errors import (
     LaunchPlanError,
     LaunchPolicyResolutionError,
@@ -138,6 +138,7 @@ from houmao.agents.realm_controller.registry_storage import (
     resolve_live_agent_record_by_agent_id,
     resolve_relaunchable_managed_agent_record_by_agent_id,
 )
+from houmao.agents.realm_controller.self_manifest import resolve_self_manifest
 from houmao.project.overlay import (
     PROJECT_OVERLAY_DIR_ENV_VAR,
     ProjectAwareLocalRoots,
@@ -158,14 +159,13 @@ from .cleanup import cleanup_group
 from .external import external_group
 from .gateway import (
     _require_current_tmux_session_name,
-    _resolve_current_session_agent_def_dir,
-    _resolve_current_session_manifest,
     gateway_group,
     web_entry_gateway_command,
 )
 from .mail import mail_group
 from .mailbox import mailbox_group
 from .scopes import clone_scoped_command_tree
+from .self_identity import identity_from_manifest
 from .turn import turn_group
 from .workspace import memory_group
 from .instance_state import admin_instance_state_group, self_instance_state_group
@@ -197,9 +197,9 @@ from ..renderers.agents import (
 )
 from ..managed_agents import (
     ManagedAgentTarget,
+    _require_live_local_controller,
     interrupt_managed_agent,
     list_managed_agents,
-    managed_agent_identity_payload,
     managed_agent_state_payload,
     managed_agent_native_home,
     managed_agent_common_plugin_state,
@@ -1345,7 +1345,7 @@ def agents_single_group(
 @click.group(name="self")
 @click.pass_context
 def agents_self_group(ctx: click.Context) -> None:
-    """Operations for the managed agent held by the caller's current tmux session."""
+    """Operations for the caller's verified managed runtime."""
 
     set_managed_agent_scope_context(
         ctx=ctx,
@@ -1355,17 +1355,20 @@ def agents_self_group(ctx: click.Context) -> None:
 
 @agents_self_group.command(name="identity")
 def self_identity_agent_command() -> None:
-    """Show the current managed tmux-session identity."""
+    """Show the current managed agent's verified manifest identity."""
 
-    target = resolve_current_session_managed_agent_target()
-    emit(managed_agent_identity_payload(target))
+    try:
+        manifest = resolve_self_manifest()
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    emit(identity_from_manifest(manifest.path, manifest.payload))
 
 
 @agents_self_group.command(name="state")
 def self_state_agent_command() -> None:
     """Show the operational summary for the current managed tmux session."""
 
-    target = resolve_current_session_managed_agent_target(read_only=True)
+    target = resolve_current_session_managed_agent_target()
     emit(
         managed_agent_state_payload(target),
         plain_renderer=render_agent_state_plain,
@@ -1441,19 +1444,17 @@ def self_relaunch_agent_command(
         mode=chat_session_mode,
         session_id=chat_session_id,
     )
-    session_name = _require_current_tmux_session_name()
-    resolution = _resolve_current_session_manifest(session_name=session_name)
-    agent_def_dir = _resolve_current_session_agent_def_dir(
-        session_name=session_name,
-        registry_record=resolution.registry_record,
-    )
-    controller = resume_runtime_session(
-        agent_def_dir=agent_def_dir,
-        session_manifest_path=resolution.manifest_path,
-    )
+    _emit_current_session_relaunch(relaunch_chat_session)
+
+
+def _emit_current_session_relaunch(selection: RelaunchChatSessionSelection | None) -> None:
+    """Relaunch the verified current session using saved launch authority."""
+
+    target = resolve_current_session_managed_agent_target()
+    controller = _require_live_local_controller(target, operation="relaunch the current agent")
     result = (
-        controller.relaunch(chat_session=relaunch_chat_session)
-        if relaunch_chat_session is not None
+        controller.relaunch(chat_session=selection)
+        if selection is not None
         else controller.relaunch()
     )
     emit(
@@ -2212,32 +2213,7 @@ def relaunch_agent_command(
             raise click.ClickException(
                 "`--port` is only supported with an explicit `--agent-id` or `--agent-name` relaunch target."
             )
-        session_name = _require_current_tmux_session_name()
-        resolution = _resolve_current_session_manifest(session_name=session_name)
-        agent_def_dir = _resolve_current_session_agent_def_dir(
-            session_name=session_name,
-            registry_record=resolution.registry_record,
-        )
-        controller = resume_runtime_session(
-            agent_def_dir=agent_def_dir,
-            session_manifest_path=resolution.manifest_path,
-        )
-        result = (
-            controller.relaunch(chat_session=relaunch_chat_session)
-            if relaunch_chat_session is not None
-            else controller.relaunch()
-        )
-        emit(
-            {
-                "success": result.status == "ok",
-                "tracked_agent_id": (
-                    controller.agent_id
-                    or controller.agent_identity
-                    or controller.manifest_path.parent.name
-                ),
-                "detail": result.detail,
-            }
-        )
+        _emit_current_session_relaunch(relaunch_chat_session)
         return
 
     target = resolve_relaunch_managed_agent_target(

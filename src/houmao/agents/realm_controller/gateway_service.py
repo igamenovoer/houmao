@@ -922,15 +922,9 @@ class _RestBackedGatewayAdapter:
                 path_prefix="/cao",
             )
         manifest_path_value = attach_contract.manifest_path
-        agent_def_dir_value = attach_contract.agent_def_dir
         self.m_manifest_path = (
             Path(manifest_path_value).expanduser().resolve()
             if manifest_path_value is not None
-            else None
-        )
-        self.m_agent_def_dir = (
-            Path(agent_def_dir_value).expanduser().resolve()
-            if agent_def_dir_value is not None
             else None
         )
         self.m_controller: RuntimeSessionController | None = None
@@ -1053,7 +1047,7 @@ class _RestBackedGatewayAdapter:
 
         if terminal_id == self.m_failed_recovery_terminal_id:
             return False
-        if self.m_manifest_path is None or self.m_agent_def_dir is None:
+        if self.m_manifest_path is None:
             return False
         session_name = self.m_attach_contract.tmux_session_name
         if not session_name.strip():
@@ -1075,13 +1069,10 @@ class _RestBackedGatewayAdapter:
 
         if self.m_controller is not None:
             return self.m_controller
-        if self.m_manifest_path is None or self.m_agent_def_dir is None:
-            raise GatewayError(
-                "REST-backed gateway recovery requires manifest_path and agent_def_dir."
-            )
+        if self.m_manifest_path is None:
+            raise GatewayError("REST-backed gateway recovery requires a runtime manifest.")
         try:
             self.m_controller = resume_runtime_session(
-                agent_def_dir=self.m_agent_def_dir,
                 session_manifest_path=self.m_manifest_path,
                 read_only=True,
             )
@@ -1128,11 +1119,10 @@ class _NativeWebGatewayAdapter:
 
         if not isinstance(attach_contract.backend_metadata, GatewayAttachBackendMetadataWebV1):
             raise GatewayError("Native Web requires structured Web attach metadata")
-        if attach_contract.manifest_path is None or attach_contract.agent_def_dir is None:
+        if attach_contract.manifest_path is None:
             raise GatewayError("Native Web requires private runtime manifest authority")
         self.m_attach_contract: GatewayAttachContractV1 = attach_contract
         self.m_manifest_path: Path = Path(attach_contract.manifest_path).resolve()
-        self.m_agent_def_dir: Path = Path(attach_contract.agent_def_dir).resolve()
         self.m_controller: RuntimeSessionController | None = None
         self.m_observation: WebObservation | None = None
         self.m_attempts: dict[int, _WebBackend] = {}
@@ -1147,7 +1137,6 @@ class _NativeWebGatewayAdapter:
         """Verify the bound native destination without changing the active API peer."""
 
         controller = resume_runtime_session(
-            agent_def_dir=self.m_agent_def_dir,
             session_manifest_path=self.m_manifest_path,
             read_only=True,
         )
@@ -1174,7 +1163,6 @@ class _NativeWebGatewayAdapter:
         if self.m_controller is None or changed:
             self.close()
             self.m_controller = resume_runtime_session(
-                agent_def_dir=self.m_agent_def_dir,
                 session_manifest_path=self.m_manifest_path,
                 read_only=True,
             )
@@ -1388,9 +1376,7 @@ class _NativeWebGatewayAdapter:
     ) -> None:
         """Bind one explicit or ordinary insertion to its request's native guard."""
 
-        controller = resume_runtime_session(
-            agent_def_dir=self.m_agent_def_dir, session_manifest_path=self.m_manifest_path
-        )
+        controller = resume_runtime_session(session_manifest_path=self.m_manifest_path)
         backend = cast(_WebBackend, controller.backend_session)
         self.m_attempts[id(control)] = backend
         backend.configure_request_dispatch(control)
@@ -1481,14 +1467,9 @@ class _LocalHeadlessGatewayAdapter:
                 f"{attach_contract.backend!r}."
             )
         manifest_path_value = attach_contract.manifest_path
-        agent_def_dir_value = attach_contract.agent_def_dir
-        if manifest_path_value is None or agent_def_dir_value is None:
-            raise GatewayError(
-                "Local tmux gateway attach requires manifest_path and agent_def_dir in the "
-                "attach contract."
-            )
+        if manifest_path_value is None:
+            raise GatewayError("Local tmux gateway attach requires a runtime manifest.")
         self.m_manifest_path = Path(manifest_path_value).expanduser().resolve()
-        self.m_agent_def_dir = Path(agent_def_dir_value).expanduser().resolve()
         self.m_controller: RuntimeSessionController | None = None
         self.m_instance_id = attach_contract.runtime_session_id or attach_contract.attach_identity
 
@@ -1705,7 +1686,6 @@ class _LocalHeadlessGatewayAdapter:
             return self.m_controller
         try:
             self.m_controller = resume_runtime_session(
-                agent_def_dir=self.m_agent_def_dir,
                 session_manifest_path=self.m_manifest_path,
                 read_only=True,
             )
@@ -1935,14 +1915,12 @@ class _ManagedServiceGatewayAdapter:
         """Capture the durable owner locator used by every independent request."""
 
         manifest = attach_contract.manifest_path
-        definitions = attach_contract.agent_def_dir
         if not isinstance(attach_contract.backend_metadata, GatewayAttachBackendMetadataServiceV1):
             raise GatewayError("Service attach metadata is required")
-        if manifest is None or definitions is None:
-            raise GatewayError("Service attachment requires its manifest and agent definition root")
+        if manifest is None:
+            raise GatewayError("Service attachment requires a runtime manifest")
         self.m_attach_contract = attach_contract
         self.m_manifest_path = Path(manifest).resolve()
-        self.m_agent_def_dir = Path(definitions).resolve()
 
     @property
     def attach_contract(self) -> GatewayAttachContractV1:
@@ -1955,7 +1933,6 @@ class _ManagedServiceGatewayAdapter:
 
         try:
             controller = resume_runtime_session(
-                agent_def_dir=self.m_agent_def_dir,
                 session_manifest_path=self.m_manifest_path,
                 read_only=True,
             )

@@ -30,10 +30,12 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMemoryPageWriteRequestV1,
     GatewayMemorySummaryV1,
 )
+from houmao.agents.realm_controller.runtime import _memory_from_manifest_payload
 
 from ..common import managed_agent_selector_options, pair_port_option, pair_request
 from ..managed_agents import (
     ManagedAgentTarget,
+    _read_running_agent_manifest,
     _require_live_local_controller,
     resolve_managed_agent_target,
 )
@@ -488,6 +490,13 @@ def memory_page_delete(
 def _local_memory_paths(target: ManagedAgentTarget) -> AgentMemoryPaths:
     """Return manifest-backed local memory paths for one resolved target."""
 
+    if target.self_manifest is not None:
+        paths = _memory_from_manifest_payload(
+            payload=_read_running_agent_manifest(target.self_manifest)
+        )
+        if paths is None:
+            raise click.ClickException("The managed session does not publish memory metadata.")
+        return paths
     controller = _require_live_local_controller(
         target,
         operation="inspect managed-agent memory paths",

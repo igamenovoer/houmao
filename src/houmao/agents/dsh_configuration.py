@@ -339,19 +339,28 @@ def read_dsh_mcp_environment(
         raise DshConfigurationError("DSH MCP requires the selected private credential source")
 
     from houmao.agents.realm_controller.loaders import parse_env_text
+    from houmao.agents.realm_controller.errors import SessionManifestError
+    from houmao.agents.realm_controller.runtime_launch_environment import (
+        is_runtime_launch_environment_file,
+        read_runtime_launch_environment,
+    )
 
+    path = Path(source)
     try:
-        descriptor = os.open(source, os.O_RDONLY | os.O_NONBLOCK)
-        with os.fdopen(descriptor, encoding="utf-8") as stream:
-            info = os.fstat(stream.fileno())
-            if (
-                not stat.S_ISREG(info.st_mode)
-                or info.st_uid != os.geteuid()
-                or info.st_mode & 0o077
-            ):
-                raise DshConfigurationError("DSH MCP requires an owner-private credential file")
-            values = parse_env_text(stream.read())
-    except (OSError, UnicodeError):
+        if is_runtime_launch_environment_file(path.name):
+            values = read_runtime_launch_environment(path).mcp_environment
+        else:
+            descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+            with os.fdopen(descriptor, encoding="utf-8") as stream:
+                info = os.fstat(stream.fileno())
+                if (
+                    not stat.S_ISREG(info.st_mode)
+                    or info.st_uid != os.geteuid()
+                    or info.st_mode & 0o077
+                ):
+                    raise DshConfigurationError("DSH MCP requires an owner-private credential file")
+                values = parse_env_text(stream.read())
+    except (OSError, UnicodeError, SessionManifestError):
         raise DshConfigurationError("Cannot read the selected DSH MCP credential source") from None
     return {name: values[name] for name in names if name in values}
 

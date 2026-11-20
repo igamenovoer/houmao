@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.agent_identity import (
@@ -30,6 +29,9 @@ from houmao.agents.realm_controller.manifest import (
 from houmao.agents.realm_controller.runtime import (
     _launch_profile_relaunch_chat_session_selection,
     resume_runtime_session,
+)
+from houmao.agents.realm_controller.runtime_launch_environment import (
+    write_runtime_launch_environment,
 )
 
 
@@ -206,7 +208,7 @@ def _build_session_payload(
     return brain_manifest_path, session_payload
 
 
-def test_resume_runtime_session_uses_role_prompt_override_from_brain_manifest(
+def test_resume_reopens_with_committed_prompt_and_private_environment(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -224,34 +226,47 @@ def test_resume_runtime_session_uses_role_prompt_override_from_brain_manifest(
             "tmux_session_name": "HOUMAO-r",
         },
     )
-    brain_manifest = yaml.safe_load(brain_manifest_path.read_text(encoding="utf-8"))
-    brain_manifest["inputs"]["role_prompt_text"] = "Override prompt from launch profile"
-    brain_manifest_path.write_text(yaml.safe_dump(brain_manifest), encoding="utf-8")
+    session_payload["runtime"]["agent_def_dir"] = str(agent_def_dir)
+    environment_name = write_runtime_launch_environment(
+        tmp_path,
+        environment={"OPENAI_API_KEY": "private-credential", "ONE_OFF": "live value"},
+        transient_names=frozenset({"ONE_OFF"}),
+        mcp_environment={},
+    )
+    session_payload["runtime"]["launch_environment_file"] = environment_name
+    _write(agent_def_dir / "roles/r/system-prompt.md", "Edited after launch")
+    agent_def_dir.rename(tmp_path / "unavailable-definition")
+    brain_manifest_path.unlink()
 
     session_path = (tmp_path / "session.json").resolve()
     session_path.write_text(json.dumps(session_payload), encoding="utf-8")
 
-    captured: dict[str, str] = {}
+    captured: dict[str, Any] = {}
 
-    class _StopResume(RuntimeError):
-        """Sentinel exception used to stop resume after prompt capture."""
+    class _FakeLocalInteractiveSession:
+        """Accept a restored plan without touching an actual tmux server."""
 
-    def _fake_build_launch_plan(request: LaunchPlanRequest):
-        captured["prompt"] = request.role_package.system_prompt
-        raise _StopResume
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+            self.state = type("State", (), {"tmux_session_name": "HOUMAO-r"})()
 
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.build_launch_plan",
-        _fake_build_launch_plan,
+        "houmao.agents.realm_controller.runtime.LocalInteractiveSession",
+        _FakeLocalInteractiveSession,
     )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.RuntimeSessionController.ensure_gateway_capability",
+        lambda self: None,
+    )
+    controller = resume_runtime_session(session_manifest_path=session_path)
 
-    with pytest.raises(_StopResume):
-        resume_runtime_session(
-            agent_def_dir=agent_def_dir,
-            session_manifest_path=session_path,
-        )
-
-    assert captured["prompt"] == "Override prompt from launch profile"
+    assert captured["launch_plan"].role_injection.prompt == "Role prompt"
+    assert controller.agent_def_dir == agent_def_dir
+    assert controller.launch_plan.env["OPENAI_API_KEY"] == "private-credential"
+    assert controller.launch_plan.env["ONE_OFF"] == "live value"
+    assert "private-credential" not in session_path.read_text(encoding="utf-8")
+    assert "ONE_OFF" not in controller.launch_plan.redacted_payload()["env_var_names"]
+    assert (tmp_path / environment_name).stat().st_mode & 0o777 == 0o600
 
 
 def test_resume_headless_requires_session_id(tmp_path: Path) -> None:
@@ -415,7 +430,7 @@ def test_resume_local_interactive_restores_join_launch_window_name_when_manifest
     assert controller.launch_plan.metadata["tmux_window_name"] == "manual"
 
 
-def test_resume_unattended_local_interactive_uses_resume_control_intent_without_mutating_owned_files(
+def test_resume_unattended_local_interactive_reuses_plan_without_mutating_owned_files(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -463,21 +478,18 @@ def test_resume_unattended_local_interactive_uses_resume_control_intent_without_
     session_path.write_text(json.dumps(session_payload), encoding="utf-8")
 
     captured: dict[str, Any] = {}
-    intents: list[str] = []
-    real_build_launch_plan = build_launch_plan
 
     class _FakeLocalInteractiveSession:
         def __init__(self, **kwargs: Any) -> None:
             captured.update(kwargs)
             self.state = type("State", (), {"tmux_session_name": "HOUMAO-r"})()
 
-    def _capture_build_launch_plan(request: LaunchPlanRequest):
-        intents.append(request.intent)
-        return real_build_launch_plan(request)
+    def _unexpected_build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
+        raise AssertionError(f"Resume unexpectedly replanned the provider: {request.intent}")
 
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.build_launch_plan",
-        _capture_build_launch_plan,
+        _unexpected_build_launch_plan,
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.LocalInteractiveSession",
@@ -493,7 +505,6 @@ def test_resume_unattended_local_interactive_uses_resume_control_intent_without_
         session_manifest_path=session_path,
     )
 
-    assert intents == ["resume_control"]
     assert captured["state"].turn_index == 2
     assert controller.launch_plan.backend == "local_interactive"
     assert controller.launch_plan.args[-1] == "--dangerously-skip-permissions"
@@ -551,7 +562,8 @@ def test_resume_cao_uses_manifest_api_base_url(
 
     assert captured["api_base_url"] == "http://manifest-only.example:9444"
     assert captured["existing_state"].api_base_url == "http://manifest-only.example:9444"
-    assert captured["agent_def_dir"] == agent_def_dir.resolve()
+    assert captured["agent_def_dir"] is None
+    assert controller.agent_def_dir == agent_def_dir
     assert captured["session_manifest_path"] == session_path.resolve()
     assert controller.launch_plan.backend == "cao_rest"
     assert "api_base_url" not in inspect.signature(resume_runtime_session).parameters

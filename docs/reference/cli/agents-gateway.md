@@ -377,7 +377,7 @@ houmao-mgr agents single --agent-id <id> gateway mail-notifier disable --channel
 ## Targeting Rules
 
 - `agents single --agent-id <id> gateway ...` and `agents single --agent-name <name> gateway ...` require exactly one explicit group-level selected-agent target. Nested gateway leaves do not repeat `--agent-id` or `--agent-name`.
-- `agents self gateway ...` targets the current registered managed tmux session and accepts no explicit selectors, no `--current-session`, and no `--pair-port`.
+- `agents self gateway ...` targets the caller's verified runtime manifest and uses its current gateway binding. It accepts no explicit selectors, `--current-session`, or `--pair-port`.
 - `--pair-port` is only supported on selected-agent `agents single ... gateway` commands. It selects the Houmao pair authority, not the live gateway listener port. Lower-level gateway listener overrides use runtime-facing flags such as `--gateway-port`.
 - Gateway TUI timing overrides must be positive seconds. They apply to the gateway sidecar started by this attach and are persisted as the desired timing config for the gateway root after attach succeeds.
 - External communication-only targets registered with `houmao-mgr agents external register` are supported through selected-agent communication-safe routes such as `agents single --agent-name <name> gateway status`, `gateway prompt`, and `gateway interrupt`; those commands route through the stored remote pair API base URL and remote agent ref.

@@ -63,7 +63,11 @@ from houmao.agents.managed_prompt_header import (
 )
 from houmao.agents.managed_launch_force import ManagedLaunchForceMode
 from houmao.agents.launch_policy.models import LaunchPolicyProvenance
-from houmao.agents.dsh_configuration import DSH_LOCAL_API_KEY_ENV
+from houmao.agents.dsh_configuration import (
+    DSH_LOCAL_API_KEY_ENV,
+    DshEffectiveToolParams,
+    read_dsh_mcp_environment,
+)
 from houmao.agents.kimi_system_prompt import (
     KimiSystemPromptError,
     validate_kimi_v2_engine_env,
@@ -73,9 +77,12 @@ from houmao.agents.model_selection import (
     extract_resolved_model_config_from_brain_manifest,
     resolve_execution_model_config,
 )
+from houmao.agents.realm_controller.runtime_launch_environment import (
+    read_runtime_launch_environment,
+    write_runtime_launch_environment,
+)
 from .agent_identity import (
     AGENT_NAMESPACE_PREFIX,
-    AGENT_DEF_DIR_ENV_VAR,
     AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
     AgentIdentityCreation,
@@ -217,7 +224,7 @@ from .hook_observation_launch import (
 from .launch_plan import (
     LaunchPlanRequest,
     build_launch_plan,
-    read_launch_environment,
+    _bootstrap_message,
     configured_cao_parsing_mode,
     resolve_cao_parsing_mode,
     validate_dsh_launch_version,
@@ -404,7 +411,7 @@ class AgentIdentityResolution:
     canonical_agent_identity:
         Canonical tmux identity when resolved from a name input.
     agent_def_dir:
-        Effective agent-definition root for name-based tmux resolution.
+        Optional launch provenance for explicit relaunch planning.
     warnings:
         Non-fatal parsing warnings surfaced to CLI callers.
     """
@@ -2245,6 +2252,7 @@ def start_runtime_session(
             generation=registry_generation_id,
         )
     hook_observation_root = manifest_path.parent
+    launch_plan = persist_runtime_launch_inputs(launch_plan, session_root=hook_observation_root)
     launch_plan = activate_hook_observation_for_provider_start(
         launch_plan,
         session_root=hook_observation_root,
@@ -2343,8 +2351,7 @@ def resolve_agent_identity(
     base:
         Base path used for resolving relative manifest paths.
     explicit_agent_def_dir:
-        Optional explicit CLI override for the effective agent-definition root
-        when resolving a name-based tmux session.
+        Optional override for subsequent explicit relaunch planning.
 
     Returns
     -------
@@ -2356,7 +2363,9 @@ def resolve_agent_identity(
         manifest_path = _resolve_manifest_path(agent_identity, base=base)
         if not manifest_path.is_file():
             raise SessionManifestError(f"Session manifest not found: {manifest_path}")
-        return AgentIdentityResolution(session_manifest_path=manifest_path.resolve())
+        return AgentIdentityResolution(
+            session_manifest_path=manifest_path.resolve(), agent_def_dir=explicit_agent_def_dir
+        )
 
     registry_id_resolution = _resolve_agent_identity_from_shared_registry_agent_id(
         agent_id=agent_identity,
@@ -2398,13 +2407,18 @@ def resolve_agent_identity(
 
 def resume_runtime_session(
     *,
-    agent_def_dir: Path,
     session_manifest_path: Path,
+    agent_def_dir: Path | None = None,
     cao_profile_store_dir: Path | None = None,
     cao_parsing_mode: CaoParsingMode | None = None,
     read_only: bool = False,
 ) -> RuntimeSessionController:
-    """Resume a runtime session from a persisted manifest."""
+    """Open a running session from committed runtime inputs.
+
+    A supplied definition directory is retained as launch provenance for an
+    explicit relaunch. Reconstructing the already-running session uses its
+    manifest and private runtime artifacts.
+    """
 
     return _resume_runtime_session_controller(
         agent_def_dir=agent_def_dir,
@@ -2437,7 +2451,7 @@ def resume_stopped_runtime_session(
 @_execution_scoped_resume
 def _resume_runtime_session_controller(
     *,
-    agent_def_dir: Path,
+    agent_def_dir: Path | None,
     session_manifest_path: Path,
     cao_profile_store_dir: Path | None,
     cao_parsing_mode: CaoParsingMode | None,
@@ -2464,7 +2478,7 @@ def _resume_runtime_session_controller(
             "Stopped-session revival is only supported for local tmux-backed backends "
             f"({sorted(_STOPPED_SESSION_RELAUNCH_BACKENDS)}), got {backend!r}."
         )
-    role_package = load_role_package(agent_def_dir, role_name)
+    agent_def_dir = _launch_definition_path(manifest_payload, agent_def_dir)
     memory = _memory_from_manifest_payload(payload=manifest_payload)
     if memory is not None and not read_only:
         ensure_agent_memory(memory)
@@ -2473,49 +2487,11 @@ def _resume_runtime_session_controller(
         manifest_payload,
         session_manifest_path=session_manifest_path,
     )
-    brain_manifest: dict[str, object] | None = None
-    if _is_joined_tmux_manifest(manifest_payload):
-        launch_plan = _build_joined_launch_plan_from_manifest_payload(
-            payload=manifest_payload,
-            role_package=role_package,
-            mailboxes=resolved_mailboxes,
-        )
-    else:
-        brain_manifest = load_brain_manifest(brain_manifest_path)
-        role_package = replace(
-            role_package,
-            system_prompt=_effective_role_prompt_from_brain_manifest(
-                brain_manifest,
-                fallback=role_package.system_prompt,
-            ),
-        )
-        launch_plan = (
-            _read_only_launch_plan_from_manifest(
-                payload=manifest_payload,
-                brain_manifest=brain_manifest,
-                role_package=role_package,
-                mailboxes=resolved_mailboxes,
-            )
-            if read_only or backend in {"kimi_acp", "codex_app_server", "kimi_web"}
-            else build_launch_plan(
-                LaunchPlanRequest(
-                    brain_manifest=brain_manifest,
-                    role_package=role_package,
-                    backend=backend,
-                    working_directory=Path(manifest_payload.working_directory),
-                    mailboxes=resolved_mailboxes,
-                    intent="resume_control",
-                    session_root=session_manifest_path.resolve().parent,
-                )
-            )
-        )
-        launch_plan = replace(
-            launch_plan,
-            metadata={
-                **launch_plan.metadata,
-                **dict(manifest_payload.launch_plan.metadata),
-            },
-        )
+    launch_plan = _restore_runtime_launch_plan(
+        payload=manifest_payload,
+        session_root=handle.path.parent,
+        mailboxes=resolved_mailboxes,
+    )
     launch_plan = replace(
         launch_plan,
         execution_binding=manifest_payload.runtime.execution_binding,
@@ -2535,10 +2511,8 @@ def _resume_runtime_session_controller(
 
     requested_tmux_session_name = manifest_payload.tmux_session_name
     if stopped_revival:
-        if brain_manifest is None:
-            brain_manifest = load_brain_manifest(brain_manifest_path)
         requested_tmux_session_name = _resolve_start_session_identity(
-            manifest=brain_manifest,
+            manifest=load_brain_manifest(brain_manifest_path),
             tool=manifest_payload.tool,
             role_name=role_name,
             requested_agent_name=manifest_payload.agent_name,
@@ -2572,8 +2546,8 @@ def _resume_runtime_session_controller(
     backend_session = _create_backend_session(
         launch_plan=launch_plan,
         role_name=role_name,
-        role_prompt=role_package.system_prompt,
-        agent_def_dir=agent_def_dir,
+        role_prompt=launch_plan.role_injection.prompt,
+        agent_def_dir=None,
         cao_profile_store_dir=cao_profile_store_dir,
         resume_state=manifest_payload,
         session_manifest_path=session_manifest_path.resolve(),
@@ -2597,7 +2571,7 @@ def _resume_runtime_session_controller(
         role_name=role_name,
         brain_manifest_path=brain_manifest_path,
         manifest_path=session_manifest_path.resolve(),
-        agent_def_dir=agent_def_dir.resolve(),
+        agent_def_dir=agent_def_dir,
         backend_session=backend_session,
         agent_identity=manifest_payload.agent_name,
         agent_id=manifest_payload.agent_id,
@@ -2625,7 +2599,7 @@ def _create_backend_session(
     launch_plan: LaunchPlan,
     role_name: str,
     role_prompt: str,
-    agent_def_dir: Path,
+    agent_def_dir: Path | None,
     api_base_url: str | None = None,
     cao_profile_store_dir: Path | None,
     resume_state: SessionManifestPayloadV4 | None = None,
@@ -3138,39 +3112,51 @@ def _is_joined_tmux_manifest(
     )
 
 
-def _read_only_launch_plan_from_manifest(
+def persist_runtime_launch_inputs(launch_plan: LaunchPlan, *, session_root: Path) -> LaunchPlan:
+    """Capture the selected private environment for the new live runtime."""
+
+    metadata = dict(launch_plan.metadata)
+    mcp_environment: dict[str, str] = {}
+    dsh = metadata.get("dsh")
+    source = metadata.get("env_source_file")
+    if launch_plan.tool == "dsh" and isinstance(dsh, dict) and dsh.get("mcp_server_names"):
+        setup = DshEffectiveToolParams.from_file(Path(dsh["setup_path"]))
+        mcp_environment = read_dsh_mcp_environment(setup, source)
+    name = write_runtime_launch_environment(
+        session_root,
+        environment=launch_plan.env,
+        transient_names=launch_plan.transient_env_var_names,
+        mcp_environment=mcp_environment,
+    )
+    if launch_plan.tool == "dsh":
+        metadata["env_source_file"] = str(session_root / name)
+    return replace(launch_plan, runtime_launch_environment_file=name, metadata=metadata)
+
+
+def _restore_runtime_launch_plan(
     *,
     payload: SessionManifestPayloadV4,
-    brain_manifest: dict[str, Any],
-    role_package: RolePackage,
+    session_root: Path,
     mailboxes: MailboxesResolvedConfig,
 ) -> LaunchPlan:
-    """Restore existing launch intent without version probes, native setup, or projection."""
+    """Restore prepared launch inputs without compiling a provider-start plan."""
 
     saved = payload.launch_plan
-    if saved.backend in {"kimi_acp", "codex_app_server", "kimi_web"}:
-        # A controller attaching to a native host only needs the committed home.
-        # Relaunch builds a provider-start plan with the current credential projection.
-        environment = {saved.home_selector.env_var: saved.home_selector.home_path}
-        names = list(saved.env_var_names)
-    else:
-        environment, names, _source, _selected = read_launch_environment(
-            brain_manifest, backend=saved.backend
-        )
-    if saved.tool == "dsh":
-        metadata = saved.metadata.get("dsh")
-        environment["DSH_HOME"] = saved.home_selector.home_path
-        agents_home = metadata.get("agents_home") if isinstance(metadata, dict) else None
-        environment["DSH_AGENTS_HOME"] = (
-            agents_home
-            if isinstance(agents_home, str)
-            else str(Path(saved.home_selector.home_path) / "shared-agents")
-        )
-    prompt = (
-        payload.system_prompt.text
-        if payload.system_prompt is not None
-        else role_package.system_prompt
-    )
+    metadata = dict(saved.metadata)
+    metadata.pop("env_source_file", None)
+    if _is_joined_tmux_manifest(payload):
+        metadata.setdefault("session_origin", _JOINED_SESSION_ORIGIN)
+    environment = {saved.home_selector.env_var: saved.home_selector.home_path}
+    transient_names: frozenset[str] = frozenset()
+    name = payload.runtime.launch_environment_file
+    if name is not None:
+        source = session_root / name
+        private = read_runtime_launch_environment(source)
+        environment.update(private.environment)
+        transient_names = frozenset(private.transient_names)
+        if saved.tool == "dsh":
+            metadata["env_source_file"] = str(source)
+    prompt = payload.system_prompt.text if payload.system_prompt is not None else ""
     provenance = saved.launch_policy_provenance
     return LaunchPlan(
         backend=saved.backend,
@@ -3182,18 +3168,20 @@ def _read_only_launch_plan_from_manifest(
         home_env_var=saved.home_selector.env_var,
         home_path=Path(saved.home_selector.home_path),
         env=environment,
-        env_var_names=names,
+        env_var_names=sorted({*saved.env_var_names, *transient_names}),
         role_injection=RoleInjectionPlan(
             method=saved.role_injection.method,
             role_name=saved.role_injection.role_name,
             prompt=prompt,
-            bootstrap_message=prompt
-            if saved.role_injection.method == "bootstrap_message"
+            bootstrap_message=_bootstrap_message(saved.role_injection.role_name, prompt)
+            if saved.role_injection.method in {"bootstrap_message", "native_append_system_prompt"}
             else None,
         ),
-        metadata=dict(saved.metadata),
+        metadata=metadata,
         mailboxes=mailboxes,
+        transient_env_var_names=transient_names,
         execution_binding=payload.runtime.execution_binding,
+        runtime_launch_environment_file=name,
         launch_policy_provenance=LaunchPolicyProvenance(**provenance.model_dump())
         if provenance is not None
         else None,
@@ -4066,7 +4054,10 @@ def _build_provider_start_launch_plan_for_relaunch(
                 updated_launch_plan,
                 memory=_memory_from_controller(controller),
             )
-            return _preserve_controller_execution_authority(controller, updated_launch_plan)
+            return persist_runtime_launch_inputs(
+                _preserve_controller_execution_authority(controller, updated_launch_plan),
+                session_root=controller.manifest_path.parent,
+            )
 
     if controller.agent_def_dir is None:
         raise SessionManifestError(
@@ -4144,7 +4135,10 @@ def _build_provider_start_launch_plan_for_relaunch(
             controller.launch_plan.metadata.get("headless_display_detail")
         ),
     )
-    return _preserve_controller_execution_authority(controller, updated_launch_plan)
+    return persist_runtime_launch_inputs(
+        _preserve_controller_execution_authority(controller, updated_launch_plan),
+        session_root=controller.manifest_path.parent,
+    )
 
 
 def _preserve_controller_execution_authority(
@@ -4561,7 +4555,7 @@ def _resolve_agent_identity_from_tmux_local(
             raise direct_error
         raise SessionManifestError("Agent-name resolution requires `tmux` on PATH.") from exc
 
-    matches: list[tuple[str, Path]] = []
+    matches: list[tuple[str, Path, SessionManifestPayloadV4]] = []
     for session_name in session_names:
         try:
             manifest_path = _resolve_manifest_path_from_tmux_session(session_name=session_name)
@@ -4577,7 +4571,7 @@ def _resolve_agent_identity_from_tmux_local(
             continue
         if payload.agent_name != canonical_agent_identity:
             continue
-        matches.append((session_name, manifest_path))
+        matches.append((session_name, manifest_path, payload))
 
     if not matches:
         if direct_error is not None:
@@ -4587,20 +4581,17 @@ def _resolve_agent_identity_from_tmux_local(
             f"`{canonical_agent_identity}`."
         )
     if len(matches) > 1:
-        matched_sessions = ", ".join(sorted(session_name for session_name, _ in matches))
+        matched_sessions = ", ".join(sorted(session_name for session_name, _, _ in matches))
         raise SessionManifestError(
             "Agent-name resolution is ambiguous: canonical agent name "
             f"`{canonical_agent_identity}` matched multiple tmux sessions: {matched_sessions}."
         )
 
-    session_name, manifest_path = matches[0]
+    _, manifest_path, payload = matches[0]
     return AgentIdentityResolution(
         session_manifest_path=manifest_path,
         canonical_agent_identity=canonical_agent_identity,
-        agent_def_dir=_resolve_agent_def_dir_for_name_resolution(
-            session_name=session_name,
-            explicit_agent_def_dir=explicit_agent_def_dir,
-        ),
+        agent_def_dir=_launch_definition_path(payload, explicit_agent_def_dir),
         warnings=warnings,
     )
 
@@ -4637,10 +4628,7 @@ def _resolve_agent_identity_from_addressed_tmux_session(
     return AgentIdentityResolution(
         session_manifest_path=manifest_path,
         canonical_agent_identity=canonical_agent_identity,
-        agent_def_dir=_resolve_agent_def_dir_for_name_resolution(
-            session_name=canonical_agent_identity,
-            explicit_agent_def_dir=explicit_agent_def_dir,
-        ),
+        agent_def_dir=_launch_definition_path(payload, explicit_agent_def_dir),
         warnings=warnings,
     )
 
@@ -4691,7 +4679,7 @@ def _agent_identity_resolution_from_registry_record(
             f"Shared-registry manifest pointer is stale: `{manifest_path}` does not exist."
         )
 
-    _validate_resolved_manifest_matches_tmux_session(
+    payload = _validate_resolved_manifest_matches_tmux_session(
         manifest_path=manifest_path,
         session_name=record.terminal.session_name,
     )
@@ -4699,93 +4687,25 @@ def _agent_identity_resolution_from_registry_record(
     return AgentIdentityResolution(
         session_manifest_path=manifest_path,
         canonical_agent_identity=record.agent_name,
-        agent_def_dir=_resolve_agent_def_dir_for_registry_resolution(
-            record=record,
-            explicit_agent_def_dir=explicit_agent_def_dir,
-        ),
+        agent_def_dir=_launch_definition_path(payload, explicit_agent_def_dir),
         warnings=warnings,
     )
 
 
-def _resolve_agent_def_dir_for_name_resolution(
-    *,
-    session_name: str,
-    explicit_agent_def_dir: Path | None,
-) -> Path:
-    """Resolve the effective agent-definition root for name-based control."""
+def _launch_definition_path(
+    payload: SessionManifestPayloadV4, override: Path | None
+) -> Path | None:
+    """Return definition provenance for a future explicit relaunch."""
 
-    if explicit_agent_def_dir is not None:
-        resolved_override = explicit_agent_def_dir.resolve()
-        if not resolved_override.is_dir():
-            raise SessionManifestError(
-                "Explicit `--agent-def-dir` override must point to an existing directory, "
-                f"got `{resolved_override}`."
-            )
-        return resolved_override
-
-    resolved_agent_def_dir = Path(
-        _read_tmux_session_env_var(
-            session_name=session_name,
-            variable_name=AGENT_DEF_DIR_ENV_VAR,
-            missing_message="Agent definition pointer missing",
-        )
-    )
-    if not resolved_agent_def_dir.is_absolute():
-        raise SessionManifestError(
-            f"Invalid agent definition pointer in tmux session `{session_name}`: "
-            f"`{AGENT_DEF_DIR_ENV_VAR}` must be an absolute path."
-        )
-    resolved_agent_def_dir = resolved_agent_def_dir.resolve()
-    if not resolved_agent_def_dir.is_dir():
-        raise _TmuxLocalDiscoveryUnavailableError(
-            f"Agent definition pointer stale: `{AGENT_DEF_DIR_ENV_VAR}` in tmux "
-            f"session `{session_name}` points to missing directory `{resolved_agent_def_dir}`."
-        )
-    return resolved_agent_def_dir
-
-
-def _resolve_agent_def_dir_for_registry_resolution(
-    *,
-    record: ManagedAgentRegistryRecordV3,
-    explicit_agent_def_dir: Path | None,
-) -> Path:
-    """Resolve the effective agent-definition root for registry-based control."""
-
-    if explicit_agent_def_dir is not None:
-        resolved_override = explicit_agent_def_dir.resolve()
-        if not resolved_override.is_dir():
-            raise SessionManifestError(
-                "Explicit `--agent-def-dir` override must point to an existing directory, "
-                f"got `{resolved_override}`."
-            )
-        return resolved_override
-
-    agent_def_dir_value = record.runtime.agent_def_dir
-    if agent_def_dir_value is None:
-        raise SessionManifestError(
-            "Shared-registry record is missing `runtime.agent_def_dir`, so name-based "
-            "control requires an explicit `--agent-def-dir` override."
-        )
-
-    resolved_agent_def_dir = Path(agent_def_dir_value)
-    if not resolved_agent_def_dir.is_absolute():
-        raise SessionManifestError(
-            "Shared-registry record has invalid runtime.agent_def_dir: "
-            f"expected an absolute path, got `{resolved_agent_def_dir}`."
-        )
-
-    resolved_agent_def_dir = resolved_agent_def_dir.resolve()
-    if not resolved_agent_def_dir.is_dir():
-        raise SessionManifestError(
-            "Shared-registry agent-definition pointer is stale: "
-            f"`{resolved_agent_def_dir}` does not exist."
-        )
-    return resolved_agent_def_dir
+    if override is not None:
+        return override
+    saved = payload.runtime.agent_def_dir
+    return Path(saved) if saved is not None and Path(saved).is_absolute() else None
 
 
 def _validate_resolved_manifest_matches_tmux_session(
     *, manifest_path: Path, session_name: str
-) -> None:
+) -> SessionManifestPayloadV4:
     """Validate tmux-resolved manifest backend and session-name invariants."""
 
     handle = load_session_manifest(manifest_path)
@@ -4806,6 +4726,7 @@ def _validate_resolved_manifest_matches_tmux_session(
             f"({persisted_session_name!r}) does not match addressed tmux session "
             f"{session_name!r}."
         )
+    return payload
 
 
 def _persisted_tmux_session_name(
@@ -4978,9 +4899,7 @@ def _shared_registry_runtime_payload(
         manifest_path=str(controller.manifest_path.resolve()),
         session_root=str(session_root.resolve()) if session_root is not None else None,
         agent_def_dir=(
-            str(controller.agent_def_dir.resolve())
-            if controller.agent_def_dir is not None
-            else None
+            str(controller.agent_def_dir) if controller.agent_def_dir is not None else None
         ),
     )
 

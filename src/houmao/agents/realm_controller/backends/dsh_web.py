@@ -35,7 +35,10 @@ from houmao.agents.realm_controller.backends.dsh_diagnostics import (
     sanitize_dsh_diagnostic,
 )
 from houmao.agents.realm_controller.backends.dsh_web_client import DshWebClient, DshWebError
-from houmao.agents.realm_controller.backends.dsh_web_supervisor import _signal_owned
+from houmao.agents.realm_controller.backends.dsh_web_supervisor import (
+    _signal_owned,
+    web_tool_environment,
+)
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     create_tmux_session,
     generate_tmux_session_name,
@@ -451,13 +454,18 @@ class DshWebSession:
         descriptor = os.open(patch_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
             json.dump(patch, stream)
+        name = tmux_session_name or (
+            existing.tmux_session_name
+            if existing
+            else generate_tmux_session_name(tool="dsh", role_name=role_name)
+        )
         invocation = root / "supervisor-input.json"
         _write_private_json(
             invocation,
             {
                 "root": str(root),
                 "working_directory": str(self.plan.working_directory),
-                "environment": prepared.environment,
+                "environment": web_tool_environment(prepared.environment, session_name=name),
                 "command": [
                     self.plan.executable,
                     "--profile",
@@ -471,11 +479,6 @@ class DshWebSession:
                     "--no-open",
                 ],
             },
-        )
-        name = tmux_session_name or (
-            existing.tmux_session_name
-            if existing
-            else generate_tmux_session_name(tool="dsh", role_name=role_name)
         )
         created = has_tmux_session(session_name=name).returncode == 1
         if not created and (existing is None or existing.tmux_session_name != name):

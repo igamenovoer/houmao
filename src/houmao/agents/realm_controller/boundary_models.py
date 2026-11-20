@@ -409,6 +409,9 @@ class SessionManifestRuntimeSectionV1(_StrictBoundaryModel):
     """Normalized runtime-owned manifest authority for one tmux-backed session."""
 
     session_id: str | None = None
+    launch_environment_file: str | None = Field(
+        default=None, pattern=r"^launch-environment-[a-f0-9]{32}\.json$"
+    )
     execution_binding: ExecutionBindingV1 | None = None
 
     _execution_binding = field_validator("execution_binding", mode="before")(

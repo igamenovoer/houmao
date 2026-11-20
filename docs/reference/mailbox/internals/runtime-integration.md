@@ -54,6 +54,8 @@ Credential paths are private locators. Missing or expired online credentials deg
 
 Reusable contracts, scoped references, and adapters live under `src/houmao/mailbox/`. Manager, gateway, and registry HTTP handlers call those services. Offline access selects a local filesystem backend or authenticated registry client; online access selects its provider backend.
 
+`agents self mail` verifies the caller's manifest and active generation before reaching the current gateway or an authorized local mailbox adapter. The manifest supplies the agent and mailbox bindings. The gateway and adapter read current mailbox contents from the owning store. The definition directory is used when planning a launch or relaunch.
+
 Lifecycle operations require an explicit channel and expected binding ID before backend I/O. A message reference also carries owner/channel/binding scope. The gateway uses `/v1/mail/{channel}/...`; summary status uses `GET /v1/mail/status`. The manager resolves authority once and does not retry an action on a replacement binding after conflict.
 
 Notifier state is keyed by owner/channel/binding through `/v1/mail-notifier/{channel}`. Both channels preserve periodic reminders for eligible unchanged work, readiness and terminal admission, and one-shot compaction. Archive closes inbox work. Read or answered flags alone do not complete it.

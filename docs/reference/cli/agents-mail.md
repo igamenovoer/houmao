@@ -19,7 +19,7 @@ houmao-mgr agents self mail [OPTIONS] COMMAND [ARGS]...
 ## Targeting Rules
 
 - `agents single --agent-id <id> mail ...` and `agents single --agent-name <name> mail ...` explicitly select one managed agent at the group level. Nested mail leaves do not repeat `--agent-id` or `--agent-name`.
-- `agents self mail ...` resolves the current managed tmux session and accepts no explicit selectors, no `--current-session`, and no `--port`.
+- `agents self mail ...` uses the caller's verified runtime manifest and mailbox binding. The command selects its own runtime and accepts no explicit selectors, `--current-session`, or `--port`.
 - `--port` is only supported on selected-agent `agents single ... mail` commands.
 - External communication-only targets registered with `houmao-mgr agents external register` are supported through selected-agent targeting; mail operations route through the stored remote pair API and remote agent ref.
 - Current-session targeting remains local tmux-only and does not resolve external records.

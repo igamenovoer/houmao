@@ -72,6 +72,7 @@ from houmao.agents.realm_controller.models import (
     JoinedLaunchEnvBinding,
     LaunchPlan,
 )
+from houmao.agents.realm_controller.runtime import persist_runtime_launch_inputs
 from houmao.agents.realm_controller.registry_models import (
     ManagedAgentRegistryRecordV3,
     RegistryIdentityV1,
@@ -271,6 +272,7 @@ def materialize_joined_launch(
                 memory=memory,
             ),
         )
+        launch_plan = persist_runtime_launch_inputs(launch_plan, session_root=session_root)
         generation_id = new_registry_generation_id()
         seed = GatewayLaunchSeed()
         assert launch_plan.execution_binding is not None

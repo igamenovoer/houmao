@@ -298,7 +298,7 @@ def test_self_native_home_requires_current_session_authority(
     result = CliRunner().invoke(cli, ["agents", "self", "home"])
     assert result.exit_code == 1
     assert "Current managed-session authority is unavailable" in result.output
-    current.assert_called_once_with(read_only=False)
+    current.assert_called_once_with()
     fallback.assert_not_called()
 
 

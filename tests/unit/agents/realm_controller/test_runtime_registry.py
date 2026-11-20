@@ -299,6 +299,7 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
         working_directory=tmp_path,
         agent_name="gpu",
         gateway_admin_seed=seed,
+        launch_env_overrides={"CURRENT_GEN_FEATURE": "private-live-value"},
     )
     first_access = gateway_access_for_manifest(controller.manifest_path)
     first_self = first_access.store.load_self(first_access.target.incarnation)
@@ -348,6 +349,14 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     assert persisted["runtime"]["execution_binding"] == binding.model_dump(mode="json")
     assert persisted["launch_plan"]["execution_binding"] == binding.model_dump(mode="json")
     assert persisted["tmux"]["socket_path"] == binding.tmux_socket
+    environment_file = (
+        controller.manifest_path.parent / persisted["runtime"]["launch_environment_file"]
+    )
+    assert environment_file.stat().st_mode & 0o777 == 0o600
+    assert "private-live-value" not in json.dumps(persisted)
+    assert "CURRENT_GEN_FEATURE" not in persisted["launch_plan"]["env_var_names"]
+    initial_prompt = controller.launch_plan.role_injection.prompt
+    _write(agent_def_dir / "roles/r/system-prompt.md", "Updated role for next launch")
 
     before_read = {
         str(path.relative_to(tmp_path)): path.read_bytes()
@@ -372,6 +381,8 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
             )
             assert snapshot.execution_binding == binding
             assert snapshot.launch_plan.args == controller.launch_plan.args
+            assert snapshot.launch_plan.role_injection.prompt == initial_prompt
+            assert snapshot.launch_plan.env["CURRENT_GEN_FEATURE"] == "private-live-value"
             with pytest.raises(SessionManifestError, match="Read-only"):
                 snapshot.interrupt()
     assert before_read == {
@@ -398,6 +409,9 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
         )
     assert controller.relaunch().status == "ok"
     assert controller.registry_generation_id != before_relaunch
+    assert "Updated role for next launch" in controller.launch_plan.role_injection.prompt
+    assert "CURRENT_GEN_FEATURE" not in controller.launch_plan.env
+    assert controller.launch_plan.runtime_launch_environment_file != environment_file.name
     relaunched_access = gateway_access_for_manifest(controller.manifest_path)
     assert relaunched_access.store.load_self(relaunched_access.target.incarnation) != first_self
     assert relaunched_access.store.load().find(admin_keys[0].key_id) is None

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import subprocess
+from dataclasses import replace
 
 import pytest
 
@@ -93,6 +94,34 @@ def _sample_claude_launch_plan(
         ),
         metadata={},
     )
+
+
+def test_headless_worker_rejects_missing_committed_env_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A legacy manifest's declared credential cannot fall back to ambient auth."""
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.headless_base."
+        "HeadlessInteractiveSession._ensure_tmux_container",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setenv("KIMI_MODEL_API_KEY", "ambient-credential")
+    legacy_plan = replace(_sample_kimi_launch_plan(tmp_path), env_var_names=["KIMI_MODEL_API_KEY"])
+    session = KimiHeadlessSession(
+        launch_plan=legacy_plan,
+        role_name="gpu-kernel-coder",
+        session_manifest_path=tmp_path / "manifest.json",
+        state=HeadlessSessionState(
+            working_directory=str(tmp_path),
+            tmux_session_name="HOUMAO-kimi",
+        ),
+    )
+
+    with pytest.raises(BackendExecutionError, match="Relaunch the managed agent"):
+        session.send_prompt("hello")
+
+    assert not (tmp_path / "manifest.turn-artifacts").exists()
 
 
 def test_kimi_headless_builds_new_turn_command_with_managed_skills_dir(

@@ -119,14 +119,8 @@ class AgentWebObserver:
                     pass
             try:
                 if self.m_direct is None:
-                    agent_def_dir = self.m_agent.record.runtime.agent_def_dir
-                    if agent_def_dir is None:
-                        raise SessionManifestError(
-                            "Direct Web observation needs private runtime authority"
-                        )
                     # Reconstructing a controller only attaches to this Web host.
                     controller = resume_runtime_session(
-                        agent_def_dir=Path(agent_def_dir),
                         session_manifest_path=Path(self.m_agent.record.runtime.manifest_path),
                         read_only=True,
                     )

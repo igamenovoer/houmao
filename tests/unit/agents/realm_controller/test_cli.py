@@ -659,7 +659,7 @@ def test_send_prompt_prints_controller_operation_warnings(
     assert "warning: registry refresh warning" in captured.err
 
 
-def test_send_prompt_manifest_path_keeps_ambient_agent_def_dir_resolution(
+def test_send_prompt_manifest_path_ignores_ambient_agent_definition(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -678,6 +678,7 @@ def test_send_prompt_manifest_path_keeps_ambient_agent_def_dir_resolution(
         captured_resolve_kwargs.update(kwargs)
         return SimpleNamespace(
             session_manifest_path=tmp_path / "session.json",
+            agent_def_dir=None,
             warnings=(),
         )
 
@@ -704,8 +705,9 @@ def test_send_prompt_manifest_path_keeps_ambient_agent_def_dir_resolution(
     assert captured_resolve_kwargs == {
         "agent_identity": str(tmp_path / "session.json"),
         "base": tmp_path.resolve(),
+        "explicit_agent_def_dir": None,
     }
-    assert captured_resume_kwargs["agent_def_dir"] == env_agent_def_dir.resolve()
+    assert captured_resume_kwargs["agent_def_dir"] is None
 
 
 def test_stop_session_name_based_forwards_explicit_agent_def_dir_override(

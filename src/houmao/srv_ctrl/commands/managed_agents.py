@@ -111,6 +111,7 @@ from houmao.agents.realm_controller.owner_admission import (
 )
 from houmao.agents.realm_controller.native_refresh import (
     inspect_native_home,
+    inspect_native_home_from_manifest,
     observe_common_plugins,
     plan_native_refresh,
 )
@@ -201,7 +202,6 @@ from houmao.agents.realm_controller.registry_storage import (
 )
 from houmao.agents.realm_controller.runtime import (
     RuntimeSessionController,
-    owner_gateway_client_for_controller,
     resume_runtime_session,
     resume_stopped_runtime_session,
 )
@@ -222,6 +222,7 @@ from houmao.agents.realm_controller.manifest import (
     parse_session_manifest_payload,
 )
 from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
+from houmao.agents.realm_controller.self_manifest import VerifiedSelfManifest, resolve_self_manifest
 from houmao.cao.rest_client import CaoApiError
 from houmao.cao.no_proxy import normalize_cao_base_url
 from houmao.mailbox import MailboxBootstrapError, load_active_mailbox_registration
@@ -302,6 +303,10 @@ class ManagedAgentTarget:
     record: ManagedAgentRegistryRecordV3 | None = None
     external_record: ExternalManagedAgentRegistryRecordV1 | None = None
     executor_locator: ExecutorAgentLocatorV1 | None = None
+    self_manifest: VerifiedSelfManifest | None = None
+
+
+_RunningAgentAuthority = RuntimeSessionController | VerifiedSelfManifest
 
 
 class ExecutorGatewayStatusV1(GatewayStatusV1):
@@ -619,9 +624,49 @@ def _require_live_local_controller(
         )
     if target.controller is not None:
         return target.controller
+    if target.self_manifest is not None:
+        authority = target.self_manifest
+        try:
+            controller = resume_runtime_session(
+                session_manifest_path=authority.path, read_only=True
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise click.ClickException(str(exc)) from exc
+        if (
+            controller.agent_id != authority.agent_id
+            or controller.registry_generation_id != authority.record.generation_id
+        ):
+            raise click.ClickException("The managed runtime changed during self resolution.")
+        return controller
     raise click.ClickException(
         _format_unavailable_local_controller_message(target=target, operation=operation)
     )
+
+
+def _running_agent_authority(
+    target: ManagedAgentTarget, *, operation: str
+) -> _RunningAgentAuthority:
+    """Select the authorized manifest or an existing local controller."""
+
+    if target.self_manifest is not None:
+        return target.self_manifest
+    return _require_live_local_controller(target, operation=operation)
+
+
+def _read_running_agent_manifest(authority: _RunningAgentAuthority) -> SessionManifestPayloadV4:
+    """Read current bindings while keeping a resolved self command on its generation."""
+
+    if isinstance(authority, VerifiedSelfManifest) and authority.path.resolve() != authority.path:
+        raise click.ClickException("The managed manifest changed during self resolution.")
+    handle = load_session_manifest(authority.manifest_path)
+    payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+    if isinstance(authority, VerifiedSelfManifest) and (
+        payload.agent_id != authority.agent_id
+        or payload.registry_generation_id != authority.record.generation_id
+        or payload.runtime.execution_binding != authority.payload.runtime.execution_binding
+    ):
+        raise click.ClickException("The managed runtime changed during self resolution.")
+    return payload
 
 
 def _format_unavailable_local_controller_message(
@@ -1395,7 +1440,6 @@ def resolve_managed_agent_mail_target(
     agent_id: str | None,
     agent_name: str | None,
     port: int | None,
-    read_only_self: bool = False,
 ) -> ManagedAgentTarget:
     """Resolve one scoped managed-agent mail target."""
 
@@ -1404,7 +1448,6 @@ def resolve_managed_agent_mail_target(
         agent_name=agent_name,
         port=port,
         operation_family="scoped agents mail",
-        read_only_self=read_only_self,
     )
     if isinstance(scoped_target, ManagedAgentTarget):
         return scoped_target
@@ -1447,22 +1490,26 @@ def resolve_managed_agent_mail_target(
     return cast(ManagedAgentTarget, resolved_target)
 
 
-def resolve_current_session_managed_agent_target(*, read_only: bool = False) -> ManagedAgentTarget:
-    """Resolve the current tmux session into one local managed-agent target."""
+def resolve_current_session_managed_agent_target() -> ManagedAgentTarget:
+    """Resolve one managed self target without constructing its controller."""
 
-    gateway_commands = _gateway_command_helpers()
-    session_name = gateway_commands._try_current_tmux_session_name()
-    if session_name is None:
+    from .agents.self_identity import identity_from_manifest
+
+    try:
+        authority = resolve_self_manifest()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    if authority.payload.backend == "houmao_server_rest":
         raise click.ClickException(
-            "`agents self` requires a current managed-agent tmux session. "
-            "Run from inside a registered managed tmux session or use "
-            "`houmao-mgr agents single --agent-id <id> ...`."
+            "Current-session attach uses retired backend `houmao_server_rest`. "
+            "Use `houmao-passive-server` for maintained API-backed management."
         )
-    return cast(
-        ManagedAgentTarget,
-        gateway_commands._resolve_gateway_current_session_target(
-            session_name=session_name, read_only=read_only
-        ),
+    return ManagedAgentTarget(
+        mode="local",
+        agent_ref=authority.agent_id,
+        identity=identity_from_manifest(authority.path, authority.payload),
+        record=authority.record,
+        self_manifest=authority,
     )
 
 
@@ -1472,7 +1519,6 @@ def _resolve_target_from_scope_context(
     agent_name: str | None,
     port: int | None,
     operation_family: str,
-    read_only_self: bool = False,
 ) -> ManagedAgentTarget | ManagedAgentScopeContext | None:
     """Apply inherited `agents single` or `agents self` target scope."""
 
@@ -1494,7 +1540,7 @@ def _resolve_target_from_scope_context(
             f"`{operation_family}` is running under `agents self`; pair-authority port "
             "overrides are not supported because the target is the current managed tmux session."
         )
-    return resolve_current_session_managed_agent_target(read_only=read_only_self)
+    return resolve_current_session_managed_agent_target()
 
 
 def _resolve_local_managed_agent_record(
@@ -2291,6 +2337,11 @@ def managed_agent_native_home(target: ManagedAgentTarget) -> NativeHomeV1:
     if target.mode == "server":
         assert target.client is not None
         return pair_request(target.client.get_managed_agent_gateway_native_home, target.agent_ref)
+    if target.self_manifest is not None:
+        try:
+            return inspect_native_home_from_manifest(target.self_manifest.path)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise click.ClickException(str(exc)) from exc
     controller = _require_live_local_controller(target, operation="inspect the native home")
     client = _native_common_gateway_client(controller)
     return client.get_native_home() if client is not None else inspect_native_home(controller)
@@ -3007,14 +3058,14 @@ def gateway_status(target: ManagedAgentTarget) -> GatewayStatusV1:
         assert target.client is not None
         return pair_request(target.client.get_managed_agent_gateway_status, target.agent_ref)
 
-    controller = _require_live_local_controller(target, operation="show gateway status")
-    client = _live_gateway_client_for_controller(controller, private=True, require_available=True)
+    authority = _running_agent_authority(target, operation="show gateway status")
+    client = _live_gateway_client_for_controller(authority, private=True, require_available=True)
     if client is not None:
         try:
             return client.status()
         except GatewayHttpError as exc:
             raise click.ClickException(exc.detail) from None
-    return _gateway_status_for_controller(controller)
+    return _gateway_status_for_controller(authority)
 
 
 def gateway_web_entry(*, agent_id: str | None, agent_name: str | None) -> GatewayWebEntryTicketV1:
@@ -3254,9 +3305,9 @@ def gateway_prompt(
                 )
             ) from exc
 
-    controller = _require_live_local_controller(target, operation="submit gateway prompt")
+    authority = _running_agent_authority(target, operation="submit gateway prompt")
     try:
-        client = _require_live_gateway_client_for_controller(controller)
+        client = _require_live_gateway_client_for_controller(authority)
         return client.control_prompt(
             GatewayPromptControlRequestV1(
                 prompt=prompt,
@@ -3399,8 +3450,8 @@ def gateway_send_keys(
             request_model,
         )
 
-    controller = _require_live_local_controller(target, operation="send gateway control input")
-    client = _require_live_gateway_client_for_controller(controller)
+    authority = _running_agent_authority(target, operation="send gateway control input")
+    client = _require_live_gateway_client_for_controller(authority)
     try:
         return client.send_control_input(request_model)
     except GatewayHttpError as exc:
@@ -3426,8 +3477,8 @@ def gateway_ag_ui_publish(
             "Remote pair API forwarding is unsupported for this command."
         )
 
-    controller = _require_live_local_controller(target, operation="publish AG-UI events")
-    client = _require_live_gateway_client_for_controller(controller)
+    authority = _running_agent_authority(target, operation="publish AG-UI events")
+    client = _require_live_gateway_client_for_controller(authority)
     try:
         return client.publish_ag_ui_events(request_model)
     except GatewayHttpError as exc:
@@ -3443,8 +3494,8 @@ def gateway_tui_state(target: ManagedAgentTarget) -> HoumaoTerminalStateResponse
         assert target.client is not None
         return pair_request(target.client.get_managed_agent_gateway_tui_state, target.agent_ref)
 
-    controller = _require_live_local_controller(target, operation="show gateway TUI state")
-    client = _require_live_gateway_client_for_controller(controller)
+    authority = _running_agent_authority(target, operation="show gateway TUI state")
+    client = _require_live_gateway_client_for_controller(authority)
     try:
         return client.get_tui_state()
     except GatewayHttpError as exc:
@@ -3460,8 +3511,8 @@ def gateway_tui_history(target: ManagedAgentTarget) -> HoumaoTerminalSnapshotHis
         assert target.client is not None
         return pair_request(target.client.get_managed_agent_gateway_tui_history, target.agent_ref)
 
-    controller = _require_live_local_controller(target, operation="show gateway TUI history")
-    client = _require_live_gateway_client_for_controller(controller)
+    authority = _running_agent_authority(target, operation="show gateway TUI history")
+    client = _require_live_gateway_client_for_controller(authority)
     try:
         return client.get_tui_history(limit=100)
     except GatewayHttpError as exc:
@@ -3485,8 +3536,8 @@ def gateway_tui_note_prompt(
             prompt=prompt,
         )
 
-    controller = _require_live_local_controller(target, operation="record gateway TUI prompt note")
-    client = _require_live_gateway_client_for_controller(controller)
+    authority = _running_agent_authority(target, operation="record gateway TUI prompt note")
+    client = _require_live_gateway_client_for_controller(authority)
     try:
         return client.note_tui_prompt_submission(prompt=prompt)
     except GatewayHttpError as exc:
@@ -3502,8 +3553,8 @@ def gateway_list_reminders(target: ManagedAgentTarget) -> GatewayReminderListV1:
         assert target.client is not None
         return pair_request(target.client.list_managed_agent_gateway_reminders, target.agent_ref)
 
-    controller = _require_live_local_controller(target, operation="list gateway reminders")
-    client = _require_live_gateway_client_for_controller(controller)
+    authority = _running_agent_authority(target, operation="list gateway reminders")
+    client = _require_live_gateway_client_for_controller(authority)
     try:
         return client.list_reminders()
     except GatewayHttpError as exc:
@@ -3527,8 +3578,8 @@ def gateway_get_reminder(
             reminder_id,
         )
 
-    controller = _require_live_local_controller(target, operation="get gateway reminder")
-    client = _require_live_gateway_client_for_controller(controller)
+    authority = _running_agent_authority(target, operation="get gateway reminder")
+    client = _require_live_gateway_client_for_controller(authority)
     try:
         return client.get_reminder(reminder_id=reminder_id)
     except GatewayHttpError as exc:
@@ -3552,8 +3603,8 @@ def gateway_create_reminders(
             payload,
         )
 
-    controller = _require_live_local_controller(target, operation="create gateway reminders")
-    client = _require_live_gateway_client_for_controller(controller)
+    authority = _running_agent_authority(target, operation="create gateway reminders")
+    client = _require_live_gateway_client_for_controller(authority)
     try:
         return client.create_reminders(payload)
     except GatewayHttpError as exc:
@@ -3579,8 +3630,8 @@ def gateway_put_reminder(
             payload,
         )
 
-    controller = _require_live_local_controller(target, operation="set gateway reminder")
-    client = _require_live_gateway_client_for_controller(controller)
+    authority = _running_agent_authority(target, operation="set gateway reminder")
+    client = _require_live_gateway_client_for_controller(authority)
     try:
         return client.put_reminder(reminder_id=reminder_id, payload=payload)
     except GatewayHttpError as exc:
@@ -3604,8 +3655,8 @@ def gateway_delete_reminder(
             reminder_id,
         )
 
-    controller = _require_live_local_controller(target, operation="remove gateway reminder")
-    client = _require_live_gateway_client_for_controller(controller)
+    authority = _running_agent_authority(target, operation="remove gateway reminder")
+    client = _require_live_gateway_client_for_controller(authority)
     try:
         return client.delete_reminder(reminder_id=reminder_id)
     except GatewayHttpError as exc:
@@ -3629,11 +3680,11 @@ def gateway_mail_notifier_status(
             channel=channel,
         )
 
-    controller = _require_live_local_controller(
+    authority = _running_agent_authority(
         target,
         operation="show gateway mail-notifier status",
     )
-    client = _require_live_gateway_client_for_controller(controller)
+    client = _require_live_gateway_client_for_controller(authority)
     try:
         return client.get_mail_notifier(
             channel=channel,
@@ -3681,11 +3732,11 @@ def gateway_mail_notifier_enable(
             channel=channel,
         )
 
-    controller = _require_live_local_controller(
+    authority = _running_agent_authority(
         target,
         operation="enable gateway mail-notifier",
     )
-    client = _require_live_gateway_client_for_controller(controller)
+    client = _require_live_gateway_client_for_controller(authority)
     try:
         return client.put_mail_notifier(
             request_model,
@@ -3712,11 +3763,11 @@ def gateway_mail_notifier_disable(
             channel=channel,
         )
 
-    controller = _require_live_local_controller(
+    authority = _running_agent_authority(
         target,
         operation="disable gateway mail-notifier",
     )
-    client = _require_live_gateway_client_for_controller(controller)
+    client = _require_live_gateway_client_for_controller(authority)
     try:
         return client.delete_mail_notifier(
             channel=channel,
@@ -3839,13 +3890,12 @@ def unregister_mailbox_binding(target: ManagedAgentTarget, *, mode: str) -> dict
     }
 
 
-def _local_manager_mail_status(controller: RuntimeSessionController) -> GatewayMailStatusV1:
+def _local_manager_mail_status(authority: _RunningAgentAuthority) -> GatewayMailStatusV1:
     """Report both configured channels and independent backend availability."""
 
-    handle = load_session_manifest(controller.manifest_path)
-    payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+    payload = _read_running_agent_manifest(authority)
     mailboxes = mailboxes_resolved_config_from_payload(
-        payload.launch_plan.mailboxes.model_dump(mode="json"), manifest_path=handle.path
+        payload.launch_plan.mailboxes.model_dump(mode="json"), manifest_path=authority.manifest_path
     )
     summaries: dict[str, MailboxChannelStatusV1 | None] = {}
     for channel in ("offline", "online"):
@@ -3888,7 +3938,7 @@ def _local_manager_mail_status(controller: RuntimeSessionController) -> GatewayM
 
 
 def _local_manager_mail_list(
-    controller: RuntimeSessionController,
+    authority: _RunningAgentAuthority,
     *,
     channel: MailboxChannel,
     expected_binding_id: str | None = None,
@@ -3902,8 +3952,8 @@ def _local_manager_mail_list(
 ) -> GatewayMailListResponseV1:
     """List mailbox contents through manager-owned local execution."""
 
-    adapter = _local_mailbox_adapter_for_controller(
-        controller,
+    adapter = _local_mailbox_adapter(
+        authority,
         channel=channel,
         expected_binding_id=expected_binding_id,
     )
@@ -3928,7 +3978,7 @@ def _local_manager_mail_list(
 
 
 def _local_manager_mail_peek(
-    controller: RuntimeSessionController,
+    authority: _RunningAgentAuthority,
     *,
     channel: MailboxChannel,
     expected_binding_id: str | None = None,
@@ -3937,8 +3987,8 @@ def _local_manager_mail_peek(
 ) -> GatewayMailMessageResponseV1:
     """Peek at one mailbox message through manager-owned local execution."""
 
-    adapter = _local_mailbox_adapter_for_controller(
-        controller,
+    adapter = _local_mailbox_adapter(
+        authority,
         channel=channel,
         expected_binding_id=expected_binding_id,
     )
@@ -3959,7 +4009,7 @@ def _local_manager_mail_peek(
 
 
 def _local_manager_mail_read(
-    controller: RuntimeSessionController,
+    authority: _RunningAgentAuthority,
     *,
     channel: MailboxChannel,
     expected_binding_id: str | None = None,
@@ -3968,8 +4018,8 @@ def _local_manager_mail_read(
 ) -> GatewayMailMessageResponseV1:
     """Read one mailbox message through manager-owned local execution."""
 
-    adapter = _local_mailbox_adapter_for_controller(
-        controller,
+    adapter = _local_mailbox_adapter(
+        authority,
         channel=channel,
         expected_binding_id=expected_binding_id,
     )
@@ -3990,7 +4040,7 @@ def _local_manager_mail_read(
 
 
 def _local_manager_mail_send(
-    controller: RuntimeSessionController,
+    authority: _RunningAgentAuthority,
     *,
     channel: MailboxChannel,
     expected_binding_id: str | None = None,
@@ -4004,8 +4054,8 @@ def _local_manager_mail_send(
 ) -> GatewayMailActionResponseV1:
     """Send mail through manager-owned local execution."""
 
-    adapter = _local_mailbox_adapter_for_controller(
-        controller,
+    adapter = _local_mailbox_adapter(
+        authority,
         channel=channel,
         expected_binding_id=expected_binding_id,
     )
@@ -4034,7 +4084,7 @@ def _local_manager_mail_send(
 
 
 def _local_manager_mail_reply(
-    controller: RuntimeSessionController,
+    authority: _RunningAgentAuthority,
     *,
     channel: MailboxChannel,
     expected_binding_id: str | None = None,
@@ -4046,8 +4096,8 @@ def _local_manager_mail_reply(
 ) -> GatewayMailActionResponseV1:
     """Reply through manager-owned local execution."""
 
-    adapter = _local_mailbox_adapter_for_controller(
-        controller,
+    adapter = _local_mailbox_adapter(
+        authority,
         channel=channel,
         expected_binding_id=expected_binding_id,
     )
@@ -4074,7 +4124,7 @@ def _local_manager_mail_reply(
 
 
 def _local_manager_mail_post(
-    controller: RuntimeSessionController,
+    authority: _RunningAgentAuthority,
     *,
     channel: MailboxChannel,
     expected_binding_id: str | None = None,
@@ -4087,8 +4137,8 @@ def _local_manager_mail_post(
 ) -> GatewayMailActionResponseV1:
     """Post operator-origin mail through manager-owned local execution."""
 
-    adapter = _local_mailbox_adapter_for_controller(
-        controller,
+    adapter = _local_mailbox_adapter(
+        authority,
         channel=channel,
         expected_binding_id=expected_binding_id,
     )
@@ -4116,7 +4166,7 @@ def _local_manager_mail_post(
 
 
 def _local_manager_mail_mark(
-    controller: RuntimeSessionController,
+    authority: _RunningAgentAuthority,
     *,
     channel: MailboxChannel,
     expected_binding_id: str | None = None,
@@ -4127,8 +4177,8 @@ def _local_manager_mail_mark(
 ) -> GatewayMailLifecycleResponseV1:
     """Mark mailbox state through manager-owned local execution."""
 
-    adapter = _local_mailbox_adapter_for_controller(
-        controller,
+    adapter = _local_mailbox_adapter(
+        authority,
         channel=channel,
         expected_binding_id=expected_binding_id,
     )
@@ -4155,7 +4205,7 @@ def _local_manager_mail_mark(
 
 
 def _local_manager_mail_move(
-    controller: RuntimeSessionController,
+    authority: _RunningAgentAuthority,
     *,
     channel: MailboxChannel,
     expected_binding_id: str | None = None,
@@ -4164,8 +4214,8 @@ def _local_manager_mail_move(
 ) -> GatewayMailLifecycleResponseV1:
     """Move mailbox messages through manager-owned local execution."""
 
-    adapter = _local_mailbox_adapter_for_controller(
-        controller,
+    adapter = _local_mailbox_adapter(
+        authority,
         channel=channel,
         expected_binding_id=expected_binding_id,
     )
@@ -4187,7 +4237,7 @@ def _local_manager_mail_move(
 
 
 def _local_manager_mail_archive(
-    controller: RuntimeSessionController,
+    authority: _RunningAgentAuthority,
     *,
     channel: MailboxChannel,
     expected_binding_id: str | None = None,
@@ -4195,8 +4245,8 @@ def _local_manager_mail_archive(
 ) -> GatewayMailLifecycleResponseV1:
     """Archive mailbox messages through manager-owned local execution."""
 
-    adapter = _local_mailbox_adapter_for_controller(
-        controller,
+    adapter = _local_mailbox_adapter(
+        authority,
         channel=channel,
         expected_binding_id=expected_binding_id,
     )
@@ -4252,8 +4302,8 @@ def control_online_mailbox(
         raise click.ClickException(str(exc)) from exc
 
 
-def _local_mailbox_adapter_for_controller(
-    controller: RuntimeSessionController,
+def _local_mailbox_adapter(
+    authority: _RunningAgentAuthority,
     *,
     channel: MailboxChannel,
     expected_binding_id: str | None = None,
@@ -4261,16 +4311,15 @@ def _local_mailbox_adapter_for_controller(
     """Resolve one current channel and reject stale targeting before backend I/O."""
 
     try:
-        handle = load_session_manifest(controller.manifest_path)
-        payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+        payload = _read_running_agent_manifest(authority)
         mailboxes = mailboxes_resolved_config_from_payload(
             payload.launch_plan.mailboxes.model_dump(mode="json"),
-            manifest_path=handle.path,
+            manifest_path=authority.manifest_path,
         )
         binding = mailboxes.binding_for(channel)
         if binding is None:
             raise click.ClickException(f"Target has no configured {channel} mailbox.")
-        if binding.agent_id != controller.agent_id:
+        if binding.agent_id != authority.agent_id:
             raise click.ClickException("Mailbox owner differs from the selected agent.")
         scope = MailScope(binding.agent_id, channel, binding.binding_id)
         if expected_binding_id is not None:
@@ -4278,7 +4327,7 @@ def _local_mailbox_adapter_for_controller(
         return build_scoped_mailbox_adapter(
             binding,
             authority=OnlineAuthorityContext(
-                handle.path, payload.agent_id, payload.runtime.session_id
+                authority.manifest_path, payload.agent_id, payload.runtime.session_id
             ),
         )
     except (GatewayMailboxError, ValueError, SessionManifestError) as exc:
@@ -4300,9 +4349,8 @@ def _resolve_mail_expected_binding(
             raise click.ClickException(f"Target has no configured {channel} mailbox.")
         current_id = binding.binding_id
     else:
-        controller = _require_live_local_controller(target, operation=f"resolve {channel} mail")
-        handle = load_session_manifest(controller.manifest_path)
-        payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+        authority = _running_agent_authority(target, operation=f"resolve {channel} mail")
+        payload = _read_running_agent_manifest(authority)
         slot = getattr(payload.launch_plan.mailboxes, channel)
         if slot.binding is None:
             raise click.ClickException(f"Target has no configured {channel} mailbox.")
@@ -4487,8 +4535,8 @@ def mail_status(target: ManagedAgentTarget) -> object:
             payload=pair_request(target.client.get_managed_agent_mail_status, target.agent_ref),
         )
 
-    controller = _require_live_local_controller(target, operation="show managed-agent mail status")
-    client = _live_gateway_client_for_controller(controller, private=True, require_available=True)
+    authority = _running_agent_authority(target, operation="show managed-agent mail status")
+    client = _live_gateway_client_for_controller(authority, private=True, require_available=True)
     if client is not None:
         try:
             result = client.mail_status()
@@ -4500,7 +4548,7 @@ def mail_status(target: ManagedAgentTarget) -> object:
     return build_verified_mail_command_result(
         operation="status",
         execution_path="manager_direct",
-        payload=_local_manager_mail_status(controller),
+        payload=_local_manager_mail_status(authority),
     )
 
 
@@ -4545,8 +4593,8 @@ def mail_list(
             ),
         )
 
-    controller = _require_live_local_controller(target, operation="list managed-agent mail")
-    client = _live_gateway_client_for_controller(controller, private=True, require_available=True)
+    authority = _running_agent_authority(target, operation="list managed-agent mail")
+    client = _live_gateway_client_for_controller(authority, private=True, require_available=True)
     if client is not None:
         try:
             result = client.list_mail(
@@ -4571,7 +4619,7 @@ def mail_list(
         operation="list",
         execution_path="manager_direct",
         payload=_local_manager_mail_list(
-            controller,
+            authority,
             box=box,
             read_state=read_state,
             answered_state=answered_state,
@@ -4616,8 +4664,8 @@ def mail_peek(
             ),
         )
 
-    controller = _require_live_local_controller(target, operation="peek managed-agent mail")
-    client = _live_gateway_client_for_controller(controller, private=True, require_available=True)
+    authority = _running_agent_authority(target, operation="peek managed-agent mail")
+    client = _live_gateway_client_for_controller(authority, private=True, require_available=True)
     if client is not None:
         try:
             result = client.peek_mail(
@@ -4637,7 +4685,7 @@ def mail_peek(
         operation="peek",
         execution_path="manager_direct",
         payload=_local_manager_mail_peek(
-            controller,
+            authority,
             message_ref=message_ref,
             box=box,
             channel=channel,
@@ -4677,8 +4725,8 @@ def mail_read(
             ),
         )
 
-    controller = _require_live_local_controller(target, operation="read managed-agent mail")
-    client = _live_gateway_client_for_controller(controller, private=True, require_available=True)
+    authority = _running_agent_authority(target, operation="read managed-agent mail")
+    client = _live_gateway_client_for_controller(authority, private=True, require_available=True)
     if client is not None:
         try:
             result = client.read_mail(
@@ -4698,7 +4746,7 @@ def mail_read(
         operation="read",
         execution_path="manager_direct",
         payload=_local_manager_mail_read(
-            controller,
+            authority,
             message_ref=message_ref,
             box=box,
             channel=channel,
@@ -4748,9 +4796,9 @@ def mail_send(
             ),
         )
 
-    controller = _require_live_local_controller(target, operation="send managed-agent mail")
+    authority = _running_agent_authority(target, operation="send managed-agent mail")
     gateway_client = _live_gateway_client_for_controller(
-        controller, private=True, require_available=True
+        authority, private=True, require_available=True
     )
     if gateway_client is not None:
         return build_verified_mail_command_result(
@@ -4775,7 +4823,7 @@ def mail_send(
             operation="send",
             execution_path="manager_direct",
             payload=_local_manager_mail_send(
-                controller,
+                authority,
                 to_recipients=to_recipients,
                 cc_recipients=cc_recipients,
                 subject=subject,
@@ -4789,7 +4837,7 @@ def mail_send(
         )
 
     direct_mail_error = _local_manager_mail_authority_error(
-        controller,
+        authority,
         channel=channel,
         expected_binding_id=expected_binding_id,
     )
@@ -4798,7 +4846,7 @@ def mail_send(
             operation="send",
             execution_path="manager_direct",
             payload=_local_manager_mail_send(
-                controller,
+                authority,
                 to_recipients=to_recipients,
                 cc_recipients=cc_recipients,
                 subject=subject,
@@ -4818,7 +4866,7 @@ def mail_send(
     # need that delivery path should encode the block as a `houmao-notify` body
     # fence so the agent's send tooling extracts it at composition time.
     return _run_local_mail_prompt(
-        controller=controller,
+        controller=_require_live_local_controller(target, operation="submit TUI mail"),
         operation="send",
         args={
             "to": to_recipients,
@@ -4871,12 +4919,12 @@ def mail_post(
             ),
         )
 
-    controller = _require_live_local_controller(
+    authority = _running_agent_authority(
         target,
         operation="post operator-origin managed-agent mail",
     )
     gateway_client = _live_gateway_client_for_controller(
-        controller, private=False, require_available=True
+        authority, private=False, require_available=True
     )
     if gateway_client is not None:
         return build_verified_mail_command_result(
@@ -4900,7 +4948,7 @@ def mail_post(
             operation="post",
             execution_path="manager_direct",
             payload=_local_manager_mail_post(
-                controller,
+                authority,
                 subject=subject,
                 body_content=body_content,
                 reply_policy=reply_policy,
@@ -4913,7 +4961,7 @@ def mail_post(
         )
 
     direct_mail_error = _local_manager_mail_authority_error(
-        controller,
+        authority,
         channel=channel,
         expected_binding_id=expected_binding_id,
     )
@@ -4922,7 +4970,7 @@ def mail_post(
             operation="post",
             execution_path="manager_direct",
             payload=_local_manager_mail_post(
-                controller,
+                authority,
                 subject=subject,
                 body_content=body_content,
                 reply_policy=reply_policy,
@@ -4977,9 +5025,9 @@ def mail_reply(
             ),
         )
 
-    controller = _require_live_local_controller(target, operation="reply to managed-agent mail")
+    authority = _running_agent_authority(target, operation="reply to managed-agent mail")
     gateway_client = _live_gateway_client_for_controller(
-        controller, private=True, require_available=True
+        authority, private=True, require_available=True
     )
     if gateway_client is not None:
         return build_verified_mail_command_result(
@@ -5002,7 +5050,7 @@ def mail_reply(
             operation="reply",
             execution_path="manager_direct",
             payload=_local_manager_mail_reply(
-                controller,
+                authority,
                 message_ref=message_ref,
                 body_content=body_content,
                 attachments=attachments,
@@ -5014,7 +5062,7 @@ def mail_reply(
         )
 
     direct_mail_error = _local_manager_mail_authority_error(
-        controller,
+        authority,
         channel=channel,
         expected_binding_id=expected_binding_id,
     )
@@ -5023,7 +5071,7 @@ def mail_reply(
             operation="reply",
             execution_path="manager_direct",
             payload=_local_manager_mail_reply(
-                controller,
+                authority,
                 message_ref=message_ref,
                 body_content=body_content,
                 attachments=attachments,
@@ -5035,7 +5083,7 @@ def mail_reply(
         )
 
     return _run_local_mail_prompt(
-        controller=controller,
+        controller=_require_live_local_controller(target, operation="submit TUI mail"),
         operation="reply",
         args={
             "message_ref": message_ref,
@@ -5082,9 +5130,9 @@ def mail_mark(
             ),
         )
 
-    controller = _require_live_local_controller(target, operation="mark managed-agent mail")
+    authority = _running_agent_authority(target, operation="mark managed-agent mail")
     gateway_client = _live_gateway_client_for_controller(
-        controller, private=True, require_available=True
+        authority, private=True, require_available=True
     )
     if gateway_client is not None:
         return build_verified_mail_command_result(
@@ -5106,7 +5154,7 @@ def mail_mark(
             operation="mark",
             execution_path="manager_direct",
             payload=_local_manager_mail_mark(
-                controller,
+                authority,
                 message_refs=message_refs,
                 read=read,
                 answered=answered,
@@ -5117,7 +5165,7 @@ def mail_mark(
         )
 
     direct_mail_error = _local_manager_mail_authority_error(
-        controller,
+        authority,
         channel=channel,
         expected_binding_id=expected_binding_id,
     )
@@ -5126,7 +5174,7 @@ def mail_mark(
             operation="mark",
             execution_path="manager_direct",
             payload=_local_manager_mail_mark(
-                controller,
+                authority,
                 message_refs=message_refs,
                 read=read,
                 answered=answered,
@@ -5137,7 +5185,7 @@ def mail_mark(
         )
 
     return _run_local_mail_prompt(
-        controller=controller,
+        controller=_require_live_local_controller(target, operation="submit TUI mail"),
         operation="mark",
         args={
             "message_refs": message_refs,
@@ -5181,8 +5229,8 @@ def mail_move(
             ),
         )
 
-    controller = _require_live_local_controller(target, operation="move managed-agent mail")
-    client = _live_gateway_client_for_controller(controller, private=True, require_available=True)
+    authority = _running_agent_authority(target, operation="move managed-agent mail")
+    client = _live_gateway_client_for_controller(authority, private=True, require_available=True)
     if client is not None:
         try:
             result = _gateway_mail_move(
@@ -5201,7 +5249,7 @@ def mail_move(
         operation="move",
         execution_path="manager_direct",
         payload=_local_manager_mail_move(
-            controller,
+            authority,
             message_refs=message_refs,
             destination_box=destination_box,
             channel=channel,
@@ -5239,8 +5287,8 @@ def mail_archive(
             ),
         )
 
-    controller = _require_live_local_controller(target, operation="archive managed-agent mail")
-    client = _live_gateway_client_for_controller(controller, private=True, require_available=True)
+    authority = _running_agent_authority(target, operation="archive managed-agent mail")
+    client = _live_gateway_client_for_controller(authority, private=True, require_available=True)
     if client is not None:
         try:
             result = _gateway_mail_archive(
@@ -5258,7 +5306,7 @@ def mail_archive(
         operation="archive",
         execution_path="manager_direct",
         payload=_local_manager_mail_archive(
-            controller,
+            authority,
             message_refs=message_refs,
             channel=channel,
             expected_binding_id=expected_binding_id,
@@ -5278,13 +5326,13 @@ def mail_resolve_live(target: ManagedAgentTarget) -> dict[str, Any]:
             source_override="pair_authority",
         )
 
-    controller = _require_live_local_controller(
+    authority = _running_agent_authority(
         target,
         operation="resolve live managed-agent mail bindings",
     )
     try:
         resolution = resolve_live_mailbox_binding_from_manifest_path(
-            manifest_path=controller.manifest_path,
+            manifest_path=authority.manifest_path,
         )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
@@ -5292,7 +5340,7 @@ def mail_resolve_live(target: ManagedAgentTarget) -> dict[str, Any]:
 
 
 def _local_manager_mail_authority_error(
-    controller: RuntimeSessionController,
+    authority: _RunningAgentAuthority,
     *,
     channel: MailboxChannel,
     expected_binding_id: str | None = None,
@@ -5300,8 +5348,8 @@ def _local_manager_mail_authority_error(
     """Return one direct-mail authority error, or `None` when direct execution is ready."""
 
     try:
-        _local_mailbox_adapter_for_controller(
-            controller,
+        _local_mailbox_adapter(
+            authority,
             channel=channel,
             expected_binding_id=expected_binding_id,
         )
@@ -5415,8 +5463,8 @@ def headless_turn_status(
         assert target.client is not None
         return pair_request(target.client.get_headless_turn_status, target.agent_ref, turn_id)
 
-    controller = _require_live_local_controller(target, operation="show headless turn status")
-    snapshot = _turn_snapshot_from_id(controller=controller, turn_id=turn_id)
+    authority = _running_agent_authority(target, operation="show headless turn status")
+    snapshot = _turn_snapshot_from_id(controller=authority, turn_id=turn_id)
     return HoumaoHeadlessTurnStatusResponse(
         tracked_agent_id=target.identity.tracked_agent_id,
         turn_id=snapshot.turn_id,
@@ -5447,14 +5495,11 @@ def headless_turn_events(
         assert target.client is not None
         return pair_request(target.client.get_headless_turn_events, target.agent_ref, turn_id)
 
-    controller = _require_live_local_controller(target, operation="show headless turn events")
-    snapshot = _turn_snapshot_from_id(controller=controller, turn_id=turn_id)
+    authority = _running_agent_authority(target, operation="show headless turn events")
+    snapshot = _turn_snapshot_from_id(controller=authority, turn_id=turn_id)
     events = _load_turn_events(
         snapshot,
-        provider=resolve_headless_provider(
-            tool=controller.launch_plan.tool,
-            backend=controller.launch_plan.backend,
-        ),
+        provider=_headless_provider_for_authority(authority),
     )
     return HoumaoHeadlessTurnEventsResponse(
         tracked_agent_id=target.identity.tracked_agent_id,
@@ -5482,8 +5527,8 @@ def headless_turn_artifact_text(
             artifact_name=artifact_name,
         )
 
-    controller = _require_live_local_controller(target, operation="read headless turn artifact")
-    snapshot = _turn_snapshot_from_id(controller=controller, turn_id=turn_id)
+    authority = _running_agent_authority(target, operation="read headless turn artifact")
+    snapshot = _turn_snapshot_from_id(controller=authority, turn_id=turn_id)
     if artifact_name == "stdout":
         artifact_path = snapshot.stdout_path
     elif artifact_name == "stderr":
@@ -5595,19 +5640,10 @@ def _resume_controller_from_record(
 ) -> RuntimeSessionController:
     """Resume one local runtime controller from a registry record."""
 
-    agent_def_dir_raw = record.runtime.agent_def_dir
-    if agent_def_dir_raw is None:
-        raise click.ClickException(
-            f"Managed agent `{record.agent_name}` is missing registry agent_def_dir metadata."
-        )
-    agent_def_dir = Path(agent_def_dir_raw).expanduser().resolve()
     manifest_path = Path(record.runtime.manifest_path).expanduser().resolve()
     try:
         require_registry_mode_authority(record)
-        return resume_runtime_session(
-            agent_def_dir=agent_def_dir,
-            session_manifest_path=manifest_path,
-        )
+        return resume_runtime_session(session_manifest_path=manifest_path)
     except BrainLaunchRuntimeError as exc:
         tracked_name = record.agent_name or record.agent_id or record.terminal.session_name
         raise click.ClickException(
@@ -5821,10 +5857,12 @@ def _resolve_local_gateway_record_for_passive_pair(
     )
 
 
-def _gateway_status_for_controller(controller: RuntimeSessionController) -> GatewayStatusV1:
-    """Return gateway status for one local runtime controller."""
+def _gateway_status_for_controller(authority: _RunningAgentAuthority) -> GatewayStatusV1:
+    """Return gateway status from the authorized runtime's manifest path."""
 
-    paths = gateway_paths_from_manifest_path(controller.manifest_path)
+    if isinstance(authority, VerifiedSelfManifest):
+        _read_running_agent_manifest(authority)
+    paths = gateway_paths_from_manifest_path(authority.manifest_path)
     if paths is None:
         raise click.ClickException(
             "Managed agent does not publish manifest-backed gateway capability."
@@ -5845,14 +5883,14 @@ def _gateway_status_for_controller(controller: RuntimeSessionController) -> Gate
 
 
 def _live_gateway_client_for_controller(
-    controller: RuntimeSessionController,
+    authority: _RunningAgentAuthority,
     *,
     private: bool = False,
     require_available: bool = False,
 ) -> GatewayClient | None:
-    """Return a live gateway client when the controller has one attached."""
+    """Return a client preserving the running agent's owner and signer binding."""
 
-    status = _gateway_status_for_controller(controller)
+    status = _gateway_status_for_controller(authority)
     if (
         status.gateway_health != "healthy"
         or status.gateway_host is None
@@ -5868,14 +5906,21 @@ def _live_gateway_client_for_controller(
         return None
     scope = get_managed_agent_scope_context()
     try:
-        return owner_gateway_client_for_controller(
-            controller,
-            endpoint=endpoint,
+        binding, incarnation = owner_gateway_client_binding(
+            authority.manifest_path,
+            port=endpoint.port,
             private=private,
-            prefer_self=scope is not None and scope.scope == "self",
+            prefer_self=isinstance(authority, VerifiedSelfManifest)
+            or (scope is not None and scope.scope == "self"),
         )
     except (GatewayAccessError, SessionManifestError, ValueError):
         raise click.ClickException("Gateway caller binding is unavailable.") from None
+    if (
+        isinstance(authority, VerifiedSelfManifest)
+        and incarnation != authority.record.generation_id
+    ):
+        raise click.ClickException("The gateway belongs to a different runtime generation.")
+    return GatewayClient(endpoint=endpoint, binding=binding, target_incarnation=incarnation)
 
 
 def _local_gateway_summary(
@@ -5927,11 +5972,11 @@ def _local_gateway_summary(
 
 
 def _require_live_gateway_client_for_controller(
-    controller: RuntimeSessionController,
+    authority: _RunningAgentAuthority,
 ) -> GatewayClient:
     """Return a verified live gateway client or fail with attach guidance."""
 
-    client = _live_gateway_client_for_controller(controller)
+    client = _live_gateway_client_for_controller(authority)
     if client is None:
         raise click.ClickException(
             "No live gateway is attached to the managed agent. "
@@ -6221,10 +6266,7 @@ def _local_web_state_response(
     if state.availability != "available":
         backend: DshWebSession | KimiWebSession | None = None
         try:
-            if controller.agent_def_dir is None:
-                raise ValueError("Direct Web observation requires private runtime authority")
             fresh = resume_runtime_session(
-                agent_def_dir=controller.agent_def_dir,
                 session_manifest_path=controller.manifest_path,
                 read_only=True,
             )
@@ -6302,21 +6344,27 @@ def _latest_local_headless_turn(
 
 def _turn_snapshot_from_id(
     *,
-    controller: RuntimeSessionController,
+    controller: _RunningAgentAuthority,
     turn_id: str,
 ) -> HeadlessTurnSnapshot:
     """Return one local turn snapshot or fail clearly."""
 
-    candidate = (headless_turn_artifacts_root(controller.manifest_path) / turn_id).resolve()
-    if not candidate.is_dir():
+    root = headless_turn_artifacts_root(controller.manifest_path).resolve()
+    candidate = (root / turn_id).resolve()
+    if candidate.parent != root or not candidate.is_dir():
         raise click.ClickException(f"Headless turn `{turn_id}` was not found.")
-    return read_headless_turn(
-        candidate,
-        dsh_cli=controller.launch_plan.backend == "dsh_headless",
-        provider=resolve_headless_provider(
-            tool=controller.launch_plan.tool,
-            backend=controller.launch_plan.backend,
-        ),
+    provider = _headless_provider_for_authority(controller)
+    return read_headless_turn(candidate, dsh_cli=provider == "dsh", provider=provider)
+
+
+def _headless_provider_for_authority(authority: _RunningAgentAuthority) -> HeadlessProvider:
+    """Read the saved provider identity for one running agent's artifacts."""
+
+    if isinstance(authority, VerifiedSelfManifest):
+        payload = _read_running_agent_manifest(authority)
+        return resolve_headless_provider(tool=payload.tool, backend=payload.backend)
+    return resolve_headless_provider(
+        tool=authority.launch_plan.tool, backend=authority.launch_plan.backend
     )
 
 

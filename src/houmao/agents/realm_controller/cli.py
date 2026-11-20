@@ -25,7 +25,7 @@ from houmao.project.overlay import (
 
 from houmao.agents.mailbox_runtime_support import safe_registry_mailboxes_projection
 
-from .agent_identity import AGENT_DEF_DIR_ENV_VAR, is_path_like_agent_identity
+from .agent_identity import AGENT_DEF_DIR_ENV_VAR
 from .errors import BrainLaunchRuntimeError
 from .loaders import load_blueprint, load_brain_recipe_from_path
 from .mail_commands import (
@@ -51,12 +51,7 @@ _AMBIENT_AGENT_DEF_DIR_HELP = (
     ".houmao/houmao-config.toml > <pwd>/.houmao/agents."
 )
 _CONTROL_AGENT_DEF_DIR_HELP = (
-    "Agent definition directory root (contains tools/, skills/, and roles/). "
-    "For manifest-path control: CLI > HOUMAO_AGENT_DEF_DIR > "
-    f"{PROJECT_OVERLAY_DIR_ENV_VAR} > nearest ancestor "
-    ".houmao/houmao-config.toml > <pwd>/.houmao/agents. "
-    "For name-based tmux control: explicit CLI override or the addressed session's "
-    "HOUMAO_AGENT_DEF_DIR."
+    "Optional agent definition directory. Live control uses the session manifest."
 )
 _DEPRECATED_CAO_RUNTIME_GUIDANCE = (
     "Standalone CAO/old-server runtime workflows are retired. Use maintained "
@@ -957,14 +952,8 @@ def _resolve_control_target(
     agent_identity: str,
     agent_def_dir_cli_value: str | None,
     cwd: Path,
-) -> tuple[Path, AgentIdentityResolution]:
-    """Resolve control target identity plus the effective agent-definition root."""
-
-    if is_path_like_agent_identity(agent_identity):
-        return (
-            _resolve_agent_def_dir(agent_def_dir_cli_value, cwd=cwd),
-            resolve_agent_identity(agent_identity=agent_identity, base=cwd),
-        )
+) -> tuple[Path | None, AgentIdentityResolution]:
+    """Resolve a live control target and optional definition provenance."""
 
     resolved = resolve_agent_identity(
         agent_identity=agent_identity,
@@ -974,10 +963,6 @@ def _resolve_control_target(
             cwd=cwd,
         ),
     )
-    if resolved.agent_def_dir is None:
-        raise BrainLaunchRuntimeError(
-            "Name-based session control requires a resolved agent definition directory."
-        )
     return resolved.agent_def_dir, resolved
 
 

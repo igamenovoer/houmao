@@ -2054,7 +2054,7 @@ class TestManagedCompatibilityRoutes:
             resp = client.get("/houmao/agents/abc123/managed-state/detail")
 
         assert resp.status_code == 503
-        assert resp.json()["detail"] == "Verified runtime definition is unavailable"
+        assert resp.json()["detail"] == "Verified native runtime observation is unavailable"
 
 
 def _seed_discovered_owner(

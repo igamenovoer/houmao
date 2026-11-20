@@ -12,7 +12,6 @@ import pytest
 
 from houmao.agents.launch_policy.models import ToolVersion
 from houmao.agents.realm_controller.agent_identity import (
-    AGENT_DEF_DIR_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
     derive_agent_id_from_name,
 )
@@ -158,6 +157,7 @@ def _build_cao_manifest(
             agent_name=agent_name or session_name,
             agent_id=agent_id or derive_agent_id_from_name(agent_name or session_name),
             tmux_session_name=session_name,
+            agent_def_dir=agent_def_dir,
             backend_state={
                 "api_base_url": "http://localhost:9889",
                 "session_name": session_name,
@@ -208,6 +208,7 @@ def _build_headless_manifest(
             agent_name=agent_name or session_name,
             agent_id=agent_id or derive_agent_id_from_name(agent_name or session_name),
             tmux_session_name=session_name,
+            agent_def_dir=agent_def_dir,
             backend_state={
                 "session_id": "sess-or-thread-1",
                 "turn_index": 1,
@@ -299,8 +300,6 @@ def test_resolve_agent_identity_name_reads_tmux_manifest_pointer(
 ) -> None:
     agent_def_dir = tmp_path / "repo"
     agent_def_dir.mkdir(parents=True, exist_ok=True)
-    tmux_agent_def_dir = tmp_path / "live-agent-defs"
-    tmux_agent_def_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = _build_cao_manifest(
         agent_def_dir,
         tmp_path,
@@ -308,6 +307,7 @@ def test_resolve_agent_identity_name_reads_tmux_manifest_pointer(
         path=tmp_path / "sessions" / "cao.json",
         parsing_mode=parsing_mode,
     )
+    agent_def_dir.rename(tmp_path / "unavailable-definition")
 
     def _fake_run(
         cmd: list[str],
@@ -323,14 +323,10 @@ def test_resolve_agent_identity_name_reads_tmux_manifest_pointer(
             return _completed(cmd)
         if cmd[1:3] == ["show-environment", "-t"]:
             assert cmd[3] == "HOUMAO-gpu"
-            if cmd[4] == AGENT_MANIFEST_PATH_ENV_VAR:
-                return _completed(
-                    cmd,
-                    stdout=f"{AGENT_MANIFEST_PATH_ENV_VAR}={manifest_path}\n",
-                )
+            assert cmd[4] == AGENT_MANIFEST_PATH_ENV_VAR
             return _completed(
                 cmd,
-                stdout=f"{AGENT_DEF_DIR_ENV_VAR}={tmux_agent_def_dir}\n",
+                stdout=f"{AGENT_MANIFEST_PATH_ENV_VAR}={manifest_path}\n",
             )
         raise AssertionError(f"Unexpected tmux command: {cmd}")
 
@@ -343,7 +339,7 @@ def test_resolve_agent_identity_name_reads_tmux_manifest_pointer(
     resolved = resolve_agent_identity(agent_identity="gpu", base=agent_def_dir)
     assert resolved.canonical_agent_identity == "HOUMAO-gpu"
     assert resolved.session_manifest_path == manifest_path.resolve()
-    assert resolved.agent_def_dir == tmux_agent_def_dir.resolve()
+    assert resolved.agent_def_dir == agent_def_dir
 
 
 def test_resolve_agent_identity_name_fails_when_tmux_session_missing(
@@ -439,8 +435,6 @@ def test_resolve_agent_identity_name_scans_metadata_for_suffixed_tmux_session(
 ) -> None:
     agent_def_dir = tmp_path / "repo"
     agent_def_dir.mkdir(parents=True, exist_ok=True)
-    tmux_agent_def_dir = tmp_path / "live-agent-defs"
-    tmux_agent_def_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = _build_cao_manifest(
         agent_def_dir,
         tmp_path,
@@ -465,14 +459,10 @@ def test_resolve_agent_identity_name_scans_metadata_for_suffixed_tmux_session(
             return _completed(cmd, stdout="HOUMAO-gpu-270b87\n")
         if cmd[1:3] == ["show-environment", "-t"]:
             assert cmd[3] == "HOUMAO-gpu-270b87"
-            if cmd[4] == AGENT_MANIFEST_PATH_ENV_VAR:
-                return _completed(
-                    cmd,
-                    stdout=f"{AGENT_MANIFEST_PATH_ENV_VAR}={manifest_path}\n",
-                )
+            assert cmd[4] == AGENT_MANIFEST_PATH_ENV_VAR
             return _completed(
                 cmd,
-                stdout=f"{AGENT_DEF_DIR_ENV_VAR}={tmux_agent_def_dir}\n",
+                stdout=f"{AGENT_MANIFEST_PATH_ENV_VAR}={manifest_path}\n",
             )
         raise AssertionError(f"Unexpected tmux command: {cmd}")
 
@@ -486,7 +476,7 @@ def test_resolve_agent_identity_name_scans_metadata_for_suffixed_tmux_session(
 
     assert resolved.canonical_agent_identity == "HOUMAO-gpu"
     assert resolved.session_manifest_path == manifest_path.resolve()
-    assert resolved.agent_def_dir == tmux_agent_def_dir.resolve()
+    assert resolved.agent_def_dir == agent_def_dir
 
 
 def test_resolve_agent_identity_name_fails_when_manifest_mismatch(
@@ -556,14 +546,10 @@ def test_resolve_agent_identity_name_fails_when_multiple_suffixed_sessions_match
             return _completed(cmd, stdout="HOUMAO-gpu-270b87\nHOUMAO-gpu-270b873\n")
         if cmd[1:3] == ["show-environment", "-t"]:
             manifest_path = manifest_path_a if cmd[3] == "HOUMAO-gpu-270b87" else manifest_path_b
-            if cmd[4] == AGENT_MANIFEST_PATH_ENV_VAR:
-                return _completed(
-                    cmd,
-                    stdout=f"{AGENT_MANIFEST_PATH_ENV_VAR}={manifest_path}\n",
-                )
+            assert cmd[4] == AGENT_MANIFEST_PATH_ENV_VAR
             return _completed(
                 cmd,
-                stdout=f"{AGENT_DEF_DIR_ENV_VAR}={agent_def_dir}\n",
+                stdout=f"{AGENT_MANIFEST_PATH_ENV_VAR}={manifest_path}\n",
             )
         raise AssertionError(f"Unexpected tmux command: {cmd}")
 
@@ -691,216 +677,6 @@ def test_resolve_agent_identity_falls_back_to_shared_registry_when_tmux_missing(
     assert resolved.agent_def_dir == agent_def_dir.resolve()
 
 
-def test_resolve_agent_identity_name_fails_when_agent_def_dir_pointer_missing(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    agent_def_dir = tmp_path / "repo"
-    agent_def_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path = _build_cao_manifest(
-        agent_def_dir,
-        tmp_path,
-        session_name="HOUMAO-gpu",
-        path=tmp_path / "sessions" / "cao.json",
-    )
-
-    def _fake_run(
-        cmd: list[str],
-        *,
-        check: bool,
-        capture_output: bool,
-        text: bool,
-        timeout: float | None = None,
-    ) -> subprocess.CompletedProcess[str]:
-        assert cmd[0] == "tmux"
-        if cmd[1:3] == ["has-session", "-t"]:
-            return _completed(cmd)
-        if cmd[1:3] == ["show-environment", "-t"] and cmd[4] == AGENT_MANIFEST_PATH_ENV_VAR:
-            return _completed(
-                cmd,
-                stdout=f"{AGENT_MANIFEST_PATH_ENV_VAR}={manifest_path}\n",
-            )
-        return _completed(
-            cmd,
-            returncode=1,
-            stderr=f"unknown variable: {AGENT_DEF_DIR_ENV_VAR}",
-        )
-
-    monkeypatch.setattr("subprocess.run", _fake_run)
-
-    with pytest.raises(SessionManifestError, match="Agent definition pointer missing"):
-        resolve_agent_identity(agent_identity="gpu", base=agent_def_dir)
-
-
-def test_resolve_agent_identity_name_falls_back_when_agent_def_dir_pointer_stale(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    agent_def_dir = tmp_path / "repo"
-    agent_def_dir.mkdir(parents=True, exist_ok=True)
-    stale_agent_def_dir = tmp_path / "stale-agent-defs"
-    registry_root = tmp_path / "registry"
-    manifest_path = _build_cao_manifest(
-        agent_def_dir,
-        tmp_path,
-        session_name="HOUMAO-gpu",
-        path=tmp_path / "sessions" / "cao.json",
-    )
-    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
-    _publish_registry_resolution_record(
-        manifest_path=manifest_path,
-        agent_def_dir=agent_def_dir,
-    )
-
-    def _fake_run(
-        cmd: list[str],
-        *,
-        check: bool,
-        capture_output: bool,
-        text: bool,
-        timeout: float | None = None,
-    ) -> subprocess.CompletedProcess[str]:
-        del check, capture_output, text, timeout
-        if cmd[1:3] == ["list-sessions", "-F"]:
-            return _completed(cmd, stdout="HOUMAO-gpu\n")
-        if cmd[1:3] == ["has-session", "-t"]:
-            return _completed(cmd)
-        if cmd[4] == AGENT_MANIFEST_PATH_ENV_VAR:
-            return _completed(
-                cmd,
-                stdout=f"{AGENT_MANIFEST_PATH_ENV_VAR}={manifest_path}\n",
-            )
-        return _completed(
-            cmd,
-            stdout=f"{AGENT_DEF_DIR_ENV_VAR}={stale_agent_def_dir}\n",
-        )
-
-    monkeypatch.setattr("subprocess.run", _fake_run)
-
-    resolved = resolve_agent_identity(agent_identity="gpu", base=agent_def_dir)
-
-    assert resolved.canonical_agent_identity == "HOUMAO-gpu"
-    assert resolved.session_manifest_path == manifest_path.resolve()
-    assert resolved.agent_def_dir == agent_def_dir.resolve()
-
-
-def test_resolve_agent_identity_name_fails_when_agent_def_dir_pointer_blank(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    agent_def_dir = tmp_path / "repo"
-    agent_def_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path = _build_cao_manifest(
-        agent_def_dir,
-        tmp_path,
-        session_name="HOUMAO-gpu",
-        path=tmp_path / "sessions" / "cao.json",
-    )
-
-    def _fake_run(
-        cmd: list[str],
-        *,
-        check: bool,
-        capture_output: bool,
-        text: bool,
-        timeout: float | None = None,
-    ) -> subprocess.CompletedProcess[str]:
-        assert cmd[0] == "tmux"
-        if cmd[1:3] == ["has-session", "-t"]:
-            return _completed(cmd)
-        if cmd[1:3] == ["show-environment", "-t"] and cmd[4] == AGENT_MANIFEST_PATH_ENV_VAR:
-            return _completed(
-                cmd,
-                stdout=f"{AGENT_MANIFEST_PATH_ENV_VAR}={manifest_path}\n",
-            )
-        return _completed(
-            cmd,
-            stdout=f"{AGENT_DEF_DIR_ENV_VAR}=\n",
-        )
-
-    monkeypatch.setattr("subprocess.run", _fake_run)
-
-    with pytest.raises(SessionManifestError, match="Agent definition pointer missing"):
-        resolve_agent_identity(agent_identity="gpu", base=agent_def_dir)
-
-
-def test_resolve_agent_identity_name_fails_when_agent_def_dir_pointer_is_relative(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    agent_def_dir = tmp_path / "repo"
-    agent_def_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path = _build_cao_manifest(
-        agent_def_dir,
-        tmp_path,
-        session_name="HOUMAO-gpu",
-        path=tmp_path / "sessions" / "cao.json",
-    )
-
-    def _fake_run(
-        cmd: list[str],
-        *,
-        check: bool,
-        capture_output: bool,
-        text: bool,
-        timeout: float | None = None,
-    ) -> subprocess.CompletedProcess[str]:
-        assert cmd[0] == "tmux"
-        if cmd[1:3] == ["has-session", "-t"]:
-            return _completed(cmd)
-        if cmd[1:3] == ["show-environment", "-t"] and cmd[4] == AGENT_MANIFEST_PATH_ENV_VAR:
-            return _completed(
-                cmd,
-                stdout=f"{AGENT_MANIFEST_PATH_ENV_VAR}={manifest_path}\n",
-            )
-        return _completed(
-            cmd,
-            stdout=f"{AGENT_DEF_DIR_ENV_VAR}=relative/agents\n",
-        )
-
-    monkeypatch.setattr("subprocess.run", _fake_run)
-
-    with pytest.raises(SessionManifestError, match="must be an absolute path"):
-        resolve_agent_identity(agent_identity="gpu", base=agent_def_dir)
-
-
-def test_resolve_agent_identity_name_fails_when_agent_def_dir_pointer_is_stale(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    agent_def_dir = tmp_path / "repo"
-    agent_def_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path = _build_cao_manifest(
-        agent_def_dir,
-        tmp_path,
-        session_name="HOUMAO-gpu",
-        path=tmp_path / "sessions" / "cao.json",
-    )
-    stale_agent_def_dir = tmp_path / "missing-agent-defs"
-
-    def _fake_run(
-        cmd: list[str],
-        *,
-        check: bool,
-        capture_output: bool,
-        text: bool,
-        timeout: float | None = None,
-    ) -> subprocess.CompletedProcess[str]:
-        assert cmd[0] == "tmux"
-        if cmd[1:3] == ["has-session", "-t"]:
-            return _completed(cmd)
-        if cmd[1:3] == ["show-environment", "-t"] and cmd[4] == AGENT_MANIFEST_PATH_ENV_VAR:
-            return _completed(
-                cmd,
-                stdout=f"{AGENT_MANIFEST_PATH_ENV_VAR}={manifest_path}\n",
-            )
-        return _completed(
-            cmd,
-            stdout=f"{AGENT_DEF_DIR_ENV_VAR}={stale_agent_def_dir}\n",
-        )
-
-    monkeypatch.setattr("subprocess.run", _fake_run)
-
-    with pytest.raises(SessionManifestError, match="points to missing directory"):
-        resolve_agent_identity(agent_identity="gpu", base=agent_def_dir)
-
-
 @pytest.mark.parametrize("backend", ["codex_headless", "claude_headless", "kimi_headless"])
 def test_resolve_agent_identity_accepts_tmux_backed_headless_manifest(
     monkeypatch: pytest.MonkeyPatch,
@@ -909,8 +685,6 @@ def test_resolve_agent_identity_accepts_tmux_backed_headless_manifest(
 ) -> None:
     agent_def_dir = tmp_path / "repo"
     agent_def_dir.mkdir(parents=True, exist_ok=True)
-    tmux_agent_def_dir = tmp_path / "live-agent-defs"
-    tmux_agent_def_dir.mkdir(parents=True, exist_ok=True)
     if backend == "kimi_headless":
         monkeypatch.setattr(
             "houmao.agents.realm_controller.launch_plan.detect_tool_version",
@@ -936,21 +710,17 @@ def test_resolve_agent_identity_accepts_tmux_backed_headless_manifest(
         if cmd[1:3] == ["has-session", "-t"]:
             return _completed(cmd)
         if cmd[1:3] == ["show-environment", "-t"]:
-            if cmd[4] == AGENT_MANIFEST_PATH_ENV_VAR:
-                return _completed(
-                    cmd,
-                    stdout=f"{AGENT_MANIFEST_PATH_ENV_VAR}={manifest_path}\n",
-                )
+            assert cmd[4] == AGENT_MANIFEST_PATH_ENV_VAR
             return _completed(
                 cmd,
-                stdout=f"{AGENT_DEF_DIR_ENV_VAR}={tmux_agent_def_dir}\n",
+                stdout=f"{AGENT_MANIFEST_PATH_ENV_VAR}={manifest_path}\n",
             )
         raise AssertionError(f"Unexpected tmux command: {cmd}")
 
     monkeypatch.setattr("subprocess.run", _fake_run)
     resolved = resolve_agent_identity(agent_identity="gpu", base=agent_def_dir)
     assert resolved.session_manifest_path == manifest_path.resolve()
-    assert resolved.agent_def_dir == tmux_agent_def_dir.resolve()
+    assert resolved.agent_def_dir == agent_def_dir
 
 
 def test_resolve_start_session_identity_uses_timestamp_based_tmux_handle_for_raw_agent_name(
