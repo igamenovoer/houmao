@@ -7,6 +7,7 @@ The gateway applies the same access rules on loopback and all-interface listener
 | Public | Anyone who can reach the listener, subject to operation enablement | Health, endpoint descriptor, challenge issuance, notifications, and public prompts |
 | Private | Current managed self or a listed admin with verified proof | Detailed status, usage, memory, routine mail, plugin inventory, and declared private plugin routes |
 | Admin | Anonymous admission with an empty list, listed admin proof with a nonempty list | Direct and queued controls, reminders, notifier controls, native inspection and refresh, mailbox binding and operator post, AG-UI, and plugin controls |
+| Web entry | Direct enrolled admin proof or a one-time Web entry ticket, depending on the request | Browser handoff to the live managed Web agent |
 
 First-key registration always requires proof of the proposed key. An invalid or unavailable retained policy prevents protected access. The gateway returns HTTP 401 with `WWW-Authenticate: Houmao-SSHSIG` and an applicable challenge path for missing or invalid proof, HTTP 403 when valid proof lacks authority, and HTTP 503 when required policy is unavailable. A failed proof ends the attempt. Gateway access diagnostics can report the target, operation, outcome, and verified principal or anonymous origin. Service identities such as the mailbox sender or plugin Actor remain bound to their configured owner.
 
@@ -80,6 +81,79 @@ status = admin.status()
 The client requests a challenge from `POST /v1/auth/challenge`, checks the issuer, target, purpose, key, and exact operation, and signs the canonical challenge in the Houmao SSHSIG namespace. The operation carries the challenge ID in `Houmao-Challenge` and the encoded SSHSIG in `Houmao-Signature`. Challenges expire, authorize only the exact method, path, query, and body digest, and can be consumed once. Keep proof in headers and out of URLs and logs. The gateway verifies standard SSHSIG in process.
 
 Use an already listed key to add another with `admin.add_admin_key(other_key)`. After verifying the new signer, use `admin.remove_admin_key(key_id)` from a current admin to revoke the old enrollment. If two callers compete to register the first key, only the first successful commit changes the roster. **Removing the final key immediately reopens admin operations to anyone who can reach the listener.** Restrict reachability first when anonymous control is unintended.
+
+## Open a Live Web Agent
+
+Web entry requires a running supported Web agent, an attached gateway, and an enrolled admin key. On the execution owner, use `houmao-mgr agents single --agent-id "$agent_id" gateway status` to find the gateway's `gateway_port`. The owner-local HTTP address uses `127.0.0.1` at that port. The managed agent's `native_surface` publishes the native origin and conversation ID. Browser entry works while the agent is busy or waiting for input.
+
+### Sign In From the Browser
+
+1. Open the gateway's bare entry URL, for example `http://127.0.0.1:43123/v1/web/enter`.
+2. Select **Start Login**. To use one key, give its literal private key file path. Use an absolute path or one relative to the terminal's working directory. Write the full home path in place of `~`. A blank path selects supported keys from the terminal's SSH agent.
+3. Check the agent and gateway address shown by the page. Select **Copy Command** and run the command in a trusted POSIX-compatible shell with `ssh-keygen` supporting `-Y sign` and `curl`. Blank-path selection also needs `ssh-add`, an active SSH agent, and the standard `mktemp`, `wc`, `rm`, and `rmdir` utilities. OpenSSH signs locally and prompts for any passphrase in the terminal. Curl sends the proof directly to the displayed gateway address.
+4. Keep the initiating tab open. It continues to the native app after the terminal approves the login. The login attempt expires after two minutes. To recover after expiry, restart, or refusal, open the bare entry URL and start a new attempt.
+
+### Issue a Signed Link
+
+On the execution owner, set `admin_signer_path` in the gateway's private access configuration and attach it with that configuration. The selected signer must be enrolled. Use the explicit selected-agent command for the live managed Web agent:
+
+```bash
+houmao-mgr --print-json agents single --agent-id "$agent_id" gateway web-entry
+```
+
+The command prints `url` and `expires_at_utc`. Open the URL in the browser within 60 seconds to go directly to the native app. Keep the link private and out of shared logs. Anyone who can reach the exact gateway address and holds the unused link can redeem it once.
+
+A signed script can also call `issue_web_entry_ticket()` on a `GatewayClient` with an admin binding for the exact owner-local base URL. Use the bound signer and target from the enrollment example, with the owner-local address in place of the advertised address and direct transport selected:
+
+```python
+local_binding = binding.model_copy(
+    update={"base_url": "http://127.0.0.1:43123", "purpose": "admin", "ca_bundle_path": None}
+)
+local_admin = GatewayClient(binding=local_binding, respect_proxy_env=False)
+ticket = local_admin.issue_web_entry_ticket()
+```
+
+The script receives the same one-time gateway URL. The client refuses HTTP redirects. Give the link to the browser for native authentication.
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant G as Owner Gateway
+    participant T as Operator Terminal
+    participant N as Native Web App
+    alt Interactive sign-in
+        B->>G: Open entry page and start login
+        G-->>B: Challenge and tab claim secret
+        T->>G: Sign locally and submit proof with curl
+        G-->>T: Approval outcome
+        B->>G: Claim the approved login
+        G-->>B: One-time URL and expiry
+    else Signed link
+        T->>G: Request a ticket with an enrolled admin signature
+        G-->>T: One-time URL and expiry
+        T->>B: Open the private URL
+    end
+    B->>G: Redeem the ticket
+    G->>N: Verify the live Web binding
+    G-->>B: Redirect to native sign-in
+    B->>N: Authenticate to the native app
+    N-->>B: Native conversation
+```
+
+DSH exchanges its authentication query for a browser cookie and redirects to a clean page. Select the managed conversation in the native sidebar. Kimi accepts a token fragment and opens the bound conversation. The native app controls the resulting browser session's lifetime. [DSH Web](../../run-phase/dsh-web.md), [Kimi Web](../../run-phase/kimi-web.md)
+
+### Reach Both Owner Addresses
+
+Open Web entry on the execution owner or forward both loopback listeners using private TCP forwarding. Preserve the exact host and port of the owner-local gateway and the published native origin on the browser's machine. The terminal running the generated command must also reach the gateway address shown by the page. For example, if the gateway is `http://127.0.0.1:43123` and the native origin is `http://127.0.0.1:52000`, run this on the browser and terminal machine and keep the connection open:
+
+```bash
+ssh -N -o ExitOnForwardFailure=yes \
+  -L 127.0.0.1:43123:127.0.0.1:43123 \
+  -L 127.0.0.1:52000:127.0.0.1:52000 \
+  owner@example.org
+```
+
+For a browser and terminal in separate network namespaces, make the exact gateway address reachable from both. Keep the native forward within the browser's private network boundary. The advertised HTTPS gateway continues to serve its signed API. Exclude Web entry and login routes from its reverse proxy and use the owner-local addresses for browser handoff. [Gateway Protocol and State Contracts](../contracts/protocol-and-state.md#web-entry-and-login)
 
 ## Submit an Authenticated Prompt
 

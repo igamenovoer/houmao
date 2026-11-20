@@ -5,6 +5,7 @@ import json
 import threading
 import time
 from unittest.mock import Mock
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -12,6 +13,116 @@ import houmao.agents.realm_controller.backends.dsh_web as backend_module
 from houmao.agents.realm_controller.backends.dsh_web import DshWebSession, DshWebSessionState
 from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
 from houmao.agents.realm_controller.errors import BackendExecutionError
+
+
+@pytest.fixture
+def browser_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[DshWebSession, Mock, Mock]:
+    """Construct an owned DSH binding and a separate temporary browser verification peer."""
+
+    bootstrap = tmp_path / "bootstrap.json"
+    origin = "http://127.0.0.1:1234"
+    bootstrap.write_text(json.dumps({"version": 1, "origin": origin, "launch_token": "private+"}))
+    bootstrap.chmod(0o600)
+    identity = {
+        "protocol_version": 1,
+        "agent_id": "agent",
+        "runtime_session_id": "runtime",
+        "generation": "generation",
+        "host_incarnation": "host",
+        "native_session_id": "session",
+        "agent_incarnation": "native-agent",
+    }
+    session = DshWebSession()
+    session.m_state = DshWebSessionState(
+        origin=origin,
+        web_identity=identity,
+        bootstrap_path=str(bootstrap),
+        cookie_path=str(tmp_path / "api-credential.json"),
+        control_path=str(tmp_path / "control.json"),
+        supervisor_pid=42,
+        supervisor_birth_token="supervisor",
+        tmux_session_name="owned",
+        evidence_path=str(tmp_path / "evidence.jsonl"),
+        working_directory=str(tmp_path),
+        native_pid=43,
+        native_birth_token="native",
+    )
+    session.m_client = Mock()
+    independent = Mock(state=Mock(return_value={"identity": identity, "available": True}))
+    connect = Mock(return_value=independent)
+    listener = Mock(return_value=True)
+    monkeypatch.setattr(backend_module, "_dispatch_origin_birth_token", lambda _: "supervisor")
+    monkeypatch.setattr(backend_module, "owns_ipv4_web_listener", listener)
+    monkeypatch.setattr(backend_module.DshWebClient, "from_connection", connect)
+    return session, connect, listener
+
+
+def test_browser_entry_verifies_the_bound_peer_without_mutating_programmatic_connection(
+    browser_session: tuple[DshWebSession, Mock, Mock],
+) -> None:
+    """A busy but available native Agent supplies the root browser exchange independently."""
+
+    session, connect, listener = browser_session
+    existing = session.m_client
+    peer = connect.return_value
+    peer.state.return_value["active_turn"] = {"turn": 2}
+    entry = session.browser_entry()
+    location = urlsplit(entry.redirect_url(expected_origin=session.state.origin))
+    assert location.path == "/" and parse_qs(location.query) == {"token": ["private+"]}
+    listener.assert_called_with(43, "native", 1234)
+    peer.state.assert_called_once_with(session.state.web_identity)
+    peer.close.assert_called_once_with()
+    assert "cookie_file" not in connect.call_args.kwargs
+    assert session.m_client is existing
+    assert isinstance(existing, Mock) and existing.mock_calls == []
+    assert not Path(session.state.cookie_path).exists()
+
+
+@pytest.mark.parametrize("failure", ["permissions", "symlink", "origin", "bootstrap_version"])
+def test_browser_entry_refuses_unverified_bootstrap(
+    browser_session: tuple[DshWebSession, Mock, Mock], failure: str, tmp_path: Path
+) -> None:
+    """Never read from another authority, expose a credential, or adopt another host."""
+
+    session, connect, _ = browser_session
+    bootstrap = Path(session.state.bootstrap_path)
+    if failure == "permissions":
+        bootstrap.chmod(0o644)
+    elif failure == "symlink":
+        secret = tmp_path / "private-source.json"
+        bootstrap.rename(secret)
+        bootstrap.symlink_to(secret)
+    else:
+        payload = json.loads(bootstrap.read_text())
+        if failure == "origin":
+            payload["origin"] = "http://127.0.0.1:1235"
+        else:
+            payload["version"] = True
+        bootstrap.write_text(json.dumps(payload))
+    with pytest.raises(BackendExecutionError, match="Private DSH Web bootstrap is unavailable"):
+        session.browser_entry()
+    connect.assert_not_called()
+
+
+def test_browser_entry_refuses_replaced_listener_or_companion_identity(
+    browser_session: tuple[DshWebSession, Mock, Mock],
+) -> None:
+    """Port reuse and a changed Agent incarnation both withdraw the destination."""
+
+    session, connect, listener = browser_session
+    listener.return_value = False
+    with pytest.raises(BackendExecutionError, match="listener ownership changed"):
+        session.browser_entry()
+    connect.assert_not_called()
+
+    listener.return_value = True
+    peer = connect.return_value
+    peer.state.return_value["identity"] = {**session.state.web_identity, "agent_incarnation": "new"}
+    with pytest.raises(BackendExecutionError, match="execution identity changed"):
+        session.browser_entry()
+    peer.close.assert_called_once_with()
 
 
 def test_startup_reports_redacted_exit_and_native_log(tmp_path: Path) -> None:

@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, padding, rsa, utils
 
 SSHSIG_NAMESPACE = "houmao-gateway-access-v1"
+WEB_LOGIN_NAMESPACE = "houmao-web-entry-login-v1"
 MAX_SIGNATURE_HEADER = 8192
 _MAGIC = b"SSHSIG"
 _PREFIX = _MAGIC + struct.pack(">I", 1)
@@ -94,7 +95,12 @@ def key_fingerprint(value: str) -> str:
     """Return the OpenSSH SHA256 fingerprint of a canonical public key."""
 
     _, encoded = value.split()
-    blob = base64.b64decode(encoded)
+    return _fingerprint_blob(base64.b64decode(encoded))
+
+
+def _fingerprint_blob(blob: bytes) -> str:
+    """Hash the SSH wire-format key shared by the roster and proof."""
+
     encoded_digest = base64.b64encode(hashlib.sha256(blob).digest()).decode("ascii").rstrip("=")
     # Use the URL-safe alphabet so the identifier fits a single path segment.
     return "SHA256:" + encoded_digest.replace("+", "-").replace("/", "_")
@@ -134,22 +140,28 @@ def sshsig_header(armor: bytes) -> str:
     return encoded.decode("ascii")
 
 
-def verify_sshsig(public_key: str, message: bytes, proof: str) -> bool:
-    """Verify an HTTP SSHSIG envelope against the selected key and gateway namespace."""
+def sshsig_key_id(proof: str) -> str:
+    """Identify an untrusted candidate key from a bounded proof envelope."""
+
+    public, _, _, _, _ = _parse_proof(proof)
+    return _fingerprint_blob(public)
+
+
+def verify_sshsig(
+    public_key: str, message: bytes, proof: str, *, namespace: str = SSHSIG_NAMESPACE
+) -> bool:
+    """Verify an SSHSIG envelope against one selected key and protocol namespace."""
 
     try:
-        blob = _decode_header(proof.encode("ascii"))
-        if not blob.startswith(_PREFIX):
-            return False
-        public, namespace, reserved, digest, signature = _read_fields(blob[len(_PREFIX) :], 5)
+        public, signed_namespace, reserved, digest, signature = _parse_proof(proof)
         key = load_public_key(public_key)
         expected_kind, encoded = public_key_text(key).encode("ascii").split()
-        if public != base64.b64decode(encoded) or namespace != SSHSIG_NAMESPACE.encode("ascii"):
+        if public != base64.b64decode(encoded) or signed_namespace != namespace.encode("ascii"):
             return False
         if digest not in _DIGESTS:
             return False
         kind, raw = _read_fields(signature, 2)
-        signed = _signed_bytes(_scope(namespace, reserved, digest), digest, message)
+        signed = _signed_bytes(_scope(signed_namespace, reserved, digest), digest, message)
         if isinstance(key, rsa.RSAPublicKey):
             if kind not in _RSA_HASHES:
                 return False
@@ -165,6 +177,15 @@ def verify_sshsig(public_key: str, message: bytes, proof: str) -> bool:
     except (InvalidSignature, UnsupportedAlgorithm, ValueError, TypeError, UnicodeError):
         return False
     return True
+
+
+def _parse_proof(proof: str) -> list[bytes]:
+    """Read the public key and signature fields of a version-one envelope."""
+
+    blob = _decode_header(proof.encode("ascii"))
+    if not blob.startswith(_PREFIX):
+        raise ValueError("invalid SSHSIG envelope")
+    return _read_fields(blob[len(_PREFIX) :], 5)
 
 
 def _decode_header(encoded: bytes) -> bytes:

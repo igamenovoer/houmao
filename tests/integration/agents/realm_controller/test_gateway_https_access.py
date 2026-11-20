@@ -12,10 +12,10 @@ import json
 import os
 from pathlib import Path
 import shutil
+from socket import socket as Socket
 import ssl
 import subprocess
 import threading
-import time
 from uuid import uuid4
 
 from click.testing import CliRunner
@@ -68,10 +68,18 @@ from houmao.agents.realm_controller.runtime import RuntimeSessionController
 from houmao.execution.context import observed_local_binding
 from houmao.execution.tmux import tmux_server_scope
 from houmao.gateway.access import (
+    CHALLENGE_HEADER,
+    SIGNATURE_HEADER,
     GatewayAdminKey,
+    GatewayChallenge,
+    GatewayChallengeRequest,
     GatewayClientBinding,
     GatewayLaunchSeed,
+    GatewayRequestBinding,
+    load_gateway_signer,
     public_key_text,
+    sign_sshsig,
+    sshsig_header,
 )
 from houmao.gateway.deployment import GatewayDeployment
 from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
@@ -91,6 +99,8 @@ class _FixtureExecution(gateway_service._LocalHeadlessGatewayAdapter):
         self.m_attach_contract: GatewayAttachContractV1 = contract
         self.m_generation: str = generation
         self.m_prompts: list[str] = []
+        self.m_dispatch_worker: threading.Thread | None = None
+        self.m_finish_dispatch: threading.Event = threading.Event()
 
     def inspect_target(self) -> gateway_service._GatewayTargetState:
         """Expose a ready execution fixture to the gateway's normal admission path."""
@@ -118,11 +128,26 @@ class _FixtureExecution(gateway_service._LocalHeadlessGatewayAdapter):
         """Record the literal dispatch and confirm handoff through production control."""
 
         control.require_allowed()
+        self.m_dispatch_worker = threading.current_thread()
         self.m_prompts.append(prompt)
         control.confirm_handoff()
+        if not self.m_finish_dispatch.wait(timeout=5.0):
+            raise RuntimeError("HTTPS fixture did not release the acknowledged handoff.")
 
-    def cancel_plugin_event(self, *, turn_id: str) -> None:
+    def cancel_plugin_event(self, control: HeadlessDispatchControl) -> None:
         """Allow the runtime to cancel an unfinished fixture handoff."""
+
+        self.m_finish_dispatch.set()
+
+    def finish_acknowledged_dispatch(self) -> None:
+        """Finish the confirmed native turn and wait for owner claim settlement."""
+
+        worker = self.m_dispatch_worker
+        assert worker is not None
+        self.m_finish_dispatch.set()
+        worker.join(timeout=5.0)
+        assert not worker.is_alive()
+        self.m_finish_dispatch.clear()
 
 
 @contextmanager
@@ -471,7 +496,13 @@ class _PrefixProxy(BaseHTTPRequestHandler):
             payload = response.read()
             self.send_response(response.status)
             for name, value in response.getheaders():
-                if name.lower() in {"content-type", "www-authenticate"}:
+                if name.lower() in {
+                    "cache-control",
+                    "content-type",
+                    "location",
+                    "referrer-policy",
+                    "www-authenticate",
+                }:
                     self.send_header(name, value)
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
@@ -514,16 +545,22 @@ def _serve_gateway(
         proxy_headers=True,
         forwarded_allow_ips="127.0.0.1",
     )
-    server = gateway_service._GatewayUvicornServer(
-        config, runtime=runtime, requested_host="127.0.0.1"
-    )
+    startup_finished = threading.Event()
+
+    class ReadyServer(gateway_service._GatewayUvicornServer):
+        """Wait for both listener binding and production gateway startup."""
+
+        async def startup(self, sockets: list[Socket] | None = None) -> None:
+            """Signal readiness after gateway startup diagnostics are written."""
+
+            await super().startup(sockets=sockets)
+            startup_finished.set()
+
+    server = ReadyServer(config, runtime=runtime, requested_host="127.0.0.1")
     worker = threading.Thread(target=server.run, name="tls-fixture-gateway", daemon=True)
     worker.start()
     try:
-        deadline = time.monotonic() + 5
-        while worker.is_alive() and not server.started and time.monotonic() < deadline:
-            time.sleep(0.02)
-        assert server.started
+        assert startup_finished.wait(5) and server.started
         yield runtime.owner_connect_url, adapters[0]
     finally:
         server.should_exit = True
@@ -567,11 +604,13 @@ def test_self_status_queries_use_authority_without_publication(
             )
 
 
+@pytest.mark.parametrize("exercise_web_entry", [False, True], ids=["public-input", "web-entry"])
 def test_authenticated_gateway_over_a_verified_https_proxy(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    exercise_web_entry: bool,
 ) -> None:
-    """Qualify enrollment, signed access, public handoff, and reopening over HTTPS."""
+    """Qualify signed access and the selected public or owner-local operation over HTTPS."""
 
     ca, tls = _certificate(tmp_path)
     monkeypatch.setattr(
@@ -608,6 +647,7 @@ def test_authenticated_gateway_over_a_verified_https_proxy(
                     manifest=manifest,
                     socket_path=socket,
                     execution=execution,
+                    exercise_web_entry=exercise_web_entry,
                 )
                 assert f"{_PREFIX}/v1/auth/challenge" in Proxy.forwarded_paths
                 assert f"{_PREFIX}/v1/admin/keys" in Proxy.forwarded_paths
@@ -625,6 +665,7 @@ def _exercise_access(
     manifest: Path,
     socket_path: Path,
     execution: _FixtureExecution,
+    exercise_web_entry: bool,
 ) -> None:
     """Use production clients and the maintained CLI against the live endpoints."""
 
@@ -709,6 +750,11 @@ def _exercise_access(
 
     trust = ssl.create_default_context(cafile=str(ca))
     with httpx.Client(base_url=advertised, verify=trust, trust_env=False) as caller:
+        if exercise_web_entry:
+            _assert_web_entry_requires_direct_ingress(caller, first, first_path, advertised)
+            first_client.status()
+            assert execution.m_prompts == []
+            return
         refused = caller.post(
             "/v1/requests", content=b"{", headers={"Content-Type": "application/json"}
         )
@@ -721,6 +767,7 @@ def _exercise_access(
             response = caller.post(route, json={"source_event_id": event, **content})
             assert response.status_code == 200, response.text
             assert response.json() == {"disposition": "dispatched", "source_event_id": event}
+            execution.finish_acknowledged_dispatch()
     assert len(execution.m_prompts) == 2
     assert all(
         prompt.startswith("This request came through the public gateway.")
@@ -737,3 +784,42 @@ def _exercise_access(
     with pytest.raises(GatewayHttpError) as still_private:
         unsigned.status()
     assert still_private.value.status_code == 401
+
+
+def _assert_web_entry_requires_direct_ingress(
+    caller: httpx.Client, admin: GatewayAdminKey, signer_path: Path, advertised: str
+) -> None:
+    """Send valid request-bound proof through the proxy and check the Web origin refusal."""
+
+    path = "/v1/web/entry-ticket"
+    binding = GatewayRequestBinding.from_request("POST", path, "", b"")
+    challenge_request = GatewayChallengeRequest(
+        purpose="admin", key_id=admin.key_id, request=binding
+    )
+    challenge_result = caller.post(
+        "/v1/auth/challenge", json=challenge_request.model_dump(mode="json")
+    )
+    challenge = GatewayChallenge.model_validate_json(challenge_result.raise_for_status().content)
+    assert (challenge.issuer, challenge.key_id, challenge.request) == (
+        advertised,
+        admin.key_id,
+        binding,
+    )
+    signature = sign_sshsig(load_gateway_signer(signer_path), challenge.signing_bytes())
+    responses = (
+        caller.get("/v1/web/enter"),
+        caller.get("/v1/web/enter", params={"ticket": "A" * 43}),
+        caller.post(
+            path,
+            headers={
+                CHALLENGE_HEADER: challenge.challenge_id,
+                SIGNATURE_HEADER: sshsig_header(signature),
+            },
+        ),
+    )
+    for response in responses:
+        assert response.status_code == 403
+        assert response.headers["cache-control"] == "no-store"
+        assert response.headers["referrer-policy"] == "no-referrer"
+        assert "location" not in response.headers
+        assert "owner-local" in response.text or "owner_local_web_entry_required" in response.text

@@ -102,9 +102,11 @@ from houmao.agents.realm_controller.owner_admission import (
     reserve_owner_prompt,
 )
 from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
+from houmao.agents.realm_controller.backends.dsh_web import DshWebSession
 from houmao.agents.realm_controller.backends.dsh_web_client import DshWebError
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.backends.headless_runner import interrupt_owned_headless_attempt
+from houmao.agents.realm_controller.backends.kimi_web import KimiWebSession
 from houmao.agents.realm_controller.gateway_plugin_host import GatewayPluginHost
 from houmao.agents.realm_controller.gateway_access_runtime import (
     GatewayRuntimeAccess,
@@ -116,6 +118,12 @@ from houmao.agents.realm_controller.gateway_admission import (
     GatewayOperation,
     gateway_access_error_response,
     validate_core_gateway_routes,
+)
+from houmao.agents.realm_controller.gateway_web_entry import (
+    WebEntryBinding,
+    is_web_entry_path,
+    register_web_entry_routes,
+    require_web_entry_origin,
 )
 from houmao.gateway.access import (
     CHALLENGE_HEADER,
@@ -1134,6 +1142,22 @@ class _NativeWebGatewayAdapter:
         """Return the latest manifest-backed public binding."""
 
         return self.m_attach_contract
+
+    def browser_entry_redirect(self, binding: WebEntryBinding) -> str:
+        """Verify the bound native destination without changing the active API peer."""
+
+        controller = resume_runtime_session(
+            agent_def_dir=self.m_agent_def_dir,
+            session_manifest_path=self.m_manifest_path,
+            read_only=True,
+        )
+        backend = controller.backend_session
+        if not isinstance(backend, (DshWebSession, KimiWebSession)):
+            raise GatewayError("Native browser entry is unavailable.")
+        identity = GatewayWebExecutionIdentityV1.model_validate(backend.state.web_identity)
+        if identity != binding.execution:
+            raise GatewayError("Native browser entry target changed.")
+        return backend.browser_entry().redirect_url(expected_origin=binding.origin)
 
     def _resume_controller(self) -> RuntimeSessionController:
         """Reconnect read-only authority; inspection never performs lifecycle start."""
@@ -2542,6 +2566,42 @@ class GatewayServiceRuntime:
 
         return f"http://127.0.0.1:{self.m_port}"
 
+    def _web_entry_binding(self) -> WebEntryBinding:
+        """Select the full Web execution from the current verified owner binding."""
+
+        target = self._access_target()
+        self._verified_owner_manifest(expected_generation=target.incarnation)
+        contract = resolve_internal_gateway_attach_contract(self.m_paths)
+        metadata = contract.backend_metadata
+        if (
+            contract.backend != self.m_attach_contract.backend
+            or not isinstance(metadata, GatewayAttachBackendMetadataWebV1)
+            or metadata.identity.agent_id != target.owner.agent_id
+            or metadata.identity.generation != target.incarnation
+        ):
+            raise GatewayError("Native browser entry is unavailable.")
+        return WebEntryBinding(target, metadata.identity, metadata.origin)
+
+    def resolve_web_entry(self, expected: WebEntryBinding | None) -> tuple[WebEntryBinding, str]:
+        """Resolve this exact live owner-local Web execution without lifecycle work."""
+
+        adapter = self.m_adapter
+        if not isinstance(adapter, _NativeWebGatewayAdapter):
+            raise HTTPException(409, "Web entry requires a running supported Web agent.")
+        try:
+            binding = self._web_entry_binding()
+            if expected is not None and binding != expected:
+                raise GatewayError("Native browser entry target changed.")
+            redirect = adapter.browser_entry_redirect(binding)
+            if self._web_entry_binding() != binding:
+                raise GatewayError("Native browser entry target changed.")
+        except (KeyError, RuntimeError, OSError, ValueError):
+            status = 410 if expected is not None else 409
+            raise HTTPException(
+                status, "The owned native Web execution is unavailable. Start again."
+            ) from None
+        return binding, redirect
+
     def _request_issuer(self, request: Request) -> str:
         """Select the configured base associated with the observed HTTP origin."""
 
@@ -2578,6 +2638,11 @@ class GatewayServiceRuntime:
     ) -> GatewayGrant:
         """Authorize one exact gateway request and preserve its admitted provenance."""
 
+        if operation.direct_admin:
+            try:
+                require_web_entry_origin(request, self.owner_connect_url)
+            except HTTPException:
+                raise GatewayAccessError(403, "owner_local_web_entry_required") from None
         policy = self._require_access_policy()
         if not proof:
             return policy.admit(
@@ -2607,7 +2672,7 @@ class GatewayServiceRuntime:
                 policy=policy,
                 access=operation.access,
             )
-        return policy.admit(
+        grant = policy.admit(
             operation.access,
             issuer=issuer,
             request=binding,
@@ -2615,6 +2680,9 @@ class GatewayServiceRuntime:
             signature=proof.get(SIGNATURE_HEADER),
             registration=operation.registration,
         )
+        if operation.direct_admin and grant.role != "admin":
+            raise GatewayAccessError(403, "direct_admin_required")
+        return grant
 
     def issue_access_challenge(
         self, request: Request, payload: GatewayChallengeRequest
@@ -9533,6 +9601,10 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
                 },
                 dedup_key=f"http-request-failed:{request.method}:{path}:{type(exc).__name__}",
             )
+            if is_web_entry_path(request.scope["path"]):
+                return JSONResponse(
+                    status_code=500, content={"detail": "Web entry is unavailable. Start again."}
+                )
             raise
         duration_ms = int((time.monotonic() - start_monotonic) * 1000)
         runtime.emit_diagnostic(
@@ -10192,6 +10264,16 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         else None,
     )
 
+    if isinstance(runtime, GatewayServiceRuntime):
+        assert runtime.m_access_runtime is not None
+        register_web_entry_routes(
+            app,
+            issuer=lambda: runtime.owner_connect_url,
+            listener=lambda: runtime.m_presence_id,
+            agent_id=runtime.m_access_runtime.owner.agent_id,
+            resolve=runtime.resolve_web_entry,
+            access_policy=runtime._require_access_policy,
+        )
     validate_core_gateway_routes(list(app.routes))
     if isinstance(runtime, GatewayServiceRuntime):
         runtime.prepare_plugin_host(app)

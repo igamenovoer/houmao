@@ -13,9 +13,11 @@ import re
 from typing import Any
 from urllib.parse import urlsplit
 
-from houmao.agents.realm_controller.backends.dispatch_control import _dispatch_origin_birth_token
 from houmao.agents.realm_controller.backends.dsh_web_client import DshWebError
 from houmao.agents.realm_controller.backends.kimi_acp_journal import _open_native_file
+from houmao.agents.realm_controller.backends.web_entry import (
+    owns_ipv4_web_listener as owned_listener,
+)
 
 _MAX_RESPONSE = 2 << 20
 _MAX_JOURNAL = 16 << 20
@@ -29,31 +31,6 @@ def native_id(value: object) -> str:
     if not isinstance(value, str) or _KIMI_ID.fullmatch(value) is None:
         raise DshWebError("identity_mismatch", "Kimi returned an invalid native identity")
     return value
-
-
-def owned_listener(pid: int, birth: str, port: int) -> bool:
-    """Verify the current IPv4 loopback listener belongs to the captured Kimi process."""
-
-    if _dispatch_origin_birth_token(pid) != birth:
-        return False
-    address = f"0100007F:{port:04X}"
-    try:
-        inodes = set()
-        for line in Path(f"/proc/{pid}/net/tcp").read_text(encoding="ascii").splitlines()[1:]:
-            columns = line.split()
-            if len(columns) > 9 and columns[1] == address and columns[3] == "0A":
-                inodes.add(f"socket:[{columns[9]}]")
-        if not inodes:
-            return False
-        for fd in Path(f"/proc/{pid}/fd").iterdir():
-            try:
-                if os.readlink(fd) in inodes:
-                    return _dispatch_origin_birth_token(pid) == birth
-            except FileNotFoundError:
-                continue
-    except (OSError, UnicodeError):
-        pass
-    return False
 
 
 @dataclass(frozen=True)

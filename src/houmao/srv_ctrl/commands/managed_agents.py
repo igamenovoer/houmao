@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from houmao.agents.realm_controller.gateway_access_runtime import load_gateway_access_config
+from houmao.agents.realm_controller.gateway_access_runtime import (
+    load_gateway_access_config,
+    owner_gateway_client_binding,
+)
 from houmao.gateway.access import GatewayAccessError
 from houmao.gateway.deployment import validate_gateway_access_config_path
 
@@ -157,10 +160,12 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayRequestPayloadInterruptV1,
     GatewayStatusV1,
     GatewayTuiTrackingTimingOverridesV1,
+    GatewayWebEntryTicketV1,
 )
 from houmao.agents.realm_controller.gateway_storage import (
     build_offline_gateway_status,
     gateway_paths_from_manifest_path,
+    load_gateway_current_instance,
     load_gateway_status,
     resolve_internal_gateway_attach_contract,
 )
@@ -3010,6 +3015,79 @@ def gateway_status(target: ManagedAgentTarget) -> GatewayStatusV1:
         except GatewayHttpError as exc:
             raise click.ClickException(exc.detail) from None
     return _gateway_status_for_controller(controller)
+
+
+def gateway_web_entry(*, agent_id: str | None, agent_name: str | None) -> GatewayWebEntryTicketV1:
+    """Request a signed ticket through the live local gateway without resuming the backend."""
+
+    agent_id, agent_name = resolve_managed_agent_selector(agent_id=agent_id, agent_name=agent_name)
+    try:
+        locator = resolve_executor_locator(agent_id=agent_id, agent_name=agent_name)
+    except (ExecutorLocatorError, OSError):
+        raise click.ClickException(
+            "Web entry could not verify the selected execution owner."
+        ) from None
+    if locator is not None:
+        raise click.ClickException(
+            "Web entry requires running the command in the owner's execution context."
+        )
+
+    record = _resolve_local_managed_agent_record(agent_id=agent_id, agent_name=agent_name)
+    if record is None:
+        raise click.ClickException(
+            "Web entry requires a local managed agent. Run this command in the owner's execution context."
+        )
+    if record.mode != "web":
+        raise click.ClickException("Web entry requires a live managed agent in Web mode.")
+
+    manifest_path = Path(record.runtime.manifest_path)
+    try:
+        require_registry_mode_authority(record)
+    except (OSError, SessionManifestError):
+        raise click.ClickException(
+            "The managed Web execution changed. Select its live gateway and retry."
+        ) from None
+    try:
+        paths = gateway_paths_from_manifest_path(manifest_path)
+        current = load_gateway_current_instance(paths.current_instance_path) if paths else None
+    except (OSError, SessionManifestError):
+        current = None
+    if current is None:
+        raise click.ClickException(
+            "No live gateway is attached to this Web agent. "
+            "Use `houmao-mgr agents single --agent-id <id> gateway attach` to attach it explicitly."
+        )
+
+    try:
+        binding, generation = owner_gateway_client_binding(
+            manifest_path, port=current.port, private=False
+        )
+    except (GatewayAccessError, SessionManifestError, ValueError):
+        raise click.ClickException(
+            "Web entry requires a usable admin signer. Check `admin_signer_path` in the gateway access configuration."
+        ) from None
+    if generation != record.generation_id:
+        raise click.ClickException(
+            "The managed Web execution changed. Select its live gateway and retry."
+        )
+    if binding is None or binding.purpose != "admin":
+        raise click.ClickException(
+            "Web entry requires an enrolled admin signer. Set `admin_signer_path` in the gateway access configuration."
+        )
+    if (
+        record.execution_binding is None
+        or binding.owner.context_id != record.execution_binding.context_id
+        or binding.owner.agent_id != record.agent_id
+    ):
+        raise click.ClickException(
+            "The managed Web execution changed. Select its live gateway and retry."
+        )
+
+    client = GatewayClient(binding=binding, target_incarnation=generation, respect_proxy_env=False)
+    try:
+        return client.issue_web_entry_ticket()
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from None
 
 
 def attach_gateway(

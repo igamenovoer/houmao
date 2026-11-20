@@ -11,11 +11,13 @@ import os
 from pathlib import Path
 import shlex
 import signal
+import stat
 import subprocess
 import sys
 import threading
 import time
 from typing import Any, cast
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from houmao.agents.dsh_configuration import DshEffectiveToolParams, prepare_dsh_home
@@ -42,6 +44,7 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     prepare_headless_agent_window,
     run_tmux,
 )
+from houmao.agents.realm_controller.backends.web_entry import NativeWebEntry, owns_ipv4_web_listener
 from houmao.agents.realm_controller.errors import BackendExecutionError
 from houmao.agents.realm_controller.models import (
     HeadlessTurnSessionSelection,
@@ -641,6 +644,83 @@ class DshWebSession:
         """Read fresh native state without creating, restoring, or retargeting an Agent."""
 
         return self._client().state(self.state.web_identity)
+
+    def browser_entry(self) -> NativeWebEntry:
+        """Verify the live native binding through a temporary, independent API peer."""
+
+        state = self.state
+        origin = state.native_surface.origin
+        port = urlsplit(origin).port
+        pid, birth = state.native_pid, state.native_birth_token
+        if port is None or origin != f"http://127.0.0.1:{port}" or pid is None or birth is None:
+            raise DshWebError("stale_identity", "DSH Web listener ownership is unavailable")
+
+        def require_owned_listener() -> None:
+            """Fence credential use against a lost or replaced process and listener."""
+
+            if (
+                _dispatch_origin_birth_token(state.supervisor_pid) != state.supervisor_birth_token
+                or not owns_ipv4_web_listener(pid, birth, port)
+                or self.m_state is not state
+            ):
+                raise DshWebError("stale_identity", "DSH Web listener ownership changed")
+
+        identity = dict(state.web_identity)
+        require_owned_listener()
+        token = self._browser_launch_token(state)
+        client = DshWebClient.from_connection(
+            origin,
+            launch_token=token,
+            secret_values=self._diagnostic_secrets(),
+            verify_listener=require_owned_listener,
+        )
+        try:
+            live_state = client.state(identity)
+        finally:
+            client.close()
+        if (
+            live_state.get("available") is not True
+            or live_state.get("identity") != identity
+            or state.web_identity != identity
+        ):
+            raise DshWebError("stale_identity", "DSH Web execution identity changed")
+        require_owned_listener()
+        return NativeWebEntry(origin=origin, query=(("token", token),))
+
+    @staticmethod
+    def _browser_launch_token(state: DshWebSessionState) -> str:
+        """Read only the private regular bootstrap for the persisted Web owner."""
+
+        try:
+            path = Path(state.bootstrap_path)
+            if path.resolve(strict=True) != path:
+                raise ValueError
+            descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            with os.fdopen(descriptor, "rb") as stream:
+                info = os.fstat(stream.fileno())
+                if (
+                    not stat.S_ISREG(info.st_mode)
+                    or info.st_uid != os.geteuid()
+                    or info.st_mode & 0o077
+                    or info.st_size > 4096
+                ):
+                    raise ValueError
+                bootstrap = stream.read(4097)
+            if len(bootstrap) > 4096:
+                raise ValueError
+            payload = json.loads(bootstrap)
+            token = payload.get("launch_token") if isinstance(payload, dict) else None
+            if (
+                isinstance(token, str)
+                and token
+                and type(payload.get("version")) is int
+                and payload["version"] == 1
+                and payload.get("origin") == state.origin
+            ):
+                return token
+        except (OSError, ValueError, RuntimeError):
+            pass
+        raise DshWebError("invalid_credentials", "Private DSH Web bootstrap is unavailable")
 
     def observe_common_plugins(self) -> dict[str, Any]:
         """Read effective skill/MCP evidence from the already-owned native host."""

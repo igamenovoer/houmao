@@ -60,6 +60,7 @@ from houmao.agents.realm_controller.session_authority import (
 )
 
 from ..common import (
+    get_managed_agent_scope_context,
     mail_channel_option,
     managed_agent_selector_options,
     pair_port_option,
@@ -99,6 +100,7 @@ from ..managed_agents import (
     gateway_tui_history,
     gateway_tui_note_prompt,
     gateway_tui_state,
+    gateway_web_entry,
     resolve_managed_agent_target,
 )
 
@@ -351,6 +353,19 @@ def status_gateway_command(
         plain_renderer=render_gateway_status_plain,
         fancy_renderer=render_gateway_status_fancy,
     )
+
+
+@click.command(name="web-entry")
+@_gateway_pair_port_option(help_text="Pair selection is unsupported for owner-local Web entry.")
+def web_entry_gateway_command(pair_port: int | None) -> None:
+    """Print a private, one-time browser URL and expiry. The URL is a bearer secret."""
+
+    scope = get_managed_agent_scope_context()
+    if scope is None or scope.scope != "single" or pair_port is not None:
+        raise click.ClickException(
+            "Web entry requires an explicit local agent selection in the owner's execution context."
+        )
+    emit(gateway_web_entry(agent_id=scope.agent_id, agent_name=scope.agent_name))
 
 
 @gateway_group.command(name="prompt")

@@ -51,7 +51,7 @@ Use the recorded managed ID for `houmao-mgr agents single --agent-id ID state` a
 
 ## Browser Entry and Exact Session Selection
 
-Use the fixture's private local connection mechanism to obtain the native browser sign-in URL. Keep that URL in the external private run root and open it only in the intended browser. The pinned host exchanges the root `/?token=...` URL for an HttpOnly browser cookie and redirects to the clean root URL. Do not paste the sign-in URL, token, cookie, startup log, or browser storage into reports, shell history, issue comments, screenshots, or shared manifests.
+Open the owning gateway's `/v1/web/enter` page or ask the manager for a signed `gateway web-entry` link. After the gateway verifies the live DSH host and bound session, the intended browser receives the private native root destination. DSH exchanges `/?token=...` for its own HttpOnly browser cookie and redirects to the clean root URL. Keep sign-in links, credentials, and browser storage private. [Gateway Access](../gateway/operations/access.md).
 
 The stock client opens at the origin and restores its own saved selection. It has no qualified `?sessionId=` deep-link contract. Select the exact native session from the sidebar, then verify it against the published native session identity before submitting browser work. Browser qualification clicks the native sidebar row keyed by that identity and verifies its selected state. Navigation to a different browser session does not retarget Houmao's programmatic binding.
 

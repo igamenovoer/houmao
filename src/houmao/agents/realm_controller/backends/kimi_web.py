@@ -30,7 +30,6 @@ from houmao.agents.realm_controller.backends.kimi_web_client import (
     KimiWebJournalWindow,
     native_id,
     observed_at,
-    owned_listener,
 )
 from houmao.agents.realm_controller.backends.service_runtime import write_service_record
 from houmao.agents.realm_controller.backends.tmux_runtime import (
@@ -40,6 +39,10 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     kill_tmux_session,
     prepare_headless_agent_window,
     run_tmux,
+)
+from houmao.agents.realm_controller.backends.web_entry import NativeWebEntry
+from houmao.agents.realm_controller.backends.web_entry import (
+    owns_ipv4_web_listener as owned_listener,
 )
 from houmao.agents.realm_controller.errors import BackendExecutionError
 from houmao.agents.realm_controller.gateway_models import GatewayWebExecutionIdentityV1
@@ -457,7 +460,7 @@ class KimiWebSession:
                 )
 
     def _require_current(self) -> None:
-        """Fence mutations by exact persisted owner and host generation."""
+        """Fence owner operations by exact persisted owner and host generation."""
 
         try:
             binding = json.loads(self.manifest_path.read_text())
@@ -505,6 +508,17 @@ class KimiWebSession:
         ):
             raise DshWebError("stale_identity", "Kimi Web host incarnation changed")
         return client.origin, client.credential()
+
+    def browser_entry(self) -> NativeWebEntry:
+        """Resolve Kimi's fragment authentication for the verified exact conversation."""
+
+        origin, token = self.browser_credentials()
+        client = self._client()
+        self._session(client)
+        self._require_current()
+        if client.origin != origin or client.credential() != token:
+            raise DshWebError("stale_identity", "Kimi Web listener ownership changed")
+        return NativeWebEntry(origin=origin, path=self.session_route, fragment=(("token", token),))
 
     def open_browser(self) -> SessionControlResult:
         """Open a verified owner-local browser origin through its explicit management command."""

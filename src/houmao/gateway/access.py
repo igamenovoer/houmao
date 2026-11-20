@@ -11,9 +11,11 @@ import time
 from houmao.gateway._access_sshsig import (
     MAX_SIGNATURE_HEADER as MAX_SIGNATURE_HEADER,
     SSHSIG_NAMESPACE as SSHSIG_NAMESPACE,
+    WEB_LOGIN_NAMESPACE,
     public_key_text as public_key_text,
     sign_sshsig as sign_sshsig,
     sshsig_header as sshsig_header,
+    sshsig_key_id,
     verify_sshsig,
 )
 from houmao.gateway._access_storage import (
@@ -193,6 +195,31 @@ class GatewayAccessPolicy:
                     )
                 )
             return False
+
+    def verify_web_login(self, challenge: bytes, proofs: tuple[str, ...]) -> GatewayGrant:
+        """Verify candidate signatures for one pending Web entry challenge."""
+
+        with self.m_store.read_locked() as state:
+            target = self._current_target()
+            enrolled_keys = {entry.key_id: entry for entry in state.keys}
+            for proof in proofs:
+                try:
+                    key_id = sshsig_key_id(proof)
+                except ValueError:
+                    continue
+                entry = enrolled_keys.get(key_id)
+                if entry is not None and verify_sshsig(
+                    entry.key.public_key, challenge, proof, namespace=WEB_LOGIN_NAMESPACE
+                ):
+                    return GatewayGrant(
+                        role="admin",
+                        target=target,
+                        key_id=key_id,
+                        principal=entry.key.principal,
+                        revision=state.revision,
+                        enrollment=entry.enrollment,
+                    )
+        raise GatewayAccessError(401, "invalid_proof")
 
     def add_key(self, grant: GatewayGrant, key: GatewayAdminKey) -> GatewayAdminKey:
         """Commit the first-key or listed-admin addition against current owner state."""

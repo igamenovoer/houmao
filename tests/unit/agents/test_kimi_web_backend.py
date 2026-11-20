@@ -8,7 +8,7 @@ from pathlib import Path
 import time
 from types import SimpleNamespace
 from typing import Any
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import pytest
 
@@ -42,6 +42,18 @@ class _Native:
         self.m_refuse_preflight: bool = False
         self.m_calls: list[tuple[str, str]] = []
         self.m_permission: str = "manual"
+        self.m_host_incarnation: str = "host"
+
+    @property
+    def origin(self) -> str:
+        """Return the only allowed test listener."""
+
+        return "http://127.0.0.1:8080"
+
+    def credential(self) -> str:
+        """Provide synthetic sign-in bytes in place of a local token file."""
+
+        return "native-token-with-+=padding"
 
     def append(self, *rows: dict[str, Any]) -> None:
         """Write native rows without coupling them to a gateway execution lifecycle."""
@@ -63,6 +75,8 @@ class _Native:
         if before_send:
             before_send()
         self.m_calls.append((method, path))
+        if (method, path) == ("GET", "/meta"):
+            return {"server_id": self.m_host_incarnation}
         if path == "/sessions/session_selected/profile" and method == "POST":
             assert body is not None
             self.m_permission = body["agent_config"]["permission_mode"]
@@ -175,6 +189,34 @@ def web(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[KimiWebSession
         lambda *_args, **_kwargs: None,
     )
     return adapter, native
+
+
+def test_browser_entry_uses_verified_exact_conversation_and_private_fragment(
+    web: tuple[KimiWebSession, _Native],
+) -> None:
+    """Resolve the qualified stock link without checking prompt admission or starting work."""
+
+    adapter, native = web
+    native.m_busy = True
+    entry = adapter.browser_entry()
+    location = urlsplit(entry.redirect_url(expected_origin=adapter.state.origin))
+    assert location.path == "/sessions/session_selected" and location.query == ""
+    assert parse_qs(location.fragment) == {"token": [native.credential()]}
+    assert native.credential() not in repr(entry)
+    assert native.m_calls == [("GET", "/meta"), ("GET", "/sessions/session_selected")]
+
+
+def test_browser_entry_checks_host_incarnation_before_releasing_fragment(
+    web: tuple[KimiWebSession, _Native],
+) -> None:
+    """A different server with the same address cannot grant browser access."""
+
+    adapter, native = web
+    native.m_host_incarnation = "replacement"
+    with pytest.raises(DshWebError, match="Kimi Web host incarnation changed") as failed:
+        adapter.browser_entry()
+    assert native.credential() not in str(failed.value)
+    assert native.m_calls == [("GET", "/meta")]
 
 
 @pytest.mark.parametrize("permission_mode", ["auto", "manual", None])

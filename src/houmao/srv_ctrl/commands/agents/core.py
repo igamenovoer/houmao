@@ -161,6 +161,7 @@ from .gateway import (
     _resolve_current_session_agent_def_dir,
     _resolve_current_session_manifest,
     gateway_group,
+    web_entry_gateway_command,
 )
 from .mail import mail_group
 from .mailbox import mailbox_group
@@ -2335,14 +2336,14 @@ def _install_scoped_agents_commands() -> None:
                 inject_params=_single_selector_injections,
             )
         )
-    for command_name in ("gateway",):
-        agents_single_group.add_command(
-            clone_scoped_command_tree(
-                legacy_commands[command_name],
-                remove_params=gateway_single_params,
-                inject_params=_single_gateway_injections,
-            )
-        )
+    single_gateway = clone_scoped_command_tree(
+        legacy_commands["gateway"],
+        remove_params=gateway_single_params,
+        inject_params=_single_gateway_injections,
+    )
+    assert isinstance(single_gateway, click.Group)
+    single_gateway.add_command(web_entry_gateway_command)
+    agents_single_group.add_command(single_gateway)
     for command_name in ("mail", "turn", "memory"):
         agents_single_group.add_command(
             clone_scoped_command_tree(

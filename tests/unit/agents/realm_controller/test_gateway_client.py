@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 import threading
 
 import pytest
@@ -17,7 +18,19 @@ from houmao.agents.realm_controller.gateway_client import (
     GatewayEndpoint,
     gateway_client_respects_proxy_env,
 )
-from houmao.gateway.access import GatewayClientBinding, GatewayOwner
+from houmao.gateway.access import (
+    CHALLENGE_HEADER,
+    SIGNATURE_HEADER,
+    GatewayAccessPolicy,
+    GatewayAccessStore,
+    GatewayChallengeRequest,
+    GatewayClientBinding,
+    GatewayLaunchSeed,
+    GatewayOwner,
+    GatewayRequestBinding,
+    GatewayTarget,
+)
+from tests.fixtures.gateway_access import fixture_admin_key
 
 _PROXY_ENV_KEYS = (
     "HTTP_PROXY",
@@ -84,6 +97,139 @@ def test_gateway_client_refuses_redirects_and_retargeting() -> None:
             worker.join(timeout=2)
     with pytest.raises(ValueError, match="literal loopback"):
         GatewayClient(base_url="http://gateway.example.org")
+
+
+@pytest.mark.parametrize("outcome", ["ticket", "redirect", "native_url", "refused"])
+def test_web_entry_client_signs_only_issuance_and_keeps_native_results_private(
+    tmp_path: Path, outcome: str
+) -> None:
+    """Verify a real signed empty-body request and refuse redirect and native payloads."""
+
+    admin, signer = fixture_admin_key(tmp_path, "web-entry-admin")
+    owner = GatewayOwner(agent_id="web-agent", context_id="web-owner")
+    target = GatewayTarget(owner=owner, incarnation="generation-web")
+    store = GatewayAccessStore.from_root(tmp_path / "access", owner)
+    store.initialize(GatewayLaunchSeed(admin_keys=(admin,)))
+    policy = GatewayAccessPolicy(store=store, target=lambda: target, current_self=lambda: None)
+    calls: list[tuple[str, str]] = []
+    issued_url = ""
+    expiry = "2026-11-20T12:00:00.012345+00:00"
+
+    class EntryHandler(_HealthHandler):
+        """Serve only the challenge and ticket paths expected by the client."""
+
+        def do_GET(self) -> None:
+            """Record any unexpected follow or fallback."""
+
+            calls.append(("GET", self.path))
+            self.send_error(404)
+
+        def do_POST(self) -> None:
+            """Check exact signed scope before returning the configured response."""
+
+            calls.append(("POST", self.path))
+            body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            expected_request = GatewayRequestBinding.from_request(
+                "POST", "/v1/web/entry-ticket", "", b""
+            )
+            if self.path == "/v1/auth/challenge":
+                challenge_request = GatewayChallengeRequest.model_validate_json(body)
+                assert challenge_request.purpose == "admin"
+                assert challenge_request.key_id == admin.key_id
+                assert challenge_request.request == expected_request
+                challenge = policy.issue(base, challenge_request)
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(challenge.model_dump_json().encode())
+                return
+            assert self.path == "/v1/web/entry-ticket"
+            assert body == b""
+            grant = policy.admit(
+                "private",
+                issuer=base,
+                request=expected_request,
+                challenge_id=self.headers.get(CHALLENGE_HEADER),
+                signature=self.headers.get(SIGNATURE_HEADER),
+            )
+            assert grant.role == "admin"
+            if outcome == "redirect":
+                self.send_response(302)
+                self.send_header("Location", issued_url)
+                self.end_headers()
+            elif outcome == "refused":
+                self.send_response(403)
+                self.end_headers()
+                self.wfile.write(b'{"detail":"native-secret"}')
+            else:
+                url = issued_url if outcome == "ticket" else f"{base}/?token=native-secret"
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(json.dumps({"url": url, "expires_at_utc": expiry}).encode())
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), EntryHandler) as server:
+        base = f"http://127.0.0.1:{server.server_port}"
+        issued_url = f"{base}/v1/web/enter?ticket={'A' * 43}"
+        client = GatewayClient(
+            binding=GatewayClientBinding(
+                base_url=base, owner=owner, purpose="admin", private_key_path=str(signer)
+            ),
+            target_incarnation=target.incarnation,
+            respect_proxy_env=False,
+        )
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            if outcome == "ticket":
+                ticket = client.issue_web_entry_ticket()
+                assert ticket.model_dump(mode="json") == {
+                    "url": issued_url,
+                    "expires_at_utc": expiry,
+                }
+            else:
+                with pytest.raises(GatewayHttpError) as denied:
+                    client.issue_web_entry_ticket()
+                expected = {
+                    "redirect": "redirects are refused",
+                    "native_url": "invalid Web entry ticket",
+                    "refused": "currently enrolled admin signer",
+                }[outcome]
+                assert expected in denied.value.detail
+                assert issued_url not in str(denied.value)
+                assert "native-secret" not in str(denied.value)
+            assert calls == [("POST", "/v1/auth/challenge"), ("POST", "/v1/web/entry-ticket")]
+        finally:
+            server.shutdown()
+            worker.join(timeout=2)
+
+
+@pytest.mark.parametrize(
+    ("base", "purpose", "proxy_env", "reason"),
+    [
+        ("http://127.0.0.1:43123", None, False, "explicit enrolled gateway admin signer"),
+        ("http://127.0.0.1:43123", "self", False, "explicit enrolled gateway admin signer"),
+        ("http://127.0.0.1:43123", "admin", True, "direct owner-local gateway"),
+        ("http://127.0.0.1:43123/prefix", "admin", False, "direct owner-local gateway"),
+        ("https://gateway.example/agents/web", "admin", False, "direct owner-local gateway"),
+    ],
+)
+def test_web_entry_client_requires_direct_admin_before_contacting_gateway(
+    base: str, purpose: str | None, proxy_env: bool, reason: str
+) -> None:
+    """Reject unsigned, delegated, and proxy-selected issuance before signer access."""
+
+    binding = None
+    if purpose is not None:
+        binding = GatewayClientBinding.model_validate(
+            {
+                "base_url": base,
+                "owner": {"agent_id": "web-agent", "context_id": "web-owner"},
+                "purpose": purpose,
+                "private_key_path": "/unused-private-signer",
+            }
+        )
+    client = GatewayClient(base_url=base, binding=binding, respect_proxy_env=proxy_env)
+    with pytest.raises(ValueError, match=reason):
+        client.issue_web_entry_ticket()
 
 
 class _ProxyHealthHandler(BaseHTTPRequestHandler):

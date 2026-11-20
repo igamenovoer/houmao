@@ -8,6 +8,7 @@ from typing import Literal, Protocol
 
 from fastapi import FastAPI, Request
 from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import MutableHeaders
 from starlette.requests import ClientDisconnect
 from starlette.responses import JSONResponse
 from starlette.routing import Match, Route
@@ -16,6 +17,15 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from houmao.agents.realm_controller.errors import GatewayError
 from houmao.agents.realm_controller.gateway_plugin_host import GatewayPluginHost
 from houmao.agents.realm_controller.gateway_plugin_routes import declared_plugin_access
+from houmao.agents.realm_controller.gateway_web_entry import (
+    WEB_CLAIM_PATH,
+    WEB_ENTER_PATH,
+    WEB_LOGIN_PATH,
+    WEB_PROVE_PATH,
+    WEB_RESPONSE_HEADERS,
+    WEB_TICKET_PATH,
+    is_web_entry_path,
+)
 from houmao.gateway.access import (
     CHALLENGE_HEADER,
     SIGNATURE_HEADER,
@@ -32,8 +42,14 @@ _SIGNED_BODY_LIMIT = 16 * 1024 * 1024
 _PROOF_HEADERS = (CHALLENGE_HEADER, SIGNATURE_HEADER, RELAY_HEADER, BACKING_HEADER)
 _CREDENTIAL_HEADERS = frozenset(header.lower().encode("ascii") for header in _PROOF_HEADERS)
 _PUBLIC_INPUT_PATHS = frozenset({"/v1/messages", "/v1/public/prompt"})
-_PUBLIC_GET = ("/health", "/v1/endpoint")
-_PUBLIC_POST = ("/v1/auth/challenge", *_PUBLIC_INPUT_PATHS)
+_PUBLIC_GET = ("/health", "/v1/endpoint", WEB_ENTER_PATH)
+_PUBLIC_POST = (
+    "/v1/auth/challenge",
+    *_PUBLIC_INPUT_PATHS,
+    WEB_LOGIN_PATH,
+    WEB_PROVE_PATH,
+    WEB_CLAIM_PATH,
+)
 _PRIVATE_GET = (
     "/v1/status",
     "/v1/usage",
@@ -44,6 +60,7 @@ _PRIVATE_GET = (
     "/v1/plugins/{instance_id}/_status",
 )
 _PRIVATE_POST = (
+    WEB_TICKET_PATH,
     "/v1/memory/memo/append",
     *(f"/v1/memory/pages/{op}" for op in ("tree", "resolve", "read", "write", "append", "delete")),
     *(
@@ -121,6 +138,12 @@ class GatewayOperation:
 
     path: str
     access: AccessClass
+
+    @property
+    def direct_admin(self) -> bool:
+        """Whether only a direct enrolled administrator may use this operation."""
+
+        return self.path == WEB_TICKET_PATH
 
     @property
     def registration(self) -> bool:
@@ -211,6 +234,19 @@ class GatewayAdmissionMiddleware:
         if scope["type"] != "http":
             await self.m_app(scope, receive, send)
             return
+        if is_web_entry_path(scope["path"]):
+            downstream = send
+
+            async def send_web_response(message: Message) -> None:
+                """Protect both admission denials and Web handler responses."""
+
+                if message["type"] == "http.response.start":
+                    headers = MutableHeaders(scope=message)
+                    for key, value in WEB_RESPONSE_HEADERS.items():
+                        headers[key] = value
+                await downstream(message)
+
+            send = send_web_response
         operation = self._operation(scope)
         if operation is None:
             await self.m_app(scope, receive, send)
@@ -220,6 +256,10 @@ class GatewayAdmissionMiddleware:
         headers = {name: request.headers.getlist(name) for name in _PROOF_HEADERS}
         signed = any(headers.values())
         try:
+            if operation.direct_admin and (headers[RELAY_HEADER] or headers[BACKING_HEADER]):
+                raise GatewayAccessError(403, "direct_admin_required")
+            if operation.access == "public" and is_web_entry_path(operation.path) and signed:
+                raise GatewayAccessError(403, "interactive_web_proof_required")
             if headers[BACKING_HEADER] or any(len(values) > 1 for values in headers.values()):
                 raise GatewayAccessError(401, "invalid_proof")
             if operation.path in _PUBLIC_INPUT_PATHS:
@@ -267,6 +307,8 @@ class GatewayAdmissionMiddleware:
             return PUBLIC_INPUT_LIMIT
         if path == "/v1/auth/challenge":
             return CHALLENGE_INPUT_LIMIT
+        if path == WEB_TICKET_PATH:
+            return 4096 if signed else None
         return _SIGNED_BODY_LIMIT if signed else None
 
     async def _reject(
@@ -319,13 +361,15 @@ def gateway_access_error_response(
 
     detail: dict[str, object] = {"error_code": error.code}
     headers = {"Cache-Control": "no-store"}
+    if error.code == "owner_local_web_entry_required":
+        detail["message"] = "Use the owner-local gateway directly or through a private TCP forward."
     if error.status_code == 401:
         challenge_path = "/v1/auth/challenge"
         purposes: tuple[Literal["self", "admin", "register"], ...] = (
             ("admin", "register")
             if operation.registration
             else ("admin",)
-            if operation.access == "admin"
+            if operation.access == "admin" or operation.direct_admin
             else ("self", "admin")
         )
         detail.update(challenge_path=challenge_path, purposes=purposes)

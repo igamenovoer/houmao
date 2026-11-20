@@ -1,9 +1,11 @@
 """Verify private Web authentication, origin binding, and mutation no-replay behavior."""
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
@@ -46,16 +48,6 @@ def _transport(
         """Return native-shaped responses without network or personal credentials."""
 
         calls.append(request.url.path)
-        if request.url.path == "/connect":
-            assert request.url.params["interactions"] == "none"
-            assert request.url.params["token"] == "private-launch"
-            return httpx.Response(
-                302,
-                headers={
-                    "location": "./api/remote.mux",
-                    "set-cookie": "native-api=private-cookie; HttpOnly; SameSite=Strict; Path=/",
-                },
-            )
         assert request.headers["cookie"] == "native-api=private-cookie"
         message = json.loads(request.content)
         assert message["payload"]["protocol_version"] == 1
@@ -107,23 +99,64 @@ def _transport(
         assert kwargs["additional_headers"] == {"Cookie": "native-api=private-cookie"}
         assert kwargs["origin"] == "http://127.0.0.1:1234"
         assert kwargs["proxy"] is None
+        assert kwargs["logger"].disabled is True
         return socket
+
+    def open_exchange(host: str, port: int, *, timeout: float) -> Mock:
+        """Model the private one-shot HTTP exchange and its two response headers."""
+
+        assert (host, port) == ("127.0.0.1", 1234)
+        assert timeout > 0
+
+        def exchange(method: str, target: str) -> None:
+            """Check that the launch token is sent only over the native exchange."""
+
+            assert method == "GET"
+            location = urlsplit(target)
+            assert location.path == "/connect"
+            assert parse_qs(location.query) == {
+                "interactions": ["none"],
+                "token": ["private-launch"],
+            }
+            calls.append(location.path)
+
+        return Mock(
+            request=Mock(side_effect=exchange),
+            getresponse=Mock(
+                return_value=Mock(
+                    status=302,
+                    getheader=Mock(return_value="./api/remote.mux"),
+                    getheaders=Mock(
+                        return_value=[
+                            ("location", "./api/remote.mux"),
+                            (
+                                "set-cookie",
+                                "native-api=private-cookie; HttpOnly; SameSite=Strict; Path=/",
+                            ),
+                        ]
+                    ),
+                )
+            ),
+        )
 
     monkeypatch.setattr(client_module.httpx, "Client", new_client)
     monkeypatch.setattr(client_module, "connect", open_socket)
+    monkeypatch.setattr(client_module, "HTTPConnection", open_exchange)
     return calls, socket
 
 
 def test_private_api_credentials_and_socket_have_independent_lifetime(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Persist a private origin-bound API cookie and close its owned socket exactly once."""
 
     calls, socket = _transport(monkeypatch)
     credentials = tmp_path / "private/api.json"
-    client = DshWebClient.from_connection(
-        "http://127.0.0.1:1234", launch_token="private-launch", cookie_file=credentials
-    )
+    with caplog.at_level(logging.DEBUG):
+        client = DshWebClient.from_connection(
+            "http://127.0.0.1:1234", launch_token="private-launch", cookie_file=credentials
+        )
+    assert "private-launch" not in caplog.text and "private-cookie" not in caplog.text
     assert client.origin == "http://127.0.0.1:1234"
     assert credentials.stat().st_mode & 0o077 == 0
     assert json.loads(credentials.read_text())["cookies"] == {"native-api": "private-cookie"}
@@ -134,6 +167,56 @@ def test_private_api_credentials_and_socket_have_independent_lifetime(
     with pytest.raises(DshWebError) as closed:
         client.state()
     assert closed.value.code == "connection_unavailable"
+
+
+def test_api_exchange_checks_connected_peer_before_sending_the_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Close a stale connection without sending credentials or opening a WebSocket."""
+
+    connection = Mock()
+    socket = Mock()
+    monkeypatch.setattr(client_module, "HTTPConnection", Mock(return_value=connection))
+    monkeypatch.setattr(client_module, "connect", socket)
+
+    def check() -> None:
+        """Simulate changed ownership immediately after connecting."""
+
+        connection.connect.assert_called_once_with()
+        connection.request.assert_not_called()
+        raise DshWebError("stale_identity", "Native listener was replaced")
+
+    with pytest.raises(DshWebError, match="Native listener was replaced"):
+        DshWebClient.from_connection(
+            "http://127.0.0.1:1234", launch_token="private-launch", verify_listener=check
+        )
+    connection.request.assert_not_called()
+    connection.close.assert_called_once_with()
+    socket.assert_not_called()
+
+
+def test_api_exchange_checks_the_websocket_peer_before_sending_the_cookie(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Retained launch-token verification cannot authorize another listener for the cookie."""
+
+    calls, _ = _transport(monkeypatch)
+    checked_socket = Mock()
+    create_socket = Mock(return_value=checked_socket)
+    monkeypatch.setattr(client_module.socket, "create_connection", create_socket)
+    open_socket = Mock()
+    monkeypatch.setattr(client_module, "connect", open_socket)
+    check = Mock(side_effect=[None, DshWebError("stale_identity", "Native listener was replaced")])
+
+    with pytest.raises(DshWebError, match="Native listener was replaced"):
+        DshWebClient.from_connection(
+            "http://127.0.0.1:1234", launch_token="private-launch", verify_listener=check
+        )
+
+    assert calls == ["/connect"]
+    create_socket.assert_called_once_with(("127.0.0.1", 1234), timeout=15.0)
+    checked_socket.close.assert_called_once_with()
+    open_socket.assert_not_called()
 
 
 @pytest.mark.parametrize(

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Houmao Web Login</title>
+  <style nonce="$nonce">
+    :root { color-scheme: light dark; font: 100%/1.5 system-ui, sans-serif; }
+    main { max-width: 42rem; margin: 8vh auto; padding: 0 1rem; }
+    label { display: block; font-weight: 600; margin-top: 1rem; }
+    input, textarea { box-sizing: border-box; width: 100%; font: 1rem monospace; padding: .65rem; }
+    textarea { min-height: 10rem; }
+    button { font: inherit; padding: .4rem .8rem; }
+    p { overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <main id="web-login" data-namespace="$namespace" data-proof-limit="$proof_limit" data-signature-limit="$signature_limit">
+    <h1>Houmao Web Login</h1>
+    <p id="login-target">$agent_id</p>
+    <p id="gateway-address"></p>
+    <label for="key-path">Private key file path (optional)</label>
+    <input id="key-path" type="text" autocomplete="off" spellcheck="false" autocapitalize="off">
+    <p>Enter a literal path from your terminal, or leave it blank to use your SSH agent.</p>
+    <button id="start-login" type="button">Start Login</button>
+    <section id="command-section" hidden>
+      <label for="signing-command">Run This Command in Your Terminal</label>
+      <p>Keep this page open while you run the command. It will continue after approval.</p>
+      <p>Command expires at <time id="approval-expiry"></time> (local time).</p>
+      <textarea id="signing-command" readonly spellcheck="false"></textarea>
+      <button id="copy-command" type="button">Copy Command</button>
+      <p id="copy-status" role="status"></p>
+    </section>
+    <p id="login-status" role="status"></p>
+  </main>
+  <script type="module" nonce="$nonce">
+$script
+initializeWebLogin();
+  </script>
+</body>
+</html>

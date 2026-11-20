@@ -8,7 +8,9 @@ houmao-mgr agents single --agent-id "$agent_id" open-browser
 houmao-mgr agents single --agent-id "$agent_id" prompt --prompt 'Inspect the workspace.'
 ```
 
-The browser handoff contains a clean loopback origin and native session ID. Owner-local browser opening uses the credential privately. In a routed context, use the verified origin and execution placement to reach the corresponding loopback host. Keep the native credential in the owner context.
+The published browser surface contains a clean loopback origin and native session ID. `open-browser` opens the native UI from the owner execution context. For gateway entry, open the owning gateway's `/v1/web/enter` page or request a signed `gateway web-entry` link. [Gateway Access](../gateway/operations/access.md).
+
+The gateway verifies the Kimi listener, host, and exact conversation before handing off to `/sessions/<id>` with Kimi's private token fragment. The qualified Kimi Code `2.6.0` UI uses the fragment to authenticate and removes it from the URL while opening the bound conversation. Houmao's native API binding is independent of the browser session.
 
 ## Sending While the Browser Is Active
 

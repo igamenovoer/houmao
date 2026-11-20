@@ -10,6 +10,7 @@ from houmao.mailbox.online_models import (
 
 import json
 import os
+import re
 import ssl
 import time
 from dataclasses import dataclass
@@ -68,6 +69,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayStatusV1,
     GatewayServiceRequestSnapshotV1,
     GatewayWebControlStateV1,
+    GatewayWebEntryTicketV1,
     GatewayWebHistoryV1,
     GatewayMemoryActionResponseV1,
     GatewayMemoryMemoResponseV1,
@@ -208,12 +210,11 @@ class GatewayClient:
             )
         except (OSError, ValueError):
             raise ValueError("Gateway certificate trust is unavailable.") from None
+        self.m_respect_proxy_env: bool = (
+            gateway_client_respects_proxy_env() if respect_proxy_env is None else respect_proxy_env
+        )
         self.m_opener = _build_gateway_client_opener(
-            respect_proxy_env=(
-                gateway_client_respects_proxy_env()
-                if respect_proxy_env is None
-                else respect_proxy_env
-            ),
+            respect_proxy_env=self.m_respect_proxy_env,
             ssl_context=ssl_context,
         )
 
@@ -226,6 +227,55 @@ class GatewayClient:
         """Read public live endpoint and access metadata."""
 
         return self._request_model("GET", "/v1/endpoint", GatewayEndpointDescriptor)
+
+    def issue_web_entry_ticket(self) -> GatewayWebEntryTicketV1:
+        """Request a one-time browser entry link with direct enrolled-admin proof."""
+
+        if self.m_binding is None or self.m_binding.purpose != "admin":
+            raise ValueError("Web entry requires an explicit enrolled gateway admin signer.")
+        origin = parse.urlsplit(self.m_base_url)
+        if (
+            origin.port is None
+            or self.m_base_url != owner_gateway_base_url(origin.port)
+            or self.m_respect_proxy_env
+        ):
+            raise ValueError("Web entry requires the direct owner-local gateway address.")
+
+        path = "/v1/web/entry-ticket"
+        url = self._build_url(path)
+        try:
+            request_obj = self._prepare_request("POST", path, None, {})
+            payload = self._open_request(request_obj=request_obj, method="POST", url=url)
+        except GatewayHttpError as exc:
+            if exc.status_code in {401, 403}:
+                detail = "Gateway proof was refused. Select a currently enrolled admin signer."
+            elif exc.status_code is not None and 300 <= exc.status_code < 400:
+                detail = "Gateway redirects are refused. Use the direct owner-local gateway."
+            else:
+                detail = (
+                    "Web entry was refused. Check the live owner-local gateway and admin signer."
+                )
+            raise GatewayHttpError(
+                method="POST", url=url, status_code=exc.status_code, detail=detail
+            ) from None
+
+        try:
+            ticket = parse_access_document(GatewayWebEntryTicketV1, payload)
+            prefix = f"{self.m_base_url}/v1/web/enter?ticket="
+            if not ticket.url.startswith(prefix) or not re.fullmatch(
+                r"[A-Za-z0-9_-]{43}", ticket.url[len(prefix) :]
+            ):
+                raise ValueError("Web ticket URL does not match the selected gateway.")
+            if not re.fullmatch(
+                r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|\+00:00)",
+                ticket.expires_at_utc,
+            ):
+                raise ValueError("Web ticket expiry does not use the gateway UTC format.")
+        except ValueError:
+            raise GatewayHttpError(
+                method="POST", url=url, detail="Gateway returned an invalid Web entry ticket."
+            ) from None
+        return ticket
 
     def add_admin_key(self, key: GatewayAdminKey) -> str:
         """Enroll the proposed first key or add a key with a listed admin signer."""

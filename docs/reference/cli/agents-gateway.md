@@ -10,7 +10,7 @@ houmao-mgr agents self gateway [OPTIONS] COMMAND [ARGS]...
 
 ## Scope Note
 
-This CLI covers gateway lifecycle, prompt and interrupt control, raw send-keys, TUI inspection, reminder control, and mail-notifier control.
+This CLI covers gateway lifecycle, Web entry, prompt and interrupt control, raw send-keys, TUI inspection, reminder control, and mail-notifier control.
 
 Reminder operations are available through `houmao-mgr agents single --agent-id <id> gateway reminders ...`, `houmao-mgr agents single --agent-name <name> gateway reminders ...`, or `houmao-mgr agents self gateway reminders ...`.
 
@@ -71,6 +71,17 @@ houmao-mgr agents single --agent-id <id> gateway status [OPTIONS]
 | Option | Description |
 |---|---|
 | `--pair-port INTEGER` | Houmao pair authority port to use for explicit managed-agent targeting. |
+
+### `web-entry`
+
+Request a one-time browser entry link for a live managed Web agent with an attached gateway. Run the command in the execution owner's context with an enrolled admin signer selected by `admin_signer_path` in the gateway deployment.
+
+```bash
+houmao-mgr agents single --agent-id "$agent_id" gateway web-entry
+houmao-mgr --print-json agents single --agent-id "$agent_id" gateway web-entry
+```
+
+Both outputs contain `url` and `expires_at_utc`. The URL is a bearer secret valid for 60 seconds and one redemption. Open it in a browser that can reach both the owner-local gateway and the native Web app. `web-entry` uses the direct owner-local gateway. Select the agent by ID or name under `agents single`. [Open a Live Web Agent](../gateway/operations/access.md#open-a-live-web-agent)
 
 ### `prompt`
 
@@ -370,7 +381,7 @@ houmao-mgr agents single --agent-id <id> gateway mail-notifier disable --channel
 - `--pair-port` is only supported on selected-agent `agents single ... gateway` commands. It selects the Houmao pair authority, not the live gateway listener port. Lower-level gateway listener overrides use runtime-facing flags such as `--gateway-port`.
 - Gateway TUI timing overrides must be positive seconds. They apply to the gateway sidecar started by this attach and are persisted as the desired timing config for the gateway root after attach succeeds.
 - External communication-only targets registered with `houmao-mgr agents external register` are supported through selected-agent communication-safe routes such as `agents single --agent-name <name> gateway status`, `gateway prompt`, and `gateway interrupt`; those commands route through the stored remote pair API base URL and remote agent ref.
-- External targets are rejected for local gateway ownership commands such as `gateway attach`, `gateway detach`, `gateway send-keys`, self/current-session targeting, TUI snapshot helpers, reminders, and mail-notifier mutation.
+- External targets are rejected for local gateway ownership commands such as `gateway attach`, `gateway detach`, `gateway web-entry`, `gateway send-keys`, self/current-session targeting, TUI snapshot helpers, reminders, and mail-notifier mutation.
 
 ## See Also
 

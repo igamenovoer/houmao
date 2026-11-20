@@ -144,6 +144,11 @@ Current v1 routes:
 - `DELETE /v1/admin/keys/{key_id}`
 - `POST /v1/messages`
 - `POST /v1/public/prompt`
+- `POST /v1/web/entry-ticket`
+- `GET /v1/web/enter`
+- `POST /v1/web/login`
+- `POST /v1/web/login/{attempt_id}/prove`
+- `POST /v1/web/login/{attempt_id}/claim`
 - `GET /v1/status`
 - `GET /v1/usage`
 - `GET /v1/native-home`
@@ -183,6 +188,27 @@ Current v1 routes:
 - `DELETE /v1/ag-ui/connections/{connection_id}`
 
 The direct AG-UI routes are documented in [Gateway AG-UI Routes](../ag-ui.md). They attach GUI streams and submit AG-UI task runs to the existing gateway queue; they do not give the GUI managed-agent lifecycle ownership.
+
+### Web Entry and Login
+
+Use the exact configured owner-local HTTP origin and a loopback connection for all Web entry routes. Direct private TCP forwarding preserves that origin. Advertised HTTPS gateways, HTTP proxy ingress, passive relays, and executor routes cannot carry this flow. Web entry routes are independent of the public input setting and prompt admission. Endpoint discovery continues to publish enabled public actions and token-free native surface information. [Open a Live Web Agent](../operations/access.md#open-a-live-web-agent)
+
+| Operation | Request and authority | Success |
+| --- | --- | --- |
+| `POST /v1/web/entry-ticket` | Empty body, direct gateway SSHSIG proof from a currently enrolled admin | HTTP 200 with `url` and `expires_at_utc` |
+| `GET /v1/web/enter` | Empty query | HTTP 200 with the interactive sign-in page |
+| `GET /v1/web/enter?ticket=<ticket>` | Exactly one `ticket` parameter with an outstanding bearer from this listener | HTTP 302 to the verified native authentication destination |
+| `POST /v1/web/login` | Empty body, same-origin browser action | HTTP 200 with `attempt_id`, base64url `challenge`, `expires_at_utc`, and tab `claim_secret` |
+| `POST /v1/web/login/{attempt_id}/prove` | Terminal callback with up to 256 complete SSHSIG blocks in a text body of up to 1 MiB | HTTP 200 with approval outcome |
+| `POST /v1/web/login/{attempt_id}/claim` | Empty body, same-origin browser request with `X-Houmao-Web-Claim` containing its claim secret | HTTP 202 while pending, HTTP 200 with `url` and `expires_at_utc` on one successful claim |
+
+Signed issuance uses the existing `POST /v1/auth/challenge` protocol. Missing or invalid proof returns HTTP 401 even on an empty admin roster. Self or delegated gateway proof returns HTTP 403. Select an enrolled admin signer with `GatewayClient.issue_web_entry_ticket()` or the scoped manager command. The client holds the selected owner-local endpoint and refuses redirects.
+
+Interactive attempts last two minutes and use a distinct `houmao-web-entry-login-v1` SSHSIG namespace. Sign the exact decoded challenge bytes. They bind the issuer, attempt and approval route, expiry, purpose, and native execution identity. The terminal may submit several complete armored signatures. The gateway approves the attempt once when any signature verifies against a current admin enrollment. The terminal receives its approval outcome only. The browser keeps its claim secret in tab memory and uses it once to obtain a normal ticket.
+
+Tickets last 60 seconds. The gateway consumes a ticket before checking that its original admin enrollment and complete native execution identity remain current. Failed revalidation leaves the ticket consumed. Both tickets and login attempts expire on gateway restart. Expired, used, or stale tickets return HTTP 410 with a link back to the bare entry path. Open the bare path and start again after an attempt expires or the target changes. A duplicate or extraneous query parameter is refused, and callers cannot supply a destination.
+
+Every Web entry and login response sets `Cache-Control: no-store` and `Referrer-Policy: no-referrer`. The gateway exposes native authentication parameters in the successful browser redirect only. The provider creates and controls the browser session. Public state, logs, and error responses omit the proof, claim secret, tickets, and native credentials.
 
 ### Plugin Status and Custom Routes
 

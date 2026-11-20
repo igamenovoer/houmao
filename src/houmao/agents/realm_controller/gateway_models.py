@@ -515,6 +515,13 @@ class GatewayAttachBackendMetadataHeadlessV1(_StrictGatewayModel):
         return self
 
 
+class GatewayWebEntryTicketV1(_StrictGatewayModel):
+    """Return the browser's single-use entry URL and its display expiry."""
+
+    url: str = Field(min_length=1, repr=False)
+    expires_at_utc: str = Field(min_length=1)
+
+
 class GatewayWebExecutionIdentityV1(_StrictGatewayModel):
     """Identify one owned native Web execution without connection credentials."""
 

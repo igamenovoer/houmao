@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from http.client import HTTPConnection
 import ipaddress
 import json
+import logging
 import math
 import os
 from pathlib import Path
 import re
+import socket
 import threading
 import time
 from typing import Any, cast
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 from uuid import uuid4
 
 import httpx
@@ -21,6 +24,10 @@ from websockets.typing import Origin
 
 from houmao.agents.realm_controller.backends.dsh_diagnostics import sanitize_dsh_diagnostic
 from houmao.agents.realm_controller.errors import BackendExecutionError
+
+
+_PRIVATE_SOCKET_LOGGER = logging.Logger(__name__ + ".private_socket")
+_PRIVATE_SOCKET_LOGGER.disabled = True
 
 
 class DshWebError(BackendExecutionError):
@@ -56,6 +63,7 @@ class DshWebClient:
         self.m_socket: ClientConnection | None = None
         self.m_timeout: float = 15.0
         self.m_secret_values: tuple[str, ...] = ()
+        self.m_verify_listener: Callable[[], None] | None = None
         self.m_lock: threading.RLock = threading.RLock()
 
     @classmethod
@@ -67,6 +75,7 @@ class DshWebClient:
         cookie_file: Path | None = None,
         timeout_seconds: float = 15.0,
         secret_values: Sequence[str] = (),
+        verify_listener: Callable[[], None] | None = None,
     ) -> DshWebClient:
         """Authenticate an independent owner Peer and retain its revocable socket.
 
@@ -82,6 +91,8 @@ class DshWebClient:
             Bound for each wire operation; mutations are never retried.
         secret_values:
             Resolved provider credentials that must stay out of native error messages.
+        verify_listener:
+            Optional ownership check before sending the launch token, API cookie, or a request.
         """
 
         try:
@@ -106,6 +117,7 @@ class DshWebClient:
         client.m_origin = origin.rstrip("/")
         client.m_timeout = timeout_seconds
         client.m_secret_values = (*secret_values, *((launch_token,) if launch_token else ()))
+        client.m_verify_listener = verify_listener
         client.m_http = httpx.Client(
             base_url=client.m_origin,
             timeout=timeout_seconds,
@@ -114,14 +126,12 @@ class DshWebClient:
         )
         try:
             if launch_token is not None:
-                response = client.m_http.get(
-                    "/connect", params={"token": launch_token, "interactions": "none"}
+                client._exchange_api_cookie(
+                    host=parsed.hostname or "",
+                    port=port,
+                    token=launch_token,
+                    before_send=verify_listener,
                 )
-                if (
-                    response.status_code != 302
-                    or response.headers.get("location") != "./api/remote.mux"
-                ):
-                    raise DshWebError("authentication_failed", "Native API connection was refused")
             elif cookie_file is not None:
                 if cookie_file.stat().st_mode & 0o077:
                     raise DshWebError("invalid_credentials", "API credential file must be private")
@@ -132,14 +142,27 @@ class DshWebClient:
             else:
                 raise DshWebError("missing_credentials", "Explicit API credentials are required")
             cookie = "; ".join(f"{entry.name}={entry.value}" for entry in client.m_http.cookies.jar)
-            client.m_socket = connect(
-                client.m_origin.replace("http://", "ws://", 1) + "/api/remote.mux",
-                additional_headers={"Cookie": cookie},
-                origin=Origin(client.m_origin),
-                open_timeout=timeout_seconds,
-                close_timeout=min(timeout_seconds, 5.0),
-                proxy=None,
-            )
+            checked_socket = None
+            try:
+                if verify_listener is not None:
+                    checked_socket = socket.create_connection(
+                        (parsed.hostname or "", port), timeout=timeout_seconds
+                    )
+                    verify_listener()
+                client.m_socket = connect(
+                    client.m_origin.replace("http://", "ws://", 1) + "/api/remote.mux",
+                    sock=checked_socket,
+                    additional_headers={"Cookie": cookie},
+                    origin=Origin(client.m_origin),
+                    open_timeout=timeout_seconds,
+                    close_timeout=min(timeout_seconds, 5.0),
+                    proxy=None,
+                    logger=_PRIVATE_SOCKET_LOGGER,
+                )
+            except BaseException:
+                if checked_socket is not None:
+                    checked_socket.close()
+                raise
             description = client.describe()
             if description.get("protocol_version") != 1:
                 raise DshWebError("protocol_mismatch", "Managed Web protocol is incompatible")
@@ -172,6 +195,32 @@ class DshWebClient:
 
         return self.m_origin
 
+    def _exchange_api_cookie(
+        self, *, host: str, port: int, token: str, before_send: Callable[[], None] | None
+    ) -> None:
+        """Exchange the token without transport logging of the query or cookie."""
+
+        assert self.m_http is not None
+        connection = HTTPConnection(host, port, timeout=self.m_timeout)
+        try:
+            connection.connect()
+            if before_send is not None:
+                before_send()
+            query = urlencode({"token": token, "interactions": "none"})
+            connection.request("GET", f"/connect?{query}")
+            response = connection.getresponse()
+            if response.status != 302 or response.getheader("location") != "./api/remote.mux":
+                raise DshWebError("authentication_failed", "Native API connection was refused")
+            self.m_http.cookies.extract_cookies(
+                httpx.Response(
+                    response.status,
+                    headers=response.getheaders(),
+                    request=self.m_http.build_request("GET", "/connect"),
+                )
+            )
+        finally:
+            connection.close()
+
     def close(self) -> None:
         """Release the owned socket, revoking this API Peer independently of the browser."""
 
@@ -195,6 +244,8 @@ class DshWebClient:
             rpc_id = str(uuid4())
             endpoint = f"managed/v1/{method}"
             try:
+                if self.m_verify_listener is not None:
+                    self.m_verify_listener()
                 response = self.m_http.post(
                     f"/houmao/{endpoint}",
                     json={

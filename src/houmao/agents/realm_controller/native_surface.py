@@ -12,6 +12,34 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 NativeSurfaceKind = Literal["terminal", "web"]
 
 
+def validate_web_origin(value: str) -> str:
+    """Normalize a clean HTTP loopback origin with an explicit port."""
+
+    try:
+        parsed = urlsplit(value)
+        hostname = parsed.hostname
+        loopback = hostname == "localhost" or (
+            hostname is not None and ip_address(hostname).is_loopback
+        )
+        valid = (
+            parsed.scheme == "http"
+            and loopback
+            and parsed.port is not None
+            and 0 < parsed.port <= 65535
+            and parsed.path in {"", "/"}
+            and parsed.username is None
+            and parsed.password is None
+            and not any(character.isspace() for character in value)
+            and not any(delimiter in value for delimiter in ("?", "#", "\\"))
+            and value.rstrip("/") == f"http://{parsed.netloc}"
+        )
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ValueError("Web native surface requires a token-free HTTP loopback origin")
+    return value.rstrip("/")
+
+
 class TerminalNativeSurfaceV1(BaseModel):
     """Identify an actual terminal interface rather than a supervisor log pane."""
 
@@ -36,29 +64,7 @@ class WebNativeSurfaceV1(BaseModel):
     def _validate_origin(cls, value: str) -> str:
         """Reject signed locations, credentials, remote hosts, and non-origin paths."""
 
-        try:
-            parsed = urlsplit(value)
-            hostname = parsed.hostname
-            loopback = hostname == "localhost" or (
-                hostname is not None and ip_address(hostname).is_loopback
-            )
-            valid = (
-                parsed.scheme == "http"
-                and loopback
-                and parsed.port is not None
-                and 0 < parsed.port <= 65535
-                and parsed.path in {"", "/"}
-                and parsed.username is None
-                and parsed.password is None
-                and not parsed.query
-                and not parsed.fragment
-                and not any(character.isspace() for character in value)
-            )
-        except ValueError:
-            valid = False
-        if not valid:
-            raise ValueError("Web native surface requires a token-free HTTP loopback origin")
-        return value.rstrip("/")
+        return validate_web_origin(value)
 
 
 NativeSurfaceV1 = Annotated[
