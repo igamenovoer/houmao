@@ -1,6 +1,6 @@
 ---
 name: hmtest-demo-task
-description: Use when a test needs a small parent skill that installs three self-contained demo tasks, or when verifying skill discovery, subskill routing, or fixture updates.
+description: Use when a test needs a small parent skill that installs four self-contained demo tasks, or when verifying skill discovery, subskill routing, or fixture updates.
 metadata:
   skill_invocation_notation: >
     Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
@@ -18,11 +18,11 @@ metadata:
 
 ## Overview
 
-Fixture skill for Houmao skill installation and update tests. It routes to three self-contained subskills that need no external tools, network, or credentials, so each installed revision has an exact expected output.
+Fixture skill for Houmao skill installation and update tests. It routes to four self-contained subskills that need no external tools, network, or credentials, so each installed revision has an exact expected output.
 
 ## When to Use
 
-Use this skill when a test must verify skill installation, discovery, parent-to-subskill routing, or update replacement with a small isolated fixture. Use it when the request names one of the three demo tasks. Do not use it for production work or when the task needs inputs beyond a short text snippet.
+Use this skill when a test must verify skill installation, discovery, parent-to-subskill routing, or update replacement with a small isolated fixture. Use it when the request names one of the four demo tasks. Do not use it for production work or when the task needs inputs beyond a short text snippet.
 
 ## Workflow
 
@@ -42,6 +42,7 @@ If the request spans multiple demo tasks, run them one at a time and label each 
 | `greet-name` | `subskills/greet-name/SKILL-MAIN.md` | The request provides a name, or deliberately omits one, and expects the fixed one-line greeting. |
 | `slugify-title` | `subskills/slugify-title/SKILL-MAIN.md` | The request provides a title that must become a lowercase hyphenated URL slug. |
 | `checklist-items` | `subskills/checklist-items/SKILL-MAIN.md` | The request provides one or more short lines that must become a Markdown checkbox list. |
+| `title-case` | `subskills/title-case/SKILL-MAIN.md` | The request provides a title that must be converted to the fixed Title Case form. |
 
 Use object notation such as `hmtest-demo-task->greet-name` to select a child. Load only the selected child's `SKILL-MAIN.md` and any resource that child names.
 

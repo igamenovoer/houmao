@@ -1,6 +1,6 @@
 interface:
   display_name: "Hmtest Demo Task"
-  short_description: "Three self-contained tasks for skill installation and update tests."
-  default_prompt: "Use $hmtest-demo-task to run greet-name, slugify-title, or checklist-items for installation and update testing."
+  short_description: "Four self-contained tasks for skill installation and update tests."
+  default_prompt: "Use $hmtest-demo-task to run greet-name, slugify-title, checklist-items, or title-case for installation and update testing."
 policy:
   allow_implicit_invocation: false

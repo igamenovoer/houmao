@@ -1,0 +1,6 @@
+interface:
+  display_name: "Hmtest Title Case"
+  short_description: "Convert a demo title or phrase into fixed Title Case."
+  default_prompt: "Use $hmtest-demo-task with the title-case route to convert a title into Title Case."
+policy:
+  allow_implicit_invocation: false
