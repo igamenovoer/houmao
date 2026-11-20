@@ -1,0 +1,6 @@
+interface:
+  display_name: "Hmtest Greet Name"
+  short_description: "Return the fixed demo greeting for a supplied name."
+  default_prompt: "Use $hmtest-demo-task with the greet-name route to return the fixed greeting line."
+policy:
+  allow_implicit_invocation: false

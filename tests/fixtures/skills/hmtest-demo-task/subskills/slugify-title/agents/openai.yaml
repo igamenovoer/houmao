@@ -1,0 +1,6 @@
+interface:
+  display_name: "Hmtest Slugify Title"
+  short_description: "Convert a demo title into a lowercase hyphenated URL slug."
+  default_prompt: "Use $hmtest-demo-task with the slugify-title route to convert a title into a URL slug."
+policy:
+  allow_implicit_invocation: false

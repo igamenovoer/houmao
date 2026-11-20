@@ -1,0 +1,6 @@
+interface:
+  display_name: "Hmtest Checklist Items"
+  short_description: "Render demo input lines as a Markdown checkbox list."
+  default_prompt: "Use $hmtest-demo-task with the checklist-items route to render lines as a Markdown task list."
+policy:
+  allow_implicit_invocation: false
