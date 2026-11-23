@@ -1,6 +1,6 @@
 # Iteration Plan 2: DSH Run Modes and Unified Control on RC3
 
-Status: G0 passed; H1 completed on self-hosted Qwen with disposition **Needs revision** because detailed manager event replay rejects whitespace-only provider text chunks. The H1 agent was stopped cleanly. R0 and the other arms remain pending. Date: 2026-11-19. Campaign: [debug-intent.md](../debug-intent.md). Question owner: [KQ-1](../key-questions/KQ-1-dsh-basic-functionality.md). Evidence: [G0 and H1 preparation](../evidences/2026-11-19-rc3-iteration2-g0-and-h1-preparation.md) and [H1 results](../logs/2026-11-19-h1-rc3-headless-execution.md). Supersedes the unexecuted RC1/RC2 work in [Iteration 1](2026-11-18-plan-1-dsh-basic-functionality.md).
+Status: G0 passed; H1 completed on self-hosted Qwen with disposition **Needs revision** because detailed manager event replay rejects whitespace-only provider text chunks. The H1 agent was stopped cleanly. R0, S1, W1, V1, and C1 remain active for the rc5 pass; H2, S2, W2, and the cross-tool follow-on are deferred as of 2026-11-20. Date: 2026-11-19. Campaign: [debug-intent.md](../debug-intent.md). Question owner: [KQ-1](../key-questions/KQ-1-dsh-basic-functionality.md). Evidence: [G0 and H1 preparation](../evidences/2026-11-19-rc3-iteration2-g0-and-h1-preparation.md) and [H1 results](../logs/2026-11-19-h1-rc3-headless-execution.md). Supersedes the unexecuted RC1/RC2 work in [Iteration 1](2026-11-18-plan-1-dsh-basic-functionality.md).
 
 ## Question and Revision Reason
 
@@ -32,6 +32,11 @@ Iteration 1 targeted RC1 and used `dsh_acp` as the general headless path. RC3 ma
 | H2 | DSH `headless`, DeepSeek API | Repeat H1 after explicit billable-run approval |
 | S2 | DSH `service`, DeepSeek API | Repeat S1 after explicit billable-run approval |
 | W2 | DSH `web`, DeepSeek API | Repeat W1 after explicit billable-run approval |
+
+### Deferred on 2026-11-20
+
+- **H2, S2, and W2 (DeepSeek API)** are deferred. No billable DeepSeek calls will be made in this pass; reopening requires explicit approval and a fresh run.
+- **The cross-tool follow-on** (Kimi ACP service and Web, Codex app-server service, Claude headless and TUI, mode persistence, unsupported combinations, AG-UI observation) is deferred to a separate campaign. It is not active coverage for this iteration.
 
 The RC2 B1 log is preliminary evidence for S1 only. It does not mark S1 complete and provides no coverage for H1, W1, V1, or any DeepSeek arm.
 
@@ -126,7 +131,7 @@ Gates are ordered. A failed gate blocks dependent arms but does not justify chan
 - [ ] Run S1 and evaluate G3
 - [ ] Run W1 and evaluate G4
 - [ ] Run V1 and C1, then evaluate G5
-- [ ] After explicit approval, run H2, S2, and W2 on DeepSeek
+- [ ] **Deferred (2026-11-20)** — After explicit approval, run H2, S2, and W2 on DeepSeek. No billable calls are planned in this pass.
 - [ ] Write dated evidence and discussion records for every executed arm and failure
 - [ ] Evaluate G6 and update KQ-1 and the campaign status
 
@@ -142,4 +147,4 @@ The same Web flow was then exercised through the uv-installed package after rein
 
 ## Required Follow-On Outside This Iteration
 
-RC3 also adds Kimi ACP service, Kimi Web, and Codex app-server service, and it makes mode selection and handoff common across Claude, Codex, Kimi, and DSH. Plan a separate cross-tool iteration for the qualified matrix, including unsupported combinations, TUI versus Web handoff, persisted mode across profile edits and relaunch, owner-bound control, AG-UI observation, and usage. Existing change-local Qwen logs do not mark that campaign coverage complete.
+Deferred on 2026-11-20. RC3 also adds Kimi ACP service, Kimi Web, and Codex app-server service, and it makes mode selection and handoff common across Claude, Codex, Kimi, and DSH. A separate cross-tool iteration would cover the qualified matrix, including unsupported combinations, TUI versus Web handoff, persisted mode across profile edits and relaunch, owner-bound control, AG-UI observation, and usage. Existing change-local Qwen logs do not mark that campaign coverage complete.

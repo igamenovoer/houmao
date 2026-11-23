@@ -1,10 +1,10 @@
 # Debug Intent: Houmao 3.0 Interactive Feature Review
 
-Date: 2026-11-18. Updated: 2026-11-20. Status: [iteration 2](iterations/2026-11-19-plan-2-dsh-rc3-run-modes.md) G0 passed and H1 completed on self-hosted Qwen with disposition **Needs revision** because detailed manager event replay rejects whitespace-only provider text chunks; the owned agent stopped cleanly. [Iteration 1](iterations/2026-11-18-plan-1-dsh-basic-functionality.md) was partially executed on RC2 and is superseded for RC3. Campaign directory: `context/campaigns/debug/2026-11-18-houmao-3-0-interactive-review/`.
+Date: 2026-11-18. Updated: 2026-11-20. Status: [iteration 2](iterations/2026-11-19-plan-2-dsh-rc3-run-modes.md) G0 passed and H1 completed on self-hosted Qwen with disposition **Needs revision** because detailed manager event replay rejects whitespace-only provider text chunks; the owned agent stopped cleanly. [Iteration 1](iterations/2026-11-18-plan-1-dsh-basic-functionality.md) was partially executed on RC2 and is superseded for RC3. The live pass on 2026-11-20 uses `3.0.0rc5`; [Iteration 3](iterations/2026-11-20-plan-3-mailbox-two-agent.md) passed two-way local filesystem mail and notifier wake-up with a DSH Web and Kimi Web pair. Busy-skip and teardown remain, while the remaining non-DSH feature areas and the DeepSeek lane are deferred (see [Deferred Coverage](#deferred-coverage)). Campaign directory: `context/campaigns/debug/2026-11-18-houmao-3-0-interactive-review/`.
 
 ## Problem Statement
 
-The current qualification target is Houmao `3.0.0rc3` (tag `v3.0.0rc3`, commit `4f3ba508`). RC3 adds four managed run modes (`headless`, `service`, `tui`, and `web`), native DSH one-shot headless execution, persistent DSH ACP service, Kimi ACP service and Web, Codex app-server service, and unified owner-bound manager/gateway control. It replaces `--headless` and `--no-headless` with `--mode` and introduces new launch-plan, session-manifest, registry, and execution-locator schemas. These changes invalidate the original DSH arm definitions and command examples, not merely the release number.
+The current qualification baseline is Houmao `3.0.0rc3` (tag `v3.0.0rc3`, commit `4f3ba508`); the live pass on 2026-11-20 uses `3.0.0rc5`, and rc3 observations remain release-specific. RC3 adds four managed run modes (`headless`, `service`, `tui`, and `web`), native DSH one-shot headless execution, persistent DSH ACP service, Kimi ACP service and Web, Codex app-server service, and unified owner-bound manager/gateway control. It replaces `--headless` and `--no-headless` with `--mode` and introduces new launch-plan, session-manifest, registry, and execution-locator schemas. These changes invalidate the original DSH arm definitions and command examples, not merely the release number.
 
 The campaign originally targeted `3.0.0rc1` (tagged at `f99ce02c`, with `devel` at `6207d279`) and its seven major capabilities over `v2.4.0`: authenticated gateway access (`#84`), execution-owner-aware launch and control (`#81`), DeepSeek Harness `dsh_acp` and `dsh_web` backends (`#74`), native agent home inspection and common-plugin refresh (`#82`), the gateway plugin SDK (`#76`) with `houmao-cccc` chat and deferred Mail (`#77`, `#78`), explicit dual mailbox bindings with bounded Stalwart synchronization (`#79`, `#80`), and durable agent usage records (`#83`). Those areas remain in scope, but their current RC3 contracts and mode-specific behavior are the relevant test targets.
 
@@ -49,11 +49,11 @@ This campaign evaluates each feature area across two perspectives: the current R
 | Arm | Feature Area | What the Human Watches Interactively | Key Surfaces and Services |
 | --- | --- | --- | --- |
 | F1 | Authenticated gateway access (`#84`) | Empty admin roster risk, SSHSIG key enrollment and rotation, self-vs-admin-vs-public access failures, public prompt budget, and reverse-proxy advertised endpoint behavior | `houmao-mgr agents single|self gateway`, `GatewayClient`, `POST /v1/auth/challenge`, `GET /v1/endpoint`, `houmao-passive-server` |
-| F2 | Execution-owner-aware launch and control (`#81`) | Cross-user `sudo` or `ssh` launch into target-owned homes, isolated tmux socket viewing, owner-boundary denials, and `reconcile`/`forget` locator recovery | `~/.config/houmao/executors/*.yaml`, `houmao-mgr internals executor serve-stdio`, `admin executors`, `sudo`, local `sshd` |
+| F2 | Execution-owner-aware launch and control (`#81`) *(deferred 2026-11-20)* | Cross-user `sudo` or `ssh` launch into target-owned homes, isolated tmux socket viewing, owner-boundary denials, and `reconcile`/`forget` locator recovery | `~/.config/houmao/executors/*.yaml`, `houmao-mgr internals executor serve-stdio`, `admin executors`, `sudo`, local `sshd` |
 | F3 | DSH run modes (`#74` plus RC3 run-mode changes) | Native one-shot headless workers with exact continuation, persistent ACP service identity and gateway detach/reattach, and Web browser/API coexistence with busy refusal and interruption | `dsh` `0.2.2-rc.3`, `--mode headless|service|web`, manager and signed gateway control, Chromium browser view |
 | F4 | Native home inspection and common-plugin refresh (`#82`) | Editing skills or MCP definitions externally, running `home`, `refresh --check`, and `refresh`, and distinguishing next-worker, provider-start, session-binding, native-watcher, and relaunch boundaries by run mode | `houmao-mgr agents single|self home|refresh`, `/v1/native-home`, `/v1/control/refresh`, DSH headless/service/Web and secondary CLIs |
-| F5 | Gateway plugins (`#76`) and `houmao-cccc` (`#77`, `#78`) | Attaching `houmao-cccc` without restarting the body, watching live CCCC Web UI and agent panes exchange `request_reply` chat and deferred Mail (`status`, `cursor`, `peek`, `read`, receipts) | `houmao.gateway.plugins`, `packages/houmao-cccc`, `houmao-cccc` CLI, local CCCC receiver on `8849` |
-| F6 | Dual mailbox bindings and bounded Stalwart sync (`#79`, `#80`) | Live `mailbox online attach|refresh|reconnect|detach` on a running agent, coexistence of `offline` and `online` slots, bounded metadata-only `list`, and periodic notifier wakeups inside the watched pane | Stalwart `v0.15.5` on `10080`, `houmao-mgr agents single|self mail|mailbox`, `/v1/mail/*` |
+| F5 | Gateway plugins (`#76`) and `houmao-cccc` (`#77`, `#78`) *(deferred 2026-11-20)* | Attaching `houmao-cccc` without restarting the body, watching live CCCC Web UI and agent panes exchange `request_reply` chat and deferred Mail (`status`, `cursor`, `peek`, `read`, receipts) | `houmao.gateway.plugins`, `packages/houmao-cccc`, `houmao-cccc` CLI, local CCCC receiver on `8849` |
+| F6 | Dual mailbox bindings and bounded Stalwart sync (`#79`, `#80`) *(local filesystem active; Stalwart deferred 2026-11-20)* | Live `mailbox online attach|refresh|reconnect|detach` on a running agent, coexistence of `offline` and `online` slots, bounded metadata-only `list`, and periodic notifier wakeups inside the watched pane | Stalwart `v0.15.5` on `10080`, `houmao-mgr agents single|self mail|mailbox`, `/v1/mail/*` |
 | F7 | Durable agent usage records (`#83`) | Inspecting `GET /v1/usage` and passive-server `/usage` pages after real watched turns, interrupts, resumes, and restarts, comparing against raw provider journals | `GET /v1/usage`, `GET /houmao/agents/{agent_ref}/usage`, `session.v4.jsonl`, `<session-root>/usage/records.sqlite3` |
 | F8 | RC3 managed run modes and unified owner control | Qualified tool/mode defaults and rejection, persisted mode across relaunch, manager/gateway competing admission, gateway detachment during active work, exact service relaunch, Kimi/Codex services, Kimi Web, and mode-appropriate human handoff | `--mode`, `native_surface`, `houmao-mgr agents single`, owner-side gateway routes, Kimi ACP/Web, Codex app-server, AG-UI and passive observation |
 
@@ -63,18 +63,42 @@ This campaign evaluates each feature area across two perspectives: the current R
 - **Read-only assets**: Production source code under `src/houmao/` and `packages/houmao-cccc/`, committed tests under `tests/`, OpenSpec specifications under `openspec/`, active user tmux sessions (`mao-1..4`, `rsi-1..4`) on the default server, and secret credential files remain untouched during diagnostic execution. The sole exception is the separately and explicitly operator-requested 2026-11-19 fixture/gateway checkout-`tmp` storage-policy fix with its focused tests and documentation.
 - **Out of scope**: Postponed Pi backend (`#75`), live Docker container execution (no Docker daemon or socket is present in this environment per [execution README](../../../../tests/integration/execution/README.md)), physical multi-host networking across separate machines, and direct product code edits during diagnostic runs.
 
-## Operator Watch Scripts
+## Deferred Coverage
 
-Every agent launch in this campaign must deliver an executable attach script so the operator can watch the run without reconstructing registry, runtime, or manifest paths. Store it in the iteration scratch root as `tmp/<iteration-root>/attach-<run-label>.sh`, mark it executable and owner-only, and name its exact path in the iteration log.
+As of 2026-11-20, the following areas are deferred from the active rc5 pass. Deferral records unrun coverage, not a pass or a failure. Each item still needs a fresh release-specific root, isolated tmux or service state, and an evidence record before it can be reopened; reopening requires explicit operator approval.
 
-The script must resolve the tmux target through Houmao at execution time. It must not embed a session name, socket path, pane id, or window index:
+- **F2 / KQ-5 execution-owner switching**: no `sudo` or `ssh` owner launch, owner-boundary denial, isolated owner-side tmux view, or `reconcile`/`forget` locator recovery has been exercised.
+- **F5 gateway plugins and `houmao-cccc`**: no live plugin attach without restart, CCCC Web UI chat, or deferred Mail exchange has been exercised.
+- **F6 online mailbox and Stalwart sync**: Stalwart attach, refresh, reconnect, detach, bounded JMAP metadata, and online notifier behavior remain deferred. The local filesystem transport and its notifier are active under Iteration 3.
+- **KQ-6 cross-tool run modes**: Kimi ACP service and Web, Codex app-server service, Claude headless and TUI, mode persistence across relaunch, unsupported combinations, and AG-UI observation remain unrun. Only DSH has coverage.
+- **DeepSeek arms H2, S2, and W2**: no billable DeepSeek call has been made in this campaign. The self-hosted Qwen lane remains the only executed provider lane.
+
+Standalone KQ-2 and KQ-3 iterations are also deferred. The gateway checks and skill or MCP refresh observations already recorded under Iteration 2 remain supporting evidence rather than complete answers to those questions. V1 passive-server recovery remains an active Iteration 2 arm.
+
+## Operator Watch and Login Scripts
+
+Every agent launch in this campaign must deliver an executable attach script so the operator can watch the run without reconstructing registry, runtime, or manifest paths. A launch that exposes a gateway-backed Web surface must also deliver an executable login helper script. Store both in the iteration scratch root as `tmp/<iteration-root>/attach-<run-label>.sh` and `tmp/<iteration-root>/login-<run-label>.sh`, mark them executable and owner-only, and name their exact paths in the iteration log.
+
+### Attach Script
+
+The attach script must resolve the tmux target through Houmao at execution time. It must not embed a session name, socket path, pane id, or window index:
 
 1. `houmao-mgr --print-json agents single --agent-id <id> state`, with run-scoped `HOUMAO_GLOBAL_REGISTRY_DIR`, `HOUMAO_GLOBAL_RUNTIME_DIR`, and `HOUMAO_PROJECT_OVERLAY_DIR`, yields `identity.manifest_path`.
 2. `houmao.agents.realm_controller.manifest.load_session_manifest()` validates the manifest.
 3. The script reads `tmux.session_name` and `tmux.socket_path`, falling back to the top-level `tmux_session_name` for the name.
 4. It clears `TMUX`, `TMUX_PANE`, and `TMUX_TMPDIR`, then attaches with `tmux -S <socket> attach-session -t <session>`.
 
-A relaunch creates a new session name, so regenerate the script from the new manifest instead of editing the old one. While the checkout is under active development, the script must call the uv-installed `houmao-mgr` and Python under `/home/huangzhe/.local/share/uv/tools/houmao/bin/`, not the Pixi checkout. The script is campaign scratch state under the Git-ignored `tmp/` tree, not product code.
+### Login Script
+
+The login helper must issue a fresh one-time entry link at execution time. It must not embed a URL, ticket, nonce, gateway presence id, or private key contents:
+
+1. Bind to the run's generated Houmao roots and agent id; resolve the live gateway from `gateway status`; do not hardcode the gateway port.
+2. Run `houmao-mgr agents single --agent-id <id> gateway web-entry`, capture stderr, and fail with the captured message if the command errors or returns no URL. The plain output is indented; parse `url` and `expires_at_utc` with leading whitespace allowed.
+3. Write the issued URL to a private file under the Git-ignored `tmp/` tree with mode `0600`, and never echo the URL into shared logs or the campaign record.
+4. Open the link with the platform browser opener within the 60-second window when one is available; otherwise print the private file path and expiry so the operator can open it manually. Do not reuse an expired link.
+5. If the gateway has no enrolled admin signer, fail with the message naming `admin_signer_path` and the gateway access configuration. The bare `/v1/web/enter` interactive page remains available as the fallback, using the enrolled private key path.
+
+A relaunch creates a new tmux session and a new gateway presence, so regenerate both scripts from the new state instead of editing the old ones. While the checkout is under active development, the scripts must call the uv-installed `houmao-mgr` and Python under `/home/huangzhe/.local/share/uv/tools/houmao/bin/`, not the Pixi checkout. Both scripts are campaign scratch state under the Git-ignored `tmp/` tree, not product code.
 
 ## Success Criteria
 
@@ -91,13 +115,15 @@ This campaign is an isolated interactive diagnostic and review effort. Temporary
 Active links:
 
 - [KQ-1: DSH Basic Functionality With Houmao](key-questions/KQ-1-dsh-basic-functionality.md)
+- [KQ-4: Two-Agent Local Filesystem Mail and Notifier](key-questions/KQ-4-local-mailbox-and-notifier.md)
 - [Iteration 1: DSH Basic Functionality With Houmao](iterations/2026-11-18-plan-1-dsh-basic-functionality.md) (historical RC1 plan with partial RC2 evidence)
-- [Iteration 2: DSH Run Modes and Unified Control on RC3](iterations/2026-11-19-plan-2-dsh-rc3-run-modes.md) (current plan)
+- [Iteration 2: DSH Run Modes and Unified Control on RC3](iterations/2026-11-19-plan-2-dsh-rc3-run-modes.md) (current DSH mode plan)
+- [Iteration 3: Two-Agent Filesystem Mail and Notifier](iterations/2026-11-20-plan-3-mailbox-two-agent.md) (current local-mail iteration)
 
 Planned candidate questions for later iterations:
 
-- **KQ-2 (Gateway Auth, Passive Server, and Remote Endpoint UX)**: Is the SSHSIG enrollment, self-versus-admin boundary, endpoint advertisement, and usage inspection flow intuitive and defect-free in interactive use?
-- **KQ-3 (Native Home Inspection and Common-Plugin Refresh UX)**: Do `home`, `refresh --check`, and `refresh` behave clearly under live external skill and MCP edits across DSH and secondary CLIs?
-- **KQ-4 (Dual Mailbox, Stalwart, and `houmao-cccc` Live Coordination)**: Do live online mailbox attach/detach, bounded mail operations, notifier wakeups, and `houmao-cccc` chat/deferred Mail work cleanly side by side while watched live?
-- **KQ-5 (Execution-Owner Switching UX)**: Does `sudo` or `ssh` owner-aware launch, control, and `reconcile`/`forget` recovery behave transparently when observed across operator and owner boundaries?
-- **KQ-6 (Cross-Tool RC3 Run Modes and Unified Control)**: Do Claude, Codex, Kimi, and DSH select and persist their qualified modes correctly, expose only mode-appropriate terminal or browser handoff, and preserve owner-bound admission, observation, usage, and relaunch behavior? This must cover Kimi ACP service and Web, Codex app-server service, unsupported combinations, and TUI versus Web surfaces; DSH-only KQ-1 evidence is insufficient.
+- **KQ-2 (Gateway Auth, Passive Server, and Remote Endpoint UX)** *(standalone iteration deferred 2026-11-20)*: Is the SSHSIG enrollment, self-versus-admin boundary, endpoint advertisement, and usage inspection flow intuitive and defect-free in interactive use?
+- **KQ-3 (Native Home Inspection and Common-Plugin Refresh UX)** *(standalone iteration deferred 2026-11-20)*: Do `home`, `refresh --check`, and `refresh` behave clearly under live external skill and MCP edits across DSH and secondary CLIs?
+- **KQ-4 (Dual Mailbox, Stalwart, and `houmao-cccc` Live Coordination)** *(local filesystem mail and notifier active under Iteration 3; Stalwart and `houmao-cccc` deferred 2026-11-20)*: Do live online mailbox attach/detach, bounded mail operations, notifier wakeups, and `houmao-cccc` chat/deferred Mail work cleanly side by side while watched live?
+- **KQ-5 (Execution-Owner Switching UX)** *(deferred 2026-11-20)*: Does `sudo` or `ssh` owner-aware launch, control, and `reconcile`/`forget` recovery behave transparently when observed across operator and owner boundaries?
+- **KQ-6 (Cross-Tool RC3 Run Modes and Unified Control)** *(deferred 2026-11-20)*: Do Claude, Codex, Kimi, and DSH select and persist their qualified modes correctly, expose only mode-appropriate terminal or browser handoff, and preserve owner-bound admission, observation, usage, and relaunch behavior? This must cover Kimi ACP service and Web, Codex app-server service, unsupported combinations, and TUI versus Web surfaces; DSH-only KQ-1 evidence is insufficient.

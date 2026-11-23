@@ -159,11 +159,60 @@ A second MCP server was added without Houmao refresh, using DSH's own authentica
 
 This path did not run any Houmao refresh and therefore did not hit the multi-Agent `busy` admission. DSH's Settings remote is the native dynamic-add path; the profile patch plus Houmao refresh is an alternative application path, not a requirement.
 
+## Toolbox UI Install and Migration
+
+`dsh-toolbox-ui` 1.13.2 was installed from npm with a pinned version into the run's web profile. The package added itself to `profiles/web/package.json` bundles and `node_modules`; the profile files were backed up under `/tmp/dsh-toolbox-backup` first. pnpm was not on PATH, so a temporary `/tmp/pnpm-bin/pnpm` shim forwarded to `npx -y pnpm@10`.
+
+```bash
+D=tmp/houmao-30-iter2-rc3/runs/self-hosted-dsh-web-manager-2752bd4a0bc9
+H="$D/workdir/.houmao/runtime/homes/dsh-brain-20261120-030332Z-fae160"
+PATH=/tmp/pnpm-bin:$PATH DSH_HOME="$PWD/$H" \
+  tmp/dsh/npm-runtime/node_modules/.bin/dsh plugin --profile web add dsh-toolbox-ui@1.13.2
+```
+
+The Toolbox entry appeared in the sidebar and as a floating button, with MCP, Skills, Tools, and Context tabs. The host was relaunched with `--chat-session-mode exact` and the managed native session id, so the session was preserved. The browser origin became `http://127.0.0.1:40673`, and `sign-in-url.txt` was regenerated from `browser-connection.json`.
+
+The MCP tab initially showed `0 servers` because the plugin manages its own `@deepseek-ai/dsh-mcp-client` entries, while the existing servers were in the built-in `mcp-manager`. Its import dialog reads Claude Code, Codex, or pasted `mcpServers` JSON, not the built-in manager.
+
+Migration steps:
+
+- The built-in `mcp-manager` entries were disabled through the DSH Settings API, which stopped their processes.
+- Both servers were imported through the Toolbox **Import MCP** flow with **Merge (update by name)**. The pasted JSON used this shape, with the Tavily key kept out of the log:
+
+  ```json
+  {
+    "mcpServers": {
+      "tavily": {
+        "command": "/home/huangzhe/.local/bin/npx",
+        "args": ["-y", "tavily-mcp@latest"],
+        "env": {"TAVILY_API_KEY": "<from ~/.tavily/config.json; not recorded>"}
+      },
+      "semantic-scholar": {
+        "command": "/home/huangzhe/.local/bin/uvx",
+        "args": ["--with", "mcp<2", "semantic-scholar-mcp==0.4.0"]
+      }
+    }
+  }
+  ```
+
+- The profile patch now contains `mcp-tavily` and `mcp-semantic-scholar` client rows; the built-in manager entries remain configured with `enabled: false`.
+- `cordis.patch.yml` is mode `0600`. The plugin masks the Tavily key in its UI; the key now lives in the plugin-managed entry instead of the DSH credential provider.
+
+Verification:
+
+- Toolbox showed `2 servers · 2 enabled`: `tavily` with 5 tools and `semantic-scholar` with 33 tools.
+- The agent still called `mcp__tavily__tavily_search` and `mcp__semantic-scholar__search_papers` successfully after the migration.
+- The GUI **Disable** action changed the list to `2 servers · 1 enabled`, showed `Disabled` in the details pane, disconnected Semantic Scholar, and stopped its process. **Enable** returned it to `2 servers · 2 enabled`, showed `Connected`, started a new `semantic-scholar-mcp` process pair (PIDs `799610`/`799624` at 12:58:02), and the next agent prompt called `mcp__semantic-scholar__search_papers` successfully.
+
+Side effect: the relaunch activated the existing `agent-preset-registry` patch entry with `selectedDefault: cordis`, so new sessions default to **Creator mode** instead of **Standard mode**. The managed session remains on its original preset.
+
 ## Findings
 
 - Plain `uvx semantic-scholar-mcp` fails against mcp 2.x; the package needs an upper bound or the caller must add `--with 'mcp<2'`. This is an upstream packaging issue.
 - The DSH Web build exposes no MCP settings page. The profile user patch plus Houmao refresh is the working external-update path.
-- DSH natively supports live MCP add and update through its Settings remote. The Web build has no MCP form, but the API path adds a server without Houmao refresh and without the multi-Agent admission check.
+- Community MCP UI plugins commonly manage `@deepseek-ai/dsh-mcp-client` rows rather than the built-in `mcp-manager`. `dsh-toolbox-ui` does not display servers configured only in `mcp-manager`; migrating them changes where the Tavily key is stored.
+- `dsh-toolbox-ui` works after migration: it lists both servers and their tool counts and its enable/disable actions control the live clients. The built-in `mcp-manager` entries must stay disabled to avoid duplicate tool registration.
+- The relaunch activated the existing `agent-preset-registry` entry with `selectedDefault: cordis`, changing the new-session default to Creator mode. Restore `standard` if that was not intended.
 - Native refresh is refused as `busy` whenever DSH has more than one live Agent. Browser sessions, blank New Session tabs, and archived sessions all remain `agentAvailable: true`; archiving does not dispose them. This makes refresh unusable after the Web UI has ever opened another session.
 - On a clean host, refresh performs a real native reload, mounts the new MCP server, and reports current declarations and tools.
 - Updating the MCP config rebuilds only that instance. The process PID changed, the conversation was preserved, and the agent could use the updated server on the next prompt.
