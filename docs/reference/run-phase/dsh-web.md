@@ -24,7 +24,7 @@ Web runtime, native authentication/admission, shared-session identity, and actua
 
 ## Launch and Surface Selection
 
-DSH selects `dsh_web` in `web` mode. A Web host uses a private DSH home, an explicit model/provider catalog, a loopback listener, and `--no-open`. Port zero requests an available listener. Houmao records the port that the host binds. The host's tmux session supervises its process and private logs.
+DSH selects `dsh_web` in `web` mode and requires version 0.2.2-rc.1 or later. A Web host uses a private DSH home, an explicit model/provider catalog, a loopback listener, and `--no-open`. Port zero requests an available listener. Houmao records the port that the host binds. The host's tmux session supervises its process and private logs.
 
 | Field or Control | Web Meaning |
 | --- | --- |

@@ -7,6 +7,8 @@ import re
 from pathlib import Path
 from typing import Any, Self
 
+from packaging.version import Version
+
 from houmao.agents.launch_policy import is_supported_dsh_version
 from houmao.agents.realm_controller.usage_adapters.claude import parse_claude
 from houmao.agents.realm_controller.usage_adapters.codex import parse_codex
@@ -37,6 +39,7 @@ class UsageAdapter:
         """Initialize an unconfigured adapter."""
 
         self.m_state: UsageAdapterState = UsageAdapterState(provider="unknown")
+        self.m_bound_provider_version: str | None = None
 
     @classmethod
     def from_provider(
@@ -44,8 +47,10 @@ class UsageAdapter:
         provider: str,
         provider_session_id: str | None = None,
         profile_id: str | None = None,
+        *,
+        provider_version: str | None = None,
     ) -> Self:
-        """Create an adapter for one supported provider stream."""
+        """Create an adapter, optionally bound to a verified executable build."""
 
         if provider not in {"claude", "codex", "kimi", "dsh"}:
             raise ValueError(f"Unsupported usage provider: {provider}")
@@ -54,6 +59,10 @@ class UsageAdapter:
         instance.m_state = state_type(
             provider=provider, provider_session_id=provider_session_id, profile_id=profile_id
         )
+        if provider_version is not None:
+            Version(provider_version)
+            instance.m_bound_provider_version = provider_version
+            instance._set_version(provider_version)
         return instance
 
     @property
@@ -81,6 +90,8 @@ class UsageAdapter:
         if restored.provider != self.m_state.provider:
             raise ValueError("Usage adapter checkpoint belongs to another provider")
         self.m_state = restored
+        if self.m_bound_provider_version is not None:
+            self._set_version(self.m_bound_provider_version)
 
     def configure_native_source(self, path: Path) -> None:
         """Verify provider-specific source framing before reading event rows."""
@@ -106,7 +117,8 @@ class UsageAdapter:
         raw = payload.get("raw_payload")
         if isinstance(raw, dict):
             payload = raw
-        self._observe_version(payload)
+        if self.m_bound_provider_version is None:
+            self._observe_version(payload)
         context = UsageParseContext(
             source_ref=source_ref,
             source_kind=source_kind,
@@ -142,6 +154,11 @@ class UsageAdapter:
             r"[0-9]+(?:\.[0-9]+){1,3}(?:[-+][A-Za-z0-9._-]+)?", version
         ):
             return
+        self._set_version(version)
+
+    def _set_version(self, version: str) -> None:
+        """Qualify the accounting shape for the selected client build."""
+
         if self.m_state.provider_version not in {None, version}:
             self.m_state.previous_totals.clear()
             self.m_state.previous_total_source_ids.clear()

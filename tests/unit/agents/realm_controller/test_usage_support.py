@@ -95,10 +95,13 @@ def _turn(path: Path, name: str, *, inputs: int = 1000) -> None:
     )
 
 
-@pytest.mark.parametrize("wrong_incarnation", [False, True])
+@pytest.mark.parametrize(
+    ("wrong_incarnation", "version"),
+    [(False, None), (False, "2.6.0"), (False, "2.7.2"), (True, "2.6.0")],
+)
 @pytest.mark.parametrize("backend", ["kimi_acp", "kimi_web"])
 def test_kimi_service_accounts_only_for_the_certified_interval(
-    tmp_path: Path, wrong_incarnation: bool, backend: str
+    tmp_path: Path, wrong_incarnation: bool, version: str | None, backend: str
 ) -> None:
     """Exclude replay and occupancy and require exact owner evidence across recovery."""
 
@@ -110,6 +113,8 @@ def test_kimi_service_accounts_only_for_the_certified_interval(
         }
     else:
         payload["backend_state"]["service_incarnation"] = "incarnation-b"
+    if version is not None:
+        payload["launch_plan"]["metadata"] = {backend: {"detected_version": version}}
     manifest.write_text(json.dumps(payload))
     journal = (
         tmp_path / "home" / "sessions" / "wd_test" / "session-b" / "agents" / "main" / "wire.jsonl"
@@ -166,6 +171,9 @@ def test_kimi_service_accounts_only_for_the_certified_interval(
         )
     )
     # Simulate losing the recorder after native closure and before creating usage-final.
+    if version == "2.7.2":
+        payload["launch_plan"]["metadata"][backend]["detected_version"] = "2.6.0"
+        manifest.write_text(json.dumps(payload))
     recovered = UsageService.from_manifest(manifest)
     recovered.reconcile()
     page = recovered.get_usage()
@@ -175,13 +183,24 @@ def test_kimi_service_accounts_only_for_the_certified_interval(
     else:
         [settlement] = page.records
         assert settlement.turn_id == "request-a" and settlement.provider_turn_id == "1"
-        assert settlement.token_usage.input_tokens.value == 12
-        assert settlement.token_usage.output_tokens.value == 4
+        [source] = [source for source in settlement.sources if source.accounting]
+        assert source.provider_version == version
+        if version == "2.7.2":
+            assert source.measurement_scope == "unknown"
+            assert settlement.token_usage.input_tokens.value is None
+            assert settlement.token_usage.output_tokens.value is None
+        else:
+            assert source.measurement_scope == "request"
+            assert settlement.token_usage.input_tokens.value == 12
+            assert settlement.token_usage.output_tokens.value == 4
         recovered.reconcile()
         assert recovered.get_usage(after=page.next_cursor).records == []
 
 
-def test_codex_service_recovers_only_exact_native_responses(tmp_path: Path) -> None:
+@pytest.mark.parametrize("version", [None, "0.169.0", "0.171.0"])
+def test_codex_service_recovers_only_exact_native_responses(
+    tmp_path: Path, version: str | None
+) -> None:
     """Charge the bound native turn once after its terminal reaches the rollout."""
 
     manifest = _manifest(tmp_path, backend="codex_app_server")
@@ -189,6 +208,8 @@ def test_codex_service_recovers_only_exact_native_responses(tmp_path: Path) -> N
     payload = json.loads(manifest.read_text())
     payload["working_directory"] = workspace
     payload["backend_state"]["service_incarnation"] = "codex-incarnation"
+    if version is not None:
+        payload["launch_plan"]["metadata"] = {"codex_app_server": {"detected_version": version}}
     manifest.write_text(json.dumps(payload))
     service = UsageService.from_manifest(manifest)
     turn_dir = manifest.parent / "manifest.turn-artifacts" / "request-c"
@@ -262,8 +283,16 @@ def test_codex_service_recovers_only_exact_native_responses(tmp_path: Path) -> N
     page = usage.get_usage()
     [record] = page.records
     assert record.turn_id == "request-c" and record.provider_turn_id == "target"
-    assert record.token_usage.input_tokens.value == 14
-    assert record.token_usage.output_tokens.value == 3
+    [source] = [source for source in record.sources if source.accounting]
+    assert source.provider_version == (version or "0.169.0")
+    if version == "0.171.0":
+        assert source.measurement_scope == "unknown"
+        assert record.token_usage.input_tokens.value is None
+        assert record.token_usage.output_tokens.value is None
+    else:
+        assert source.measurement_scope == "request"
+        assert record.token_usage.input_tokens.value == 14
+        assert record.token_usage.output_tokens.value == 3
     usage.reconcile()
     assert usage.get_usage(after=page.next_cursor).records == []
 

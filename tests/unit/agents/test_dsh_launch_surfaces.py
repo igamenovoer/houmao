@@ -652,7 +652,13 @@ def test_dsh_headless_refuses_acp_mcp_before_preparing_native_work(
 def test_dsh_headless_detects_older_build_before_starting_native_work() -> None:
     """Apply the headless floor independently of unattended launch policy."""
 
-    with pytest.raises(LaunchPlanError, match="DSH headless requires >=0.2.2-rc.3"):
+    assert (
+        validate_dsh_launch_version(
+            executable="dsh", detected_version="0.2.2-rc.2", backend="dsh_web"
+        )
+        == "0.2.2-rc.2"
+    )
+    with pytest.raises(LaunchPlanError, match=r"dsh_headless.*requires version >=0\.2\.2rc3"):
         validate_dsh_launch_version(
             executable="dsh", detected_version="0.2.2-rc.2", backend="dsh_headless"
         )

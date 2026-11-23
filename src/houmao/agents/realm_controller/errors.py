@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from enum import Enum
+
 
 class BrainLaunchRuntimeError(RuntimeError):
     """Base runtime error.
@@ -47,6 +49,41 @@ class SchemaValidationError(BrainLaunchRuntimeError):
 
 class BackendExecutionError(BrainLaunchRuntimeError):
     """Raised when a backend command fails to execute successfully."""
+
+
+class ServiceStartupCheck(Enum):
+    """Safe native startup diagnostics that can cross the owner boundary."""
+
+    CODEX_EXECUTABLE_VERSION = "Codex app-server launch has an invalid executable version."
+    CODEX_INITIALIZE = "Codex app-server failed the native initialize request."
+    CODEX_HANDSHAKE = "Codex app-server handshake has an invalid user agent."
+    CODEX_VERSION = "Codex app-server peer version does not match the selected executable."
+    CODEX_HOME = "Codex app-server handshake did not confirm the selected private home."
+    CODEX_THREAD = "Codex app-server did not bind the requested native thread and workspace."
+    CODEX_ROLLOUT = "Codex native thread lacks exact persisted workspace evidence."
+    CODEX_APPROVAL = "Codex app-server did not confirm the requested approval policy."
+    CODEX_SANDBOX = "Codex app-server did not confirm the requested sandbox mode."
+    CODEX_MODEL = "Codex app-server did not bind the configured native model."
+    KIMI_EXECUTABLE_VERSION = "Kimi ACP launch has an invalid executable version."
+    KIMI_INITIALIZE = "Kimi ACP failed the native initialize request."
+    KIMI_PROTOCOL = "Kimi ACP did not negotiate the required protocol version 1."
+    KIMI_CAPABILITIES = "Kimi ACP returned malformed agent or session capabilities."
+    KIMI_VERSION = "Kimi ACP peer version does not match the selected executable."
+    KIMI_CONTINUATION = "Kimi ACP did not advertise exact session continuation."
+    KIMI_SESSION = "Kimi ACP did not bind the selected native session."
+    KIMI_MODEL = "Kimi ACP did not bind the configured native model."
+    KIMI_PERMISSION_MODE = "Kimi ACP did not confirm its native permission_mode."
+
+
+class ServiceStartupCompatibilityError(BackendExecutionError):
+    """Report one allowlisted native startup check without including peer data."""
+
+    def __init__(self, check: ServiceStartupCheck) -> None:
+        self.check = check
+        detail = check.value
+        if check.name.startswith("CODEX_"):
+            detail = f"{detail} Available alternatives are headless and tui."
+        super().__init__(detail)
 
 
 class GatewayError(BrainLaunchRuntimeError):

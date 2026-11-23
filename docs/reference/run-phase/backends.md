@@ -136,27 +136,27 @@ Managed Kimi headless and TUI support starts at version 2.1.1 and has no upper v
 
 ### dsh_web
 
-The DSH project default starts an owned native Web host with a private home and loopback listener. Houmao reports the verified browser origin and session ID. The gateway uses structured native operations and tmux supervises the host. [DSH Web](dsh-web.md).
+The DSH project default starts an owned native Web host with DSH 0.2.2-rc.1 or later. The host uses a private home and loopback listener. Houmao reports the verified browser origin and session ID. The gateway uses structured native operations and tmux supervises the host. [DSH Web](dsh-web.md)
 
 ### dsh_headless
 
-The DSH headless backend starts one native `--profile headless` CLI worker per prompt. It writes the task through private stdin, reads JSON events, and resumes the recorded native conversation by exact session ID. The managed supervisor remains available between prompts. [DSH headless launch and configuration](dsh-headless.md), [DSH headless integrations](dsh-headless-integrations.md).
+The DSH headless backend requires DSH 0.2.2-rc.3 or later. It starts one native `--profile headless` CLI worker per prompt, writes the task through private stdin, reads JSON events, and resumes the recorded native conversation by exact session ID. The managed supervisor remains available between prompts. [DSH Headless Launch and Configuration](dsh-headless.md), [DSH Headless Integrations](dsh-headless-integrations.md)
 
 ### dsh_acp
 
-DSH service mode keeps one native `--profile acp` process and logical session across managed turns. The manager and authenticated gateway reach the same supervised owner. [DSH ACP service](dsh-service.md).
+DSH service mode requires DSH 0.2.2-rc.3 or later. It keeps one native `--profile acp` process and logical session across managed turns. The manager and authenticated gateway reach the same supervised owner. [DSH ACP Service](dsh-service.md)
 
 ### kimi_acp
 
-Kimi Code `2.6.0` uses `kimi acp` over a private persistent connection. The manager, gateway, and AG-UI use the same native session and request admission. [Kimi Code ACP Service](kimi-acp-service.md).
+Kimi service mode requires Kimi Code 2.6.0 or later. The manager, gateway, and AG-UI share one native session over a private persistent ACP connection. [Kimi Code ACP Service](kimi-acp-service.md)
 
 ### kimi_web
 
-Kimi Code `2.6.0` exposes one native conversation to the browser and Houmao's authenticated control path. The owner checks readiness immediately before sending ordinary input and preserves Kimi's queued receipt if the browser wins after that check. [Kimi Web](kimi-web.md).
+Kimi Web requires Kimi Code 2.6.0 or later. It exposes one native conversation to the browser and Houmao's control path. The owner checks readiness before sending input and preserves Kimi's queued receipt if the browser starts a turn after the check. [Kimi Web](kimi-web.md)
 
 ### codex_app_server
 
-Codex CLI `0.169.0` runs as an owner-private stdio service with one bound native thread. Native handle, terminal status, and partial output use exact turn evidence. [Codex App-Server Service](codex-app-server-service.md).
+Codex service mode requires Codex CLI 0.169.0 or later. The owner-private stdio service binds one native thread. Native handle, terminal status, and partial output use exact turn evidence. [Codex App-Server Service](codex-app-server-service.md)
 - **Role injection (historical):** native developer instructions (same as `codex_headless`).
 
 ### cao_rest (legacy/internal)

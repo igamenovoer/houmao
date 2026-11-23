@@ -69,7 +69,7 @@ The supported path is:
 
 Current builders also resolve omitted prompt mode to unattended by default. The important failure case here is an explicit `as_is` selection or a stale runtime home built before the current unattended-default semantics.
 
-For the currently supported installed version `codex-cli 0.162.1`, Houmao resolves strategy `codex-unattended-0.162-plus`. That strategy seeds the runtime-owned `CODEX_HOME/config.toml` with:
+For an eligible Codex CLI version at or above `0.162.1` on this launch path, Houmao resolves strategy `codex-unattended-0.162-plus`. The strategy seeds the runtime-owned `CODEX_HOME/config.toml`.
 
 ```toml
 approval_policy = "never"

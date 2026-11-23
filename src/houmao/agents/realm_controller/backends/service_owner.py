@@ -40,7 +40,10 @@ from houmao.agents.realm_controller.backends.service_runtime import (
     service_turn_dir,
     write_service_record,
 )
-from houmao.agents.realm_controller.errors import BackendExecutionError
+from houmao.agents.realm_controller.errors import (
+    BackendExecutionError,
+    ServiceStartupCompatibilityError,
+)
 from houmao.agents.realm_controller.managed_control import ManagedControlObservationV1
 from houmao.agents.realm_controller.models import SessionEvent
 from houmao.agents.realm_controller.owner_admission import OwnerPromptClaim
@@ -549,7 +552,10 @@ def main() -> int:
         _serve(config, provider)
         return 0
     except (Exception, KeyboardInterrupt) as error:
-        write_service_record(config.root / "startup-failure.json", {"error": type(error).__name__})
+        failure = {"error": type(error).__name__}
+        if isinstance(error, ServiceStartupCompatibilityError):
+            failure["check"] = error.check.name
+        write_service_record(config.root / "startup-failure.json", failure)
         return 1
     finally:
         if provider is not None:

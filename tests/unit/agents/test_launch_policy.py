@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from houmao.agents.launch_policy import apply_launch_policy, detect_tool_version
-from houmao.agents.launch_policy.engine import load_registry_documents
+from houmao.agents.launch_policy.engine import load_registry_documents, resolve_strategy
 from houmao.agents.launch_policy import provider_hooks
 from houmao.agents.launch_policy.models import (
     LaunchPolicyError,
@@ -693,7 +693,7 @@ def test_codex_registry_declares_final_cli_config_override_hook() -> None:
     assert strategy.actions[-1].params == {"hook_id": "codex.append_unattended_cli_overrides"}
     service = strategies["codex-app-server-unattended-0.169.0"]
     assert service.backends == ("codex_app_server",)
-    assert service.supported_versions.to_payload() == "==0.169.0"
+    assert service.supported_versions.to_payload() == ">=0.169.0"
     assert service.system_prompt.owned_surface == "developerInstructions"
     assert all(action.params != strategy.actions[-1].params for action in service.actions)
 
@@ -705,8 +705,8 @@ def test_kimi_registry_declares_native_home_system_prompt() -> None:
     supported_versions = {
         "kimi-unattended-2.1-plus": ">=2.1.1",
         "kimi-tui-unattended-2.1-plus": ">=2.1.1",
-        "kimi-acp-unattended-2.6.0": "==2.6.0",
-        "kimi-web-unattended-2.6.0": "==2.6.0",
+        "kimi-acp-unattended-2.6.0": ">=2.6.0",
+        "kimi-web-unattended-2.6.0": ">=2.6.0",
     }
     assert {strategy.strategy_id for strategy in documents[0].strategies} == set(supported_versions)
     for strategy in documents[0].strategies:
@@ -717,6 +717,37 @@ def test_kimi_registry_declares_native_home_system_prompt() -> None:
         assert contract.evidence
         assert strategy.supported_versions.to_payload() == supported_versions[strategy.strategy_id]
         assert strategy.to_metadata_payload()["system_prompt"] == contract.to_payload()
+
+
+@pytest.mark.parametrize("tool", ["dsh", "kimi", "claude", "codex"])
+def test_packaged_strategies_use_inclusive_minimums(tool: str, tmp_path: Path) -> None:
+    """Each packaged backend selects one strategy at its minimum and on later builds."""
+
+    (document,) = load_registry_documents(tool=tool)
+    for strategy in document.strategies:
+        minimum = strategy.supported_versions.to_payload()
+        assert minimum.startswith(">=")
+        floor = ToolVersion.parse(minimum.removeprefix(">="))
+        for backend in strategy.backends:
+            request = LaunchPolicyRequest(
+                tool=tool,
+                backend=backend,
+                executable=tool,
+                base_args=(),
+                requested_operator_prompt_mode=strategy.operator_prompt_mode,
+                working_directory=tmp_path,
+                home_path=tmp_path / "home",
+                env={},
+            )
+            assert resolve_strategy(request=request, detected_version=floor) == (
+                strategy,
+                "registry",
+            )
+            assert resolve_strategy(
+                request=request, detected_version=ToolVersion.parse("9.9.9")
+            ) == (strategy, "registry")
+            with pytest.raises(LaunchPolicyError, match="No compatible unattended launch strategy"):
+                resolve_strategy(request=request, detected_version=ToolVersion.parse("0.0.0"))
 
 
 @pytest.mark.parametrize("tool", ["claude", "codex"])
@@ -1023,6 +1054,46 @@ def test_detect_tool_version_uses_absolute_executable_path(
 
     assert captured["command"] == ["/home/user/.kimi-code/bin/kimi", "--version"]
     assert detected_version.raw == "0.10.1"
+
+
+@pytest.mark.parametrize(
+    ("output", "reported", "eligible"),
+    [
+        ("dsh 0.2.2-rc.2", "0.2.2-rc.2", False),
+        ("dsh v0.2.2-rc.3", "0.2.2-rc.3", True),
+        ("dsh 0.2.2rc4", "0.2.2rc4", True),
+        ("0.2.2-rc.4+local", "0.2.2-rc.4+local", True),
+        ("codex-cli 0.171.0 (local build)", "0.171.0", True),
+        ("2.1.330 (Claude Code)", "2.1.330", True),
+        ("2.7.2", "2.7.2", True),
+        ("2.7.2a1", "2.7.2a1", False),
+        ("2.7.2-beta.1", "2.7.2-beta.1", False),
+        ("2.7.2.dev1", "2.7.2.dev1", False),
+    ],
+)
+def test_detect_tool_version_preserves_release_channels(
+    monkeypatch: pytest.MonkeyPatch, output: str, reported: str, eligible: bool
+) -> None:
+    """Apply channel and ordering rules to the full native version token."""
+
+    _stub_version(monkeypatch, output=output)
+
+    observed = detect_tool_version(executable="selected-cli")
+
+    assert observed.raw == reported
+    assert SupportedVersionSpec.parse(">=0.2.2rc3").contains(observed) is eligible
+
+
+@pytest.mark.parametrize("output", ["git build", "2.7.2invalid", "2.7.2-"])
+def test_detect_tool_version_rejects_malformed_output(
+    monkeypatch: pytest.MonkeyPatch, output: str
+) -> None:
+    """A malformed suffix cannot turn into an allowed stable release."""
+
+    _stub_version(monkeypatch, output=output)
+
+    with pytest.raises(LaunchPolicyError, match="version"):
+        detect_tool_version(executable="selected-cli")
 
 
 def test_supported_version_spec_uses_dependency_style_matching() -> None:

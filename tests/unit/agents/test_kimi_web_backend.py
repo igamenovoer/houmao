@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 import json
 from pathlib import Path
 import time
@@ -20,6 +21,7 @@ from houmao.agents.realm_controller.backends.kimi_web import (
     recover_kimi_web_prompt_result,
 )
 from houmao.agents.realm_controller.backends.kimi_web_client import KimiWebClient
+from houmao.agents.realm_controller.errors import BackendExecutionError
 from houmao.agents.realm_controller.models import (
     LaunchPlan,
     RelaunchChatSessionSelection,
@@ -40,8 +42,12 @@ class _Native:
         self.m_busy: bool = False
         self.m_lose_response: bool = False
         self.m_refuse_preflight: bool = False
+        self.m_refuse_session_create: bool = False
+        self.m_wrap_profile: bool = False
+        self.m_activity_override: str | None = None
         self.m_calls: list[tuple[str, str]] = []
         self.m_permission: str = "manual"
+        self.m_reported_permission: str | None = None
         self.m_host_incarnation: str = "host"
 
     @property
@@ -77,7 +83,10 @@ class _Native:
         self.m_calls.append((method, path))
         if (method, path) == ("GET", "/meta"):
             return {"server_id": self.m_host_incarnation}
-        if path == "/sessions/session_selected/profile" and method == "POST":
+        if (method, path) == ("POST", "/sessions") and self.m_refuse_session_create:
+            raise DshWebError("invalid_request", "Native session API is unavailable")
+        profile_update = (method, path) == ("POST", "/sessions/session_selected/profile")
+        if profile_update:
             assert body is not None
             self.m_permission = body["agent_config"]["permission_mode"]
         if (method, path) in {
@@ -85,14 +94,31 @@ class _Native:
             ("POST", "/sessions/session_selected/profile"),
             ("POST", "/sessions"),
         }:
-            return {
+            session = {
                 "id": "session_selected",
-                "metadata": {"cwd": str(self.m_workspace)},
                 "archived": False,
-                "busy": self.m_busy,
-                "main_turn_active": self.m_busy,
                 "pending_interaction": "none",
             }
+            if self.m_wrap_profile:
+                current_activity = "turn" if self.m_busy else "idle"
+                session.update(
+                    cwd=str(self.m_workspace),
+                    activity=self.m_activity_override or current_activity,
+                )
+                if profile_update:
+                    return {
+                        "session": session,
+                        "agent": {
+                            "permission_mode": self.m_reported_permission or self.m_permission
+                        },
+                    }
+            else:
+                session.update(
+                    metadata={"cwd": str(self.m_workspace)},
+                    busy=self.m_busy,
+                    main_turn_active=self.m_busy,
+                )
+            return session
         if method == "GET" and path.endswith("/prompts"):
             return {
                 "active": None,
@@ -219,15 +245,15 @@ def test_browser_entry_checks_host_incarnation_before_releasing_fragment(
     assert native.m_calls == [("GET", "/meta")]
 
 
-@pytest.mark.parametrize("permission_mode", ["auto", "manual", None])
-def test_web_projects_permission_only_during_native_startup(
+@pytest.fixture
+def web_startup_plan(
     web: tuple[KimiWebSession, _Native],
     monkeypatch: pytest.MonkeyPatch,
-    permission_mode: str | None,
-) -> None:
-    """Apply the selected mode on birth and exact relaunch while observation remains passive."""
+) -> LaunchPlan:
+    """Provide an admitted newer version and bypass only host process startup."""
 
     adapter, native = web
+    native.m_wrap_profile = True
     prior_state = adapter.state
     home = Path(prior_state.cookie_path).parent
     plan = LaunchPlan(
@@ -244,7 +270,7 @@ def test_web_projects_permission_only_during_native_startup(
             method="native_home_system_prompt", role_name="r", prompt="role"
         ),
         metadata={
-            "kimi_web": {"detected_version": "2.6.0", "permission_mode": permission_mode},
+            "kimi_web": {"detected_version": "2.7.2", "permission_mode": "auto"},
             "managed_web_identity": {
                 field: prior_state.web_identity[field]
                 for field in ("agent_id", "runtime_session_id", "generation")
@@ -276,8 +302,32 @@ def test_web_projects_permission_only_during_native_startup(
         staticmethod(lambda *_: (process, client, {"server_id": "host"})),
     )
     monkeypatch.setattr(KimiWebSession, "_client", lambda _: client)
+    monkeypatch.setattr(KimiWebSession, "_owns_tmux", staticmethod(lambda *_: False))
     monkeypatch.setattr(
         KimiWebSession, "terminate", lambda _: SessionControlResult("ok", "terminate", "stopped")
+    )
+    return plan
+
+
+@pytest.mark.parametrize(
+    ("version", "permission_mode"), [("2.6.0", "auto"), ("2.7.2", "manual"), ("2.7.2", None)]
+)
+def test_web_projects_permission_only_during_native_startup(
+    web: tuple[KimiWebSession, _Native],
+    web_startup_plan: LaunchPlan,
+    version: str,
+    permission_mode: str | None,
+) -> None:
+    """Apply the selected mode on birth and exact relaunch while observation remains passive."""
+
+    adapter, native = web
+    native.m_wrap_profile = version != "2.6.0"
+    plan = replace(
+        web_startup_plan,
+        metadata={
+            **web_startup_plan.metadata,
+            "kimi_web": {"detected_version": version, "permission_mode": permission_mode},
+        },
     )
     launched = KimiWebSession.from_launch_plan(
         launch_plan=plan,
@@ -314,6 +364,92 @@ def test_web_projects_permission_only_during_native_startup(
     ]
     assert native.m_permission == (permission_mode or "yolo")
     assert reattached.state.web_identity["native_session_id"] == "session_selected"
+
+
+@pytest.mark.parametrize(
+    ("failure", "message"),
+    [
+        ("api", "native session API failed"),
+        ("identity", "session or workspace changed"),
+        ("activity", "session activity could not be verified"),
+        ("permission", "did not confirm permission mode"),
+    ],
+)
+def test_web_newer_version_cannot_publish_an_unverified_session(
+    web: tuple[KimiWebSession, _Native],
+    web_startup_plan: LaunchPlan,
+    failure: str,
+    message: str,
+) -> None:
+    """Verify the newer build's session API and ownership before publishing a binding."""
+
+    adapter, native = web
+    if failure == "api":
+        native.m_refuse_session_create = True
+    elif failure == "identity":
+        native.m_workspace = web_startup_plan.working_directory.parent / "wrong-workspace"
+    elif failure == "activity":
+        native.m_activity_override = "unknown"
+    else:
+        native.m_reported_permission = "manual"
+    with pytest.raises(BackendExecutionError, match=message):
+        KimiWebSession.from_launch_plan(
+            launch_plan=web_startup_plan,
+            session_manifest_path=adapter.manifest_path,
+            role_name="r",
+            provider_start=True,
+        )
+    assert native.m_calls[0] == ("POST", "/sessions")
+    assert not list(web_startup_plan.home_path.glob("houmao-web/*/bootstrap.json"))
+
+
+def test_web_below_floor_plan_does_not_start_native_host(
+    web: tuple[KimiWebSession, _Native], web_startup_plan: LaunchPlan
+) -> None:
+    """Validate the declared version floor before creating an owner or issuing requests."""
+
+    adapter, native = web
+    plan = replace(
+        web_startup_plan,
+        metadata={**web_startup_plan.metadata, "kimi_web": {"detected_version": "2.5.9"}},
+    )
+    with pytest.raises(BackendExecutionError, match=r"Kimi Web .*>=2\.6\.0"):
+        KimiWebSession.from_launch_plan(
+            launch_plan=plan,
+            session_manifest_path=adapter.manifest_path,
+            role_name="r",
+            provider_start=True,
+        )
+    assert not native.m_calls
+    assert not (plan.home_path / "houmao-web").exists()
+
+
+def test_web_host_wait_reports_incompatible_meta_api(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keep the native /meta diagnostic after an owned listener fails verification."""
+
+    module = "houmao.agents.realm_controller.backends.kimi_web"
+    root, home = tmp_path / "owner", tmp_path / "home"
+    instances = home / "server/instances"
+    root.mkdir()
+    instances.mkdir(parents=True)
+    (root / "supervisor.json").write_text(json.dumps({"native_pid": 40, "native_birth_token": "p"}))
+    (instances / "native.json").write_text(
+        json.dumps({"pid": 40, "host": "127.0.0.1", "port": 8080})
+    )
+
+    def request(method: str, path: str, *, authenticated: bool) -> dict[str, Any]:
+        """Simulate an owned listener whose API exposes no compatible /meta endpoint."""
+
+        assert (method, path, authenticated) == ("GET", "/meta", False)
+        (root / "exit.json").touch()
+        raise DshWebError("invalid_request", "Kimi Web refused the native request")
+
+    monkeypatch.setattr(f"{module}.owned_listener", lambda *_: True)
+    monkeypatch.setattr(f"{module}.KimiWebClient", lambda *_: SimpleNamespace(request=request))
+    with pytest.raises(BackendExecutionError, match=r"Kimi Web native /meta verification failed"):
+        KimiWebSession._wait_for_host(home, root)
 
 
 def test_reports_native_queue_receipt_before_settlement(
@@ -354,6 +490,20 @@ def test_passive_read_and_rejected_preflight_send_no_prompt(
     with pytest.raises(DshWebError, match="not_ready"):
         adapter.send_web_prompt("input", turn_artifact_dir_name="refused")
     assert all(method == "GET" for method, _ in native.m_calls)
+
+
+def test_newer_web_background_activity_blocks_input(web: tuple[KimiWebSession, _Native]) -> None:
+    """Require idle activity before dispatch even when the main turn is inactive."""
+
+    adapter, native = web
+    native.m_wrap_profile = True
+    native.m_activity_override = "background"
+    observation = adapter.observe_web_state()
+    assert observation["native_agent_live"] and observation["active_turn"] is None
+    assert not observation["admission"]["ready_only"]
+    with pytest.raises(DshWebError, match="not_ready"):
+        adapter.send_web_prompt("input", turn_artifact_dir_name="background")
+    assert native.m_calls == [("GET", "/sessions/session_selected")] * 2
 
 
 def test_final_native_readiness_follows_dispatch_authorization(
@@ -402,10 +552,14 @@ def test_lost_http_response_recovers_exact_journal_without_repeat(
     ]
 
 
-def test_interrupt_uses_captured_native_prompt(web: tuple[KimiWebSession, _Native]) -> None:
+@pytest.mark.parametrize("current_activity_shape", [False, True])
+def test_interrupt_uses_captured_native_prompt(
+    web: tuple[KimiWebSession, _Native], current_activity_shape: bool
+) -> None:
     """Refuse stale capture and abort the exact active native prompt on valid capture."""
 
     adapter, native = web
+    native.m_wrap_profile = current_activity_shape
     native.m_busy = True
     native.append({"type": "turn.prompt", "promptId": "active_prompt", "turnId": 2})
     captured = adapter.observe_web_state()["active_turn"]

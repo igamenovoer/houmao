@@ -16,6 +16,9 @@ import time
 from typing import Any, TextIO
 from uuid import UUID
 
+from packaging.version import InvalidVersion, Version
+
+from houmao.agents.launch_policy import LaunchPolicyError, validate_packaged_tool_version
 from houmao.agents.model_selection import ModelConfig
 from houmao.agents.realm_controller.backends.dsh_acp_connection import (
     DshAcpConnection,
@@ -30,7 +33,11 @@ from houmao.agents.realm_controller.backends.service_runtime import (
     ServiceProvider,
     write_service_record,
 )
-from houmao.agents.realm_controller.errors import BackendExecutionError
+from houmao.agents.realm_controller.errors import (
+    BackendExecutionError,
+    ServiceStartupCheck,
+    ServiceStartupCompatibilityError,
+)
 from houmao.agents.realm_controller.models import SessionEvent
 from houmao.agents.realm_controller.usage_collection import complete_file_position
 from houmao.agents.realm_controller.usage_store import UsageStoreError
@@ -38,7 +45,6 @@ from houmao.agents.realm_controller.usage_support import UsageService, persist_t
 from houmao.cao.no_proxy import inject_loopback_no_proxy_env
 
 
-_VERSION = "0.169.0"
 _ARGUMENTS = ("app-server", "--listen", "stdio://")
 _SETUP_TIMEOUT = 10.0
 _WRITE_TIMEOUT = 5.0
@@ -111,13 +117,27 @@ class CodexAppServerProvider:
         self.m_available: bool = False
 
     def start(self) -> None:
-        """Complete the qualified native handshake and establish the exact thread."""
+        """Verify the selected executable and establish its exact native thread."""
 
         config = self.m_config
         if tuple(config.arguments) != _ARGUMENTS or config.environment.get("CODEX_HOME") != str(
             self.m_home
         ):
             raise BackendExecutionError("Codex service requires the owned private stdio launch")
+        metadata = config.metadata.get("codex_app_server")
+        if not isinstance(metadata, dict):
+            raise ServiceStartupCompatibilityError(ServiceStartupCheck.CODEX_EXECUTABLE_VERSION)
+        detected_version = metadata.get("detected_version")
+        try:
+            expected_version = validate_packaged_tool_version(
+                tool="codex",
+                backend="codex_app_server",
+                version=detected_version if isinstance(detected_version, str) else None,
+            )
+        except LaunchPolicyError as exc:
+            raise ServiceStartupCompatibilityError(
+                ServiceStartupCheck.CODEX_EXECUTABLE_VERSION
+            ) from exc
         self.m_home_lock = os.open(
             self.m_home / ".houmao-codex-service.lock",
             os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW,
@@ -144,16 +164,29 @@ class CodexAppServerProvider:
             write_timeout=_WRITE_TIMEOUT,
             framing="codex",
         )
-        initialized = self._call(
-            "initialize",
-            {
-                "clientInfo": {"name": "houmao", "version": "1"},
-                "capabilities": {"experimentalApi": False},
-            },
-        )
-        _check_handshake(initialized, self.m_home)
-        self._connection().notify("initialized", {})
-        self._bind_thread(config)
+        try:
+            initialized = self._call(
+                "initialize",
+                {
+                    "clientInfo": {"name": "houmao", "version": "1"},
+                    "capabilities": {"experimentalApi": False},
+                },
+            )
+            version = _check_handshake(initialized, self.m_home, Version(expected_version.raw))
+            self._connection().notify("initialized", {})
+        except (DshAcpProtocolError, DshAcpRequestError, TimeoutError) as exc:
+            raise ServiceStartupCompatibilityError(ServiceStartupCheck.CODEX_INITIALIZE) from exc
+        try:
+            self._bind_thread(config, metadata)
+        except ServiceStartupCompatibilityError:
+            raise
+        except (
+            BackendExecutionError,
+            DshAcpProtocolError,
+            DshAcpRequestError,
+            TimeoutError,
+        ) as exc:
+            raise ServiceStartupCompatibilityError(ServiceStartupCheck.CODEX_THREAD) from exc
         birth = self.process_birth_token
         if birth is None:
             raise BackendExecutionError("Codex app-server process birth identity is unavailable")
@@ -168,19 +201,16 @@ class CodexAppServerProvider:
                 "native_session_id": self.m_thread_id,
                 "process_id": self.process_id,
                 "process_birth_token": birth,
-                "tool_version": _VERSION,
+                "tool_version": version,
                 "working_directory": str(self.m_workspace),
                 "rollout_path": str(self.m_rollout) if self.m_rollout else None,
             },
         )
         self.m_available = True
 
-    def _bind_thread(self, config: ServiceOwnerConfig) -> None:
+    def _bind_thread(self, config: ServiceOwnerConfig, metadata: dict[str, Any]) -> None:
         """Create or resume a durable thread within the exact home and workspace."""
 
-        metadata = config.metadata.get("codex_app_server", {})
-        if not isinstance(metadata, dict):
-            raise BackendExecutionError("Codex app-server launch metadata is invalid")
         parameters: dict[str, Any] = {}
         native_config = metadata.get("thread_config")
         if isinstance(native_config, dict) and native_config:
@@ -212,38 +242,28 @@ class CodexAppServerProvider:
             historical = self._call("thread/read", {"threadId": exact, "includeTurns": False})
             _, prior_rollout, state = self._thread(historical, expected=exact)
             if state == "active" or not _rollout_matches(prior_rollout, exact, self.m_workspace):
-                raise BackendExecutionError(
-                    "Codex native thread lacks exact persisted workspace evidence"
-                )
+                raise ServiceStartupCompatibilityError(ServiceStartupCheck.CODEX_ROLLOUT)
             parameters.update(threadId=exact, excludeTurns=True)
             response = self._call("thread/resume", parameters)
         thread_id, rollout, state = self._thread(response, expected=expected)
         if not _is_workspace(response.get("cwd"), self.m_workspace) or state != "idle":
-            raise BackendExecutionError(
-                "Codex app-server bound a different workspace or non-idle thread"
-            )
+            raise ServiceStartupCompatibilityError(ServiceStartupCheck.CODEX_THREAD)
         if prior_rollout is not None and rollout != prior_rollout:
-            raise BackendExecutionError("Codex app-server changed the exact thread rollout")
+            raise ServiceStartupCompatibilityError(ServiceStartupCheck.CODEX_ROLLOUT)
         if approval_policy is not None and response.get("approvalPolicy") != approval_policy:
-            raise BackendExecutionError(
-                "Codex app-server did not confirm the requested approval policy"
-            )
+            raise ServiceStartupCompatibilityError(ServiceStartupCheck.CODEX_APPROVAL)
         if sandbox_mode is not None:
             sandbox = response.get("sandbox")
             if (
                 not isinstance(sandbox, dict)
                 or sandbox.get("type") != _SANDBOX_POLICY_TYPES[sandbox_mode]
             ):
-                raise BackendExecutionError(
-                    "Codex app-server did not confirm the requested sandbox mode"
-                )
+                raise ServiceStartupCompatibilityError(ServiceStartupCheck.CODEX_SANDBOX)
         if isinstance(native_config, dict):
             for key, native_key in (("model", "model"), ("model_provider", "modelProvider")):
                 value = native_config.get(key)
                 if isinstance(value, str) and response.get(native_key) != value:
-                    raise BackendExecutionError(
-                        "Codex app-server did not bind the configured native model"
-                    )
+                    raise ServiceStartupCompatibilityError(ServiceStartupCheck.CODEX_MODEL)
         self.m_thread_id = thread_id
         self.m_thread_status = state
         self.m_rollout = rollout
@@ -791,19 +811,23 @@ def create_codex_service_provider(config: ServiceOwnerConfig) -> ServiceProvider
     return provider
 
 
-def _check_handshake(response: dict[str, Any], home: Path) -> None:
-    """Validate the installed app-server protocol's home and exact build identity."""
+def _check_handshake(response: dict[str, Any], home: Path, expected_version: Version) -> str:
+    """Verify the private home and identify the live build from the native handshake."""
 
-    user_agent, codex_home = response.get("userAgent"), response.get("codexHome")
-    if (
-        not isinstance(user_agent, str)
-        or user_agent.split(" ", 1)[0] != f"houmao/{_VERSION}"
-        or not _is_workspace(codex_home, home)
-    ):
-        raise BackendExecutionError(
-            "Codex app-server handshake requires build 0.169.0 and the exact private home. "
-            "Available alternatives are headless and tui."
-        )
+    user_agent = response.get("userAgent")
+    token = user_agent.partition(" ")[0] if isinstance(user_agent, str) else ""
+    client, _, reported_version = token.partition("/")
+    if client != "houmao" or not reported_version:
+        raise ServiceStartupCompatibilityError(ServiceStartupCheck.CODEX_HANDSHAKE)
+    try:
+        version = Version(reported_version)
+    except InvalidVersion as exc:
+        raise ServiceStartupCompatibilityError(ServiceStartupCheck.CODEX_HANDSHAKE) from exc
+    if version != expected_version:
+        raise ServiceStartupCompatibilityError(ServiceStartupCheck.CODEX_VERSION)
+    if not _is_workspace(response.get("codexHome"), home):
+        raise ServiceStartupCompatibilityError(ServiceStartupCheck.CODEX_HOME)
+    return reported_version
 
 
 def _uuid(value: object) -> str | None:

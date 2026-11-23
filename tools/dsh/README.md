@@ -18,13 +18,15 @@ The helper clones `https://github.com/deepseek-ai/deepseek-harness.git` into the
 pixi run python tools/dsh/prepare.py inspect --executable "$(command -v dsh)"
 ```
 
-The selected executable must be inside an identifiable `@deepseek-ai/dsh` package. Both its package version and actual `--version` output must match the pinned source's CLI package version, `0.2.2-rc.3`. Inspection invokes only `--version`, in a disposable working directory with isolated `DSH_HOME` and `DSH_AGENTS_HOME` values. It excludes ambient provider credentials from that subprocess.
+The selected executable must be inside an identifiable `@deepseek-ai/dsh` package. Inspection accepts release and RC package versions at or above `0.2.2-rc.1` and checks that the executable's `--version` output matches its installed package metadata. The source revision in the report identifies the pinned development reference. Managed headless and ACP service launches have their own minimum of `0.2.2-rc.3`. [Executable Minimums](../../docs/reference/build-phase/launch-policy.md#executable-minimums)
+
+Inspection invokes only `--version` in a disposable working directory with isolated `DSH_HOME` and `DSH_AGENTS_HOME` values. It excludes ambient provider credentials from that subprocess.
 
 The JSON report includes the exact source revision, resolved executable location, executable SHA-256, installed DSH package inventory, and a digest of the installed DeepSeek package metadata and JavaScript. Published npm metadata does not attest to a source commit. The report keeps that limitation explicit; equal version strings do not prove equal source and executable bytes. ACP's placeholder `agentInfo.version` is insufficient evidence.
 
 ## Install an Isolated Matching Runtime
 
-If the existing executable differs from the pinned reference, preserve the existing installation and prepare a separate runtime:
+To reproduce qualification on the pinned reference build, prepare a separate runtime:
 
 ```bash
 pixi run python tools/dsh/prepare.py runtime

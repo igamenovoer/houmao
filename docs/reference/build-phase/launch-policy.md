@@ -37,7 +37,7 @@ A `LaunchPolicyStrategy` is the core unit of the policy engine. Each strategy co
 - **strategy_id**: Unique identifier (e.g., `claude-unattended-2.1.296`).
 - **operator_prompt_mode**: Which mode this strategy applies to.
 - **backends**: List of supported launch surfaces (e.g., `raw_launch`, `claude_headless`, `codex_headless`). Note: `LaunchSurface` (build-phase) includes `raw_launch` for generic local execution, while the run-phase `BackendKind` type uses `local_interactive` instead; `raw_launch` maps to `local_interactive` at runtime.
-- **supported_versions**: PEP 440-style version specifier for tool version compatibility (e.g., `>=2.1.296`).
+- **supported_versions**: Inclusive minimum executable version for a packaged strategy, expressed as a PEP 440-style specifier such as `>=2.1.296`.
 - **minimal_inputs**: Contract requirements — acceptable credential forms, whether user-prepared state is needed.
 - **system_prompt**: Explicit provider-native prompt method, owned surface, precedence conflicts, required engine environment, and source evidence.
 - **owned_paths**: Files and keys used for startup projection and reserved runtime state.
@@ -54,6 +54,22 @@ Strategies are resolved from the versioned registry with this precedence:
 | 2 | Registry documents | Tool-specific YAML files in `agents/launch_policy/registry/`. Filtered by mode, backend, and detected tool version. Must produce exactly one match. |
 
 Unattended resolution matches the detected tool version against each strategy's `supported_versions` specifier. It fills gaps after resolving authored layers. The launch diagnostics record the effective permission values and their sources. When reusing a home, Houmao distinguishes its prior permission projections from the native baseline.
+
+### Executable Minimums
+
+| Tool | Strategy or native mode | Minimum |
+|---|---|---|
+| DSH | Managed headless and ACP service | `>=0.2.2rc3` |
+| DSH | Web and the raw-launch strategy | `>=0.2.2rc1` |
+| Kimi Code | Headless and TUI | `>=2.1.1` |
+| Kimi Code | ACP service and Web | `>=2.6.0` |
+| Claude Code | Maintained unattended headless and TUI | `>=2.1.296` |
+| Codex | Maintained unattended headless and TUI | `>=0.162.1` |
+| Codex | App-server service | `>=0.169.0` |
+
+Released builds and release candidates at or above the applicable minimum pass version validation. Alpha, beta, and development builds are ineligible. For example, DSH reports `0.2.2-rc.3` for the version written as `0.2.2rc3` in the registry.
+
+DSH, Kimi ACP and Web, and Codex app-server apply their native minimums even with `as_is` or a strategy override. These backends verify the native protocol, required capabilities, and owned session before publishing readiness. A failure identifies the native check. Qualification records identify the executable builds actually tested. [Run Modes and Backends](../run-phase/backends.md)
 
 ## Provider Hooks
 
@@ -125,7 +141,7 @@ Kimi headless and TUI startup require Kimi Code 2.1.1 or later with no upper ver
 
 - Native `-p` selects `auto`. Houmao rejects incompatible permissions such as `manual` or `yolo` before starting a managed headless agent. The final command uses the managed prompt and continuity arguments, with no `--auto`, `--yolo`, or `--plan` flag.
 - Kimi TUI startup uses the resolved mode. For `auto` or `yolo`, Houmao supplies the corresponding native flag on fresh or resumed startup with `--continue` or `--session <session_id>`. A fresh TUI supports `manual` through the native config. The resumed TUI restores session permissions and lacks a native manual override flag, so Houmao rejects an explicit `manual` on native continuation.
-- Kimi ACP and Web use their native session APIs on the supported 2.6.0 build to apply the resolved setting at launch or exact continuation. Later observation or gateway reattachment preserves native changes made during the session.
+- Kimi ACP and Web require Kimi Code 2.6.0 or later. Their native session APIs apply the resolved setting at launch or exact continuation. Later observation or gateway reattachment preserves native changes made during the session.
 
 Policy and role setup happen outside the conversation. Kimi `as_is` uses native behavior for an omitted mode.
 
@@ -151,10 +167,11 @@ The registry stores strategies in per-tool YAML files under `agents/launch_polic
 agents/launch_policy/registry/
   claude.yaml     # strategies for Claude Code
   codex.yaml      # strategies for Codex CLI
+  dsh.yaml        # strategies for DeepSeek Harness
   kimi.yaml       # strategies for Kimi Code
 ```
 
-Each file enforces `schema_version: 1` and contains one or more strategy definitions. Multiple strategies can coexist in one file with different `supported_versions` ranges — the resolution logic selects the unique matching strategy for the detected tool version.
+Each file enforces `schema_version: 1` and contains one or more strategy definitions. Each packaged strategy declares a minimum for its backends. Resolution selects the unique strategy matching the prompt policy, backend, and detected version.
 
 ## Integration with the Build Phase
 

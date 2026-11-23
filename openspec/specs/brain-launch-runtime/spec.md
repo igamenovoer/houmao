@@ -1940,6 +1940,25 @@ When the resolved manifest requests `operator_prompt_mode = as_is`, the runtime 
 - **THEN** the runtime does not require unattended strategy lookup before provider start
 - **AND THEN** the runtime does not block launch solely because no unattended strategy exists for the detected tool version and backend
 
+### Requirement: Native provider startup applies its executable minimum
+
+On each provider start, Houmao SHALL apply the backend's inclusive minimum where native startup requires a version. It SHALL use the actual selected executable and apply the minimum independently of prompt policy or strategy override. Compatibility errors SHALL identify the tool, mode, and unmet version requirement.
+
+#### Scenario: As-is launch starts a newer eligible native build
+
+- **WHEN** an `as_is` launch selects a valid Kimi Web or native service executable above the applicable minimum
+- **THEN** it passes version validation and proceeds to native startup without applying unattended policy
+
+#### Scenario: A backend requires a later minimum than another mode of the same tool
+
+- **WHEN** DSH Web accepts the selected release candidate but managed DSH service requires a later release candidate
+- **THEN** service preflight reports its own minimum before starting the provider
+
+#### Scenario: Relaunch probes the executable available for the new incarnation
+
+- **WHEN** an explicit relaunch selects an executable updated since the previous incarnation
+- **THEN** version eligibility uses the newly detected version
+
 ### Requirement: Runtime unattended launch can synthesize provider startup state from minimal credentials
 
 When unattended launch is requested, the runtime SHALL start with the selected setup-projected runtime home. The selected strategy SHALL project authored native settings, fill omitted defaults, and synthesize its declared runtime-owned startup state before process start. This applies to every maintained backend that supports unattended launch.
@@ -3366,12 +3385,12 @@ Project launch, definitions, and headless-only server birth SHALL select `dsh_he
 
 ### Requirement: Codex app-server selection requires a qualified service launch
 
-A fresh current-schema `(codex, service)` launch SHALL select the maintained app-server adapter. It SHALL reject retained incompatible manifests, other mode/backend pairs, and unqualified native builds with actionable diagnostics. It SHALL preserve the existing headless and terminal alternatives.
+A fresh current-schema `(codex, service)` launch SHALL select the maintained app-server adapter. It SHALL reject retained incompatible manifests and other mode/backend pairs. The selected executable SHALL meet the service minimum and pass native startup verification. The runtime SHALL preserve the headless and terminal alternatives.
 
 #### Scenario: Codex service is explicitly requested
 
-- **WHEN** the operator selects service mode for a qualified Codex build
-- **THEN** the runtime creates a new managed service owner and negotiates the app-server protocol before publishing readiness
+- **WHEN** the operator selects service mode for a Codex build at or above the service minimum
+- **THEN** the runtime creates a new managed service owner and verifies the app-server protocol before publishing readiness
 
 #### Scenario: A retained incompatible app-server manifest is supplied
 
@@ -3380,8 +3399,8 @@ A fresh current-schema `(codex, service)` launch SHALL select the maintained app
 
 #### Scenario: A Codex build cannot support service
 
-- **WHEN** the selection fails its version or protocol check
-- **THEN** the error identifies the required service capability and the available headless and TUI modes
+- **WHEN** the selection fails its version minimum or a native startup check
+- **THEN** the error identifies the failed check and the available headless and TUI modes
 
 ### Requirement: Provider start uses the resolved native launch settings
 

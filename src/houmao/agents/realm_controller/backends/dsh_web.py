@@ -21,7 +21,7 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from houmao.agents.dsh_configuration import DshEffectiveToolParams, prepare_dsh_home
-from houmao.agents.launch_policy import is_supported_dsh_version
+from houmao.agents.launch_policy import LaunchPolicyError, validate_packaged_tool_version
 from houmao.agents.model_mapping_policy import resolve_reasoning_mapping
 from houmao.agents.model_selection import ModelConfig
 from houmao.agents.realm_controller.backends.dispatch_control import (
@@ -394,11 +394,12 @@ class DshWebSession:
             raise BackendExecutionError(
                 f"DSH Web version probe failed: {type(exc).__name__}"
             ) from None
-        if not is_supported_dsh_version(version):
-            detected = sanitize_dsh_diagnostic(version, secret_values=secret_values)
+        try:
+            validate_packaged_tool_version(tool="dsh", backend="dsh_web", version=version)
+        except LaunchPolicyError as exc:
             raise BackendExecutionError(
-                f"DSH Web requires version >=0.2.2-rc.1 (release or rc only; detected {detected!r})"
-            )
+                sanitize_dsh_diagnostic(str(exc), secret_values=secret_values)
+            ) from None
         root = self.plan.home_path / "houmao-web" / uuid4().hex
         root.mkdir(parents=True, mode=0o700)
         bootstrap = root / "bootstrap.json"

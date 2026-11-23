@@ -39,13 +39,15 @@ from houmao.agents.kimi_workspace_trust import (
 from houmao.agents.launch_policy import (
     apply_launch_policy,
     detect_tool_version,
-    is_supported_dsh_version,
+    packaged_tool_version_requirement,
+    validate_packaged_tool_version,
 )
 from houmao.agents.launch_policy.models import (
     LaunchPolicyApplicationKind,
     LaunchPolicyCompatibilityError,
     LaunchPolicyError,
     LaunchPolicyRequest,
+    LaunchSurface,
     OperatorPromptMode,
     LaunchPolicyStrategy,
     SupportedVersionSpec,
@@ -111,8 +113,6 @@ _LAUNCH_POLICY_OVERRIDE_ENV_VAR: Final[str] = "HOUMAO_LAUNCH_POLICY_OVERRIDE_STR
 _CLAUDE_MODEL_SELECTION_FLAGS: Final[frozenset[str]] = frozenset({"--model", "--effort"})
 _KIMI_MODEL_SELECTION_FLAGS: Final[frozenset[str]] = frozenset({"--model"})
 _KIMI_NO_AUTO_UPDATE_ENV_VAR: Final[str] = "KIMI_CODE_NO_AUTO_UPDATE"
-_KIMI_SERVICE_VERSION: Final[str] = "2.6.0"
-_CODEX_SERVICE_VERSION: Final[str] = "0.169.0"
 _CODEX_SERVICE_ALTERNATIVES: Final[str] = "Available Codex alternatives are headless and tui."
 
 
@@ -490,51 +490,54 @@ def validate_dsh_launch_version(
 ) -> str:
     """Check the installed DSH version without touching the selected home."""
 
-    try:
-        version = detected_version or detect_tool_version(executable=executable).raw
-    except LaunchPolicyError as exc:
-        raise LaunchPlanError(str(exc)) from exc
-    if not is_supported_dsh_version(version):
-        raise LaunchPlanError(
-            "DSH requires version >=0.2.2-rc.1 with no upper version limit (release or rc only; "
-            f"detected {version!r})."
-        )
-    if backend in {"dsh_headless", "dsh_acp"} and not SupportedVersionSpec.parse(
-        ">=0.2.2rc3"
-    ).contains(ToolVersion.parse(version)):
-        mode = "headless" if backend == "dsh_headless" else "service"
-        raise LaunchPlanError(f"DSH {mode} requires >=0.2.2-rc.3. Detected {version!r}.")
-    return version
+    return _validate_native_tool_version(
+        executable=executable,
+        tool="dsh",
+        backend=launch_surface_for_backend(backend) if backend is not None else "raw_launch",
+        detected_version=detected_version,
+    )
 
 
 def validate_kimi_service_launch_version(*, executable: str) -> str:
-    """Allow the explicitly qualified Kimi ACP executable version."""
+    """Check the executable minimum for Kimi ACP."""
 
-    return _validate_kimi_native_version(executable=executable, mode="ACP")
+    return _validate_native_tool_version(executable=executable, tool="kimi", backend="kimi_acp")
 
 
 def validate_kimi_web_launch_version(*, executable: str) -> str:
-    """Allow the explicitly qualified Kimi Web executable version."""
+    """Check the executable minimum for Kimi Web."""
 
-    return _validate_kimi_native_version(executable=executable, mode="Web")
+    return _validate_native_tool_version(executable=executable, tool="kimi", backend="kimi_web")
 
 
-def _validate_kimi_native_version(*, executable: str, mode: str) -> str:
-    """Check the selected Kimi native protocol against its supported build."""
+def _validate_native_tool_version(
+    *,
+    executable: str,
+    tool: str,
+    backend: LaunchSurface,
+    detected_version: str | None = None,
+) -> str:
+    """Probe and validate a native mode's selected executable."""
 
     try:
-        version = detect_tool_version(executable=executable).raw
+        version = (
+            detected_version
+            if detected_version is not None
+            else detect_tool_version(executable=executable).raw
+        )
+    except (LaunchPolicyError, OSError) as exc:
+        requirement = packaged_tool_version_requirement(tool=tool, backend=backend).to_payload()
+        raise LaunchPlanError(
+            f"Could not verify {tool} backend {backend!r}, which requires {requirement}: {exc}"
+        ) from exc
+    try:
+        return validate_packaged_tool_version(tool=tool, backend=backend, version=version).raw
     except LaunchPolicyError as exc:
         raise LaunchPlanError(str(exc)) from exc
-    if version != _KIMI_SERVICE_VERSION:
-        raise LaunchPlanError(
-            f"Kimi {mode} requires Kimi Code {_KIMI_SERVICE_VERSION}. Detected {version!r}."
-        )
-    return version
 
 
 def resolve_codex_service_executable(executable: str) -> tuple[str, str]:
-    """Pin and version-check the executable allowed to start private stdio."""
+    """Resolve the executable path and check the Codex app-server minimum."""
 
     resolved = shutil.which(executable)
     if resolved is None:
@@ -543,16 +546,16 @@ def resolve_codex_service_executable(executable: str) -> tuple[str, str]:
         )
     try:
         path = str(Path(resolved).resolve(strict=True))
-        version = detect_tool_version(executable=path).raw
-    except (LaunchPolicyError, OSError) as exc:
+    except OSError as exc:
         raise LaunchPlanError(
             f"Could not verify the selected Codex app-server executable. {_CODEX_SERVICE_ALTERNATIVES}"
         ) from exc
-    if version != _CODEX_SERVICE_VERSION:
-        raise LaunchPlanError(
-            f"Codex app-server service requires Codex CLI {_CODEX_SERVICE_VERSION}. "
-            f"Detected {version!r}. {_CODEX_SERVICE_ALTERNATIVES}"
+    try:
+        version = _validate_native_tool_version(
+            executable=path, tool="codex", backend="codex_app_server"
         )
+    except LaunchPlanError as exc:
+        raise LaunchPlanError(f"{exc} {_CODEX_SERVICE_ALTERNATIVES}") from exc
     return path, version
 
 

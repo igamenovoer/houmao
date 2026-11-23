@@ -14,6 +14,9 @@ import threading
 import time
 from typing import Any, TextIO
 
+from packaging.version import InvalidVersion, Version
+
+from houmao.agents.launch_policy import LaunchPolicyError, validate_packaged_tool_version
 from houmao.agents.model_selection import ModelConfig
 from houmao.agents.realm_controller.backends.dsh_acp_connection import (
     DshAcpConnection,
@@ -32,14 +35,17 @@ from houmao.agents.realm_controller.backends.service_runtime import (
     ServiceProvider,
     write_service_record,
 )
-from houmao.agents.realm_controller.errors import BackendExecutionError
+from houmao.agents.realm_controller.errors import (
+    BackendExecutionError,
+    ServiceStartupCheck,
+    ServiceStartupCompatibilityError,
+)
 from houmao.agents.realm_controller.models import SessionEvent
 from houmao.agents.realm_controller.usage_store import UsageStoreError
 from houmao.agents.realm_controller.usage_support import UsageService, persist_terminal_evidence
 from houmao.agents.tool_params.kimi import KIMI_PERMISSION_MODES
 
 
-_QUALIFIED_VERSION = "2.6.0"
 _ENV_MODEL_ALIAS = "__kimi_env_model__"
 _STARTUP_TIMEOUT = 8.0
 _PIPE_WRITE_TIMEOUT = 5.0
@@ -89,6 +95,23 @@ class KimiAcpServiceProvider:
             raise BackendExecutionError(
                 "Kimi service requires its exact native ACP command and home"
             )
+        metadata = config.metadata.get("kimi_acp")
+        if not isinstance(metadata, dict):
+            raise ServiceStartupCompatibilityError(ServiceStartupCheck.KIMI_EXECUTABLE_VERSION)
+        detected_version = metadata.get("detected_version")
+        try:
+            executable_version = validate_packaged_tool_version(
+                tool="kimi",
+                backend="kimi_acp",
+                version=detected_version if isinstance(detected_version, str) else None,
+            )
+        except LaunchPolicyError as exc:
+            raise ServiceStartupCompatibilityError(
+                ServiceStartupCheck.KIMI_EXECUTABLE_VERSION
+            ) from exc
+        permission_mode = metadata.get("permission_mode")
+        if permission_mode is not None and permission_mode not in KIMI_PERMISSION_MODES:
+            raise BackendExecutionError("Kimi ACP launch permission_mode is invalid")
         self.m_home_lock = os.open(
             self.m_home / ".houmao-kimi-acp.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600
         )
@@ -120,8 +143,9 @@ class KimiAcpServiceProvider:
                 "clientInfo": {"name": "houmao", "version": "1"},
                 "clientCapabilities": {},
             },
+            check=ServiceStartupCheck.KIMI_INITIALIZE,
         )
-        version, capabilities = _initialize(initialized)
+        version, capabilities = _initialize(initialized, expected_version=executable_version.raw)
         available = capabilities.get("sessionCapabilities", {})
         self.m_close_supported = isinstance(available.get("close"), dict)
         parameters: dict[str, Any] = {"cwd": str(self.m_workspace), "mcpServers": []}
@@ -134,37 +158,30 @@ class KimiAcpServiceProvider:
             elif capabilities.get("loadSession") is True:
                 method = "session/load"
             else:
-                raise BackendExecutionError("Kimi ACP did not advertise exact session continuation")
-        selected = self._call(method, parameters)
+                raise ServiceStartupCompatibilityError(ServiceStartupCheck.KIMI_CONTINUATION)
+        selected = self._call(method, parameters, check=ServiceStartupCheck.KIMI_SESSION)
         actual = selected.get("sessionId", exact)
         if not isinstance(actual, str) or (exact is not None and actual != exact):
-            raise BackendExecutionError("Kimi ACP did not bind the selected native session")
+            raise ServiceStartupCompatibilityError(ServiceStartupCheck.KIMI_SESSION)
         self.m_session_id = actual
         self.m_journal = self._await_journal(actual)
-        metadata = config.metadata.get("kimi_acp", {})
-        if not isinstance(metadata, dict):
-            raise BackendExecutionError("Kimi ACP launch metadata is invalid")
         configured = metadata.get("configured_model")
         if config.environment.get("KIMI_MODEL_NAME", "").strip():
             configured = _ENV_MODEL_ALIAS
         model = _advertised_selection(selected, "model")
         if model is None or (isinstance(configured, str) and configured and model != configured):
-            raise BackendExecutionError("Kimi ACP did not bind the configured native model")
+            raise ServiceStartupCompatibilityError(ServiceStartupCheck.KIMI_MODEL)
         mode = _advertised_selection(selected, "mode")
-        permission_mode = metadata.get("permission_mode")
-        if permission_mode is not None and permission_mode not in KIMI_PERMISSION_MODES:
-            raise BackendExecutionError("Kimi ACP launch permission_mode is invalid")
         expected_mode = "default" if permission_mode == "manual" else permission_mode
         if expected_mode is not None and mode != expected_mode:
             updated = self._call(
                 "session/set_config_option",
                 {"sessionId": actual, "configId": "mode", "value": expected_mode},
+                check=ServiceStartupCheck.KIMI_PERMISSION_MODE,
             )
             mode = _advertised_selection(updated, "mode")
             if mode != expected_mode or _advertised_selection(updated, "model") != model:
-                raise BackendExecutionError(
-                    f"Kimi ACP did not confirm its native permission_mode={permission_mode!r}"
-                )
+                raise ServiceStartupCompatibilityError(ServiceStartupCheck.KIMI_PERMISSION_MODE)
         birth = self.process_birth_token
         if birth is None:
             raise BackendExecutionError("Kimi ACP process birth identity is unavailable")
@@ -199,8 +216,8 @@ class KimiAcpServiceProvider:
                 return journal
             except (OSError, BackendExecutionError):
                 if time.monotonic() >= deadline or not self._connection().healthy:
-                    raise BackendExecutionError(
-                        "Kimi ACP did not persist its selected native session"
+                    raise ServiceStartupCompatibilityError(
+                        ServiceStartupCheck.KIMI_SESSION
                     ) from None
                 time.sleep(0.025)
 
@@ -536,10 +553,15 @@ class KimiAcpServiceProvider:
             raise BackendExecutionError("Kimi ACP worker has not started")
         return self.m_connection
 
-    def _call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+    def _call(
+        self, method: str, params: dict[str, Any], *, check: ServiceStartupCheck
+    ) -> dict[str, Any]:
         """Issue one finite setup request on an unpublished owner."""
 
-        return self._connection().request(method, params).result(timeout=_STARTUP_TIMEOUT)
+        try:
+            return self._connection().request(method, params).result(timeout=_STARTUP_TIMEOUT)
+        except (DshAcpProtocolError, DshAcpRequestError, OSError, TimeoutError) as exc:
+            raise ServiceStartupCompatibilityError(check) from exc
 
     def _diagnostic_line(self, line: str) -> None:
         """Drain the child diagnostics into the owner-private file."""
@@ -561,23 +583,26 @@ def create_kimi_service_provider(config: ServiceOwnerConfig) -> ServiceProvider:
     return provider
 
 
-def _initialize(response: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    """Validate protocol 1 and the maintained Kimi executable identity."""
+def _initialize(response: dict[str, Any], *, expected_version: str) -> tuple[str, dict[str, Any]]:
+    """Verify protocol, capabilities, and the selected executable version."""
 
+    if type(response.get("protocolVersion")) is not int or response["protocolVersion"] != 1:
+        raise ServiceStartupCompatibilityError(ServiceStartupCheck.KIMI_PROTOCOL)
     identity = response.get("agentInfo")
     version = identity.get("version") if isinstance(identity, dict) else None
+    if not isinstance(version, str):
+        raise ServiceStartupCompatibilityError(ServiceStartupCheck.KIMI_VERSION)
+    try:
+        if Version(version) != Version(expected_version):
+            raise ServiceStartupCompatibilityError(ServiceStartupCheck.KIMI_VERSION)
+    except InvalidVersion as exc:
+        raise ServiceStartupCompatibilityError(ServiceStartupCheck.KIMI_VERSION) from exc
     capabilities = response.get("agentCapabilities")
-    if (
-        type(response.get("protocolVersion")) is not int
-        or response["protocolVersion"] != 1
-        or version != _QUALIFIED_VERSION
-        or not isinstance(capabilities, dict)
-        or not isinstance(capabilities.get("sessionCapabilities", {}), dict)
+    if not isinstance(capabilities, dict) or not isinstance(
+        capabilities.get("sessionCapabilities", {}), dict
     ):
-        raise BackendExecutionError(
-            "Kimi ACP handshake did not match the qualified build and protocol"
-        )
-    return _QUALIFIED_VERSION, capabilities
+        raise ServiceStartupCompatibilityError(ServiceStartupCheck.KIMI_CAPABILITIES)
+    return version, capabilities
 
 
 def _advertised_selection(response: dict[str, Any], option_id: str) -> str | None:

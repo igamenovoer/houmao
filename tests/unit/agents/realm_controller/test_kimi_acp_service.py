@@ -16,7 +16,11 @@ from houmao.agents.realm_controller.backends.service_runtime import (
     ServiceOperationContext,
     ServiceOwnerConfig,
 )
-from houmao.agents.realm_controller.errors import BackendExecutionError
+from houmao.agents.realm_controller.errors import (
+    BackendExecutionError,
+    ServiceStartupCheck,
+    ServiceStartupCompatibilityError,
+)
 from houmao.hook_observation.kimi_journal import kimi_native_workspace_path
 
 
@@ -72,8 +76,10 @@ while (frame := receive()) is not None:
         capabilities = {"close": {}}
         if os.environ.get("HOUMAO_PEER_CONTINUATION", "resume") == "resume":
             capabilities["resume"] = {}
-        reply(frame, {"protocolVersion": 1, "agentInfo": {"version": version},
-                      "agentCapabilities": {"sessionCapabilities": capabilities,
+        protocol = json.loads(os.environ.get("HOUMAO_PEER_PROTOCOL", "1"))
+        sessions = json.loads(os.environ.get("HOUMAO_PEER_SESSION_CAPABILITIES", json.dumps(capabilities)))
+        reply(frame, {"protocolVersion": protocol, "agentInfo": {"version": version},
+                      "agentCapabilities": {"sessionCapabilities": sessions,
                           "loadSession": os.environ.get("HOUMAO_PEER_CONTINUATION") == "load"}})
     elif method in ("session/new", "session/resume", "session/load"):
         assert params["cwd"] == os.getcwd() and params["mcpServers"] == []
@@ -156,7 +162,7 @@ def peer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ServiceOwner
             "HOUMAO_PEER_ROOT": str(owner),
             "HOUMAO_PEER_WIRE": str(wire),
         },
-        metadata={"kimi_acp": {"permission_mode": "auto"}},
+        metadata={"kimi_acp": {"detected_version": "2.6.0", "permission_mode": "auto"}},
         root=owner,
         manifest_path=tmp_path / "manifest.json",
         agent_id="managed-agent",
@@ -325,7 +331,7 @@ def test_permission_mode_binds_on_fresh_and_exact_start(
 
     config = peer_config.model_copy(
         update={
-            "metadata": {"kimi_acp": {"permission_mode": mode}},
+            "metadata": {"kimi_acp": {**peer_config.metadata["kimi_acp"], "permission_mode": mode}},
             "environment": {
                 **peer_config.environment,
                 "HOUMAO_PEER_START_MODE": "plan",
@@ -369,27 +375,88 @@ def test_permission_mismatch_blocks_readiness(peer_config: ServiceOwnerConfig) -
     config = peer_config.model_copy(
         update={"environment": {**peer_config.environment, "HOUMAO_PEER_ECHO_MODE": "yolo"}}
     )
-    with pytest.raises(BackendExecutionError, match="permission_mode='auto'"):
+    with pytest.raises(ServiceStartupCompatibilityError) as exc_info:
         create_kimi_service_provider(config)
+    assert exc_info.value.check is ServiceStartupCheck.KIMI_PERMISSION_MODE
     assert not (config.root / "kimi-acp-binding.json").exists()
 
 
-def test_unqualified_handshake_fails_before_session_creation(
+@pytest.mark.parametrize(
+    ("metadata_version", "peer_version"),
+    [("2.6.0", "2.6.0"), ("2.7.2", "2.7.2"), ("2.7.2-rc.1", "2.7.2rc1")],
+)
+def test_verified_peer_binding_records_the_actual_tool_version(
+    peer_config: ServiceOwnerConfig, metadata_version: str, peer_version: str
+) -> None:
+    """Allow later builds and compare equivalent version spellings by normalized values."""
+
+    config = peer_config.model_copy(
+        update={
+            "metadata": {"kimi_acp": {"detected_version": metadata_version}},
+            "environment": {**peer_config.environment, "HOUMAO_PEER_VERSION": peer_version},
+        }
+    )
+    provider = create_kimi_service_provider(config)
+    try:
+        assert provider.connection_ready and provider.native_session_id == "session-1"
+        binding = json.loads((config.root / "kimi-acp-binding.json").read_text())
+        assert binding["tool_version"] == peer_version
+        assert binding["agent_capabilities"]["sessionCapabilities"]["resume"] == {}
+    finally:
+        provider.close()
+
+
+@pytest.mark.parametrize(
+    ("environment", "check"),
+    [
+        ({"HOUMAO_PEER_VERSION": "2.7.2"}, ServiceStartupCheck.KIMI_VERSION),
+        ({"HOUMAO_PEER_VERSION": "invalid"}, ServiceStartupCheck.KIMI_VERSION),
+        ({"HOUMAO_PEER_PROTOCOL": "2"}, ServiceStartupCheck.KIMI_PROTOCOL),
+        ({"HOUMAO_PEER_PROTOCOL": "true"}, ServiceStartupCheck.KIMI_PROTOCOL),
+        ({"HOUMAO_PEER_SESSION_CAPABILITIES": "[]"}, ServiceStartupCheck.KIMI_CAPABILITIES),
+    ],
+)
+def test_incompatible_handshake_fails_before_session_creation(
+    peer_config: ServiceOwnerConfig, environment: dict[str, str], check: ServiceStartupCheck
+) -> None:
+    """Check executable identity independently of protocol and capability verification."""
+
+    config = peer_config.model_copy(
+        update={"environment": {**peer_config.environment, **environment}}
+    )
+    with pytest.raises(ServiceStartupCompatibilityError) as exc_info:
+        create_kimi_service_provider(config)
+    assert exc_info.value.check is check
+    assert (config.root / "request-methods.jsonl").read_text().splitlines() == ['"initialize"']
+    assert not (config.root / "kimi-acp-binding.json").exists()
+
+
+def test_below_floor_executable_is_refused_before_spawning_acp_peer(
     peer_config: ServiceOwnerConfig,
 ) -> None:
+    """Reject a launch plan below the configured minimum before ACP can run."""
+
     config = peer_config.model_copy(
-        update={"environment": {**peer_config.environment, "HOUMAO_PEER_VERSION": "2.2.0"}}
+        update={"metadata": {"kimi_acp": {"detected_version": "2.5.9"}}}
     )
-    with pytest.raises(BackendExecutionError, match="qualified build"):
+    with pytest.raises(ServiceStartupCompatibilityError) as exc_info:
         create_kimi_service_provider(config)
-    assert (config.root / "request-methods.jsonl").read_text().splitlines() == ['"initialize"']
+    assert exc_info.value.check is ServiceStartupCheck.KIMI_EXECUTABLE_VERSION
+    assert not (config.root / "request-methods.jsonl").exists()
 
 
 def test_advertised_model_must_match_explicit_launch_selection(
     peer_config: ServiceOwnerConfig,
 ) -> None:
     config = peer_config.model_copy(
-        update={"metadata": {"kimi_acp": {"configured_model": "different-model"}}}
+        update={
+            "metadata": {
+                "kimi_acp": {
+                    **peer_config.metadata["kimi_acp"],
+                    "configured_model": "different-model",
+                }
+            }
+        }
     )
     with pytest.raises(BackendExecutionError, match="configured native model"):
         create_kimi_service_provider(config)

@@ -136,7 +136,7 @@ AI:  Done. I initialized the Houmao project overlay, created specialist
 
 Naming the entrypoint skill explicitly works best for the first request of a session. Later requests can drop the handle; keep the keyword `houmao` in the prompt so your agent routes them to Houmao skills. The underlying commands (`houmao-mgr project init`, `project specialist`, `project profile`, `agents prompt`) are documented in the [Easy Specialists guide](docs/getting-started/easy-specialists.md), the [Launch Profiles guide](docs/getting-started/launch-profiles.md), and the [`houmao-mgr` CLI reference](docs/reference/cli/houmao-mgr.md).
 
-> **Kimi Code requirement:** Houmao supports Kimi Code 2.1.1 or later, with no upper version limit. Managed launches write the complete composed role prompt to `$KIMI_CODE_HOME/SYSTEM.md` behind `${base_prompt}` before Kimi starts, so the provider's built-in prompt remains active and no prompt-loading chat turn is required.
+> **Kimi Code requirements.** Headless and TUI require 2.1.1 or later. ACP service and Web require 2.6.0 or later. Managed launches write the complete composed role prompt to `$KIMI_CODE_HOME/SYSTEM.md` after `${base_prompt}` before Kimi starts. This preserves the built-in prompt and applies the role before the first turn.
 
 ## Agent-Driven Examples
 

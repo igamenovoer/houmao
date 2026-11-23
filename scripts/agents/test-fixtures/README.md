@@ -66,32 +66,32 @@ Model selection is always explicit for API cases. Kimi additionally requires `--
 
 ## Codex App-Server Service
 
-Use `--client codex --mode service --surface manager` with Codex CLI `0.169.0` and a Responses endpoint. The manager fixture opens one app-server and keeps the native thread across `prompt` calls.
+Use `--client codex --mode service --surface manager` with Codex CLI 0.169.0 or later and a Responses endpoint. The manager fixture opens one app-server and keeps the native thread across `prompt` calls.
 
 ```bash
 pixi run python scripts/agents/test-fixtures/fixture.py prepare \
   --case self-hosted --client codex --mode service --surface manager \
   --model Qwen/Qwen3.8-27B-FP8 --base-url http://127.0.0.1:14888/v1 \
   --context-window 262144 --max-output-tokens 8192 \
-  --executable /selected/codex-0.169.0
+  --executable /selected/bin/codex
 ```
 
 Use the prepared directory with `launch`, `prompt`, and `stop`. [Codex App-Server Service](../../../docs/reference/run-phase/codex-app-server-service.md).
 
 ## Kimi Web
 
-Select `--client kimi --mode web --surface manager` and an explicit executable for Kimi Code `2.6.0`. The fixture supports `browser-connection` for an explicitly selected browser runner. The command creates a private credential file and returns its path with the safe identity. [Kimi Web](../../../docs/reference/run-phase/kimi-web.md).
+Select `--client kimi --mode web --surface manager` and an explicit executable for Kimi Code 2.6.0 or later. The fixture supports `browser-connection` for an explicitly selected browser runner. The command creates a private credential file and returns its path with the safe identity. [Kimi Web](../../../docs/reference/run-phase/kimi-web.md)
 
 ## Kimi ACP Service
 
-The manager fixture supports `--client kimi --mode service` on Kimi Code `2.6.0`. It keeps the native ACP session alive across calls and matches the result and usage to each managed request. Use `launch` once, then run `prompt` for each follow-up.
+Use `--client kimi --mode service` with Kimi Code 2.6.0 or later. The manager fixture keeps the native ACP session alive across calls and matches the result and available usage to each managed request. Use `launch` once, then run `prompt` for each follow-up.
 
 ```bash
 pixi run python scripts/agents/test-fixtures/fixture.py prepare \
   --case self-hosted --client kimi --mode service --surface manager \
   --model Qwen/Qwen3.8-27B-FP8 --base-url http://127.0.0.1:14888/v1 \
   --context-window 262144 --max-output-tokens 8192 \
-  --executable /selected/kimi-2.6.0
+  --executable /selected/bin/kimi
 ```
 
 The raw fixture surface supports one-shot CLI calls and owned TUI entry. Use the captured service identity and `stop` to clean up a manager service fixture. [Kimi Code ACP Service](../../../docs/reference/run-phase/kimi-acp-service.md).

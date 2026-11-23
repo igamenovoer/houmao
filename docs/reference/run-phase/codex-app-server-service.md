@@ -1,6 +1,6 @@
 # Codex App-Server Service
 
-Select `--mode service` with Codex CLI `0.169.0`. Houmao starts a private `codex app-server --listen stdio://` child in the selected workspace and `CODEX_HOME`. It verifies the native handshake and binds one conversation thread before publishing readiness. The provider and its model come from the managed home and launch configuration. [Run Modes and Backends](backends.md).
+Select `--mode service` with Codex CLI 0.169.0 or later. Houmao starts a private `codex app-server --listen stdio://` child in the selected workspace and `CODEX_HOME`. It verifies the native handshake, peer version, and private home before binding one conversation thread and publishing readiness. The provider and its model come from the managed home and launch configuration. [Run Modes and Backends](backends.md)
 
 ```bash
 houmao-mgr project agents launch --profile codex-lab --mode service
@@ -25,7 +25,7 @@ The manager, signed gateway and AG-UI use the same owner reservation. Codex's `t
 
 The native approval policy applies to the whole service. The owner declines requests that need a human answer. Service mode exposes no browser or terminal handoff. Use the launch profile to select the model and reasoning settings. The service does not expose per-request overrides.
 
-Managed usage comes from the native rollout's response records for the exact turn. The authenticated gateway and passive server return those records by managed request ID. The collector waits for the corresponding rollout boundary before finalizing usage.
+Qualified managed usage comes from the native rollout's response records for the exact turn. The authenticated gateway and passive server return those records by managed request ID. The collector waits for the corresponding rollout boundary before finalizing usage. [Usage Records](usage-records.md)
 
 ## Detach and Exact Resume
 

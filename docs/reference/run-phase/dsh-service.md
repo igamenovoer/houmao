@@ -1,6 +1,6 @@
 # DSH ACP Service
 
-Select `--mode service` in a DSH project launch. Houmao starts a private supervisor in the saved execution context. The supervisor starts `dsh --profile acp`, negotiates ACP, and binds a native session in the recorded workspace. It keeps the reader and writer open across prompts. [Run modes and backends](backends.md).
+Select `--mode service` with DSH 0.2.2-rc.3 or later. Houmao starts a private supervisor in the saved execution context. The supervisor starts `dsh --profile acp`, negotiates ACP, and binds a native session in the recorded workspace. It keeps the reader and writer open across prompts. [Run Modes and Backends](backends.md)
 
 ```bash
 houmao-mgr project agents launch --profile dsh-lab --mode service

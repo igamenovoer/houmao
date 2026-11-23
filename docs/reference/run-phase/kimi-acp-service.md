@@ -1,6 +1,6 @@
 # Kimi Code ACP Service
 
-Select `--mode service` with Kimi Code `2.6.0`. Houmao starts `kimi acp` in the selected workspace and private Kimi home. A supervisor owns the stdio connection and keeps one native session open across prompts. The native home supplies the role through `SYSTEM.md` and the selected model and authentication configuration. [Run Modes and Backends](backends.md).
+Select `--mode service` with Kimi Code 2.6.0 or later. Houmao starts `kimi acp` in the selected workspace and private Kimi home. The supervisor verifies the peer version and ACP protocol, records its capabilities, and keeps one native session open across prompts. The native home supplies the role through `SYSTEM.md` and the selected model and authentication configuration. [Run Modes and Backends](backends.md)
 
 ```bash
 houmao-mgr project agents launch --profile kimi-lab --mode service
@@ -26,4 +26,4 @@ houmao-mgr agents single --agent-id "$agent_id" relaunch \
 houmao-mgr agents single --agent-id "$agent_id" gateway attach --background
 ```
 
-The owner uses ACP `session/resume` when the native build advertises it. Any negotiated history replay happens during binding. Request settlement and per-turn usage come from the exact native journal interval. ACP context occupancy, earlier history, and uncorrelated updates stay outside current request output and usage. If transport loss leaves the outcome uncertain, inspect the original request before attempting another input.
+The owner uses ACP `session/resume` when the native build advertises it. Any negotiated history replay happens during binding. Request settlement and qualified per-turn usage come from the exact native journal interval. ACP context occupancy, earlier history, and uncorrelated updates stay outside current request output and usage. If transport loss leaves the outcome uncertain, inspect the original request before attempting another input. [Usage Records](usage-records.md)

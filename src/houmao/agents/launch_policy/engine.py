@@ -41,7 +41,7 @@ from houmao.agents.launch_policy.provider_hooks import (
 )
 from houmao.agents.tool_params import get_tool_params_adapter, validate_tool_params
 
-_VERSION_PATTERN = re.compile(r"(\d+\.\d+\.\d+(?:[-+][A-Za-z0-9][A-Za-z0-9.-]*)?)")
+_VERSION_PATTERN = re.compile(r"(?<![\w.])[vV]?([0-9]+(?:\.[0-9]+){2,}[A-Za-z0-9._+-]*)")
 _OVERRIDE_ENV_VAR = "HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY"
 _EvidenceKind = Literal["official_docs", "source_reference", "live_probe"]
 _ActionKind = Literal[
@@ -234,12 +234,11 @@ def detect_tool_version(*, executable: str) -> ToolVersion:
         )
     except FileNotFoundError as exc:
         raise LaunchPolicyError(
-            f"Unattended launch requires `{executable} --version`, but `{executable}` "
-            "was not found on PATH."
+            f"Could not probe `{executable} --version`: the executable was not found."
         ) from exc
     except subprocess.CalledProcessError as exc:
         raise LaunchPolicyError(
-            f"Unattended launch requires `{executable} --version`, but the probe failed: "
+            f"Could not probe `{executable} --version`: "
             f"{exc.stderr.strip() or exc.stdout.strip() or exc}"
         ) from exc
 
@@ -278,24 +277,30 @@ def resolve_strategy(
             f"{request.tool} unattended strategy for backend={request.backend!r}."
         )
 
-    matches: list[LaunchPolicyStrategy] = []
-    for document in documents:
-        for strategy in document.strategies:
-            if strategy.operator_prompt_mode != requested_operator_prompt_mode:
-                continue
-            if request.backend not in strategy.backends:
-                continue
-            if not strategy.supported_versions.contains(detected_version):
-                continue
-            matches.append(strategy)
+    candidates = [
+        strategy
+        for document in documents
+        for strategy in document.strategies
+        if strategy.operator_prompt_mode == requested_operator_prompt_mode
+        and request.backend in strategy.backends
+    ]
+    matches = [
+        strategy
+        for strategy in candidates
+        if strategy.supported_versions.contains(detected_version)
+    ]
 
     if not matches:
+        reason = "No compatible unattended launch strategy exists"
+        if candidates:
+            requirements = ", ".join(item.supported_versions.to_payload() for item in candidates)
+            reason = f"{reason} (requires a release or RC matching {requirements})"
         raise LaunchPolicyCompatibilityError(
             tool=request.tool,
             backend=request.backend,
             detected_version=detected_version.raw,
             requested_operator_prompt_mode=requested_operator_prompt_mode,
-            reason="No compatible unattended launch strategy exists",
+            reason=reason,
         )
     if len(matches) != 1:
         strategy_ids = ", ".join(item.strategy_id for item in matches)
@@ -307,6 +312,41 @@ def resolve_strategy(
             reason=f"Launch policy resolution is ambiguous: {strategy_ids}",
         )
     return matches[0], "registry"
+
+
+def packaged_tool_version_requirement(*, tool: str, backend: LaunchSurface) -> SupportedVersionSpec:
+    """Read the executable requirement for a backend from its packaged unattended strategy."""
+
+    requirements = [
+        strategy.supported_versions
+        for document in load_registry_documents(tool=tool)
+        for strategy in document.strategies
+        if backend in strategy.backends and strategy.operator_prompt_mode == "unattended"
+    ]
+    if len(requirements) != 1:
+        raise LaunchPolicyError(
+            f"Expected one packaged executable requirement for tool={tool!r}, backend={backend!r}."
+        )
+    return requirements[0]
+
+
+def validate_packaged_tool_version(
+    *, tool: str, backend: LaunchSurface, version: str | None
+) -> ToolVersion:
+    """Check the native executable independently of prompt policy and strategy overrides."""
+
+    requirement = packaged_tool_version_requirement(tool=tool, backend=backend)
+    message = (
+        f"{tool} backend {backend!r} requires version {requirement.to_payload()} "
+        f"(release or RC). Detected {version!r}."
+    )
+    try:
+        parsed = ToolVersion.parse(version) if version else None
+    except LaunchPolicyError as exc:
+        raise LaunchPolicyError(message) from exc
+    if parsed is None or not requirement.contains(parsed):
+        raise LaunchPolicyError(message)
+    return parsed
 
 
 def load_registry_documents(*, tool: str) -> tuple[LaunchPolicyRegistryDocument, ...]:

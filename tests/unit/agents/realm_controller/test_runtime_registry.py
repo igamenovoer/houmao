@@ -210,10 +210,10 @@ def test_start_runtime_session_rejects_retired_houmao_server_backend(
         )
 
 
-def test_kimi_web_rejects_unqualified_version_before_runtime_or_native_start(
+def test_kimi_web_rejects_below_minimum_version_before_runtime_or_native_start(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Reject the unqualified binary before preparing its workspace or starting a host."""
+    """Reject a below-minimum binary before preparing its workspace or starting a host."""
 
     executable = tmp_path / "kimi"
     executable.write_text("#!/bin/sh\nprintf '2.5.0\\n'\n")
@@ -233,7 +233,7 @@ def test_kimi_web_rejects_unqualified_version_before_runtime_or_native_start(
     monkeypatch.setattr(runtime_module, "resolve_runtime_root", unexpected_mutation)
     monkeypatch.setattr(runtime_module, "build_launch_plan", unexpected_mutation)
     monkeypatch.setattr(runtime_module, "_create_backend_session", unexpected_mutation)
-    with pytest.raises(LaunchPlanError, match=r"Kimi Web requires Kimi Code 2\.6\.0.*2\.5\.0"):
+    with pytest.raises(LaunchPlanError, match=r"kimi_web.*requires version >=2\.6\.0.*2\.5\.0"):
         start_runtime_session(
             agent_def_dir=tmp_path / "repo",
             brain_manifest_path=tmp_path / "manifest.yaml",
@@ -243,6 +243,45 @@ def test_kimi_web_rejects_unqualified_version_before_runtime_or_native_start(
             working_directory=tmp_path,
         )
     assert not (tmp_path / "runtime").exists()
+
+
+def test_kimi_web_provider_relaunch_probes_updated_executable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Rebuild a provider-start plan with the version selected for the new incarnation."""
+
+    manifest_path = _seed_brain_manifest(tmp_path)
+    manifest = runtime_module.load_brain_manifest(manifest_path)
+    agent_def_dir = tmp_path / "repo"
+    _seed_role(agent_def_dir)
+    executable = tmp_path / "kimi"
+    executable.write_text("#!/bin/sh\nprintf '2.7.2\\n'\n")
+    executable.chmod(0o700)
+    manifest["inputs"].update(tool="kimi", role_prompt_text="Role prompt")
+    manifest["runtime"]["launch_executable"] = str(executable)
+    manifest["runtime"]["launch_home_selector"]["env_var"] = "KIMI_CODE_HOME"
+    manifest["launch_policy"] = {"operator_prompt_mode": "as_is"}
+    monkeypatch.setattr(runtime_module, "load_brain_manifest", lambda path: manifest)
+
+    controller = SimpleNamespace(
+        agent_launch_authority=None,
+        agent_def_dir=agent_def_dir,
+        brain_manifest_path=manifest_path,
+        manifest_path=tmp_path / "runtime" / "manifest.json",
+        role_name="r",
+        memory_root=None,
+        launch_plan=SimpleNamespace(
+            backend="kimi_web",
+            working_directory=tmp_path,
+            mailboxes=None,
+            execution_binding=None,
+            metadata={"kimi_web": {"detected_version": "2.6.0"}},
+        ),
+    )
+
+    updated = runtime_module._build_provider_start_launch_plan_for_relaunch(controller)
+    assert updated.metadata["kimi_web"]["detected_version"] == "2.7.2"
+    assert updated.metadata["kimi_web"]["operator_prompt_mode"] == "as_is"
 
 
 def test_start_resume_send_prompt_and_stop_refresh_registry(

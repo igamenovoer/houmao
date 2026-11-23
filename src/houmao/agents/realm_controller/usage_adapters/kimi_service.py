@@ -57,7 +57,10 @@ def read_kimi_service_usage(
     if len(parts) != 5 or parts[1:] != (session_id, "agents", "main", "wire.jsonl"):
         raise ValueError("Kimi accounting journal does not belong to the selected main session")
 
-    adapter = UsageAdapter.from_provider("kimi", session_id)
+    version = snapshot.metadata.get("service_tool_version")
+    adapter = UsageAdapter.from_provider(
+        "kimi", session_id, provider_version=version if isinstance(version, str) else None
+    )
     source_id = opaque_usage_reference(source)
     expected_reason = _JOURNAL_TERMINALS[outcome]
     launched = ended = settled = False

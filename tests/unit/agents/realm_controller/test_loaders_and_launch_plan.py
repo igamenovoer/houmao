@@ -322,12 +322,13 @@ def test_build_launch_plan_uses_allowlisted_env_and_redacts_values(
 
 
 @pytest.mark.parametrize("policy", ["unattended", "as_is"])
+@pytest.mark.parametrize("version", ["0.169.0", "0.171.0"])
 def test_build_codex_service_launch_owns_stdio_and_private_config(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, policy: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, policy: str, version: str
 ) -> None:
     """Bind the selected binary and move role and model to the native thread contract."""
 
-    _stub_tool_version(monkeypatch, "0.169.0")
+    _stub_tool_version(monkeypatch, version)
     executable = tmp_path / "bin/codex-selected"
     _write(executable, "#!/bin/sh\n")
     executable.chmod(0o700)
@@ -373,7 +374,7 @@ def test_build_codex_service_launch_owns_stdio_and_private_config(
     assert plan.role_injection.method == "native_developer_instructions"
     assert plan.role_injection.prompt == "native role"
     metadata = plan.metadata["codex_app_server"]
-    assert metadata["detected_version"] == "0.169.0"
+    assert metadata["detected_version"] == version
     assert metadata["operator_prompt_mode"] == policy
     assert metadata["thread_config"]["model"] == "Qwen/Qwen3.8-27B-FP8"
     assert metadata["thread_config"]["model_reasoning_effort"] == "low"
@@ -385,7 +386,7 @@ def test_build_codex_service_launch_owns_stdio_and_private_config(
 @pytest.mark.parametrize(
     ("raw_args", "error"),
     [
-        ([], r"requires Codex CLI 0\.169\.0.*headless and tui"),
+        ([], r"codex_app_server.*requires version >=0\.169\.0.*headless and tui"),
         (["--listen", "ws://127.0.0.1:9000"], "backend-reserved.*--listen"),
         (["daemon"], "rejects raw launch arguments"),
     ],
@@ -1336,6 +1337,7 @@ def test_build_launch_plan_kimi_as_is_does_not_preseed_workspace_trust(
     ("policy", "authored_mode", "expected_mode"),
     [("as_is", None, None), ("unattended", None, "auto"), ("unattended", "manual", "manual")],
 )
+@pytest.mark.parametrize("version", ["2.6.0", "2.7.2"])
 @pytest.mark.parametrize(
     ("backend", "mode", "surface", "args"),
     [
@@ -1354,6 +1356,7 @@ def test_kimi_owned_plan_projects_private_inputs(
     policy: str,
     authored_mode: str | None,
     expected_mode: str | None,
+    version: str,
     backend: Literal["kimi_acp", "kimi_web"],
     mode: str,
     surface: str | None,
@@ -1361,7 +1364,7 @@ def test_kimi_owned_plan_projects_private_inputs(
 ) -> None:
     """Map configured models to the private home and pin the selected native executable."""
 
-    _stub_tool_version(monkeypatch, "2.6.0")
+    _stub_tool_version(monkeypatch, version)
     _write(tmp_path / "repos/roles/r/system-prompt.md", "role marker")
     executable = tmp_path / "bin/kimi-selected"
     _write(executable, "#!/bin/sh\n")
@@ -1412,7 +1415,7 @@ def test_kimi_owned_plan_projects_private_inputs(
     assert plan.env["KIMI_MODEL_API_KEY"] == "private-test-value"
     assert "private-test-value" not in json.dumps(plan.metadata)
     assert plan.metadata[backend] == {
-        "detected_version": "2.6.0",
+        "detected_version": version,
         "operator_prompt_mode": policy,
         "configured_model": "configured-model",
         "permission_mode": expected_mode,
@@ -1426,14 +1429,16 @@ def test_kimi_owned_plan_projects_private_inputs(
 
 @pytest.mark.parametrize(
     ("raw_args", "problem"),
-    [([], r"Kimi ACP requires Kimi Code 2\.6\.0"), (["--model", "x"], "rejects raw launch")],
+    [([], r"kimi_acp.*requires version >=2\.6\.0"), (["--model", "x"], "rejects raw launch")],
 )
+@pytest.mark.parametrize("policy", ["as_is", "unattended"])
 def test_kimi_acp_refuses_unqualified_launch_before_home_projection(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, raw_args: list[str], problem: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, raw_args: list[str], problem: str, policy: str
 ) -> None:
     """Reject unsupported builds and raw ACP controls before changing native home state."""
 
     _stub_tool_version(monkeypatch, "2.5.0")
+    monkeypatch.setenv("HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY", "kimi-acp-unattended-2.6.0")
     _write(tmp_path / "repo/roles/r/system-prompt.md", "role")
     env_file = tmp_path / "vars.env"
     _write(env_file, "")
@@ -1449,6 +1454,7 @@ def test_kimi_acp_refuses_unqualified_launch_before_home_projection(
         env_file=env_file,
         allowlisted_env_vars=[],
         launch_args=raw_args,
+        launch_policy={"operator_prompt_mode": policy},
     )
     with pytest.raises(LaunchPlanError, match=problem):
         build_launch_plan(

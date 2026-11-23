@@ -4,7 +4,7 @@ Use `houmao-mgr project agents launch --mode headless` or select `headless` in a
 
 ## Select a DSH Executable
 
-Use the [development preparation helper](../../../tools/dsh/README.md) to identify and inspect the explicitly selected DSH executable. The native CLI reference is DSH `0.2.2-rc.3`, with the reference source at `39163dd30f703a79079e2d2446545cff3c453738`. The npm version and source revision are separate evidence. Houmao uses the installed executable and the bundled companion during a managed launch.
+Managed headless launch requires DSH 0.2.2-rc.3 or later. Use the development preparation helper to identify and inspect the selected executable. The qualification used DSH `0.2.2-rc.3` and reference source `39163dd30f703a79079e2d2446545cff3c453738`. The npm version and source revision provide separate evidence. Houmao uses the installed executable and the bundled companion during a managed launch. [DSH Preparation](../../../tools/dsh/README.md)
 
 ## Run and Continue a Conversation
 

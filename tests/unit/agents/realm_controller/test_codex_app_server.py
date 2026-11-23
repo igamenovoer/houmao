@@ -5,6 +5,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
+import subprocess
 import sys
 import threading
 
@@ -15,8 +16,10 @@ from houmao.agents.realm_controller.backends.codex_app_server import (
     create_codex_service_provider,
 )
 from houmao.agents.realm_controller.backends.service_runtime import (
+    _service_startup_failure,
     ServiceOperationContext,
     ServiceOwnerConfig,
+    write_service_record,
 )
 from houmao.agents.realm_controller.errors import BackendExecutionError
 
@@ -78,8 +81,13 @@ while (frame := receive()) is not None:
         else:
             assert "localhost" in os.environ["NO_PROXY"].split(",")
             assert os.environ["NO_PROXY"] == os.environ["no_proxy"]
-        reply(frame, {"userAgent": "houmao/" + os.environ.get("HOUMAO_PEER_VERSION", "0.169.0"),
-                      "codexHome": str(home), "platformFamily": "unix", "platformOs": "linux"})
+        if os.environ.get("HOUMAO_PEER_REJECT_INIT"):
+            send({"id": frame["id"], "error": {"code": -32603, "message": "private peer detail"}})
+            continue
+        agent = "houmao/" + os.environ.get("HOUMAO_PEER_VERSION", "0.169.0")
+        reply(frame, {"userAgent": os.environ.get("HOUMAO_PEER_AGENT", agent),
+                      "codexHome": os.environ.get("HOUMAO_PEER_HOME", str(home)),
+                      "platformFamily": "unix", "platformOs": "linux"})
     elif method == "initialized":
         initialized = True
     elif method in ("thread/start", "thread/resume"):
@@ -196,6 +204,7 @@ def peer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ServiceOwner
         },
         metadata={
             "codex_app_server": {
+                "detected_version": "0.169.0",
                 "operator_prompt_mode": "unattended",
                 "permissions": {
                     "approval_policy": "never",
@@ -237,12 +246,30 @@ def _operation(
     )
 
 
+@pytest.mark.parametrize(
+    ("detected_version", "peer_version"),
+    [("0.169.0", "0.169.0"), ("0.171.0", "0.171.0"), ("0.171.0rc1", "0.171.0-rc.1")],
+)
 def test_app_server_correlates_early_and_late_notifications_on_one_process(
-    peer_config: ServiceOwnerConfig,
+    peer_config: ServiceOwnerConfig, detected_version: str, peer_version: str
 ) -> None:
+    peer_config = peer_config.model_copy(
+        update={
+            "environment": {**peer_config.environment, "HOUMAO_PEER_VERSION": peer_version},
+            "metadata": {
+                "codex_app_server": {
+                    **peer_config.metadata["codex_app_server"],
+                    "detected_version": detected_version,
+                }
+            },
+        }
+    )
     provider = create_codex_service_provider(peer_config)
     try:
         process, birth = provider.process_id, provider.process_birth_token
+        binding = json.loads((peer_config.root / "codex-app-server-binding.json").read_text())
+        assert binding["tool_version"] == peer_version
+        assert binding["native_session_id"] == _THREAD
         for name in ("early", "late"):
             operation, callbacks, _ = _operation(peer_config, name)
             result = provider.prompt(name, execution_model=None, operation=operation)
@@ -475,12 +502,74 @@ def test_app_server_pre_response_event_capacity_fails_closed(
         provider.close()
 
 
-def test_app_server_incompatible_build_refuses_thread_traffic(
+@pytest.mark.parametrize(
+    ("env", "failed_check"),
+    [
+        ({"HOUMAO_PEER_VERSION": "0.168.0"}, "peer version"),
+        ({"HOUMAO_PEER_VERSION": "0.170.0"}, "peer version"),
+        ({"HOUMAO_PEER_AGENT": "houmao/private peer detail"}, "invalid user agent"),
+        ({"HOUMAO_PEER_HOME": "/private/peer/path"}, "selected private home"),
+        ({"HOUMAO_PEER_REJECT_INIT": "yes"}, "native initialize request"),
+    ],
+)
+def test_app_server_incompatible_handshake_refuses_thread_traffic(
+    peer_config: ServiceOwnerConfig, env: dict[str, str], failed_check: str
+) -> None:
+    wrong = peer_config.model_copy(update={"environment": {**peer_config.environment, **env}})
+    with pytest.raises(BackendExecutionError, match=f"{failed_check}.*headless and tui") as error:
+        create_codex_service_provider(wrong)
+    assert "private peer detail" not in str(error.value)
+    assert "/private/peer/path" not in str(error.value)
+    assert (wrong.root / "methods.jsonl").read_text().splitlines() == ['"initialize"']
+    assert not (wrong.root / "codex-app-server-binding.json").exists()
+
+
+def test_app_server_below_minimum_does_not_open_transport(peer_config: ServiceOwnerConfig) -> None:
+    wrong = peer_config.model_copy(
+        update={
+            "metadata": {
+                "codex_app_server": {
+                    **peer_config.metadata["codex_app_server"],
+                    "detected_version": "0.168.0",
+                }
+            }
+        }
+    )
+    with pytest.raises(BackendExecutionError, match="invalid executable version.*headless and tui"):
+        create_codex_service_provider(wrong)
+    assert not (wrong.root / "methods.jsonl").exists()
+
+
+def test_app_server_supervisor_publishes_only_safe_startup_check(
     peer_config: ServiceOwnerConfig,
 ) -> None:
-    wrong = peer_config.model_copy(
-        update={"environment": {**peer_config.environment, "HOUMAO_PEER_VERSION": "0.168.0"}}
+    config = peer_config.model_copy(
+        update={"environment": {**peer_config.environment, "HOUMAO_PEER_REJECT_INIT": "yes"}}
     )
-    with pytest.raises(BackendExecutionError, match="headless and tui"):
-        create_codex_service_provider(wrong)
-    assert (wrong.root / "methods.jsonl").read_text().splitlines() == ['"initialize"']
+    startup = config.root / "startup.json"
+    write_service_record(startup, config)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "houmao.agents.realm_controller.backends.service_owner",
+            "--input",
+            str(startup),
+        ],
+        capture_output=True,
+        check=False,
+        timeout=15,
+    )
+    assert result.returncode == 1, result.stderr
+    assert not (config.root / "descriptor.json").exists()
+    failure = config.root / "startup-failure.json"
+    assert json.loads(failure.read_text()) == {
+        "error": "ServiceStartupCompatibilityError",
+        "check": "CODEX_INITIALIZE",
+    }
+    assert str(_service_startup_failure(failure)).startswith(
+        "Codex app-server failed the native initialize request."
+    )
+
+    write_service_record(failure, {"check": "private peer detail"})
+    assert str(_service_startup_failure(failure)).startswith("Native service startup failed.")

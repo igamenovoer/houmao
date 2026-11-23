@@ -1,6 +1,6 @@
 # Kimi Web
 
-Select `--mode web` with Kimi Code `2.6.0`. Houmao supervises `kimi web --no-open` in the private Kimi home and binds one conversation in the selected workspace. The browser and authenticated gateway address that same conversation through Kimi's native API. [Run Modes and Backends](backends.md).
+Select `--mode web` with Kimi Code 2.6.0 or later. Houmao supervises `kimi web --no-open` in the private Kimi home. It verifies the owned host, native API, and exact session in the selected workspace before reporting readiness. The browser and gateway address that session through Kimi's native API. [Run Modes and Backends](backends.md)
 
 ```bash
 houmao-mgr project agents launch --profile kimi-lab --mode web
@@ -10,7 +10,7 @@ houmao-mgr agents single --agent-id "$agent_id" prompt --prompt 'Inspect the wor
 
 The published browser surface contains a clean loopback origin and native session ID. `open-browser` opens the native UI from the owner execution context. The owning gateway's `/v1/web/enter` URL redirects to the verified Kimi Web destination with an empty admin roster and shows interactive sign-in with enrolled admins. The manager's `gateway web-entry` command also issues a one-time link under the live roster policy. [Gateway Access](../gateway/operations/access.md)
 
-The gateway verifies the Kimi listener, host, and exact conversation before handing off to `/sessions/<id>` with Kimi's private token fragment. The qualified Kimi Code `2.6.0` UI uses the fragment to authenticate and removes it from the URL while opening the bound conversation. Houmao's native API binding is independent of the browser session.
+The gateway verifies the Kimi listener, host, and exact conversation before handing off to `/sessions/<id>` with Kimi's private token fragment. Browser checks on Kimi Code 2.6.0 and 2.7.2 confirmed that the UI authenticates with the fragment and removes it from the URL while opening the bound conversation. Houmao's native API binding is independent of the browser session.
 
 ## Sending While the Browser Is Active
 

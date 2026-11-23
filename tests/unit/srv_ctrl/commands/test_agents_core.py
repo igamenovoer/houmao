@@ -2297,3 +2297,69 @@ def test_invalid_merged_tool_params_leave_force_predecessor_intact(
         )
     assert (previous / "manifest.json").read_text(encoding="utf-8") == "predecessor manifest"
     assert list(runtime.iterdir()) == [previous]
+
+
+def test_codex_service_below_minimum_leaves_force_predecessor_intact(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Native service preflight still runs before forced takeover in as-is mode."""
+
+    from houmao.srv_ctrl.commands.agents import core
+
+    source = tmp_path / "source"
+    runtime = tmp_path / "runtime"
+    _install_basic_launch_patches(
+        monkeypatch,
+        runtime_root=runtime,
+        jobs_root=tmp_path / "jobs",
+        mailbox_root=tmp_path / "mail",
+        overlay_root=tmp_path / "overlay",
+        source_agent_def_dir=source,
+    )
+    previous = runtime / "previous"
+    previous.mkdir(parents=True)
+    (previous / "manifest.json").write_text("predecessor manifest", encoding="utf-8")
+    executable = tmp_path / "codex"
+    executable.write_text("#!/bin/sh\nprintf 'codex-cli 0.168.0\\n'\n", encoding="utf-8")
+    executable.chmod(0o700)
+    monkeypatch.setattr(
+        core,
+        "validate_brain_inputs",
+        lambda *args, **kwargs: SimpleNamespace(
+            adapter=SimpleNamespace(launch_executable=str(executable))
+        ),
+    )
+    monkeypatch.setattr(
+        core,
+        "_resolve_managed_predecessor_home_context",
+        lambda **kwargs: SimpleNamespace(target=object(), home_id="previous", force_mode="clean"),
+    )
+    monkeypatch.setattr(
+        core,
+        "_perform_managed_force_takeover",
+        lambda *args, **kwargs: pytest.fail("Below-minimum service reached force takeover"),
+    )
+    monkeypatch.setattr(
+        core,
+        "build_brain_home",
+        lambda *args, **kwargs: pytest.fail("Below-minimum service reached home construction"),
+    )
+
+    with pytest.raises(click.ClickException, match=r"codex_app_server.*>=0\.169\.0.*0\.168\.0"):
+        launch_managed_agent_locally(
+            agents="researcher",
+            agent_name="worker-a",
+            agent_id=None,
+            agent_id_mode="name-hash",
+            auth=None,
+            session_name=None,
+            mode="service",
+            provider="codex",
+            operator_prompt_mode="as_is",
+            working_directory=tmp_path,
+            source_agent_def_dir=source,
+            headless_display_style="plain",
+            headless_display_detail="concise",
+            force_mode="clean",
+        )
+    assert (previous / "manifest.json").read_text(encoding="utf-8") == "predecessor manifest"

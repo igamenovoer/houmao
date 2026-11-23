@@ -7,7 +7,7 @@ strategies:
       permission_mode: auto
     backends:
       - kimi_acp
-    supported_versions: "==2.6.0"
+    supported_versions: ">=2.6.0"
     minimal_inputs:
       credential_forms:
         - projected config.toml with managed provider credentials
@@ -50,7 +50,7 @@ strategies:
       permission_mode: auto
     backends:
       - kimi_web
-    supported_versions: "==2.6.0"
+    supported_versions: ">=2.6.0"
     minimal_inputs:
       credential_forms:
         - projected config.toml with managed provider credentials

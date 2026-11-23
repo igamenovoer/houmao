@@ -102,7 +102,7 @@ strategies:
       sandbox_mode: danger-full-access
     backends:
       - codex_app_server
-    supported_versions: "==0.169.0"
+    supported_versions: ">=0.169.0"
     minimal_inputs:
       credential_forms:
         - projected auth.json

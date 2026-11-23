@@ -3,7 +3,8 @@ Define the runtime-owned registry contract for version-scoped launch-policy stra
 ## Requirements
 
 ### Requirement: Launch policy strategies are version-scoped and runtime-owned
-The system SHALL maintain a runtime-owned launch policy registry for supported tools and backends. Each registry strategy SHALL bind one operator prompt policy mode to one or more compatible tool-version ranges and backends.
+
+The system SHALL maintain a runtime-owned launch policy registry for supported tools and backends. Each registry strategy SHALL bind one operator prompt policy mode to compatible tool versions and backends.
 
 The registry SHALL be stored as repo-owned YAML under `src/houmao/agents/launch_policy/registry/`.
 
@@ -17,13 +18,18 @@ Each registry document SHALL expose a concrete schema that can represent:
 - strategy `owned_paths`
 - strategy `actions`
 
-The `supported_versions` field SHALL use one dependency-style version-specifier expression per strategy entry (for example `>=2.1.81,<2.2`) and strategy resolution SHALL continue to fail explicitly when the detected tool version matches no declared supported range.
+Packaged strategies for DSH, Kimi Code, Claude Code, and Codex SHALL declare one inclusive minimum in `supported_versions`, using `>=<version>`. Strategy selection SHALL remain unique for each tool, backend, prompt policy, and eligible detected version.
+
+#### Scenario: A later build selects the applicable minimum-version strategy
+
+- **WHEN** a packaged strategy covers the requested tool, backend, and prompt policy
+- **AND WHEN** a detected release or release candidate is at or above its minimum
+- **THEN** resolution selects the strategy even if evidence cites an earlier executable version
 
 #### Scenario: Same tool selects different strategies for different versions
-- **WHEN** two installed versions of the same CLI tool request the same operator prompt policy
-- **AND WHEN** those versions match different compatible declared supported-version ranges
-- **THEN** the registry MAY select different launch policy strategies for those versions
-- **AND THEN** strategy selection remains deterministic for a given tool, backend, policy mode, and detected version
+
+- **WHEN** DSH Web runs at its floor and DSH headless runs at its later floor under the same prompt policy
+- **THEN** each launch selects the unique strategy for its backend and version
 
 ### Requirement: Strategies declare minimal input contract and evidence provenance
 Each launch policy strategy SHALL declare the unattended-compatibility contract it supports and the evidence basis for its behavior assumptions.
@@ -114,12 +120,18 @@ The strategy SHALL project the effective approval and sandbox settings through t
 - **AND THEN** they omit API keys, auth JSON, OAuth tokens, cookies, and bearer tokens
 
 ### Requirement: Unattended strategy compatibility failures are explicit
-For operator prompt policies that forbid startup operator prompts, the registry SHALL treat unknown or incompatible tool versions as explicit launch failures by default rather than silently falling back to a best-effort strategy.
+
+For prompt-forbidden launches, ordinary registry resolution SHALL fail explicitly when the version is missing, unparseable, below the applicable minimum, or outside the accepted release channels. It SHALL report when no compatible strategy covers the requested backend.
 
 #### Scenario: Unknown newer version does not use silent floor fallback
-- **WHEN** a prompt-forbidden launch requests a tool version newer than any compatible registry strategy
-- **THEN** the registry reports that no compatible strategy exists
-- **AND THEN** launch fails explicitly instead of using a silent compatibility fallback
+
+- **WHEN** a newer eligible version has no recorded qualification but meets the minimum declared for its backend
+- **THEN** the declared minimum directly selects the applicable strategy
+
+#### Scenario: A detected version is below the minimum or unparseable
+
+- **WHEN** a prompt-forbidden launch detects a below-minimum build or cannot determine its version
+- **THEN** unattended strategy resolution fails before provider start with a version compatibility diagnostic
 
 ### Requirement: Controlled unattended-strategy overrides stay transient
 The registry resolution path SHALL allow a transient strategy-id override for controlled experiments without turning that override into persisted build-time policy.

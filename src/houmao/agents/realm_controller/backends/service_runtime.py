@@ -41,7 +41,11 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     TmuxPaneRecord,
 )
-from houmao.agents.realm_controller.errors import BackendExecutionError
+from houmao.agents.realm_controller.errors import (
+    BackendExecutionError,
+    ServiceStartupCheck,
+    ServiceStartupCompatibilityError,
+)
 from houmao.agents.realm_controller.managed_control import ManagedControlObservationV1
 from houmao.agents.realm_controller.models import (
     BackendKind,
@@ -260,6 +264,17 @@ def read_service_record(path: Path) -> bytes:
         if len(payload) > _MAX_FRAME:
             raise ValueError("Service record exceeds its read bound")
         return payload
+
+
+def _service_startup_failure(path: Path) -> BackendExecutionError:
+    """Decode an allowlisted startup check and keep other diagnostics private."""
+
+    with suppress(OSError, ValueError, KeyError):
+        failure = json.loads(read_service_record(path))
+        check = failure.get("check") if isinstance(failure, dict) else None
+        if isinstance(check, str):
+            return ServiceStartupCompatibilityError(ServiceStartupCheck[check])
+    return BackendExecutionError("Native service startup failed. Inspect its private diagnostics.")
 
 
 class ManagedServiceSession:
@@ -492,11 +507,10 @@ class ManagedServiceSession:
                 if run_tmux(["respawn-pane", "-k", "-t", surface.pane_id, command]).returncode:
                     raise BackendExecutionError("Service supervisor could not be launched")
             deadline = time.monotonic() + 45.0
+            failure = root / "startup-failure.json"
             while time.monotonic() < deadline:
-                if (root / "startup-failure.json").is_file():
-                    raise BackendExecutionError(
-                        "Native service startup failed; inspect its private diagnostics"
-                    )
+                if failure.is_file():
+                    raise _service_startup_failure(failure)
                 if (root / "descriptor.json").is_file():
                     descriptor = self._read_descriptor(
                         incarnation, generation=identity["generation"]

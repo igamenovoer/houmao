@@ -234,6 +234,7 @@ class UsageService:
         self.m_home_path: Path = Path()
         self.m_generation_id: str | None = None
         self.m_service_incarnation: str | None = None
+        self.m_service_tool_version: str | None = None
         self.m_service_working_directory: str | None = None
         self.m_provider_session_id: str | None = None
         self.m_store: UsageStore | None = None
@@ -328,6 +329,10 @@ class UsageService:
         if self.m_backend == "kimi_web" and isinstance(web_identity, dict):
             incarnation = web_identity.get("host_incarnation")
         self.m_service_incarnation = incarnation if isinstance(incarnation, str) else None
+        metadata = plan.get("metadata")
+        mode_options = metadata.get(self.m_backend) if isinstance(metadata, dict) else None
+        version = mode_options.get("detected_version") if isinstance(mode_options, dict) else None
+        self.m_service_tool_version = version if isinstance(version, str) else None
         workspace = payload.get("working_directory")
         self.m_service_working_directory = workspace if isinstance(workspace, str) else None
         provider_id = (
@@ -641,6 +646,7 @@ class UsageService:
                 **(
                     {
                         "service_incarnation": self.m_service_incarnation,
+                        "service_tool_version": self.m_service_tool_version,
                         "service_working_directory": self.m_service_working_directory,
                     }
                     if self.m_backend in _SERVICE_JOURNAL_READERS

@@ -6,6 +6,8 @@ from unittest.mock import Mock
 import pytest
 
 from houmao.agents.realm_controller import native_refresh
+from houmao.agents.realm_controller.backends.kimi_web import KimiWebSession
+from houmao.agents.realm_controller.backends.service_runtime import ManagedServiceSession
 from houmao.agents.realm_controller.native_refresh_models import (
     NativeHomeV1,
     NativeRefreshRequestV1,
@@ -47,3 +49,39 @@ def test_secondary_mode_keeps_unknown_scope_and_refuses_unowned_reload(
     assert result.effects == "absent"
     assert native_refresh_status_code(result) == 501
     assert native.mock_calls == []
+
+
+@pytest.mark.parametrize(
+    ("tool", "backend", "version", "session_type"),
+    [
+        ("kimi", "kimi_web", "2.7.2", KimiWebSession),
+        ("kimi", "kimi_acp", "2.7.2", ManagedServiceSession),
+        ("codex", "codex_app_server", "0.171.0", ManagedServiceSession),
+    ],
+)
+def test_native_startup_version_does_not_qualify_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+    tool: str,
+    backend: str,
+    version: str,
+    session_type: type,
+) -> None:
+    """Require native resource evidence even when a newer backend starts."""
+
+    home = NativeHomeV1(agent_id="agent", backend=backend, tool=tool, home_dir="/owned/home")
+    session = Mock(spec=session_type)
+    controller = SimpleNamespace(
+        backend_session=session,
+        launch_plan=SimpleNamespace(
+            backend=backend, metadata={backend: {"detected_version": version}}
+        ),
+    )
+    monkeypatch.setattr(native_refresh, "inspect_native_home", lambda _: home)
+    result = native_refresh.perform_native_refresh(controller, NativeRefreshRequestV1())
+
+    assert result.outcome == "unsupported"
+    assert result.effects == "absent"
+    assert result.observation.freshness == "unknown"
+    assert not result.observation.automatic
+    assert not result.observation.native_reload
+    assert session.mock_calls == []

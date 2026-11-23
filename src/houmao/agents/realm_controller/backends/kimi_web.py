@@ -16,6 +16,7 @@ from typing import Any, cast
 from uuid import uuid4
 import webbrowser
 
+from houmao.agents.launch_policy import LaunchPolicyError, validate_packaged_tool_version
 from houmao.agents.model_selection import ModelConfig
 from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
 from houmao.agents.realm_controller.backends.dsh_acp_driver import _write_private_json
@@ -267,7 +268,6 @@ class KimiWebSession:
         if (
             list(plan.args) != _NATIVE_ARGS
             or not isinstance(options, dict)
-            or options.get("detected_version") != "2.6.0"
             or not isinstance(selection, dict)
             or not all(
                 isinstance(selection.get(k), str) and selection[k]
@@ -275,8 +275,17 @@ class KimiWebSession:
             )
         ):
             raise BackendExecutionError(
-                "Kimi Web requires a qualified launch and managed owner identity"
+                "Kimi Web requires its native launch command and managed owner identity"
             )
+        version = options.get("detected_version")
+        try:
+            validate_packaged_tool_version(
+                tool="kimi",
+                backend="kimi_web",
+                version=version if isinstance(version, str) else None,
+            )
+        except LaunchPolicyError as exc:
+            raise BackendExecutionError(f"Kimi Web version verification failed. {exc}") from exc
         permission_mode = options.get("permission_mode")
         if permission_mode is not None and permission_mode not in KIMI_PERMISSION_MODES:
             raise BackendExecutionError("Kimi Web launch permission_mode is invalid")
@@ -332,16 +341,23 @@ class KimiWebSession:
             if run_tmux(["respawn-pane", "-k", "-t", surface.pane_id, command]).returncode:
                 raise BackendExecutionError("Kimi Web supervisor could not start")
             process, client, meta = self._wait_for_host(home, root)
-            if resume_id is None:
-                descriptor = client.request(
-                    "POST", "/sessions", {"metadata": {"cwd": str(workspace)}}
-                )
-            else:
-                descriptor = client.request("GET", f"/sessions/{native_id(resume_id)}")
+            host_incarnation = native_id(meta.get("server_id"))
+            try:
+                if resume_id is None:
+                    descriptor = client.request(
+                        "POST", "/sessions", {"metadata": {"cwd": str(workspace)}}
+                    )
+                else:
+                    descriptor = client.request("GET", f"/sessions/{native_id(resume_id)}")
+            except DshWebError as exc:
+                raise BackendExecutionError(
+                    f"Kimi Web native session API failed to bind a session ({exc.code})"
+                ) from exc
             session_id = native_id(descriptor.get("id"))
             self._verify_session(
                 descriptor, session_id=resume_id or session_id, workspace=workspace
             )
+            self._session_activity(descriptor)
             journal = kimi_session_journal(home, workspace, session_id)
             if permission_mode is not None:
                 self._apply_startup_permission(
@@ -350,7 +366,7 @@ class KimiWebSession:
             identity = {
                 "protocol_version": 1,
                 **{key: selection[key] for key in ("agent_id", "runtime_session_id", "generation")},
-                "host_incarnation": native_id(meta.get("server_id")),
+                "host_incarnation": host_incarnation,
                 "native_session_id": session_id,
                 "agent_incarnation": uuid4().hex,
             }
@@ -387,6 +403,7 @@ class KimiWebSession:
         """Pair Kimi's native instance registry with the exact captured listener."""
 
         until = time.monotonic() + 30
+        api_failure: DshWebError | None = None
         while time.monotonic() < until and not (root / "exit.json").exists():
             try:
                 process = json.loads((root / "supervisor.json").read_text())
@@ -419,9 +436,15 @@ class KimiWebSession:
                                 "Kimi Web must enforce native authentication"
                             )
                         return process, client, meta
-            except (OSError, ValueError, KeyError, DshWebError):
+            except DshWebError as exc:
+                api_failure = exc
+            except (OSError, ValueError, KeyError):
                 pass
             time.sleep(0.08)
+        if api_failure is not None:
+            raise BackendExecutionError(
+                f"Kimi Web native /meta verification failed ({api_failure.code})"
+            ) from api_failure
         raise BackendExecutionError(
             "Kimi Web supervisor did not publish a verified authenticated listener"
         )
@@ -431,14 +454,30 @@ class KimiWebSession:
         """Reject another workspace or a session selected by native fallback."""
 
         metadata = payload.get("metadata")
-        cwd = metadata.get("cwd") if isinstance(metadata, dict) else None
+        legacy_cwd = metadata.get("cwd") if isinstance(metadata, dict) else None
+        cwd = payload.get("cwd", legacy_cwd)
         if (
             payload.get("id") != session_id
             or not isinstance(cwd, str)
             or Path(cwd).resolve() != workspace
+            or (legacy_cwd is not None and legacy_cwd != cwd)
             or payload.get("archived") is not False
         ):
             raise DshWebError("identity_mismatch", "Kimi Web session or workspace changed")
+
+    @staticmethod
+    def _session_activity(payload: Mapping[str, Any]) -> tuple[bool, bool]:
+        """Read native busy and main-turn facts from the session descriptor."""
+
+        if "activity" in payload:
+            activity = payload["activity"]
+            if activity in ("idle", "turn", "background"):
+                return activity != "idle", activity == "turn"
+        else:
+            busy, main_turn_active = payload.get("busy"), payload.get("main_turn_active")
+            if isinstance(busy, bool) and isinstance(main_turn_active, bool):
+                return busy, main_turn_active
+        raise DshWebError("unsupported_activity", "Kimi Web session activity could not be verified")
 
     @classmethod
     def _apply_startup_permission(
@@ -446,19 +485,33 @@ class KimiWebSession:
     ) -> None:
         """Set policy once on the exact session before publishing the Web binding."""
 
-        updated = client.request(
-            "POST",
-            f"/sessions/{native_id(session_id)}/profile",
-            {"agent_config": {"permission_mode": mode}},
-        )
-        cls._verify_session(updated, session_id=session_id, workspace=workspace)
-        config = updated.get("agent_config")
-        # The qualified 2.6.0 build acknowledges the profile mutation without a mode echo.
-        if isinstance(config, dict) and "permission_mode" in config:
-            if config["permission_mode"] != mode:
+        try:
+            updated = client.request(
+                "POST",
+                f"/sessions/{native_id(session_id)}/profile",
+                {"agent_config": {"permission_mode": mode}},
+            )
+        except DshWebError as exc:
+            raise BackendExecutionError(
+                f"Kimi Web native profile API failed to apply permission mode ({exc.code})"
+            ) from exc
+        if "session" in updated:
+            session, config = updated["session"], updated.get("agent")
+            if not isinstance(session, dict):
                 raise BackendExecutionError(
-                    f"Kimi Web reported a different permission mode than {mode!r}"
+                    "Kimi Web profile API did not return the native session"
                 )
+            cls._verify_session(session, session_id=session_id, workspace=workspace)
+            reported_mode = config.get("permission_mode") if isinstance(config, dict) else None
+        else:
+            cls._verify_session(updated, session_id=session_id, workspace=workspace)
+            config = updated.get("agent_config")
+            # Earlier builds acknowledge the session profile mutation without a mode echo.
+            reported_mode = (
+                config.get("permission_mode", mode) if isinstance(config, dict) else mode
+            )
+        if reported_mode != mode:
+            raise BackendExecutionError(f"Kimi Web did not confirm permission mode {mode!r}")
 
     def _require_current(self) -> None:
         """Fence owner operations by exact persisted owner and host generation."""
@@ -617,6 +670,8 @@ class KimiWebSession:
                 tmux_session_name=previous.tmux_session_name,
                 resume_id=exact if selected.mode == "exact" else None,
             )
+        except BackendExecutionError as exc:
+            return SessionControlResult("error", "relaunch", str(exc))
         except (OSError, ValueError, RuntimeError):
             return SessionControlResult(
                 "error", "relaunch", "Kimi Web relaunch could not be verified."
@@ -652,21 +707,17 @@ class KimiWebSession:
             waits = [wait]
         else:
             waits = ["other"]
-        ready = (
-            session.get("busy") is False
-            and session.get("main_turn_active") is False
-            and active is None
-            and not waits
-        )
+        busy, main_turn_active = self._session_activity(session)
+        ready = not busy and not main_turn_active and active is None and not waits
         return {
             "protocol_version": 1,
             "identity": self.state.web_identity,
             "available": True,
-            "native_agent_live": True if session.get("busy") is True else None,
+            "native_agent_live": True if busy else None,
             "observed_at_utc": datetime.now(UTC).isoformat(),
             "sequence": sequence,
             "cursor": window.end,
-            "active_turn": active if session.get("main_turn_active") is True else None,
+            "active_turn": active if main_turn_active else None,
             "last_turn": last,
             "pending_inbox": [],
             "interaction_waits": waits,
@@ -916,11 +967,8 @@ class KimiWebSession:
         """Require exact idle activity and an empty native queue before sending."""
 
         session = self._session(client)
-        if (
-            session.get("busy") is not False
-            or session.get("main_turn_active") is not False
-            or session.get("pending_interaction") != "none"
-        ):
+        busy, main_turn_active = self._session_activity(session)
+        if busy or main_turn_active or session.get("pending_interaction") != "none":
             raise DshWebError("not_ready", "Kimi Web is busy or waiting for an interaction")
         # This read may initialize a cold agent. It belongs to explicit dispatch only.
         prompts = client.request("GET", f"{self.session_route}/prompts")

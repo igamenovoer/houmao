@@ -50,7 +50,10 @@ def read_codex_service_usage(
     ):
         raise ValueError("Codex accounting rollout is outside the selected home or thread")
 
-    adapter = UsageAdapter.from_provider("codex", thread_id)
+    version = snapshot.metadata.get("service_tool_version")
+    adapter = UsageAdapter.from_provider(
+        "codex", thread_id, provider_version=version if isinstance(version, str) else None
+    )
     source = opaque_usage_reference(rollout)
     observations: list[UsageObservation] = []
     launched = False
@@ -94,7 +97,5 @@ def read_codex_service_usage(
                 measured = adapter.parse(
                     message, source_ref=f"{source}:{offset}", binding_id=snapshot.binding_id
                 )
-                observations.extend(
-                    item for item in measured if item.measurement_scope == "request"
-                )
+                observations.extend(item for item in measured if item.kind == "request")
     raise ValueError("Codex accounting rollout lacks the exact terminal interval")
