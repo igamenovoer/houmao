@@ -12,6 +12,8 @@ import pytest
 
 from tests.unit.passive_server.contract_client import arrange_passive_launch_access
 from houmao.agents.realm_controller.backends.headless_output import CanonicalHeadlessEvent
+from houmao.execution.context import current_execution_binding
+from houmao.execution.models import ExecutionBindingV1
 from houmao.passive_server.models import PassiveHeadlessTurnAcceptedResponse
 from houmao.server.managed_agents import ManagedHeadlessActiveTurnRecord, ManagedHeadlessTurnRecord
 from tests.unit.passive_server.test_headless_service import (
@@ -34,7 +36,17 @@ def test_dsh_passive_headless_birth_selects_the_native_one_shot_backend(
     manifest = tmp_path / "runtime/manifest.json"
     manifest.parent.mkdir()
     controller = _FakeRuntimeController(manifest_path=manifest, output_format="dsh-cli")
-    start = Mock(return_value=controller)
+    bindings: list[ExecutionBindingV1 | None] = []
+
+    def start_with_binding(**_kwargs: object) -> _FakeRuntimeController:
+        """Capture the authority admitted for the passive start."""
+
+        bindings.append(current_execution_binding())
+        return controller
+
+    start = Mock(side_effect=start_with_binding)
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(tmp_path / "ambient-registry"))
+    monkeypatch.setenv("HOUMAO_GLOBAL_RUNTIME_DIR", str(tmp_path / "ambient-runtime"))
     monkeypatch.setattr(
         "houmao.passive_server.headless.load_brain_manifest",
         lambda _path: {"inputs": {"tool": "dsh"}},
@@ -50,6 +62,11 @@ def test_dsh_passive_headless_birth_selects_the_native_one_shot_backend(
     assert response.status == "ok"
     assert start.call_args.kwargs["backend"] == "dsh_headless"
     assert start.call_args.kwargs["mode"] == "headless"
+    assert start.call_args.kwargs["runtime_root"] == service.m_config.runtime_root
+    assert start.call_args.kwargs["shared_runtime_root"] == service.m_config.runtime_root
+    assert len(bindings) == 1 and bindings[0] is not None
+    assert bindings[0].runtime_root == str(service.m_config.runtime_root)
+    assert bindings[0].registry_root == str(service.m_config.registry_root)
     authority = service.m_headless.m_store.read_authority(
         tracked_agent_id=response.tracked_agent_id
     )

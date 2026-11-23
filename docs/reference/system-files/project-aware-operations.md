@@ -52,6 +52,29 @@ Each root can be overridden independently by its global environment variable:
 | `mailbox_root` | `HOUMAO_GLOBAL_MAILBOX_DIR` |
 | `jobs_root` | `HOUMAO_LOCAL_JOBS_DIR` legacy non-workspace job tracking only |
 
+### Managed Agent Launch Roots
+
+Project launches resolve placement inside the selected execution owner. The owner binding or `HOUMAO_GLOBAL_RUNTIME_DIR` selects a shared runtime root. Otherwise, build and session state go under `<overlay_root>/runtime`. The filesystem mailbox uses `--mail-root` first, then a stored filesystem root, then `HOUMAO_GLOBAL_MAILBOX_DIR`, and then `<overlay_root>/mailbox`. A private `--mail-account-dir` belongs to the agent's mailbox binding.
+
+Houmao records the selected overlay independently of `--workdir`. The agent receives that overlay, the registry from its execution binding, and any selected shared runtime and mailbox roots in its tmux session and native process environment. Subsequent commands in the agent's shell use the recorded scope. For example, `houmao-mgr agents global list` reads the assigned shared registry.
+
+With the shared runtime and mailbox selectors unset and no stored mailbox root, this command uses the selected project's local placement defaults.
+
+```bash
+houmao-mgr project --project-dir /work/review agents launch \
+  --specialist researcher --mail-transport filesystem
+```
+
+To share state and agent discovery across project launches under the same owner, select the shared roots for each launch.
+
+```bash
+HOUMAO_GLOBAL_REGISTRY_DIR=/srv/houmao/review/registry \
+HOUMAO_GLOBAL_RUNTIME_DIR=/srv/houmao/review/runtime \
+HOUMAO_GLOBAL_MAILBOX_DIR=/srv/houmao/review/mailbox \
+  houmao-mgr project --project-dir /work/review agents launch \
+  --specialist researcher --mail-transport filesystem
+```
+
 ## Catalog-Backed Storage
 
 The project overlay includes a SQLite catalog at `.houmao/catalog.sqlite` (managed by `ProjectCatalog`) that stores:
@@ -70,7 +93,8 @@ The catalog is initialized during `project init` and is the authoritative source
 |---|---|
 | `project agents launch` / `agents self join` | Agent definitions, runtime root, managed-agent memory root, mailbox root |
 | `project agents launch` | Agent definitions are built into managed brain homes internally |
-| `agents global list` / `agents single ... state` / `agents self state` | Runtime root for shared registry discovery |
+| `agents global list` | Selected shared registry for agent discovery |
+| `agents single ... state` / `agents self state` | Agent resolution followed by manifest-backed runtime state |
 | `agents single ... mailbox register` / `agents self mailbox register` | Mailbox root defaults to project overlay |
 | `project *` | Full overlay resolution and catalog access |
 | `mailbox *` | Mailbox root from project overlay |

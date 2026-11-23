@@ -34,9 +34,11 @@ from houmao.agents.realm_controller.backends.headless_runner import (
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     cleanup_tmux_session,
     create_tmux_session,
+    detached_tool_environment,
     has_tmux_session,
     list_tmux_panes,
     prepare_headless_agent_window,
+    publish_tmux_launch_environment,
     run_tmux,
     TmuxCommandError,
     TmuxPaneRecord,
@@ -76,6 +78,7 @@ class ServiceOwnerConfig(BaseModel):
     working_directory: Path
     home_path: Path
     environment: dict[str, str]
+    publishable_env_var_names: list[str] = Field(default_factory=list)
     metadata: dict[str, Any]
     role_prompt: str | None = None
     root: Path
@@ -442,20 +445,16 @@ class ManagedServiceSession:
         root.mkdir(parents=True, mode=0o700)
         root.parent.chmod(0o700)
         name = tmux_session_name or f"HOUMAO-service-{incarnation[:12]}"
+        with self._socket_scope():
+            environment = detached_tool_environment(self.plan.env, session_name=name)
         config = ServiceOwnerConfig(
             backend=self.backend,
             executable=self.plan.executable,
             arguments=list(self.plan.args),
             working_directory=self.plan.working_directory.resolve(),
             home_path=self.plan.home_path.resolve(),
-            environment={
-                **{
-                    key: os.environ[key]
-                    for key in ("PATH", "LANG", "LC_ALL", "TMPDIR")
-                    if key in os.environ
-                },
-                **self.plan.env,
-            },
+            environment=environment,
+            publishable_env_var_names=sorted(self.plan.public_env or {}),
             metadata=dict(self.plan.metadata),
             role_prompt=self.plan.role_injection.prompt,
             root=root,
@@ -473,7 +472,9 @@ class ManagedServiceSession:
             with self._socket_scope():
                 if has_tmux_session(session_name=name).returncode != 0:
                     create_tmux_session(
-                        session_name=name, working_directory=config.working_directory
+                        session_name=name,
+                        working_directory=config.working_directory,
+                        launch_plan=self.plan,
                     )
                     created = True
                 elif self.m_state is None or self.state.tmux_session_name != name:
@@ -491,6 +492,7 @@ class ManagedServiceSession:
                         raise BackendExecutionError("Old service supervisor pane has not stopped")
                     time.sleep(0.02)
                     surface = self._saved_supervisor_pane()
+                publish_tmux_launch_environment(session_name=name, launch_plan=self.plan)
                 command = "exec " + shlex.join(
                     [
                         sys.executable,
@@ -535,7 +537,7 @@ class ManagedServiceSession:
                     return
                 time.sleep(0.05)
             raise BackendExecutionError("Native service startup timed out")
-        except BaseException:
+        except BaseException as exc:
             with suppress(OSError, ValueError, BackendExecutionError):
                 startup = json.loads(read_service_record(root / "startup-owner.json"))
                 if (
@@ -549,6 +551,8 @@ class ManagedServiceSession:
             if created:
                 with self._socket_scope():
                     cleanup_tmux_session(session_name=name)
+            if isinstance(exc, TmuxCommandError):
+                raise BackendExecutionError(str(exc)) from None
             raise
         finally:
             path.unlink(missing_ok=True)

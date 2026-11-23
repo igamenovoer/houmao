@@ -139,6 +139,13 @@ from houmao.agents.realm_controller.registry_storage import (
     resolve_relaunchable_managed_agent_record_by_agent_id,
 )
 from houmao.agents.realm_controller.self_manifest import resolve_self_manifest
+from houmao.execution.context import current_execution_binding
+from houmao.owned_paths import (
+    HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR,
+    HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR,
+    resolve_mailbox_root,
+    resolve_runtime_root,
+)
 from houmao.project.overlay import (
     PROJECT_OVERLAY_DIR_ENV_VAR,
     ProjectAwareLocalRoots,
@@ -790,6 +797,7 @@ def launch_managed_agent_locally(
     working_directory: Path,
     source_working_directory: Path | None = None,
     source_agent_def_dir: Path | None = None,
+    source_project_dir: Path | None = None,
     source_env: Mapping[str, str] | None = None,
     headless_display_style: HeadlessDisplayStyle,
     headless_display_detail: HeadlessDisplayDetail,
@@ -886,6 +894,7 @@ def launch_managed_agent_locally(
             effective_source_env = _pinned_launch_source_env()
         project_roots = ensure_project_aware_local_roots(
             cwd=resolved_source_working_directory,
+            project_dir=source_project_dir,
             env=effective_source_env,
         )
         effective_agent_def_dir = (
@@ -894,15 +903,41 @@ def launch_managed_agent_locally(
             else _materialize_source_agent_def_dir(project_roots=project_roots)
         )
 
-        resolved_runtime_root = project_roots.runtime_root
-        resolved_mailbox_root = (
-            mailbox_root.resolve() if mailbox_root is not None else project_roots.mailbox_root
+        owner_env = os.environ if effective_source_env is None else effective_source_env
+        owner_binding = current_execution_binding()
+        resolved_runtime_root = resolve_runtime_root(
+            explicit_root=owner_binding.runtime_root if owner_binding is not None else None,
+            env=owner_env,
+            default_root=project_roots.runtime_root,
+        )
+        shared_runtime_root = (
+            resolved_runtime_root
+            if owner_binding is not None
+            or owner_env.get(HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR, "").strip()
+            else None
         )
         target = resolve_native_launch_target(
             selector=agents,
             provider=provider,
             working_directory=resolved_working_directory,
             agent_def_dir=effective_agent_def_dir,
+        )
+        effective_mailboxes = declared_mailboxes or target.preset.mailboxes
+        explicit_mailbox_root = mailbox_root
+        if explicit_mailbox_root is None and effective_mailboxes is not None:
+            offline = effective_mailboxes.offline
+            if offline is not None and offline.filesystem_root is not None:
+                explicit_mailbox_root = resolved_runtime_root / offline.filesystem_root
+        resolved_mailbox_root = resolve_mailbox_root(
+            explicit_root=explicit_mailbox_root,
+            env=owner_env,
+            default_root=project_roots.mailbox_root,
+        )
+        shared_mailbox_root = (
+            resolved_mailbox_root
+            if explicit_mailbox_root is not None
+            or owner_env.get(HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR, "").strip()
+            else None
         )
         selection = resolve_run_mode(target.tool, mode=mode, entrypoint="project")
         resolved_backend = selection.backend
@@ -979,7 +1014,7 @@ def launch_managed_agent_locally(
             launch_profile_system_skill_policy=launch_profile_system_skill_policy,
             operator_prompt_mode=operator_prompt_mode or target.preset.operator_prompt_mode,
             persistent_env_records=effective_persistent_env_records,
-            mailboxes=declared_mailboxes or target.preset.mailboxes,
+            mailboxes=effective_mailboxes,
             extra=target.preset.extra,
             agent_name=managed_launch_identity.agent_name,
             agent_id=managed_launch_identity.agent_id,
@@ -1054,9 +1089,6 @@ def launch_managed_agent_locally(
                 )
                 assert private_workspace is not None
                 resolved_working_directory = private_workspace.execution_workdir
-                effective_launch_env_overrides["HOUMAO_AGENT_PRIVATE_WORKSPACE_ROOT"] = str(
-                    private_workspace.root
-                )
             effective_role_prompt = render_instance_snapshot(
                 effective_role_prompt,
                 instance_preparation.variable_snapshot,
@@ -1109,6 +1141,12 @@ def launch_managed_agent_locally(
             brain_manifest_path=build_result.manifest_path.resolve(),
             role_name=target.role_name,
             runtime_root=resolved_runtime_root,
+            project_overlay_dir=project_roots.overlay_root,
+            shared_runtime_root=shared_runtime_root,
+            shared_mailbox_root=shared_mailbox_root,
+            private_workspace_root=private_workspace.root
+            if private_workspace is not None
+            else None,
             memory_paths=memory,
             backend=resolved_backend,
             mode=selection.mode,
@@ -1197,8 +1235,18 @@ def launch_managed_agent_locally(
         memory=memory,
         runtime_root=resolved_runtime_root,
         mailbox_root=resolved_mailbox_root,
-        runtime_root_detail=describe_runtime_root_selection(explicit_root=None),
-        mailbox_root_detail=describe_mailbox_root_selection(explicit_root=mailbox_root),
+        runtime_root_detail=(
+            "Selected shared runtime root from the admitted execution binding."
+            if owner_binding is not None
+            else describe_runtime_root_selection(explicit_root=None, env=owner_env)
+        ),
+        mailbox_root_detail=(
+            "Selected shared mailbox root from the explicit `--mail-root` override."
+            if mailbox_root is not None
+            else "Selected shared mailbox root from the launch configuration."
+            if explicit_mailbox_root is not None
+            else describe_mailbox_root_selection(explicit_root=None, env=owner_env)
+        ),
         overlay_root=project_roots.overlay_root,
         overlay_root_detail=describe_overlay_root_selection_source(
             overlay_root_source=project_roots.overlay_root_source,

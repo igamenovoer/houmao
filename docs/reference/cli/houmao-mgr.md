@@ -511,8 +511,8 @@ When name flags are omitted, `set` uses the bundle's recorded names. Use `--clea
 - `--workdir` overrides only the launched agent runtime cwd; the selected project overlay, specialist source, runtime root, jobs root, and default mailbox root remain pinned to the selected project.
 - the command honors the stored specialist launch posture instead of injecting a separate prompt-mode policy at launch time.
 - Kimi automation is selected through stored `launch.prompt_mode: unattended` or project/profile `--prompt-mode unattended`. Do not pass Kimi `--yolo` as a Houmao launch control, and ordinary managed Kimi TUI launch does not require raw `--auto` overrides.
-- repeatable `--env-set NAME=value|NAME` applies one-off env to the current live session, resolves inherited `NAME` bindings from the invoking shell, and does not survive relaunch.
-- `--mail-transport filesystem` requires `--mail-root` and optionally accepts `--mail-account-dir` for a symlink-backed private mailbox directory.
+- Repeatable `--env-set NAME=value|NAME` applies one-off env to the current live generation. Bare `NAME` resolves from the launch owner's environment. Relaunch restores durable inputs.
+- `--mail-transport filesystem` selects the filesystem mailbox. Set `--mail-root` to override the stored filesystem root, `HOUMAO_GLOBAL_MAILBOX_DIR`, or the project's mailbox directory. Use `--mail-account-dir` for a symlink-backed private mailbox directory.
 - `--mail-account-dir` must resolve outside the shared mailbox root; safe launch fails if the address slot already exists as a real directory or as a symlink to a different target.
 - `--mail-transport email` is reserved for a future real-email path and currently fails fast as not implemented.
 - when the managed session starts but launch-time gateway attach fails afterward, the command still reports the live session identity and manifest path, includes `gateway_auto_attach_error`, and exits with degraded-success status code `2`.

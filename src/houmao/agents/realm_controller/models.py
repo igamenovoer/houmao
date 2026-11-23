@@ -179,7 +179,7 @@ class LaunchPlan:
     working_directory: Path
     home_env_var: str
     home_path: Path
-    env: dict[str, str]
+    env: dict[str, str] = field(repr=False)
     env_var_names: list[str]
     role_injection: RoleInjectionPlan
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -189,6 +189,9 @@ class LaunchPlan:
     native_surface_kind: NativeSurfaceKind | None = None
     execution_binding: ExecutionBindingV1 | None = None
     runtime_launch_environment_file: str | None = None
+    public_env: dict[str, str] | None = field(default=None, repr=False)
+    private_env_var_names: frozenset[str] = field(default_factory=frozenset)
+    previous_public_env_var_names: frozenset[str] = field(default_factory=frozenset)
 
     @property
     def mode(self) -> RunMode:
@@ -266,9 +269,7 @@ class LaunchPlan:
                 "env_var": self.home_env_var,
                 "home_path": str(self.home_path),
             },
-            "env_var_names": sorted(
-                name for name in self.env_var_names if name not in self.transient_env_var_names
-            ),
+            "env_var_names": sorted(self.env_var_names),
             "role_injection": {
                 "method": self.role_injection.method,
                 "role_name": self.role_injection.role_name,

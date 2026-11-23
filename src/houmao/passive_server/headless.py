@@ -358,6 +358,7 @@ class HeadlessAgentService:
                     backend=backend,
                     mode="headless",
                     runtime_root=self.m_config.runtime_root,
+                    shared_runtime_root=self.m_config.runtime_root,
                     working_directory=working_dir,
                     api_base_url=self.m_config.api_base_url,
                     agent_name=request.agent_name,

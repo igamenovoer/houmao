@@ -24,11 +24,13 @@ from houmao.agents.realm_controller.backends.headless_runner import (
 )
 
 
-def _bridge(tmp_path: Path, worker: str) -> tuple[subprocess.Popen[str], Path]:
+def _bridge(
+    tmp_path: Path, worker: str, *, resolved_environment: dict[str, str] | None = None
+) -> tuple[subprocess.Popen[str], Path]:
     """Launch a real private bridge using a fixture process in place of DSH."""
 
     env = tmp_path / "env.json"
-    env.write_text("{}\n", encoding="utf-8")
+    env.write_text(json.dumps(resolved_environment or {}), encoding="utf-8")
     turn = tmp_path / "turn"
     command = [
         sys.executable,
@@ -48,6 +50,7 @@ def _bridge(tmp_path: Path, worker: str) -> tuple[subprocess.Popen[str], Path]:
         "2026-11-19T00:00:00Z",
         "--env-file",
         str(env),
+        *(["--replace-environment"] if resolved_environment is not None else []),
         "--",
         sys.executable,
         "-c",
@@ -56,6 +59,34 @@ def _bridge(tmp_path: Path, worker: str) -> tuple[subprocess.Popen[str], Path]:
     return subprocess.Popen(
         command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
     ), turn
+
+
+def test_resolved_headless_worker_uses_explicit_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Give the real worker declared settings and credentials without ambient extras."""
+
+    monkeypatch.setenv("UNDECLARED_FIXTURE_VALUE", "controller-only")
+    worker = dedent("""\
+        import json, os, pathlib
+        names = ("FIXTURE_SETTING", "FIXTURE_AUTH", "UNDECLARED_FIXTURE_VALUE")
+        pathlib.Path("worker.json").write_text(json.dumps([os.environ.get(n) for n in names]))
+        print('{"type":"session","sessionId":"session-fixture"}', flush=True)
+    """)
+    bridge, _ = _bridge(
+        tmp_path,
+        worker,
+        resolved_environment={
+            "FIXTURE_SETTING": "declared",
+            "FIXTURE_AUTH": "synthetic-secret",
+        },
+    )
+    bridge.communicate(timeout=5)
+    assert json.loads((tmp_path / "worker.json").read_text()) == [
+        "declared",
+        "synthetic-secret",
+        None,
+    ]
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Exact process pins use Linux pidfd")

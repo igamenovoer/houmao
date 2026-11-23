@@ -80,16 +80,19 @@ For the shared conceptual model that ties launch profiles to this run-phase comp
 | `working_directory` | `Path` | Working directory for the agent process |
 | `home_env_var` | `str` | Environment variable name pointing to the runtime home (e.g., `CODEX_HOME`) |
 | `home_path` | `Path` | Absolute path to the runtime home directory |
-| `env` | `dict[str, str]` | Effective launch environment — contains secrets in-memory only, never persisted |
-| `env_var_names` | `list[str]` | Names of environment variables set in `env` (for auditing without exposing values) |
+| `env` | `dict[str, str]` | Effective native process environment, including values saved in the owner-private launch record |
+| `public_env` | `dict[str, str] \| None` | Launch values selected for publication to the owning tmux session |
+| `env_var_names` | `list[str]` | Auditable names of durable launch inputs |
 | `role_injection` | `RoleInjectionPlan` | Backend-specific role injection plan (see [Role Injection](role-injection.md)) |
 | `metadata` | `dict[str, Any]` | Additional metadata carried through from the brain manifest. When the launch came from a reusable launch profile, this carries secret-free launch-profile provenance such as the profile name, the profile lane (`easy_profile` or `launch_profile`), the source kind (`specialist` or `recipe`), and prompt-overlay metadata. |
 | `mailbox` | `MailboxResolvedConfig \| None` | Resolved mailbox configuration, if any |
 | `launch_policy_provenance` | `LaunchPolicyProvenance \| None` | Provenance information for the applied launch policy |
 
-### Security note
+### Managed Launch Environment
 
-The `env` dictionary contains secret values (API keys, tokens) resolved at launch time. These values exist only in memory and are passed directly to the agent process environment. They are intentionally excluded from persisted manifests and logs.
+Houmao starts the provider with an owner-side baseline, declared settings, and runtime bindings. Declare ordinary non-secret settings in a specialist or launch profile to keep them across relaunch. For one live generation, use `houmao-mgr project agents launch --env-set NAME=value` or `--env-set NAME` to resolve a value from the execution owner's environment. One-off settings override ordinary durable settings with the same name.
+
+Declared non-secret values are visible in the owning tmux session and to the provider and its tools. Supply API keys and other credentials through the selected auth bundle. Houmao delivers credential values through the owner-private launch inputs and keeps them out of tmux publication and public runtime metadata. Assignments using runtime-owned names or selected credential bindings fail with a diagnostic that names the variable.
 
 ### Kimi TUI unattended launch ownership
 

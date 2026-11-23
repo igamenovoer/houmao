@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Mapping
 import json
 import os
 from pathlib import Path
@@ -13,25 +12,9 @@ import threading
 import time
 from typing import Any
 
-from houmao.agents.realm_controller.agent_identity import (
-    SELF_TMUX_SESSION_ENV_VAR,
-    SELF_TMUX_SOCKET_ENV_VAR,
-)
 from houmao.agents.realm_controller.backends.dispatch_control import _dispatch_origin_birth_token
 from houmao.agents.realm_controller.backends.dsh_acp_connection import _read_process_lineage
 from houmao.agents.realm_controller.backends.dsh_acp_driver import _write_private_json
-from houmao.execution.tmux import capture_tmux_socket_path
-
-
-def web_tool_environment(environment: Mapping[str, str], *, session_name: str) -> dict[str, str]:
-    """Give detached native tool processes their exact owning tmux locator."""
-
-    detached = {
-        key: value for key, value in environment.items() if key not in {"TMUX", "TMUX_PANE"}
-    }
-    detached[SELF_TMUX_SOCKET_ENV_VAR] = capture_tmux_socket_path()
-    detached[SELF_TMUX_SESSION_ENV_VAR] = session_name
-    return detached
 
 
 def _capture_descendants(pid: int, birth: str, owned: dict[int, str]) -> None:

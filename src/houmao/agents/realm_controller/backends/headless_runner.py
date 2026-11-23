@@ -185,6 +185,7 @@ class HeadlessCliRunner:
         turn_artifact_dir_name: str | None = None,
         completion_timeout_seconds: float = _DEFAULT_COMPLETION_TIMEOUT_SECONDS,
         completion_poll_interval_seconds: float = (_DEFAULT_COMPLETION_POLL_INTERVAL_SECONDS),
+        replace_environment: bool = False,
     ) -> HeadlessRunResult:
         """Execute a headless command and parse events."""
 
@@ -254,6 +255,7 @@ class HeadlessCliRunner:
                 turn_artifact_dir_name=turn_id,
                 completion_timeout_seconds=completion_timeout_seconds,
                 completion_poll_interval_seconds=completion_poll_interval_seconds,
+                replace_environment=replace_environment,
             )
         completed_at_utc = datetime.now(UTC).isoformat()
         elapsed_ms = (time.monotonic() - started_monotonic) * 1000
@@ -558,6 +560,7 @@ class HeadlessCliRunner:
         turn_artifact_dir_name: str | None,
         completion_timeout_seconds: float,
         completion_poll_interval_seconds: float,
+        replace_environment: bool = False,
     ) -> HeadlessRunResult:
         turn_dir_name = turn_artifact_dir_name or f"turn-{uuid.uuid4().hex[:12]}"
         turn_dir = (turn_artifacts_root / turn_dir_name).resolve()
@@ -601,6 +604,7 @@ class HeadlessCliRunner:
                 launched_at_utc,
                 "--env-file",
                 str(environment_path),
+                *(["--replace-environment"] if replace_environment else []),
                 *(["--dispatch-guard-file", str(permission_path)] if permission_path else []),
                 "--",
                 *command,

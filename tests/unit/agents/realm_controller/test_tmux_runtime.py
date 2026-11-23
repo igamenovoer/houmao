@@ -215,6 +215,7 @@ def test_create_tmux_session_surfaces_tmux_error(
         capture_output: bool,
         text: bool,
         timeout: float | None = None,
+        env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         return _completed(cmd, returncode=1, stderr="duplicate session: HOUMAO-gpu")
 
@@ -240,6 +241,7 @@ def test_create_tmux_session_applies_default_config_injection(
         capture_output: bool,
         text: bool,
         timeout: float | None = None,
+        env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         del check, capture_output, text, timeout
         calls.append(cmd)
@@ -254,6 +256,7 @@ def test_create_tmux_session_applies_default_config_injection(
             "tmux",
             "new-session",
             "-d",
+            "-E",
             "-s",
             "HOUMAO-gpu",
             "-c",
@@ -264,7 +267,7 @@ def test_create_tmux_session_applies_default_config_injection(
         ["tmux", "set-option", "-at", "HOUMAO-gpu", "terminal-overrides", ",*256col*:Tc"],
         ["tmux", "set-environment", "-t", "HOUMAO-gpu", "TERM", "tmux-256color"],
         ["tmux", "set-environment", "-t", "HOUMAO-gpu", "COLORTERM", "truecolor"],
-        ["tmux", "set-environment", "-t", "HOUMAO-gpu", "-u", "NO_COLOR"],
+        ["tmux", "set-environment", "-t", "HOUMAO-gpu", "-r", "NO_COLOR"],
     ]
 
 
@@ -282,6 +285,7 @@ def test_create_tmux_session_skips_config_injection_when_disabled(
         capture_output: bool,
         text: bool,
         timeout: float | None = None,
+        env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         del check, capture_output, text, timeout
         calls.append(cmd)
@@ -296,6 +300,7 @@ def test_create_tmux_session_skips_config_injection_when_disabled(
             "tmux",
             "new-session",
             "-d",
+            "-E",
             "-s",
             "HOUMAO-gpu",
             "-c",
@@ -318,6 +323,7 @@ def test_create_tmux_session_cleans_up_and_guides_when_injection_fails(
         capture_output: bool,
         text: bool,
         timeout: float | None = None,
+        env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         del check, capture_output, text, timeout
         calls.append(cmd)

@@ -2,8 +2,11 @@
 
 from pathlib import Path
 import json
+import shlex
+import stat
 import threading
 import time
+from types import SimpleNamespace
 from unittest.mock import Mock
 from urllib.parse import parse_qs, urlsplit
 
@@ -13,6 +16,7 @@ import houmao.agents.realm_controller.backends.dsh_web as backend_module
 from houmao.agents.realm_controller.backends.dsh_web import DshWebSession, DshWebSessionState
 from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
 from houmao.agents.realm_controller.errors import BackendExecutionError
+from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
 
 
 @pytest.fixture
@@ -193,6 +197,118 @@ def test_startup_reports_redacted_exit_and_native_log(tmp_path: Path) -> None:
     assert "value=private" not in summary and "other=secret" not in summary
     assert "\n" not in summary
     assert artifact.read_text() == raw
+
+
+def test_dsh_publishes_before_starting_private_supervisor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Home preparation preserves declared values while deriving DSH-owned paths."""
+
+    setup = tmp_path / "tool-params.json"
+    setup.write_text(
+        json.dumps(
+            {
+                "provider": {
+                    "adapter": "pi-ai",
+                    "protocol": "openai-completions",
+                    "route": "fixture",
+                    "base_url_env": "OPENAI_BASE_URL",
+                    "api_key_env": "OPENAI_API_KEY",
+                },
+                "models": [
+                    {
+                        "id": "fixture",
+                        "context_window": 4096,
+                        "max_output_tokens": 256,
+                        "reasoning_efforts": False,
+                    }
+                ],
+            }
+        )
+    )
+    home = tmp_path / "home"
+    (home / "skills").mkdir(parents=True)
+    public_env = {"REVIEW_BASE_URL": "http://127.0.0.1:9876"}
+    plan = LaunchPlan(
+        backend="dsh_web",
+        tool="dsh",
+        executable="dsh",
+        args=[],
+        working_directory=tmp_path,
+        home_path=home,
+        home_env_var="DSH_HOME",
+        env={
+            **public_env,
+            "OPENAI_BASE_URL": "http://127.0.0.1:8080/v1",
+            "OPENAI_API_KEY": "synthetic-private",
+        },
+        env_var_names=["REVIEW_BASE_URL", "OPENAI_BASE_URL", "OPENAI_API_KEY"],
+        public_env=public_env,
+        private_env_var_names=frozenset({"OPENAI_API_KEY"}),
+        role_injection=RoleInjectionPlan(
+            method="native_home_system_prompt", role_name="r", prompt="role"
+        ),
+        metadata={
+            "managed_web_identity": {
+                "agent_id": "agent",
+                "runtime_session_id": "runtime",
+                "generation": "generation",
+            },
+            "dsh": {"setup_path": str(setup)},
+        },
+    )
+    calls: list[str] = []
+
+    def publish(*, session_name: str, launch_plan: LaunchPlan) -> None:
+        assert session_name == "owned-test-web"
+        assert launch_plan.public_env == public_env
+        calls.append("publish")
+
+    def run_tmux(args: list[str]) -> SimpleNamespace:
+        if args[0] == "respawn-pane":
+            calls.append("spawn")
+            assert "synthetic-private" not in args[-1]
+            artifact = Path(shlex.split(args[-1])[-1])
+            assert stat.S_IMODE(artifact.stat().st_mode) == 0o600
+            environment = json.loads(artifact.read_text())["environment"]
+            assert environment["DSH_HOME"] == str(home)
+            assert environment["DSH_AGENTS_HOME"] == str(home / "shared-agents")
+            assert environment["REVIEW_BASE_URL"] == public_env["REVIEW_BASE_URL"]
+            assert environment["OPENAI_API_KEY"] == "synthetic-private"
+            return SimpleNamespace(returncode=1)
+        return SimpleNamespace(returncode=0, stdout="")
+
+    monkeypatch.setattr(
+        backend_module.subprocess,
+        "run",
+        Mock(
+            return_value=SimpleNamespace(
+                stdout="0.2.2-rc.3\n",
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        backend_module, "has_tmux_session", lambda **_: SimpleNamespace(returncode=1)
+    )
+    monkeypatch.setattr(backend_module, "create_tmux_session", lambda **_: None)
+    monkeypatch.setattr(
+        backend_module,
+        "prepare_headless_agent_window",
+        lambda **_: SimpleNamespace(pane_id="%1", window_id="@1"),
+    )
+    monkeypatch.setattr(backend_module, "publish_tmux_launch_environment", publish)
+    monkeypatch.setattr(backend_module, "run_tmux", run_tmux)
+    with pytest.raises(BackendExecutionError, match="DSH Web supervisor could not start"):
+        DshWebSession.from_launch_plan(
+            launch_plan=plan,
+            session_manifest_path=tmp_path / "manifest.json",
+            role_name="r",
+            provider_start=True,
+            tmux_session_name="owned-test-web",
+        )
+
+    assert calls == ["publish", "spawn"]
+    assert not list(home.glob("houmao-web/*/supervisor-input.json"))
 
 
 def test_web_control_failure_exposes_code_and_sanitized_message(tmp_path: Path) -> None:

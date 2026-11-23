@@ -125,8 +125,12 @@ class DshAcpServiceProvider:
         loaded = load_dsh_home(
             config.home_path, setup, config.environment, credential_environment=credentials
         )
+        environment = {
+            **{name: config.environment[name] for name in config.publishable_env_var_names},
+            **loaded.environment,
+        }
         self.m_secret_values = (
-            *dsh_diagnostic_secrets(loaded.environment, key_name=setup.api_key_env),
+            *dsh_diagnostic_secrets(environment, key_name=setup.api_key_env),
             *credentials.values(),
         )
         self.m_route = setup.route
@@ -191,7 +195,7 @@ class DshAcpServiceProvider:
         self.m_connection = DshAcpConnection.from_command(
             command,
             cwd=config.working_directory,
-            env=loaded.environment,
+            env=environment,
             request_handler=self._permission,
             frame_sink=lambda line: self._private_line(self.m_raw, line),
             stderr_sink=lambda line: self._private_line(self.m_stderr, line),

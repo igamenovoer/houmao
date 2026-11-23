@@ -4,9 +4,45 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 import os
+import re
 
 
 _HOUMAO_RESERVED_ENV_PREFIXES: tuple[str, ...] = ("HOUMAO_",)
+_RUNTIME_BOUND_ENV = frozenset({"TMUX", "TMUX_PANE", "CAO_TERMINAL_ID"})
+_OWNER_BASELINE_ENV = (
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "TERM",
+    "COLORTERM",
+    "LANG",
+    "LANGUAGE",
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_STATE_HOME",
+    "XDG_RUNTIME_DIR",
+    "NO_COLOR",
+    "NO_PROXY",
+    "no_proxy",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+)
+
+
+def owner_launch_baseline(environment: Mapping[str, str]) -> dict[str, str]:
+    """Select the owner-side process defaults used by managed providers."""
+
+    return {
+        name: value
+        for name, value in environment.items()
+        if name in _OWNER_BASELINE_ENV or name.startswith("LC_")
+    }
 
 
 def parse_persistent_env_record_specs(
@@ -32,11 +68,9 @@ def parse_persistent_env_record_specs(
     records: dict[str, str] = {}
     for raw_value in values:
         if "=" not in raw_value:
-            raise ValueError(
-                f"`{option_name}` for specialist launch config requires `NAME=value`, got {raw_value!r}."
-            )
+            raise ValueError(f"`{option_name}` for specialist launch config requires `NAME=value`.")
         name, value = raw_value.split("=", 1)
-        normalized_name = _normalized_env_name(name, option_name=option_name, raw_value=raw_value)
+        normalized_name = _normalized_env_name(name, option_name=option_name)
         if normalized_name in records:
             raise ValueError(f"Duplicate `{option_name}` env name `{normalized_name}`.")
         records[normalized_name] = value
@@ -71,9 +105,7 @@ def resolve_runtime_env_set_specs(
     for raw_value in values:
         if "=" in raw_value:
             name, value = raw_value.split("=", 1)
-            normalized_name = _normalized_env_name(
-                name, option_name=option_name, raw_value=raw_value
-            )
+            normalized_name = _normalized_env_name(name, option_name=option_name)
             if normalized_name in resolved:
                 raise ValueError(f"Duplicate `{option_name}` env name `{normalized_name}`.")
             resolved[normalized_name] = value
@@ -81,7 +113,6 @@ def resolve_runtime_env_set_specs(
         normalized_name = _normalized_env_name(
             raw_value,
             option_name=option_name,
-            raw_value=raw_value,
         )
         if normalized_name in resolved:
             raise ValueError(f"Duplicate `{option_name}` env name `{normalized_name}`.")
@@ -123,7 +154,6 @@ def validate_persistent_env_records(
         normalized_name = _normalized_env_name(
             raw_name,
             option_name=source,
-            raw_value=str(raw_name),
         )
         if normalized_name in normalized:
             raise ValueError(f"{source}: duplicate env name `{normalized_name}`.")
@@ -143,12 +173,12 @@ def validate_persistent_env_records(
     return normalized
 
 
-def _normalized_env_name(name: str, *, option_name: str, raw_value: str) -> str:
+def _normalized_env_name(name: str, *, option_name: str) -> str:
     """Return one normalized env name or raise."""
 
     normalized = name.strip()
-    if not normalized:
-        raise ValueError(f"Invalid `{option_name}` env spec `{raw_value}`.")
+    if re.fullmatch(r"[a-zA-Z_][a-zA-Z_0-9]*", normalized) is None:
+        raise ValueError(f"Invalid environment variable name in `{option_name}`.")
     return normalized
 
 
@@ -157,10 +187,12 @@ def _validated_env_value(value: object, *, source: str, env_name: str) -> str:
 
     if not isinstance(value, str):
         raise ValueError(f"{source}: env value for `{env_name}` must be a string.")
+    if "\x00" in value:
+        raise ValueError(f"{source}: env value for `{env_name}` contains a null character.")
     return value
 
 
 def _is_houmao_reserved_env_name(name: str) -> bool:
     """Return whether one env name is reserved by Houmao-owned runtime state."""
 
-    return any(name.startswith(prefix) for prefix in _HOUMAO_RESERVED_ENV_PREFIXES)
+    return name in _RUNTIME_BOUND_ENV or name.startswith(_HOUMAO_RESERVED_ENV_PREFIXES)

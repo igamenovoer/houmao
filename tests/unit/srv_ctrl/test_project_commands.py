@@ -7078,9 +7078,11 @@ def test_project_agents_launch_derives_provider_and_mailbox_flags(
     assert emitted["agent_name"] == "repo-research-1"
 
 
+@pytest.mark.parametrize("overlay_source", ["relative-project-dir", "overlay-env"])
 def test_project_agents_launch_keeps_selected_overlay_when_workdir_points_elsewhere(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    overlay_source: str,
 ) -> None:
     runner = CliRunner()
     repo_root = (tmp_path / "repo").resolve()
@@ -7090,6 +7092,12 @@ def test_project_agents_launch_keeps_selected_overlay_when_workdir_points_elsewh
     auth_json_path = tmp_path / "auth.json"
     auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
     monkeypatch.chdir(repo_root)
+    overlay_root = repo_root / ".houmao"
+    if overlay_source == "overlay-env":
+        overlay_root = repo_root / "custom-overlay"
+        monkeypatch.setenv("HOUMAO_PROJECT_OVERLAY_DIR", str(overlay_root))
+    else:
+        monkeypatch.delenv("HOUMAO_PROJECT_OVERLAY_DIR", raising=False)
 
     assert runner.invoke(cli, ["project", "init"]).exit_code == 0
     assert (
@@ -7133,11 +7141,17 @@ def test_project_agents_launch_keeps_selected_overlay_when_workdir_points_elsewh
         "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
         lambda **kwargs: None,
     )
+    project_selector: list[str] = []
+    if overlay_source == "relative-project-dir":
+        project_selector = ["--project-dir", "repo"]
+        monkeypatch.setenv("HOUMAO_PROJECT_OVERLAY_DIR", str(runtime_workdir / ".houmao"))
+    monkeypatch.chdir(tmp_path)
 
     result = runner.invoke(
         cli,
         [
             "project",
+            *project_selector,
             "agents",
             "launch",
             "--specialist",
@@ -7154,10 +7168,11 @@ def test_project_agents_launch_keeps_selected_overlay_when_workdir_points_elsewh
     assert result.exit_code == 0, result.output
     assert captured["working_directory"] == runtime_workdir
     assert captured["source_working_directory"] == repo_root
-    assert captured["source_agent_def_dir"] == (repo_root / ".houmao" / "agents").resolve()
-    assert captured["agents"] == str(
-        repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
+    assert captured["source_project_dir"] == (
+        repo_root if overlay_source == "relative-project-dir" else None
     )
+    assert captured["source_agent_def_dir"] == overlay_root / "agents"
+    assert captured["agents"] == str(overlay_root / "agents/presets/researcher-codex-default.yaml")
 
 
 def test_project_agents_launch_help_exposes_workdir() -> None:
@@ -8317,7 +8332,7 @@ def test_project_agents_launch_rejects_email_transport(
     assert "not implemented yet" in result.output
 
 
-def test_project_agents_launch_filesystem_in_root_requires_mail_root(
+def test_project_agents_launch_filesystem_accepts_default_mailbox_placement(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -8353,23 +8368,6 @@ def test_project_agents_launch_filesystem_in_root_requires_mail_root(
         == 0
     )
 
-    missing_root = runner.invoke(
-        cli,
-        [
-            "project",
-            "agents",
-            "launch",
-            "--specialist",
-            "researcher",
-            "--name",
-            "repo-research-1",
-            "--mail-transport",
-            "filesystem",
-        ],
-    )
-    assert missing_root.exit_code != 0
-    assert "requires `--mail-root`" in missing_root.output
-
     captured: dict[str, object] = {}
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
@@ -8388,7 +8386,6 @@ def test_project_agents_launch_filesystem_in_root_requires_mail_root(
         lambda **kwargs: None,
     )
 
-    mail_root = (tmp_path / "mail-root").resolve()
     success = runner.invoke(
         cli,
         [
@@ -8403,14 +8400,12 @@ def test_project_agents_launch_filesystem_in_root_requires_mail_root(
             "headless",
             "--mail-transport",
             "filesystem",
-            "--mail-root",
-            str(mail_root),
         ],
     )
 
     assert success.exit_code == 0, success.output
     assert captured["mailbox_transport"] == "filesystem"
-    assert captured["mailbox_root"] == mail_root
+    assert captured["mailbox_root"] is None
     assert captured["mailbox_account_dir"] is None
 
 

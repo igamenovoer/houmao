@@ -4,6 +4,7 @@ import click
 from pathlib import Path
 import shutil
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -11,6 +12,7 @@ from houmao.agents.managed_prompt_header import compose_managed_launch_prompt
 from houmao.agents.mailbox_runtime_models import (
     FilesystemMailboxDeclarativeConfig,
     FilesystemMailboxResolvedConfig,
+    MailboxesDeclarativeConfig,
     MailboxesResolvedConfig,
     MailboxSlotConfig,
 )
@@ -22,6 +24,11 @@ from houmao.agents.realm_controller.gateway_storage import (
 )
 from houmao.agents.realm_controller.manifest import default_manifest_path
 from houmao.agents.system_skills import SystemSkillSelectionPolicy
+from houmao.execution.context import execution_binding_scope, observed_local_binding
+from houmao.owned_paths import (
+    HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR,
+    HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR,
+)
 from houmao.project.catalog import ManagedContentRef
 from houmao.project.launch_profiles import ResolvedLaunchProfileMemoSeed
 from houmao.srv_ctrl.commands.agents.core import (
@@ -499,6 +506,100 @@ def test_launch_managed_agent_locally_forwards_gateway_args_to_runtime(
 
 
 @pytest.mark.usefixtures("stub_brain_preflight")
+@pytest.mark.parametrize("selection", ["overlay", "shared", "explicit", "declared", "owner"])
+def test_launch_managed_agent_locally_selects_owner_roots(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    selection: str,
+) -> None:
+    """Record the paths chosen from the owner and the launch project's overlay."""
+
+    project_dir = tmp_path / "project"
+    overlay = project_dir / ".houmao"
+    working_dir = tmp_path / "workdir"
+    shared_runtime = tmp_path / "shared-runtime"
+    owner_runtime = tmp_path / "owner-runtime"
+    shared_mailbox = tmp_path / "shared-mailbox"
+    explicit_mailbox = tmp_path / "explicit-mailbox" if selection == "explicit" else None
+    declared_mailboxes = (
+        MailboxesDeclarativeConfig(
+            offline=FilesystemMailboxDeclarativeConfig(
+                transport="filesystem", filesystem_root="declared-mailbox"
+            )
+        )
+        if selection == "declared"
+        else None
+    )
+    if selection == "overlay":
+        monkeypatch.delenv(HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR, raising=False)
+        monkeypatch.delenv(HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR, raising=False)
+    else:
+        monkeypatch.setenv(HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR, str(shared_runtime))
+        monkeypatch.setenv(HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR, str(shared_mailbox))
+    owner = (
+        observed_local_binding(
+            working_directory=project_dir,
+            runtime_root=owner_runtime,
+            registry_root=tmp_path / "owner-registry",
+            tmux_socket=None,
+        )
+        if selection == "owner"
+        else None
+    )
+    _install_basic_launch_patches(
+        monkeypatch,
+        runtime_root=overlay / "runtime",
+        jobs_root=overlay / "jobs",
+        mailbox_root=overlay / "mailbox",
+        overlay_root=overlay,
+        source_agent_def_dir=overlay / "agents",
+    )
+    build = Mock(return_value=SimpleNamespace(manifest_path=tmp_path / "manifest.json"))
+    start = Mock(return_value=SimpleNamespace())
+    monkeypatch.setattr("houmao.srv_ctrl.commands.agents.core.build_brain_home", build)
+    monkeypatch.setattr("houmao.srv_ctrl.commands.agents.core.start_runtime_session", start)
+
+    with execution_binding_scope(owner):
+        result = launch_managed_agent_locally(
+            agents="researcher",
+            agent_name="root-selection",
+            agent_id=None,
+            auth=None,
+            session_name=None,
+            mode="headless",
+            provider="codex",
+            working_directory=working_dir,
+            source_working_directory=project_dir,
+            source_agent_def_dir=overlay / "agents",
+            headless_display_style="plain",
+            headless_display_detail="concise",
+            mailbox_root=explicit_mailbox,
+            declared_mailboxes=declared_mailboxes,
+        )
+
+    expected_runtime = {
+        "overlay": overlay / "runtime",
+        "owner": owner_runtime,
+    }.get(selection, shared_runtime)
+    expected_mailbox = {
+        "overlay": overlay / "mailbox",
+        "explicit": tmp_path / "explicit-mailbox",
+        "declared": expected_runtime / "declared-mailbox",
+    }.get(selection, shared_mailbox)
+    assert build.call_args.args[0].runtime_root == expected_runtime
+    assert start.call_args.kwargs["runtime_root"] == result.runtime_root == expected_runtime
+    assert start.call_args.kwargs["mailbox_root"] == result.mailbox_root == expected_mailbox
+    assert start.call_args.kwargs["project_overlay_dir"] == overlay
+    assert start.call_args.kwargs["working_directory"] == working_dir
+    assert start.call_args.kwargs["shared_runtime_root"] == (
+        None if selection == "overlay" else expected_runtime
+    )
+    assert start.call_args.kwargs["shared_mailbox_root"] == (
+        None if selection == "overlay" else expected_mailbox
+    )
+
+
+@pytest.mark.usefixtures("stub_brain_preflight")
 def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
     monkeypatch,
     tmp_path: Path,
@@ -591,11 +692,13 @@ def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
         source_agent_def_dir=source_agent_def_dir,
         headless_display_style="plain",
         headless_display_detail="concise",
-        declared_mailboxes=FilesystemMailboxDeclarativeConfig(
-            transport="filesystem",
-            principal_id="alice",
-            address="alice@agents.localhost",
-            filesystem_root="/shared-mail-root",
+        declared_mailboxes=MailboxesDeclarativeConfig(
+            offline=FilesystemMailboxDeclarativeConfig(
+                transport="filesystem",
+                principal_id="alice",
+                address="alice@agents.localhost",
+                filesystem_root="/shared-mail-root",
+            )
         ),
         operator_prompt_mode="as_is",
         persistent_env_records={"OPENAI_ORG_ID": "org-alice"},
@@ -610,11 +713,13 @@ def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
     build_request = captured["build_request"]
     assert build_request.auth == "breakglass"
     assert build_request.operator_prompt_mode == "as_is"
-    assert build_request.mailboxes == FilesystemMailboxDeclarativeConfig(
-        transport="filesystem",
-        principal_id="alice",
-        address="alice@agents.localhost",
-        filesystem_root="/shared-mail-root",
+    assert build_request.mailboxes == MailboxesDeclarativeConfig(
+        offline=FilesystemMailboxDeclarativeConfig(
+            transport="filesystem",
+            principal_id="alice",
+            address="alice@agents.localhost",
+            filesystem_root="/shared-mail-root",
+        )
     )
     assert build_request.persistent_env_records == {
         "OPENAI_BASE_URL": "https://profile.example/v1",

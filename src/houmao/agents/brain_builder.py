@@ -744,7 +744,11 @@ def validate_brain_inputs(
                 api_key_env=dsh_config.api_key_env,
             )
             colliding = set(launch_env_overrides or {}).intersection(
-                (*_auth_env_names(adapter, dsh_config), DSH_LOCAL_API_KEY_ENV)
+                (
+                    *_auth_env_names(adapter, dsh_config),
+                    DSH_LOCAL_API_KEY_ENV,
+                    *dsh_config.mcp_env_refs,
+                )
             )
             if colliding:
                 raise BuildError(
@@ -762,10 +766,24 @@ def validate_brain_inputs(
                 reasoning_level=reasoning_mapping.get("profile_key") if reasoning_mapping else None,
                 credential_environment=read_dsh_mcp_environment(dsh_config, auth_env_file),
             )
+        protected_env_names = [
+            *_auth_env_names(adapter, dsh_config),
+            adapter.home_selector_env_var,
+        ]
+        if dsh_config is not None:
+            protected_env_names.extend(dsh_config.mcp_env_refs)
+            protected_env_names.extend(
+                ("DSH_AGENTS_HOME", "DSH_PERMISSION_MODE", "DSH_BUNDLED_SKILL_DIR")
+            )
         validate_persistent_env_records(
             request.persistent_env_records or {},
-            auth_env_allowlist=_auth_env_names(adapter, dsh_config),
+            auth_env_allowlist=protected_env_names,
             source="BuildRequest.persistent_env_records",
+        )
+        validate_persistent_env_records(
+            launch_env_overrides or {},
+            auth_env_allowlist=protected_env_names,
+            source="One-shot launch environment",
         )
         if backend is not None:
             behavior = resolve_launch_behavior(

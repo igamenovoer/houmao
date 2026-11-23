@@ -9,7 +9,7 @@ import shutil
 import time
 import uuid
 from datetime import UTC, datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +53,7 @@ from .tmux_runtime import (
     kill_tmux_session as kill_tmux_session_shared,
     overlay_tmux_rich_color_environment,
     prepare_headless_agent_window as prepare_headless_agent_window_shared,
+    publish_tmux_launch_environment,
     resolve_primary_tmux_surface as resolve_primary_tmux_surface_shared,
     set_tmux_session_environment as set_tmux_session_environment_shared,
     tmux_error_detail as tmux_error_detail_shared,
@@ -313,15 +314,16 @@ class HeadlessInteractiveSession:
                 session_selection=session_selection,
                 extra_args=execution_projection.args,
             )
-            env = (
-                {
-                    key: value
-                    for key, value in os.environ.items()
-                    if key in {"PATH", "LANG", "LC_ALL", "SHELL", "TERM", "COLORTERM", "TMPDIR"}
-                }
-                if self.backend in {"dsh_acp", "dsh_headless"}
-                else os.environ.copy()
-            )
+            resolved_environment = self._plan.public_env is not None
+            env = {}
+            if not resolved_environment:
+                env = os.environ.copy()
+                if self.backend in {"dsh_acp", "dsh_headless"}:
+                    env = {
+                        key: value
+                        for key, value in env.items()
+                        if key in {"PATH", "LANG", "LC_ALL", "SHELL", "TERM", "COLORTERM", "TMPDIR"}
+                    }
             env.update(self._plan.env)
             env.update(execution_projection.env)
             if self.backend == "dsh_headless":
@@ -329,8 +331,9 @@ class HeadlessInteractiveSession:
                 if isinstance(setup, dict) and isinstance(setup.get("api_key_env"), str):
                     env["HOUMAO_DSH_DIAGNOSTIC_KEY_NAME"] = setup["api_key_env"]
             env[self._plan.home_env_var] = str(self._plan.home_path)
-            overlay_tmux_rich_color_environment(env)
-            inject_loopback_no_proxy_env(env)
+            if not resolved_environment:
+                overlay_tmux_rich_color_environment(env)
+                inject_loopback_no_proxy_env(env)
 
             run_kwargs: dict[str, Any] = {
                 "command": command,
@@ -347,6 +350,8 @@ class HeadlessInteractiveSession:
             }
             if turn_artifact_dir_name is not None:
                 run_kwargs["turn_artifact_dir_name"] = turn_artifact_dir_name
+            if resolved_environment:
+                run_kwargs["replace_environment"] = True
 
             run_result = self._runner.run(
                 **run_kwargs,
@@ -497,7 +502,7 @@ class HeadlessInteractiveSession:
             else:
                 self._refresh_primary_surface()
             self._publish_tmux_session_environment()
-        except TmuxCommandError as exc:
+        except (TmuxCommandError, BackendExecutionError) as exc:
             return SessionControlResult(
                 status="error",
                 action="relaunch",
@@ -652,23 +657,29 @@ class HeadlessInteractiveSession:
 
         created_session = False
         try:
-            create_tmux_session_shared(
-                session_name=session_name,
-                working_directory=self._plan.working_directory,
-            )
+            if self._plan.public_env is None:
+                create_tmux_session_shared(
+                    session_name=session_name,
+                    working_directory=self._plan.working_directory,
+                )
+            else:
+                create_tmux_session_shared(
+                    session_name=session_name,
+                    working_directory=self._plan.working_directory,
+                    launch_plan=self._plan,
+                )
             created_session = True
             surface = self._prepare_primary_surface(session_name=session_name, fresh_session=True)
-        except TmuxCommandError as exc:
+            self._state.tmux_session_name = session_name
+            self._record_primary_surface(surface)
+            self._publish_tmux_session_environment()
+        except (TmuxCommandError, BackendExecutionError) as exc:
             if created_session:
                 try:
                     kill_tmux_session_shared(session_name=session_name)
                 except TmuxCommandError:
                     pass
             raise BackendExecutionError(str(exc)) from exc
-
-        self._state.tmux_session_name = session_name
-        self._record_primary_surface(surface)
-        self._publish_tmux_session_environment()
 
     def _prepare_primary_surface(
         self,
@@ -753,8 +764,29 @@ class HeadlessInteractiveSession:
             return headless_agent_pane_target_shared(session_name=session_name)
 
     def _publish_tmux_session_environment(self) -> None:
+        """Publish owned launch values or retain the adopted-session projection."""
+
         session_name = self._state.tmux_session_name
         if not session_name:
+            return
+
+        if self._plan.public_env is not None:
+            launch_env = dict(self._plan.public_env)
+            if self._state.session_id:
+                launch_env["HOUMAO_RESUME_ID"] = self._state.session_id
+            try:
+                publish_tmux_launch_environment(
+                    session_name=session_name,
+                    launch_plan=replace(
+                        self._plan,
+                        public_env=launch_env,
+                        previous_public_env_var_names=(
+                            self._plan.previous_public_env_var_names | {"HOUMAO_RESUME_ID"}
+                        ),
+                    ),
+                )
+            except TmuxCommandError as exc:
+                raise BackendExecutionError(str(exc)) from exc
             return
 
         launch_env = dict(os.environ)

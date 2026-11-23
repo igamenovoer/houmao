@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import json
 import os
 from pathlib import Path
+import shlex
 import socket
+import stat
 import threading
 import time
 from types import SimpleNamespace
@@ -14,6 +17,7 @@ from typing import Any
 import pytest
 
 from houmao.agents.realm_controller import runtime
+from houmao.agents.realm_controller.backends import service_runtime
 from houmao.agents.realm_controller.backends.dispatch_control import (
     HeadlessDispatchControl,
     _dispatch_origin_birth_token,
@@ -33,9 +37,10 @@ from houmao.agents.realm_controller.backends.service_runtime import (
     verify_service_socket,
     write_service_record,
 )
+from houmao.agents.realm_controller.backends.tmux_runtime import TmuxCommandError
 from houmao.agents.realm_controller.errors import BackendExecutionError
 from houmao.agents.realm_controller.managed_control import ManagedControlObservationV1
-from houmao.agents.realm_controller.models import SessionEvent
+from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan, SessionEvent
 from houmao.agents.realm_controller.owner_admission import OwnerPromptClaim
 
 
@@ -88,6 +93,89 @@ class _Peer:
         """Simulate closure of this exact native connection."""
 
         self.connection_ready = False
+
+
+@pytest.mark.parametrize("publication_fails", [False, True])
+def test_service_publishes_before_starting_private_supervisor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, publication_fails: bool
+) -> None:
+    """Startup checks the scoped session environment before entering the supervisor."""
+
+    plan = LaunchPlan(
+        backend="codex_app_server",
+        tool="codex",
+        executable="codex",
+        args=["app-server"],
+        working_directory=tmp_path,
+        home_path=tmp_path / "home",
+        home_env_var="CODEX_HOME",
+        env={"REVIEW_FLAG": "enabled", "PROVIDER_KEY": "synthetic-private"},
+        env_var_names=["REVIEW_FLAG", "PROVIDER_KEY"],
+        public_env={"REVIEW_FLAG": "enabled"},
+        role_injection=RoleInjectionPlan(
+            method="native_home_system_prompt", role_name="r", prompt="role"
+        ),
+        metadata={
+            "managed_service_identity": {
+                "agent_id": "agent",
+                "runtime_session_id": "runtime",
+                "generation": "generation",
+            },
+            "tmux_socket_path": str(tmp_path / "owner.sock"),
+        },
+    )
+    monkeypatch.setenv("PATH", "/undeclared-manager-path")
+    calls: list[str] = []
+
+    def publish(*, session_name: str, launch_plan: LaunchPlan) -> None:
+        assert session_name == "owned-test-service"
+        assert launch_plan.public_env == {"REVIEW_FLAG": "enabled"}
+        calls.append("publish")
+        if publication_fails:
+            raise TmuxCommandError("Failed to publish tmux launch variable REVIEW_FLAG")
+
+    def run_tmux(args: list[str]) -> SimpleNamespace:
+        if args[0] == "respawn-pane":
+            calls.append("spawn")
+            assert "synthetic-private" not in args[-1]
+            artifact = Path(shlex.split(args[-1])[-1])
+            assert stat.S_IMODE(artifact.stat().st_mode) == 0o600
+            payload = json.loads(artifact.read_text())
+            assert payload["publishable_env_var_names"] == ["REVIEW_FLAG"]
+            assert payload["environment"] == {
+                **plan.env,
+                "HOUMAO_SELF_TMUX_SOCKET": str(tmp_path / "owner.sock"),
+                "HOUMAO_SELF_TMUX_SESSION": "owned-test-service",
+            }
+            return SimpleNamespace(returncode=1)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(
+        service_runtime, "has_tmux_session", lambda **_: SimpleNamespace(returncode=1)
+    )
+    monkeypatch.setattr(service_runtime, "create_tmux_session", lambda **_: None)
+    monkeypatch.setattr(
+        service_runtime, "cleanup_tmux_session", lambda **_: calls.append("cleanup")
+    )
+    monkeypatch.setattr(
+        service_runtime,
+        "prepare_headless_agent_window",
+        lambda **_: SimpleNamespace(pane_id="%1", window_id="@1"),
+    )
+    monkeypatch.setattr(service_runtime, "publish_tmux_launch_environment", publish)
+    monkeypatch.setattr(service_runtime, "run_tmux", run_tmux)
+    error = "REVIEW_FLAG" if publication_fails else "Service supervisor could not be launched"
+    with pytest.raises(BackendExecutionError, match=error):
+        ManagedServiceSession.from_launch_plan(
+            launch_plan=plan,
+            role_name="r",
+            session_manifest_path=tmp_path / "manifest.json",
+            tmux_session_name="owned-test-service",
+            provider_start=True,
+        )
+
+    assert calls == ["publish", *([] if publication_fails else ["spawn"]), "cleanup"]
+    assert not list(tmp_path.glob("service/*/startup.json"))
 
 
 def _owner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[ServiceOwner, _Peer, Path]:

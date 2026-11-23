@@ -35,17 +35,17 @@ from houmao.agents.realm_controller.backends.dsh_diagnostics import (
     sanitize_dsh_diagnostic,
 )
 from houmao.agents.realm_controller.backends.dsh_web_client import DshWebClient, DshWebError
-from houmao.agents.realm_controller.backends.dsh_web_supervisor import (
-    _signal_owned,
-    web_tool_environment,
-)
+from houmao.agents.realm_controller.backends.dsh_web_supervisor import _signal_owned
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     create_tmux_session,
+    detached_tool_environment,
     generate_tmux_session_name,
     has_tmux_session,
     kill_tmux_session,
     prepare_headless_agent_window,
+    publish_tmux_launch_environment,
     run_tmux,
+    TmuxCommandError,
 )
 from houmao.agents.realm_controller.backends.web_entry import NativeWebEntry, owns_ipv4_web_listener
 from houmao.agents.realm_controller.errors import BackendExecutionError
@@ -357,14 +357,7 @@ class DshWebSession:
         prepared = prepare_dsh_home(
             self.plan.home_path,
             setup,
-            {
-                **{
-                    name: os.environ[name]
-                    for name in ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "SHELL", "TERM")
-                    if name in os.environ
-                },
-                **self.plan.env,
-            },
+            self.plan.env,
             self.plan.role_injection.prompt,
             selected_model=setup_metadata.get("model"),
             reasoning_level=setup_metadata.get("reasoning_level"),
@@ -374,11 +367,15 @@ class DshWebSession:
                 DshPermissionParams.model_validate(permissions) if permissions is not None else None
             ),
         )
-        secret_values = dsh_diagnostic_secrets(prepared.environment, key_name=setup.api_key_env)
+        environment = {**(self.plan.public_env or {}), **prepared.environment}
+        secret_values = (
+            *self._diagnostic_secrets(),
+            *dsh_diagnostic_secrets(environment, key_name=setup.api_key_env),
+        )
         try:
             version = subprocess.run(
                 [self.plan.executable, "--version"],
-                env=prepared.environment,
+                env=environment,
                 capture_output=True,
                 text=True,
                 check=True,
@@ -464,26 +461,6 @@ class DshWebSession:
             else generate_tmux_session_name(tool="dsh", role_name=role_name)
         )
         invocation = root / "supervisor-input.json"
-        _write_private_json(
-            invocation,
-            {
-                "root": str(root),
-                "working_directory": str(self.plan.working_directory),
-                "environment": web_tool_environment(prepared.environment, session_name=name),
-                "command": [
-                    self.plan.executable,
-                    "--profile",
-                    "web",
-                    "--patch",
-                    str(patch_path),
-                    "--host",
-                    "127.0.0.1",
-                    "--port",
-                    "0",
-                    "--no-open",
-                ],
-            },
-        )
         created = has_tmux_session(session_name=name).returncode == 1
         if not created and (existing is None or existing.tmux_session_name != name):
             raise BackendExecutionError("DSH Web refuses to adopt an existing supervisor session")
@@ -496,9 +473,31 @@ class DshWebSession:
             ):
                 raise BackendExecutionError("DSH Web supervisor ownership has changed")
         try:
+            _write_private_json(
+                invocation,
+                {
+                    "root": str(root),
+                    "working_directory": str(self.plan.working_directory),
+                    "environment": detached_tool_environment(environment, session_name=name),
+                    "command": [
+                        self.plan.executable,
+                        "--profile",
+                        "web",
+                        "--patch",
+                        str(patch_path),
+                        "--host",
+                        "127.0.0.1",
+                        "--port",
+                        "0",
+                        "--no-open",
+                    ],
+                },
+            )
             if created:
                 create_tmux_session(
-                    session_name=name, working_directory=self.plan.working_directory
+                    session_name=name,
+                    working_directory=self.plan.working_directory,
+                    launch_plan=self.plan,
                 )
                 ownership = run_tmux(
                     ["set-option", "-t", name, "@houmao_dsh_web_owner", str(control)]
@@ -508,6 +507,7 @@ class DshWebSession:
                         "DSH Web supervisor ownership could not be recorded"
                     )
             surface = prepare_headless_agent_window(session_name=name, fresh_session=created)
+            publish_tmux_launch_environment(session_name=name, launch_plan=self.plan)
             command = shlex.join(
                 [
                     sys.executable,
@@ -577,7 +577,11 @@ class DshWebSession:
                 kill_tmux_session(session_name=name)
             if isinstance(exc, DshWebError):
                 raise BackendExecutionError(f"DSH Web startup failed: {exc}") from None
+            if isinstance(exc, TmuxCommandError):
+                raise BackendExecutionError(str(exc)) from None
             raise
+        finally:
+            invocation.unlink(missing_ok=True)
 
     def _abandoned_operations(
         self, receipt_state: Path, previous: DshWebSessionState | None
@@ -607,8 +611,15 @@ class DshWebSession:
             return ()
         setup = self.m_plan.metadata.get("dsh")
         name = setup.get("api_key_env") if isinstance(setup, dict) else None
-        return dsh_diagnostic_secrets(
-            self.m_plan.env, key_name=name if isinstance(name, str) else None
+        return (
+            *dsh_diagnostic_secrets(
+                self.m_plan.env, key_name=name if isinstance(name, str) else None
+            ),
+            *(
+                self.m_plan.env[key]
+                for key in self.m_plan.private_env_var_names
+                if key in self.m_plan.env
+            ),
         )
 
     def _diagnostic_detail(self, error: BaseException) -> str:

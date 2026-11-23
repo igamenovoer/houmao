@@ -46,13 +46,22 @@ from houmao.agents.agent_workspace import (
     memory_env,
     resolve_agent_memory,
 )
+from houmao.agents.launch_env import owner_launch_baseline, validate_persistent_env_records
+from houmao.cao.no_proxy import (
+    inject_loopback_no_proxy_env,
+    is_supported_loopback_cao_base_url,
+    should_preserve_no_proxy_env,
+)
 from houmao.owned_paths import (
     HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR,
     HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR,
+    HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR,
+    resolve_mailbox_root,
     resolve_registry_root,
     resolve_runtime_root,
 )
 from houmao.project.overlay import (
+    PROJECT_OVERLAY_DIR_ENV_VAR,
     ensure_project_aware_local_roots,
     resolve_project_aware_local_roots,
     resolve_project_aware_mailbox_root,
@@ -64,7 +73,6 @@ from houmao.agents.managed_prompt_header import (
 from houmao.agents.managed_launch_force import ManagedLaunchForceMode
 from houmao.agents.launch_policy.models import LaunchPolicyProvenance
 from houmao.agents.dsh_configuration import (
-    DSH_LOCAL_API_KEY_ENV,
     DshEffectiveToolParams,
     read_dsh_mcp_environment,
 )
@@ -82,6 +90,7 @@ from houmao.agents.realm_controller.runtime_launch_environment import (
     write_runtime_launch_environment,
 )
 from .agent_identity import (
+    AGENT_DEF_DIR_ENV_VAR,
     AGENT_NAMESPACE_PREFIX,
     AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
@@ -137,11 +146,13 @@ from .backends.tmux_runtime import (
     has_tmux_session as has_tmux_session_shared,
     list_tmux_panes as list_tmux_panes_shared,
     list_tmux_sessions as list_tmux_sessions_shared,
+    overlay_tmux_rich_color_environment,
     read_tmux_session_environment_value as read_tmux_session_environment_value_shared,
     run_tmux as run_tmux_shared,
     set_tmux_session_environment as set_tmux_session_environment_shared,
     show_tmux_environment as show_tmux_environment_shared,
     tmux_error_detail as tmux_error_detail_shared,
+    tmux_config_injection_enabled,
     unset_tmux_session_environment as unset_tmux_session_environment_shared,
 )
 from .errors import (
@@ -1476,14 +1487,6 @@ class RuntimeSessionController:
                 detail=str(exc),
             )
 
-        if isinstance(self.backend_session, HeadlessInteractiveSession):
-            try:
-                self.backend_session.prepare_stopped_revival(
-                    tmux_session_name=self._require_tmux_session_name()
-                )
-            except (BackendExecutionError, TmuxCommandError) as exc:
-                return SessionControlResult(status="error", action="relaunch", detail=str(exc))
-
         if _backend_requires_provider_start_relaunch(self.launch_plan.backend):
             try:
                 updated_launch_plan = _build_provider_start_launch_plan_for_relaunch(self)
@@ -1511,6 +1514,16 @@ class RuntimeSessionController:
                     detail=str(exc),
                 )
             self.launch_plan = updated_launch_plan
+
+        if isinstance(self.backend_session, HeadlessInteractiveSession):
+            try:
+                self.backend_session.prepare_stopped_revival(
+                    tmux_session_name=self._require_tmux_session_name()
+                )
+            except (BackendExecutionError, TmuxCommandError) as exc:
+                _stop_hook_observation_for_controller(self)
+                _rollback_stopped_session_revival(self)
+                return SessionControlResult(status="error", action="relaunch", detail=str(exc))
 
         try:
             result = _relaunch_backend_session(self, chat_session=effective_chat_session)
@@ -1929,6 +1942,10 @@ def start_runtime_session(
     brain_manifest_path: Path,
     role_name: str | None,
     runtime_root: Path | None = None,
+    project_overlay_dir: Path | None = None,
+    shared_runtime_root: Path | None = None,
+    shared_mailbox_root: Path | None = None,
+    private_workspace_root: Path | None = None,
     jobs_root: Path | None = None,
     memory_paths: AgentMemoryPaths | None = None,
     backend: BackendKind | None = None,
@@ -2201,6 +2218,38 @@ def start_runtime_session(
     launch_plan = _launch_plan_with_transient_env_overrides(
         launch_plan,
         env_overrides=launch_env_overrides,
+    )
+    if project_overlay_dir is None:
+        if shared_runtime_root is None and (
+            os.environ.get(HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR)
+            or current_execution_binding() is not None
+        ):
+            shared_runtime_root = effective_runtime_root
+        if shared_mailbox_root is None and (
+            mailbox_root is not None or os.environ.get(HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR)
+        ):
+            shared_mailbox_root = resolve_mailbox_root(explicit_root=mailbox_root)
+        if os.environ.get(PROJECT_OVERLAY_DIR_ENV_VAR):
+            project_overlay_dir = resolve_project_aware_local_roots(
+                cwd=selected_workdir
+            ).overlay_root
+    root_context = {
+        name: str(path.resolve())
+        for name, path in (
+            (HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR, shared_runtime_root),
+            (HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR, shared_mailbox_root),
+            (PROJECT_OVERLAY_DIR_ENV_VAR, project_overlay_dir),
+            ("HOUMAO_AGENT_PRIVATE_WORKSPACE_ROOT", private_workspace_root),
+        )
+        if path is not None
+    }
+    launch_plan = _resolve_managed_launch_environment(
+        launch_plan,
+        root_context=root_context,
+        agent_id=resolved_agent_id,
+        manifest_path=manifest_path,
+        agent_def_dir=agent_def_dir,
+        api_base_url=api_base_url,
     )
     launch_plan = _launch_plan_with_headless_display_controls(
         launch_plan,
@@ -2503,6 +2552,23 @@ def _resume_runtime_session_controller(
         else launch_plan.metadata,
     )
     launch_plan = _launch_plan_with_memory(launch_plan, memory=memory)
+    if (
+        launch_plan.public_env is None
+        and launch_plan.execution_binding is not None
+        and not _is_joined_tmux_manifest(manifest_payload)
+    ):
+        # Older private records lack visibility provenance. Keep their values in the
+        # native process environment and rebuild only the verified discovery bindings.
+        private_names = frozenset(launch_plan.env).difference(
+            _MEMORY_ENV_VARS, {launch_plan.home_env_var}
+        )
+        launch_plan = _resolve_managed_launch_environment(
+            replace(launch_plan, private_env_var_names=private_names),
+            root_context={},
+            agent_id=manifest_payload.agent_id,
+            manifest_path=handle.path,
+            agent_def_dir=agent_def_dir,
+        )
     if not stopped_revival and not read_only:
         launch_plan = ensure_hook_observation_on_resume(
             launch_plan,
@@ -3127,6 +3193,11 @@ def persist_runtime_launch_inputs(launch_plan: LaunchPlan, *, session_root: Path
         environment=launch_plan.env,
         transient_names=launch_plan.transient_env_var_names,
         mcp_environment=mcp_environment,
+        public_names=(
+            frozenset(launch_plan.public_env) if launch_plan.public_env is not None else None
+        ),
+        private_names=launch_plan.private_env_var_names,
+        masked_names=launch_plan.previous_public_env_var_names,
     )
     if launch_plan.tool == "dsh":
         metadata["env_source_file"] = str(session_root / name)
@@ -3148,12 +3219,21 @@ def _restore_runtime_launch_plan(
         metadata.setdefault("session_origin", _JOINED_SESSION_ORIGIN)
     environment = {saved.home_selector.env_var: saved.home_selector.home_path}
     transient_names: frozenset[str] = frozenset()
+    public_env: dict[str, str] | None = None
+    private_names: frozenset[str] = frozenset()
+    masked_names: frozenset[str] = frozenset()
     name = payload.runtime.launch_environment_file
     if name is not None:
         source = session_root / name
         private = read_runtime_launch_environment(source)
         environment.update(private.environment)
         transient_names = frozenset(private.transient_names)
+        private_names = frozenset(private.private_names)
+        masked_names = frozenset(private.masked_names)
+        if private.public_names is not None:
+            public_env = {
+                key: environment[key] for key in private.public_names if key in environment
+            }
         if saved.tool == "dsh":
             metadata["env_source_file"] = str(source)
     prompt = payload.system_prompt.text if payload.system_prompt is not None else ""
@@ -3168,7 +3248,7 @@ def _restore_runtime_launch_plan(
         home_env_var=saved.home_selector.env_var,
         home_path=Path(saved.home_selector.home_path),
         env=environment,
-        env_var_names=sorted({*saved.env_var_names, *transient_names}),
+        env_var_names=list(saved.env_var_names),
         role_injection=RoleInjectionPlan(
             method=saved.role_injection.method,
             role_name=saved.role_injection.role_name,
@@ -3182,6 +3262,9 @@ def _restore_runtime_launch_plan(
         transient_env_var_names=transient_names,
         execution_binding=payload.runtime.execution_binding,
         runtime_launch_environment_file=name,
+        public_env=public_env,
+        private_env_var_names=private_names,
+        previous_public_env_var_names=masked_names,
         launch_policy_provenance=LaunchPolicyProvenance(**provenance.model_dump())
         if provenance is not None
         else None,
@@ -3931,51 +4014,91 @@ def _launch_plan_with_transient_env_overrides(
     *,
     env_overrides: dict[str, str] | None,
 ) -> LaunchPlan:
-    """Apply one-off live-session env overrides without persisting new env names."""
+    """Apply validated one-off values for this generation only."""
 
     if not env_overrides:
         return launch_plan
 
-    if launch_plan.backend in {"kimi_acp", "codex_app_server", "kimi_web"}:
-        home = env_overrides.get(launch_plan.home_env_var)
-        if home is not None and home != str(launch_plan.home_path):
-            raise SessionManifestError(
-                f"Native {launch_plan.mode} launch cannot replace its private {launch_plan.home_env_var}"
-            )
-
+    protected = {*launch_plan.private_env_var_names, launch_plan.home_env_var}
     if launch_plan.tool == "dsh":
-        dsh_metadata = launch_plan.metadata.get("dsh")
-        dsh = dsh_metadata if isinstance(dsh_metadata, dict) else {}
-        names = {
-            name
-            for name in (dsh.get("api_key_env"), dsh.get("base_url_env"), DSH_LOCAL_API_KEY_ENV)
-            if isinstance(name, str)
-        }
-        colliding = names.intersection(env_overrides)
-        if colliding:
-            raise SessionManifestError(
-                "One-shot launch environment overrides DSH credential binding "
-                + ", ".join(sorted(colliding))
-            )
-    base_env_names = set(launch_plan.env_var_names)
-    updated_env = dict(launch_plan.env)
-    updated_env.update(env_overrides)
+        protected.update(("DSH_AGENTS_HOME", "DSH_PERMISSION_MODE", "DSH_BUNDLED_SKILL_DIR"))
+    try:
+        overrides = validate_persistent_env_records(
+            env_overrides,
+            auth_env_allowlist=sorted(protected),
+            source="One-shot launch environment",
+        )
+    except ValueError as exc:
+        raise SessionManifestError(str(exc)) from exc
+    updated_env = {**launch_plan.env, **overrides}
     if launch_plan.tool == "kimi":
         try:
             validate_kimi_v2_engine_env(updated_env)
         except KimiSystemPromptError as exc:
             raise SessionManifestError(str(exc)) from exc
-    transient_names = frozenset(
-        {
-            *launch_plan.transient_env_var_names,
-            *(name for name in env_overrides if name not in base_env_names),
-        }
-    )
     return replace(
         launch_plan,
         env=updated_env,
-        env_var_names=sorted({*launch_plan.env_var_names, *env_overrides.keys()}),
-        transient_env_var_names=transient_names,
+        transient_env_var_names=launch_plan.transient_env_var_names.union(overrides),
+    )
+
+
+def _resolve_managed_launch_environment(
+    plan: LaunchPlan,
+    *,
+    root_context: dict[str, str],
+    agent_id: str | None,
+    manifest_path: Path,
+    agent_def_dir: Path | None,
+    api_base_url: str = "",
+    previous_keys: frozenset[str] = frozenset(),
+) -> LaunchPlan:
+    """Resolve the explicit provider environment and its safe tmux projection."""
+
+    context_vars = {
+        HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR,
+        HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR,
+        PROJECT_OVERLAY_DIR_ENV_VAR,
+        "HOUMAO_AGENT_PRIVATE_WORKSPACE_ROOT",
+    }
+    selected_context = {
+        key: value
+        for key, value in root_context.items()
+        if key in context_vars and isinstance(value, str) and Path(value).is_absolute()
+    }
+    environment = {
+        **owner_launch_baseline(os.environ),
+        **plan.env,
+        **selected_context,
+        plan.home_env_var: str(plan.home_path),
+        AGENT_MANIFEST_PATH_ENV_VAR: str(manifest_path.resolve()),
+        "HOUMAO_TOOL": plan.tool,
+    }
+    if plan.execution_binding is not None:
+        environment[HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR] = plan.execution_binding.registry_root
+    if agent_id is not None:
+        environment[AGENT_ID_ENV_VAR] = agent_id
+    masked_keys = previous_keys | (context_vars - selected_context.keys())
+    if plan.mode in {"headless", "tui"} and agent_def_dir is not None:
+        environment[AGENT_DEF_DIR_ENV_VAR] = str(agent_def_dir.resolve())
+    else:
+        masked_keys = masked_keys | {AGENT_DEF_DIR_ENV_VAR}
+    if plan.backend in _TMUX_BACKED_BACKENDS and tmux_config_injection_enabled():
+        overlay_tmux_rich_color_environment(environment)
+        masked_keys = masked_keys | {"NO_COLOR"}
+    if not should_preserve_no_proxy_env(os.environ) and (
+        plan.backend != "cao_rest" or is_supported_loopback_cao_base_url(api_base_url)
+    ):
+        inject_loopback_no_proxy_env(environment)
+    public_env = {
+        name: value for name, value in environment.items() if name not in plan.private_env_var_names
+    }
+    return replace(
+        plan,
+        env=environment,
+        public_env=public_env,
+        previous_public_env_var_names=frozenset(masked_keys - public_env.keys()),
+        metadata={**plan.metadata, "launch_root_context": selected_context},
     )
 
 
@@ -4135,8 +4258,19 @@ def _build_provider_start_launch_plan_for_relaunch(
             controller.launch_plan.metadata.get("headless_display_detail")
         ),
     )
-    return persist_runtime_launch_inputs(
+    old_plan = controller.launch_plan
+    recorded_context = old_plan.metadata.get("launch_root_context", {})
+    updated_launch_plan = _resolve_managed_launch_environment(
         _preserve_controller_execution_authority(controller, updated_launch_plan),
+        root_context=recorded_context if isinstance(recorded_context, dict) else {},
+        agent_id=controller.agent_id,
+        manifest_path=controller.manifest_path,
+        agent_def_dir=controller.agent_def_dir,
+        previous_keys=old_plan.previous_public_env_var_names
+        | frozenset(old_plan.public_env if old_plan.public_env is not None else old_plan.env),
+    )
+    return persist_runtime_launch_inputs(
+        updated_launch_plan,
         session_root=controller.manifest_path.parent,
     )
 

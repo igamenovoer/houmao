@@ -155,7 +155,12 @@ def _exec_native(input_path: Path) -> NoReturn:
         finally:
             os.close(descriptor)
         os.set_inheritable(lock, True)
-        os.execvpe(cli[0], cli, prepared.environment)
+        declared = {
+            name: os.environ[name]
+            for name in private.get("public_environment_names", [])
+            if name in os.environ
+        }
+        os.execvpe(cli[0], cli, {**declared, **prepared.environment})
     finally:
         os.close(lock)
 

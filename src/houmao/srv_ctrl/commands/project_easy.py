@@ -19,6 +19,8 @@ from houmao.project.launch_profiles import (
     profile_run_mode,
 )
 
+from .project_context import active_project_dir
+
 # ruff: noqa: F403,F405
 from .project_common import *
 
@@ -1976,7 +1978,7 @@ def easy_instance_group() -> None:
     "--mail-root",
     type=click.Path(path_type=Path, exists=False, file_okay=False, dir_okay=True),
     default=None,
-    help="Shared filesystem mailbox root when `--mail-transport filesystem` is used.",
+    help="Override the filesystem mailbox root selected from stored, shared, or project settings.",
 )
 @click.option(
     "--mail-account-dir",
@@ -2310,10 +2312,6 @@ def launch_project_agent(
         raise click.ClickException(
             "`--mail-root` and `--mail-account-dir` require `--mail-transport filesystem`."
         )
-    if mail_transport == "filesystem" and mail_root is None:
-        raise click.ClickException(
-            "`project agents launch --mail-transport filesystem` requires `--mail-root`."
-        )
     if mail_transport != "filesystem" and mail_account_dir is not None:
         raise click.ClickException(
             "`--mail-account-dir` is only supported with `--mail-transport filesystem`."
@@ -2382,6 +2380,7 @@ def launch_project_agent(
         working_directory=working_directory,
         source_working_directory=overlay.project_root,
         source_agent_def_dir=source_agent_def_dir,
+        source_project_dir=overlay.project_root if active_project_dir() is not None else None,
         headless_display_style=display_style or "plain",
         headless_display_detail=display_detail or "concise",
         launch_env_overrides=launch_env_overrides,

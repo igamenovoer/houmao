@@ -22,7 +22,6 @@ from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDis
 from houmao.agents.realm_controller.backends.dsh_acp_driver import _write_private_json
 from houmao.agents.realm_controller.backends.dsh_web import DshWebSession
 from houmao.agents.realm_controller.backends.dsh_web_client import DshWebError
-from houmao.agents.realm_controller.backends.dsh_web_supervisor import web_tool_environment
 from houmao.agents.realm_controller.backends.kimi_acp_journal import (
     _native_turn_id,
     kimi_session_journal,
@@ -36,11 +35,14 @@ from houmao.agents.realm_controller.backends.kimi_web_client import (
 from houmao.agents.realm_controller.backends.service_runtime import write_service_record
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     create_tmux_session,
+    detached_tool_environment,
     generate_tmux_session_name,
     has_tmux_session,
     kill_tmux_session,
     prepare_headless_agent_window,
+    publish_tmux_launch_environment,
     run_tmux,
+    TmuxCommandError,
 )
 from houmao.agents.realm_controller.backends.web_entry import NativeWebEntry
 from houmao.agents.realm_controller.backends.web_entry import (
@@ -300,35 +302,30 @@ class KimiWebSession:
         _write_private_json(control, cast(dict[str, Any], selection))
         invocation = root / "supervisor-input.json"
         name = tmux_session_name or generate_tmux_session_name(tool="kimi", role_name=role_name)
-        environment = {
-            **{
-                key: os.environ[key]
-                for key in ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "SHELL", "TERM")
-                if key in os.environ
-            },
-            **plan.env,
-            "KIMI_CODE_HOME": str(home),
-        }
-        _write_private_json(
-            invocation,
-            {
-                "root": str(root),
-                "working_directory": str(workspace),
-                "environment": web_tool_environment(environment, session_name=name),
-                "command": [plan.executable, *_NATIVE_ARGS],
-                "name": "Kimi Web",
-            },
-        )
+        environment = {**plan.env, "KIMI_CODE_HOME": str(home)}
         previous = self.m_state
         created = has_tmux_session(session_name=name).returncode == 1
         if not created and (previous is None or not self._owns_tmux(name, previous.control_path)):
             raise BackendExecutionError("Kimi Web refuses to adopt another tmux session")
         try:
+            _write_private_json(
+                invocation,
+                {
+                    "root": str(root),
+                    "working_directory": str(workspace),
+                    "environment": detached_tool_environment(environment, session_name=name),
+                    "command": [plan.executable, *_NATIVE_ARGS],
+                    "name": "Kimi Web",
+                },
+            )
             if created:
-                create_tmux_session(session_name=name, working_directory=workspace)
+                create_tmux_session(
+                    session_name=name, working_directory=workspace, launch_plan=plan
+                )
             if run_tmux(["set-option", "-t", name, _TMUX_OPTION, str(control)]).returncode:
                 raise BackendExecutionError("Kimi Web cannot mark its owned tmux session")
             surface = prepare_headless_agent_window(session_name=name, fresh_session=created)
+            publish_tmux_launch_environment(session_name=name, launch_plan=plan)
             command = shlex.join(
                 [
                     sys.executable,
@@ -388,10 +385,12 @@ class KimiWebSession:
                 tmux_window_id=surface.window_id,
                 tmux_pane_id=surface.pane_id,
             )
-        except BaseException:
+        except BaseException as exc:
             DshWebSession._stop_supervisor_file(root / "supervisor.json")
             if created and self._owns_tmux(name, str(control)):
                 kill_tmux_session(session_name=name)
+            if isinstance(exc, TmuxCommandError):
+                raise BackendExecutionError(str(exc)) from None
             raise
         finally:
             invocation.unlink(missing_ok=True)

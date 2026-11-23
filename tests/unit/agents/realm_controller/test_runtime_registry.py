@@ -161,6 +161,7 @@ class _FakeHeadlessSession:
     def prepare_stopped_revival(self, *, tmux_session_name: str) -> None:
         """Model the explicit lifecycle boundary without touching tmux."""
 
+        assert self.m_launch_plan.public_env is not None
         if self.m_state.tmux_session_name is None:
             self.m_state.tmux_session_name = tmux_session_name
 
@@ -265,6 +266,7 @@ def test_kimi_web_provider_relaunch_probes_updated_executable(
 
     controller = SimpleNamespace(
         agent_launch_authority=None,
+        agent_id=None,
         agent_def_dir=agent_def_dir,
         brain_manifest_path=manifest_path,
         manifest_path=tmp_path / "runtime" / "manifest.json",
@@ -275,6 +277,9 @@ def test_kimi_web_provider_relaunch_probes_updated_executable(
             working_directory=tmp_path,
             mailboxes=None,
             execution_binding=None,
+            env={},
+            public_env=None,
+            previous_public_env_var_names=frozenset(),
             metadata={"kimi_web": {"detected_version": "2.6.0"}},
         ),
     )
@@ -367,6 +372,8 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     assert binding.runtime_root == str(runtime_root)
     assert binding.registry_root == str(registry_root)
     assert started_record.execution_binding == binding
+    assert controller.launch_plan.public_env is not None
+    assert controller.launch_plan.public_env["HOUMAO_GLOBAL_REGISTRY_DIR"] == str(registry_root)
     assert started_record.terminal.socket_path == controller.tmux_socket_path
     capabilities = controller.control_capabilities()
     assert capabilities.mode == "headless"
@@ -430,9 +437,18 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
         if path.is_file()
     }
 
-    with tmux_server_scope("/unrelated/operator.sock"):
-        controller.send_prompt("hello")
-        assert current_tmux_socket_path() == "/unrelated/operator.sock"
+    with monkeypatch.context() as turn_patch:
+        turn_patch.setenv("CURRENT_GEN_FEATURE", "later-controller-value")
+        controller = resume_runtime_session(
+            agent_def_dir=agent_def_dir, session_manifest_path=controller.manifest_path
+        )
+        assert isinstance(controller.backend_session, _FakeHeadlessSession)
+        with tmux_server_scope("/unrelated/operator.sock"):
+            controller.send_prompt("hello")
+            assert current_tmux_socket_path() == "/unrelated/operator.sock"
+        assert controller.backend_session.m_launch_plan.env["CURRENT_GEN_FEATURE"] == (
+            "private-live-value"
+        )
     assert controller.backend_session.m_execution_scopes[-1] == (binding.tmux_socket, binding)
     refreshed_record = resolve_live_agent_record("gpu")
     assert refreshed_record is not None

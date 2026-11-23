@@ -91,10 +91,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if native_dsh:
             _own_detached_descendants()
+        environment = (
+            {name: os.environ[name] for name in ("TMUX", "TMUX_PANE") if name in os.environ}
+            if args.replace_environment
+            else os.environ.copy()
+        )
+        environment.update(args.env)
         process = subprocess.Popen(
             command,
             cwd=str(args.cwd.resolve()),
-            env={**os.environ, **args.env},
+            env=environment,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -429,6 +435,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--detail", default="concise")
     parser.add_argument("--launched-at-utc", required=True)
     parser.add_argument("--env-file", required=True, type=Path)
+    parser.add_argument("--replace-environment", action="store_true")
     parser.add_argument("--dispatch-guard-file", type=Path)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(list(argv) if argv is not None else None)

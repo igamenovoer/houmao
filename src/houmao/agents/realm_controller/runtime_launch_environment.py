@@ -22,6 +22,9 @@ class RuntimeLaunchEnvironment(BaseModel):
     environment: dict[str, str] = Field(repr=False)
     transient_names: list[str]
     mcp_environment: dict[str, str] = Field(default_factory=dict, repr=False)
+    public_names: list[str] | None = None
+    private_names: list[str] = Field(default_factory=list)
+    masked_names: list[str] = Field(default_factory=list)
 
 
 def is_runtime_launch_environment_file(name: str) -> bool:
@@ -36,6 +39,9 @@ def write_runtime_launch_environment(
     environment: dict[str, str],
     transient_names: frozenset[str],
     mcp_environment: Mapping[str, str],
+    public_names: frozenset[str] | None = None,
+    private_names: frozenset[str] = frozenset(),
+    masked_names: frozenset[str] = frozenset(),
 ) -> str:
     """Store selected values in an owner-private file before publishing its name."""
 
@@ -45,6 +51,9 @@ def write_runtime_launch_environment(
         environment=environment,
         transient_names=sorted(transient_names),
         mcp_environment=dict(mcp_environment),
+        public_names=sorted(public_names) if public_names is not None else None,
+        private_names=sorted(private_names),
+        masked_names=sorted(masked_names),
     )
     session_root.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)

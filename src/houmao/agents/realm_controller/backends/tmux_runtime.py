@@ -11,13 +11,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal, Mapping, MutableMapping
 
+from houmao.agents.launch_env import owner_launch_baseline
 from houmao.execution.tmux import (
+    capture_tmux_socket_path,
     current_tmux_socket_path,
     tmux_argv,
     tmux_subprocess_environment,
 )
 
 from ..agent_identity import (
+    SELF_TMUX_SESSION_ENV_VAR,
+    SELF_TMUX_SOCKET_ENV_VAR,
     derive_auto_agent_name_base,
     derive_tmux_session_name,
     normalize_agent_identity_name,
@@ -26,6 +30,8 @@ from ..errors import SessionManifestError
 
 if TYPE_CHECKING:
     import libtmux
+
+    from ..models import LaunchPlan
 
 
 class TmuxCommandError(RuntimeError):
@@ -157,7 +163,7 @@ def apply_tmux_config_injection(*, session_name: str) -> None:
         ["set-option", "-at", session_name, "terminal-overrides", ",*256col*:Tc"],
         ["set-environment", "-t", session_name, "TERM", TMUX_RICH_COLOR_TERM],
         ["set-environment", "-t", session_name, "COLORTERM", TMUX_RICH_COLOR_COLORTERM],
-        ["set-environment", "-t", session_name, "-u", "NO_COLOR"],
+        ["set-environment", "-t", session_name, "-r", "NO_COLOR"],
     )
     for args in commands:
         result = run_tmux(list(args))
@@ -189,18 +195,29 @@ def list_tmux_sessions() -> set[str]:
         ) from exc
 
 
-def create_tmux_session(*, session_name: str, working_directory: Path) -> None:
+def create_tmux_session(
+    *, session_name: str, working_directory: Path, launch_plan: LaunchPlan | None = None
+) -> None:
     """Create a detached tmux session with a fixed working directory."""
 
+    masked_names = (
+        launch_plan.private_env_var_names | launch_plan.previous_public_env_var_names
+        if launch_plan is not None and launch_plan.public_env is not None
+        else frozenset()
+    )
+    initial_env = [argument for name in sorted(masked_names) for argument in ("-e", f"{name}=")]
     result = run_tmux(
         [
             "new-session",
             "-d",
+            "-E",
             "-s",
             session_name,
             "-c",
             str(working_directory),
-        ]
+            *initial_env,
+        ],
+        excluded_environment_names=masked_names,
     )
     if result.returncode == 0:
         try:
@@ -620,6 +637,57 @@ def probe_tmux_backed_authority(
     )
 
 
+def detached_tool_environment(
+    environment: Mapping[str, str], *, session_name: str
+) -> dict[str, str]:
+    """Give detached native tool processes their exact owning tmux locator."""
+
+    detached = {
+        key: value for key, value in environment.items() if key not in {"TMUX", "TMUX_PANE"}
+    }
+    detached[SELF_TMUX_SOCKET_ENV_VAR] = capture_tmux_socket_path()
+    detached[SELF_TMUX_SESSION_ENV_VAR] = session_name
+    return detached
+
+
+def publish_tmux_launch_environment(*, session_name: str, launch_plan: LaunchPlan) -> None:
+    """Reconcile the launch environment in the verified owning session."""
+
+    if launch_plan.public_env is None:
+        return
+
+    private_names = launch_plan.private_env_var_names
+    public = {
+        key: value for key, value in launch_plan.public_env.items() if key not in private_names
+    }
+    removed = (launch_plan.previous_public_env_var_names | private_names).difference(public)
+    target = f"={session_name}"
+    for name in sorted(removed):
+        _publish_tmux_launch_variable(target=target, name=name, value=None)
+    for name, value in public.items():
+        _publish_tmux_launch_variable(target=target, name=name, value=value)
+
+
+def _publish_tmux_launch_variable(*, target: str, name: str, value: str | None) -> None:
+    """Set a value or mask its inherited name without echoing the arguments on failure."""
+
+    args = ["set-environment", "-t", target]
+    if value is None:
+        args.extend(["-r", "--", name])
+    else:
+        # tmux's argv parser treats a terminal semicolon as a command separator.
+        literal_value = value[:-1] + r"\;" if value.endswith(";") else value
+        args.extend(["--", name, literal_value])
+    try:
+        result = run_tmux(args)
+    except (TmuxCommandError, ValueError):
+        raise TmuxCommandError(
+            f"Failed to publish tmux launch variable `{name}` in `{target}`"
+        ) from None
+    if result.returncode != 0:
+        raise TmuxCommandError(f"Failed to publish tmux launch variable `{name}` in `{target}`")
+
+
 def set_tmux_session_environment(*, session_name: str, env_vars: Mapping[str, str]) -> None:
     """Set multiple tmux session environment variables."""
 
@@ -1019,12 +1087,23 @@ def generate_tmux_session_name(
 
 
 def run_tmux(
-    args: list[str], *, timeout_seconds: float | None = None
+    args: list[str],
+    *,
+    timeout_seconds: float | None = None,
+    excluded_environment_names: frozenset[str] = frozenset(),
 ) -> subprocess.CompletedProcess[str]:
     """Run a tmux command with normalized invocation behavior."""
 
     try:
         environment = tmux_subprocess_environment()
+        if args and args[0] in {"new-session", "start-server"}:
+            source = os.environ if environment is None else environment
+            environment = owner_launch_baseline(source)
+            for name in ("TMUX", "TMUX_TMPDIR", "TZ"):
+                if name in source:
+                    environment[name] = source[name]
+            for name in excluded_environment_names:
+                environment.pop(name, None)
         extra: dict[str, Any] = {"env": environment} if environment is not None else {}
         return subprocess.run(
             tmux_argv(args),

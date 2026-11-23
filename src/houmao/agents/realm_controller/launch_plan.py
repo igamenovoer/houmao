@@ -21,6 +21,7 @@ from houmao.agents.kimi_system_prompt import (
 )
 from houmao.agents.dsh_configuration import (
     MATERIALIZED_DSH_TOOL_PARAMS,
+    DSH_LOCAL_API_KEY_ENV,
     DshConfigurationError,
     DshEffectiveToolParams,
     dsh_native_environment,
@@ -111,6 +112,16 @@ _CAO_SHADOW_COMPLETION_STABILITY_KEY: Final[str] = "completion_stability_seconds
 _CAO_SHADOW_STALLED_TERMINAL_KEY: Final[str] = "stalled_is_terminal"
 _LAUNCH_POLICY_OVERRIDE_ENV_VAR: Final[str] = "HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY"
 _CLAUDE_MODEL_SELECTION_FLAGS: Final[frozenset[str]] = frozenset({"--model", "--effort"})
+_CLAUDE_PUBLIC_MODEL_ENV = frozenset(
+    {
+        "ANTHROPIC_MODEL",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+        "CLAUDE_CODE_SUBAGENT_MODEL",
+        "ANTHROPIC_SMALL_FAST_MODEL",
+    }
+)
 _KIMI_MODEL_SELECTION_FLAGS: Final[frozenset[str]] = frozenset({"--model"})
 _KIMI_NO_AUTO_UPDATE_ENV_VAR: Final[str] = "KIMI_CODE_NO_AUTO_UPDATE"
 _CODEX_SERVICE_ALTERNATIVES: Final[str] = "Available Codex alternatives are headless and tui."
@@ -164,6 +175,12 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     env_values, env_var_names, env_source, selected_env_names = read_launch_environment(
         manifest, backend=request.backend
     )
+    private_names = _credential_binding_names(manifest)
+    if tool == "claude":
+        for name in _CLAUDE_PUBLIC_MODEL_ENV:
+            if name in os.environ:
+                env_values.setdefault(name, os.environ[name])
+        env_var_names = sorted(env_values)
 
     metadata: dict[str, Any] = {
         "env_source_file": str(env_source),
@@ -324,7 +341,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         }
     if tool == "dsh":
         assert request.backend in {"dsh_headless", "dsh_acp", "dsh_web"}
-        dsh_metadata, env_values = _prepare_dsh_launch(
+        dsh_metadata, native_env, dsh_private_names = _prepare_dsh_launch(
             request=request,
             home_path=home_path,
             environment=env_values,
@@ -338,6 +355,11 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
                 else None
             ),
         )
+        private_names.update(dsh_private_names)
+        env_values = {
+            **{name: value for name, value in env_values.items() if name not in private_names},
+            **native_env,
+        }
         metadata["dsh"] = dsh_metadata
         metadata["native_system_prompt"] = {
             "method": "native_system_prompt_section",
@@ -441,6 +463,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         mailboxes=request.mailboxes,
         launch_policy_provenance=launch_policy_result.provenance,
         native_surface_kind=human_surface_for_mode(mode),
+        private_env_var_names=frozenset(private_names),
     )
 
 
@@ -462,15 +485,32 @@ def read_launch_environment(
         source, _require_str_list(env_contract, "allowlisted_env_vars")
     )
     records = _persistent_launch_env_records(launch_contract)
+    home_selector = _require_mapping(runtime, "launch_home_selector")
+    protected = {*_credential_binding_names(manifest), _require_str(home_selector, "env_var")}
     if tool == "dsh":
+        setup_path = Path(_require_str(home_selector, "value")) / MATERIALIZED_DSH_TOOL_PARAMS
         try:
-            records = validate_persistent_env_records(
-                records,
-                auth_env_allowlist=_require_str_list(env_contract, "allowlisted_env_vars"),
-                source="DSH persistent launch environment",
-            )
-        except ValueError as exc:
-            raise LaunchPlanError(str(exc)) from exc
+            setup = DshEffectiveToolParams.from_file(setup_path)
+        except (DshConfigurationError, OSError, ValueError) as exc:
+            raise LaunchPlanError("Could not read the managed DSH environment bindings") from exc
+        protected.update(setup.mcp_env_refs)
+        protected.update(
+            {
+                setup.base_url_env,
+                setup.api_key_env or DSH_LOCAL_API_KEY_ENV,
+                "DSH_AGENTS_HOME",
+                "DSH_PERMISSION_MODE",
+                "DSH_BUNDLED_SKILL_DIR",
+            }
+        )
+    try:
+        records = validate_persistent_env_records(
+            records,
+            auth_env_allowlist=sorted(protected),
+            source="Persistent launch environment",
+        )
+    except ValueError as exc:
+        raise LaunchPlanError(str(exc)) from exc
     selected.update(records)
     names = sorted({*selected_names, *records})
     if tool == "kimi":
@@ -483,6 +523,19 @@ def read_launch_environment(
             selected[_KIMI_NO_AUTO_UPDATE_ENV_VAR] = "1"
             names = sorted({*names, _KIMI_NO_AUTO_UPDATE_ENV_VAR})
     return selected, names, source, selected_names
+
+
+def _credential_binding_names(manifest: dict[str, Any]) -> set[str]:
+    """Classify credential input names before merging them with declared settings."""
+
+    tool = _require_str(_require_mapping(manifest, "inputs"), "tool")
+    credentials = _require_mapping(manifest, "credentials")
+    contract = _require_mapping(credentials, "env_contract")
+    names = set(_require_str_list(contract, "allowlisted_env_vars"))
+    if tool == "claude":
+        names.difference_update(_CLAUDE_PUBLIC_MODEL_ENV)
+    names.add(TOKEN_ENV_VAR)
+    return names
 
 
 def validate_dsh_launch_version(
@@ -586,7 +639,7 @@ def _prepare_dsh_launch(
     permissions: Mapping[str, Any],
     executable: str,
     detected_version: str | None,
-) -> tuple[dict[str, Any], dict[str, str]]:
+) -> tuple[dict[str, Any], dict[str, str], set[str]]:
     """Project DSH at explicit provider start and keep control restoration read-only."""
 
     version = validate_dsh_launch_version(
@@ -650,7 +703,15 @@ def _prepare_dsh_launch(
             private_environment = dsh_native_environment(home_path, setup, environment)
         metadata["detected_tool_version"] = version
         metadata["mcp_server_names"] = [server.name for server in setup.mcp_servers]
-        return metadata, private_environment
+        return (
+            metadata,
+            private_environment,
+            {
+                setup.base_url_env,
+                setup.api_key_env or DSH_LOCAL_API_KEY_ENV,
+                *setup.mcp_env_refs,
+            },
+        )
     except (DshConfigurationError, ValueError) as exc:
         raise LaunchPlanError(str(exc)) from exc
 

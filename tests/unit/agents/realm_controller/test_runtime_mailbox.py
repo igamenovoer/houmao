@@ -928,6 +928,7 @@ def test_relaunch_drops_one_off_env_overrides_and_keeps_persistent_env_records(
         tmp_path,
         env_records={"FEATURE_FLAG_X": "1"},
     )
+    monkeypatch.setenv("UNDECLARED_MANAGER_VALUE", "ambient")
 
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._create_backend_session",
@@ -942,6 +943,9 @@ def test_relaunch_drops_one_off_env_overrides_and_keeps_persistent_env_records(
         backend="codex_headless",
         working_directory=tmp_path,
         tmux_session_name="HOUMAO-research",
+        project_overlay_dir=tmp_path / "selected-overlay",
+        shared_runtime_root=runtime_root,
+        shared_mailbox_root=tmp_path / "shared-mail",
         launch_env_overrides={
             "FEATURE_FLAG_X": "2",
             "SESSION_ONLY": "2",
@@ -952,7 +956,15 @@ def test_relaunch_drops_one_off_env_overrides_and_keeps_persistent_env_records(
 
     assert controller.launch_plan.env["FEATURE_FLAG_X"] == "2"
     assert controller.launch_plan.env["SESSION_ONLY"] == "2"
-    assert controller.launch_plan.transient_env_var_names == frozenset({"SESSION_ONLY"})
+    assert controller.launch_plan.transient_env_var_names == frozenset(
+        {"FEATURE_FLAG_X", "SESSION_ONLY"}
+    )
+    assert controller.launch_plan.public_env is not None
+    assert controller.launch_plan.public_env["SESSION_ONLY"] == "2"
+    assert "UNDECLARED_MANAGER_VALUE" not in controller.launch_plan.env
+    assert controller.launch_plan.public_env["HOUMAO_PROJECT_OVERLAY_DIR"] == str(
+        tmp_path / "selected-overlay"
+    )
 
     persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
     assert "FEATURE_FLAG_X" in persisted["launch_plan"]["env_var_names"]
@@ -975,12 +987,23 @@ def test_relaunch_drops_one_off_env_overrides_and_keeps_persistent_env_records(
         lambda *, backend_session, launch_plan: None,
     )
 
+    monkeypatch.setenv("HOUMAO_GLOBAL_RUNTIME_DIR", str(tmp_path / "other-runtime"))
+    monkeypatch.setenv("HOUMAO_GLOBAL_MAILBOX_DIR", str(tmp_path / "other-mail"))
+    monkeypatch.setenv("HOUMAO_PROJECT_OVERLAY_DIR", str(tmp_path / "other-overlay"))
+    monkeypatch.chdir(agent_def_dir)
     result = controller.relaunch()
 
     assert result.status == "ok"
     assert controller.launch_plan.env["FEATURE_FLAG_X"] == "1"
     assert "SESSION_ONLY" not in controller.launch_plan.env
     assert controller.launch_plan.transient_env_var_names == frozenset()
+    assert controller.launch_plan.public_env is not None
+    assert controller.launch_plan.public_env["FEATURE_FLAG_X"] == "1"
+    assert controller.launch_plan.public_env["HOUMAO_GLOBAL_RUNTIME_DIR"] == str(runtime_root)
+    assert controller.launch_plan.public_env["HOUMAO_GLOBAL_MAILBOX_DIR"] == str(
+        tmp_path / "shared-mail"
+    )
+    assert "SESSION_ONLY" in controller.launch_plan.previous_public_env_var_names
 
 
 def test_relaunch_of_older_manifest_recomputes_default_managed_header(

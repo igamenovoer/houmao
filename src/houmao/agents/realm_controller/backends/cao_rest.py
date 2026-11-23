@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Iterator
+from contextlib import contextmanager
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Callable, Final, Literal, Protocol, cast
 
-from houmao.cao.models import CaoTerminalOutputResponse, CaoTerminalStatus
+from houmao.cao.models import CaoTerminal, CaoTerminalOutputResponse, CaoTerminalStatus
 from houmao.cao.no_proxy import (
     inject_loopback_no_proxy_env_for_cao_base_url,
 )
@@ -52,6 +55,7 @@ from .cao_rx_monitor import (
 )
 from .claude_bootstrap import ensure_claude_home_bootstrap as _ensure_claude_home_bootstrap_legacy
 from .codex_bootstrap import ensure_codex_home_bootstrap as _ensure_codex_home_bootstrap_legacy
+from .private_provider_exec import prepare_private_provider_command
 from .shadow_parser_core import (
     DialogProjection,
     ParsedShadowSnapshot,
@@ -76,6 +80,7 @@ from .tmux_runtime import (
     list_tmux_sessions as list_tmux_sessions_shared,
     overlay_tmux_rich_color_environment,
     parse_tmux_control_input as parse_tmux_control_input_shared,
+    publish_tmux_launch_environment,
     run_tmux as run_tmux_shared,
     send_tmux_control_input as send_tmux_control_input_shared,
     set_tmux_session_environment as set_tmux_session_environment_shared,
@@ -575,6 +580,20 @@ class CaoRestSession:
         """Re-publish runtime-owned tmux session pointers when available."""
 
         if self._session_manifest_path is None:
+            return
+        if self._plan.public_env is not None:
+            try:
+                publish_tmux_launch_environment(
+                    session_name=self._session_name,
+                    launch_plan=replace(
+                        self._plan,
+                        previous_public_env_var_names=(
+                            self._plan.previous_public_env_var_names | {"CAO_TERMINAL_ID"}
+                        ),
+                    ),
+                )
+            except TmuxCommandError as exc:
+                raise BackendExecutionError(str(exc)) from exc
             return
         _set_tmux_session_environment(
             session_name=self._session_name,
@@ -1688,36 +1707,35 @@ class CaoRestSession:
         )
 
     def _start_terminal(self, *, session_name: str) -> str:
-        launch_env = self._build_tmux_launch_env()
-
         bootstrap_window: _TmuxWindowRecord | None = None
+        created_session = False
         try:
             self._preflight_start_terminal()
             self._client.health()
             _ensure_tmux_available()
-            _create_tmux_session(
-                session_name=session_name,
-                working_directory=self._plan.working_directory,
-            )
+            if self._plan.public_env is None:
+                _create_tmux_session(
+                    session_name=session_name, working_directory=self._plan.working_directory
+                )
+            else:
+                _create_tmux_session(
+                    session_name=session_name,
+                    working_directory=self._plan.working_directory,
+                    launch_plan=self._plan,
+                )
+            created_session = True
             try:
                 bootstrap_window = _read_bootstrap_tmux_window(session_name=session_name)
             except BackendExecutionError as exc:
                 self._record_startup_warning(
                     f"Failed to capture bootstrap tmux window for session `{session_name}`: {exc}"
                 )
-            _set_tmux_session_environment(
-                session_name=session_name,
-                env_vars=launch_env,
-            )
-            terminal = self._client.create_terminal(
-                session_name,
-                provider=self._provider,
-                agent_profile=self._profile_name,
-                working_directory=str(self._plan.working_directory),
-            )
+            self._publish_tmux_session_environment()
+            terminal = self._create_provider_terminal(session_name=session_name)
             self._tmux_window_name = terminal.name.strip() or None
         except (CaoApiError, BackendExecutionError, TimeoutError, OSError) as exc:
-            _cleanup_tmux_session(session_name)
+            if created_session:
+                _cleanup_tmux_session(session_name)
             raise BackendExecutionError(f"Failed to start CAO session: {exc}") from exc
 
         try:
@@ -1768,6 +1786,60 @@ class CaoRestSession:
 
         return terminal.id
 
+    def _create_provider_terminal(self, *, session_name: str) -> CaoTerminal:
+        """Create the CAO terminal while its owner-private bootstrap is installed."""
+
+        with self._terminal_launch_environment(session_name=session_name):
+            return self._client.create_terminal(
+                session_name,
+                provider=self._provider,
+                agent_profile=self._profile_name,
+                working_directory=str(self._plan.working_directory),
+            )
+
+    @contextmanager
+    def _terminal_launch_environment(self, *, session_name: str) -> Iterator[None]:
+        """Set a temporary shell bootstrap for the CAO-created window."""
+
+        if self._plan.public_env is None:
+            yield
+            return
+        assert self._session_manifest_path is not None
+        target = _terminal_bootstrap_tmux(
+            ["display-message", "-p", "-t", f"={session_name}:", "#{session_id}"]
+        ).strip()
+        if not re.fullmatch(r"\$[0-9]+", target):
+            raise BackendExecutionError("Could not identify the owning CAO tmux session.")
+        previous = _terminal_bootstrap_tmux(
+            ["show-options", "-qv", "-t", target, "default-command"]
+        )
+        shell = _terminal_bootstrap_tmux(
+            ["show-options", "-Aqv", "-t", target, "default-shell"]
+        ).removesuffix("\n")
+        if not Path(shell).is_absolute():
+            raise BackendExecutionError("The CAO terminal requires an absolute tmux default shell.")
+        command, private_path = prepare_private_provider_command(
+            session_root=self._session_manifest_path.parent,
+            environment=self._plan.env,
+            command=[shell, "-l"],
+            cao_terminal_only=True,
+        )
+        option = ["set-option", "-t", target, "default-command"]
+        try:
+            _terminal_bootstrap_tmux([*option, f"exec {shlex.join(command)}"])
+            try:
+                yield
+            finally:
+                if previous:
+                    value = previous.removesuffix("\n")
+                    if value.endswith(";"):
+                        value = value[:-1] + r"\;"
+                    _terminal_bootstrap_tmux([*option, value])
+                else:
+                    _terminal_bootstrap_tmux(["set-option", "-u", "-t", target, "default-command"])
+        finally:
+            private_path.unlink(missing_ok=True)
+
     def _relaunch_existing_terminal(self, *, primary_window_index: str | None = None) -> str:
         """Create one replacement terminal inside the existing tmux session."""
 
@@ -1781,12 +1853,7 @@ class CaoRestSession:
                     f"`{self._session_name}`, but it is unavailable."
                 )
             self._publish_tmux_session_environment()
-            terminal = self._client.create_terminal(
-                self._session_name,
-                provider=self._provider,
-                agent_profile=self._profile_name,
-                working_directory=str(self._plan.working_directory),
-            )
+            terminal = self._create_provider_terminal(session_name=self._session_name)
             previous_terminal_id = self._terminal_id
             if previous_terminal_id != terminal.id:
                 try:
@@ -2048,16 +2115,33 @@ def _list_tmux_sessions() -> set[str]:
         ) from exc
 
 
-def _create_tmux_session(*, session_name: str, working_directory: Path) -> None:
+def _create_tmux_session(
+    *, session_name: str, working_directory: Path, launch_plan: LaunchPlan | None = None
+) -> None:
     try:
         create_tmux_session_shared(
             session_name=session_name,
             working_directory=working_directory,
+            launch_plan=launch_plan,
         )
     except TmuxCommandError as exc:
         raise BackendExecutionError(
             f"Failed to create tmux session `{session_name}`: {exc}"
         ) from exc
+
+
+def _terminal_bootstrap_tmux(args: list[str]) -> str:
+    """Configure the temporary CAO bootstrap with value-free failures."""
+
+    try:
+        result = run_tmux_shared(args)
+    except TmuxCommandError:
+        raise BackendExecutionError(
+            "Could not configure the tmux CAO terminal bootstrap."
+        ) from None
+    if result.returncode:
+        raise BackendExecutionError("Could not configure the tmux CAO terminal bootstrap.")
+    return result.stdout
 
 
 def _list_tmux_windows(*, session_name: str) -> list[_TmuxWindowRecord]:

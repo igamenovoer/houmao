@@ -6,6 +6,8 @@ from collections.abc import Callable
 from dataclasses import replace
 import json
 from pathlib import Path
+import shlex
+import stat
 import time
 from types import SimpleNamespace
 from typing import Any
@@ -364,6 +366,58 @@ def test_web_projects_permission_only_during_native_startup(
     ]
     assert native.m_permission == (permission_mode or "yolo")
     assert reattached.state.web_identity["native_session_id"] == "session_selected"
+
+
+def test_web_publishes_before_starting_private_supervisor(
+    web: tuple[KimiWebSession, _Native],
+    web_startup_plan: LaunchPlan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The owned pane receives its resolved env before native host startup."""
+
+    adapter, _ = web
+    plan = replace(
+        web_startup_plan,
+        public_env={"REVIEW_FLAG": "enabled"},
+        env={"REVIEW_FLAG": "enabled", "PROVIDER_KEY": "synthetic-private"},
+    )
+    monkeypatch.setenv("PATH", "/undeclared-manager-path")
+    calls: list[str] = []
+    artifact: Path | None = None
+
+    def publish(*, session_name: str, launch_plan: LaunchPlan) -> None:
+        assert session_name == "owned-test-web"
+        assert launch_plan.public_env == {"REVIEW_FLAG": "enabled"}
+        calls.append("publish")
+
+    def run_tmux(args: list[str]) -> SimpleNamespace:
+        nonlocal artifact
+        if args[0] == "respawn-pane":
+            calls.append("spawn")
+            assert "synthetic-private" not in args[-1]
+            artifact = Path(shlex.split(args[-1])[-1])
+            assert stat.S_IMODE(artifact.stat().st_mode) == 0o600
+            environment = json.loads(artifact.read_text())["environment"]
+            assert environment["KIMI_CODE_HOME"] == str(plan.home_path.resolve())
+            assert environment["REVIEW_FLAG"] == "enabled"
+            assert environment["PROVIDER_KEY"] == "synthetic-private"
+            assert environment["HOUMAO_SELF_TMUX_SESSION"] == "owned-test-web"
+            assert "PATH" not in environment
+        return SimpleNamespace(returncode=0)
+
+    module = "houmao.agents.realm_controller.backends.kimi_web"
+    monkeypatch.setattr(f"{module}.publish_tmux_launch_environment", publish)
+    monkeypatch.setattr(f"{module}.run_tmux", run_tmux)
+    KimiWebSession.from_launch_plan(
+        launch_plan=plan,
+        session_manifest_path=adapter.manifest_path,
+        role_name="r",
+        tmux_session_name="owned-test-web",
+        provider_start=True,
+    )
+
+    assert calls == ["publish", "spawn"]
+    assert artifact is not None and not artifact.exists()
 
 
 @pytest.mark.parametrize(

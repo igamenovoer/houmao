@@ -29,6 +29,7 @@ from ..models import (
 )
 from .claude_bootstrap import ensure_claude_home_bootstrap
 from .headless_base import HeadlessInteractiveSession, HeadlessSessionState
+from .private_provider_exec import prepare_private_provider_command
 from .shadow_parser_core import DialogProjection, is_operator_blocked, is_submit_ready
 from .shadow_parser_stack import ShadowParserStack, as_shadow_parser_error
 from .tmux_runtime import (
@@ -439,17 +440,35 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
             starts (``None`` when no token wrapper was used).
         """
 
-        command_text = shlex.join(self._build_launch_command(chat_session=chat_session))
+        command = self._build_launch_command(chat_session=chat_session)
+        token, token_env = _hook_observation_token(self._plan)
+        if self._plan.public_env is not None:
+            environment = dict(self._plan.env)
+            if token is not None:
+                environment[token_env] = token
+            try:
+                command, private_path = prepare_private_provider_command(
+                    session_root=self._session_manifest_path.parent,
+                    environment=environment,
+                    command=command,
+                )
+            except OSError:
+                raise BackendExecutionError(
+                    "Could not prepare the owner-private provider environment."
+                ) from None
+        else:
+            private_path = None
         base_lines = [
             "set +e",
             f"cd {shlex.quote(str(self._plan.working_directory))}",
-            f"{command_text}",
+            shlex.join(command),
             "status=$?",
             'printf "\\n[houmao local interactive exited with code %s]\\n" "$status"',
             'idle_shell="${SHELL:-/bin/sh}"',
             'exec "$idle_shell" -l',
         ]
-        token, token_env = _hook_observation_token(self._plan)
+        if private_path is not None:
+            return f"bash -c {shlex.quote(chr(10).join(base_lines))}", private_path
         if token is None:
             return f"bash -lc {shlex.quote(chr(10).join(base_lines))}", None
 
@@ -740,8 +759,7 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
 def _hook_observation_token(plan: LaunchPlan) -> tuple[str | None, str]:
     """Return the hook observation token and environment name from a plan.
 
-    The token lives only in launch-plan metadata; it is never placed in
-    ``plan.env`` because the tmux session environment publishes that mapping.
+    The token lives in launch-plan metadata until a private provider start.
     """
 
     metadata = plan.metadata.get("hook_observation")

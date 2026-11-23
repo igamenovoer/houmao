@@ -442,7 +442,6 @@ def test_build_launch_plan_overlays_persistent_launch_env_records(tmp_path: Path
         env_file=env_file,
         allowlisted_env_vars=["OPENAI_API_KEY", "OPENAI_BASE_URL"],
         env_records={
-            "OPENAI_BASE_URL": "https://launch.example",
             "FEATURE_FLAG_X": "1",
         },
     )
@@ -458,10 +457,22 @@ def test_build_launch_plan_overlays_persistent_launch_env_records(tmp_path: Path
     )
 
     assert plan.env["OPENAI_API_KEY"] == "sk-secret"
-    assert plan.env["OPENAI_BASE_URL"] == "https://launch.example"
+    assert plan.env["OPENAI_BASE_URL"] == "https://auth.example"
     assert plan.env["FEATURE_FLAG_X"] == "1"
     assert "FEATURE_FLAG_X" in plan.env_var_names
     assert "FEATURE_FLAG_X" in plan.redacted_payload()["env_var_names"]
+
+    manifest["runtime"]["launch_contract"]["env_records"]["OPENAI_BASE_URL"] = "private-override"
+    with pytest.raises(LaunchPlanError, match="OPENAI_BASE_URL.*credential") as captured:
+        build_launch_plan(
+            LaunchPlanRequest(
+                brain_manifest=manifest,
+                role_package=role,
+                backend="codex_headless",
+                working_directory=tmp_path,
+            )
+        )
+    assert "private-override" not in str(captured.value)
 
 
 def test_build_launch_plan_preserves_mailbox_without_env_projection(tmp_path: Path) -> None:

@@ -3,6 +3,8 @@ from __future__ import annotations
 import io
 import json
 import os
+import shlex
+import subprocess
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +14,7 @@ import pytest
 from houmao.execution.context import execution_read_only_scope
 
 from houmao.agents.realm_controller.backends import cao_rest as cao_rest_backend
+from houmao.agents.realm_controller.backends import tmux_runtime
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
@@ -942,6 +945,83 @@ def test_cao_backend_uses_tmux_env_and_query_contract(
             "head": "hello\nresponse",
             "tail": "hello\nresponse",
         }
+
+
+def test_managed_cao_terminal_reads_private_environment_during_bootstrap(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Observe the native startup without putting credentials in tmux arguments."""
+
+    tmux_calls: list[list[str]] = []
+    shell = tmp_path / "terminal-shell"
+    shell.write_text('#!/bin/sh\nprintf "%s\\n" "$ANTHROPIC_MODEL" "$ANTHROPIC_API_KEY"\n')
+    shell.chmod(0o700)
+    secret = "synthetic-cao-token"
+    public = {"ANTHROPIC_MODEL": "fixture-model"}
+    plan = replace(
+        _sample_launch_plan(tmp_path, tool="claude"),
+        env={**public, "ANTHROPIC_API_KEY": secret},
+        public_env=public,
+        private_env_var_names=frozenset({"ANTHROPIC_API_KEY"}),
+    )
+    private_path: Path | None = None
+
+    def fake_tmux(args: list[str]) -> subprocess.CompletedProcess[str]:
+        """Track session options and environment updates around terminal creation."""
+
+        tmux_calls.append(args)
+        if args[0] == "display-message":
+            stdout = "$1\n"
+        elif args[0] == "show-options" and args[-1] == "default-shell":
+            stdout = f"{shell}\n"
+        else:
+            stdout = ""
+        return subprocess.CompletedProcess(args, 0, stdout, "")
+
+    def create_terminal(session_name: str, **kwargs: str) -> CaoTerminal:
+        """Run the exact configured private bootstrap on a fixture terminal."""
+
+        nonlocal private_path
+        assert [
+            "set-environment",
+            "-t",
+            "=owned",
+            "--",
+            "ANTHROPIC_MODEL",
+            "fixture-model",
+        ] in tmux_calls
+        command = shlex.split(tmux_calls[-1][-1])[1:]
+        private_path = Path(command[command.index("--cao-terminal-only") + 1])
+        assert private_path.stat().st_mode & 0o777 == 0o600
+        env = {**os.environ, "CAO_TERMINAL_ID": "a1b2c3d4"}
+        terminal = subprocess.run(
+            command, env=env, capture_output=True, text=True, timeout=5, check=True
+        )
+        assert terminal.stdout.splitlines() == ["fixture-model", secret]
+        return CaoTerminal(
+            id="a1b2c3d4",
+            name="fixture-terminal",
+            provider="claude_code",
+            session_name=session_name,
+            agent_profile=kwargs["agent_profile"],
+            status="idle",
+        )
+
+    monkeypatch.setattr(cao_rest_backend, "run_tmux_shared", fake_tmux)
+    monkeypatch.setattr(tmux_runtime, "run_tmux", fake_tmux)
+    session = object.__new__(CaoRestSession)
+    session._plan = plan
+    session._session_name = "owned"
+    session._session_manifest_path = tmp_path / "session.json"
+    session._client = SimpleNamespace(create_terminal=create_terminal)
+    session._provider = "claude_code"
+    session._profile_name = "fixture"
+    session._publish_tmux_session_environment()
+    assert session._create_provider_terminal(session_name="owned").id == "a1b2c3d4"
+    assert secret not in repr(tmux_calls)
+    assert ["set-environment", "-t", "=owned", "-r", "--", "ANTHROPIC_API_KEY"] in tmux_calls
+    assert tmux_calls[-1] == ["set-option", "-u", "-t", "$1", "default-command"]
+    assert private_path is not None and not private_path.exists()
 
 
 def test_cao_resume_republishes_manifest_and_agent_def_dir_to_tmux_env(

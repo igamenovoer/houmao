@@ -232,6 +232,8 @@ def test_resume_reopens_with_committed_prompt_and_private_environment(
         environment={"OPENAI_API_KEY": "private-credential", "ONE_OFF": "live value"},
         transient_names=frozenset({"ONE_OFF"}),
         mcp_environment={},
+        public_names=frozenset({"ONE_OFF"}),
+        private_names=frozenset({"OPENAI_API_KEY"}),
     )
     session_payload["runtime"]["launch_environment_file"] = environment_name
     _write(agent_def_dir / "roles/r/system-prompt.md", "Edited after launch")
@@ -264,6 +266,8 @@ def test_resume_reopens_with_committed_prompt_and_private_environment(
     assert controller.agent_def_dir == agent_def_dir
     assert controller.launch_plan.env["OPENAI_API_KEY"] == "private-credential"
     assert controller.launch_plan.env["ONE_OFF"] == "live value"
+    assert controller.launch_plan.public_env == {"ONE_OFF": "live value"}
+    assert controller.launch_plan.private_env_var_names == frozenset({"OPENAI_API_KEY"})
     assert "private-credential" not in session_path.read_text(encoding="utf-8")
     assert "ONE_OFF" not in controller.launch_plan.redacted_payload()["env_var_names"]
     assert (tmp_path / environment_name).stat().st_mode & 0o777 == 0o600

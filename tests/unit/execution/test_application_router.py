@@ -44,7 +44,7 @@ from houmao.execution.models import (
     ExecutionResponseV1,
     route_fingerprint,
 )
-from houmao.execution.owner import OwnerAdmissionError, OwnerPolicyV1
+from houmao.execution.owner import OwnerAdmissionError, OwnerPolicyV1, handle_request
 from houmao.execution.profiles import ExecutionProfileError
 from houmao.execution.tmux import tmux_server_scope
 from houmao.passive_server.models import PassiveHeadlessLaunchRequest
@@ -390,12 +390,12 @@ def test_owner_launch_reuses_shared_service_and_output_collector(
     assert "executor" not in seen[0]
 
 
-def test_owner_loads_tool_params_from_the_target_project(
+def test_owner_resolves_launch_inputs_in_the_target_context(
     boundary: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Resolve relative parameter files in the selected owner-side project."""
+    """Resolve relative parameter files and bare env names on the execution owner."""
 
     target = Path(boundary.profile.project_root)
     runner = CliRunner()
@@ -420,19 +420,28 @@ def test_owner_loads_tool_params_from_the_target_project(
     (target / "params.yaml").write_text("include_partial_messages: true\n", encoding="utf-8")
     (tmp_path / "params.yaml").write_text("include_partial_messages: false\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OWNER_SETTING", "operator-value")
+    owner_profile = boundary.profile.model_copy(
+        update={"environment": {"OWNER_SETTING": "target-value"}}
+    )
+    owner_policy = boundary.policy.model_copy(update={"profile": owner_profile})
 
     def launch(**parameters: object) -> dict[str, str]:
         """Observe the private application call without starting a harness."""
 
         assert parameters["mode"] == "headless"
         assert parameters["direct_tool_params"] == {"include_partial_messages": True}
+        assert parameters["launch_env_overrides"] == {
+            "OWNER_SETTING": "target-value",
+            "EXPLICIT_SETTING": "literal-value",
+        }
         return {"agent_id": "agent-1", "agent_name": "reviewer"}
 
     monkeypatch.setattr(project_easy, "launch_managed_agent_locally", launch)
     monkeypatch.setattr(
         project_easy, "emit_local_launch_completion", lambda launch_result, **_: emit(launch_result)
     )
-    result = application.dispatch_operation(
+    response = handle_request(
         ExecutionRequestV1(
             operation="launch",
             arguments={
@@ -440,12 +449,15 @@ def test_owner_loads_tool_params_from_the_target_project(
                 "name": "reviewer",
                 "mode": "headless",
                 "tool_params": "@params.yaml",
+                "env_set": ["OWNER_SETTING", "EXPLICIT_SETTING=literal-value"],
             },
         ),
-        boundary.binding,
-        boundary.policy,
+        owner_policy,
+        application.dispatch_operation,
     )
-    assert result["agent_id"] == "agent-1"
+    assert response.outcome == "completed"
+    assert response.result is not None and response.result["agent_id"] == "agent-1"
+    assert os.environ["OWNER_SETTING"] == "operator-value"
 
 
 @pytest.mark.parametrize(

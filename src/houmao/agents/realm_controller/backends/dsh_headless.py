@@ -312,6 +312,7 @@ class DshHeadlessSession(HeadlessInteractiveSession):
             "home_path": str(self._plan.home_path),
             "setup_path": setup["setup_path"],
             "credential_env_source": self._plan.metadata.get("env_source_file"),
+            "public_environment_names": sorted(self._plan.public_env or {}),
             "prompt": prompt,
             "session_id": session_id,
             "runtime_session_id": runtime_id,
