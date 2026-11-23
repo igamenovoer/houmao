@@ -115,12 +115,9 @@ Kimi tried `--box` on `archive`, then corrected. DSH's turn produced no non-zero
 
 The managed-self fix removes the R2 detour. The system-skill path now exercises the intended CLI and completes the mailbox round without schema guessing.
 
-## Current State
+## Final State
 
-- Both gateways: healthy, idle.
-- Both notifiers: enabled at `20s`, `unread_only`.
-- Both inboxes: empty.
-- Both agents remain running for inspection.
+On 2026-11-23, both notifiers were disabled and both agents stopped successfully before the R4 rerun. Their isolated tmux servers were absent, and direct TCP checks confirmed that ports `37605` and `37606` no longer accepted connections. The host lacks `ss`, so the checks used Python socket `connect_ex`, which returned `111` (`ECONNREFUSED`) for both ports. This completes R3 teardown.
 
 Watch helpers:
 
@@ -134,5 +131,4 @@ tmp/houmao-30-iter3-mailbox-r3/login-kimi-mailer-r3.sh
 ## Next
 
 - Decide whether the `mail archive --box` mismatch warrants a skill or CLI-documentation fix.
-- Disable both notifiers and tear down both agents after operator inspection.
-- Keep the Kimi `2.6.0` pin explicit in future runs; the host binary can auto-update past the qualified version.
+- R4 on 2026-11-23 superseded the local Kimi `2.6.0` workaround: host Kimi `2.7.2` launched under the new `>=2.6.0` policy and completed the same mail round. See the [R4 version-floor rerun](2026-11-23-iter3-two-agent-mail-r4-version-floor.md).

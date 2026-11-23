@@ -42,6 +42,8 @@ A clean rerun on 2026-11-20 used the updated fixture default and installed the c
 
 A third run on `houmao-mgr 3.0.0rc5+local.f7f4245.dirty` (commit `f7f42458`) verified the managed-self fix. `agents self identity` returned the managed identity JSON for both agents with exit `0`; the Kimi turn completed in about 43 seconds instead of three minutes. Both inboxes ended empty, both gateways recorded one completed notifier request, and the only remaining error was a minor `mail archive --box` option mismatch that the agent corrected. See the [managed-self fix rerun](../logs/2026-11-20-iter3-two-agent-mail-r3-self-identity-fix.md).
 
+A fourth run on 2026-11-23 used `houmao-mgr 3.0.0rc5+local.0d642af` and host Kimi `2.7.2`. The manifest records `supported_versions: ">=2.6.0"`, live-verifying the Kimi Web version-floor fix from #90. Both managed-self checks and the complete mail round passed without agent-side command errors; the prior `archive --box` mistake did not recur. Kimi produced one `busy_skip` while active, each gateway completed exactly one notifier request, later polls stayed empty, and the `Re:` stop rule prevented a loop. The first launch required an explicit `mailbox init`, which was a test-setup omission and was corrected before launch. R3 teardown completed before R4; R4 remains running for inspection, so its teardown is pending. See the [version-floor rerun](../logs/2026-11-23-iter3-two-agent-mail-r4-version-floor.md).
+
 ## Scope
 
 This question covers the local filesystem mailbox transport, its two-sided mail lifecycle, and the gateway mail-notifier for DSH Web and Kimi Web. It does not cover Stalwart online mail, JMAP synchronization, CCCC chat or deferred Mail, execution-owner switching, or the DeepSeek lane.
