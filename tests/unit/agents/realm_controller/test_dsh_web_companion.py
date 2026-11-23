@@ -96,6 +96,157 @@ try {
         assert response["error"]["code"] == expected
 
 
+@pytest.mark.parametrize("case", ["invalid-workdir", "attach-rejected", "attach-committed"])
+def test_native_web_workspace_failure_keeps_exact_candidate(tmp_path: Path, case: str) -> None:
+    """Publish only verified membership and reconcile uncertain attach without a new ID."""
+
+    bun = shutil.which("bun")
+    if bun is None:
+        pytest.skip("Bun is required for packaged ECMAScript checks")
+    asset = Path(__file__).resolve().parents[4] / "src/houmao/agents/assets/dsh/managed-web.mjs"
+    native_module = tmp_path / "node_modules" / "@deepseek-ai" / "dsh-agent"
+    native_module.mkdir(parents=True)
+    (native_module / "package.json").write_text('{"main":"index.mjs"}')
+    (native_module / "index.mjs").write_text("export function installModelSelection() {}")
+
+    control_path = tmp_path / "control.json"
+    control_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "mode": "web",
+                "agent_id": "logical",
+                "runtime_session_id": "runtime",
+                "generation": "generation",
+                "working_directory": str(tmp_path),
+                "expected_native_session_id": "retained",
+                "state_path": str(tmp_path / "state.json"),
+                "evidence_path": str(tmp_path / "evidence.jsonl"),
+                "bootstrap_path": str(tmp_path / "bootstrap.json"),
+                "provider": "controlled",
+                "model": "controlled",
+                "native_version": "0.2.2-rc.3",
+            }
+        )
+    )
+    script = tmp_path / "workspace.mjs"
+    script.write_text(r"""
+import { EventEmitter } from 'node:events';
+import { readFileSync } from 'node:fs';
+import { Readable } from 'node:stream';
+import { pathToFileURL } from 'node:url';
+const [asset, controlFile, scenario] = process.argv.slice(2);
+const plugin = await import(pathToFileURL(asset));
+const { working_directory: cwd } = JSON.parse(readFileSync(controlFile, 'utf8'));
+const peer = {principal: {kind: 'owner'}, signal: new AbortController().signal};
+const listeners = new Map();
+const resumeIds = [];
+const attachments = [];
+let route;
+let live;
+let publications = 0;
+const session = {id: 'retained', header: {cwd}, seq: 0};
+const workspace = {
+  id: 'workspace',
+  path: cwd,
+  sessionIds: ['other-member'],
+  async attachSession(id) {
+    attachments.push(id);
+    const first = attachments.length === 1;
+    if (first && scenario === 'attach-rejected') throw new Error('PRIVATE NATIVE ERROR');
+    this.sessionIds.push(id);
+    if (first && scenario === 'attach-committed') throw new Error('PRIVATE NATIVE ERROR');
+  },
+};
+const ctx = {
+  on(event, callback) { listeners.set(event, callback); },
+  inject() {},
+  effect(callback) { callback(); },
+  webServer: {register(value) { route = value; }},
+  connection: {admit() { return {peer}; }},
+  workspaceRegistry: {
+    get() { return workspace; },
+    async create() {
+      if (scenario === 'invalid-workdir') throw new Error('PRIVATE NATIVE ERROR');
+      return workspace;
+    },
+  },
+  agentPresets: { async resolve() { return {id: 'preset'}; }, async mount() {} },
+  sessionQuery: { async observeSession() { return {header: session.header, [Symbol.dispose]() {}}; }},
+  sessions: {get(id) { return live?.id === id ? live.session : undefined; }},
+  agents: {
+    get(id) { return live?.id === id ? live : undefined; },
+    async resume({resumeSessionId, setup}) {
+      resumeIds.push(resumeSessionId);
+      const agent = {
+        id: resumeSessionId,
+        session,
+        inbox: {nextTurn: [], nextStep: [], hasPending: false},
+      };
+      await setup({}, agent);
+      live = agent;
+      await listeners.get('agent/created')({agent});
+      publications++;
+      return {agent};
+    },
+  },
+};
+plugin.apply(ctx, {controlFile});
+async function request(operation, payload = {}) {
+  const endpoint = 'managed/v1/' + operation;
+  const body = { type: 'client-request', rpcId: operation, method: endpoint,
+    payload: {protocol_version: 1, ...payload} };
+  const req = Readable.from([Buffer.from(JSON.stringify(body))]);
+  Object.assign(req, {method: 'POST', url: '/houmao/' + endpoint,
+    headers: {'content-type': 'application/json'}});
+  const res = new EventEmitter();
+  let result;
+  res.writeHead = () => {};
+  res.end = data => {
+    result = JSON.parse(data).result;
+    res.writableEnded = true;
+  };
+  await route.handler(req, res);
+  return result;
+}
+const selection = {mode: 'exact', session_id: 'retained'};
+const first = await request('start', selection);
+const publishedAfterFirst = (await request('describe')).value.identity.native_session_id;
+const retry = scenario === 'attach-rejected' ? await request('start', selection) : null;
+console.log(JSON.stringify({first, publishedAfterFirst, retry, resumeIds, attachments,
+  publications, members: workspace.sessionIds}));
+""")
+    result = subprocess.run(
+        [bun, str(script), str(asset), str(control_path), case],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    output = json.loads(result.stdout)
+    assert "PRIVATE NATIVE ERROR" not in result.stdout + result.stderr
+    assert not (tmp_path / "state.json.diagnostics").exists()
+    if case == "invalid-workdir":
+        assert output["first"]["error"]["code"] == "workspace_unavailable"
+        assert output["publishedAfterFirst"] is None
+        assert output["resumeIds"] == output["attachments"] == []
+        assert output["members"] == ["other-member"]
+        assert output["publications"] == 0
+    elif case == "attach-rejected":
+        assert output["first"]["error"]["code"] == "workspace_membership_unavailable"
+        assert output["publishedAfterFirst"] is None
+        assert output["retry"]["value"]["native_session_id"] == "retained"
+        assert output["attachments"] == output["resumeIds"] == ["retained", "retained"]
+        assert output["members"] == ["other-member", "retained"]
+        assert output["publications"] == 1
+    else:
+        assert output["first"]["ok"] is True
+        assert output["publishedAfterFirst"] == "retained"
+        assert output["attachments"] == output["resumeIds"] == ["retained"]
+        assert output["members"] == ["other-member", "retained"]
+        assert output["publications"] == 1
+
+
 @pytest.mark.parametrize(
     "case",
     [

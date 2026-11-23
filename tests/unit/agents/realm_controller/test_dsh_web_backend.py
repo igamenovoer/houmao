@@ -50,7 +50,15 @@ def browser_session(
         native_birth_token="native",
     )
     session.m_client = Mock()
-    independent = Mock(state=Mock(return_value={"identity": identity, "available": True}))
+    independent = Mock(
+        state=Mock(
+            return_value={
+                "identity": identity,
+                "available": True,
+                "browser_workspace_id": "owned-workspace",
+            }
+        )
+    )
     connect = Mock(return_value=independent)
     listener = Mock(return_value=True)
     monkeypatch.setattr(backend_module, "_dispatch_origin_birth_token", lambda _: "supervisor")
@@ -71,6 +79,7 @@ def test_browser_entry_verifies_the_bound_peer_without_mutating_programmatic_con
     entry = session.browser_entry()
     location = urlsplit(entry.redirect_url(expected_origin=session.state.origin))
     assert location.path == "/" and parse_qs(location.query) == {"token": ["private+"]}
+    assert parse_qs(location.fragment) == {"houmao-entry": ["native-agent"]}
     listener.assert_called_with(43, "native", 1234)
     peer.state.assert_called_once_with(session.state.web_identity)
     peer.close.assert_called_once_with()
@@ -98,6 +107,23 @@ def test_read_only_web_state_uses_an_unpersisted_peer(
     assert session.m_client is existing
     assert session.state.cookie_path == cookie_path
     assert not Path(cookie_path).exists()
+
+
+def test_browser_entry_requires_current_workspace_membership(
+    browser_session: tuple[DshWebSession, Mock, Mock],
+) -> None:
+    """Withhold the destination when the live session lacks verified native membership."""
+
+    session, connect, _ = browser_session
+    peer = connect.return_value
+    peer.state.return_value["browser_workspace_id"] = None
+
+    with pytest.raises(
+        BackendExecutionError, match="Managed native Session membership could not be verified"
+    ):
+        session.browser_entry()
+
+    peer.close.assert_called_once_with()
 
 
 @pytest.mark.parametrize("failure", ["permissions", "symlink", "origin", "bootstrap_version"])

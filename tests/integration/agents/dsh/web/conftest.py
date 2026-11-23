@@ -9,12 +9,84 @@ import signal
 import subprocess
 import time
 from typing import Any
+from uuid import uuid4
 
 import pytest
 
 from houmao.agents.dsh_configuration import DshEffectiveToolParams, prepare_dsh_home
 from houmao.agents.realm_controller.backends.dispatch_control import _dispatch_origin_birth_token
 from houmao.agents.realm_controller.backends.dsh_web_client import DshWebClient
+
+
+def read_native_workspaces(client: DshWebClient) -> dict[str, dict[str, Any]]:
+    """Read one native Workspace baseline from the owned API stream."""
+
+    socket = client.m_socket
+    assert socket is not None
+    stream_id = str(uuid4())
+    socket.send(
+        json.dumps(
+            {
+                "type": "open",
+                "streamId": stream_id,
+                "endpoint": "workspace/follow",
+                "payload": {"args": {}},
+            }
+        )
+    )
+    try:
+        frame = json.loads(socket.recv(timeout=10))
+        assert frame["streamId"] == stream_id and frame["type"] == "item"
+        baseline = frame["value"]
+        assert baseline["type"] == "baseline"
+        rows = baseline["value"]["items"]
+        by_path = {row["path"]: row for row in rows}
+        assert len(by_path) == len(rows)
+        return by_path
+    finally:
+        socket.send(json.dumps({"type": "cancel", "streamId": stream_id}))
+
+
+def call_native_request(client: DshWebClient, method: str, args: dict[str, Any]) -> dict[str, Any]:
+    """Use DSH's normal API to seed or read fixture-owned native records."""
+
+    http = client.m_http
+    assert http is not None
+    rpc_id = str(uuid4())
+    response = http.post(
+        f"/api/{method}",
+        json={
+            "type": "client-request",
+            "rpcId": rpc_id,
+            "method": method,
+            "payload": {"args": args},
+        },
+    )
+    assert response.status_code == 200
+    envelope = response.json()
+    assert envelope["rpcId"] == rpc_id and envelope["result"]["ok"], envelope["result"]
+    return envelope["result"]["value"]
+
+
+def read_native_history(client: DshWebClient, session_id: str) -> str:
+    """Read persisted conversation events without selecting or activating that session."""
+
+    return json.dumps(
+        call_native_request(
+            client,
+            "session/events",
+            {"request": {"address": {"kind": "session", "sessionId": session_id}}},
+        )
+    )
+
+
+def read_native_session_ids(client: DshWebClient) -> set[str]:
+    """Count native conversations independently of Workspace membership."""
+
+    items = call_native_request(client, "session/list", {"_request": {}})["items"]
+    ids = {item["sessionId"] for item in items}
+    assert len(ids) == len(items)
+    return ids
 
 
 @dataclass

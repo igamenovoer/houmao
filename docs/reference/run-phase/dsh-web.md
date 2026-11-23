@@ -43,6 +43,10 @@ houmao-mgr project agents launch --profile dsh-browser --gateway-background --wo
 
 The fixture workflow prepares that specialist and its private model and credential inputs. The launch profile reference defines profile precedence and storage. [Fixture workflow](../../../scripts/agents/test-fixtures/README.md#dsh-web), [Launch profiles](../../getting-started/launch-profiles.md).
 
+Houmao registers or reuses the native DSH Workspace for the resolved `--workdir`. Before the managed Web session becomes ready, Houmao verifies that the Workspace contains the native session ID recorded in the manifest.
+
+Use `houmao-mgr agents single --agent-id ID relaunch --chat-session-mode exact --chat-session-id SESSION_ID` to reopen the recorded conversation in the same Workspace. With `--chat-session-mode new`, relaunch creates one replacement session in that Workspace and retains the existing conversations as native history. In-place session reset also places its replacement in the same Workspace.
+
 The first release starts Houmao-owned local hosts. A manually started DSH host cannot be adopted, even if it has a compatible companion or matching workspace. Refusal leaves that host untouched. A verified connection to an existing Houmao-owned host may reconnect or reattach a gateway while retaining the exact native session and live incarnation. Read-only status, detail, and history do not start a stopped host or activate a cold native agent.
 
 Public Web surface metadata contains `kind: web`, a token-free `origin`, and the exact `native_session_id`. Process supervision metadata remains separate. A logical runtime identity can survive explicit relaunch, but the host and agent incarnation change. Stale credentials or incarnation tokens cannot authorize the replacement.
@@ -51,9 +55,9 @@ Use the recorded managed ID for `houmao-mgr agents single --agent-id ID state` a
 
 ## Browser Entry and Exact Session Selection
 
-Open the owning gateway's `/v1/web/enter` URL. With an empty admin roster, the gateway redirects the browser into DSH after verifying the live host and bound session. With enrolled admins, the gateway shows the interactive sign-in page. The manager's `gateway web-entry` command also issues a one-time link under the live roster policy. DSH exchanges its private native root destination for an HttpOnly browser cookie and redirects to the clean root URL. Keep sign-in links, credentials, and browser storage private. [Gateway Access](../gateway/operations/access.md)
+Select **Open agent Web UI** on the owner-local gateway dashboard or open its `/v1/web/enter` URL. With an empty admin roster, the gateway redirects the browser to DSH after verifying the live host, session, and Workspace membership. With enrolled admins, the gateway shows the interactive sign-in page. The manager's `gateway web-entry` command also issues a one-time link under the live roster policy. DSH exchanges its native launch token for an HttpOnly browser cookie. The page selects the managed conversation and clears the handoff marker from the URL. [Gateway Access](../gateway/operations/access.md#open-a-live-web-agent)
 
-The stock client opens at the origin and restores its own saved selection. It has no qualified `?sessionId=` deep-link contract. Select the exact native session from the sidebar, then verify it against the published native session identity before submitting browser work. Browser qualification clicks the native sidebar row keyed by that identity and verifies its selected state. Navigation to a different browser session does not retarget Houmao's programmatic binding.
+The managed conversation opens in the Workspace for the configured workdir, including before its first turn. You can browse other conversations after entry. Reload restores the browser's selection, while Houmao prompts and mail notifications still go to the session recorded in the manifest. To return to that conversation, open the managed Web entry again.
 
 Houmao obtains a separate API Peer using `/connect` with `interactions=none`, then owns that peer's WebSocket and cookie lifecycle. It never reuses the browser cookie. Closing or revoking the API connection must leave the browser usable; a browser answering a native question must not be competed with by the API observer. A new API connection can inspect state and receipts before the operator chooses another mutation. The [native control reference](dsh-web-control.md) defines the versioned client and receipt contract.
 

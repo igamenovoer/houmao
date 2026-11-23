@@ -135,6 +135,7 @@ def dashboard_entry(entry, monkeypatch: pytest.MonkeyPatch):
         "protocol_version": 1,
         "identity": identity.model_dump(),
         "available": True,
+        "browser_workspace_id": "owned-workspace",
         "observed_at_utc": datetime.now(UTC).isoformat(),
         "admission": {"ready_only": False},
         "interaction_waits": ["approval"],
@@ -198,7 +199,9 @@ def test_dashboard_non_web_shows_identity_without_entry(dashboard_entry, mode, b
     observer.observe_web_state_read_only.assert_not_called()
 
 
-@pytest.mark.parametrize("condition", ["unavailable", "stale", "different", "owner", "policy"])
+@pytest.mark.parametrize(
+    "condition", ["unavailable", "stale", "different", "workspace", "owner", "policy"]
+)
 def test_dashboard_reports_unavailable_entry(dashboard_entry, gateway_fixture_access, condition):
     """Unavailable authority or mismatched observations leave the public page readable."""
 
@@ -210,6 +213,8 @@ def test_dashboard_reports_unavailable_entry(dashboard_entry, gateway_fixture_ac
         state["observed_at_utc"] = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
     elif condition == "different":
         state["identity"]["host_incarnation"] = "replacement"
+    elif condition == "workspace":
+        state.pop("browser_workspace_id")
     elif condition == "owner":
         runtime._verified_owner_manifest.side_effect = OwnerAdmissionError("unavailable", "private")
     else:

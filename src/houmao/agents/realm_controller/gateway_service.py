@@ -1146,11 +1146,13 @@ class _NativeWebGatewayAdapter:
         """Read one fresh native state without resolving a browser destination."""
 
         backend = self._browser_entry_backend(binding)
-        state = (
-            backend.observe_web_state_read_only()
-            if isinstance(backend, DshWebSession)
-            else backend.observe_web_state()
-        )
+        if isinstance(backend, DshWebSession):
+            state = backend.observe_web_state_read_only()
+            workspace_id = state.get("browser_workspace_id")
+            if not isinstance(workspace_id, str) or not workspace_id:
+                return False
+        else:
+            state = backend.observe_web_state()
         protocol = state.get("protocol_version")
         return (
             type(protocol) is int

@@ -431,6 +431,7 @@ class DshWebSession:
             for entry in json.loads(prepared.patch_path.read_text())
             if entry.get("id") != "acp"
         ]
+        dsh_assets = files("houmao.agents").joinpath("assets/dsh")
         patch.extend(
             [
                 {
@@ -442,11 +443,13 @@ class DshWebSession:
                     "insert": [
                         {
                             "id": "houmao-managed-web",
-                            "name": str(
-                                files("houmao.agents").joinpath("assets/dsh/managed-web.mjs")
-                            ),
+                            "name": str(dsh_assets.joinpath("managed-web.mjs")),
                             "config": {"controlFile": str(control)},
-                        }
+                        },
+                        {
+                            "id": "houmao-dsh-browser-entry",
+                            "name": str(dsh_assets.joinpath("browser-entry/index.mjs")),
+                        },
                     ]
                 },
             ]
@@ -670,7 +673,24 @@ class DshWebSession:
             or state.web_identity != identity
         ):
             raise DshWebError("stale_identity", "DSH Web execution identity changed")
-        return NativeWebEntry(origin=state.native_surface.origin, query=(("token", token),))
+        workspace_id = live_state.get("browser_workspace_id")
+        incarnation = identity.get("agent_incarnation")
+        if (
+            not isinstance(workspace_id, str)
+            or not workspace_id
+            or not isinstance(incarnation, str)
+            or not incarnation
+        ):
+            raise DshWebError(
+                "workspace_membership_unavailable",
+                "Managed native Session membership could not be verified",
+            )
+        # The fragment carries the target across DSH's redirect after token exchange.
+        return NativeWebEntry(
+            origin=state.native_surface.origin,
+            query=(("token", token),),
+            fragment=(("houmao-entry", incarnation),),
+        )
 
     def _read_web_state_with_temporary_peer(
         self, state: DshWebSessionState, identity: dict[str, Any], token: str

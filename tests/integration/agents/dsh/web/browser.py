@@ -26,8 +26,8 @@ class NativeBrowser:
         return dict(self.m_metadata)
 
     @classmethod
-    def from_connection_file(cls, path: Path) -> NativeBrowser:
-        """Start a test browser using only a private descriptor path in process arguments."""
+    def from_connection_file(cls, path: Path, *, observe_selection: bool = False) -> NativeBrowser:
+        """Start a browser and optionally observe selection without clicking the sidebar."""
 
         bun = shutil.which("bun")
         if bun is None:
@@ -50,13 +50,15 @@ class NativeBrowser:
             start_new_session=True,
         )
         try:
-            browser.m_metadata = browser.call("connect", connection_file=str(path))
+            browser.m_metadata = browser.call(
+                "connect", connection_file=str(path), observe_selection=observe_selection
+            )
         except BaseException:
             browser.close()
             raise
         return browser
 
-    def call(self, action: str, **parameters: str) -> dict[str, Any]:
+    def call(self, action: str, **parameters: str | bool) -> dict[str, Any]:
         """Execute one action and accept only sanitized metadata from the bridge."""
 
         process = self.m_process
@@ -108,6 +110,7 @@ class NativeBrowser:
             "session_id",
             "clean_url",
             "browser_version",
+            "startup_mutations",
             "action",
             "stage",
             "error",

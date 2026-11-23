@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { createCommonRefresh } from './managed-refresh.mjs';
 
 export const name = 'houmao-managed-web';
-export const inject = ['agents', 'sessions', 'agentPresets', 'llm', 'systemPrompt', 'sessionPersistence', 'sessionQuery', 'connection', 'webServer', 'typertGateway', 'attachments', 'permissionPresets'];
+export const inject = ['agents', 'sessions', 'agentPresets', 'llm', 'systemPrompt', 'sessionPersistence', 'sessionQuery', 'connection', 'webServer', 'typertGateway', 'attachments', 'permissionPresets', 'workspaceRegistry'];
 const VERSION = 1;
 const IDENTITY_KEYS = ['agent_id', 'runtime_session_id', 'generation', 'host_incarnation', 'native_session_id', 'agent_incarnation'];
 
@@ -127,6 +127,7 @@ export function apply(ctx, config) {
   const control = controlFrom(config.controlFile);
   const hostIncarnation = randomUUID();
   const nonces = new WeakMap();
+  const managedWorkspaces = new WeakMap();
   const stored = existsSync(control.state_path) ? JSON.parse(readFileSync(control.state_path, 'utf8')) : {version: VERSION, receipts: [], history: [], sequence: 0};
   if (stored.version !== VERSION || !Array.isArray(stored.receipts) || !Array.isArray(stored.history)) throw new Error('Invalid Houmao Web receipt state');
   const receipts = new Map(stored.receipts.map(receipt => [receipt.operation_id, receipt]));
@@ -136,6 +137,7 @@ export function apply(ctx, config) {
   let handle;
   let creating = false;
   let targetSession;
+  let browserEntryScript;
   let abandoned = new Set();
   let lastTurn = null;
   const claimedInputs = new Map();
@@ -157,6 +159,22 @@ export function apply(ctx, config) {
   };
   const fail = (code, message) => { throw Object.assign(new Error(message), {code, managed: true}); };
   const live = () => root !== undefined && ctx.agents.get(root.id) === root && ctx.sessions.get(root.id) === root.session;
+  const browserEntryTarget = () => {
+    if (creating || !live()) return null;
+    const sessionId = root.id;
+    const workspaceId = managedWorkspaces.get(root);
+    const incarnation = identity(root).agent_incarnation;
+    if (!workspaceId || !incarnation) return null;
+    try {
+      const workspace = ctx.workspaceRegistry.get(workspaceId);
+      if (workspace?.path === control.working_directory
+        && workspace.sessionIds.includes(sessionId)
+        && !ctx.workspaceRegistry.archivedSessionIds.includes(sessionId)) {
+        return {workspaceId, sessionId, incarnation};
+      }
+    } catch {}
+    return null;
+  };
   const authenticate = (request, signal, peer) => {
     if (peer.principal.kind !== 'owner' || peer.signal.aborted) fail('forbidden', 'Live owner authorization required');
     if (signal.aborted) fail('cancelled', 'Caller no longer active');
@@ -218,11 +236,47 @@ export function apply(ctx, config) {
     } catch {}
     if (!allowed) fail('cancelled', 'Managed dispatch permission is no longer active');
   };
-  const composition = async presetId => {
+  const resolveWorkspace = async () => {
+    try {
+      const workspace = await ctx.workspaceRegistry.create(control.working_directory);
+      if (workspace.path === control.working_directory
+        && ctx.workspaceRegistry.get(workspace.id) === workspace) return workspace;
+    } catch {}
+    fail('workspace_unavailable', 'Managed native Workspace could not be verified');
+  };
+  const attachWorkspaceSession = async (workspace, agent, sessionId) => {
+    if (agent.id !== sessionId || agent.session.id !== sessionId) {
+      fail('wrong_session', 'Native Session does not match the lifecycle target');
+    }
+    if (agent.session.header.cwd !== control.working_directory) {
+      fail('wrong_workspace', 'Native workspace does not match');
+    }
+    try {
+      if (ctx.workspaceRegistry.get(workspace.id) === workspace) {
+        try {
+          if (!workspace.sessionIds.includes(sessionId)) await workspace.attachSession(sessionId);
+        } catch {
+          // A failed response can follow a committed write. Check this exact membership.
+        }
+        if (ctx.workspaceRegistry.get(workspace.id) === workspace
+          && workspace.sessionIds.includes(sessionId)) return;
+      }
+    } catch {}
+    fail('workspace_membership_unavailable', 'Managed native Session membership could not be verified');
+  };
+  const composition = async (presetId, workspace, sessionId) => {
     const preset = await ctx.agentPresets.resolve(presetId);
     const nativeRequire = createRequire(process.argv[1]);
     const {installModelSelection} = await import(pathToFileURL(nativeRequire.resolve('@deepseek-ai/dsh-agent')).href);
-    return {agentPreset: preset.id, setup: async agentCtx => { installModelSelection(agentCtx); await ctx.agentPresets.mount(agentCtx, preset.id); }};
+    return {
+      agentPreset: preset.id,
+      setup: async (agentCtx, agent) => {
+        installModelSelection(agentCtx);
+        await ctx.agentPresets.mount(agentCtx, preset.id);
+        await attachWorkspaceSession(workspace, agent, sessionId);
+        managedWorkspaces.set(agent, workspace.id);
+      },
+    };
   };
   const nativeVersion = resolveNativeVersion(control);
   const commonRefresh = createCommonRefresh(ctx, {
@@ -236,6 +290,12 @@ export function apply(ctx, config) {
     },
   });
 
+  ctx.on('webserver/index-inject', (table, peer) => {
+    if (peer?.principal?.kind !== 'owner' || peer.signal?.aborted !== false) return;
+    browserEntryScript ??= readFileSync(new URL('./browser-entry/gate.js', import.meta.url), 'utf8');
+    table.push({kind: 'global', name: '__HOUMAO_DSH_BROWSER_ENTRY__', value: browserEntryTarget()});
+    table.push({kind: 'script', placement: 'head', text: browserEntryScript});
+  });
   ctx.on('webserver/entry-url', (origin, entries) => {
     const signed = entries.find(entry => new URL(entry.url).searchParams.has('token'));
     if (!signed) throw new Error('Houmao Web native sign-in mechanism unavailable');
@@ -324,9 +384,15 @@ export function apply(ctx, config) {
     refresh: async (request, signal, peer) => commonRefresh.refresh(requireIdentity(request.identity), request, signal, peer),
     state: async request => {
       if (request.identity) requireIdentity(request.identity);
-      if (!live()) return snapshot(root);
-      try { return await root.runMaintenance(() => Promise.resolve(snapshot(root, true))); }
-      catch { return snapshot(root); }
+      const readState = (trueIdle = false) => {
+        const state = snapshot(root, trueIdle);
+        const target = browserEntryTarget();
+        if (target !== null) state.browser_workspace_id = target.workspaceId;
+        return state;
+      };
+      if (!live()) return readState();
+      try { return await root.runMaintenance(() => Promise.resolve(readState(true))); }
+      catch { return readState(); }
     },
     history: async request => {
       requireIdentity(request.identity);
@@ -389,7 +455,8 @@ export function apply(ctx, config) {
           if (observation.header.origin === 'subagent') fail('wrong_session', 'Managed Web requires an ordinary root session');
           presetId = observation.header.agentPreset;
         }
-        const composed = await composition(presetId);
+        const workspace = await resolveWorkspace();
+        const composed = await composition(presetId, workspace, targetSession);
         authenticate(request, signal, peer);
         const options = {provider: control.provider, model: control.model};
         handle = request.mode === 'exact' ? await ctx.agents.resume({resumeSessionId: targetSession, signal, agentOptions: options, setup: composed.setup}) : await ctx.agents.create({sessionId: targetSession, signal, agentOptions: options, meta: {cwd: control.working_directory, agentPreset: composed.agentPreset}, setup: composed.setup});
@@ -461,7 +528,8 @@ export function apply(ctx, config) {
         authenticate(request, signal, peer);
         targetSession = `session-${randomUUID()}`;
         abandoned = new Set();
-        const composed = await composition();
+        const workspace = await resolveWorkspace();
+        const composed = await composition(undefined, workspace, targetSession);
         authenticate(request, signal, peer);
         handle = await ctx.agents.create({sessionId: targetSession, signal, agentOptions: {provider: control.provider, model: control.model}, meta: {cwd: control.working_directory, agentPreset: composed.agentPreset}, setup: composed.setup});
         if (handle.agent !== root) fail('unavailable', 'Reset did not publish the expected Agent');

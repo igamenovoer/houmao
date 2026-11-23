@@ -88,6 +88,8 @@ On the execution owner, use `houmao-mgr agents single --agent-id "$agent_id" gat
 
 Select **Open agent Web UI** when the dashboard offers it. The link opens `/v1/web/enter`. With a valid empty admin roster, the gateway opens the native app immediately. With enrolled keys, it opens the Houmao sign-in page.
 
+For DSH Web, the handoff opens the manifest-bound conversation in the Workspace for its launch workdir. You can navigate to other native conversations. Houmao prompts and mail notifications still target the bound session. Select **Open agent Web UI** again to return to it. [DSH Browser Entry](../../run-phase/dsh-web.md#browser-entry-and-exact-session-selection)
+
 Browser entry works while the native Web agent is busy or waiting for input. The dashboard explains when the action is unavailable, including for agents in other modes or on advertised proxy connections. Use the owner-local address or private TCP forwards for browser entry. The managed agent's `native_surface` publishes the native origin and conversation ID. [Reach Both Owner Addresses](#reach-both-owner-addresses)
 
 ### Sign In From the Browser

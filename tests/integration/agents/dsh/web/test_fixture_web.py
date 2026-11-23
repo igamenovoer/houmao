@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 import importlib
 import json
 from pathlib import Path
+import sqlite3
 import subprocess
 import threading
 import time
@@ -14,10 +16,36 @@ from typing import Any
 import httpx
 import pytest
 
+from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.realm_controller.backends.dsh_web_client import DshWebClient
+from houmao.agents.realm_controller.manifest import mutate_session_mailbox_binding
 from tests.fixtures.gateway_access import FixtureProofAuth, fixture_admin_key
 from tests.integration.agents.dsh.conftest import ControlledModelGate
 from tests.integration.agents.dsh.web.browser import NativeBrowser
+from tests.integration.agents.dsh.web.conftest import (
+    call_native_request,
+    read_native_history,
+    read_native_session_ids,
+    read_native_workspaces,
+)
+from tests.unit.agents.realm_controller.test_gateway_support import _deliver_unread_mailbox_message
+
+
+def _gateway_browser_file(run: dict[str, Any], state: dict[str, Any]) -> Path:
+    """Give the browser the gateway URL and expected identity without native credentials."""
+
+    path = Path(run["run_dir"]) / "gateway-browser-connection.json"
+    path.write_text(
+        json.dumps(
+            {
+                "origin": state["origin"],
+                "native_session_id": state["web_identity"]["native_session_id"],
+                "gateway_entry_url": f"http://127.0.0.1:{run['identity']['gateway_port']}/v1/web/enter",
+            }
+        )
+    )
+    path.chmod(0o600)
+    return path
 
 
 @pytest.mark.parametrize("case", ["cloud-api", "self-hosted"])
@@ -102,17 +130,7 @@ def test_native_web_fixture_keeps_one_browser_api_session(
             with httpx.Client(base_url=gateway, trust_env=False, timeout=10) as http:
                 assert http.get("/v1/endpoint").json()["admin_access"] == "open"
                 assert http.get("/v1/web/enter", follow_redirects=False).status_code == 302
-            browser_file = root / "gateway-browser-connection.json"
-            browser_file.write_text(
-                json.dumps(
-                    {
-                        "origin": state["origin"],
-                        "native_session_id": identity["native_session_id"],
-                        "gateway_entry_url": f"{gateway}/v1/web/enter",
-                    }
-                )
-            )
-            browser_file.chmod(0o600)
+            browser_file = _gateway_browser_file(run, state)
         browser = NativeBrowser.from_connection_file(browser_file)
         assert browser.metadata["session_id"] == identity["native_session_id"]
         assert browser.metadata["origin"] == state["origin"]
@@ -193,6 +211,217 @@ def test_native_web_fixture_keeps_one_browser_api_session(
             browser.close()
         if observer is not None:
             observer.close()
+        launch.stop_run(root)
+
+
+def _bind_fixture_notifier_mailbox(manifest_path: Path, root: Path) -> None:
+    """Attach one fixture-owned offline mailbox containing unread work."""
+
+    manifest = json.loads(manifest_path.read_text())
+    agent_id = manifest["agent_id"]
+    address = "workspace-browser@agents.localhost"
+    _deliver_unread_mailbox_message(
+        root, recipient_principal_id=agent_id, recipient_address=address
+    )
+    mailbox_root = root / "mailbox"
+    with closing(sqlite3.connect(mailbox_root / "index.sqlite")) as connection:
+        registration = connection.execute(
+            "SELECT registration_id FROM mailbox_registrations WHERE address=? AND status='active'",
+            (address,),
+        ).fetchone()
+    assert registration is not None
+    mutate_session_mailbox_binding(
+        manifest_path,
+        channel="offline",
+        expected_revision=manifest["launch_plan"]["mailboxes"]["offline"]["revision"],
+        binding=FilesystemMailboxResolvedConfig(
+            transport="filesystem",
+            principal_id=agent_id,
+            address=address,
+            filesystem_root=mailbox_root,
+            bindings_version="workspace-browser-mail-revision",
+            agent_id=agent_id,
+            binding_id=registration[0],
+        ),
+        agent_id=agent_id,
+        session_id=manifest["runtime"]["session_id"],
+    )
+
+
+def test_managed_browser_entry_selects_bound_workspace_before_and_after_lifecycle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dsh_executable: Path,
+    controlled_messages_server: tuple[str, list[dict[str, Any]]],
+    isolated_tmux: Path,
+) -> None:
+    """Observe exact entry and reload before any prompt, across relaunch, and after a notifier."""
+
+    repo = Path(__file__).resolve().parents[5]
+    monkeypatch.syspath_prepend(str(repo / "scripts/agents/test-fixtures"))
+    config_tools = importlib.import_module("fixturelib.config")
+    prepare = importlib.import_module("fixturelib.prepare")
+    launch = importlib.import_module("fixturelib.launch")
+    web = importlib.import_module("fixturelib.web")
+    endpoint, requests = controlled_messages_server
+    config = config_tools.resolve_config(
+        case="self-hosted",
+        client="dsh",
+        mode="web",
+        surface="manager",
+        process_env={
+            "HOUMAO_TEST_SELF_HOSTED_MODEL": "controlled",
+            "HOUMAO_TEST_SELF_HOSTED_OPENAI_BASE_URL": endpoint,
+            "HOUMAO_TEST_SELF_HOSTED_CONTEXT_WINDOW": "8192",
+            "HOUMAO_TEST_SELF_HOSTED_MAX_OUTPUT_TOKENS": "128",
+            "HOUMAO_TEST_SELF_HOSTED_DSH_REASONING": "false",
+        },
+    )
+    prepared = prepare.prepare_run(
+        config, run_root=tmp_path / "runs", executable=str(dsh_executable)
+    )
+    root = Path(prepared["run_dir"])
+    try:
+        launch.launch_run(root)
+        run = prepare.load_run(root)
+        assert run["tmux_socket_path"] != str(isolated_tmux)
+        manifest_path = Path(run["identity"]["manifest_path"])
+        state = json.loads(manifest_path.read_text())["backend_state"]
+        workdir = str(Path(run["workdir"]).resolve())
+        original_identity = state["web_identity"]
+        original = original_identity["native_session_id"]
+        history_marker = "Original managed browser Workspace history"
+        other_marker = "Unrelated browser Workspace history"
+        notification_marker = "Controlled Workspace browser notifier"
+        other_workdir = tmp_path / "unrelated-workdir"
+        other_workdir.mkdir()
+
+        def observe_native() -> DshWebClient:
+            """Open a separate API peer to the currently published native host."""
+
+            private = json.loads(web.browser_connection_file(run).read_text())
+            return DshWebClient.from_connection(
+                private["origin"], launch_token=private["launch_token"]
+            )
+
+        def open_managed_browser(current: dict[str, Any]) -> NativeBrowser:
+            """Open managed gateway entry with clean browser storage and no sidebar click."""
+
+            return NativeBrowser.from_connection_file(
+                _gateway_browser_file(run, current), observe_selection=True
+            )
+
+        with closing(observe_native()) as observer:
+            initial = read_native_workspaces(observer)
+            assert set(initial) == {workdir}
+            workspace_id = initial[workdir]["workspaceId"]
+            assert initial[workdir]["sessionIds"] == [original]
+            assert read_native_session_ids(observer) == {original}
+            assert not requests
+            with closing(open_managed_browser(state)) as browser:
+                assert browser.metadata["session_id"] == original
+                assert browser.metadata["clean_url"] is True
+                assert browser.metadata["startup_mutations"] == 0
+                assert read_native_workspaces(observer) == initial
+                assert read_native_session_ids(observer) == {original}
+                assert browser.call("reload")["session_id"] == original
+                assert read_native_workspaces(observer) == initial
+                assert read_native_session_ids(observer) == {original}
+                assert not requests
+                launch.prompt_run(root, prompt=history_marker, timeout=45)
+                browser.call("contains", text=history_marker)
+
+                other_workspace = call_native_request(
+                    observer, "workspace/create", {"request": {"path": str(other_workdir)}}
+                )["workspace"]
+                other = browser.call("new", workspace_id=other_workspace["workspaceId"])[
+                    "session_id"
+                ]
+                assert other != original
+                browser.call("submit", text=other_marker)
+                browser.call("contains", text="Controlled native result")
+                assert browser.call("reload")["session_id"] == other
+                memberships = read_native_workspaces(observer)
+                assert memberships[str(other_workdir)]["sessionIds"] == [other]
+                before_other = read_native_history(observer, other)
+                assert other_marker in before_other
+                assert read_native_session_ids(observer) == {original, other}
+
+                _bind_fixture_notifier_mailbox(manifest_path, root)
+                gateway = f"http://127.0.0.1:{run['identity']['gateway_port']}"
+                with httpx.Client(base_url=gateway, trust_env=False, timeout=10) as http:
+                    notifier = "/v1/mail-notifier/offline"
+                    http.put(
+                        notifier, json={"interval_seconds": 1, "appendix_text": notification_marker}
+                    ).raise_for_status()
+                    try:
+                        deadline = time.monotonic() + 25
+                        while True:
+                            last_turn = observer.state(original_identity)["last_turn"] or {}
+                            if (
+                                last_turn.get("turn", 0) >= 2
+                                and last_turn.get("result") == "completed"
+                                and notification_marker in read_native_history(observer, original)
+                            ):
+                                break
+                            assert time.monotonic() < deadline, (
+                                "Notifier turn did not reach managed session"
+                            )
+                            time.sleep(0.05)
+                    finally:
+                        http.delete(notifier).raise_for_status()
+                entered = browser.call("reenter")
+                assert entered["session_id"] == original
+                assert entered["clean_url"] is True and entered["startup_mutations"] == 0
+                browser.call("contains", text=notification_marker)
+                assert json.loads(manifest_path.read_text())["backend_state"]["web_identity"] == (
+                    original_identity
+                )
+                assert read_native_history(observer, other) == before_other
+                assert read_native_workspaces(observer) == memberships
+                assert read_native_session_ids(observer) == {original, other}
+
+        for mode in ("exact", "new"):
+            chat_session = ["--chat-session-mode", mode]
+            if mode == "exact":
+                chat_session.extend(["--chat-session-id", original])
+            prepare.manager_root_call(
+                [
+                    "agents",
+                    "single",
+                    "--agent-id",
+                    run["identity"]["agent_id"],
+                    "relaunch",
+                    *chat_session,
+                ],
+                env=launch.run_environment(run),
+            )
+            state = json.loads(manifest_path.read_text())["backend_state"]
+            target = state["web_identity"]["native_session_id"]
+            with closing(observe_native()) as observer:
+                before_entry = read_native_workspaces(observer)
+                assert set(before_entry) == set(memberships)
+                assert before_entry[str(other_workdir)] == memberships[str(other_workdir)]
+                assert before_entry[workdir]["workspaceId"] == workspace_id
+                if mode == "exact":
+                    assert target == original and before_entry == memberships
+                    expected_sessions = {original, other}
+                else:
+                    assert target not in {original, other}
+                    assert before_entry[workdir]["sessionIds"] == [target, original]
+                    expected_sessions = {original, other, target}
+                assert read_native_session_ids(observer) == expected_sessions
+                with closing(open_managed_browser(state)) as browser:
+                    assert browser.metadata["session_id"] == target
+                    assert browser.metadata["clean_url"] is True
+                    assert browser.metadata["startup_mutations"] == 0
+                    if mode == "exact":
+                        browser.call("contains", text=history_marker)
+                    assert read_native_workspaces(observer) == before_entry
+                    assert read_native_session_ids(observer) == expected_sessions
+                assert history_marker in read_native_history(observer, original)
+                assert read_native_history(observer, other) == before_other
+    finally:
         launch.stop_run(root)
 
 

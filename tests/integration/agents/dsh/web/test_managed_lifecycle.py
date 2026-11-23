@@ -10,6 +10,7 @@ import signal
 import time
 from typing import Any
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 import pytest
 
@@ -32,6 +33,12 @@ from houmao.agents.realm_controller.runtime import (
 )
 from tests.integration.agents.dsh.test_gateway_passive import bind_fixture_gateway_owner
 from tests.integration.agents.dsh.test_managed_acp import _launch_plan
+from tests.integration.agents.dsh.web.conftest import (
+    call_native_request,
+    read_native_history,
+    read_native_session_ids,
+    read_native_workspaces,
+)
 
 
 def _web_plan(
@@ -91,6 +98,119 @@ def _stop(session: DshWebSession) -> None:
 
     session.configure_stop_force_cleanup(force_cleanup=True)
     assert session.terminate().status == "ok"
+
+
+def test_managed_workspace_membership_survives_exact_and_replacement_lifecycles(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dsh_executable: Path,
+    controlled_messages_server: tuple[str, list[dict[str, Any]]],
+    isolated_tmux: Path,
+) -> None:
+    """Bind before the first turn and keep native Workspace history across lifecycle operations."""
+
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(tmp_path / "registry"))
+    endpoint, requests = controlled_messages_server
+    plan, manifest = _web_plan(tmp_path, dsh_executable, endpoint, tmux_socket=isolated_tmux)
+    session = DshWebSession.from_launch_plan(
+        launch_plan=plan,
+        session_manifest_path=manifest,
+        role_name="controlled",
+        provider_start=True,
+    )
+    try:
+        controller = _controller(plan, manifest, session)
+        workdir = str(plan.working_directory.resolve())
+        original = session.state.web_identity["native_session_id"]
+        rows = read_native_workspaces(session._client())
+        assert set(rows) == {workdir}
+        assert rows[workdir]["sessionIds"] == [original]
+        assert json.loads(manifest.read_text())["backend_state"]["web_identity"] == (
+            session.state.web_identity
+        )
+        assert read_native_session_ids(session._client()) == {original}
+        assert not requests
+        workspace_id = rows[workdir]["workspaceId"]
+        controller.send_prompt("managed Workspace history", turn_artifact_dir_name="before")
+
+        other_dir = tmp_path / "another-workspace"
+        other_dir.mkdir()
+        other_workspace = call_native_request(
+            session._client(), "workspace/create", {"request": {"path": str(other_dir)}}
+        )["workspace"]
+        other = call_native_request(
+            session._client(),
+            "session/create",
+            {"request": {"workspaceId": other_workspace["workspaceId"]}},
+        )["sessionId"]
+        assert call_native_request(
+            session._client(),
+            "session/prompt",
+            {
+                "request": {
+                    "requestId": str(uuid4()),
+                    "sessionId": other,
+                    "mode": "queue",
+                    "content": [{"type": "text", "text": "unrelated Workspace history"}],
+                }
+            },
+        )["accepted"]
+        deadline = time.monotonic() + 10
+        while "Controlled native result" not in read_native_history(session._client(), other):
+            assert time.monotonic() < deadline, "Unrelated native turn did not settle"
+            time.sleep(0.02)
+
+        expected = read_native_workspaces(session._client())
+        assert expected[str(other_dir)]["sessionIds"] == [other]
+        for _ in range(2):
+            result = _relaunch_backend_session(
+                controller,
+                chat_session=RelaunchChatSessionSelection(mode="exact", session_id=original),
+            )
+            assert result.status == "ok", result.detail
+            controller.persist_manifest()
+            assert session.state.web_identity["native_session_id"] == original
+            assert read_native_workspaces(session._client()) == expected
+            assert read_native_session_ids(session._client()) == {original, other}
+            assert "managed Workspace history" in read_native_history(session._client(), original)
+        assert len(requests) == 2
+
+        result = _relaunch_backend_session(
+            controller, chat_session=RelaunchChatSessionSelection(mode="new")
+        )
+        assert result.status == "ok", result.detail
+        controller.persist_manifest()
+        replacement = session.state.web_identity["native_session_id"]
+        assert replacement not in {original, other}
+        assert read_native_session_ids(session._client()) == {original, other, replacement}
+        after_relaunch = read_native_workspaces(session._client())
+        assert set(after_relaunch) == set(expected)
+        assert after_relaunch[workdir]["workspaceId"] == workspace_id
+        assert after_relaunch[workdir]["sessionIds"] == [replacement, original]
+        assert after_relaunch[str(other_dir)] == expected[str(other_dir)]
+
+        controller.send_web_prompt(
+            "managed Workspace reset history",
+            session_selection=HeadlessTurnSessionSelection(mode="new"),
+            turn_artifact_dir_name="reset",
+        )
+        reset = session.state.web_identity["native_session_id"]
+        assert reset not in {original, other, replacement}
+        assert read_native_session_ids(session._client()) == {original, other, replacement, reset}
+        assert json.loads(manifest.read_text())["backend_state"]["web_identity"] == (
+            session.state.web_identity
+        )
+        after_reset = read_native_workspaces(session._client())
+        assert set(after_reset) == set(expected)
+        assert after_reset[workdir]["workspaceId"] == workspace_id
+        assert after_reset[workdir]["sessionIds"] == [reset, replacement, original]
+        assert after_reset[str(other_dir)] == expected[str(other_dir)]
+        assert "unrelated Workspace history" in read_native_history(session._client(), other)
+        assert "managed Workspace history" in read_native_history(session._client(), original)
+        assert "managed Workspace reset history" in read_native_history(session._client(), reset)
+        assert len(requests) == 3
+    finally:
+        _stop(session)
 
 
 def test_two_owned_hosts_reconnect_without_retargeting_or_disclosing_native_output(
