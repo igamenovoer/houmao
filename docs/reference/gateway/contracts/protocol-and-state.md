@@ -133,10 +133,11 @@ This gateway-specific switch is separate from the CAO loopback behavior that inj
 
 ## HTTP Surface
 
-The matched operation determines access. Health and endpoint discovery are public. Detailed status, usage, memory, ordinary mail, and plugin inventory are private. Control, native inspection, mailbox binding, operator post, and AG-UI follow the live admin policy. See the access guide for the full policy and challenge handling. [Gateway Access and Remote Deployment](../operations/access.md)
+The matched operation determines access. The dashboard, health, and endpoint discovery are public. Detailed status, usage, memory, ordinary mail, and plugin inventory are private. Control, native inspection, mailbox binding, operator post, and AG-UI follow the live admin policy. See the access guide for the full policy and challenge handling. [Gateway Access and Remote Deployment](../operations/access.md)
 
-Current v1 routes:
+Current HTTP routes
 
+- `GET /`
 - `GET /health`
 - `GET /v1/endpoint`
 - `POST /v1/auth/challenge`
@@ -188,6 +189,12 @@ Current v1 routes:
 - `DELETE /v1/ag-ui/connections/{connection_id}`
 
 The direct AG-UI routes are documented in [Gateway AG-UI Routes](../ag-ui.md). They attach GUI streams and submit AG-UI task runs to the existing gateway queue; they do not give the GUI managed-agent lifecycle ownership.
+
+### `GET /`
+
+The gateway returns HTTP 200 and a read-only HTML dashboard. It shows the verified agent name or ID, backend, run mode, gateway health, and native Web availability. A live gateway can still serve the page when it cannot verify the runtime or native surface. The page marks unavailable details and explains why Web entry is unavailable.
+
+For an available native Web surface, an eligible owner-local request, and readable access policy, **Open agent Web UI** links to the bare `/v1/web/enter` path. Following the link uses the live roster and checks the native binding before any handoff. The dashboard sends `Cache-Control: no-store` and `Referrer-Policy: no-referrer`. [Open a Live Web Agent](../operations/access.md#open-a-live-web-agent)
 
 ### Web Entry and Login
 

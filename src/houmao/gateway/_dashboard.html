@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Houmao Gateway Dashboard</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font: 100%/1.5 system-ui, sans-serif;
+      --page: #edf2f5;
+      --panel: #fff;
+      --text: #18242b;
+      --muted: #465963;
+      --border: #d3dfe4;
+      --action: #005c50;
+      --action-text: #fff;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --page: #111c22;
+        --panel: #19282f;
+        --text: #f0f5f6;
+        --muted: #afc1ca;
+        --border: #394d57;
+        --action: #a3ecd7;
+        --action-text: #12322c;
+      }
+    }
+    body { margin: 0; background: var(--page); color: var(--text); }
+    main {
+      max-width: 36rem;
+      margin: clamp(1rem, 8vh, 5rem) auto;
+      padding: 0 1rem 2rem;
+      overflow-wrap: anywhere;
+    }
+    h1 { margin: 0 0 1rem; font-size: clamp(1.55rem, 5vw, 2.15rem); line-height: 1.25; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 1rem;
+      padding: clamp(1rem, 4vw, 1.75rem);
+    }
+    dl {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+      gap: 1rem 2rem;
+      margin: 0;
+    }
+    .agent { grid-column: 1 / -1; }
+    dt { color: var(--muted); font-size: .875rem; }
+    dd { margin: .15rem 0 0; font-weight: 600; }
+    .agent dd { font-size: 1.125rem; }
+    .action { border-top: 1px solid var(--border); margin-top: 1.25rem; padding-top: 1.25rem; }
+    .action p { color: var(--muted); margin: 0; }
+    .action a {
+      display: inline-block;
+      background: var(--action);
+      color: var(--action-text);
+      border-radius: .5rem;
+      padding: .65rem 1rem;
+      font-weight: 600;
+    }
+    .action a:focus-visible { outline: 2px solid var(--action); outline-offset: 3px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Gateway Dashboard</h1>
+    <div class="panel">
+      <dl>
+        <div class="agent"><dt>Agent</dt><dd>$agent</dd></div>
+        <div><dt>Backend</dt><dd>$backend</dd></div>
+        <div><dt>Run mode</dt><dd>$mode</dd></div>
+        <div><dt>Gateway health</dt><dd>$gateway_health</dd></div>
+        <div><dt>Native Web availability</dt><dd>$web_availability</dd></div>
+      </dl>
+      <div class="action">$web_entry</div>
+    </div>
+  </main>
+</body>
+</html>

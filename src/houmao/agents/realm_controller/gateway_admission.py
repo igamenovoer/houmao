@@ -42,7 +42,7 @@ _SIGNED_BODY_LIMIT = 16 * 1024 * 1024
 _PROOF_HEADERS = (CHALLENGE_HEADER, SIGNATURE_HEADER, RELAY_HEADER, BACKING_HEADER)
 _CREDENTIAL_HEADERS = frozenset(header.lower().encode("ascii") for header in _PROOF_HEADERS)
 _PUBLIC_INPUT_PATHS = frozenset({"/v1/messages", "/v1/public/prompt"})
-_PUBLIC_GET = ("/health", "/v1/endpoint", WEB_ENTER_PATH)
+_PUBLIC_GET = ("/", "/health", "/v1/endpoint", WEB_ENTER_PATH)
 _PUBLIC_POST = (
     "/v1/auth/challenge",
     *_PUBLIC_INPUT_PATHS,

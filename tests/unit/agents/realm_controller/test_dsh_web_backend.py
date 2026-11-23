@@ -80,6 +80,26 @@ def test_browser_entry_verifies_the_bound_peer_without_mutating_programmatic_con
     assert not Path(session.state.cookie_path).exists()
 
 
+def test_read_only_web_state_uses_an_unpersisted_peer(
+    browser_session: tuple[DshWebSession, Mock, Mock],
+) -> None:
+    """Inspect the exact native state without replacing or persisting the control peer."""
+
+    session, connect, listener = browser_session
+    existing = session.m_client
+    cookie_path = session.state.cookie_path
+    peer = connect.return_value
+
+    assert session.observe_web_state_read_only() == peer.state.return_value
+    listener.assert_called_with(43, "native", 1234)
+    peer.state.assert_called_once_with(session.state.web_identity)
+    peer.close.assert_called_once_with()
+    assert "cookie_file" not in connect.call_args.kwargs
+    assert session.m_client is existing
+    assert session.state.cookie_path == cookie_path
+    assert not Path(cookie_path).exists()
+
+
 @pytest.mark.parametrize("failure", ["permissions", "symlink", "origin", "bootstrap_version"])
 def test_browser_entry_refuses_unverified_bootstrap(
     browser_session: tuple[DshWebSession, Mock, Mock], failure: str, tmp_path: Path

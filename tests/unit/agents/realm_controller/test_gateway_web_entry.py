@@ -8,12 +8,14 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
 import pytest
 
 from houmao.agents.realm_controller import gateway_web_entry
+from houmao.agents.realm_controller.backends.dsh_web import DshWebSession
 from houmao.agents.realm_controller.gateway_models import GatewayWebExecutionIdentityV1
 from houmao.agents.realm_controller.gateway_service import _NativeWebGatewayAdapter, create_app
 from houmao.agents.realm_controller.gateway_web_entry import (
@@ -22,6 +24,7 @@ from houmao.agents.realm_controller.gateway_web_entry import (
     WEB_TICKET_PATH,
     WebEntryBinding,
 )
+from houmao.agents.realm_controller.owner_admission import OwnerAdmissionError
 from houmao.gateway.access import (
     CHALLENGE_HEADER,
     SIGNATURE_HEADER,
@@ -109,6 +112,144 @@ def _ticket(client: TestClient, auth: FixtureProofAuth | None = None) -> str:
     assert set(response.json()) == {"url", "expires_at_utc"}
     _no_disclosure(response, "synthetic-native-secret")
     return response.json()["url"]
+
+
+@pytest.fixture
+def dashboard_entry(entry, monkeypatch: pytest.MonkeyPatch):
+    """Supply verified public metadata and a native observation without a live host."""
+
+    runtime, app, native, read_binding = entry
+    identity = read_binding.return_value.execution
+    manifest = SimpleNamespace(
+        agent_name="Agent <example>",
+        agent_id=identity.agent_id,
+        registry_generation_id=identity.generation,
+        mode="web",
+        backend="dsh_web",
+        working_directory="/private/example",
+    )
+    monkeypatch.setattr(runtime, "_verified_owner_manifest", Mock(return_value=manifest))
+    monkeypatch.setattr(runtime, "status", Mock(side_effect=AssertionError("Status refresh ran")))
+    backend = Mock(spec=DshWebSession)
+    backend.observe_web_state_read_only.return_value = {
+        "protocol_version": 1,
+        "identity": identity.model_dump(),
+        "available": True,
+        "observed_at_utc": datetime.now(UTC).isoformat(),
+        "admission": {"ready_only": False},
+        "interaction_waits": ["approval"],
+    }
+    monkeypatch.setattr(runtime.m_adapter, "_browser_entry_backend", Mock(return_value=backend))
+    return runtime, app, native, read_binding, manifest, backend
+
+
+@pytest.mark.parametrize("keyed", [False, True])
+def test_dashboard_web_link_follows_existing_admission(dashboard_entry, tmp_path, keyed):
+    """Public HTML shows a busy Web agent and lets the live entry route select the flow."""
+
+    runtime, app, native, _, _, backend = dashboard_entry
+    client = _client(app)
+    if keyed:
+        _enroll(client, tmp_path)
+    page = client.get("/")
+    assert page.status_code == 200
+    assert page.headers["content-type"].startswith("text/html")
+    _no_disclosure(page, _NATIVE, "synthetic-native-secret", "ticket=", "/private/example")
+    assert "Agent &lt;example&gt;" in page.text
+    assert "Agent <example>" not in page.text
+    assert "<dd>dsh_web</dd>" in page.text
+    assert "<dd>web</dd>" in page.text
+    assert "<dd>Healthy</dd>" in page.text
+    assert "<dd>Available</dd>" in page.text
+    assert f'href="{WEB_ENTER_PATH}">Open agent Web UI</a>' in page.text
+    backend.observe_web_state_read_only.assert_called_once()
+    backend.observe_web_state.assert_not_called()
+    backend.browser_entry.assert_not_called()
+    native.assert_not_called()
+    runtime.status.assert_not_called()
+
+    opened = client.get(WEB_ENTER_PATH)
+    if keyed:
+        assert "start-login" in opened.text and opened.status_code == 200
+        assert client.get("/v1/status").status_code == 401
+        native.assert_not_called()
+    else:
+        assert opened.status_code == 302
+        assert opened.headers["location"] == _LOCATION
+        native.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("mode", "backend"),
+    [("headless", "claude_headless"), ("service", "kimi_acp"), ("tui", "local_interactive")],
+)
+def test_dashboard_non_web_shows_identity_without_entry(dashboard_entry, mode, backend):
+    """Describe non-Web modes without querying a native Web surface."""
+
+    _, app, _, _, manifest, observer = dashboard_entry
+    manifest.mode, manifest.backend, manifest.agent_name = mode, backend, None
+    page = _client(app).get("/")
+    assert page.status_code == 200
+    assert f"<dd>{manifest.agent_id}</dd>" in page.text
+    assert f"<dd>{mode}</dd>" in page.text
+    assert f"<dd>{backend}</dd>" in page.text
+    assert "has no native Web interface" in page.text
+    assert "Open agent Web UI" not in page.text
+    observer.observe_web_state_read_only.assert_not_called()
+
+
+@pytest.mark.parametrize("condition", ["unavailable", "stale", "different", "owner", "policy"])
+def test_dashboard_reports_unavailable_entry(dashboard_entry, gateway_fixture_access, condition):
+    """Unavailable authority or mismatched observations leave the public page readable."""
+
+    runtime, app, native, _, _, backend = dashboard_entry
+    state = backend.observe_web_state_read_only.return_value
+    if condition == "unavailable":
+        state["available"] = False
+    elif condition == "stale":
+        state["observed_at_utc"] = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
+    elif condition == "different":
+        state["identity"]["host_incarnation"] = "replacement"
+    elif condition == "owner":
+        runtime._verified_owner_manifest.side_effect = OwnerAdmissionError("unavailable", "private")
+    else:
+        next(gateway_fixture_access.private_root.glob("*/admin.json")).unlink()
+    page = _client(app).get("/")
+    assert page.status_code == 200
+    assert "<dd>Healthy</dd>" in page.text
+    assert "unavailable" in page.text
+    assert "Open agent Web UI" not in page.text
+    native.assert_not_called()
+
+
+def test_dashboard_proxy_explains_owner_local_entry(dashboard_entry):
+    """Proxy readers can see the summary but have no browser entry link."""
+
+    _, app, native, _, _, _ = dashboard_entry
+    page = _client(app).get("https://example.test/", headers={"X-Forwarded-Proto": "https"})
+    assert page.status_code == 200
+    assert "private TCP forward" in page.text
+    assert "Open agent Web UI" not in page.text
+    native.assert_not_called()
+
+
+@pytest.mark.parametrize("change", ["enrollment", "native"])
+def test_dashboard_link_rechecks_live_authority_on_click(dashboard_entry, tmp_path, change):
+    """Viewing the page creates no grant that could outlive a later change."""
+
+    _, app, native, _, _, _ = dashboard_entry
+    client = _client(app)
+    assert f'href="{WEB_ENTER_PATH}"' in client.get("/").text
+    if change == "enrollment":
+        _enroll(client, tmp_path)
+        response = client.get(WEB_ENTER_PATH)
+        assert response.status_code == 200 and "start-login" in response.text
+        native.assert_not_called()
+    else:
+        native.side_effect = RuntimeError("stale native binding")
+        response = client.get(WEB_ENTER_PATH)
+        assert response.status_code == 409
+        _no_disclosure(response, "stale native binding", "synthetic-native-secret")
 
 
 def _start(client: TestClient) -> dict[str, str]:

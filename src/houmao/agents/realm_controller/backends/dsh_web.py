@@ -649,10 +649,34 @@ class DshWebSession:
 
         return self._client().state(self.state.web_identity)
 
+    def observe_web_state_read_only(self) -> dict[str, Any]:
+        """Read native state without writing a credential file or retaining the API peer."""
+
+        state = self.state
+        return self._read_web_state_with_temporary_peer(
+            state, dict(state.web_identity), self._read_web_launch_token(state)
+        )
+
     def browser_entry(self) -> NativeWebEntry:
         """Verify the live native binding through a temporary, independent API peer."""
 
         state = self.state
+        identity = dict(state.web_identity)
+        token = self._read_web_launch_token(state)
+        live_state = self._read_web_state_with_temporary_peer(state, identity, token)
+        if (
+            live_state.get("available") is not True
+            or live_state.get("identity") != identity
+            or state.web_identity != identity
+        ):
+            raise DshWebError("stale_identity", "DSH Web execution identity changed")
+        return NativeWebEntry(origin=state.native_surface.origin, query=(("token", token),))
+
+    def _read_web_state_with_temporary_peer(
+        self, state: DshWebSessionState, identity: dict[str, Any], token: str
+    ) -> dict[str, Any]:
+        """Fence a read-only native state query against changes in the owned listener."""
+
         origin = state.native_surface.origin
         port = urlsplit(origin).port
         pid, birth = state.native_pid, state.native_birth_token
@@ -669,9 +693,7 @@ class DshWebSession:
             ):
                 raise DshWebError("stale_identity", "DSH Web listener ownership changed")
 
-        identity = dict(state.web_identity)
         require_owned_listener()
-        token = self._browser_launch_token(state)
         client = DshWebClient.from_connection(
             origin,
             launch_token=token,
@@ -682,17 +704,11 @@ class DshWebSession:
             live_state = client.state(identity)
         finally:
             client.close()
-        if (
-            live_state.get("available") is not True
-            or live_state.get("identity") != identity
-            or state.web_identity != identity
-        ):
-            raise DshWebError("stale_identity", "DSH Web execution identity changed")
         require_owned_listener()
-        return NativeWebEntry(origin=origin, query=(("token", token),))
+        return live_state
 
     @staticmethod
-    def _browser_launch_token(state: DshWebSessionState) -> str:
+    def _read_web_launch_token(state: DshWebSessionState) -> str:
         """Read only the private regular bootstrap for the persisted Web owner."""
 
         try:

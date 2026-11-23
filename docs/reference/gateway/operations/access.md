@@ -4,7 +4,7 @@ The gateway applies the same access rules on loopback and all-interface listener
 
 | Access | Admission | Operations |
 | --- | --- | --- |
-| Public | Anyone who can reach the listener, subject to operation enablement | Health, endpoint descriptor, challenge issuance, notifications, and public prompts |
+| Public | Anyone who can reach the listener, subject to operation enablement | Dashboard, health, endpoint descriptor, challenge issuance, notifications, and public prompts |
 | Private | Anonymous admission with an empty list, current managed self or listed admin proof with a nonempty list | Detailed status, usage, memory, routine mail, plugin inventory, and declared private plugin routes |
 | Admin | Anonymous admission with an empty list, listed admin proof with a nonempty list | Direct and queued controls, reminders, notifier controls, native inspection and refresh, mailbox binding and operator post, AG-UI, and plugin controls |
 | Web entry | Direct anonymous entry with an empty list, enrolled admin approval with a nonempty list, or a current one-time ticket | Browser handoff to the live managed Web agent |
@@ -84,14 +84,17 @@ Use an already listed key to add another with `admin.add_admin_key(other_key)`. 
 
 ## Open a Live Web Agent
 
-Web entry requires a running supported Web agent and an attached gateway. On the execution owner, use `houmao-mgr agents single --agent-id "$agent_id" gateway status` to find the gateway's `gateway_port`. The owner-local HTTP address uses `127.0.0.1` at that port. The managed agent's `native_surface` publishes the native origin and conversation ID. Browser entry works while the agent is busy or waiting for input.
+On the execution owner, use `houmao-mgr agents single --agent-id "$agent_id" gateway status` to find the live gateway's `gateway_port`. Open the owner-local base URL, for example `http://127.0.0.1:43123/`. The dashboard shows the agent's name or ID, backend, run mode, gateway health, and native Web availability.
+
+Select **Open agent Web UI** when the dashboard offers it. The link opens `/v1/web/enter`. With a valid empty admin roster, the gateway opens the native app immediately. With enrolled keys, it opens the Houmao sign-in page.
+
+Browser entry works while the native Web agent is busy or waiting for input. The dashboard explains when the action is unavailable, including for agents in other modes or on advertised proxy connections. Use the owner-local address or private TCP forwards for browser entry. The managed agent's `native_surface` publishes the native origin and conversation ID. [Reach Both Owner Addresses](#reach-both-owner-addresses)
 
 ### Sign In From the Browser
 
-1. Open the gateway's bare entry URL, for example `http://127.0.0.1:43123/v1/web/enter`. A valid empty roster opens the native app immediately. A gateway with enrolled keys opens the Houmao login page.
-2. Select **Start Login** on the login page. To use one key, enter an absolute private-key path or a path relative to the terminal's working directory. Write the full home path in place of `~`. The field trims surrounding whitespace and preserves spaces inside the path. An empty result selects supported keys from the terminal's SSH agent.
-3. Check the agent and gateway address shown by the page. Select **Copy Command** and run the command in a trusted POSIX-compatible shell with `ssh-keygen` supporting `-Y sign` and `curl`. Blank-path selection also needs `ssh-add`, an active SSH agent, and the standard `mktemp`, `wc`, `rm`, and `rmdir` utilities. OpenSSH signs locally and prompts for any passphrase in the terminal. Curl sends the proof directly to the displayed gateway address.
-4. Keep the initiating tab open. It continues to the native app after the terminal approves the login. The login attempt expires after two minutes. To recover after expiry, restart, or refusal, open the bare entry URL and start a new attempt.
+1. Select **Start Login** on the sign-in page. To use one key, enter an absolute private-key path or a path relative to the terminal's working directory. Write the full home path in place of `~`. The field trims surrounding whitespace and preserves spaces inside the path. An empty result selects supported keys from the terminal's SSH agent.
+2. Check the agent and gateway address shown by the page. Select **Copy Command** and run the command in a trusted POSIX-compatible shell with `ssh-keygen` supporting `-Y sign` and `curl`. Blank-path selection also needs `ssh-add`, an active SSH agent, and the standard `mktemp`, `wc`, `rm`, and `rmdir` utilities. OpenSSH signs locally and prompts for any passphrase in the terminal. Curl sends the proof directly to the displayed gateway address.
+3. Keep the initiating tab open. It continues to the native app after the terminal approves the login. The login attempt expires after two minutes. To recover after expiry, restart, or refusal, return to the dashboard and select **Open agent Web UI**.
 
 ### Issue a One-Time Link
 
@@ -128,10 +131,10 @@ sequenceDiagram
     participant G as Owner Gateway
     participant T as Operator Terminal
     participant N as Native Web App
-    alt Bare URL with an empty roster
-        B->>G: Open the owner-local URL
+    alt Dashboard entry with an empty roster
+        B->>G: Select Open agent Web UI
     else Interactive sign-in with enrolled keys
-        B->>G: Open entry page and start login
+        B->>G: Select Open agent Web UI and start login
         G-->>B: Challenge and tab claim secret
         T->>G: Sign locally and submit proof with curl
         G-->>T: Approval outcome

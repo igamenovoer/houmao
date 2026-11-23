@@ -40,8 +40,16 @@ _PUBLIC_HISTORY_FIELDS = frozenset(
 def web_state_is_fresh(state: GatewayWebControlStateV1, *, max_age_seconds: float = 5.0) -> bool:
     """Require a recent, timezone-qualified native observation."""
 
+    return web_observation_is_fresh(state.observed_at_utc, max_age_seconds=max_age_seconds)
+
+
+def web_observation_is_fresh(observed_at_utc: object, *, max_age_seconds: float = 5.0) -> bool:
+    """Check a native observation timestamp before relying on its state."""
+
+    if not isinstance(observed_at_utc, str):
+        return False
     try:
-        observed = datetime.fromisoformat(state.observed_at_utc.replace("Z", "+00:00"))
+        observed = datetime.fromisoformat(observed_at_utc.replace("Z", "+00:00"))
         if observed.tzinfo is None:
             return False
         age = (datetime.now(UTC) - observed).total_seconds()

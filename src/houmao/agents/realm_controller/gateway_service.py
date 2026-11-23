@@ -42,7 +42,7 @@ import uuid
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, JsonValue, ValidationError
 from starlette.concurrency import run_in_threadpool
 
@@ -120,11 +120,14 @@ from houmao.agents.realm_controller.gateway_admission import (
     validate_core_gateway_routes,
 )
 from houmao.agents.realm_controller.gateway_web_entry import (
+    WEB_ENTER_PATH,
+    WEB_RESPONSE_HEADERS,
     WebEntryBinding,
     is_web_entry_path,
     register_web_entry_routes,
     require_web_entry_origin,
 )
+from houmao.gateway._dashboard import render_dashboard
 from houmao.gateway.access import (
     CHALLENGE_HEADER,
     SIGNATURE_HEADER,
@@ -310,7 +313,7 @@ from houmao.agents.realm_controller.manifest import (
     parse_session_manifest_payload,
 )
 from houmao.agents.realm_controller.session_authority import resolve_manifest_session_authority
-from houmao.agents.realm_controller.web_observation import WebObservation
+from houmao.agents.realm_controller.web_observation import WebObservation, web_observation_is_fresh
 from houmao.agents.realm_controller.runtime import (
     RuntimeSessionController,
     require_active_managed_control_manifest,
@@ -1136,6 +1139,31 @@ class _NativeWebGatewayAdapter:
     def browser_entry_redirect(self, binding: WebEntryBinding) -> str:
         """Verify the bound native destination without changing the active API peer."""
 
+        backend = self._browser_entry_backend(binding)
+        return backend.browser_entry().redirect_url(expected_origin=binding.origin)
+
+    def browser_entry_available(self, binding: WebEntryBinding) -> bool:
+        """Read one fresh native state without resolving a browser destination."""
+
+        backend = self._browser_entry_backend(binding)
+        state = (
+            backend.observe_web_state_read_only()
+            if isinstance(backend, DshWebSession)
+            else backend.observe_web_state()
+        )
+        protocol = state.get("protocol_version")
+        return (
+            type(protocol) is int
+            and protocol == 1
+            and state.get("available") is True
+            and web_observation_is_fresh(state.get("observed_at_utc"))
+            and GatewayWebExecutionIdentityV1.model_validate(state.get("identity"))
+            == binding.execution
+        )
+
+    def _browser_entry_backend(self, binding: WebEntryBinding) -> DshWebSession | KimiWebSession:
+        """Resolve a separate read-only peer for the selected Web execution."""
+
         controller = resume_runtime_session(
             session_manifest_path=self.m_manifest_path,
             read_only=True,
@@ -1146,7 +1174,7 @@ class _NativeWebGatewayAdapter:
         identity = GatewayWebExecutionIdentityV1.model_validate(backend.state.web_identity)
         if identity != binding.execution:
             raise GatewayError("Native browser entry target changed.")
-        return backend.browser_entry().redirect_url(expected_origin=binding.origin)
+        return backend
 
     def _resume_controller(self) -> RuntimeSessionController:
         """Reconnect read-only authority; inspection never performs lifecycle start."""
@@ -2889,6 +2917,70 @@ class GatewayServiceRuntime:
         """Return the gateway-local health payload."""
 
         return gateway_health_response()
+
+    def dashboard(self, request: Request) -> str:
+        """Render a public summary without refreshing persisted gateway status."""
+
+        try:
+            manifest = self._verified_owner_manifest()
+        except OwnerAdmissionError:
+            manifest = None
+
+        agent = backend = mode = "Unavailable"
+        availability = "Unavailable"
+        reason = "The current managed agent is unavailable."
+        if manifest is not None:
+            agent = manifest.agent_name or manifest.agent_id
+            backend, mode = manifest.backend, manifest.mode
+            if mode != "web":
+                availability = "Not applicable"
+                reason = "This agent's run mode has no native Web interface."
+            elif self._dashboard_web_available(manifest):
+                availability = "Available"
+                reason = self._dashboard_web_entry_reason(request)
+            else:
+                reason = "The native Web interface is unavailable."
+
+        return render_dashboard(
+            agent=agent,
+            backend=backend,
+            mode=mode,
+            gateway_health="Healthy" if self.health().status == "ok" else "Unavailable",
+            web_availability=availability,
+            web_entry_path=None if reason else WEB_ENTER_PATH,
+            web_entry_reason=reason,
+        )
+
+    def _dashboard_web_available(self, manifest: SessionManifestPayloadV4) -> bool:
+        """Read current Web availability for the same generation as the summary."""
+
+        adapter = self.m_adapter
+        if not isinstance(adapter, _NativeWebGatewayAdapter):
+            return False
+        try:
+            binding = self._web_entry_binding()
+            return (
+                binding.execution.agent_id == manifest.agent_id
+                and binding.execution.generation == manifest.registry_generation_id
+                and adapter.browser_entry_available(binding)
+                and self._web_entry_binding() == binding
+            )
+        except (KeyError, OSError, RuntimeError, ValueError):
+            return False
+
+    def _dashboard_web_entry_reason(self, request: Request) -> str:
+        """Explain why a live Web surface cannot be opened from this page."""
+
+        try:
+            require_web_entry_origin(request, self.owner_connect_url)
+        except HTTPException:
+            return "Open the owner-local gateway directly or through a private TCP forward."
+        try:
+            if self.endpoint_descriptor().admin_access != "unavailable":
+                return ""
+        except GatewayAccessError:
+            pass
+        return "The gateway access policy is unavailable."
 
     def status(self) -> GatewayStatusV1:
         """Return the latest gateway status snapshot."""
@@ -9648,6 +9740,23 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
             "public" if request.url.path == "/v1/auth/challenge" else "admin",
         )
         return gateway_access_error_response(error, operation)
+
+    if isinstance(runtime, GatewayServiceRuntime):
+
+        @app.get("/", response_class=HTMLResponse)
+        def _dashboard(request: Request) -> HTMLResponse:
+            """Serve the gateway's public browser landing page."""
+
+            return HTMLResponse(
+                runtime.dashboard(request),
+                headers={
+                    **WEB_RESPONSE_HEADERS,
+                    "Content-Security-Policy": (
+                        "default-src 'none'; style-src 'unsafe-inline'; "
+                        "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+                    ),
+                },
+            )
 
     @app.get("/health", response_model=GatewayHealthResponseV1)
     def _health() -> GatewayHealthResponseV1:
