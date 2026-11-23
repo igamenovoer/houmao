@@ -13,7 +13,7 @@ The `agents` help output SHALL explain that:
 
 - `agents global` operates on no individual agent or on multiple local managed agents as a registry/fleet,
 - `agents single` operates on exactly one explicitly selected local managed-agent identity,
-- `agents self` operates on exactly one local managed agent held by the caller's current tmux session, including adopting that session through `join`,
+- `agents self` operates on the caller's verified managed runtime and can adopt the current tmux session through `join`,
 - `agents external` operates on external-agent registry/reference onboarding for agents whose lifecycle is not controlled by this user's `houmao-mgr`.
 
 `agents single` and `agents self` SHALL NOT be aliases with different selectors. Their command sets SHALL differ where operation authority differs.
@@ -116,7 +116,7 @@ Nested `agents single` subcommands SHALL use the group-level selected identity. 
 - **AND THEN** the diagnostic points the operator to either supply a single-agent selector or use `houmao-mgr agents self gateway prompt`
 
 ### Requirement: Agents self scope owns current tmux-session membership and self operations
-`houmao-mgr agents self` SHALL expose maintained operations whose target is the single local managed agent held by the caller's current tmux session.
+`houmao-mgr agents self` SHALL expose maintained operations whose target is the caller's single verified local managed agent.
 
 At minimum, `agents self` SHALL expose:
 
@@ -134,15 +134,13 @@ At minimum, `agents self` SHALL expose:
 
 `agents self join` SHALL adopt the current tmux session into the Houmao managed-agent registry as one local managed-agent identity.
 
-`agents self join` MAY accept new-identity fields such as `--agent-name` and optional `--agent-id`; those fields SHALL create or assign the current tmux session's managed identity and SHALL NOT select another existing agent.
+`agents self join` MAY accept new-identity fields such as `--agent-name` and optional `--agent-id`. Those fields SHALL create or assign the current tmux session's managed identity and SHALL NOT select another existing agent.
 
-`agents self` commands other than `join` SHALL fail clearly when invoked outside a tmux session that resolves to a registered managed-agent runtime identity.
+`agents self` commands other than `join` SHALL require a verified current managed runtime. Tmux-backed commands SHALL resolve the owning tmux session. Supported headless self commands SHALL accept their verified runtime-owned manifest locator without tmux.
 
 `agents self` commands other than `join` SHALL NOT accept `--agent-id`, `--agent-name`, or `--current-session` because the target is the current managed-agent identity by definition.
 
-`agents self prompt` SHALL submit a prompt to the current managed-agent tmux session without accepting explicit agent selectors.
-
-`agents self interrupt` SHALL interrupt the current managed-agent tmux session without accepting explicit agent selectors.
+`agents self prompt` and `agents self interrupt` SHALL use the supported control path for the current managed session without accepting explicit agent selectors.
 
 `agents self relaunch` SHALL refresh the active tmux-backed surface for the caller's current managed session. It SHALL require resolvable current-session manifest authority. It SHALL NOT perform selected-agent registry lookup, stopped relaunchable-record revival, degraded/stale active-record recovery, or cross-session targeting.
 
@@ -155,8 +153,8 @@ At minimum, `agents self` SHALL expose:
 
 #### Scenario: Self command resolves current tmux identity
 - **WHEN** an agent runs `houmao-mgr agents self identity` inside its own registered managed tmux session
-- **THEN** the command resolves the current managed-agent identity from tmux/session metadata
-- **AND THEN** the output reports that identity without requiring `--agent-id` or `--agent-name`
+- **THEN** the command locates the runtime manifest through the current session and verifies it
+- **AND THEN** the output reports the manifest's identity without requiring `--agent-id` or `--agent-name`
 
 #### Scenario: Self relaunch refreshes active current session
 - **WHEN** an agent runs `houmao-mgr agents self relaunch` inside its own registered managed tmux session
@@ -165,9 +163,9 @@ At minimum, `agents self` SHALL expose:
 - **AND THEN** it does not perform selected-agent stopped-record revival or degraded/stale registry recovery
 
 #### Scenario: Self command fails outside managed session
-- **WHEN** an operator runs `houmao-mgr agents self mail status` outside a registered managed tmux session
+- **WHEN** an operator runs `houmao-mgr agents self mail status` with no verified current managed runtime
 - **THEN** the command fails clearly
-- **AND THEN** the diagnostic explains that `agents self` requires a current managed-agent tmux session
+- **AND THEN** the diagnostic explains what owning session or runtime-owned context is required
 
 #### Scenario: Self scope omits destructive lifecycle controls
 - **WHEN** an operator runs `houmao-mgr agents self --help`
@@ -340,3 +338,35 @@ Scoped refresh SHALL reject force, restart, installation, source-directory, desi
 - **WHEN** an operator separately invokes relaunch
 - **THEN** its existing launch-material generation and chat-session rules apply
 - **AND** the refresh feature neither replaces those rules nor promises exact continuation by default
+
+### Requirement: Self identity returns from the verified runtime manifest
+`agents self identity` SHALL return its public identity payload from the verified runtime manifest and its location. It SHALL resolve identity without constructing a runtime controller, opening the agent definition directory, or querying the gateway.
+
+#### Scenario: A Web agent verifies its own identity
+- **WHEN** a Kimi Web or DSH Web agent has a valid managed session and `HOUMAO_AGENT_DEF_DIR` is absent
+- **THEN** `houmao-mgr --print-json agents self identity` returns the manifest's identity, mode, tool, backend, and runtime binding
+- **AND THEN** the command succeeds with the definition directory unavailable
+
+#### Scenario: The selected manifest cannot establish current ownership
+- **WHEN** the manifest is missing, foreign, malformed, or from a stale registry generation
+- **THEN** the identity command returns a resolution error before routing substantive work
+
+### Requirement: Self inspection uses manifest-published agent details
+Supported `agents self` inspection commands SHALL use the verified manifest for agent metadata and bindings. State, gateway, turn, mailbox, memory, and native-resource inspection SHALL obtain live or stored observations through the corresponding runtime sources identified by that manifest.
+
+#### Scenario: Self inspection runs without launch definitions
+- **WHEN** an agent queries its home, state, gateway status, turn evidence, mailbox, memory, or native refresh check after its definition directory becomes unavailable
+- **THEN** it receives the manifest-backed agent details and the observations available for that session
+- **AND THEN** absent evidence has the command's existing unavailable or unknown meaning
+
+### Requirement: Self mail uses verified runtime routing for notifier rounds
+`agents self mail` SHALL derive routing from the verified manifest and current mailbox binding. The CLI SHALL preserve existing gateway authorization and binding checks. It SHALL use runtime-owned mailbox authority for eligible local fallback.
+
+#### Scenario: A Web agent completes a notifier round after launch
+- **WHEN** a managed Web agent with an attached authorized gateway verifies identity and processes its notified mail with the definition directory unavailable
+- **THEN** `agents self mail` can report status, list, read, reply, and archive using the current binding
+- **AND THEN** mailbox commands do not rewrite tmux or reload launch definitions to establish the target
+
+#### Scenario: The notified mailbox binding changes
+- **WHEN** a mailbox request carries a stale expected binding ID
+- **THEN** the command rejects the request before operating on the replacement mailbox

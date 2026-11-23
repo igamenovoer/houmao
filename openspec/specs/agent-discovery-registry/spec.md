@@ -530,13 +530,13 @@ If owner launch succeeds but operator locator publication fails, Houmao SHALL re
 
 ### Requirement: Live gateway advertisements expose a non-secret remote descriptor
 
-Live gateway presence SHALL support an advertised URL, protocol, target and presence identity, admin access state, signed self and admin proof requirements, and enabled public operations. The descriptor SHALL omit key membership, signatures, challenge material, credentials, and private runtime state. Listener coordinates SHALL remain separately qualified local metadata.
+Live gateway presence SHALL support an advertised URL, protocol, target and presence identity, effective private and admin access requirements, and enabled public operations. The descriptor SHALL omit key membership, signatures, challenge material, credentials, and private runtime state. Listener coordinates SHALL remain separately qualified local metadata.
 
 #### Scenario: Owner exports a remote endpoint without sharing runtime files
 
 - **WHEN** an owner publishes a bound gateway with public input enabled
-- **THEN** an external hub can discover its advertised URL, available public notification and prompt operations, and whether admin calls are open or key-required
-- **AND** the descriptor identifies private proof requirements separately
+- **THEN** an external hub can discover its advertised URL, available public notification and prompt operations, and whether private and admin calls are open, key-required, or unavailable
+- **AND** the descriptor identifies self or admin proof for private routes when the roster contains keys
 
 #### Scenario: Proxy endpoint differs from local listener
 
@@ -573,7 +573,7 @@ Discovery SHALL treat endpoint metadata as a locator. Protected credential selec
 
 - **WHEN** a communication-only import references a gateway with public input enabled
 - **THEN** it can locate and call the available public operations
-- **AND** admin admission uses the live key list, private calls require verified proof, and execution delegation follows its existing authority
+- **AND** private and admin calls use the live roster policy, and execution delegation follows its existing authority
 
 #### Scenario: Registry descriptor is replaced with another origin
 

@@ -85,5 +85,11 @@ The Kimi Web backend SHALL supply the owning gateway with a verified native brow
 
 #### Scenario: Kimi host identity has changed
 
-- **WHEN** listener, host, or conversation verification fails before redemption
+- **WHEN** listener, host, or conversation verification fails before the browser handoff
 - **THEN** the backend withholds the private browser destination
+
+#### Scenario: A fresh browser enters from an open gateway
+
+- **WHEN** a clean browser opens the bare entry URL for a verified live Kimi Web agent with a valid empty roster
+- **THEN** the gateway immediately redirects to Kimi's verified native browser destination
+- **AND THEN** the native UI authenticates the browser and reaches the bound conversation by qualified link or native selection

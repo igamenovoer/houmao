@@ -1234,14 +1234,6 @@ Changing runtime parsing mode SHALL NOT redefine the active Houmao identity or a
 - **THEN** both sessions persist canonical `HOUMAO-...` identity metadata
 - **AND THEN** both sessions publish `HOUMAO_MANIFEST_PATH` and related `HOUMAO_*` discovery variables rather than reverting to `AGENTSYS_*`
 
-### Requirement: Name-addressed tmux-backed session control SHALL recover `agent_def_dir` from session environment
-Name-addressed tmux-backed control SHALL prefer the tmux-published `HOUMAO_MANIFEST_PATH` and `HOUMAO_NATIVE_AGENT_ROOT` values when they are present and valid.
-
-#### Scenario: Name-addressed control recovers the agent-definition root from HOUMAO tmux env
-- **WHEN** tmux session `HOUMAO-chris` exists
-- **AND WHEN** that tmux session publishes valid `HOUMAO_MANIFEST_PATH` and `HOUMAO_NATIVE_AGENT_ROOT` values
-- **THEN** name-addressed tmux-backed session control resolves the manifest and effective agent-definition root from those `HOUMAO_*` values
-
 ### Requirement: Runtime-launched agent subprocess env injects loopback `NO_PROXY` by default
 For supported loopback compatibility base URLs, the runtime SHALL bypass ambient proxy environment variables by default by ensuring loopback entries exist in `NO_PROXY` and `no_proxy`.
 
@@ -1594,33 +1586,18 @@ When runtime-owned recovery observes unexpected managed-agent loss while a gatew
 - **AND THEN** that status reports managed-agent recovery or unavailability explicitly instead of collapsing immediately to "no gateway attached"
 
 ### Requirement: Runtime publishes manifest-first stable discovery pointers and live gateway bindings separately
-When the runtime makes a tmux-backed session gateway-capable, it SHALL publish stable manifest-first discovery pointers into the tmux session environment in addition to the existing agent-definition binding.
-
-When a live gateway instance is currently attached, the runtime or gateway lifecycle SHALL also publish live gateway bindings for that running instance.
-
-At minimum, the runtime SHALL publish:
-
-- `HOUMAO_MANIFEST_PATH`
-- `HOUMAO_AGENT_ID`
-
-When a live gateway instance exists, the system SHALL additionally publish:
-
-- `HOUMAO_AGENT_GATEWAY_HOST`
-- `HOUMAO_AGENT_GATEWAY_PORT`
-- `HOUMAO_GATEWAY_STATE_PATH`
-- `HOUMAO_GATEWAY_PROTOCOL_VERSION`
-
-The stable tmux discovery pointers SHALL also be the current-session entrypoint for tmux-backed relaunch.
+When the runtime makes a tmux-backed session gateway-capable, it SHALL publish `HOUMAO_MANIFEST_PATH` and `HOUMAO_AGENT_ID` into the session environment. These stable discovery pointers SHALL also locate the session for tmux-backed relaunch. The runtime or gateway lifecycle SHALL publish bindings for a running gateway instance separately.
 
 #### Scenario: Session start publishes manifest-first stable discovery pointers
 - **WHEN** the runtime starts a gateway-capable tmux-backed session
 - **THEN** the tmux session environment contains `HOUMAO_MANIFEST_PATH` and `HOUMAO_AGENT_ID`
-- **AND THEN** those bindings point to the stable manifest authority or authoritative identity for that session even when no gateway instance is running
+- **AND THEN** those bindings identify the session even when no gateway instance is running
+- **AND THEN** runtime discovery succeeds with the definition-directory environment variable absent
 
 #### Scenario: Live gateway attach publishes active gateway bindings
 - **WHEN** the runtime or lifecycle command attaches a live gateway instance to a gateway-capable tmux-backed session
 - **THEN** the tmux session environment contains `HOUMAO_AGENT_GATEWAY_HOST`, `HOUMAO_AGENT_GATEWAY_PORT`, `HOUMAO_GATEWAY_STATE_PATH`, and `HOUMAO_GATEWAY_PROTOCOL_VERSION`
-- **AND THEN** those bindings point to the currently running gateway instance rather than merely to stable attachability
+- **AND THEN** those bindings identify the currently running gateway instance
 
 ### Requirement: Runtime-owned stop-session teardown also cleans up a live attached gateway
 When the runtime tears down a runtime-owned session through its authoritative `stop-session` path and that session currently has a live attached gateway, the runtime SHALL stop that gateway as part of the same teardown flow.
@@ -3422,3 +3399,27 @@ Managed provider start and explicit relaunch SHALL project the resolved native l
 - **WHEN** a managed instance relaunches from saved authored inputs and an earlier runtime home contains generated permission defaults
 - **THEN** provider start resolves the authored inputs and current applicable defaults for the selected executable
 - **AND THEN** the prior materialized defaults do not shadow an explicit setting
+
+### Requirement: Session manifests publish effective agent metadata for runtime queries
+Managed runtime publication SHALL record the effective agent metadata and observation bindings needed by supported queries in the session manifest. Queries SHALL use those fields for agent metadata. Live observations SHALL use the runtime authorities identified by the manifest.
+
+#### Scenario: Launch publishes query-ready metadata
+- **WHEN** Houmao publishes a managed session after launch, join, or relaunch
+- **THEN** its manifest supplies the effective identity, mode, backend, native home and surface, execution binding, and applicable observation and control locators
+- **AND THEN** publication keeps credentials and raw provider environment values in their private runtime locations
+
+#### Scenario: Runtime observation is unavailable
+- **WHEN** a valid session manifest exists and an observation source cannot provide current evidence
+- **THEN** the query preserves the manifest-backed agent details and reports the observation as unavailable or unknown according to the command contract
+
+### Requirement: Agent definitions serve launch planning
+Houmao SHALL use the agent definition directory for launch and relaunch planning. Existing session inspection and live control SHALL use its verified manifest and committed runtime artifacts.
+
+#### Scenario: Definition changes after launch
+- **WHEN** an agent definition changes or becomes inaccessible after its managed session is running
+- **THEN** supported runtime queries use the session's published effective metadata
+- **AND THEN** supported live control uses the session's already-committed runtime inputs
+
+#### Scenario: An agent is explicitly relaunched
+- **WHEN** an authorized relaunch needs to resolve launch inputs from the agent definition
+- **THEN** launch planning can access the definition directory and publish the resulting metadata for that runtime generation

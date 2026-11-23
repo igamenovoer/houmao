@@ -320,7 +320,7 @@ Plugin event submissions SHALL remain ordinary notifications. They SHALL NOT sel
 
 ### Requirement: Plugin route authority is declared and enforced by the host
 
-Plugin HTTP routes SHALL use private or admin access through the supported SDK. Omitted declarations SHALL use the admin class. Invalid declarations, including public access, SHALL fail the instance before resource activation. The host SHALL apply the matched access class and current admin state before invoking plugin code.
+Plugin HTTP routes SHALL use private or admin access through the supported SDK. Omitted declarations SHALL use the admin class. Invalid declarations, including public access, SHALL fail the instance before resource activation. The host SHALL apply the matched access class and current roster before invoking plugin code. A valid empty roster permits unsigned calls to both classes.
 
 #### Scenario: Private plugin route admits self and admin
 
@@ -335,8 +335,8 @@ Plugin HTTP routes SHALL use private or admin access through the supported SDK. 
 #### Scenario: Admin plugin route follows open access
 
 - **WHEN** an anonymous caller invokes an admin plugin route while the initialized list is empty
-- **THEN** the route may admit it with anonymous provenance
-- **AND** a private plugin operation still requires verified proof
+- **THEN** the host admits it with anonymous provenance
+- **AND** an unsigned private plugin operation also receives anonymous admission
 
 #### Scenario: Plugin declares an unsupported authority
 
@@ -385,10 +385,15 @@ The gateway SHALL apply the route's current admission policy before exposing plu
 
 #### Scenario: Unauthenticated caller probes a failed instance
 
-- **WHEN** an uncredentialed caller requests a failed plugin's private or key-required admin route
+- **WHEN** an uncredentialed caller requests a failed plugin's private or admin route while the roster has keys
 - **THEN** the response is HTTP 401 without exposing its failure details
 
 #### Scenario: Authorized caller inspects a failed instance
 
 - **WHEN** an authorized caller requests the host-owned status of a failed plugin
 - **THEN** it receives the existing sanitized failure snapshot independently of plugin health
+
+#### Scenario: Anonymous caller inspects a failed instance
+
+- **WHEN** an unsigned caller requests the host-owned status of a failed plugin while the roster is valid and empty
+- **THEN** it receives the existing sanitized failure snapshot

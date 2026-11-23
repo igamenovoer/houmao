@@ -171,3 +171,9 @@ The DSH Web backend SHALL supply the owning gateway with a private native root s
 
 - **WHEN** the credential source, native origin, or authenticated host identity fails its owner checks
 - **THEN** the backend withholds the browser destination
+
+#### Scenario: A fresh browser enters from an open gateway
+
+- **WHEN** a clean browser opens the bare entry URL for a verified live DSH Web agent with a valid empty roster
+- **THEN** the gateway immediately redirects to DSH's native browser sign-in destination
+- **AND THEN** DSH establishes the browser's cookie and opens its interface for native session selection

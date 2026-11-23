@@ -519,6 +519,7 @@ The usage query SHALL preserve existing resolution behavior: 404 for unknown age
 
 - **WHEN** the gateway cannot read its usage ledger and returns HTTP 503
 - **THEN** the passive server preserves the explicit safe storage failure rather than returning empty history
+
 ### Requirement: Channel-selected lifecycle proxies cover the complete shared operation set
 The passive server SHALL proxy channel-selected list, peek, read, send, post, reply, mark, move, and archive under `/houmao/agents/{agent_ref}/mail/{channel}/`. Existing agent resolution and missing-gateway handling SHALL remain explicit. Registry-host offline APIs SHALL be separate from these live-gateway projections and SHALL not require a recipient body or gateway.
 
@@ -639,7 +640,7 @@ Native-home and refresh proxy routes SHALL use existing local managed-agent and 
 
 ### Requirement: Protected target proxy calls retain caller authority
 
-A passive proxy SHALL enforce the selected target's route class and current key state. Admitted open admin calls SHALL preserve anonymous provenance and require the receiving gateway's current empty-list admission. Discovery and source addresses SHALL serve as connection information.
+A passive proxy SHALL enforce the selected target's route class and current key state. An admitted anonymous private or admin call SHALL be forwarded unsigned to the selected gateway for current admission. Discovery and source addresses SHALL serve as connection information.
 
 #### Scenario: Unauthenticated caller requests privileged proxy control
 
@@ -649,8 +650,14 @@ A passive proxy SHALL enforce the selected target's route class and current key 
 
 #### Scenario: First enrollment races an anonymous admin proxy call
 
-- **WHEN** a proxy admits an open admin call and a key is registered before the receiving gateway admits the downstream request
+- **WHEN** a proxy admits an open private or admin call and a key is registered before the receiving gateway admits the downstream request
 - **THEN** the downstream operation is refused under the key-required rule
+
+#### Scenario: A private proxy call is anonymous in open mode
+
+- **WHEN** an unsigned caller selects a private proxy operation on a target with a valid empty roster
+- **THEN** both ingress and the receiving gateway apply the current open policy
+- **AND THEN** the resulting operation preserves anonymous caller provenance
 
 ### Requirement: Signed proxy requests carry only admitted caller authority
 
@@ -675,7 +682,7 @@ The passive ingress SHALL consume signed self or admin proof at admission. It SH
 #### Scenario: Relayed authority is replayed or the key has been removed
 
 - **WHEN** a downstream request reuses a relay record or its admitted grant ceased to be current before gateway admission
-- **THEN** the gateway refuses the request without using open admin access or a substitute credential
+- **THEN** the gateway refuses the request without using open access or a substitute credential
 
 ### Requirement: The passive server issues scoped proof challenges
 
@@ -688,7 +695,7 @@ The passive server SHALL expose public `POST /houmao/agents/{agent_ref}/auth/cha
 
 ### Requirement: Direct passive paths cannot bypass protected agent access
 
-Direct selected-agent operations SHALL enforce retained owner policy before effects. Routine protected reads SHALL require private access. Direct turns, native observation and artifacts, interruption, stop, and gateway lifecycle SHALL use admin admission. The passive ingress SHALL issue and verify challenges for its own signed operations independently of live discovery.
+Direct selected-agent operations SHALL enforce retained owner policy before effects. Routine protected reads SHALL use private access. A valid empty roster permits anonymous admission to private and admin operations. Direct turns, native observation and artifacts, interruption, stop, and gateway lifecycle SHALL use admin admission. The passive ingress SHALL issue and verify challenges for its own signed operations independently of live discovery.
 
 #### Scenario: Direct stop would otherwise kill tmux
 
@@ -703,7 +710,12 @@ Direct selected-agent operations SHALL enforce retained owner policy before effe
 #### Scenario: Gateway detachment removes its live record
 
 - **WHEN** a protected target has no live gateway record after detachment
-- **THEN** direct admin control still uses the recorded empty or key-required state
+- **THEN** direct private and admin operations still use the recorded open or key-required state
+
+#### Scenario: Enrollment races a direct anonymous operation
+
+- **WHEN** a direct operation's anonymous grant has ceased to be current before its effect boundary
+- **THEN** the operation is refused before accessing or changing the target
 
 ### Requirement: Necessary owner backing calls are explicitly authenticated
 

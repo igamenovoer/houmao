@@ -23,18 +23,17 @@ A gateway SHALL default to loopback. A broader listener SHALL require explicitly
 
 #### Scenario: Local protected access has the same proof requirement
 
-- **WHEN** a caller reaches a private route or a key-required admin route through loopback without proof
+- **WHEN** a caller reaches a private or admin route through loopback without proof while the admin list has entries
 - **THEN** the gateway returns HTTP 401 with applicable challenge information
 
 ### Requirement: The matched route determines caller access
 
-The gateway SHALL admit anyone to enabled public routes. Private routes SHALL require signed proof of the current self key or a listed admin key. Admin routes SHALL admit anyone when the valid admin list is empty and require a listed-key proof when it contains entries. Check required proof before body parsing, lifecycle handling, or effects. Missing core classifications SHALL prevent publication.
+Enabled public routes SHALL admit anonymous callers. A valid empty admin list SHALL admit unsigned private and admin requests. With listed keys, private routes SHALL require current self or listed admin proof, and admin routes SHALL require listed admin proof. Verification of supplied proof SHALL precede body parsing, lifecycle handling, or effects. Missing core classifications SHALL prevent publication.
 
 #### Scenario: Anonymous admin uses a valid empty list
 
 - **WHEN** a caller invokes an admin control route without signing proof and the initialized list is empty
-- **THEN** the gateway admits the request with anonymous provenance
-- **AND** a private call from that caller still requires current self or admin proof
+- **THEN** the gateway admits the request and an unsigned private call with anonymous provenance
 
 #### Scenario: A private route is used by self and by admin
 
@@ -48,7 +47,7 @@ The gateway SHALL admit anyone to enabled public routes. Private routes SHALL re
 
 #### Scenario: Unauthenticated caller supplies a malformed protected body
 
-- **WHEN** a caller sends invalid JSON to a private or key-required admin operation without proof and policy is available
+- **WHEN** a caller sends invalid JSON without proof to a private or admin operation while the admin list has entries
 - **THEN** it receives HTTP 401 with applicable challenge information before request-body validation
 
 #### Scenario: Request fields claim another role
@@ -61,9 +60,14 @@ The gateway SHALL admit anyone to enabled public routes. Private routes SHALL re
 - **WHEN** startup finds an application route without a core classification
 - **THEN** it refuses to publish the application
 
+#### Scenario: Invalid proof accompanies an open request
+
+- **WHEN** a caller submits invalid signing proof on an enabled route while the list is empty
+- **THEN** the attempt fails without granting anonymous admission
+
 ### Requirement: Private routes cover routine operations owned by the agent
 
-Detailed gateway status, usage, memory, and routine operations on the bound mailbox SHALL require private access. Mail and plugin operations SHALL retain the configured service identity. Caller proof SHALL identify the initiating principal separately from that service identity.
+Detailed gateway status, usage, memory, and routine operations on the bound mailbox SHALL require private access. Mail and plugin operations SHALL retain the configured service identity. The initiating principal SHALL reflect current proof or anonymous admission separately from the service identity.
 
 #### Scenario: Self inspects usage and reads memory
 
@@ -75,6 +79,11 @@ Detailed gateway status, usage, memory, and routine operations on the bound mail
 - **WHEN** a verified admin sends ordinary mail with a current mailbox binding
 - **THEN** the bound mailbox determines the service identity
 - **AND** the caller remains the initiating admin principal
+
+#### Scenario: Anonymous caller uses a bound mailbox
+
+- **WHEN** the initialized roster is empty and an unsigned caller invokes an enabled private mailbox operation
+- **THEN** the operation uses the configured mailbox binding and records anonymous caller provenance
 
 ### Requirement: Privileged operations use the admin route class
 
@@ -148,7 +157,7 @@ The public challenge operation SHALL issue bounded, expiring, single-use challen
 
 - **WHEN** a caller presents stale signed proof after the final admin key is removed
 - **THEN** the signed attempt fails before effects
-- **AND** a separate unsigned request can use the current open admin access
+- **AND** a separate unsigned request can use the current open access
 
 ### Requirement: Ingress verifies standard signatures in process
 
@@ -166,12 +175,12 @@ Gateway and passive ingress SHALL verify SSHSIG proofs inside their Python proce
 
 ### Requirement: The first admin key can be registered after startup
 
-With a valid empty admin list, anyone SHALL be able to submit a public key and prove possession through a bootstrap challenge bound to that key and principal. Registration SHALL atomically add the first key only while the list is still empty. Later admin admissions SHALL require a listed key.
+With a valid empty admin list, anyone SHALL be able to submit a public key and prove possession through a bootstrap challenge bound to that key and principal. Registration SHALL atomically add the first key only while the list is still empty. Later private and admin admissions SHALL apply the listed-key policy.
 
 #### Scenario: First registration closes open admin access
 
 - **WHEN** a running gateway with an empty list admits a valid first-key registration
-- **THEN** it persists the public key as an admin and begins requiring listed-key proof for later admin operations
+- **THEN** it persists the public key as an admin and ends anonymous admission to later private and admin operations
 
 #### Scenario: Registrant supplies a key without matching proof
 
@@ -202,7 +211,7 @@ A verified current admin SHALL be able to add another public key or remove a lis
 #### Scenario: The last admin key is removed
 
 - **WHEN** a verified admin removes the final key
-- **THEN** later admin operations admit anonymous callers
+- **THEN** later private and admin operations admit unsigned callers
 - **AND** the gateway can accept a new first-key registration
 
 ### Requirement: Self access follows the current managed generation
@@ -255,21 +264,26 @@ Owner access state and file-based client secrets SHALL use explicit bounded regu
 
 ### Requirement: Protected errors distinguish missing proof and denied authority
 
-Operations requiring proof SHALL return HTTP 401 with applicable challenge information for missing or invalid proof. Valid proof with insufficient authority SHALL return HTTP 403. An admin-only form on a private operation SHALL require verified admin proof before its privileged effects.
+Operations requiring proof SHALL return HTTP 401 with applicable challenge information for missing or invalid proof. Valid proof with insufficient authority SHALL return HTTP 403. Elevated forms of a private operation SHALL require current anonymous open access or verified admin authority before privileged effects.
 
 #### Scenario: Self requests an owner-file attachment
 
-- **WHEN** the agent supplies an owner-local attachment path through a private mail route with only self proof
+- **WHEN** the agent supplies an owner-local attachment path through a private mail route with only self proof and the roster has entries
 - **THEN** the response is HTTP 403 before a file is opened or a provider is called
+
+#### Scenario: A roster change invalidates an anonymous grant
+
+- **WHEN** a deferred privileged operation reaches its authority check after the roster revision has changed
+- **THEN** it rejects an earlier anonymous grant before the privileged effect
 
 ### Requirement: Unavailable access state fails closed
 
-An invalid or unavailable required state SHALL prevent startup publication. If initialized state becomes unavailable during operation, admissions that depend on it SHALL return safe HTTP 503. The open admin decision SHALL require a valid recorded empty list. Restoring valid state SHALL enable later calls without replaying earlier attempts.
+An invalid or unavailable required state SHALL prevent startup publication. If initialized state becomes unavailable during operation, admissions that depend on it SHALL return safe HTTP 503. Anonymous admission to protected operations SHALL require a valid recorded empty list. Restoring valid state SHALL enable later calls without replaying earlier attempts.
 
 #### Scenario: Previously initialized state disappears after startup
 
 - **WHEN** the admin state is missing, unreadable, unsafe, or malformed while an agent or gateway is known
-- **THEN** new admin and private admissions relying on it fail with a policy error
+- **THEN** new admin, private, and Web entry admissions relying on it fail with a policy error
 - **AND** public process health remains available
 
 #### Scenario: A valid policy is restored
@@ -318,7 +332,7 @@ Credential-bearing clients SHALL bind the exact origin and base path to the expe
 
 ### Requirement: Owner clients select proof for each protected target
 
-Managed-self commands SHALL select their current self key, verify the HTTP challenge binding, and sign locally for private calls. Admin callers SHALL use an explicit signer. Owner-service backing calls SHALL use scoped bindings. Readiness health SHALL use public access. An admission refusal SHALL terminate the attempt.
+Managed-self commands SHALL select their current self key, verify the HTTP challenge binding, and sign locally for private calls. Signed admin callers SHALL use an explicit signer. An unsigned client SHALL be able to use available private and admin operations under the current open policy. Owner-service backing calls SHALL use scoped bindings. Readiness health SHALL use public access. An admission refusal SHALL terminate the attempt.
 
 #### Scenario: Scoped self command uses its private mailbox
 
@@ -343,12 +357,12 @@ Alternate HTTP paths to a configured agent SHALL apply its retained access polic
 #### Scenario: Direct managed-headless target resolves before registry discovery
 
 - **WHEN** an HTTP operation matches a configured agent through retained headless authority without a live registry or gateway record
-- **THEN** the retained admin list and private proof requirements govern the operation
+- **THEN** the retained roster determines whether the operation admits anonymous access or requires its route-class proof
 
 #### Scenario: Agent or gateway stops
 
 - **WHEN** an HTTP request selects a configured target after the live gateway disappears
-- **THEN** retained admin access applies to supported stopped-state paths
+- **THEN** retained access policy applies to supported stopped-state paths
 - **AND** an ended generation cannot authorize self
 
 ### Requirement: Gateway proof is scoped to an existing execution binding
@@ -393,19 +407,18 @@ Public status, discovery, errors, and diagnostics SHALL omit secrets, signatures
 - **WHEN** policy or client selection fails validation
 - **THEN** diagnostics use safe field locations and error categories
 
-### Requirement: Browser entry issuance requires direct enrolled admin proof
+### Requirement: Browser entry issuance follows current direct gateway access
 
-Signed API ticket issuance SHALL require a direct, request-bound signature from a currently enrolled admin even when ordinary admin access is open. The gateway SHALL check proof and role before processing the request or reading native sign-in data. Browser redemption SHALL require the issued bearer and SHALL confer authority only to obtain the bound native redirect.
+Direct owner-local Web ticket issuance SHALL accept an unsigned request with a valid empty roster or a request signed by a current enrolled admin. Admission SHALL precede native sign-in lookup. Ticket redemption SHALL require the issued bearer and confers authority only for the bound native redirect.
 
 #### Scenario: The admin roster is empty
 
-- **WHEN** a caller attempts issuance without proof or with an invalid signature
-- **THEN** the gateway returns HTTP 401 with applicable challenge information
-- **AND THEN** open admin access grants no ticket
+- **WHEN** an unsigned direct caller requests a ticket for an eligible live Web agent with a valid empty roster
+- **THEN** the gateway issues the ticket with anonymous access bound to the current roster revision
 
 #### Scenario: The current agent or a backing service requests issuance
 
-- **WHEN** issuance presents valid self proof, a relay, or backing authority without direct enrolled admin proof
+- **WHEN** issuance presents valid self proof, a relay, or backing authority
 - **THEN** the gateway returns HTTP 403 before looking up the native destination
 
 #### Scenario: A signed gateway client requests a ticket for the browser
@@ -413,6 +426,16 @@ Signed API ticket issuance SHALL require a direct, request-bound signature from 
 - **WHEN** the client completes signed issuance
 - **THEN** it receives the ticket result without a redirect
 - **AND THEN** only the browser follows the redemption redirect, independently of public prompt enablement
+
+#### Scenario: Direct issuance is missing required proof
+
+- **WHEN** an unsigned request reaches ticket issuance with enrolled keys
+- **THEN** the gateway returns HTTP 401 with applicable challenge information
+
+#### Scenario: Direct issuance carries invalid proof
+
+- **WHEN** a request presents invalid signing proof with either roster mode
+- **THEN** the gateway refuses it before reading native sign-in data
 
 ### Requirement: Interactive Web login proof authorizes only its pending entry
 
