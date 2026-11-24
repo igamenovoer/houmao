@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import time
+import tomllib
 from typing import Literal
 
 import pytest
@@ -203,7 +204,8 @@ def test_tui_fixture_launch_preserves_selected_env_and_scoped_identity(
         "import json, os, pathlib, sys, time\n"
         f"if '--version' in sys.argv: print({version!r}); sys.exit(0)\n"
         "keys=('OPENAI_API_KEY','ANTHROPIC_API_KEY','ANTHROPIC_AUTH_TOKEN',"
-        "'KIMI_MODEL_API_KEY','OPENAI_BASE_URL','ANTHROPIC_BASE_URL','KIMI_MODEL_BASE_URL')\n"
+        "'KIMI_MODEL_API_KEY','OPENAI_BASE_URL','ANTHROPIC_BASE_URL','KIMI_MODEL_BASE_URL',"
+        "'KIMI_MODEL_NAME','KIMI_CODE_HOME')\n"
         "pathlib.Path('effective-env.json').write_text(json.dumps({k:os.getenv(k) for k in keys}))\n"
         "if '--json' in sys.argv or '--output-format' in sys.argv:\n"
         " print(json.dumps({'session_id':'controlled-session','type':'thread.started','thread_id':'controlled-session'})); sys.exit(0)\n"
@@ -252,7 +254,6 @@ def test_tui_fixture_launch_preserves_selected_env_and_scoped_identity(
             "codex": "OPENAI_API_KEY",
             "kimi": "KIMI_MODEL_API_KEY",
         }[client]
-        assert child[key] == config.api_key.get_secret_value()
         assert "competing-server-key" not in child.values()
         assert "competing-parent-key" not in child.values()
         endpoint = {
@@ -260,7 +261,18 @@ def test_tui_fixture_launch_preserves_selected_env_and_scoped_identity(
             "codex": "OPENAI_BASE_URL",
             "kimi": "KIMI_MODEL_BASE_URL",
         }[client]
-        assert child[endpoint] == config.base_url
+        if client == "kimi":
+            assert (
+                child[key] is None and child[endpoint] is None and child["KIMI_MODEL_NAME"] is None
+            )
+            native = tomllib.loads((Path(child["KIMI_CODE_HOME"]) / "config.toml").read_text())
+            model = native["models"][config.model]
+            provider = native["providers"][model["provider"]]
+            assert provider["base_url"] == config.base_url
+            assert provider["api_key"] == config.api_key.get_secret_value()
+        else:
+            assert child[key] == config.api_key.get_secret_value()
+            assert child[endpoint] == config.base_url
         assert launch.stop_run(root)["status"] == "stopped"
         assert (
             subprocess.run(

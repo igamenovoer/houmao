@@ -100,13 +100,6 @@ def _build_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--kimi-config-toml", default=None)
     start_parser.add_argument("--kimi-credential-json", default=None)
     start_parser.add_argument("--api-key", default=None)
-    start_parser.add_argument("--model-name", default=None)
-    start_parser.add_argument("--base-url", default=None)
-    start_parser.add_argument("--provider-type", default=None)
-    start_parser.add_argument("--code-base-url", default=None)
-    start_parser.add_argument("--code-oauth-host", default=None)
-    start_parser.add_argument("--oauth-host", default=None)
-    start_parser.add_argument("--disable-telemetry", action="store_true")
     start_parser.add_argument("--reset", action="store_true")
     start_parser.add_argument("--skip-ready-wait", action="store_true")
     start_parser.add_argument("--ready-timeout-seconds", type=float, default=None)
@@ -486,13 +479,6 @@ def _resolve_kimi_credential_args(
     )
     credential_args = build_kimi_credential_args(
         api_key=args.api_key,
-        model_name=args.model_name,
-        base_url=args.base_url,
-        provider_type=args.provider_type,
-        code_base_url=args.code_base_url,
-        code_oauth_host=args.code_oauth_host,
-        oauth_host=args.oauth_host,
-        disable_telemetry=bool(args.disable_telemetry),
         code_home=code_home,
         config_toml=config_toml,
         credential_json=credential_json,
@@ -500,7 +486,7 @@ def _resolve_kimi_credential_args(
     if code_home is not None:
         return credential_args, f"code-home:{code_home.resolve()}"
     if args.api_key:
-        return credential_args, "env-model-api-key"
+        return credential_args, "native-config-api-key"
     return credential_args, "direct-files"
 
 
@@ -514,14 +500,8 @@ def _has_explicit_credential_input(args: argparse.Namespace) -> bool:
             args.kimi_config_toml,
             args.kimi_credential_json,
             args.api_key,
-            args.model_name,
-            args.base_url,
-            args.provider_type,
-            args.code_base_url,
-            args.code_oauth_host,
-            args.oauth_host,
         )
-    ) or bool(args.disable_telemetry)
+    )
 
 
 def _build_run_id(*, parameters: DemoParameters) -> str:

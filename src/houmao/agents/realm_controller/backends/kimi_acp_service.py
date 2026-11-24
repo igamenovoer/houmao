@@ -16,6 +16,7 @@ from typing import Any, TextIO
 
 from packaging.version import InvalidVersion, Version
 
+from houmao.agents.kimi_configuration import kimi_launch_diagnostic_secrets
 from houmao.agents.launch_policy import LaunchPolicyError, validate_packaged_tool_version
 from houmao.agents.model_selection import ModelConfig
 from houmao.agents.realm_controller.backends.dsh_acp_connection import (
@@ -46,7 +47,6 @@ from houmao.agents.realm_controller.usage_support import UsageService, persist_t
 from houmao.agents.tool_params.kimi import KIMI_PERMISSION_MODES
 
 
-_ENV_MODEL_ALIAS = "__kimi_env_model__"
 _STARTUP_TIMEOUT = 8.0
 _PIPE_WRITE_TIMEOUT = 5.0
 _PROMPT_TIMEOUT = 300.0
@@ -128,11 +128,7 @@ class KimiAcpServiceProvider:
             env=config.environment,
             request_handler=self._interaction,
             stderr_sink=self._diagnostic_line,
-            secret_values=tuple(
-                value
-                for name, value in config.environment.items()
-                if name.startswith("KIMI_") and ("TOKEN" in name or "API_KEY" in name) and value
-            ),
+            secret_values=kimi_launch_diagnostic_secrets(config.environment),
             retain_notifications=False,
             write_timeout=_PIPE_WRITE_TIMEOUT,
         )
@@ -166,8 +162,6 @@ class KimiAcpServiceProvider:
         self.m_session_id = actual
         self.m_journal = self._await_journal(actual)
         configured = metadata.get("configured_model")
-        if config.environment.get("KIMI_MODEL_NAME", "").strip():
-            configured = _ENV_MODEL_ALIAS
         model = _advertised_selection(selected, "model")
         if model is None or (isinstance(configured, str) and configured and model != configured):
             raise ServiceStartupCompatibilityError(ServiceStartupCheck.KIMI_MODEL)

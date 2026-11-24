@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal, Mapping, MutableMapping
 
+from houmao.agents.kimi_launch_env import KIMI_CONFIG_ENV_NAMES, KIMI_PRIVATE_ENV_NAMES
 from houmao.agents.launch_env import owner_tmux_launch_environment
 from houmao.execution.tmux import (
     TmuxCommandError as TmuxCommandError,
@@ -162,6 +163,8 @@ def create_tmux_session(
         if launch_plan is not None and launch_plan.public_env is not None
         else frozenset()
     )
+    if launch_plan is not None and launch_plan.tool == "kimi":
+        masked_names = masked_names | KIMI_CONFIG_ENV_NAMES | KIMI_PRIVATE_ENV_NAMES
     initial_env = [argument for name in sorted(masked_names) for argument in ("-e", f"{name}=")]
     server = TmuxServer()
     environment = owner_tmux_launch_environment(
@@ -525,6 +528,8 @@ def publish_tmux_launch_environment(*, session_name: str, launch_plan: LaunchPla
         return
 
     private_names = launch_plan.private_env_var_names
+    if launch_plan.tool == "kimi":
+        private_names = private_names | KIMI_CONFIG_ENV_NAMES | KIMI_PRIVATE_ENV_NAMES
     public = {
         key: value for key, value in launch_plan.public_env.items() if key not in private_names
     }

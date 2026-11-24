@@ -47,29 +47,27 @@ This subtree SHALL NOT own credential CRUD, which SHALL route through `houmao-mg
 - **THEN** the command lists or clones project-local DSH setup bundles under `.houmao/agents/tools/dsh/setups/`
 
 ### Requirement: Starter Kimi adapter defines managed home, launch, skills, and auth projection
+
 The starter agent definition SHALL include a Kimi tool adapter and default setup bundle suitable for managed headless launches.
 
-The Kimi adapter SHALL declare:
+#### Scenario: Starter Kimi content declares the managed provider startup inputs
 
-- `tool: kimi`,
-- home selector env var `KIMI_CODE_HOME`,
-- default launch executable `kimi`,
-- skills projection destination `skills`,
-- setup projection destination `.`,
-- auth file projection for Kimi config and credential storage, and
-- an auth env allowlist for Kimi env-model and Kimi Code endpoint override variables.
+- **GIVEN** a project initializes or refreshes its starter Kimi tool content
+- **THEN** the adapter and default setup describe the provider's managed home, executable, skill destination, setup destination, and auth inputs
 
-The starter adapter SHALL NOT embed one operator-specific absolute executable path.
+The Kimi adapter SHALL declare `tool: kimi`, `KIMI_CODE_HOME` as its home selector, `kimi` as its default executable, `skills` as its skill destination, `.` as its setup destination, and auth projections for native config and credential storage. Its env allowlist SHALL cover private input bindings supported by managed Kimi startup. The executable declaration SHALL be portable across owners.
 
 #### Scenario: Starter Kimi adapter uses portable executable by default
+
 - **WHEN** a project initializes or refreshes starter agent tool content
 - **THEN** the Kimi adapter declares launch executable `kimi`
-- **AND THEN** host-specific paths such as `/home/huangzhe/.kimi-code/bin/kimi` are not written into the starter template
+- **AND THEN** the starter template requires no host-specific executable path
 
 #### Scenario: Kimi auth projection accepts OAuth token storage
+
 - **WHEN** a selected Kimi auth bundle provides `config.toml` and `credentials/kimi-code.json`
-- **THEN** the build projects those files into the constructed Kimi runtime home according to the Kimi adapter mapping
-- **AND THEN** the build manifest records the projected credential paths without exposing token values
+- **THEN** the build incorporates the config into the effective runtime config and projects the token file according to the adapter mapping
+- **AND THEN** the build manifest records the credential input paths without exposing token values
 
 ### Requirement: `internals native-agent tools <tool> get` and `setups` inspect and manage setup bundles
 `houmao-mgr internals native-agent tools <tool> get` SHALL report the discovered project root, tool root, adapter path, and setup names for the selected tool family.
@@ -102,17 +100,20 @@ Project agent-tool inspection and setup administration SHALL expose only maintai
 - **AND THEN** no Gemini starter subtree is materialized
 
 ### Requirement: Starter Kimi environment projection matches current Kimi Code model variables
-The starter Kimi adapter SHALL allow current Kimi Code model variables needed for managed model, reasoning, sampling, and output-limit configuration. The allowlist SHALL include `KIMI_MODEL_THINKING_KEEP`, `KIMI_MODEL_TEMPERATURE`, `KIMI_MODEL_TOP_P`, `KIMI_MODEL_MAX_TOKENS`, and `KIMI_MODEL_MAX_COMPLETION_TOKENS`.
 
-The starter adapter SHALL remove obsolete `KIMI_MODEL_DEFAULT_THINKING` and `KIMI_MODEL_THINKING_MODE` entries. Existing current provider, endpoint, credential, capability, and thinking-effort variables SHALL remain available.
+The starter Kimi adapter SHALL include `KIMI_MODEL_API_KEY` for private native config references and retain the supported sampling and global completion-cap variables as private inputs. It SHALL omit the env-model selector, config-owned provider and model fields, thinking defaults, telemetry, managed provider endpoint overrides, and obsolete thinking-mode variables.
 
 #### Scenario: Current Kimi thinking and sampling variables survive projection
-- **WHEN** a Kimi env-model auth bundle supplies current thinking, sampling, or output-limit variables
-- **THEN** the managed Kimi runtime receives the allowlisted values
+
+- **WHEN** the selected Kimi bundle declares a native model and an allowlisted `KIMI_MODEL_TEMPERATURE`, `KIMI_MODEL_TOP_P`, `KIMI_MODEL_MAX_TOKENS`, or `KIMI_MODEL_MAX_COMPLETION_TOKENS` value
+- **THEN** the native process receives the selected value through its private launch environment
+- **AND THEN** thinking defaults come from native config
+- **AND THEN** the value is absent from the tmux session environment
 
 #### Scenario: Obsolete Kimi thinking variables are not advertised
+
 - **WHEN** a maintainer inspects the starter Kimi adapter
-- **THEN** it does not list `KIMI_MODEL_DEFAULT_THINKING` or `KIMI_MODEL_THINKING_MODE`
+- **THEN** the allowlist excludes `KIMI_MODEL_NAME`, `KIMI_MODEL_THINKING_EFFORT`, `KIMI_MODEL_THINKING_KEEP`, `KIMI_DISABLE_TELEMETRY`, `KIMI_MODEL_DEFAULT_THINKING`, and `KIMI_MODEL_THINKING_MODE`
 
 ### Requirement: Tool setup bundles support optional per-tool parameter seed files
 

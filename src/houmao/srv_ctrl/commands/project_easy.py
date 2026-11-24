@@ -19,6 +19,7 @@ from houmao.project.launch_profiles import (
     profile_run_mode,
 )
 
+from .credentials import KimiConfigCredentialCommand
 from .project_context import active_project_dir
 
 # ruff: noqa: F403,F405
@@ -821,7 +822,7 @@ def easy_specialist_group() -> None:
     """Manage high-level specialist definitions compiled into `.houmao/agents/`."""
 
 
-@easy_specialist_group.command(name="create")
+@easy_specialist_group.command(name="create", cls=KimiConfigCredentialCommand)
 @click.option("--name", required=True, help="Specialist name.")
 @click.option("--system-prompt", default=None, help="Inline system prompt content.")
 @click.option(
@@ -878,11 +879,6 @@ def easy_specialist_group() -> None:
     type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
     default=None,
     help="Optional Codex `auth.json` file.",
-)
-@click.option(
-    "--kimi-model-name",
-    default=None,
-    help="Optional Kimi env-model credential value for `KIMI_MODEL_NAME`.",
 )
 @click.option(
     "--kimi-config-toml",
@@ -975,7 +971,6 @@ def create_easy_specialist_command(
     claude_config_dir: Path | None,
     codex_org_id: str | None,
     codex_auth_json: Path | None,
-    kimi_model_name: str | None,
     kimi_config_toml: Path | None,
     kimi_credential_json: Path | None,
     kimi_code_home: Path | None,
@@ -993,6 +988,10 @@ def create_easy_specialist_command(
 ) -> None:
     """Create one project-local specialist and compile it into the canonical tree."""
 
+    if tool_name == "kimi" and base_url is not None:
+        raise click.ClickException(
+            "For Kimi, set providers.<provider>.base_url in --kimi-config-toml."
+        )
     resolved_tool_params = _tool_params_or_click(
         tool_name, tool_params, source="specialist tool_params"
     )
@@ -1077,14 +1076,6 @@ def create_easy_specialist_command(
         model_name=resolved_model_name,
         reasoning_level=reasoning_level,
     )
-    resolved_kimi_model_name = kimi_model_name
-    if (
-        tool_name == "kimi"
-        and resolved_kimi_model_name is None
-        and api_key is not None
-        and resolved_model_name is not None
-    ):
-        resolved_kimi_model_name = resolved_model_name
     auth_result = ensure_specialist_credential_bundle(
         overlay=overlay,
         tool=tool_name,
@@ -1097,7 +1088,6 @@ def create_easy_specialist_command(
         claude_config_dir=claude_config_dir,
         codex_org_id=codex_org_id,
         codex_auth_json=codex_auth_json,
-        kimi_model_name=resolved_kimi_model_name,
         kimi_config_toml=kimi_config_toml,
         kimi_credential_json=kimi_credential_json,
         kimi_code_home=kimi_code_home,

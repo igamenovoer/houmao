@@ -127,7 +127,7 @@ def read_prepared_run(
         payload = json.loads((root / "run.json").read_text())
     except (OSError, ValueError) as exc:
         raise RuntimeError("Cannot read selected --prepared-run metadata") from exc
-    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+    if not isinstance(payload, dict) or payload.get("schema_version") not in (1, 2):
         raise RuntimeError("Unsupported prepared-run schema")
     config = payload.get("configuration")
     if not isinstance(config, dict) or config.get("client") != tool:

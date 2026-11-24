@@ -198,7 +198,7 @@ capabilities = ["thinking"]
 support_efforts = ["low", "medium", "high"]
 
 [models."kimi-code/kimi-for-coding".overrides]
-support_efforts = ["low", "high", "max"]
+support_efforts = ["quick", "Deep-Reasoning", "thorough"]
 """,
         encoding="utf-8",
     )
@@ -213,8 +213,8 @@ support_efforts = ["low", "high", "max"]
 
     assert mapping["effective_level"] == 2
     assert mapping["saturated"] is False
-    assert [item["native_value"] for item in mapping["native_settings"]] == [True, "high"]
-    assert payload["thinking"] == {"enabled": True, "effort": "high"}
+    assert [item["native_value"] for item in mapping["native_settings"]] == [True, "Deep-Reasoning"]
+    assert payload["thinking"] == {"enabled": True, "effort": "Deep-Reasoning"}
 
 
 def test_project_reasoning_level_kimi_saturates_to_alias_max(tmp_path: Path) -> None:
@@ -324,7 +324,7 @@ capabilities = ["thinking"]
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="exposes no positive reasoning presets"):
+    with pytest.raises(ValueError, match=r"custom.*support_efforts"):
         resolve_reasoning_mapping(
             tool="kimi",
             requested_level=1,
@@ -333,19 +333,16 @@ capabilities = ["thinking"]
         )
 
 
-def test_resolve_reasoning_mapping_kimi_env_model_rejects_normalized_level(
-    tmp_path: Path,
+@pytest.mark.parametrize("efforts", [[], ["fast", ""], ["fast", 4], ["fast", "fast"], "fast"])
+def test_resolve_reasoning_mapping_kimi_rejects_malformed_efforts(
+    efforts: object,
 ) -> None:
-    with pytest.raises(ValueError, match="exposes no ordered effort catalog"):
+    with pytest.raises(ValueError, match=r"custom.*support_efforts"):
         resolve_reasoning_mapping(
             tool="kimi",
             requested_level=1,
-            model_name="kimi-env",
-            home_path=tmp_path,
-            env_model_values={
-                "KIMI_MODEL_NAME": "kimi-env",
-                "KIMI_MODEL_THINKING_EFFORT": "high",
-            },
+            model_name="custom",
+            kimi_config={"models": {"custom": {"support_efforts": efforts}}},
         )
 
 
@@ -362,21 +359,37 @@ max_context_size = 1000
 capabilities = ["thinking"]
 support_efforts = ["low", "high"]
 
+[models.alternate]
+support_efforts = ["skim", "Deliberate"]
+
 [thinking]
 enabled = true
 effort = "low"
+forced_effort = "low"
 """
     config_path.write_text(original, encoding="utf-8")
 
     with temporary_project_model_config(
         home_path=home_path,
         tool="kimi",
-        model_config=ModelConfig(reasoning=ModelReasoningConfig(level=2)),
+        model_config=ModelConfig(name="alternate", reasoning=ModelReasoningConfig(level=2)),
     ) as projection:
         assert projection.env == {}
-        assert projection.args == []
-        assert (
-            tomllib.loads(config_path.read_text(encoding="utf-8"))["thinking"]["effort"] == "high"
-        )
+        assert projection.args == ["--model", "alternate"]
+        assert tomllib.loads(config_path.read_text(encoding="utf-8"))["thinking"] == {
+            "enabled": True,
+            "effort": "Deliberate",
+        }
 
+    assert config_path.read_text(encoding="utf-8") == original
+
+    with (
+        pytest.raises(ValueError, match=r"missing.*models"),
+        temporary_project_model_config(
+            home_path=home_path,
+            tool="kimi",
+            model_config=ModelConfig(name="missing", reasoning=ModelReasoningConfig(level=2)),
+        ),
+    ):
+        pytest.fail("Invalid alias reached prompt dispatch")
     assert config_path.read_text(encoding="utf-8") == original

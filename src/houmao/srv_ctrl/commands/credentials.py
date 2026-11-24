@@ -26,6 +26,7 @@ from houmao.agents.dsh_credentials import (
     validate_dsh_env_name,
     write_dsh_credential_roles,
 )
+from houmao.agents.kimi_launch_env import KIMI_CONFIG_ENV_NAMES, reject_kimi_config_env
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
 from houmao.owned_mutation import (
     remove_tree_or_path,
@@ -107,18 +108,39 @@ _PROVIDER_AUTH_ENV_VARS: dict[str, frozenset[str]] = {
             "OPENAI_ORG_ID",
         }
     ),
-    "kimi": frozenset(
-        {
-            "KIMI_MODEL_NAME",
-            "KIMI_MODEL_API_KEY",
-            "KIMI_MODEL_PROVIDER_TYPE",
-            "KIMI_MODEL_BASE_URL",
-            "KIMI_CODE_BASE_URL",
-            "KIMI_CODE_OAUTH_HOST",
-            "KIMI_OAUTH_HOST",
-        }
-    ),
+    "kimi": KIMI_CONFIG_ENV_NAMES | {"KIMI_MODEL_API_KEY"},
 }
+
+
+class KimiConfigCredentialCommand(click.Command):
+    """Point retired Kimi credential flags at the native configuration surface."""
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        """Parse maintained inputs and give value-free migration diagnostics."""
+
+        try:
+            return super().parse_args(ctx, args)
+        except click.NoSuchOption as exc:
+            option = exc.option_name.removeprefix("--").removeprefix("clear-")
+            if option == "kimi-model-name":
+                destination = "--kimi-config-toml"
+            elif self.name in {"add", "set"} and option in {
+                "model-name",
+                "base-url",
+                "provider-type",
+                "code-base-url",
+                "code-oauth-host",
+                "oauth-host",
+                "disable-telemetry",
+            }:
+                destination = "--config-toml"
+            else:
+                raise
+            raise click.UsageError(
+                f"{exc.option_name} was retired. Define Kimi settings in config.toml "
+                f"and pass {destination}.",
+                ctx=ctx,
+            ) from None
 
 
 @dataclass(frozen=True)
@@ -229,7 +251,6 @@ def ensure_specialist_credential_bundle(
     claude_config_dir: Path | None,
     codex_org_id: str | None,
     codex_auth_json: Path | None,
-    kimi_model_name: str | None,
     kimi_config_toml: Path | None,
     kimi_credential_json: Path | None,
     kimi_code_home: Path | None,
@@ -269,13 +290,7 @@ def ensure_specialist_credential_bundle(
         )
         file_sources = {"auth.json": codex_auth_json} if codex_auth_json is not None else {}
     elif tool == "kimi":
-        env_values = _compact_env_values(
-            {
-                "KIMI_MODEL_NAME": kimi_model_name,
-                "KIMI_MODEL_API_KEY": api_key,
-                "KIMI_MODEL_BASE_URL": base_url,
-            }
-        )
+        env_values = _compact_env_values({"KIMI_MODEL_API_KEY": api_key})
         file_sources = _kimi_credential_file_sources(
             config_toml=kimi_config_toml,
             credential_json=kimi_credential_json,
@@ -293,7 +308,6 @@ def ensure_specialist_credential_bundle(
                 claude_config_dir,
                 codex_org_id,
                 codex_auth_json,
-                kimi_model_name,
                 kimi_config_toml,
                 kimi_credential_json,
                 kimi_code_home,
@@ -1287,24 +1301,13 @@ def _build_codex_set_command(*, project_only: bool, native_only: bool = False) -
 def _build_kimi_add_command(*, project_only: bool, native_only: bool = False) -> click.Command:
     """Build the Kimi `add` command."""
 
-    @click.command(name="add")
+    @click.command(name="add", cls=KimiConfigCredentialCommand)
     @_target_options(project_only, native_only=native_only)
     @click.option("--name", required=True, help="Credential name.")
-    @click.option("--model-name", default=None, help="Value for `KIMI_MODEL_NAME`.")
-    @click.option("--api-key", default=None, help="Value for `KIMI_MODEL_API_KEY`.")
-    @click.option("--base-url", default=None, help="Value for `KIMI_MODEL_BASE_URL`.")
     @click.option(
-        "--provider-type",
+        "--api-key",
         default=None,
-        help="Value for `KIMI_MODEL_PROVIDER_TYPE`.",
-    )
-    @click.option("--code-base-url", default=None, help="Value for `KIMI_CODE_BASE_URL`.")
-    @click.option("--code-oauth-host", default=None, help="Value for `KIMI_CODE_OAUTH_HOST`.")
-    @click.option("--oauth-host", default=None, help="Value for `KIMI_OAUTH_HOST`.")
-    @click.option(
-        "--disable-telemetry",
-        is_flag=True,
-        help="Store `KIMI_DISABLE_TELEMETRY=true` in the credential bundle env file.",
+        help="Private API key for a native api_key_env reference to KIMI_MODEL_API_KEY.",
     )
     @click.option(
         "--config-toml",
@@ -1326,14 +1329,7 @@ def _build_kimi_add_command(*, project_only: bool, native_only: bool = False) ->
     )
     def add_command(
         name: str,
-        model_name: str | None,
         api_key: str | None,
-        base_url: str | None,
-        provider_type: str | None,
-        code_base_url: str | None,
-        code_oauth_host: str | None,
-        oauth_host: str | None,
-        disable_telemetry: bool,
         config_toml: Path | None,
         credential_json: Path | None,
         code_home: Path | None,
@@ -1356,18 +1352,7 @@ def _build_kimi_add_command(*, project_only: bool, native_only: bool = False) ->
                 target=target,
                 tool="kimi",
                 name=name,
-                env_values=_compact_env_values(
-                    {
-                        "KIMI_MODEL_NAME": model_name,
-                        "KIMI_MODEL_API_KEY": api_key,
-                        "KIMI_MODEL_BASE_URL": base_url,
-                        "KIMI_MODEL_PROVIDER_TYPE": provider_type,
-                        "KIMI_CODE_BASE_URL": code_base_url,
-                        "KIMI_CODE_OAUTH_HOST": code_oauth_host,
-                        "KIMI_OAUTH_HOST": oauth_host,
-                        "KIMI_DISABLE_TELEMETRY": "true" if disable_telemetry else None,
-                    }
-                ),
+                env_values=_compact_env_values({"KIMI_MODEL_API_KEY": api_key}),
                 file_sources=_kimi_credential_file_sources(
                     config_toml=config_toml,
                     credential_json=credential_json,
@@ -1393,24 +1378,13 @@ def _build_kimi_add_command(*, project_only: bool, native_only: bool = False) ->
 def _build_kimi_set_command(*, project_only: bool, native_only: bool = False) -> click.Command:
     """Build the Kimi `set` command."""
 
-    @click.command(name="set")
+    @click.command(name="set", cls=KimiConfigCredentialCommand)
     @_target_options(project_only, native_only=native_only)
     @click.option("--name", required=True, help="Credential name.")
-    @click.option("--model-name", default=None, help="Value for `KIMI_MODEL_NAME`.")
-    @click.option("--api-key", default=None, help="Value for `KIMI_MODEL_API_KEY`.")
-    @click.option("--base-url", default=None, help="Value for `KIMI_MODEL_BASE_URL`.")
     @click.option(
-        "--provider-type",
+        "--api-key",
         default=None,
-        help="Value for `KIMI_MODEL_PROVIDER_TYPE`.",
-    )
-    @click.option("--code-base-url", default=None, help="Value for `KIMI_CODE_BASE_URL`.")
-    @click.option("--code-oauth-host", default=None, help="Value for `KIMI_CODE_OAUTH_HOST`.")
-    @click.option("--oauth-host", default=None, help="Value for `KIMI_OAUTH_HOST`.")
-    @click.option(
-        "--disable-telemetry",
-        is_flag=True,
-        help="Store `KIMI_DISABLE_TELEMETRY=true` in the credential bundle env file.",
+        help="Private API key for a native api_key_env reference to KIMI_MODEL_API_KEY.",
     )
     @click.option(
         "--config-toml",
@@ -1431,44 +1405,9 @@ def _build_kimi_set_command(*, project_only: bool, native_only: bool = False) ->
         help="Optional Kimi Code home to import `config.toml` and `credentials/kimi-code.json` from.",
     )
     @click.option(
-        "--clear-model-name",
-        is_flag=True,
-        help="Remove `KIMI_MODEL_NAME` from the credential bundle.",
-    )
-    @click.option(
         "--clear-api-key",
         is_flag=True,
         help="Remove `KIMI_MODEL_API_KEY` from the credential bundle.",
-    )
-    @click.option(
-        "--clear-base-url",
-        is_flag=True,
-        help="Remove `KIMI_MODEL_BASE_URL` from the credential bundle.",
-    )
-    @click.option(
-        "--clear-provider-type",
-        is_flag=True,
-        help="Remove `KIMI_MODEL_PROVIDER_TYPE` from the credential bundle.",
-    )
-    @click.option(
-        "--clear-code-base-url",
-        is_flag=True,
-        help="Remove `KIMI_CODE_BASE_URL` from the credential bundle.",
-    )
-    @click.option(
-        "--clear-code-oauth-host",
-        is_flag=True,
-        help="Remove `KIMI_CODE_OAUTH_HOST` from the credential bundle.",
-    )
-    @click.option(
-        "--clear-oauth-host",
-        is_flag=True,
-        help="Remove `KIMI_OAUTH_HOST` from the credential bundle.",
-    )
-    @click.option(
-        "--clear-disable-telemetry",
-        is_flag=True,
-        help="Remove `KIMI_DISABLE_TELEMETRY` from the credential bundle.",
     )
     @click.option(
         "--clear-config-toml",
@@ -1482,25 +1421,11 @@ def _build_kimi_set_command(*, project_only: bool, native_only: bool = False) ->
     )
     def set_command(
         name: str,
-        model_name: str | None,
         api_key: str | None,
-        base_url: str | None,
-        provider_type: str | None,
-        code_base_url: str | None,
-        code_oauth_host: str | None,
-        oauth_host: str | None,
-        disable_telemetry: bool,
         config_toml: Path | None,
         credential_json: Path | None,
         code_home: Path | None,
-        clear_model_name: bool,
         clear_api_key: bool,
-        clear_base_url: bool,
-        clear_provider_type: bool,
-        clear_code_base_url: bool,
-        clear_code_oauth_host: bool,
-        clear_oauth_host: bool,
-        clear_disable_telemetry: bool,
         clear_config_toml: bool,
         clear_credential_json: bool,
         use_project: bool = False,
@@ -1522,18 +1447,7 @@ def _build_kimi_set_command(*, project_only: bool, native_only: bool = False) ->
                 target=target,
                 tool="kimi",
                 name=name,
-                env_values=_compact_env_values(
-                    {
-                        "KIMI_MODEL_NAME": model_name,
-                        "KIMI_MODEL_API_KEY": api_key,
-                        "KIMI_MODEL_BASE_URL": base_url,
-                        "KIMI_MODEL_PROVIDER_TYPE": provider_type,
-                        "KIMI_CODE_BASE_URL": code_base_url,
-                        "KIMI_CODE_OAUTH_HOST": code_oauth_host,
-                        "KIMI_OAUTH_HOST": oauth_host,
-                        "KIMI_DISABLE_TELEMETRY": "true" if disable_telemetry else None,
-                    }
-                ),
+                env_values=_compact_env_values({"KIMI_MODEL_API_KEY": api_key}),
                 file_sources=_kimi_credential_file_sources(
                     config_toml=config_toml,
                     credential_json=credential_json,
@@ -1541,18 +1455,7 @@ def _build_kimi_set_command(*, project_only: bool, native_only: bool = False) ->
                 ),
                 require_any_input=True,
                 operation="set",
-                clear_env_names=_flagged_items(
-                    {
-                        "KIMI_MODEL_NAME": clear_model_name,
-                        "KIMI_MODEL_API_KEY": clear_api_key,
-                        "KIMI_MODEL_BASE_URL": clear_base_url,
-                        "KIMI_MODEL_PROVIDER_TYPE": clear_provider_type,
-                        "KIMI_CODE_BASE_URL": clear_code_base_url,
-                        "KIMI_CODE_OAUTH_HOST": clear_code_oauth_host,
-                        "KIMI_OAUTH_HOST": clear_oauth_host,
-                        "KIMI_DISABLE_TELEMETRY": clear_disable_telemetry,
-                    }
-                ),
+                clear_env_names=_flagged_items({"KIMI_MODEL_API_KEY": clear_api_key}),
                 clear_file_sources=_flagged_items(
                     {
                         _KIMI_CONFIG_FILENAME: clear_config_toml,
@@ -2345,6 +2248,11 @@ def _write_credential_bundle(
             f"Provide at least one change to update credential `{resolved_name}` for `{tool}`."
         )
 
+    if tool == "kimi":
+        try:
+            reject_kimi_config_env(env_values, source="Kimi credential input")
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from None
     unsupported_env_keys = sorted(
         (set(env_values) | clear_env_names) - set(adapter.auth_env_allowlist)
     )
@@ -2389,6 +2297,11 @@ def _write_credential_bundle(
         merged_env_values.update(env_values)
         for env_name in clear_env_names:
             merged_env_values.pop(env_name, None)
+        if tool == "kimi":
+            try:
+                reject_kimi_config_env(merged_env_values, source=f"Kimi credential {resolved_name}")
+            except ValueError as exc:
+                raise click.ClickException(f"{exc} Create a replacement Kimi credential.") from None
 
         env_file_path.parent.mkdir(parents=True, exist_ok=True)
         files_root.mkdir(parents=True, exist_ok=True)
@@ -2423,8 +2336,13 @@ def _write_credential_bundle(
             ),
             allowed_roots=(temp_auth_root,),
         )
-        if tool == "dsh":
+        if tool in {"dsh", "kimi"}:
             env_file_path.chmod(0o600)
+        if tool == "kimi":
+            for source_name in _KIMI_CODE_HOME_FILE_SOURCES:
+                private_file = files_root / source_name
+                if private_file.is_file():
+                    private_file.chmod(0o600)
         if dsh_roles is not None:
             write_dsh_credential_roles(env_file_path, dsh_roles)
 

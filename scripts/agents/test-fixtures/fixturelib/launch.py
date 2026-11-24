@@ -544,8 +544,8 @@ def launch_run(
                 [
                     "agents",
                     "launch",
-                    "--specialist",
-                    "fixture-agent",
+                    "--profile" if run.get("project_profile") else "--specialist",
+                    run.get("project_profile", "fixture-agent"),
                     "--name",
                     Path(run["run_dir"]).name,
                     "--workdir",

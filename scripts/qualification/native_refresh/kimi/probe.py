@@ -185,7 +185,6 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
             port = listener.getsockname()[1]
         env.update(json.loads((run_dir / "private-env.json").read_text()))
         env["KIMI_CODE_HOME"] = str(home)
-        env["KIMI_CODE_WATCH"] = "false"
         with log_path.open("w") as log:
             process = subprocess.Popen(
                 [

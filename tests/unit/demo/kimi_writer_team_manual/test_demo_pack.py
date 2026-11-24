@@ -98,13 +98,6 @@ def test_kimi_credential_args_support_code_home(tmp_path: Path) -> None:
 
     args = runtime.build_kimi_credential_args(
         api_key=None,
-        model_name=None,
-        base_url=None,
-        provider_type=None,
-        code_base_url=None,
-        code_oauth_host=None,
-        oauth_host=None,
-        disable_telemetry=False,
         code_home=code_home,
         config_toml=None,
         credential_json=None,
@@ -117,13 +110,6 @@ def test_kimi_credential_args_require_one_source() -> None:
     with pytest.raises(runtime.DemoRuntimeError, match="Kimi credential input is required"):
         runtime.build_kimi_credential_args(
             api_key=None,
-            model_name=None,
-            base_url=None,
-            provider_type=None,
-            code_base_url=None,
-            code_oauth_host=None,
-            oauth_host=None,
-            disable_telemetry=False,
             code_home=None,
             config_toml=None,
             credential_json=None,
@@ -134,13 +120,7 @@ def test_kimi_auth_bundle_shapes_credential_args(tmp_path: Path) -> None:
     bundle = tmp_path / "bundle"
     (bundle / "env").mkdir(parents=True)
     (bundle / "files/credentials").mkdir(parents=True)
-    (bundle / "env/vars.env").write_text(
-        "KIMI_MODEL_API_KEY=sk-kimi\n"
-        "KIMI_MODEL_NAME=kimi-k2\n"
-        "KIMI_MODEL_BASE_URL=https://kimi.example.test\n"
-        "KIMI_DISABLE_TELEMETRY=true\n",
-        encoding="utf-8",
-    )
+    (bundle / "env/vars.env").write_text("KIMI_MODEL_API_KEY=sk-kimi\n", encoding="utf-8")
     (bundle / "files/config.toml").write_text("[demo]\n", encoding="utf-8")
     (bundle / "files/credentials/kimi-code.json").write_text("{}\n", encoding="utf-8")
 
@@ -149,13 +129,18 @@ def test_kimi_auth_bundle_shapes_credential_args(tmp_path: Path) -> None:
     assert source == f"auth-bundle:{bundle}"
     assert "--api-key" in args
     assert "sk-kimi" in args
-    assert "--model-name" in args
-    assert "kimi-k2" in args
-    assert "--base-url" in args
-    assert "https://kimi.example.test" in args
-    assert "--disable-telemetry" in args
+    assert "--model-name" not in args
+    assert "--base-url" not in args
     assert "--config-toml" in args
     assert "--credential-json" in args
+
+
+def test_kimi_auth_bundle_rejects_legacy_model_env(tmp_path: Path) -> None:
+    (tmp_path / "env").mkdir()
+    (tmp_path / "env/vars.env").write_text("KIMI_MODEL_NAME=obsolete-model\n")
+
+    with pytest.raises(runtime.DemoRuntimeError, match=r"default_model.*Kimi config.toml"):
+        runtime.build_kimi_credential_args_from_bundle(bundle_dir=tmp_path)
 
 
 def test_driver_parser_accepts_manual_command_surface() -> None:

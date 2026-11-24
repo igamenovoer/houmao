@@ -93,6 +93,92 @@ def test_top_level_credentials_is_hidden_and_native_help_mentions_supported_tool
     assert "login" in tool_result.output
 
 
+def test_kimi_credentials_import_native_toml_and_keep_api_key_private(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Exercise the documented config import and private key reference."""
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    initialized = runner.invoke(cli, ["project", "init"])
+    assert initialized.exit_code == 0, initialized.output
+    config = tmp_path / "config.toml"
+    config.write_text(
+        'default_model = "local"\n'
+        '[providers.test]\ntype = "openai"\nbase_url = "http://127.0.0.1:9999/v1"\n'
+        'api_key_env = "KIMI_MODEL_API_KEY"\n'
+        '[models.local]\nprovider = "test"\nmodel = "local-model"\nmax_context_size = 4096\n'
+        'support_efforts = ["brief", "deliberate"]\n',
+        encoding="utf-8",
+    )
+    prefix = ["project", "credentials", "kimi"]
+    secret = "synthetic-native-kimi-key"
+    result = runner.invoke(
+        cli, [*prefix, "add", "--name", "native", "--config-toml", str(config), "--api-key", secret]
+    )
+    assert result.exit_code == 0, result.output
+    assert secret not in result.output
+    payload = json.loads(result.output)
+    persisted_config = Path(payload["path"]) / "files" / "config.toml"
+    assert persisted_config.read_bytes() == config.read_bytes()
+    assert persisted_config.stat().st_mode & 0o077 == 0
+    assert Path(payload["env_file"]).read_text(encoding="utf-8").splitlines() == [
+        f"KIMI_MODEL_API_KEY={secret}"
+    ]
+
+    inspected = runner.invoke(cli, [*prefix, "get", "--name", "native"])
+    assert inspected.exit_code == 0, inspected.output
+    assert json.loads(inspected.output)["env"]["KIMI_MODEL_API_KEY"] == {
+        "present": True,
+        "redacted": True,
+    }
+    assert secret not in inspected.output
+    assert "local-model" not in inspected.output
+    help_result = runner.invoke(cli, [*prefix, "set", "--help"])
+    assert "--config-toml" in help_result.output
+    assert "--model-name" not in help_result.output
+
+
+def test_kimi_oauth_import_and_retired_credential_flag_diagnostic(
+    tmp_path: Path,
+) -> None:
+    """Import explicitly selected OAuth files and direct legacy flags to TOML."""
+
+    runner = CliRunner()
+    agent_def_dir = _copy_agent_def_fixture(tmp_path)
+    code_home = tmp_path / "login"
+    credentials = code_home / "credentials"
+    credentials.mkdir(parents=True)
+    token_file = credentials / "kimi-code.json"
+    token_file.write_text('{"access_token": "synthetic-oauth-token"}\n', encoding="utf-8")
+    config = code_home / "config.toml"
+    config.write_text('default_model = "kimi-code/test"\n', encoding="utf-8")
+    prefix = ["internals", "native-agent", "credentials", "kimi", "add"]
+    selector = ["--native-agent-root", str(agent_def_dir), "--name", "oauth"]
+    result = runner.invoke(cli, [*prefix, *selector, "--code-home", str(code_home)])
+
+    assert result.exit_code == 0, result.output
+    assert "synthetic-oauth-token" not in result.output
+    auth_root = _direct_auth_root(agent_def_dir, tool="kimi", name="oauth")
+    assert (auth_root / "files/config.toml").read_bytes() == config.read_bytes()
+    assert (auth_root / "files/credentials/kimi-code.json").read_bytes() == token_file.read_bytes()
+    assert (auth_root / "env/vars.env").read_text(encoding="utf-8").strip() == ""
+
+    rejected = runner.invoke(cli, [*prefix, *selector, "--model-name=synthetic-legacy-model"])
+    assert rejected.exit_code != 0
+    assert "--config-toml" in rejected.output
+    assert "synthetic-legacy-model" not in rejected.output
+
+    env_file = auth_root / "env/vars.env"
+    legacy_env = "KIMI_MODEL_NAME=synthetic-legacy-model\n"
+    env_file.write_text(legacy_env, encoding="utf-8")
+    update = runner.invoke(cli, [*prefix[:-1], "set", *selector, "--config-toml", str(config)])
+    assert update.exit_code != 0
+    assert "KIMI_MODEL_NAME" in update.output and "default_model" in update.output
+    assert "synthetic-legacy-model" not in update.output
+    assert env_file.read_text(encoding="utf-8") == legacy_env
+
+
 @pytest.mark.parametrize("target", ["project", "native"])
 def test_dsh_credential_roles_persist_patch_clear_and_redact(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, target: str

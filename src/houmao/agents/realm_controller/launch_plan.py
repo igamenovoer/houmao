@@ -13,6 +13,16 @@ from houmao.agents.codex_cli_config import (
     CodexCliConfigScalar,
     codex_provider_cli_config_overrides,
 )
+from houmao.agents.kimi_configuration import (
+    load_kimi_config,
+    select_kimi_model_alias,
+    validate_kimi_config_credentials,
+)
+from houmao.agents.kimi_launch_env import (
+    KIMI_API_KEY_ENV,
+    KIMI_PRIVATE_ENV_NAMES,
+    reject_kimi_config_env,
+)
 from houmao.agents.kimi_system_prompt import (
     KimiSystemPromptError,
     ensure_kimi_system_prompt,
@@ -90,7 +100,7 @@ from houmao.hook_observation.kimi_hooks_generator import (
     build_collector_emitter_command as build_kimi_collector_emitter_command,
 )
 from .errors import LaunchPlanError, LaunchPolicyResolutionError
-from .loaders import RolePackage, parse_allowlisted_env
+from .loaders import RolePackage, parse_allowlisted_env, parse_env_file
 from .models import BackendKind, CaoParsingMode, LaunchPlan, RoleInjectionPlan
 from houmao.agents.realm_controller.run_modes import (
     human_surface_for_mode,
@@ -176,6 +186,19 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         manifest, backend=request.backend
     )
     private_names = _credential_binding_names(manifest)
+    kimi_config: dict[str, Any] = {}
+    if tool == "kimi" and request.intent == "provider_start":
+        try:
+            kimi_config = load_kimi_config(home_path / "config.toml")
+            key_references = validate_kimi_config_credentials(
+                kimi_config, env_values, private_names
+            )
+        except ValueError as exc:
+            raise LaunchPlanError(str(exc)) from exc
+        if KIMI_API_KEY_ENV not in key_references:
+            env_values.pop(KIMI_API_KEY_ENV, None)
+            env_var_names = sorted(env_values)
+            selected_env_names = [name for name in selected_env_names if name != KIMI_API_KEY_ENV]
     if tool == "claude":
         for name in _CLAUDE_PUBLIC_MODEL_ENV:
             if name in os.environ:
@@ -409,7 +432,12 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
                 raise LaunchPlanError(
                     f"{kimi_entrypoint} requires a non-empty configured model alias"
                 )
+        configured_model = model_alias
         if request.intent == "provider_start":
+            try:
+                configured_model = select_kimi_model_alias(kimi_config, model_alias)
+            except ValueError as exc:
+                raise LaunchPlanError(str(exc)) from exc
             try:
                 prepare_kimi_service_config(home_path, model_alias=model_alias)
             except (LaunchPolicyError, OSError, ValueError) as exc:
@@ -420,7 +448,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
             "detected_version": kimi_native_version,
             "operator_prompt_mode": requested_operator_prompt_mode,
             "permission_mode": permissions.get("permission_mode"),
-            "configured_model": model_alias or env_values.get("KIMI_MODEL_NAME"),
+            "configured_model": configured_model,
         }
     if launch_policy_result.strategy is not None:
         metadata["launch_policy"] = launch_policy_result.strategy.to_metadata_payload()
@@ -481,10 +509,19 @@ def read_launch_environment(
     source = Path(_require_str(env_contract, "source_file"))
     if tool != "dsh":
         source = source.resolve()
-    selected, selected_names = parse_allowlisted_env(
-        source, _require_str_list(env_contract, "allowlisted_env_vars")
-    )
+    allowlist = _require_str_list(env_contract, "allowlisted_env_vars")
     records = _persistent_launch_env_records(launch_contract)
+    if tool == "kimi":
+        authored = parse_env_file(source)
+        try:
+            reject_kimi_config_env(authored, source="Kimi credential bundle")
+            reject_kimi_config_env(records, source="Persistent launch environment")
+        except ValueError as exc:
+            raise LaunchPlanError(str(exc)) from exc
+        selected = {name: authored[name] for name in allowlist if name in authored}
+        selected_names = sorted(selected)
+    else:
+        selected, selected_names = parse_allowlisted_env(source, allowlist)
     home_selector = _require_mapping(runtime, "launch_home_selector")
     protected = {*_credential_binding_names(manifest), _require_str(home_selector, "env_var")}
     if tool == "dsh":
@@ -534,6 +571,8 @@ def _credential_binding_names(manifest: dict[str, Any]) -> set[str]:
     names = set(_require_str_list(contract, "allowlisted_env_vars"))
     if tool == "claude":
         names.difference_update(_CLAUDE_PUBLIC_MODEL_ENV)
+    if tool == "kimi":
+        names.update(KIMI_PRIVATE_ENV_NAMES)
     names.add(TOKEN_ENV_VAR)
     return names
 

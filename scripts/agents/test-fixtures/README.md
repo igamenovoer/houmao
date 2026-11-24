@@ -64,6 +64,8 @@ Claude uses Anthropic Messages, Codex uses Responses, and Kimi uses Chat Complet
 
 Model selection is always explicit for API cases. Kimi additionally requires `--context-window TOKENS` or the case's context reference. Capabilities default to `tool_use`; opt into `thinking` or `image_in` only for a qualified model. Optional `--reasoning-key`, `--reasoning-effort`, `--context-window`, and `--capabilities` project selected values without inheriting historical model assumptions. Codex renders an explicit model/provider and optional context/effort; the generic tracked template requires a selected `OPENAI_BASE_URL` at build time. Empty or conflicting routing fails before launch.
 
+Kimi API fixtures put their provider and model settings in a private credential `config.toml`. Supply each native effort label using a separate `--support-effort LABEL` in the model's declared order. `--reasoning-effort LABEL` sets the native default. With `--surface manager`, `--reasoning-level N` creates a launch profile that selects an effort by its one-based position. Prepare older Kimi env-model fixtures again to generate a native catalog.
+
 ## Codex App-Server Service
 
 Use `--client codex --mode service --surface manager` with Codex CLI 0.169.0 or later and a Responses endpoint. The manager fixture opens one app-server and keeps the native thread across `prompt` calls.

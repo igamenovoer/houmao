@@ -3711,6 +3711,56 @@ def test_project_specialist_create_persists_default_setup_for_supported_tools(
     assert payload["generated"]["preset"].endswith(f"/researcher-{tool_name}-default.yaml")
 
 
+def test_kimi_specialist_and_profile_reserve_native_config_environment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Use native Kimi credential inputs and reject duplicate env settings."""
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    initialized = runner.invoke(cli, ["project", "init"])
+    assert initialized.exit_code == 0, initialized.output
+    config = tmp_path / "config.toml"
+    config.write_text(
+        'default_model = "local"\n'
+        '[providers.test]\ntype = "openai"\nbase_url = "http://127.0.0.1:9999/v1"\n'
+        'api_key_env = "KIMI_MODEL_API_KEY"\n'
+        '[models.local]\nprovider = "test"\nmodel = "local-model"\nmax_context_size = 4096\n',
+        encoding="utf-8",
+    )
+    specialist = ["project", "specialist", "create", "--name", "reader", "--tool", "kimi"]
+    legacy = runner.invoke(cli, [*specialist, "--kimi-model-name=synthetic-legacy-alias"])
+    assert legacy.exit_code != 0
+    assert "--kimi-config-toml" in legacy.output
+    assert "synthetic-legacy-alias" not in legacy.output
+    inputs = [*specialist, "--kimi-config-toml", str(config), "--api-key", "synthetic-key"]
+    rejected = runner.invoke(cli, [*inputs, "--env-set", "KIMI_DISABLE_TELEMETRY=synthetic-value"])
+    assert rejected.exit_code != 0
+    assert "telemetry" in rejected.output
+    assert "config.toml" in rejected.output
+    assert "synthetic-value" not in rejected.output
+
+    created = runner.invoke(cli, [*inputs, "--model", "local"])
+    assert created.exit_code == 0, created.output
+    profile = runner.invoke(
+        cli,
+        [
+            "project",
+            "profile",
+            "create",
+            "--specialist",
+            "reader",
+            "--name",
+            "reader-profile",
+            "--env-set",
+            "KIMI_LOOP_MAX_STEPS_PER_TURN=synthetic-value",
+        ],
+    )
+    assert profile.exit_code != 0
+    assert "loop_control.max_steps_per_turn" in profile.output
+    assert "synthetic-value" not in profile.output
+
+
 def test_project_agents_launch_allows_kimi_without_headless(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

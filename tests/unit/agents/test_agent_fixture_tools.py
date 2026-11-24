@@ -621,8 +621,20 @@ def test_raw_preparation_has_selected_settings_without_shared_credentials(
         assert provider["env_key"] == "OPENAI_API_KEY" and not provider["requires_openai_auth"]
         assert "synthetic-fixture-secret" not in (root / "home/config.toml").read_text()
     elif client == "kimi":
-        assert env["KIMI_MODEL_MAX_CONTEXT_SIZE"] == str(config.model_options.context_window)
-        assert env["KIMI_MODEL_CAPABILITIES"] == "tool_use"
+        assert not any(name.startswith("KIMI_MODEL_") for name in env)
+        path = root / "home/config.toml"
+        native = tomllib.loads(path.read_text())
+        model = native["models"][native["default_model"]]
+        provider = native["providers"][model["provider"]]
+        assert path.stat().st_mode & 0o777 == 0o600
+        assert model["model"] == config.model
+        assert model["max_context_size"] == config.model_options.context_window
+        assert model["capabilities"] == ["tool_use"]
+        assert provider == {
+            "type": "openai",
+            "base_url": config.base_url,
+            "api_key": config.api_key.get_secret_value(),
+        }
     else:
         assert env["ANTHROPIC_MODEL"] == config.model
         assert env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == config.model
@@ -681,9 +693,51 @@ def test_managed_preparation_uses_real_project_credential_projection(
     assert "synthetic-fixture-secret" not in (root / "run.json").read_text()
     credential_env = Path(run["credential"]["env_file"])
     assert credential_env.is_relative_to(root)
-    assert "synthetic-fixture-secret" in credential_env.read_text()
     if client == "kimi":
-        assert "KIMI_MODEL_MAX_CONTEXT_SIZE=16384" in credential_env.read_text()
+        assert "synthetic-fixture-secret" not in credential_env.read_text()
+        private_config = credential_env.parents[1] / "files/config.toml"
+        assert private_config.stat().st_mode & 0o777 == 0o600
+        assert private_config.read_bytes() == (root / "home/config.toml").read_bytes()
+    else:
+        assert "synthetic-fixture-secret" in credential_env.read_text()
+
+
+@pytest.mark.parametrize("case", ["self-hosted", "cloud-api"])
+def test_kimi_fixtures_share_native_catalog_and_prepare_profile(
+    fixture_config: ModuleType, fixture_prepare: ModuleType, tmp_path: Path, case: str
+) -> None:
+    """Both surfaces use the same ordered native labels and only manager stores a rank."""
+
+    settings = {
+        "case": case,
+        "client": "kimi",
+        "model": "fixture/model.with.dots",
+        "process_env": _env(case),
+        "support_efforts": ["brief", "Deliberate Mode"],
+        "reasoning_effort": "Deliberate Mode",
+    }
+    raw = fixture_prepare.prepare_run(
+        fixture_config.resolve_config(surface="raw", **settings),
+        run_root=tmp_path / "runs",
+        executable=sys.executable,
+    )
+    managed = fixture_prepare.prepare_run(
+        fixture_config.resolve_config(surface="manager", reasoning_level=2, **settings),
+        run_root=tmp_path / "runs",
+        executable=sys.executable,
+    )
+    raw_config = Path(raw["home_path"]) / "config.toml"
+    env_file = Path(managed["credential"]["env_file"])
+    assert (env_file.parents[1] / "files/config.toml").read_bytes() == raw_config.read_bytes()
+    native = tomllib.loads(raw_config.read_text())
+    assert (
+        native["models"][native["default_model"]]["support_efforts"] == settings["support_efforts"]
+    )
+    assert native["thinking"]["effort"] == settings["reasoning_effort"]
+    assert managed["configuration"]["reasoning_level"] == 2
+    assert managed["project_profile"] == "fixture-agent"
+    assert not (Path(managed["assets_root"]) / "tools/kimi/setups/fixture/config.toml").exists()
+    assert "KIMI_MODEL_NAME" not in env_file.read_text()
 
 
 def test_sanitized_launch_env_overrides_ambient_accounts_and_tmux_bindings(
@@ -759,10 +813,12 @@ def test_fixture_presets_and_starter_adapters_have_current_explicit_contract() -
         names = actual["auth_projection"]["env"]["allowlist"]
         if client == "kimi":
             assert {
-                "KIMI_MODEL_MAX_CONTEXT_SIZE",
-                "KIMI_MODEL_CAPABILITIES",
-                "KIMI_MODEL_REASONING_KEY",
-            } <= set(names)
+                "KIMI_MODEL_API_KEY",
+                "KIMI_MODEL_TEMPERATURE",
+                "KIMI_MODEL_TOP_P",
+                "KIMI_MODEL_MAX_TOKENS",
+                "KIMI_MODEL_MAX_COMPLETION_TOKENS",
+            } == set(names)
 
 
 def _client_stub(path: Path, client: str) -> str:
@@ -890,7 +946,12 @@ def test_raw_launch_and_exact_resume_use_selected_private_environment(
         "codex": "OPENAI_API_KEY",
         "kimi": "KIMI_MODEL_API_KEY",
     }[client]
-    assert child[name] == config.api_key.get_secret_value()
+    if client == "kimi":
+        assert child[name] is None and child["KIMI_MODEL_BASE_URL"] is None
+        native = tomllib.loads((root / "home/config.toml").read_text())
+        assert native["providers"]["api-compatible"]["api_key"] == config.api_key.get_secret_value()
+    else:
+        assert child[name] == config.api_key.get_secret_value()
     assert "competing-ambient-secret" not in child.values()
     assert config.api_key.get_secret_value() not in (root / "report.json").read_text()
     assert fixture_launch.check_run(root)["prerequisites"]["live_requested"] is False

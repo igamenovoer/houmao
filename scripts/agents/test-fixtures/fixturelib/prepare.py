@@ -18,6 +18,7 @@ from typing import Any
 import tomli_w
 import yaml
 
+from houmao.agents.kimi_launch_env import KIMI_PRIVATE_ENV_NAMES, reject_kimi_config_env
 from houmao.execution.tmux import tmux_server_scope
 
 from fixturelib.auth import (
@@ -55,13 +56,6 @@ _CLEAR_BINDINGS = (
     "OPENAI_API_KEY",
     "OPENAI_BASE_URL",
     "OPENAI_ORG_ID",
-    "KIMI_MODEL_NAME",
-    "KIMI_MODEL_API_KEY",
-    "KIMI_MODEL_BASE_URL",
-    "KIMI_MODEL_PROVIDER_TYPE",
-    "KIMI_CODE_BASE_URL",
-    "KIMI_CODE_OAUTH_HOST",
-    "KIMI_OAUTH_HOST",
 )
 
 
@@ -235,7 +229,13 @@ def credential_values(config: ResolvedConfig) -> dict[str, str]:
     if config.auth_method == "native-login":
         if config.native_bundle is None:
             raise FixtureError("Native login preparation requires an imported bundle")
-        return read_env_file(config.native_bundle / "env/vars.env")
+        values = read_env_file(config.native_bundle / "env/vars.env")
+        if config.client == "kimi":
+            try:
+                reject_kimi_config_env(values, source="Imported Kimi fixture credential")
+            except ValueError as exc:
+                raise FixtureError(str(exc)) from exc
+        return values
     key = config.api_key.get_secret_value()
     assert config.model is not None and config.base_url is not None
     if config.client == "dsh":
@@ -263,20 +263,44 @@ def credential_values(config: ResolvedConfig) -> dict[str, str]:
             }
         )
         return result
+    return {}
+
+
+def _render_kimi_api_config(config: ResolvedConfig, destination: Path) -> None:
+    """Write private provider and model data shared by both Kimi launch surfaces."""
+
+    assert config.model is not None and config.base_url is not None
     options = config.model_options
-    result = {
-        "KIMI_MODEL_API_KEY": key,
-        "KIMI_MODEL_BASE_URL": config.base_url,
-        "KIMI_MODEL_PROVIDER_TYPE": "openai",
-        "KIMI_MODEL_NAME": config.model,
-        "KIMI_MODEL_MAX_CONTEXT_SIZE": str(options.context_window),
-        "KIMI_MODEL_CAPABILITIES": ",".join(options.capabilities),
+    native_model: dict[str, Any] = {
+        "provider": "api-compatible",
+        "model": config.model,
+        "max_context_size": options.context_window,
+        "capabilities": options.capabilities,
     }
+    if options.max_output_tokens is not None:
+        native_model["max_output_size"] = options.max_output_tokens
     if options.reasoning_key:
-        result["KIMI_MODEL_REASONING_KEY"] = options.reasoning_key
+        native_model["reasoning_key"] = options.reasoning_key
+    efforts = options.support_efforts or (
+        [options.reasoning_effort] if options.reasoning_effort else []
+    )
+    if efforts:
+        native_model["support_efforts"] = efforts
+    payload: dict[str, Any] = {
+        "default_model": config.model,
+        "providers": {
+            "api-compatible": {
+                "type": "openai",
+                "base_url": config.base_url,
+                "api_key": config.api_key.get_secret_value(),
+            }
+        },
+        "models": {config.model: native_model},
+    }
     if options.reasoning_effort:
-        result["KIMI_MODEL_THINKING_EFFORT"] = options.reasoning_effort
-    return result
+        payload["thinking"] = {"enabled": True, "effort": options.reasoning_effort}
+        native_model["default_effort"] = options.reasoning_effort
+    private_write(destination, tomli_w.dumps(payload).encode())
 
 
 def runtime_values(config: ResolvedConfig) -> dict[str, str]:
@@ -367,11 +391,12 @@ def _render_assets(
     values = credential_values(config)
     if config.native_bundle is not None:
         _copy_files(config.native_bundle / "files", auth / "files")
-    projected = (
-        {}
-        if config.dsh is not None
-        else dict.fromkeys(adapter["auth_projection"]["env"]["allowlist"], "")
-    )
+    elif config.client == "kimi":
+        _render_kimi_api_config(config, auth / "files/config.toml")
+    allowed = adapter["auth_projection"]["env"]["allowlist"]
+    if config.client == "kimi":
+        allowed = [name for name in allowed if name in KIMI_PRIVATE_ENV_NAMES]
+    projected = {} if config.dsh is not None else dict.fromkeys(allowed, "")
     projected.update(values)
     env_file = auth / "env/vars.env"
     private_write(
@@ -483,21 +508,20 @@ def _prepare_project(
                     config.dsh.api_key_env,
                 ]
             )
+    elif tool == "kimi":
+        args.extend(["--config-toml", str(auth_files / "config.toml")])
     else:
         args.extend(
             [
                 "--api-key",
-                values["OPENAI_API_KEY" if tool == "codex" else "KIMI_MODEL_API_KEY"],
+                values["OPENAI_API_KEY"],
                 "--base-url",
                 str(config.base_url),
             ]
         )
-        if tool == "kimi":
-            args.extend(["--model-name", str(config.model), "--provider-type", "openai"])
     credential = manager_call(project, args, env=env)
     if values and tool != "dsh":
-        # The same adapter-driven writer owns metadata env inputs not exposed as
-        # dedicated CLI flags (notably Kimi context/capability fields).
+        # The adapter-driven writer owns supplemental selected credential inputs.
         from houmao.srv_ctrl.commands.credentials import (
             _resolve_agent_def_dir_target,
             _write_credential_bundle,
@@ -538,7 +562,24 @@ def _prepare_project(
     for key, value in runtime_values(config).items():
         args.extend(["--env-set", f"{key}={value}"])
     specialist = manager_call(project, args, env=env)
-    return {"project_dir": str(project), "specialist": specialist, "credential": credential}
+    result = {"project_dir": str(project), "specialist": specialist, "credential": credential}
+    if config.reasoning_level is not None:
+        manager_call(
+            project,
+            [
+                "profile",
+                "create",
+                "--name",
+                "fixture-agent",
+                "--specialist",
+                "fixture-agent",
+                "--reasoning-level",
+                str(config.reasoning_level),
+            ],
+            env=env,
+        )
+        result["project_profile"] = "fixture-agent"
+    return result
 
 
 def prepare_run(

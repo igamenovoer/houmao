@@ -78,6 +78,11 @@ from houmao.agents.dsh_configuration import (
     DshEffectiveToolParams,
     read_dsh_mcp_environment,
 )
+from houmao.agents.kimi_launch_env import (
+    KIMI_CONFIG_ENV_NAMES,
+    KIMI_PRIVATE_ENV_NAMES,
+    reject_kimi_config_env,
+)
 from houmao.agents.kimi_system_prompt import (
     KimiSystemPromptError,
     validate_kimi_v2_engine_env,
@@ -4027,6 +4032,8 @@ def _launch_plan_with_transient_env_overrides(
     if launch_plan.tool == "dsh":
         protected.update(("DSH_AGENTS_HOME", "DSH_PERMISSION_MODE", "DSH_BUNDLED_SKILL_DIR"))
     try:
+        if launch_plan.tool == "kimi":
+            reject_kimi_config_env(env_overrides, source="One-shot launch environment")
         overrides = validate_persistent_env_records(
             env_overrides,
             auth_env_allowlist=sorted(protected),
@@ -4083,6 +4090,13 @@ def _resolve_managed_launch_environment(
     if agent_id is not None:
         environment[AGENT_ID_ENV_VAR] = agent_id
     masked_keys = previous_keys | (context_vars - selected_context.keys())
+    private_names = plan.private_env_var_names
+    if plan.tool == "kimi":
+        environment = {
+            name: value for name, value in environment.items() if name not in KIMI_CONFIG_ENV_NAMES
+        }
+        private_names = private_names | KIMI_PRIVATE_ENV_NAMES
+        masked_keys = masked_keys | KIMI_CONFIG_ENV_NAMES
     if plan.mode in {"headless", "tui"} and agent_def_dir is not None:
         environment[AGENT_DEF_DIR_ENV_VAR] = str(agent_def_dir.resolve())
     else:
@@ -4094,13 +4108,12 @@ def _resolve_managed_launch_environment(
         plan.backend != "cao_rest" or is_supported_loopback_cao_base_url(api_base_url)
     ):
         inject_loopback_no_proxy_env(environment)
-    public_env = {
-        name: value for name, value in environment.items() if name not in plan.private_env_var_names
-    }
+    public_env = {name: value for name, value in environment.items() if name not in private_names}
     return replace(
         plan,
         env=environment,
         public_env=public_env,
+        private_env_var_names=private_names,
         previous_public_env_var_names=frozenset(masked_keys - public_env.keys()),
         metadata={**plan.metadata, "launch_root_context": selected_context},
     )
@@ -4177,6 +4190,15 @@ def _build_provider_start_launch_plan_for_relaunch(
                     session_manifest_path=controller.manifest_path,
                 ),
             )
+            if updated_launch_plan.tool == "kimi":
+                reject_kimi_config_env(updated_launch_plan.env, source="Joined launch environment")
+                updated_launch_plan = _resolve_managed_launch_environment(
+                    _preserve_controller_execution_authority(controller, updated_launch_plan),
+                    root_context={},
+                    agent_id=controller.agent_id,
+                    manifest_path=controller.manifest_path,
+                    agent_def_dir=controller.agent_def_dir,
+                )
             updated_launch_plan = _launch_plan_with_memory(
                 updated_launch_plan,
                 memory=_memory_from_controller(controller),

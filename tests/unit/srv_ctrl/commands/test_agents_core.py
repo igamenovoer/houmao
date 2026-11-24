@@ -9,6 +9,7 @@ from unittest.mock import Mock
 import pytest
 
 from houmao.agents.managed_prompt_header import compose_managed_launch_prompt
+from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig
 from houmao.agents.mailbox_runtime_models import (
     FilesystemMailboxDeclarativeConfig,
     FilesystemMailboxResolvedConfig,
@@ -2401,6 +2402,91 @@ def test_invalid_merged_tool_params_leave_force_predecessor_intact(
             direct_tool_params=tool_params,
         )
     assert (previous / "manifest.json").read_text(encoding="utf-8") == "predecessor manifest"
+    assert list(runtime.iterdir()) == [previous]
+
+
+@pytest.mark.parametrize(
+    ("content", "error"),
+    [
+        ('api_key = "synthetic-private";', r"Kimi TOML configuration.*config\.toml"),
+        (
+            'default_model = "selected"\n[models.selected]\n'
+            'support_efforts = ["quick", 5]\n[providers.api]\napi_key = "synthetic-private"',
+            "selected.*support_efforts",
+        ),
+    ],
+)
+def test_invalid_kimi_config_leaves_force_predecessor_intact(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, content: str, error: str
+) -> None:
+    """Validate private Kimi TOML before stopping an existing managed agent."""
+
+    from houmao.srv_ctrl.commands.agents import core
+
+    source = tmp_path / "source"
+    runtime = tmp_path / "runtime"
+    _install_basic_launch_patches(
+        monkeypatch,
+        runtime_root=runtime,
+        jobs_root=tmp_path / "jobs",
+        mailbox_root=tmp_path / "mail",
+        overlay_root=tmp_path / "overlay",
+        source_agent_def_dir=source,
+    )
+    tool_root = source / "tools/kimi"
+    (tool_root / "setups/default").mkdir(parents=True)
+    auth = tool_root / "auth/work"
+    (auth / "files").mkdir(parents=True)
+    (auth / "env").mkdir()
+    (auth / "env/vars.env").touch()
+    (auth / "files/config.toml").write_text(content, encoding="utf-8")
+    shutil.copyfile(
+        Path(core.__file__).resolve().parents[3]
+        / "project/assets/starter_agents/tools/kimi/adapter.yaml",
+        tool_root / "adapter.yaml",
+    )
+    resolve_target = core.resolve_native_launch_target
+
+    def kimi_target(**kwargs: object) -> SimpleNamespace:
+        """Reuse the test launch target with Kimi as the selected tool."""
+
+        target = resolve_target(**kwargs)
+        target.tool = target.preset.tool = "kimi"
+        return target
+
+    monkeypatch.setattr(core, "resolve_native_launch_target", kimi_target)
+    previous = runtime / "previous"
+    previous.mkdir(parents=True)
+    monkeypatch.setattr(
+        core,
+        "_resolve_managed_predecessor_home_context",
+        lambda **kwargs: SimpleNamespace(target=object(), home_id="previous", force_mode="clean"),
+    )
+    takeover = Mock()
+    builder = Mock()
+    monkeypatch.setattr(core, "_perform_managed_force_takeover", takeover)
+    monkeypatch.setattr(core, "build_brain_home", builder)
+
+    with pytest.raises(click.ClickException, match=error) as raised:
+        launch_managed_agent_locally(
+            agents="researcher",
+            agent_name="worker-a",
+            agent_id=None,
+            agent_id_mode="name-hash",
+            auth=None,
+            session_name=None,
+            mode="tui",
+            provider="kimi",
+            working_directory=tmp_path,
+            source_agent_def_dir=source,
+            headless_display_style="plain",
+            headless_display_detail="concise",
+            force_mode="clean",
+            direct_model_config=ModelConfig(reasoning=ModelReasoningConfig(level=2)),
+        )
+    takeover.assert_not_called()
+    builder.assert_not_called()
+    assert "synthetic-private" not in str(raised.value)
     assert list(runtime.iterdir()) == [previous]
 
 

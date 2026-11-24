@@ -16,6 +16,7 @@ import time
 from datetime import UTC, datetime
 from typing import Callable, Sequence
 
+from houmao.agents.kimi_configuration import kimi_launch_diagnostic_secrets
 from houmao.agents.realm_controller.backends.dispatch_control import (
     _dispatch_origin_birth_token,
     headless_dispatch_permission_allowed,
@@ -61,6 +62,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if native_dsh
         else None
     )
+    if provider == "kimi":
+        secrets = kimi_launch_diagnostic_secrets(args.env)
     turn_dir = args.turn_dir.resolve()
     turn_dir.mkdir(parents=True, exist_ok=True)
 
@@ -72,7 +75,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     started_monotonic = time.monotonic()
 
     for path in (stdout_path, stderr_path, canonical_path):
-        if native_dsh:
+        if native_dsh or provider == "kimi":
             os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
         else:
             path.write_text("", encoding="utf-8")
@@ -498,13 +501,13 @@ def _consume_stderr(
         errors="surrogateescape" if diagnostic_secrets is not None else "strict",
     ) as stderr_handle:
         for raw_line in process.stderr:
-            stderr_handle.write(raw_line)
-            stderr_handle.flush()
             stripped = raw_line.rstrip("\n")
-            if not stripped:
-                continue
             if diagnostic_secrets is not None:
                 stripped = sanitize_dsh_diagnostic(stripped, secret_values=diagnostic_secrets)
+            stderr_handle.write(f"{stripped}\n" if provider == "kimi" else raw_line)
+            stderr_handle.flush()
+            if not stripped:
+                continue
             event = append_stderr_diagnostic_event(
                 canonical_path=canonical_path,
                 provider=provider,

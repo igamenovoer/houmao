@@ -17,6 +17,17 @@ from typing import Any
 from houmao.execution.context import execution_is_read_only
 from houmao.execution.tmux import TmuxPaneRecord, capture_tmux_socket_path
 
+from houmao.agents.kimi_configuration import (
+    kimi_launch_diagnostic_secrets,
+    load_kimi_config,
+    validate_kimi_config_credentials,
+)
+from houmao.agents.kimi_launch_env import (
+    KIMI_API_KEY_ENV,
+    KIMI_CONFIG_ENV_NAMES,
+    KIMI_PRIVATE_ENV_NAMES,
+    reject_kimi_config_env,
+)
 from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
 from houmao.agents.model_mapping_policy import temporary_project_model_config
 from houmao.agents.model_selection import ModelConfig
@@ -39,6 +50,7 @@ from ..models import (
 )
 from .claude_bootstrap import ensure_claude_home_bootstrap as _ensure_claude_home_bootstrap_legacy
 from .codex_bootstrap import ensure_codex_home_bootstrap as _ensure_codex_home_bootstrap_legacy
+from .dsh_diagnostics import sanitize_dsh_diagnostic
 from .headless_output import (
     resolve_headless_display_detail,
     resolve_headless_display_style,
@@ -219,6 +231,14 @@ class HeadlessInteractiveSession:
 
         if not prompt.strip():
             raise BackendExecutionError("Prompt must not be empty")
+        if self._plan.tool == "kimi":
+            try:
+                reject_kimi_config_env(
+                    (*self._plan.env, *self._plan.env_var_names),
+                    source="Committed Kimi launch environment",
+                )
+            except ValueError as exc:
+                raise BackendExecutionError(str(exc)) from exc
         if set(self._plan.env_var_names).difference(self._plan.env):
             raise BackendExecutionError(
                 "The committed launch environment is incomplete. Relaunch the managed agent "
@@ -326,18 +346,24 @@ class HeadlessInteractiveSession:
             home_path=self._plan.home_path,
             tool=self._plan.tool,
             model_config=execution_model,
-            base_env=self._plan.env,
         ) as execution_projection:
             command, input_prompt = self._build_command(
                 prompt=prompt,
                 session_selection=session_selection,
                 extra_args=execution_projection.args,
             )
-            resolved_environment = self._plan.public_env is not None
-            env = {}
-            if not resolved_environment:
+            resolved_environment = self._plan.public_env is not None or self._plan.tool == "kimi"
+            env: dict[str, str] = {}
+            if self._plan.public_env is None:
                 env = os.environ.copy()
-                if self.backend in {"dsh_acp", "dsh_headless"}:
+                if self._plan.tool == "kimi":
+                    excluded = (
+                        KIMI_CONFIG_ENV_NAMES
+                        | KIMI_PRIVATE_ENV_NAMES
+                        | self._plan.private_env_var_names
+                    )
+                    env = {name: value for name, value in env.items() if name not in excluded}
+                elif self.backend in {"dsh_acp", "dsh_headless"}:
                     env = {
                         key: value
                         for key, value in env.items()
@@ -345,12 +371,23 @@ class HeadlessInteractiveSession:
                     }
             env.update(self._plan.env)
             env.update(execution_projection.env)
+            if self._plan.tool == "kimi":
+                try:
+                    key_references = validate_kimi_config_credentials(
+                        load_kimi_config(self._plan.home_path / "config.toml"),
+                        self._plan.env,
+                        self._plan.private_env_var_names,
+                    )
+                except ValueError as exc:
+                    raise BackendExecutionError(str(exc)) from exc
+                if KIMI_API_KEY_ENV not in key_references:
+                    env.pop(KIMI_API_KEY_ENV, None)
             if self.backend == "dsh_headless":
                 setup = self._plan.metadata.get("dsh")
                 if isinstance(setup, dict) and isinstance(setup.get("api_key_env"), str):
                     env["HOUMAO_DSH_DIAGNOSTIC_KEY_NAME"] = setup["api_key_env"]
             env[self._plan.home_env_var] = str(self._plan.home_path)
-            if not resolved_environment:
+            if self._plan.public_env is None:
                 overlay_tmux_rich_color_environment(env)
                 inject_loopback_no_proxy_env(env)
 
@@ -378,7 +415,12 @@ class HeadlessInteractiveSession:
             self.m_last_run_result = run_result
 
         if run_result.returncode != 0:
-            message = run_result.stderr.strip() or "headless command failed"
+            message = run_result.stderr.strip()
+            if self._plan.tool == "kimi":
+                message = sanitize_dsh_diagnostic(
+                    message, secret_values=kimi_launch_diagnostic_secrets(env)
+                )
+            message = message or "headless command failed"
             raise BackendExecutionError(f"{self.backend}: {message}")
 
         self._state.turn_index = turn_index
@@ -782,10 +824,16 @@ class HeadlessInteractiveSession:
             launch_env["HOUMAO_RESUME_ID"] = self._state.session_id
 
         try:
-            set_tmux_session_environment_shared(
-                session_name=session_name,
-                env_vars=launch_env,
-            )
+            if self._plan.tool == "kimi":
+                publish_tmux_launch_environment(
+                    session_name=session_name,
+                    launch_plan=replace(self._plan, public_env=launch_env),
+                )
+            else:
+                set_tmux_session_environment_shared(
+                    session_name=session_name,
+                    env_vars=launch_env,
+                )
         except TmuxCommandError as exc:
             raise BackendExecutionError(
                 f"Failed to publish tmux launch environment for `{session_name}`: {exc}"

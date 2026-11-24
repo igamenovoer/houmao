@@ -25,6 +25,7 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
 from houmao.agents.realm_controller.backends.local_interactive import LocalInteractiveSession
 from houmao.agents.realm_controller.errors import BackendExecutionError
 from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
+from houmao.agents.realm_controller.runtime import _resolve_managed_launch_environment
 from houmao.agents.launch_env import owner_launch_baseline
 from houmao.execution.tmux import (
     TmuxCommandResult,
@@ -149,6 +150,99 @@ def test_managed_tui_starts_with_published_and_private_values(
         )
         is None
     )
+
+
+def test_managed_kimi_start_and_relaunch_mask_environment_per_tmux_session(
+    isolated_launch_tmux: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Observe config-owned names and private credentials around both provider starts."""
+
+    config_names = ("KIMI_MODEL_NAME", "KIMI_MODEL_THINKING_EFFORT", "KIMI_DISABLE_TELEMETRY")
+    private_names = ("KIMI_MODEL_API_KEY", "KIMI_MODEL_TEMPERATURE")
+    for name in (*config_names, *private_names):
+        monkeypatch.setenv(name, "ambient")
+    TmuxServer().start(
+        ["new-session", "-d", "-s", "peer"], environment=os.environ
+    ).require_success()
+    for name in (*config_names, *private_names):
+        assert tmux_command(["set-environment", "-g", name, "server-global"]).returncode == 0
+        set_tmux_session_environment(session_name="peer", env_vars={name: "peer-value"})
+
+    provider_path = tmp_path / "kimi-provider"
+    env_fields = " ".join(f'"${{{name}-unset}}"' for name in (*config_names, *private_names))
+
+    def command(path: Path) -> str:
+        """Capture the fixture process's real environment inside the selected pane."""
+
+        return f'printf "%s\\n" {env_fields} >{shlex.quote(str(path))}'
+
+    def wait_for_fixture(self: LocalInteractiveSession, **_kwargs: float) -> None:
+        """Wait until the provider wrapper has handed over the environment."""
+
+        _wait_for_launch_result(provider_path)
+
+    monkeypatch.setattr(LocalInteractiveSession, "_wait_for_provider_tui", wait_for_fixture)
+    source_plan = replace(
+        _managed_tui_plan(tmp_path, args=["-c", command(provider_path)]),
+        tool="kimi",
+        home_env_var="KIMI_CODE_HOME",
+        env={"KIMI_MODEL_API_KEY": "selected-test-key", "KIMI_MODEL_TEMPERATURE": "0.25"},
+        env_var_names=list(private_names),
+        public_env=None,
+        private_env_var_names=frozenset(),
+    )
+
+    def resolve(previous_keys: frozenset[str] = frozenset()) -> LaunchPlan:
+        """Apply ordinary managed provider environment preparation."""
+
+        return _resolve_managed_launch_environment(
+            source_plan,
+            root_context={},
+            agent_id=None,
+            manifest_path=tmp_path / "session.json",
+            agent_def_dir=None,
+            previous_keys=previous_keys,
+        )
+
+    initial_plan = resolve()
+    session = LocalInteractiveSession(
+        launch_plan=initial_plan,
+        role_name="fixture",
+        session_manifest_path=tmp_path / "session.json",
+        tmux_session_name="owned",
+    )
+    for generation in ("fresh", "relaunched"):
+        if generation == "relaunched":
+            provider_path.unlink()
+            set_tmux_session_environment(
+                session_name="owned", env_vars={name: "stale-pane-value" for name in config_names}
+            )
+            session.update_launch_plan(resolve(initial_plan.previous_public_env_var_names))
+            assert session.relaunch().status == "ok"
+        assert provider_path.read_text().splitlines() == [
+            *("unset" for _ in config_names),
+            "selected-test-key",
+            "0.25",
+        ]
+        pane_path = tmp_path / generation
+        result = tmux_command(["new-window", "-d", "-t", "owned:", command(pane_path)])
+        assert result.returncode == 0, result.stderr
+        _wait_for_launch_result(pane_path)
+        assert pane_path.read_text().splitlines() == ["unset"] * (
+            len(config_names) + len(private_names)
+        )
+        for name in (*config_names, *private_names):
+            global_binding = tmux_command(["show-environment", "-g", name])
+            assert global_binding.stdout.strip() == f"{name}=server-global"
+            assert (
+                read_tmux_session_environment_value(session_name="peer", variable_name=name)
+                == "peer-value"
+            )
+        pane = tmux_command(["display-message", "-p", "-t", "owned:0.0", "#{pane_start_command}"])
+        assert pane.returncode == 0
+        assert "selected-test-key" not in pane.stdout
 
 
 def test_managed_tui_aborts_on_tmux_publication_error(

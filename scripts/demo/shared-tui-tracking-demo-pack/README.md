@@ -394,4 +394,4 @@ Credential-bearing authoring outputs stay outside the checkout unless a later ch
 - `review/frames/frame-*.png`
 - `review/review.mp4`
 
-Live/recorded output roots must resolve outside the checkout. Default live and recording roots are `~/.local/state/houmao/test-fixtures/shared-tui/{live,recorded}`. Offline validation and sweeps may use ignored scratch outputs. For API preparation, select `cloud-api` (DeepSeek) or `self-hosted` with an explicit model and protocol metadata. Never copy keys or auth JSON into tracked assets.
+Live/recorded output roots must resolve outside the checkout. Default live and recording roots are `~/.local/state/houmao/test-fixtures/shared-tui/{live,recorded}`. Offline validation and sweeps may use ignored scratch outputs. For API preparation, select `cloud-api` (DeepSeek) or `self-hosted` with an explicit model and protocol metadata. Prepare a fresh Kimi run to replace env-model settings with a private native `config.toml`. Never copy keys or auth JSON into tracked assets.

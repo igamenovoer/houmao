@@ -407,9 +407,34 @@ Low-level boundary notes:
 `project credentials kimi add|set` notes:
 
 - Kimi credential CRUD supports `list`, `get`, `add`, `set`, `rename`, and `remove`. Kimi does not have a maintained Houmao credential `login` helper; use explicit `add` or `set` inputs instead.
-- `add` and `set` accept env-model inputs `--api-key`, optional `--model-name`, optional `--base-url`, optional `--provider-type`, optional `--code-base-url`, optional `--code-oauth-host`, optional `--oauth-host`, and optional `--disable-telemetry`.
+- Supply native provider and model definitions with `--config-toml <path>`, or put secret-free definitions in the selected tool setup. For a provider that declares `api_key_env = "KIMI_MODEL_API_KEY"`, use `--api-key` to store the referenced value privately.
 - OAuth-backed Kimi Code material can be imported with `--code-home <dir>` or with direct file inputs `--config-toml <path>` and optional `--credential-json <path>`. `--code-home` cannot be combined with `--config-toml` or `--credential-json`.
-- `set` also accepts Kimi clear flags: `--clear-model-name`, `--clear-api-key`, `--clear-base-url`, `--clear-provider-type`, `--clear-code-base-url`, `--clear-code-oauth-host`, `--clear-oauth-host`, `--clear-disable-telemetry`, `--clear-config-toml`, and `--clear-credential-json`.
+- `set` accepts `--clear-api-key`, `--clear-config-toml`, and `--clear-credential-json`. To replace an env-model bundle, add a credential with native TOML and select its name in the specialist or launch profile.
+
+For example, a local OpenAI-compatible provider with two native effort labels can use this Kimi config. Replace the model ID and effort labels with those supported by your endpoint.
+
+```toml
+default_model = "local"
+
+[providers.local]
+type = "openai"
+base_url = "http://127.0.0.1:9999/v1"
+api_key_env = "KIMI_MODEL_API_KEY"
+
+[models.local]
+provider = "local"
+model = "local-model"
+max_context_size = 4096
+capabilities = ["thinking", "tool_use"]
+support_efforts = ["brief", "deliberate"]
+```
+
+```bash
+houmao-mgr project credentials kimi add --name local-api \
+  --config-toml /path/to/config.toml --api-key "$KIMI_PROVIDER_KEY"
+```
+
+Select the `local-api` credential and model alias `local` in the launch profile. Reasoning level `2` selects `deliberate`.
 
 DSH credential bundles store endpoint and API-key environment names in `credential-roles.yaml` beside private `vars.env`. Use `project credentials dsh add|set --adapter deepseek|pi-ai` to supply `--base-url` and, for authenticated routes, `--api-key`. The `--base-url-env` and `--api-key-env` flags bind custom names that must match the provider references in `tool_params`.
 
@@ -450,7 +475,7 @@ When name flags are omitted, `set` uses the bundle's recorded names. Use `--clea
 - `--claude-state-template-file` remains optional Claude bootstrap state and is not itself a credential-providing method on the easy-specialist surface.
 - The maintained vendor-login lane is still directory-based. Pass `--config-dir` or `--claude-config-dir`, not separate `.credentials.json` or `.claude.json` file flags.
 - Detailed vendor-native model tuning belongs in the relevant specialist or credential skill documentation rather than the core CLI reference.
-- Kimi credential lanes use `KIMI_CODE_HOME` at runtime. OAuth-backed bundles store `config.toml` plus `credentials/kimi-code.json`; env-model bundles store allowlisted `KIMI_MODEL_*` values. `project credentials kimi add|set` accepts `--code-home` to import an existing Kimi Code home, or `--config-toml` plus `--credential-json` to copy files directly. `project specialist create --tool kimi` exposes matching `--kimi-code-home`, `--kimi-config-toml`, and `--kimi-credential-json` inputs, while common `--api-key` and `--base-url` map to `KIMI_MODEL_API_KEY` and `KIMI_MODEL_BASE_URL` for env-model bundles.
+- `project specialist create --tool kimi` accepts `--kimi-code-home`, `--kimi-config-toml`, and `--kimi-credential-json`. Set the endpoint and provider type in native TOML. Use `--api-key` for a matching private key reference and `--model` to select a configured alias.
 - The project-local catalog is the source of truth; `agents/` under the active overlay root is a compatibility projection that is materialized as needed.
 
 `project specialist set` notes:

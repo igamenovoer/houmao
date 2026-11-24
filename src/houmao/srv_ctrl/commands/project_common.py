@@ -12,6 +12,7 @@ import click
 import yaml
 
 from houmao.agents.definition_parser import ToolAdapter, parse_agent_preset, parse_tool_adapter
+from houmao.agents.kimi_launch_env import reject_kimi_config_env
 from houmao.agents.launch_env import (
     parse_persistent_env_record_specs,
     resolve_runtime_env_set_specs,
@@ -671,6 +672,8 @@ def _parse_specialist_env_records_or_click(
 
     try:
         parsed = parse_persistent_env_record_specs(env_set)
+        if adapter.tool == "kimi":
+            reject_kimi_config_env(parsed, source="project specialist create --env-set")
         return validate_persistent_env_records(
             parsed,
             auth_env_allowlist=adapter.auth_env_allowlist,
@@ -883,6 +886,8 @@ def _parse_launch_profile_env_records_or_click(
 
     try:
         parsed = parse_persistent_env_record_specs(env_set)
+        if adapter.tool == "kimi":
+            reject_kimi_config_env(parsed, source=source_label)
         return validate_persistent_env_records(
             parsed,
             auth_env_allowlist=adapter.auth_env_allowlist,

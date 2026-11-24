@@ -153,11 +153,35 @@ Kimi managed role delivery uses the `native_home_system_prompt` contract. Brain 
 
 Kimi expands `${identifier}` tokens in the system template. Houmao therefore rejects every such token in role-authored effective prompt text; a literal dollar sign without that shape remains valid. Managed launch also rejects `--agent`, `--agent-file`, a project default `agent` profile with `override: true`, and the equivalent profile in configured `extra_agent_dirs`, because those surfaces outrank the managed home prompt. Houmao reports project-owned conflicts without editing them.
 
+## Kimi Native Configuration
+
+Houmao reads the setup bundle's native `config.toml` and overlays the selected credential bundle's file before validating the launch. Tables merge by key. Matching entries under `providers`, `models`, and `services` replace the complete entry, so an endpoint change carries only the credentials and headers declared for that entry. Arrays replace as a unit. Distinct entries and setup-only settings such as `telemetry = false` survive into the private runtime config.
+
+For example, a setup can contain only `telemetry = false` while the credential config supplies the complete model catalog.
+
+```toml
+default_model = "selected"
+
+[providers.api]
+type = "openai"
+base_url = "https://models.example.test/v1"
+api_key_env = "KIMI_MODEL_API_KEY"
+
+[models.selected]
+provider = "api"
+model = "local-model"
+max_context_size = 32768
+capabilities = ["thinking"]
+support_efforts = ["brief", "deliberate"]
+```
+
+Store the TOML file and a matching API key through the Kimi credential command. The key is a private provider input. Configure the launch profile with `--model selected --reasoning-level 2` to select `deliberate`. The setup needs no copy of the alias. [Credential commands](../cli/houmao-mgr.md)
+
 ## Current Reasoning Projection
 
 Codex GPT-5.6 mapping uses model-specific ordered ladders. Sol and Terra map normalized levels 1 through 6 to `low`, `medium`, `high`, `xhigh`, `max`, and `ultra`; Luna maps levels 1 through 5 to `low`, `medium`, `high`, `xhigh`, and `max`. Level 0 is rejected, and values above a model's ladder saturate at its last native effort with provenance.
 
-Kimi config-backed models derive their ordered ladder from the selected `[models.<alias>].capabilities.support_efforts` list after applying model overrides. Level 0 disables thinking only when the model does not require `always_thinking`; positive values select or saturate within that discovered order. Env-model credentials retain native effort environment values when no normalized override is requested, but normalized `reasoning_level` is rejected because that lane does not provide an ordered catalog.
+Kimi models declare ordered `support_efforts` under `[models.<alias>]` or its native `overrides` table. Positive level `N` selects the Nth entry using that label and capitalization. Higher levels saturate at the final entry. Level 0 selects the native thinking-off posture when the model allows it. A positive request requires a valid ordered catalog for the selected alias. Omitting the numeric override uses native defaults.
 
 ## Versioned Registry
 

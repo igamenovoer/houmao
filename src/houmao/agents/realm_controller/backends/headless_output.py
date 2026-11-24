@@ -935,6 +935,11 @@ class CanonicalHeadlessEventParser:
             max_attempts = _coerce_optional_int(payload.get("max_attempts"))
             delay_ms = _coerce_optional_int(payload.get("delay_ms"))
             error_message = _optional_text(payload.get("error_message"))
+            raw_error_message = error_message
+            if error_message is not None and self.m_diagnostic_secrets is not None:
+                error_message = sanitize_dsh_diagnostic(
+                    error_message, secret_values=self.m_diagnostic_secrets
+                )
             attempt_summary = (
                 f"attempt {next_attempt}/{max_attempts}"
                 if next_attempt is not None and max_attempts is not None
@@ -961,7 +966,11 @@ class CanonicalHeadlessEventParser:
                         "error_message": error_message,
                         "status_code": _coerce_optional_int(payload.get("status_code")),
                     },
-                    raw_payload=dict(payload),
+                    raw_payload=(
+                        dict(payload)
+                        if not self.m_diagnostic_secrets and error_message == raw_error_message
+                        else None
+                    ),
                 )
             ]
 
@@ -990,17 +999,27 @@ class CanonicalHeadlessEventParser:
 
         provider_event_type = payload_type or role or "event"
         if provider_event_type == "error":
+            raw_message = _optional_text(payload.get("message"))
+            diagnostic_message = raw_message
+            if raw_message is not None and self.m_diagnostic_secrets is not None:
+                diagnostic_message = sanitize_dsh_diagnostic(
+                    raw_message, secret_values=self.m_diagnostic_secrets
+                )
             return [
                 self._event(
                     kind="diagnostic",
-                    message=_optional_text(payload.get("message")) or "error",
+                    message=diagnostic_message or "error",
                     provider_event_type=provider_event_type,
                     session_id=session_id,
                     data={
                         "severity": "error",
-                        "text": _optional_text(payload.get("message")),
+                        "text": diagnostic_message,
                     },
-                    raw_payload=dict(payload),
+                    raw_payload=(
+                        dict(payload)
+                        if not self.m_diagnostic_secrets and diagnostic_message == raw_message
+                        else None
+                    ),
                 )
             ]
         return [

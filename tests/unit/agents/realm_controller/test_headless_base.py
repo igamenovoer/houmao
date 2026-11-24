@@ -294,6 +294,18 @@ def test_kimi_headless_execution_model_projects_model_arg_before_prompt(
     tmp_path: Path,
 ) -> None:
     captured: dict[str, object] = {}
+    home = tmp_path / "kimi-home"
+    home.mkdir()
+    config = home / "config.toml"
+    original = """default_model = "local"
+[models.local]
+support_efforts = ["low", "high"]
+[models."kimi-code/kimi-for-coding"]
+support_efforts = ["quick", "Detailed"]
+[thinking]
+effort = "low"
+"""
+    config.write_text(original)
 
     session = KimiHeadlessSession(
         launch_plan=_sample_kimi_launch_plan(tmp_path, args=["--temperature", "0"]),
@@ -320,6 +332,7 @@ def test_kimi_headless_execution_model_projects_model_arg_before_prompt(
         ) -> HeadlessRunResult:
             del env, cwd, turn_index, output_format, tmux_session_name, turn_artifacts_root
             captured["command"] = list(command)
+            captured["config"] = config.read_text()
             return HeadlessRunResult(
                 events=[],
                 stderr="",
@@ -331,8 +344,12 @@ def test_kimi_headless_execution_model_projects_model_arg_before_prompt(
 
     session.send_prompt(
         "hello",
-        execution_model=ModelConfig(name="kimi-code/kimi-for-coding"),
+        execution_model=ModelConfig(
+            name="kimi-code/kimi-for-coding", reasoning=ModelReasoningConfig(level=2)
+        ),
     )
+    assert 'effort = "Detailed"' in str(captured["config"])
+    assert config.read_text() == original
 
     assert captured["command"] == [
         str(tmp_path / "fake-bin" / "kimi"),
@@ -716,9 +733,9 @@ def test_headless_resume_republishes_manifest_and_agent_def_dir_to_tmux_env(
     monkeypatch.delenv("HOUMAO_ENABLE_TMUX_CONFIG_INJECTION", raising=False)
 
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.backends.headless_base.set_tmux_session_environment_shared",
-        lambda *, session_name, env_vars: captured_tmux_env.update(
-            {"session_name": session_name, "env_vars": dict(env_vars)}
+        "houmao.agents.realm_controller.backends.headless_base.publish_tmux_launch_environment",
+        lambda *, session_name, launch_plan: captured_tmux_env.update(
+            {"session_name": session_name, "env_vars": dict(launch_plan.public_env)}
         ),
     )
     monkeypatch.setattr(
@@ -758,9 +775,9 @@ def test_headless_resume_preserves_color_env_when_tmux_injection_disabled(
     monkeypatch.setenv("TERM", "dumb")
     monkeypatch.setenv("COLORTERM", "")
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.backends.headless_base.set_tmux_session_environment_shared",
-        lambda *, session_name, env_vars: captured_tmux_env.update(
-            {"session_name": session_name, "env_vars": dict(env_vars)}
+        "houmao.agents.realm_controller.backends.headless_base.publish_tmux_launch_environment",
+        lambda *, session_name, launch_plan: captured_tmux_env.update(
+            {"session_name": session_name, "env_vars": dict(launch_plan.public_env)}
         ),
     )
 
@@ -956,6 +973,10 @@ def _stub_tmux_for_headless_base(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.headless_base.set_tmux_session_environment_shared",
         lambda *, session_name, env_vars: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.headless_base.publish_tmux_launch_environment",
+        lambda *, session_name, launch_plan: None,
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.headless_base.prepare_headless_agent_window_shared",

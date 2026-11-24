@@ -27,6 +27,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--home-path", required=True)
     parser.add_argument("--requested-operator-prompt-mode", default=None)
     parser.add_argument("--dsh-credential-env-file", type=Path)
+    parser.add_argument("--kimi-credential-env-file", type=Path)
+    parser.add_argument("--kimi-credential-env-name", action="append", default=[])
     parser.add_argument("--permission-params", type=json.loads, default={})
     parser.add_argument(
         "--launch-arg",
@@ -55,6 +57,15 @@ def main(argv: list[str] | None = None) -> int:
         if namespace.tool != "dsh":
             parser.error("The DSH credential source can only be used with DSH.")
         environment = _dsh_launch_environment(home, namespace.dsh_credential_env_file, environment)
+    if namespace.kimi_credential_env_file is not None:
+        if namespace.tool != "kimi":
+            parser.error("The Kimi credential source can only be used with Kimi.")
+        environment = _kimi_launch_environment(
+            home,
+            namespace.kimi_credential_env_file,
+            namespace.kimi_credential_env_name,
+            environment,
+        )
     result = apply_launch_policy(
         LaunchPolicyRequest(
             tool=str(namespace.tool),
@@ -104,6 +115,43 @@ def _dsh_launch_environment(
         selected, _ = parse_allowlisted_env(env_file, names)
         environment = {key: value for key, value in process_environment.items() if key not in names}
         return dsh_native_environment(home, setup, {**environment, **selected})
+    except (OSError, LaunchPlanError, ValueError) as exc:
+        raise SystemExit(str(exc)) from None
+
+
+def _kimi_launch_environment(
+    home: Path, env_file: Path, names: list[str], process_environment: dict[str, str]
+) -> dict[str, str]:
+    """Load Kimi private inputs at exec and mask inherited native setting names."""
+
+    from houmao.agents.kimi_configuration import (
+        KIMI_CONFIG_FILENAME,
+        load_kimi_config,
+        validate_kimi_config_credentials,
+    )
+    from houmao.agents.kimi_launch_env import (
+        KIMI_API_KEY_ENV,
+        KIMI_CONFIG_ENV_NAMES,
+        KIMI_PRIVATE_ENV_NAMES,
+        reject_kimi_config_env,
+    )
+    from houmao.agents.realm_controller.errors import LaunchPlanError
+    from houmao.agents.realm_controller.loaders import parse_env_file
+
+    try:
+        parsed = parse_env_file(env_file)
+        reject_kimi_config_env(parsed, source="Kimi credential bundle")
+        references = validate_kimi_config_credentials(
+            load_kimi_config(home / KIMI_CONFIG_FILENAME), parsed, names
+        )
+        masked = KIMI_CONFIG_ENV_NAMES | KIMI_PRIVATE_ENV_NAMES | set(names)
+        selected = {key: parsed[key] for key in names if key in parsed}
+        if KIMI_API_KEY_ENV not in references:
+            selected.pop(KIMI_API_KEY_ENV, None)
+        return {
+            **{key: value for key, value in process_environment.items() if key not in masked},
+            **selected,
+        }
     except (OSError, LaunchPlanError, ValueError) as exc:
         raise SystemExit(str(exc)) from None
 

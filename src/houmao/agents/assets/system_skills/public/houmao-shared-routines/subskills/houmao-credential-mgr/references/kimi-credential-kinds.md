@@ -21,18 +21,10 @@ Use this reference when `--tool kimi` and the agent needs to present credential-
 
 - Looks like: a string value for `KIMI_MODEL_API_KEY`
 - Maps to: `--api-key`
-- Choose this when: you have a Kimi Platform API key or compatible provider key and want Houmao to store env-model credential material
+- Choose this when you have a Kimi Platform API key or compatible provider key, and the native provider references `api_key_env = "KIMI_MODEL_API_KEY"`.
 - Security: opaque secret; treat as non-recoverable once stored
 
-Optional modifiers when using this kind:
-
-- `--model-name` to store `KIMI_MODEL_NAME`
-- `--base-url` to store `KIMI_MODEL_BASE_URL`
-- `--provider-type` to store `KIMI_MODEL_PROVIDER_TYPE`
-- `--code-base-url` to store `KIMI_CODE_BASE_URL`
-- `--code-oauth-host` to store `KIMI_CODE_OAUTH_HOST`
-- `--oauth-host` to store `KIMI_OAUTH_HOST`
-- `--disable-telemetry` to store `KIMI_DISABLE_TELEMETRY=true`
+Define the provider type and endpoint under `[providers.<provider>]` and the model under `[models.<alias>]` in native TOML. Set `default_model` to the alias or select it in the launch profile. For a model with multiple thinking levels, put the labels in its ordered `support_efforts` list. Import the config with `--config-toml` or use secret-free config in the selected setup.
 
 ### 2. Kimi Code Config File
 
@@ -72,7 +64,7 @@ Non-default Kimi Code OAuth endpoints need extra care. If the user explicitly ne
 
 ## Set and Clear Notes
 
-For `project credentials kimi set` or `internals native-agent credentials kimi set --native-agent-root <path>`, the same input flags update the matching stored env values or files. Clear flags are tool-specific; use only the clear flags exposed by the Kimi `set` command, such as `--clear-model-name`, `--clear-api-key`, `--clear-base-url`, `--clear-provider-type`, `--clear-code-base-url`, `--clear-code-oauth-host`, `--clear-oauth-host`, `--clear-disable-telemetry`, `--clear-config-toml`, and `--clear-credential-json`.
+For `project credentials kimi set` or `internals native-agent credentials kimi set --native-agent-root <path>`, the same input flags update the matching stored key or file. Use `--clear-api-key`, `--clear-config-toml`, or `--clear-credential-json` to clear a stored input. For a saved env-model bundle, create a replacement credential with native TOML and select it for launch.
 
 ## Login Helper Note
 

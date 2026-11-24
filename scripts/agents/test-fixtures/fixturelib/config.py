@@ -120,7 +120,8 @@ class ModelOptions(BaseModel):
         default_factory=lambda: ["tool_use"]
     )
     reasoning_key: str | None = Field(default=None, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
-    reasoning_effort: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]+$")
+    reasoning_effort: str | None = Field(default=None, min_length=1)
+    support_efforts: list[str] = Field(default_factory=list)
 
 
 class ResolvedConfig(BaseModel):
@@ -140,6 +141,7 @@ class ResolvedConfig(BaseModel):
     base_url: str | None = None
     api_key: SecretStr = Field(default_factory=lambda: SecretStr(""), exclude=True)
     model_options: ModelOptions = Field(default_factory=ModelOptions)
+    reasoning_level: int | None = Field(default=None, ge=0)
     native_bundle: Path | None = Field(default=None, exclude=True)
     dsh: DshRoute | None = None
 
@@ -294,11 +296,19 @@ def resolve_config(
     capabilities: list[str] | None = None,
     reasoning_key: str | None = None,
     reasoning_effort: str | None = None,
+    support_efforts: list[str] | None = None,
+    reasoning_level: int | None = None,
 ) -> ResolvedConfig:
     """Resolve one explicit API configuration for raw or managed preparation."""
 
     if case not in {"self-hosted", "cloud-api"}:
         raise FixtureError("Select case self-hosted or cloud-api")
+    if support_efforts is not None and client != "kimi":
+        raise FixtureError("--support-effort requires --client kimi")
+    if reasoning_level is not None and (client != "kimi" or surface != "manager"):
+        raise FixtureError("--reasoning-level requires --client kimi --surface manager")
+    if reasoning_level is not None and reasoning_level < 0:
+        raise FixtureError("--reasoning-level must be nonnegative")
     if client == "dsh" and env_file is None and process_env is None and case == "cloud-api":
         raise FixtureError("Cloud DSH requires an explicitly selected --env-file")
     selection = fixture_run_mode(client, mode, surface)
@@ -358,6 +368,14 @@ def resolve_config(
     raw_output = metadata("max_output_tokens")
     raw_reasoning = dsh_reasoning if dsh_reasoning is not None else metadata("dsh_reasoning")
     raw_compat = dsh_compat if dsh_compat is not None else metadata("dsh_compat")
+    selected_effort = (
+        reasoning_effort if reasoning_effort is not None else metadata("reasoning_effort")
+    )
+    if selected_effort is not None and (
+        not selected_effort.strip()
+        or (client != "kimi" and not re.fullmatch(r"[A-Za-z0-9_-]+", selected_effort))
+    ):
+        raise FixtureError("Invalid model metadata; check the reasoning effort label")
     try:
         selected_context = (
             context_window
@@ -382,9 +400,8 @@ def resolve_config(
                 "reasoning_key": reasoning_key
                 if reasoning_key is not None
                 else metadata("reasoning_key"),
-                "reasoning_effort": reasoning_effort
-                if reasoning_effort is not None
-                else metadata("reasoning_effort"),
+                "reasoning_effort": selected_effort,
+                "support_efforts": support_efforts or [],
             }
         )
     except (ValueError, ValidationError) as exc:
@@ -395,6 +412,14 @@ def resolve_config(
         raise FixtureError(
             "Kimi requires --context-window or its configured context-window reference"
         )
+    if client == "kimi":
+        efforts = options.support_efforts
+        if any(not effort.strip() for effort in efforts) or len(set(efforts)) != len(efforts):
+            raise FixtureError("Kimi --support-effort labels must be nonempty and unique")
+        if efforts and options.reasoning_effort and options.reasoning_effort not in efforts:
+            raise FixtureError("Kimi --reasoning-effort must appear in the ordered effort catalog")
+        if reasoning_level and not efforts and not options.reasoning_effort:
+            raise FixtureError("A positive Kimi reasoning level requires --support-effort")
     result = ResolvedConfig(
         case=case,
         client=client,
@@ -408,6 +433,7 @@ def resolve_config(
         base_url=_base_url(url, protocol, client),
         api_key=SecretStr(key or ("" if endpoint_only else "EMPTY")),
         model_options=options,
+        reasoning_level=reasoning_level,
         dsh=dsh_route,
     )
     if client == "dsh":

@@ -12,6 +12,7 @@ from typing import Any, Mapping, Sequence
 
 from houmao.demo.fixture_inputs import invoke_private_credential_command, managed_subprocess_command
 
+from houmao.agents.kimi_launch_env import KIMI_API_KEY_ENV, reject_kimi_config_env
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
@@ -378,20 +379,17 @@ def build_kimi_credential_args_from_bundle(*, bundle_dir: Path) -> tuple[list[st
     if not bundle_dir.is_dir():
         raise DemoRuntimeError(f"Kimi auth bundle not found: {bundle_dir}")
     env_values = parse_env_file(bundle_dir / "env" / "vars.env")
+    try:
+        reject_kimi_config_env(env_values, source="Selected Kimi auth bundle")
+    except ValueError as exc:
+        raise DemoRuntimeError(str(exc)) from exc
     files_root = bundle_dir / "files"
+    credential_json = files_root / "credentials" / "kimi-code.json"
     args = build_kimi_credential_args(
-        api_key=env_values.get("KIMI_MODEL_API_KEY"),
-        model_name=env_values.get("KIMI_MODEL_NAME"),
-        base_url=env_values.get("KIMI_MODEL_BASE_URL"),
-        provider_type=env_values.get("KIMI_MODEL_PROVIDER_TYPE"),
-        code_base_url=env_values.get("KIMI_CODE_BASE_URL"),
-        code_oauth_host=env_values.get("KIMI_CODE_OAUTH_HOST"),
-        oauth_host=env_values.get("KIMI_OAUTH_HOST"),
-        disable_telemetry=_is_truthy(env_values.get("KIMI_DISABLE_TELEMETRY")),
+        api_key=env_values.get(KIMI_API_KEY_ENV),
         code_home=None,
         config_toml=files_root / "config.toml",
-        credential_json=files_root / "credentials" / "kimi-code.json",
-        require_existing_files=False,
+        credential_json=credential_json if credential_json.is_file() else None,
     )
     return args, f"auth-bundle:{bundle_dir}"
 
@@ -399,32 +397,21 @@ def build_kimi_credential_args_from_bundle(*, bundle_dir: Path) -> tuple[list[st
 def build_kimi_credential_args(
     *,
     api_key: str | None,
-    model_name: str | None,
-    base_url: str | None,
-    provider_type: str | None,
-    code_base_url: str | None,
-    code_oauth_host: str | None,
-    oauth_host: str | None,
-    disable_telemetry: bool,
     code_home: Path | None,
     config_toml: Path | None,
     credential_json: Path | None,
-    require_existing_files: bool = True,
 ) -> list[str]:
     """Build validated Kimi credential CLI arguments."""
 
     if code_home is not None and (config_toml is not None or credential_json is not None):
         raise DemoRuntimeError("`--kimi-code-home` cannot be combined with Kimi file inputs")
+    if code_home is None and config_toml is None:
+        raise DemoRuntimeError(
+            "Kimi credential input is required. Pass `--kimi-code-home`, `--kimi-auth-bundle`, "
+            "or `--kimi-config-toml` with native provider and model settings."
+        )
     args: list[str] = []
     _extend_if_present(args, "--api-key", api_key)
-    _extend_if_present(args, "--model-name", model_name)
-    _extend_if_present(args, "--base-url", base_url)
-    _extend_if_present(args, "--provider-type", provider_type)
-    _extend_if_present(args, "--code-base-url", code_base_url)
-    _extend_if_present(args, "--code-oauth-host", code_oauth_host)
-    _extend_if_present(args, "--oauth-host", oauth_host)
-    if disable_telemetry:
-        args.append("--disable-telemetry")
     if code_home is not None:
         _require_dir(code_home, "`--kimi-code-home`")
         args.extend(["--code-home", str(code_home.resolve())])
@@ -432,21 +419,15 @@ def build_kimi_credential_args(
         if config_toml is not None:
             if config_toml.is_file():
                 args.extend(["--config-toml", str(config_toml.resolve())])
-            elif require_existing_files:
+            else:
                 raise DemoRuntimeError(f"`--kimi-config-toml` file not found: {config_toml}")
         if credential_json is not None:
             if credential_json.is_file():
                 args.extend(["--credential-json", str(credential_json.resolve())])
-            elif require_existing_files:
+            else:
                 raise DemoRuntimeError(
                     f"`--kimi-credential-json` file not found: {credential_json}"
                 )
-    if not args:
-        raise DemoRuntimeError(
-            "Kimi credential input is required. Pass `--kimi-code-home`, "
-            "`--kimi-auth-bundle`, `--kimi-config-toml`, `--kimi-credential-json`, "
-            "or `--api-key`."
-        )
     return args
 
 
@@ -944,12 +925,6 @@ def _extend_if_present(args: list[str], flag: str, value: str | None) -> None:
     stripped = value.strip()
     if stripped:
         args.extend([flag, stripped])
-
-
-def _is_truthy(value: str | None) -> bool:
-    """Return whether a text env value means true."""
-
-    return value is not None and value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _require_dir(path: Path, label: str) -> None:

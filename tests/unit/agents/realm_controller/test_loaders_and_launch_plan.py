@@ -35,6 +35,8 @@ from houmao.agents.realm_controller.loaders import (
     load_role_package,
     parse_allowlisted_env,
 )
+from houmao.agents.realm_controller.runtime import _launch_plan_with_transient_env_overrides
+from houmao.agents.realm_controller.errors import SessionManifestError
 
 
 def _write(path: Path, text: str) -> None:
@@ -1386,7 +1388,10 @@ def test_kimi_owned_plan_projects_private_inputs(
     _write(
         home / "config.toml",
         'default_model = "existing"\ndefault_permission_mode = "yolo"\n'
-        '[[hooks]]\nevent = "SessionStart"\ncommand = "test-command"\n',
+        '[[hooks]]\nevent = "SessionStart"\ncommand = "test-command"\n'
+        '[providers.test]\napi_key_env = "KIMI_MODEL_API_KEY"\n'
+        '[models.existing]\nprovider = "test"\nmodel = "previous"\n'
+        '[models.configured-model]\nprovider = "test"\nmodel = "configured"\n',
     )
     env_file = tmp_path / "vars.env"
     _write(env_file, "KIMI_MODEL_API_KEY=private-test-value\nKIMI_CODE_HOME=/wrong\n")
@@ -1436,6 +1441,94 @@ def test_kimi_owned_plan_projects_private_inputs(
     assert config["default_model"] == "configured-model"
     assert config["default_permission_mode"] == (expected_mode or "yolo")
     assert config["hooks"] == [{"event": "SessionStart", "command": "test-command"}]
+
+
+@pytest.mark.parametrize(
+    ("auth_text", "allowlist", "env_records", "variable", "destination"),
+    [
+        ("KIMI_MODEL_NAME=hidden\n", [], {}, "KIMI_MODEL_NAME", "default_model"),
+        (
+            "KIMI_CODE_OAUTH_HOST=hidden\n",
+            ["KIMI_CODE_OAUTH_HOST"],
+            {},
+            "KIMI_CODE_OAUTH_HOST",
+            "oauth.oauth_host",
+        ),
+        ("", [], {"KIMI_DISABLE_TELEMETRY": "hidden"}, "KIMI_DISABLE_TELEMETRY", "telemetry"),
+    ],
+)
+def test_kimi_launch_rejects_authored_toml_settings(
+    tmp_path: Path,
+    auth_text: str,
+    allowlist: list[str],
+    env_records: dict[str, str],
+    variable: str,
+    destination: str,
+) -> None:
+    """Reject retired bindings regardless of a persisted adapter's allowlist."""
+
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+    env_file = tmp_path / "vars.env"
+    _write(env_file, auth_text)
+    manifest = _manifest(
+        tool="kimi",
+        executable="kimi",
+        home_env_var="KIMI_CODE_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=allowlist,
+        env_records=env_records,
+    )
+    with pytest.raises(LaunchPlanError, match=variable) as error:
+        build_launch_plan(
+            LaunchPlanRequest(
+                brain_manifest=manifest,
+                role_package=load_role_package(tmp_path / "repo", "r"),
+                backend="kimi_headless",
+                working_directory=tmp_path,
+            )
+        )
+    assert destination in str(error.value)
+    assert "hidden" not in str(error.value)
+
+
+def test_kimi_launch_privately_delivers_sampling_and_rejects_one_shot_toml_fields(
+    tmp_path: Path,
+) -> None:
+    """Filter unused API keys and reject config-owned one-off settings."""
+
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+    env_file = tmp_path / "vars.env"
+    _write(env_file, "KIMI_MODEL_API_KEY=unused-key\nKIMI_MODEL_TEMPERATURE=0.25\n")
+    home = tmp_path / "home"
+    _write(home / "config.toml", '[providers.test]\napi_key = "private-inline-value"\n')
+    manifest = _manifest(
+        tool="kimi",
+        executable="kimi",
+        home_env_var="KIMI_CODE_HOME",
+        home_path=home,
+        env_file=env_file,
+        allowlisted_env_vars=["KIMI_MODEL_API_KEY", "KIMI_MODEL_TEMPERATURE"],
+    )
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=load_role_package(tmp_path / "repo", "r"),
+            backend="kimi_headless",
+            working_directory=tmp_path,
+        )
+    )
+    assert plan.env["KIMI_MODEL_TEMPERATURE"] == "0.25"
+    assert "KIMI_MODEL_TEMPERATURE" in plan.private_env_var_names
+    assert "KIMI_MODEL_API_KEY" not in plan.env
+    assert "KIMI_MODEL_API_KEY" not in plan.env_var_names
+    assert "private-inline-value" not in json.dumps(plan.metadata)
+    with pytest.raises(SessionManifestError, match=r"loop_control\.max_steps_per_turn") as error:
+        _launch_plan_with_transient_env_overrides(
+            plan,
+            env_overrides={"KIMI_LOOP_MAX_STEPS_PER_TURN": "unpublished-value"},
+        )
+    assert "unpublished-value" not in str(error.value)
 
 
 @pytest.mark.parametrize(

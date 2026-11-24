@@ -27,7 +27,7 @@ Use:
 <chosen houmao-mgr launcher> agents single --agent-name <name> prompt --prompt "<message>"
 ```
 
-When the user requests a turn-scoped model or reasoning override and the selected prompt surface supports it, add `--model <name>` and `--reasoning-level <integer>`. Codex GPT-5.6 rejects level 0; Sol and Terra support six ordered levels through `ultra`, while Luna supports five through `max`. Kimi config-backed models derive their native effort order from the selected alias's effective `support_efforts`; Kimi env-model credentials reject normalized reasoning overrides because they expose no ordered catalog.
+When the user requests a turn-scoped model or reasoning override and the selected prompt surface supports it, add `--model <name>` and `--reasoning-level <integer>`. Codex GPT-5.6 rejects level 0. Sol and Terra support six ordered levels through `ultra`, while Luna supports five through `max`. For Kimi, use an alias from the managed native config. Positive levels index that model's effective `support_efforts` from 1 and saturate at its final entry. Level 0 requires a model that permits thinking off. The turn uses the selected alias's native effort, then restores the earlier thinking settings.
 
 Authoritative selector alternatives:
 

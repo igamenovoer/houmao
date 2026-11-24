@@ -94,6 +94,12 @@ Houmao starts the provider with an owner-side baseline, declared settings, and r
 
 Declared non-secret values are visible in the owning tmux session and to the provider and its tools. Supply API keys and other credentials through the selected auth bundle. Houmao delivers credential values through the owner-private launch inputs and keeps them out of tmux publication and public runtime metadata. Assignments using runtime-owned names or selected credential bindings fail with a diagnostic that names the variable.
 
+### Kimi Config and Environment Ownership
+
+Use native Kimi TOML for model catalogs, provider routing, thinking, telemetry, and runtime preferences with persistent settings. Examples include `[loop_control].max_steps_per_turn`, `[mcp].startup_timeout_ms`, and `[identity].name`. Set background-task preferences in the `[task]` or `[background]` table supported by the installed Kimi version. Launch records and one-off assignments using the corresponding environment names fail with a diagnostic pointing to the native setting. Fresh launch and relaunch clear inherited values for those names from the owned tmux session. [Kimi configuration reference](https://github.com/MoonshotAI/kimi-code/blob/56145f849caa305d42acd09b67fb65d11146f887/docs/en/configuration/config-files.md)
+
+The provider receives explicitly referenced credentials and selected sampling and completion-cap variables through private launch inputs. `KIMI_CODE_HOME` and startup controls remain process inputs. See [current reasoning projection](../build-phase/launch-policy.md#current-reasoning-projection) for the setup and credential config precedence.
+
 ### Kimi TUI unattended launch ownership
 
 For Kimi Code 2.1.1 or later, `build_launch_plan()` records the resolved TUI permission mode and produces the native `--auto` or `--yolo` flag when applicable. Unattended launch fills an omitted mode with `auto`. An explicit `manual` setting uses the native home configuration on fresh TUI startup. `as_is` with an omitted field keeps native approval behavior. Policy takes effect before managed conversation starts.

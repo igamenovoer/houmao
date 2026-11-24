@@ -22,7 +22,7 @@ fixture.py prepare --client kimi --case self-hosted
   --executable <explicit selected binary>
 ```
 
-It starts `kimi web --no-open --host 127.0.0.1 --port <private free port> --dangerous-bypass-auth --log-level silent`. Authentication bypass applies only to this ephemeral loopback test instance. The child environment contains the selected fixture values and a separate operating-system home, with no ambient provider credentials. Native watchers are disabled through `KIMI_CODE_WATCH=false` and `[watch] enabled=false`, so explicit reload can be distinguished from automatic discovery.
+It starts `kimi web --no-open --host 127.0.0.1 --port <private free port> --dangerous-bypass-auth --log-level silent`. Authentication bypass applies only to this ephemeral loopback test instance. The child environment contains the selected fixture values and a separate operating-system home, with no ambient provider credentials. The native config sets `watch.enabled = false` so explicit reload can be distinguished from automatic discovery.
 
 ## Executed Evidence
 

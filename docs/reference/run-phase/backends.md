@@ -115,7 +115,7 @@ Runs Codex CLI in headless mode (`codex exec --json`). Produces structured JSON 
 Runs Kimi Code CLI in prompt mode (`kimi -p <prompt> --output-format stream-json`).
 
 - **Session class:** `KimiHeadlessSession` (extends `HeadlessInteractiveSession`)
-- **Auth lanes:** managed Kimi homes use `KIMI_CODE_HOME` and support OAuth material through projected `config.toml` plus `credentials/kimi-code.json`, or env-model material through allowlisted `KIMI_MODEL_*` values.
+- **Auth lanes:** managed Kimi homes use `KIMI_CODE_HOME` and native `config.toml` for API-based or OAuth-based providers. API keys can come from a private credential input referenced by `api_key_env`. Imported OAuth providers use the matching token file. [Kimi Native Configuration](../build-phase/launch-policy.md#kimi-native-configuration)
 - **Managed skills:** Houmao-owned Kimi skills project into top-level `skills`, and managed launches pass `--skills-dir <KIMI_CODE_HOME>/skills` so they do not depend on user-global skill discovery.
 - **Resume:** `--continue` asks Kimi to continue the latest stored session for the working directory; `--session <session_id>` resumes an exact provider session. Resume stays bound to the same recorded working directory/project context.
 - **Permission mode:** Kimi's native `-p` entrypoint always uses `auto`. Select TUI, service, or Web for an explicit `manual` or `yolo` mode.
@@ -127,7 +127,7 @@ Managed Kimi headless and TUI support starts at version 2.1.1 and has no upper v
 #### Kimi validation checklist
 
 - OAuth lane: create or import a Kimi auth bundle with `config.toml` and `credentials/kimi-code.json`, build or launch a managed Kimi home, and confirm `KIMI_CODE_HOME` points at that constructed home.
-- Env-model lane: create a Kimi auth bundle with `KIMI_MODEL_NAME` and `KIMI_MODEL_API_KEY`, build or launch a managed Kimi home, and confirm those env vars are exported without depending on user-global `~/.kimi-code`.
+- API-based setup: import a credential config with the provider and model alias, then select the alias or use its native default. Inspect the private runtime TOML to verify the selected model and the retained setup preferences. Confirm the provider routing and model settings are absent from tmux.
 - Skill projection: inspect the constructed home and confirm selected and Houmao-owned skills land under `skills/`.
 - Native prompt projection: inspect `SYSTEM.md`, confirm it starts with `${base_prompt}`, compare its recorded effective and rendered SHA-256 digests, and confirm the first user prompt is substantive work rather than role delivery.
 - First-turn capture: verify the first `stream-json` Kimi turn emits a `session.resume_hint` event and that Houmao persists its `session_id` into the managed session manifest.

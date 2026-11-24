@@ -57,7 +57,7 @@ Runs `claude -p` for non-interactive prompt–response cycles. Supports session 
 
 ### `kimi_headless`
 
-Runs `kimi -p <prompt> --output-format stream-json` for non-interactive prompt–response cycles. Managed Kimi homes use `KIMI_CODE_HOME`, support OAuth via `config.toml` plus `credentials/kimi-code.json`, support env-model credentials through allowlisted `KIMI_MODEL_*` values, and project Houmao-owned skills into `skills`. Follow-up turns resume with `--session <persisted-session-id>` and must stay in the same recorded working directory.
+Runs `kimi -p <prompt> --output-format stream-json` for non-interactive prompt–response cycles. Managed Kimi homes use `KIMI_CODE_HOME`. The effective `config.toml` configures API and OAuth providers, and imported OAuth token files live under `credentials`. Houmao projects its skills into `skills`. Follow-up turns resume with `--session <persisted-session-id>` in the recorded working directory.
 
 ### Legacy/Internal Backends
 

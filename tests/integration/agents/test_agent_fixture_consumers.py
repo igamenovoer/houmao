@@ -111,7 +111,7 @@ def test_writer_team_preserves_kimi_context_and_capabilities_in_credentials(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The selected bundle's metadata reaches the existing adapter-owned env channel."""
+    """The selected bundle's metadata reaches private native TOML."""
 
     run = _prepare_source(tmp_path, monkeypatch, "kimi")
     from houmao.demo.kimi_writer_team_manual import models, runtime
@@ -137,9 +137,14 @@ def test_writer_team_preserves_kimi_context_and_capabilities_in_credentials(
         timeout_seconds=30,
         fixture_bundle=bundle,
     )
-    material = Path(result["env_file"]).read_text()
-    assert "KIMI_MODEL_MAX_CONTEXT_SIZE=65536" in material
-    assert "KIMI_MODEL_CAPABILITIES=tool_use" in material
+    env_file = Path(result["env_file"])
+    config_path = env_file.parents[1] / "files/config.toml"
+    assert config_path.stat().st_mode & 0o777 == 0o600
+    native = tomllib.loads(config_path.read_text())
+    model = native["models"][native["default_model"]]
+    assert model["max_context_size"] == 65536
+    assert model["capabilities"] == ["tool_use"]
+    assert "KIMI_MODEL_NAME" not in env_file.read_text()
     for path in paths.logs_dir.rglob("*"):
         if path.is_file():
             assert "synthetic-consumer-secret" not in path.read_text()

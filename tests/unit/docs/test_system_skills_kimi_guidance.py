@@ -82,6 +82,10 @@ def test_credential_manager_documents_kimi_login_handling_without_login_helper()
     assert "Fresh Default Kimi Code OAuth Login" in kimi_reference
     assert "kimi-code-login-handling.md" in kimi_reference
     assert "Kimi Platform API key" in kimi_reference
+    assert 'api_key_env = "KIMI_MODEL_API_KEY"' in kimi_reference
+    assert "ordered `support_efforts` list" in kimi_reference
+    assert "`--model-name`" not in kimi_reference
+    assert "`--base-url`" not in kimi_reference
     assert "kimi-code-env-<hash>.json" in kimi_reference
 
 

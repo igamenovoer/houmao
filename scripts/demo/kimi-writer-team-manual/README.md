@@ -13,7 +13,7 @@ The pack copies [examples/writer-team](../../../examples/writer-team/) into `out
   - `--kimi-code-home ~/.kimi-code`
   - `--kimi-auth-bundle /external/kimi-run/assets/tools/kimi/auth/default`
   - `--kimi-config-toml <path>` plus optional `--kimi-credential-json <path>`
-  - selected run-owned env-model settings from the shared helper
+  - a native API provider config from the shared fixture helper
 
 The demo does not commit live Kimi credential files. It fails before launch when no credential input is available.
 
@@ -97,4 +97,4 @@ This demo uses a hybrid Kimi posture. `alex-story` and `alex-char` launch as loc
 
 Prepare credentials with `pixi run python scripts/agents/test-fixtures/fixture.py prepare --case cloud-api --client TOOL --model MODEL --env-file .env` (Kimi also needs `--context-window TOKENS`). Select `self-hosted` for a compatible local API or explicitly imported native-login state separately. Use only the returned external run-owned credential inputs and external demo outputs. See [the fixture helper](../../agents/test-fixtures/README.md).
 
-The external bundle may come from `fixture.py prepare --client kimi --case cloud-api --model MODEL --context-window TOKENS --env-file .env`. Point `--kimi-auth-bundle` at its `assets/tools/kimi/auth/default`. The demo preserves context/capability env in its existing credential channel, invokes secret-bearing credential commands in-process, and rejects checkout-local live output roots.
+The external bundle may come from `fixture.py prepare --client kimi --case cloud-api --model MODEL --context-window TOKENS --env-file /external/credentials.env`. Point `--kimi-auth-bundle` at its `assets/tools/kimi/auth/default`. The demo imports the provider, model settings, and effort labels from private native TOML. Run fixture preparation again to replace a bundle that used `KIMI_MODEL_NAME` or other retired model variables. For a native config that references `KIMI_MODEL_API_KEY` through `api_key_env`, supply the key separately with `--api-key`.

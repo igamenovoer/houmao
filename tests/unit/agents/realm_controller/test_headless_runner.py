@@ -10,6 +10,10 @@ import subprocess
 import pytest
 
 import houmao.agents.realm_controller.backends.headless_runner as headless_runner_module
+from houmao.agents.realm_controller.backends.headless_bridge import main as run_headless_bridge
+from houmao.agents.realm_controller.backends.headless_output import (
+    canonical_headless_event_artifact_path,
+)
 from houmao.agents.realm_controller.backends.headless_runner import (
     HeadlessCliRunner,
     interrupt_owned_headless_attempt,
@@ -23,21 +27,87 @@ def _write_idle_shell(tmp_path: Path) -> Path:
     return idle_shell
 
 
+def test_kimi_headless_bridge_redacts_config_credentials_in_diagnostics(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Keep known inline and referenced secrets out of live and returned diagnostics."""
+
+    (tmp_path / "config.toml").write_text(
+        '[providers.inline]\napi_key = "synthetic-inline"\n'
+        '[providers.referenced]\napi_key_env = "CUSTOM_MODEL_CREDENTIAL"\n',
+        encoding="utf-8",
+    )
+    environment = tmp_path / "environment.json"
+    environment.write_text(
+        json.dumps(
+            {
+                "KIMI_CODE_HOME": str(tmp_path),
+                "CUSTOM_MODEL_CREDENTIAL": "synthetic-reference",
+            }
+        ),
+        encoding="utf-8",
+    )
+    turn_dir = tmp_path / "turn"
+    result = run_headless_bridge(
+        [
+            "--provider",
+            "kimi",
+            "--output-format",
+            "stream-json",
+            "--turn-index",
+            "1",
+            "--turn-dir",
+            str(turn_dir),
+            "--cwd",
+            str(tmp_path),
+            "--launched-at-utc",
+            "2026-11-24T00:00:00Z",
+            "--env-file",
+            str(environment),
+            "--replace-environment",
+            "--",
+            "/bin/sh",
+            "-c",
+            'printf \'%s\\n\' \'{"type":"error","message":"failure synthetic-inline"}\'; '
+            'printf "%s\\n" "failure $CUSTOM_MODEL_CREDENTIAL" >&2; exit 1',
+        ]
+    )
+    assert result == 1
+    for diagnostic in (
+        capsys.readouterr().out,
+        (turn_dir / "stderr.log").read_text(),
+        canonical_headless_event_artifact_path(turn_dir=turn_dir).read_text(),
+    ):
+        assert "[REDACTED]" in diagnostic
+        assert "synthetic-inline" not in diagnostic
+        assert "synthetic-reference" not in diagnostic
+    assert (turn_dir / "stdout.jsonl").stat().st_mode & 0o777 == 0o600
+
+
 @pytest.mark.parametrize("actual_birth", ["expected-birth", "reused-pid-birth"])
 def test_owned_interrupt_verifies_birth_after_opening_pidfd(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, actual_birth: str
 ) -> None:
     """A recorded PID is insufficient unless the opened process has the saved start identity."""
 
-    (tmp_path / "process.json").write_text(json.dumps({
-        "child_pid": 1234, "child_birth_token": "expected-birth",
-    }))
+    (tmp_path / "process.json").write_text(
+        json.dumps(
+            {
+                "child_pid": 1234,
+                "child_birth_token": "expected-birth",
+            }
+        )
+    )
     signals = []
-    monkeypatch.setattr(os, "pidfd_open", lambda _pid: os.open(os.devnull, os.O_RDONLY), raising=False)
+    monkeypatch.setattr(
+        os, "pidfd_open", lambda _pid: os.open(os.devnull, os.O_RDONLY), raising=False
+    )
     monkeypatch.setattr(
         headless_runner_module, "_dispatch_origin_birth_token", lambda _pid: actual_birth
     )
-    monkeypatch.setattr(signal, "pidfd_send_signal", lambda _fd, sig: signals.append(sig), raising=False)
+    monkeypatch.setattr(
+        signal, "pidfd_send_signal", lambda _fd, sig: signals.append(sig), raising=False
+    )
     result = interrupt_owned_headless_attempt(tmp_path)
     if actual_birth == "expected-birth":
         assert result.status == "ok"

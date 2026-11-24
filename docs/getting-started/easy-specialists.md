@@ -131,10 +131,10 @@ houmao-mgr project specialist create \
   --skill repo-map
 ```
 
-Kimi-specific auth inputs support OAuth import and env-model bundles:
+Kimi specialists use native config for provider and model settings.
 
-- OAuth lane: `--kimi-code-home ~/.kimi-code` imports `config.toml` and `credentials/kimi-code.json` from an existing logged-in Kimi home. You can also pass `--kimi-config-toml` and `--kimi-credential-json` directly.
-- Env-model lane: `--api-key` with optional `--base-url` persists `KIMI_MODEL_API_KEY` plus `KIMI_MODEL_BASE_URL`; use `--kimi-model-name` or launch-owned `--model` to supply `KIMI_MODEL_NAME`.
+- Use `--kimi-code-home ~/.kimi-code` to import `config.toml` and `credentials/kimi-code.json` from an existing logged-in Kimi home. You can also pass `--kimi-config-toml` and `--kimi-credential-json` directly.
+- For a custom API endpoint, declare the provider and model alias in native TOML and pass `--kimi-config-toml`. Use `--api-key` when the provider declares `api_key_env = "KIMI_MODEL_API_KEY"`. Use `--model` to select a configured alias and `--reasoning-level` to select a position in its ordered `support_efforts` catalog.
 
 Managed launch installs the `agent` pack by default. To store that choice explicitly, replace the managed default with the complete agent pack:
 

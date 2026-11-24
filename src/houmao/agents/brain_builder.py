@@ -9,8 +9,8 @@ import shlex
 import shutil
 import sys
 import uuid
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Collection, Mapping
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -39,6 +39,13 @@ from houmao.agents.definition_parser import (
     parse_tool_adapter,
     resolve_explicit_or_named_preset_path,
 )
+from houmao.agents.kimi_configuration import (
+    KIMI_CONFIG_FILENAME,
+    resolve_kimi_config,
+    select_kimi_model_alias,
+    validate_kimi_config_credentials,
+)
+from houmao.agents.kimi_launch_env import KIMI_CONFIG_ENV_NAMES, reject_kimi_config_env
 from houmao.agents.launch_env import validate_persistent_env_records
 from houmao.agents.launch_policy.engine import detect_tool_version, resolve_strategy
 from houmao.agents.launch_policy.models import LaunchPolicyRequest, OperatorPromptMode
@@ -56,6 +63,7 @@ from houmao.agents.managed_launch_force import (
 from houmao.agents.launch_policy.provider_hooks import (
     load_toml_state,
     set_toml_key,
+    write_toml_state,
 )
 from houmao.agents.kimi_system_prompt import (
     KimiSystemPromptError,
@@ -242,6 +250,7 @@ class ValidatedBrainInputs:
     tool_params: dict[str, Any]
     baseline_model: ModelConfig | None
     model: ResolvedModelConfig
+    kimi_config: dict[str, Any] | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -430,12 +439,14 @@ def _project_path(source: Path, target: Path, *, mode: str) -> None:
         shutil.copy2(source, target)
 
 
-def _copy_directory_contents(source_dir: Path, destination_dir: Path) -> None:
+def _copy_directory_contents(
+    source_dir: Path, destination_dir: Path, *, skip_names: Collection[str] = ()
+) -> None:
     """Project native setup files, skipping Houmao's parameter seed."""
 
     destination_dir.mkdir(parents=True, exist_ok=True)
     for child in sorted(source_dir.iterdir()):
-        if child.name != "tool-params.yaml":
+        if child.name != "tool-params.yaml" and child.name not in skip_names:
             _project_path(child, destination_dir / child.name, mode="copy")
 
 
@@ -522,6 +533,7 @@ def _build_launch_helper(
     operator_prompt_mode: OperatorPromptMode | None,
     permission_params: Mapping[str, Any],
     dsh_credential_env_file: Path | None = None,
+    kimi_credential_env_file: Path | None = None,
 ) -> str:
     """Build one runtime launch helper script.
 
@@ -540,9 +552,11 @@ def _build_launch_helper(
         launch helper.
     dsh_credential_env_file:
         Private DSH bundle environment to read at execution time.
+    kimi_credential_env_file:
+        Private Kimi bundle environment to read at execution time.
     """
 
-    allowlist = adapter.auth_env_allowlist
+    allowlist = _auth_env_names(adapter, None)
     args = " ".join(shlex.quote(arg) for arg in launch_args)
     executable = shlex.quote(adapter.launch_executable)
     command_suffix = f" {args}" if args else ""
@@ -571,6 +585,7 @@ def _build_launch_helper(
     if (
         operator_prompt_mode == "unattended"
         or dsh_credential_env_file is not None
+        or kimi_credential_env_file is not None
         or permission_params
     ):
         script_lines.extend(
@@ -610,6 +625,13 @@ def _build_launch_helper(
         if dsh_credential_env_file is not None:
             launch_policy_args.extend(
                 ["--dsh-credential-env-file", shlex.quote(str(dsh_credential_env_file))]
+            )
+        if kimi_credential_env_file is not None:
+            launch_policy_args.extend(
+                ["--kimi-credential-env-file", shlex.quote(str(kimi_credential_env_file))]
+            )
+            launch_policy_args.extend(
+                f"--kimi-credential-env-name={shlex.quote(name)}" for name in allowlist
             )
         if permission_params:
             launch_policy_args.extend(
@@ -679,6 +701,20 @@ def validate_brain_inputs(
     env_values = _parse_env_file(auth_env_file)
 
     try:
+        kimi_config = None
+        if request.tool == "kimi":
+            reject_kimi_config_env(env_values, source="Kimi credential bundle")
+            reject_kimi_config_env(
+                request.persistent_env_records or {}, source="Kimi launch environment"
+            )
+            reject_kimi_config_env(launch_env_overrides or {}, source="One-shot Kimi environment")
+            _validate_relative_path(adapter.setup_destination, field="setup_projection.destination")
+            kimi_config = resolve_kimi_config(
+                setup_dir=setup_dir, auth_dir=auth_dir, adapter=adapter
+            )
+            validate_kimi_config_credentials(
+                kimi_config, env_values, _auth_env_names(adapter, None)
+            )
         setup_path = setup_dir / "tool-params.yaml"
         preset_path = request.effective_preset_path()
         preset_params = request.preset_tool_params
@@ -711,12 +747,32 @@ def validate_brain_inputs(
         dsh_config = (
             DshEffectiveToolParams.from_mapping(effective) if request.tool == "dsh" else None
         )
+        behavior = None
+        if backend is not None or kimi_config is not None:
+            behavior = resolve_launch_behavior(
+                tool=request.tool,
+                backend=backend or "raw_launch",
+                adapter_defaults=adapter.launch_defaults,
+                recipe_overrides=request.effective_preset_launch_overrides(),
+                direct_overrides=request.launch_overrides,
+                tool_param_layers=tuple(layers.items()),
+            )
         baseline = _extract_native_model_config_baseline(
             tool=request.tool,
             home_path=setup_dir,
             auth_env_values=env_values,
             dsh_tool_params=dsh_config,
+            kimi_config=kimi_config,
         )
+        if kimi_config is not None and behavior is not None:
+            argument_alias = _kimi_model_argument(behavior.args_before_policy)
+            if argument_alias is not None:
+                if backend in {"kimi_acp", "kimi_web"}:
+                    raise ValueError(
+                        "Use the Houmao model selection or native config.toml default_model "
+                        "for Kimi ACP and Web instead of a raw model argument."
+                    )
+                baseline = ModelConfig(name=argument_alias)
         model = resolve_model_config_layers(
             (
                 ("baseline_native", baseline),
@@ -726,6 +782,8 @@ def validate_brain_inputs(
             )
         )
         name = model.config.name if model.config is not None else None
+        if kimi_config is not None:
+            select_kimi_model_alias(kimi_config, name)
         reasoning = model.config.reasoning if model.config is not None else None
         reasoning_mapping = None
         if reasoning is not None:
@@ -734,7 +792,7 @@ def validate_brain_inputs(
                 requested_level=reasoning.level,
                 model_name=name,
                 home_path=setup_dir,
-                env_model_values=env_values,
+                kimi_config=kimi_config,
                 dsh_tool_params=dsh_config,
             )
         if dsh_config is not None:
@@ -785,35 +843,30 @@ def validate_brain_inputs(
             auth_env_allowlist=protected_env_names,
             source="One-shot launch environment",
         )
-        if backend is not None:
-            behavior = resolve_launch_behavior(
-                tool=request.tool,
-                backend=backend,
-                adapter_defaults=adapter.launch_defaults,
-                recipe_overrides=request.effective_preset_launch_overrides(),
-                direct_overrides=request.launch_overrides,
-                tool_param_layers=tuple(layers.items()),
+        if (
+            backend is not None
+            and behavior is not None
+            and check_policy_version
+            and _resolved_operator_prompt_mode(request.operator_prompt_mode) == "unattended"
+        ):
+            resolve_strategy(
+                request=LaunchPolicyRequest(
+                    tool=request.tool,
+                    backend=backend,
+                    executable=adapter.launch_executable,
+                    base_args=behavior.args_before_policy,
+                    requested_operator_prompt_mode="unattended",
+                    working_directory=agent_def_dir,
+                    home_path=setup_dir,
+                    env=os.environ,
+                ),
+                detected_version=detect_tool_version(executable=adapter.launch_executable),
             )
-            if (
-                check_policy_version
-                and _resolved_operator_prompt_mode(request.operator_prompt_mode) == "unattended"
-            ):
-                resolve_strategy(
-                    request=LaunchPolicyRequest(
-                        tool=request.tool,
-                        backend=backend,
-                        executable=adapter.launch_executable,
-                        base_args=behavior.args_before_policy,
-                        requested_operator_prompt_mode="unattended",
-                        working_directory=agent_def_dir,
-                        home_path=setup_dir,
-                        env=os.environ,
-                    ),
-                    detected_version=detect_tool_version(executable=adapter.launch_executable),
-                )
     except (OSError, ValueError) as exc:
         raise BuildError(str(exc)) from exc
-    return ValidatedBrainInputs(adapter, setup_dir, auth_dir, layers, effective, baseline, model)
+    return ValidatedBrainInputs(
+        adapter, setup_dir, auth_dir, layers, effective, baseline, model, kimi_config
+    )
 
 
 def _auth_env_names(adapter: ToolAdapter, dsh: DshEffectiveToolParams | None) -> list[str]:
@@ -821,7 +874,28 @@ def _auth_env_names(adapter: ToolAdapter, dsh: DshEffectiveToolParams | None) ->
 
     if dsh is not None:
         return [name for name in (dsh.api_key_env, dsh.base_url_env) if name is not None]
+    if adapter.tool == "kimi":
+        return [name for name in adapter.auth_env_allowlist if name not in KIMI_CONFIG_ENV_NAMES]
     return adapter.auth_env_allowlist
+
+
+def _kimi_model_argument(args: tuple[str, ...]) -> str | None:
+    """Find the last native Kimi model option supplied in authored launch args."""
+
+    selected: str | None = None
+    remaining = iter(args)
+    for argument in remaining:
+        if argument in {"--model", "-m"}:
+            selected = next(remaining, "")
+        elif argument.startswith("--model="):
+            selected = argument.removeprefix("--model=")
+        elif argument.startswith("-m"):
+            selected = argument.removeprefix("-m")
+        else:
+            continue
+        if not selected or selected.startswith("-"):
+            raise ValueError("Kimi model arguments require an alias from config.toml.")
+    return selected
 
 
 def build_brain_home(request: BuildRequest) -> BuildResult:
@@ -910,7 +984,12 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
 
     _validate_relative_path(adapter.setup_destination, field="setup_projection.destination")
     setup_destination = home_path / adapter.setup_destination
-    _copy_directory_contents(setup_dir, setup_destination)
+    skip_setup_names = (
+        (KIMI_CONFIG_FILENAME,)
+        if inputs.kimi_config is not None and setup_destination == home_path
+        else ()
+    )
+    _copy_directory_contents(setup_dir, setup_destination, skip_names=skip_setup_names)
 
     _validate_relative_path(adapter.skills_destination, field="skills_projection.destination")
     skill_destination_dir = home_path / adapter.skills_destination
@@ -950,17 +1029,23 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             continue
         projected_auth_files.add(mapping.source)
         destination = home_path / mapping.destination
-        _project_path(source, destination, mode=mapping.mode)
+        resolved_kimi_config = (
+            inputs.kimi_config is not None and destination == home_path / KIMI_CONFIG_FILENAME
+        )
+        if not resolved_kimi_config:
+            _project_path(source, destination, mode=mapping.mode)
         projected_credentials.append(
             {
                 "source": str(source),
                 "destination": str(destination),
-                "mode": mapping.mode,
+                "mode": "copy" if resolved_kimi_config else mapping.mode,
                 "required": mapping.required,
             }
         )
     kimi_system_prompt_projection = None
     if request.tool == "kimi":
+        assert inputs.kimi_config is not None
+        write_toml_state(home_path / KIMI_CONFIG_FILENAME, inputs.kimi_config)
         try:
             kimi_system_prompt_projection = ensure_kimi_system_prompt(
                 home_path=home_path,
@@ -1008,7 +1093,6 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             raise BuildError(str(exc)) from exc
     baseline_model_config = inputs.baseline_model
     resolved_model_config = inputs.model
-    projected_model_env_exports: dict[str, str] = {}
     model_projection = _project_model_name(
         tool=request.tool,
         home_path=home_path,
@@ -1021,8 +1105,6 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             )
             else None
         ),
-        launch_env_exports=projected_model_env_exports,
-        auth_env_values=env_values,
         dsh_tool_params=dsh_config,
     )
     reasoning_projection = None
@@ -1035,7 +1117,6 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             tool=request.tool,
             requested_level=resolved_model_config.config.reasoning.level,
             model_name=resolved_model_config.config.name,
-            env_model_values=env_values,
             dsh_tool_params=dsh_config,
         )
     provider_model_selection_cli_args = _provider_model_selection_cli_args(
@@ -1105,9 +1186,12 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             *provider_model_selection_cli_args,
         ],
         env_exports={
-            **({key: env_values[key] for key in selected_env_names} if dsh_config is None else {}),
+            **(
+                {key: env_values[key] for key in selected_env_names}
+                if dsh_config is None and request.tool != "kimi"
+                else {}
+            ),
             **effective_launch_env_records,
-            **projected_model_env_exports,
         },
         operator_prompt_mode=resolved_operator_prompt_mode,
         permission_params={
@@ -1117,6 +1201,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             and value is not None
         },
         dsh_credential_env_file=auth_env_file if dsh_config is not None else None,
+        kimi_credential_env_file=auth_env_file if request.tool == "kimi" else None,
     )
 
     construction_provenance: dict[str, object] = {
@@ -1353,7 +1438,7 @@ def _ensure_kimi_extra_skill_dirs(
             path=config_path,
             key_path=("extra_skill_dirs",),
             value=next_dirs,
-            repair_invalid=True,
+            preserve_native_arrays=True,
         )
 
     return {
@@ -1460,6 +1545,7 @@ def _extract_native_model_config_baseline(
     home_path: Path,
     auth_env_values: dict[str, str],
     dsh_tool_params: DshEffectiveToolParams | None = None,
+    kimi_config: Mapping[str, Any] | None = None,
 ) -> ModelConfig | None:
     """Extract one launch-time baseline model config from copied native state."""
 
@@ -1480,16 +1566,10 @@ def _extract_native_model_config_baseline(
         model_name = _non_empty_str(payload.get("model"))
         return ModelConfig(name=model_name) if model_name is not None else None
 
-    if tool == "kimi":
-        env_model_name = _non_empty_str(auth_env_values.get("KIMI_MODEL_NAME"))
-        if env_model_name is not None:
-            return ModelConfig(name=env_model_name)
-        config_path = home_path / "config.toml"
-        try:
-            payload = load_toml_state(config_path, repair_invalid=True)
-        except Exception:
-            payload = {}
-        model_name = _non_empty_str(payload.get("default_model"))
+    if kimi_config is not None:
+        model_name = kimi_config.get("default_model")
+        if model_name is not None and (not isinstance(model_name, str) or not model_name.strip()):
+            raise ValueError("Kimi config.toml requires a non-empty `default_model` alias.")
         return ModelConfig(name=model_name) if model_name is not None else None
 
     return None
@@ -1500,11 +1580,9 @@ def _project_model_name(
     tool: str,
     home_path: Path,
     model_name: str | None,
-    launch_env_exports: dict[str, str],
-    auth_env_values: dict[str, str],
     dsh_tool_params: DshEffectiveToolParams | None = None,
 ) -> dict[str, Any] | None:
-    """Project one resolved model name into the runtime home or launch env."""
+    """Project one resolved model name into the runtime home or CLI arguments."""
 
     if model_name is None:
         return None
@@ -1512,7 +1590,6 @@ def _project_model_name(
         model, _ = dsh_tool_params.select_model(model_name)
         return {"surface": "native_configuration", "value": model.id}
     if tool == "claude":
-        del launch_env_exports
         return {
             "surface": "cli_arg",
             "arg": "--model",
@@ -1533,13 +1610,6 @@ def _project_model_name(
             "value": model_name,
         }
     if tool == "kimi":
-        if _has_non_empty_env_value(auth_env_values, "KIMI_MODEL_NAME"):
-            launch_env_exports["KIMI_MODEL_NAME"] = model_name
-            return {
-                "surface": "env",
-                "env_var": "KIMI_MODEL_NAME",
-                "value": model_name,
-            }
         return {
             "surface": "cli_arg",
             "arg": "--model",
@@ -1583,13 +1653,6 @@ def _non_empty_str(value: object) -> str | None:
         return None
     stripped = value.strip()
     return stripped if stripped else None
-
-
-def _has_non_empty_env_value(env_values: dict[str, str], key: str) -> bool:
-    """Return whether one parsed env mapping contains a non-empty value."""
-
-    value = env_values.get(key)
-    return isinstance(value, str) and bool(value.strip())
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:

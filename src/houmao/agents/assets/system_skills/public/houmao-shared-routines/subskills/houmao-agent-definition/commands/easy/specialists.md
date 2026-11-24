@@ -60,14 +60,14 @@ Common specialist inputs:
 - repeatable `--with-skill <dir>`
 - repeatable `--env-set NAME=value`
 
-For Codex GPT-5.6, normalized reasoning level 0 is invalid. Sol and Terra expose six ordered levels (`low`, `medium`, `high`, `xhigh`, `max`, `ultra`); Luna exposes five and ends at `max`. Higher normalized values saturate at the model maximum. For Kimi config-backed models, Houmao reads the selected model alias's ordered `support_efforts` catalog and applies effective overrides; level 0 is valid only when the model is not `always_thinking`. Do not invent normalized reasoning levels for Kimi env-model credentials because that lane has no ordered catalog; leave `--reasoning-level` unset and preserve native effort environment configuration.
+For Codex GPT-5.6, normalized reasoning level 0 is invalid. Sol and Terra expose six ordered levels (`low`, `medium`, `high`, `xhigh`, `max`, `ultra`), and Luna exposes five through `max`. Higher values saturate at the model maximum. For Kimi, select an alias from native TOML. Positive reasoning levels index the alias's effective `support_efforts` from 1 and use its exact labels. Level 0 requires a model that permits thinking off. Leave the numeric override unset to use native defaults.
 
 Tool-specific auth inputs:
 
 - Claude: `--api-key`, optional `--claude-auth-token`, optional `--claude-oauth-token`, optional `--claude-config-dir`, optional `--base-url`, optional `--claude-model`
 - Claude optional bootstrap state: `--claude-state-template-file`; this is optional bootstrap state and not a credential-providing method
 - Codex: `--api-key`, optional `--base-url`, optional `--codex-org-id`, optional `--codex-auth-json`
-- Kimi: `--api-key`, optional `--base-url`, optional `--kimi-model-name`, optional `--provider-type`, optional `--kimi-code-home`, optional `--kimi-config-toml`, optional `--kimi-credential-json`
+- Kimi accepts `--kimi-config-toml`, optionally with `--api-key` for a matching native key reference or `--kimi-credential-json` for OAuth. Use `--kimi-code-home` to import a supported OAuth home.
 
 ## Credential Discovery During Create
 

@@ -55,6 +55,12 @@ def add_case_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--capabilities", help="Explicit comma-separated model capabilities")
     parser.add_argument("--reasoning-key")
     parser.add_argument("--reasoning-effort")
+    parser.add_argument(
+        "--support-effort", action="append", help="Ordered Kimi native effort label"
+    )
+    parser.add_argument(
+        "--reasoning-level", type=int, help="Numeric level for a managed Kimi profile"
+    )
     parser.add_argument("--mode", choices=RUN_MODES, help="Native run mode for the selected client")
     parser.add_argument("--prompt-mode", choices=("unattended", "as_is"), default="unattended")
     parser.add_argument(
@@ -126,6 +132,8 @@ def selected_configuration(args: argparse.Namespace) -> ResolvedConfig:
             raise FixtureError("Native login selection is independent of API case/env routing")
         if not args.auth_bundle:
             raise FixtureError("Native login requires an explicit imported --auth-bundle")
+        if args.support_effort is not None or args.reasoning_level is not None:
+            raise FixtureError("Fixture effort options require a selected Kimi API case")
         return ResolvedConfig(
             client=args.client,
             mode=fixture_run_mode(args.client, args.mode, args.surface).mode,
@@ -161,6 +169,8 @@ def selected_configuration(args: argparse.Namespace) -> ResolvedConfig:
         else None,
         reasoning_key=args.reasoning_key,
         reasoning_effort=args.reasoning_effort,
+        support_efforts=args.support_effort,
+        reasoning_level=args.reasoning_level,
     )
 
 

@@ -274,7 +274,12 @@ auth_projection:
     _write(agent_def_dir / "tools/kimi/setups/default/README.md", "Kimi setup\n")
     _write(
         agent_def_dir / "tools/kimi/auth/oauth/files/config.toml",
-        'default_model = "kimi-code/default"\n',
+        """default_model = "kimi-code/default"
+[models."kimi-code/default"]
+model = "kimi-code/default"
+[models."kimi-code/kimi-for-coding"]
+model = "kimi-code/kimi-for-coding"
+""",
     )
     _write(
         agent_def_dir / "tools/kimi/auth/oauth/files/credentials/kimi-code.json",
@@ -1175,7 +1180,7 @@ def test_build_brain_home_projects_kimi_oauth_files_and_skills(tmp_path: Path) -
         '{"access_token": "secret"}\n'
     )
     assert "export KIMI_CODE_HOME=" in launch_script
-    assert "KIMI_MODEL_API_KEY" not in launch_script
+    assert "export KIMI_MODEL_API_KEY=" not in launch_script
     projected_destinations = [
         Path(item["destination"]).relative_to(result.home_path).as_posix()
         for item in manifest["credentials"]["projected_files"]
@@ -1322,6 +1327,9 @@ def test_build_brain_home_preserves_kimi_extra_skill_dirs_without_duplicates(
                 "[ui]",
                 'theme = "dark"',
                 "",
+                '[models."kimi-code/default"]',
+                'model = "kimi-code/default"',
+                "",
             ]
         ),
     )
@@ -1397,43 +1405,213 @@ def test_build_brain_home_projects_kimi_oauth_model_selection_as_cli_args(
     }
 
 
-def test_build_brain_home_projects_kimi_env_model_override_through_env(
+def test_build_brain_home_rejects_retired_kimi_environment_before_mutation(
     tmp_path: Path,
 ) -> None:
     agent_def_dir = tmp_path / "repo"
     agent_def_dir.mkdir(parents=True)
     _seed_kimi_repo(agent_def_dir)
 
+    request = BuildRequest(
+        agent_def_dir=agent_def_dir,
+        runtime_root=tmp_path / "runtime",
+        tool="kimi",
+        skills=["skill-a"],
+        config_profile="default",
+        credential_profile="env-model",
+        home_id="kimi-home-env-model",
+        direct_model_config=ModelConfig(name="kimi-code/override"),
+    )
+    with pytest.raises(BuildError, match=r"config\.toml.*KIMI_MODEL_NAME") as raised:
+        build_brain_home(request)
+    assert "sk-kimi" not in str(raised.value)
+    assert not request.runtime_root.exists()
+
+
+def test_kimi_preflight_and_home_share_effective_private_config(tmp_path: Path) -> None:
+    """Build from one private snapshot while preserving unrelated setup settings."""
+
+    agent_def_dir = tmp_path / "repo"
+    _seed_kimi_repo(agent_def_dir)
+    tool_root = agent_def_dir / "tools/kimi"
+    setup_path = tool_root / "setups/default/config.toml"
+    setup = """telemetry = false
+default_model = "starter"
+
+[models.starter]
+model = "starter"
+
+[models.shared]
+model = "old"
+display_name = "stale"
+
+[providers.api]
+base_url = "https://old.example.test"
+custom_headers = { "X-Test" = "stale" }
+
+[services.moonshot_search]
+base_url = "https://old.example.test/search"
+custom_headers = { "X-Test" = "stale" }
+
+[[hooks]]
+event = "pre-prompt"
+command = "old-hook"
+"""
+    _write(setup_path, setup)
+    config_path = tool_root / "auth/oauth/files/native.toml"
+    adapter_path = tool_root / "adapter.yaml"
+    _write(
+        adapter_path,
+        adapter_path.read_text().replace("source: config.toml", "source: native.toml"),
+    )
+    credential = """default_model = "selected"
+
+[models.selected]
+model = "new"
+provider = "api"
+max_context_size = 32768
+capabilities = ["thinking"]
+support_efforts = ["brief", "Deep-Reasoning"]
+
+[models.shared]
+model = "replacement"
+
+[providers.api]
+base_url = "https://new.example.test"
+api_key = "synthetic-inline-key"
+
+[services.moonshot_search]
+base_url = "https://new.example.test/search"
+
+[[hooks]]
+event = "pre-prompt"
+command = "credential-hook"
+"""
+    _write(config_path, credential)
+    request = BuildRequest(
+        agent_def_dir=agent_def_dir,
+        runtime_root=tmp_path / "runtime",
+        tool="kimi",
+        skills=["skill-a"],
+        config_profile="default",
+        credential_profile="oauth",
+        home_id="kimi-home-native",
+        direct_model_config=ModelConfig(reasoning=ModelReasoningConfig(level=2)),
+    )
+    validated = validate_brain_inputs(request)
+    assert "synthetic-inline-key" not in repr(validated)
+    result = build_brain_home(replace(request, validated_inputs=validated))
+    runtime_config = result.home_path / "config.toml"
+    observed = tomllib.loads(runtime_config.read_text())
+
+    assert runtime_config.stat().st_mode & 0o777 == 0o600
+    assert observed["default_model"] == "selected"
+    assert observed["thinking"] == {"enabled": True, "effort": "Deep-Reasoning"}
+    assert observed["telemetry"] is False
+    assert observed["models"] == {
+        "starter": {"model": "starter"},
+        "selected": {
+            "model": "new",
+            "provider": "api",
+            "max_context_size": 32768,
+            "capabilities": ["thinking"],
+            "support_efforts": ["brief", "Deep-Reasoning"],
+        },
+        "shared": {"model": "replacement"},
+    }
+    assert observed["providers"] == tomllib.loads(credential)["providers"]
+    assert observed["services"] == tomllib.loads(credential)["services"]
+    assert observed["hooks"] == tomllib.loads(credential)["hooks"]
+    assert (result.home_path / "skills/skill-a").is_symlink()
+    assert setup_path.read_text() == setup
+    assert config_path.read_text() == credential
+    assert "synthetic-inline-key" not in result.manifest_path.read_text()
+    assert "synthetic-inline-key" not in result.launch_helper_path.read_text()
+
+
+def test_kimi_preflight_declared_native_model_arg_selects_its_reasoning_catalog(
+    tmp_path: Path,
+) -> None:
+    """Map a numeric level against the model selected by an authored native flag."""
+
+    agent_def_dir = tmp_path / "repo"
+    _seed_kimi_repo(agent_def_dir)
+    _write(
+        agent_def_dir / "tools/kimi/auth/oauth/files/config.toml",
+        """default_model = "starter"
+[models.starter]
+support_efforts = ["quick", "extended"]
+[models.alternate]
+support_efforts = ["brief", "deliberate"]
+""",
+    )
     result = build_brain_home(
         BuildRequest(
             agent_def_dir=agent_def_dir,
-            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            runtime_root=tmp_path / "runtime",
             tool="kimi",
-            skills=["skill-a"],
+            skills=[],
             config_profile="default",
-            credential_profile="env-model",
-            home_id="kimi-home-env-model",
-            direct_model_config=ModelConfig(name="kimi-code/override"),
+            credential_profile="oauth",
+            direct_model_config=ModelConfig(reasoning=ModelReasoningConfig(level=2)),
+            launch_overrides=LaunchOverrides(
+                args=LaunchArgsSection(mode="replace", values=("-m", "alternate"))
+            ),
         )
     )
+    observed = tomllib.loads((result.home_path / "config.toml").read_text())
+    assert observed["default_model"] == "starter"
+    assert observed["thinking"] == {"enabled": True, "effort": "deliberate"}
+    assert "--launch-arg=-m --launch-arg=alternate" in result.launch_helper_path.read_text()
 
-    launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
-    manifest_text = result.manifest_path.read_text(encoding="utf-8")
-    manifest = yaml.safe_load(manifest_text)
-    model_selection = manifest["runtime"]["launch_contract"]["model_selection"]
 
-    assert "export KIMI_MODEL_NAME=kimi-code/override" in launch_script
-    assert "export KIMI_MODEL_API_KEY=sk-kimi" in launch_script
-    assert "export KIMI_MODEL_BASE_URL=https://kimi.example.test" in launch_script
-    assert "NOT_ALLOWLISTED" not in launch_script
-    assert "NOT_ALLOWLISTED" not in manifest_text
-    assert "sk-kimi" not in manifest_text
-    assert model_selection["provider_cli_args"] is None
-    assert model_selection["native_projection"]["model"] == {
-        "surface": "env",
-        "env_var": "KIMI_MODEL_NAME",
-        "value": "kimi-code/override",
-    }
+def test_kimi_raw_helper_uses_private_referenced_key(tmp_path: Path) -> None:
+    """Deliver a selected private key only when the native runtime uses it."""
+
+    agent_def_dir = tmp_path / "repo"
+    _seed_kimi_repo(agent_def_dir)
+    tool_root = agent_def_dir / "tools/kimi"
+    _write(
+        tool_root / "auth/oauth/files/config.toml",
+        'default_model = "local"\n[models.local]\nprovider = "api"\n'
+        '[providers.api]\napi_key_env = "KIMI_MODEL_API_KEY"\n',
+    )
+    env_file = tool_root / "auth/oauth/env/vars.env"
+    request = BuildRequest(
+        agent_def_dir=agent_def_dir,
+        runtime_root=tmp_path / "runtime",
+        tool="kimi",
+        skills=[],
+        config_profile="default",
+        credential_profile="oauth",
+        operator_prompt_mode="as_is",
+    )
+    with pytest.raises(BuildError, match="requires private credential `KIMI_MODEL_API_KEY`"):
+        validate_brain_inputs(request)
+    _write(env_file, "KIMI_MODEL_API_KEY=synthetic-raw-key\n")
+    result = build_brain_home(request)
+    assert "synthetic-raw-key" not in result.launch_helper_path.read_text()
+    assert "synthetic-raw-key" not in result.manifest_path.read_text()
+    fake_kimi = tmp_path / "bin/kimi"
+    _write(
+        fake_kimi, '#!/bin/sh\nprintf "%s\\n" "$KIMI_MODEL_API_KEY" "${KIMI_MODEL_NAME-unset}"\n'
+    )
+    fake_kimi.chmod(0o755)
+    completed = subprocess.run(
+        [str(result.launch_helper_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{fake_kimi.parent}{os.pathsep}{os.environ['PATH']}",
+            "KIMI_MODEL_API_KEY": "ambient-key",
+            "KIMI_MODEL_NAME": "ambient-model",
+        },
+        timeout=30,
+    )
+    assert completed.stdout.splitlines() == ["synthetic-raw-key", "unset"]
 
 
 def test_build_brain_home_supports_launch_overrides(tmp_path: Path) -> None:
