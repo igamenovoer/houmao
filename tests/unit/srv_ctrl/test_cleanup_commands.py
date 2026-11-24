@@ -5,6 +5,7 @@ import sqlite3
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from subprocess import TimeoutExpired
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
@@ -122,6 +123,7 @@ def _write_runtime_manifest(
                 session_name=tmux_session_name,
                 socket_path=current_tmux_socket_path(),
             ),
+            registry_generation_id="generation-1",
             session_id=session_id,
             agent_def_dir=agent_def_dir,
             memory_root=memory_root,
@@ -871,6 +873,7 @@ def test_managed_session_cleanup_retires_stopped_registry_record_by_default(
         lifecycle_state="stopped",
     )
     captured: dict[str, ManagedAgentRegistryRecordV3] = {}
+    monkeypatch.setattr(runtime_cleanup, "load_managed_agent_record_by_agent_id", lambda _: record)
 
     monkeypatch.setattr(
         runtime_cleanup,
@@ -885,7 +888,7 @@ def test_managed_session_cleanup_retires_stopped_registry_record_by_default(
     monkeypatch.setattr(
         runtime_cleanup,
         "publish_managed_agent_record",
-        lambda updated_record: captured.setdefault("record", updated_record),
+        lambda updated_record, **kwargs: captured.setdefault("record", updated_record),
     )
 
     payload = runtime_cleanup.cleanup_managed_session(
@@ -918,6 +921,7 @@ def test_managed_session_cleanup_purges_registry_record_when_requested(
         lifecycle_state="stopped",
     )
     captured: dict[str, object] = {}
+    monkeypatch.setattr(runtime_cleanup, "load_managed_agent_record_by_agent_id", lambda _: record)
 
     monkeypatch.setattr(
         runtime_cleanup,
@@ -966,6 +970,7 @@ def test_managed_session_cleanup_dry_run_reports_registry_lifecycle_action(
         session_root=session_root,
         lifecycle_state="stopped",
     )
+    monkeypatch.setattr(runtime_cleanup, "load_managed_agent_record_by_agent_id", lambda _: record)
 
     monkeypatch.setattr(
         runtime_cleanup,
@@ -1048,11 +1053,15 @@ def test_managed_session_cleanup_blocks_active_registry_record_even_without_live
     assert payload["summary"]["registry_lifecycle_action"] is None
 
 
-def test_managed_session_cleanup_purge_registry_retires_stale_active_broken_authority(
+@pytest.mark.parametrize("dry_run", [True, False])
+@pytest.mark.parametrize("generation_changes", [True, False])
+def test_managed_session_cleanup_purge_registry_fences_stale_authority(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    dry_run: bool,
+    generation_changes: bool,
 ) -> None:
-    """Explicit --purge-registry retires an active record whose tmux session is gone."""
+    """Explicit purge requires verified absence and an unchanged owner generation."""
 
     from houmao.agents.realm_controller.backends.tmux_runtime import (
         TmuxBackedAuthorityHealth,
@@ -1065,6 +1074,8 @@ def test_managed_session_cleanup_purge_registry_retires_stale_active_broken_auth
         session_root=session_root,
         lifecycle_state="active",
     )
+    current = record.model_copy(update={"generation_id": "next"}) if generation_changes else record
+    monkeypatch.setattr(runtime_cleanup, "load_managed_agent_record_by_agent_id", lambda _: current)
 
     monkeypatch.setattr(
         runtime_cleanup,
@@ -1079,7 +1090,7 @@ def test_managed_session_cleanup_purge_registry_retires_stale_active_broken_auth
     monkeypatch.setattr(
         runtime_cleanup,
         "probe_tmux_backed_authority",
-        lambda *, session_name: TmuxBackedAuthorityHealth(
+        lambda **kwargs: TmuxBackedAuthorityHealth(
             state="stale_missing_session",
             session_exists=False,
             primary_window_exists=False,
@@ -1107,24 +1118,38 @@ def test_managed_session_cleanup_purge_registry_retires_stale_active_broken_auth
         agent_name=None,
         manifest_path=None,
         session_root=None,
-        dry_run=False,
+        dry_run=dry_run,
         purge_registry=True,
     )
 
     assert cleanup_calls == []
-    assert not session_root.exists()
-    applied_kinds = {action["artifact_kind"] for action in payload["applied_actions"]}
-    assert "session_root" in applied_kinds
-    assert "managed_agent_registry_record" in applied_kinds
-    assert payload["blocked_actions"] == []
-    assert purge_calls == [(record.agent_id, record.generation_id)]
+    assert session_root.exists() is (dry_run or generation_changes)
+    if generation_changes:
+        assert payload["planned_actions"] == []
+        assert payload["applied_actions"] == []
+        assert "generation" in payload["blocked_actions"][0]["details"]["inspection_error"]
+    else:
+        actions = payload["planned_actions" if dry_run else "applied_actions"]
+        assert {row["artifact_kind"] for row in actions} == {
+            "session_root",
+            "managed_agent_registry_record",
+        }
+        assert payload["blocked_actions"] == []
+    assert purge_calls == (
+        [] if dry_run or generation_changes else [(record.agent_id, record.generation_id)]
+    )
 
 
-@pytest.mark.parametrize("kill_succeeds", [True, False])
+@pytest.mark.parametrize(
+    ("dry_run", "kill_succeeds", "owned"),
+    [(True, False, True), (False, True, True), (False, False, True), (False, True, False)],
+)
 def test_managed_session_cleanup_purge_registry_checks_degraded_remnant_teardown(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    dry_run: bool,
     kill_succeeds: bool,
+    owned: bool,
 ) -> None:
     """Purge a surviving degraded session only after checked teardown succeeds."""
 
@@ -1139,6 +1164,7 @@ def test_managed_session_cleanup_purge_registry_checks_degraded_remnant_teardown
         session_root=session_root,
         lifecycle_state="active",
     )
+    monkeypatch.setattr(runtime_cleanup, "load_managed_agent_record_by_agent_id", lambda _: record)
 
     monkeypatch.setattr(
         runtime_cleanup,
@@ -1153,18 +1179,33 @@ def test_managed_session_cleanup_purge_registry_checks_degraded_remnant_teardown
     monkeypatch.setattr(
         runtime_cleanup,
         "probe_tmux_backed_authority",
-        lambda *, session_name: TmuxBackedAuthorityHealth(
+        lambda **kwargs: TmuxBackedAuthorityHealth(
             state="degraded_missing_primary",
             session_exists=True,
             primary_window_exists=False,
             primary_pane_exists=False,
+            session_id="$7",
         ),
     )
     cleanup_calls: list[str] = []
     owner_socket = current_tmux_socket_path()
 
-    def _kill(*, session_name: str) -> None:
+    def _read_marker(*, session_name: str, session_id: str, variable_name: str) -> str:
+        assert session_name == "join-sess" and session_id == "$7"
         assert current_tmux_socket_path() == owner_socket
+        return {
+            "HOUMAO_AGENT_ID": record.agent_id if owned else "other-agent",
+            "HOUMAO_MANIFEST_PATH": str(manifest_path),
+        }[variable_name]
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.terminal_recovery.read_tmux_session_environment_value",
+        _read_marker,
+    )
+
+    def _kill(*, session_name: str, session_id: str) -> None:
+        assert current_tmux_socket_path() == owner_socket
+        assert session_id == "$7"
         cleanup_calls.append(session_name)
         if not kill_succeeds:
             raise TmuxCommandError("tmux kill-session exited with status 23", returncode=23)
@@ -1182,10 +1223,26 @@ def test_managed_session_cleanup_purge_registry_checks_degraded_remnant_teardown
         agent_name=None,
         manifest_path=None,
         session_root=None,
-        dry_run=False,
+        dry_run=dry_run,
         purge_registry=True,
     )
 
+    if dry_run:
+        assert manifest_path.exists()
+        assert cleanup_calls == [] and purged == []
+        assert {action["artifact_kind"] for action in payload["planned_actions"]} == {
+            "session_root",
+            "managed_agent_registry_record",
+        }
+        return
+    if not owned:
+        assert manifest_path.exists()
+        assert cleanup_calls == [] and purged == []
+        assert (
+            "managed identity differs"
+            in payload["blocked_actions"][0]["details"]["inspection_error"]
+        )
+        return
     assert cleanup_calls == ["join-sess"]
     if kill_succeeds:
         assert not session_root.exists()
@@ -1202,9 +1259,9 @@ def test_managed_session_cleanup_purge_registry_checks_degraded_remnant_teardown
 
 
 @pytest.mark.parametrize("lifecycle_state", ["active", "stopped"])
-@pytest.mark.parametrize("stderr", ["", "Permission denied"])
+@pytest.mark.parametrize("failure", ["", "Permission denied", "timeout", "pane recheck"])
 def test_managed_session_cleanup_preserves_artifacts_when_owner_probe_fails(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, lifecycle_state: str, stderr: str
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, lifecycle_state: str, failure: str
 ) -> None:
     """A failed owner query cannot authorize file or registry removal."""
 
@@ -1222,9 +1279,14 @@ def test_managed_session_cleanup_preserves_artifacts_when_owner_probe_fails(
         self: TmuxServer, args: Sequence[str], *, sensitive: bool = False, no_start: bool = False
     ) -> TmuxCommandResult:
         assert self.socket_path == owner_socket
-        assert args[0] == "list-sessions"
         calls.append(tuple(args))
-        return TmuxCommandResult(tuple(args), 23, "", stderr)
+        if failure == "timeout":
+            raise TimeoutExpired(args, 1)
+        if failure == "pane recheck" and args[0] == "list-panes":
+            return TmuxCommandResult(tuple(args), 1, "", "can't find session: join-sess")
+        if failure == "pane recheck" and len(calls) > 1:
+            return TmuxCommandResult(tuple(args), 0, "join-sess\n", "")
+        return TmuxCommandResult(tuple(args), 23, "", failure)
 
     def _unexpected_mutation(*args: object, **kwargs: object) -> None:
         pytest.fail("An unavailable owner observation cannot authorize cleanup")
@@ -1247,7 +1309,13 @@ def test_managed_session_cleanup_preserves_artifacts_when_owner_probe_fails(
         )
 
     assert manifest_path.is_file()
-    assert calls == [("list-sessions", "-F", "#{session_name}")]
+    assert [call[0] for call in calls] == (
+        ["list-panes", "list-sessions"]
+        if lifecycle_state == "active" and failure == "pane recheck"
+        else ["list-panes"]
+        if lifecycle_state == "active"
+        else ["list-sessions"]
+    )
     assert payload["applied_actions"] == []
     assert "could not be verified" in payload["blocked_actions"][0]["reason"]
 

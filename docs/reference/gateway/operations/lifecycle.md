@@ -102,7 +102,8 @@ Current-session mode must run inside the target tmux session and validates all o
 
 Important boundary:
 
-- `--pair-port` is only valid on selected-agent `agents single ... gateway` commands
+- `agents single --target-tmux-session <session> gateway attach` selects an exact fresh local registry alias. Use an agent ID when multiple records share that alias.
+- `--pair-port` is valid with `--agent-id` or `--agent-name` on selected-agent gateway commands.
 - `--pair-port` selects the Houmao pair authority, not the live gateway listener port; lower-level listener binding uses runtime-facing flags such as `--gateway-port`
 - `agents self gateway` does not accept `--pair-port`; it follows the current session's manifest-declared pair authority after local resolution
 - current-session attach does not guess or re-resolve a different server target

@@ -407,6 +407,8 @@ class TmuxServer:
 
         try:
             return self.command(args)
+        except subprocess.TimeoutExpired:
+            raise TmuxObservationUnavailable(f"tmux {args[0]} timed out") from None
         except TmuxCommandError as exc:
             raise TmuxObservationUnavailable(str(exc), returncode=exc.returncode) from exc
 
@@ -557,9 +559,7 @@ def enclosing_tmux_session() -> tuple[str, str] | None:
     if not context:
         return None
     components = context.rsplit(",", 2)
-    if len(components) != 3 or any(
-        not re.fullmatch(r"[0-9]+", item) for item in components[1:]
-    ):
+    if len(components) != 3 or any(not re.fullmatch(r"[0-9]+", item) for item in components[1:]):
         raise ValueError("The current tmux context is malformed.")
     socket = validate_tmux_socket_path(components[0])
     result = TmuxServer(socket).checked_command(

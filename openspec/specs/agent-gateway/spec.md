@@ -184,33 +184,35 @@ The gateway companion SHALL continue writing its own durable logs to gateway-own
 - **AND THEN** shutdown and crash cleanup target the auxiliary tmux gateway surface rather than a detached subprocess handle
 
 ### Requirement: Gateway attach supports explicit tmux-session targeting outside the owning session
-For gateway-capable tmux-backed managed sessions, `houmao-mgr agents gateway attach` SHALL support an explicit outside-tmux selector `--target-tmux-session <tmux-session-name>`.
+`houmao-mgr agents single --target-tmux-session <session> gateway attach` SHALL select a unique fresh local registry record. Attach SHALL verify that the manifest matches the selected agent, generation, and owning tmux binding.
 
-When resolving that selector, the attach flow SHALL treat the addressed tmux session as local-host authority, SHALL prefer `HOUMAO_MANIFEST_PATH` published by that tmux session when present and valid, and SHALL otherwise use exactly one fresh shared-registry record whose `terminal.session_name` matches the selector to recover `runtime.manifest_path`.
+#### Scenario: Acceptance criteria
 
-After resolution, the attach flow SHALL validate that the resolved manifest still belongs to the addressed tmux session before starting or reusing a gateway.
-
-For pair-managed `houmao_server_rest` sessions, tmux-session targeting SHALL remain a local CLI resolution feature. After local resolution, the attach flow SHALL use the manifest-derived managed-agent pair authority rather than requiring the pair API to accept tmux session names as remote identifiers.
+- **WHEN** an operator attaches a gateway with a tmux session alias
+- **THEN** the runtime uses the current selected owner's authority
 
 #### Scenario: Outside-tmux attach resolves authority from the addressed tmux session manifest
-- **WHEN** an operator runs `houmao-mgr agents gateway attach --target-tmux-session HOUMAO-gpu-coder-1-1775467167530`
-- **AND WHEN** that tmux session exists on the local host and publishes a valid `HOUMAO_MANIFEST_PATH`
-- **THEN** the attach flow resolves gateway authority from that manifest
-- **AND THEN** it validates that the resolved manifest belongs to `HOUMAO-gpu-coder-1-1775467167530` before attaching
+
+- **WHEN** a caller selects a fresh registry alias for a peer on another socket
+- **THEN** the manager uses the peer's verified manifest and owner socket to attach the gateway
+- **AND THEN** the caller's enclosing tmux session is unaffected
 
 #### Scenario: Outside-tmux attach falls back to shared-registry tmux alias recovery
-- **WHEN** an operator runs `houmao-mgr agents gateway attach --target-tmux-session HOUMAO-gpu-coder-1-1775467167530`
-- **AND WHEN** that tmux session exists on the local host
-- **AND WHEN** the tmux-published manifest pointer is missing, blank, or stale
-- **AND WHEN** exactly one fresh shared-registry record has `terminal.session_name = "HOUMAO-gpu-coder-1-1775467167530"`
-- **THEN** the attach flow recovers `runtime.manifest_path` from that record
-- **AND THEN** it still validates the recovered manifest against the addressed tmux session before attaching
+
+- **WHEN** one fresh registry alias identifies the intended local agent
+- **AND WHEN** the caller cannot read the enclosing tmux environment
+- **THEN** the manager resolves the owner manifest directly from the registry
 
 #### Scenario: Pair-managed attach uses manifest-derived pair authority after tmux-session resolution
-- **WHEN** an operator runs `houmao-mgr agents gateway attach --target-tmux-session HOUMAO-research-1`
-- **AND WHEN** the resolved manifest authority identifies a pair-managed `houmao_server_rest` session
-- **THEN** the attach flow uses the manifest-derived pair authority for the managed-agent attach request
-- **AND THEN** it does not require the pair-managed API to accept `HOUMAO-research-1` as a remote managed-agent identifier
+
+- **WHEN** a local registry alias refers to a retired pair-managed backend
+- **THEN** the manager reports that the backend is retired
+- **AND THEN** pair selection uses an explicit agent ID or name
+
+#### Scenario: Conflicting registry alias fails closed
+
+- **WHEN** multiple fresh records claim the same tmux alias
+- **THEN** the manager reports the candidate agent IDs and requests an explicit selector
 
 ### Requirement: Same-session gateway live state persists an authoritative execution handle
 The runtime SHALL persist one authoritative live gateway record under `<session-root>/gateway/run/current-instance.json`.

@@ -1367,17 +1367,31 @@ def agents_global_group() -> None:
     default=None,
     help="Raw creation-time friendly managed-agent name. Do not include the `HOUMAO-` prefix.",
 )
+@click.option(
+    "--target-tmux-session",
+    default=None,
+    help="Exact registry tmux alias for a local gateway command.",
+)
 @click.pass_context
 def agents_single_group(
     ctx: click.Context,
     agent_id: str | None,
     agent_name: str | None,
+    target_tmux_session: str | None,
 ) -> None:
     """Operations for exactly one explicitly selected local managed agent."""
 
+    if target_tmux_session is not None:
+        if ctx.invoked_subcommand != "gateway":
+            raise click.UsageError("`--target-tmux-session` requires a gateway command.")
+        if agent_id is not None or agent_name is not None:
+            raise click.UsageError(
+                "Use exactly one of `--agent-id`, `--agent-name`, or `--target-tmux-session`."
+            )
     selected_agent_id, selected_agent_name = resolve_managed_agent_selector(
         agent_id=agent_id,
         agent_name=agent_name,
+        allow_missing=target_tmux_session is not None,
     )
     set_managed_agent_scope_context(
         ctx=ctx,
@@ -1385,6 +1399,7 @@ def agents_single_group(
             scope="single",
             agent_id=selected_agent_id,
             agent_name=selected_agent_name,
+            target_tmux_session=target_tmux_session,
         ),
     )
 
@@ -2035,7 +2050,9 @@ def list_agents_command(port: int | None, lifecycle_state: str) -> None:
 def state_agent_command(port: int | None, agent_id: str | None, agent_name: str | None) -> None:
     """Show the operational managed-agent summary view."""
 
-    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    target = resolve_managed_agent_target(
+        agent_id=agent_id, agent_name=agent_name, port=port, include_inactive=True
+    )
     emit(
         managed_agent_state_payload(target),
         plain_renderer=render_agent_state_plain,
@@ -2304,7 +2321,7 @@ def _single_gateway_injections() -> Mapping[str, Any]:
     return {
         **_single_selector_injections(),
         "current_session": False,
-        "target_tmux_session": None,
+        "target_tmux_session": _require_single_scope_context().target_tmux_session,
     }
 
 

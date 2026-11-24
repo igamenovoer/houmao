@@ -192,22 +192,23 @@ At minimum, this SHALL apply to status-style inspection and shutdown-style contr
 - **AND THEN** the command returns a structured success result for that reminder id
 
 ### Requirement: `houmao-mgr agents gateway reminders` supports the same targeting contract as the rest of `agents gateway`
-`list`, `get`, `create`, `set`, and `remove` in `agents gateway reminders` SHALL use the standard gateway selector contract. Server-backed commands SHALL accept `houmao-passive-server` for explicit pair authority.
+Gateway reminder operations SHALL use the same local registry aliases, explicit agent selectors, and verified self authority as other gateway operations. Explicit pair selection SHALL support the maintained passive server.
 
 #### Scenario: Reminder operations accept the standard gateway selectors
-- **WHEN** an operator targets one managed agent through a reminder command
-- **THEN** the command accepts `--agent-id`, `--agent-name`, `--current-session`, `--target-tmux-session`, and `--pair-port` under the gateway mutual-exclusion and current-session rules
+
+- **WHEN** an operator lists reminders with an explicit local registry alias
+- **THEN** the command uses the uniquely selected owner
 
 #### Scenario: Current-session reminder inspection resolves the owning managed session
-- **WHEN** an operator runs `houmao-mgr agents gateway reminders list` from inside the owning managed tmux session
-- **THEN** `houmao-mgr` resolves the target through the manifest-first current-session contract used by the rest of `agents gateway`
-- **AND THEN** the reminder command does not require an explicit managed-agent selector in that same-session case
+
+- **WHEN** an agent runs `houmao-mgr agents self gateway reminders list`
+- **THEN** the command uses the current runtime's verified manifest and signer
 
 #### Scenario: Pair-backed reminder creation works through passive-server authority
-- **WHEN** an operator runs `houmao-mgr agents gateway reminders create --agent-id abc123 --pair-port 9891 --title "Check inbox" --mode one_off --prompt "Review the inbox now." --ranking 0 --start-after-seconds 300`
+
+- **WHEN** an operator creates a reminder with an explicit agent ID and `--pair-port`
 - **AND WHEN** the addressed pair authority reports `houmao_service == "houmao-passive-server"`
-- **THEN** `houmao-mgr` routes the reminder create request through the passive-server managed-agent gateway proxy
-- **AND THEN** the command does not reject the passive server as unsupported for reminder control
+- **THEN** the manager routes the create request through the addressed agent's passive-server gateway proxy
 
 ### Requirement: `houmao-mgr agents gateway reminders create` and `set` support numeric ranking plus prepend and append placement modes
 Reminder `create` SHALL require one numeric ranking mode, and `set` SHALL accept at most one. The supported modes SHALL be `--ranking <int>`, `--before-all`, and `--after-all`. The CLI SHALL exclude named priority aliases such as `high`, `normal`, and `low`.
@@ -783,7 +784,7 @@ On an unexpected failure, `houmao-mgr agents stop` SHALL identify the failing ph
 - **AND THEN** existing relaunch scripts keep their prior behavior
 
 ### Requirement: Managed-agent-targeting native CLI commands use explicit identity selectors
-Single-target commands in `agents`, `agents gateway`, `agents mail`, and `agents turn` SHALL use `--agent-id` or `--agent-name` instead of a positional reference. Commands SHALL require exactly one selector except where a separate current-session contract applies.
+Selected-agent commands SHALL use one explicit agent ID or friendly name. Local gateway commands MAY instead use the group-level tmux session alias. Self commands SHALL resolve the caller's verified managed runtime.
 
 #### Scenario: Identity selectors use authoritative identity and unique names
 - **WHEN** a caller targets one managed agent
@@ -999,43 +1000,44 @@ Those project-scoped wrappers SHALL NOT add or reintroduce participant-local mut
 - **AND THEN** the payload does not claim a single authoritative participant-local read, starred, archived, or deleted state
 
 ### Requirement: `houmao-mgr agents gateway` exposes `--target-tmux-session` for explicit outside-tmux targeting
-Gateway commands targeting one managed agent SHALL support explicit `--target-tmux-session <tmux-session-name>` and call the pair-authority override `--pair-port`.
+Gateway commands under `agents single` SHALL accept exactly one group-level agent ID, friendly name, or supported local tmux alias. `agents self gateway` SHALL use verified current-session authority.
 
 #### Scenario: Gateway operations share the explicit tmux selector
-- **WHEN** a caller runs `attach`, `detach`, `status`, `prompt`, `interrupt`, `send-keys`, or `mail-notifier status|enable|disable`
-- **THEN** the command accepts exactly one of `--agent-id`, `--agent-name`, `--target-tmux-session`, or `--current-session`
-- **AND THEN** omitting selectors inside the owning tmux session selects that current session
+
+- **WHEN** an operator uses a gateway alias on `agents single`
+- **THEN** the option is a group-level selector for local gateway commands
 
 #### Scenario: An explicit tmux session supplies local authority
-- **WHEN** a caller outside tmux supplies `--target-tmux-session`
-- **THEN** the command resolves the target through the addressed local tmux session without requiring `--agent-id` or `--agent-name`
 
-#### Scenario: Pair ports apply only to identity selectors
-- **WHEN** a caller supplies the explicit pair port override
-- **THEN** the CLI accepts `--pair-port` only with `--agent-id` or `--agent-name` and rejects it with `--target-tmux-session` or `--current-session`
-- **AND THEN** help and errors identify it as the Houmao pair-authority port, distinct from listener options such as lower-level `--gateway-port`
+- **WHEN** the caller's enclosing tmux server does not contain the selected session
+- **THEN** a unique fresh registry match resolves the peer's local owner
 
 #### Scenario: Outside-tmux gateway status resolves by explicit tmux session selector
-- **WHEN** an operator runs `houmao-mgr agents gateway status --target-tmux-session HOUMAO-gpu-coder-1-1775467167530`
-- **AND WHEN** the addressed tmux session resolves to one live managed-agent target on the local host
-- **THEN** `houmao-mgr` resolves that target without requiring `--agent-id` or `--agent-name`
-- **AND THEN** it returns gateway status for the addressed managed session
+
+- **WHEN** an operator runs `houmao-mgr agents single --target-tmux-session HOUMAO-gpu-coder-1-1775467167530 gateway status`
+- **THEN** the command resolves a unique fresh local registry record for that alias
+- **AND THEN** it returns the selected owner's recorded or verified gateway status
 
 #### Scenario: Gateway prompt supports the tmux-session selector across the command family
-- **WHEN** an operator runs `houmao-mgr agents gateway prompt --target-tmux-session HOUMAO-gpu-coder-1-1775467167530 --prompt "hi"`
-- **AND WHEN** the addressed tmux session resolves to one live managed-agent target on the local host
-- **THEN** `houmao-mgr` submits the gateway-mediated prompt to that resolved target
-- **AND THEN** the operator does not need to rediscover the managed-agent id before using the follow-up gateway command
+
+- **WHEN** an operator runs `houmao-mgr agents single --target-tmux-session HOUMAO-gpu-coder-1-1775467167530 gateway prompt --prompt hi`
+- **THEN** the command submits the gateway-mediated request to that selected target
+
+#### Scenario: Pair ports apply only to identity selectors
+
+- **WHEN** an operator supplies `--pair-port` with a selected-agent gateway command
+- **THEN** the command accepts the override only with an explicit agent ID or name
+- **AND THEN** the override selects the pair authority and is distinct from the gateway listener port
 
 #### Scenario: Port override is rejected for tmux-session targeting
-- **WHEN** an operator runs `houmao-mgr agents gateway attach --target-tmux-session HOUMAO-gpu-coder-1-1775467167530 --pair-port 9891`
-- **THEN** `houmao-mgr` rejects that invocation explicitly
-- **AND THEN** the command explains that `--pair-port` is only supported with explicit `--agent-id` or `--agent-name` targeting
+
+- **WHEN** an operator combines a tmux alias with `--pair-port`
+- **THEN** the CLI reports that pair selection requires an explicit agent ID or name
 
 #### Scenario: Explicit pair-authority override uses the clearer flag name
-- **WHEN** an operator runs `houmao-mgr agents gateway status --agent-id abc123 --pair-port 9891`
-- **THEN** `houmao-mgr` targets the pair authority at port `9891`
-- **AND THEN** the command surface does not describe that override as a generic `--port` that could be mistaken for the gateway listener port
+
+- **WHEN** an operator runs `houmao-mgr agents single --agent-id abc123 gateway status --pair-port 9891`
+- **THEN** the command targets the pair authority at port `9891`
 
 ### Requirement: `houmao-mgr agents interrupt` keeps TUI interrupt transport-neutral
 `houmao-mgr agents interrupt` SHALL expose one transport-neutral operator contract. TUI interrupt SHALL send one best-effort `Escape` through resolved managed-agent authority. Headless interrupt SHALL use managed execution control.

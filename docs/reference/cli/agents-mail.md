@@ -46,6 +46,8 @@ houmao-mgr agents single --agent-id <id> mail resolve-live [OPTIONS]
 
 JSON output includes the resolved mailbox binding, a `managed_agent` summary, `gateway_available`, and optional `gateway` metadata including `base_url` when a live shared `/v1/mail/*` facade is available. Configured slot summaries live under `mailboxes.offline` and `mailboxes.online`, with a derived `canonical_mail_identity`. Protected credential references are omitted. Mailbox-specific shell export is not part of the supported `resolve-live` contract.
 
+For a selected local agent, `source: manifest_binding` identifies contact from a verified runtime manifest. If only the shared registry is available, `source: registry_projection` returns the published contact with `availability: unverified`. A live gateway is reported only when its endpoint identifies the selected runtime generation. The recipient's tmux socket is unnecessary for discovery. To deliver, run `agents self mail send` with the recipient address and the explicit `--channel` through your own binding.
+
 ### `status`
 
 Show mailbox status for one managed agent.

@@ -21,11 +21,11 @@ Use this action when you need to identify the correct managed agent first or dis
 2. Recover the target selector from the current prompt first and recent chat context second when it was stated explicitly.
 3. If the target selector is still missing, ask the user in Markdown before proceeding.
 4. If the request is generic read-only inspection rather than messaging preparation, hand it off to `houmao-shared-routines->houmao-agent-inspect`.
-5. Run `agents single --agent-name <name> state` first to confirm the managed-agent identity and current operational summary.
-6. If the current task may need ordinary prompting, live gateway control, or any other gateway-preferred prompt routing decision, run `agents single --agent-name <name> gateway status` next.
-7. If the current task may need mailbox work or an exact live gateway base URL, run `agents single --agent-name <name> mail resolve-live` next.
+5. For recipient contact, use `agents single --agent-name <name> mail resolve-live` and read the address for the explicit mail channel. Published contact is sufficient for ordinary mail; delivery checks recipient registration independently.
+6. Use `agents single --agent-name <name> state` if the request needs current operational posture.
+7. Use `agents single --agent-name <name> gateway status` if the request needs verified gateway status.
 8. When the caller is already operating through the pair-managed HTTP API instead of the CLI, use the managed-agent routes summarized in `references/managed-agent-http.md`.
-9. Report the target identity plus only the capability facts that matter for the next action: gateway availability, mailbox availability, exact `gateway.base_url` when present, and whether prompt or outgoing mailbox work should prefer a gateway-backed surface.
+9. Report the selected identity and the evidence relevant to the next action. Describe published mail contact as recorded information, and include `gateway.base_url` only when the response provides a verified live endpoint.
 
 
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.

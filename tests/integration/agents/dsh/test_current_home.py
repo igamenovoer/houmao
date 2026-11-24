@@ -15,6 +15,7 @@ import pytest
 import yaml
 
 from houmao.agents.realm_controller.native_refresh_models import NativeRefreshRequestV1
+from houmao.execution.tmux import TmuxObservationUnavailable, TmuxServer
 
 
 def _catalog(body: dict[str, Any]) -> str:
@@ -69,6 +70,51 @@ def _prepare_fixture(
     )
     run = prepare.prepare_run(config, run_root=tmp_path / "runs", executable=str(dsh_executable))
     return run, prepare, launch
+
+
+@pytest.mark.parametrize("mode,source", [("web", "web_native"), ("service", "service_native")])
+def test_manager_state_uses_native_owner_without_supervisor_access(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dsh_executable: Path,
+    controlled_messages_server: tuple[str, list[dict[str, Any]]],
+    mode: str,
+    source: str,
+) -> None:
+    """Observe the native owner even when the caller cannot reach its terminal socket."""
+
+    endpoint, _ = controlled_messages_server
+    run, prepare, launch = _prepare_fixture(
+        tmp_path, monkeypatch, dsh_executable, endpoint=endpoint, surface="manager", mode=mode
+    )
+    root = Path(run["run_dir"])
+    try:
+        result = launch.launch_run(root, timeout=45)
+        env = launch.run_environment(launch.load_run(root))
+        agent_id = result["identity"]["agent_id"]
+        scope = ["agents", "single", "--agent-id", agent_id]
+        prepare.manager_root_call([*scope, "gateway", "detach"], env=env)
+        attempts = []
+
+        def denied(server: TmuxServer, *_args: object, **_kwargs: object) -> None:
+            """Record and reject any terminal invocation in the state command."""
+
+            attempts.append(server.socket_path)
+            raise TmuxObservationUnavailable("Test cannot reach the supervisor socket")
+
+        with monkeypatch.context() as caller:
+            caller.setattr(TmuxServer, "command", denied)
+            state = prepare.manager_root_call([*scope, "state"], env=env)
+        assert attempts == []
+        assert state["identity"]["agent_id"] == agent_id
+        assert state["identity"]["lifecycle_state"] == "active"
+        assert state["availability"] == "available"
+        assert state["control"]["source"] == source
+        assert state["control"]["freshness"] == "current"
+        assert state["control"]["observed_at_utc"]
+        assert state["control"]["can_accept_prompt_now"] is True
+    finally:
+        launch.stop_run(root)
 
 
 def test_service_refresh_requires_native_relaunch_for_skills_and_mcp(

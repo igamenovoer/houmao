@@ -62,7 +62,7 @@ houmao-mgr agents single --agent-id <id> gateway detach [OPTIONS]
 
 ### `status`
 
-Show live gateway status, including the execution mode and authoritative gateway tmux window index when foreground execution is active.
+Show recorded detached status or verify the current attached gateway through its own endpoint. A verified foreground gateway reports its tmux window index. An unreachable or superseded instance produces an unavailable diagnostic. Selected-agent status needs access to the saved runtime record and the gateway endpoint when attached.
 
 ```
 houmao-mgr agents single --agent-id <id> gateway status [OPTIONS]
@@ -377,6 +377,7 @@ houmao-mgr agents single --agent-id <id> gateway mail-notifier disable --channel
 ## Targeting Rules
 
 - `agents single --agent-id <id> gateway ...` and `agents single --agent-name <name> gateway ...` require exactly one explicit group-level selected-agent target. Nested gateway leaves do not repeat `--agent-id` or `--agent-name`.
+- `agents single --target-tmux-session <session> gateway ...` selects a fresh local registry record by its exact tmux session alias. Use `--agent-id` if the alias is ambiguous. Pair selection and Web entry require an agent ID or friendly name.
 - `agents self gateway ...` targets the caller's verified runtime manifest and uses its current gateway binding. It accepts no explicit selectors, `--current-session`, or `--pair-port`.
 - `--pair-port` is only supported on selected-agent `agents single ... gateway` commands. It selects the Houmao pair authority, not the live gateway listener port. Lower-level gateway listener overrides use runtime-facing flags such as `--gateway-port`.
 - Gateway TUI timing overrides must be positive seconds. They apply to the gateway sidecar started by this attach and are persisted as the desired timing config for the gateway root after attach succeeds.

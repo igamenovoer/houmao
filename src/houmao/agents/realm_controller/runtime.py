@@ -2699,7 +2699,7 @@ def _resume_runtime_session_controller(
         )
     agent_def_dir = _launch_definition_path(manifest_payload, agent_def_dir)
     memory = _memory_from_manifest_payload(payload=manifest_payload)
-    if memory is not None and not read_only:
+    if memory is not None and not read_only and not existing_only:
         ensure_agent_memory(memory)
 
     resolved_mailboxes = _resolved_mailbox_from_manifest_payload(

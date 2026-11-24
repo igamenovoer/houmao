@@ -103,9 +103,10 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
    - if the user explicitly asks for a specific launcher, follow that request instead of the default order
 5. Reuse that same chosen launcher for the selected inspection action.
-6. Follow the identify-first evidence ladder:
+6. Select evidence for the inspection intent after identifying the agent:
    - identify the target through `agents global list` or an explicit selector
-   - read summary state through `agents single ... state`, `agents self state`, or `GET /houmao/agents/{agent_ref}/state`
+   - for recipient contact, use `agents single ... mail resolve-live` and read the requested channel. Published contact has unverified availability and suffices for ordinary mail addressing
+   - for runtime posture, read summary state through `agents single ... state`, `agents self state`, or `GET /houmao/agents/{agent_ref}/state`
    - use transport-specific detail through `GET /houmao/agents/{agent_ref}/state/detail`, live gateway status, or live gateway TUI state when needed to recover the exact tmux session name or pane target
    - once the exact tmux session or pane target is identified for a TUI-backed agent, inspect the live pane with local tmux capture before using gateway TUI tracker state or history
    - inspect mailbox posture, logs, or runtime artifacts through the owned read-only surfaces for that domain

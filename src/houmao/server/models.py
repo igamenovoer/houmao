@@ -715,6 +715,15 @@ class HoumaoManagedAgentGatewaySummaryView(_HoumaoModel):
         return value
 
 
+class HoumaoManagedAgentPublicationView(_HoumaoModel):
+    """Shared-registry lifecycle and lease evidence at the time of inspection."""
+
+    state_updated_at: str
+    published_at: str | None = None
+    lease_expires_at: str | None = None
+    lease_freshness: Literal["current", "expired"] | None = None
+
+
 class HoumaoManagedAgentStateResponse(_HoumaoModel):
     """Response for `GET /houmao/agents/{agent_ref}/state`."""
 
@@ -725,6 +734,7 @@ class HoumaoManagedAgentStateResponse(_HoumaoModel):
     last_turn: HoumaoManagedAgentLastTurnView
     capabilities: ManagedControlCapabilitiesV1 | None = None
     control: ManagedControlObservationV1 | None = None
+    publication: HoumaoManagedAgentPublicationView | None = None
     diagnostics: list[HoumaoErrorDetail] = Field(default_factory=list)
     mailboxes: HoumaoManagedAgentMailboxSummaryView | None = None
     gateway: HoumaoManagedAgentGatewaySummaryView | None = None
@@ -796,14 +806,14 @@ class HoumaoManagedAgentTuiDetailView(_HoumaoModel):
     """Curated TUI projection exposed under the managed-agent detail route."""
 
     transport: Literal["tui"] = "tui"
-    terminal_id: str
-    canonical_terminal_state_route: str
-    canonical_terminal_history_route: str
+    terminal_id: str | None
+    canonical_terminal_state_route: str | None
+    canonical_terminal_history_route: str | None
     diagnostics: HoumaoTrackedDiagnostics
     probe_snapshot: HoumaoProbeSnapshot | None = None
     parsed_surface: HoumaoParsedSurface | None = None
     surface: HoumaoTrackedSurface
-    stability: HoumaoStabilityMetadata
+    stability: HoumaoStabilityMetadata | None
 
     @field_validator(
         "terminal_id",
@@ -811,9 +821,11 @@ class HoumaoManagedAgentTuiDetailView(_HoumaoModel):
         "canonical_terminal_history_route",
     )
     @classmethod
-    def _not_blank(cls, value: str) -> str:
+    def _not_blank(cls, value: str | None) -> str | None:
         """Require non-empty route and terminal identifiers."""
 
+        if value is None:
+            return None
         stripped = value.strip()
         if not stripped:
             raise ValueError("must not be empty")
@@ -825,8 +837,8 @@ class HoumaoManagedAgentHeadlessDetailView(_HoumaoModel):
 
     transport: Literal["headless"] = "headless"
     runtime_resumable: bool
-    tmux_session_live: bool
-    can_accept_prompt_now: bool
+    tmux_session_live: bool | None
+    can_accept_prompt_now: bool | None
     interruptible: bool
     chat_session: GatewayHeadlessChatSessionStateV1 | None = None
     turn: HoumaoManagedAgentTurnView
@@ -869,7 +881,7 @@ class HoumaoManagedAgentWebDetailView(_HoumaoModel):
     """Canonical rich native Web inspection, with no terminal parser projection."""
 
     transport: Literal["web"] = "web"
-    state: GatewayWebControlStateV1
+    state: GatewayWebControlStateV1 | None
 
 
 class HoumaoManagedAgentServiceDetailView(_HoumaoModel):

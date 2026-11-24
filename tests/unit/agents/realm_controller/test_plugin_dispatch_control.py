@@ -398,7 +398,7 @@ def test_tui_confirms_after_managed_prompt_enter(monkeypatch: pytest.MonkeyPatch
         deadline=time.monotonic() + 10,
     )
     monkeypatch.setattr(backend, "_require_tmux_session_name", lambda: "owned-session")
-    monkeypatch.setattr(backend, "_primary_tmux_pane_target", lambda: "%1")
+    monkeypatch.setattr(backend, "_primary_tmux_pane_target", lambda **_: "%1")
     monkeypatch.setattr(
         local_interactive, "load_tmux_buffer_shared", lambda *, text, **_: operations.append(text)
     )
@@ -427,7 +427,7 @@ def test_tui_replacement_after_paste_prevents_enter_and_clears_buffer(
         allowed=lambda: active, confirmed=lambda: None, deadline=time.monotonic() + 10
     )
     monkeypatch.setattr(backend, "_require_tmux_session_name", lambda: "owned-session")
-    monkeypatch.setattr(backend, "_primary_tmux_pane_target", lambda: "%1")
+    monkeypatch.setattr(backend, "_primary_tmux_pane_target", lambda **_: "%1")
     monkeypatch.setattr(local_interactive, "load_tmux_buffer_shared", lambda **_kwargs: None)
     operations: list[object] = []
 
@@ -446,8 +446,44 @@ def test_tui_replacement_after_paste_prevents_enter_and_clears_buffer(
         lambda **_kwargs: operations.append("enter"),
     )
     monkeypatch.setattr(
-        local_interactive, "delete_tmux_buffer_shared", lambda **_: operations.append("delete-buffer")
+        local_interactive,
+        "delete_tmux_buffer_shared",
+        lambda **_: operations.append("delete-buffer"),
     )
     with pytest.raises(BackendExecutionError, match="no longer active"):
         backend._submit_semantic_prompt("discarded request")
     assert operations == ["paste", "delete-buffer"]
+
+
+def test_managed_tui_dispatch_cannot_repair_to_an_unadmitted_pane(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fail before loading input if the pane admitted earlier has been replaced."""
+
+    from houmao.agents.realm_controller.backends import local_interactive
+    from houmao.execution.tmux import TmuxCommandError
+
+    backend = object.__new__(local_interactive.LocalInteractiveSession)
+    backend.m_dispatch_control = HeadlessDispatchControl.from_callbacks(
+        allowed=lambda: True,
+        confirmed=lambda: pytest.fail("replacement pane was never admitted"),
+        deadline=time.monotonic() + 10,
+    )
+
+    def observe(*, allow_repair: bool, allow_dead: bool) -> None:
+        """Report that the exact pane disappeared before handoff."""
+
+        assert not allow_repair and not allow_dead
+        raise TmuxCommandError("Primary tmux surface is stale_handles")
+
+    monkeypatch.setattr(backend, "_require_tmux_session_name", lambda: "owned-session")
+    monkeypatch.setattr(backend, "_observe_primary_surface", observe)
+    monkeypatch.setattr(
+        local_interactive,
+        "load_tmux_buffer_shared",
+        lambda **_: pytest.fail("the disappeared pane must prevent input"),
+    )
+
+    with pytest.raises(BackendExecutionError, match="stale_handles"):
+        backend._submit_semantic_prompt("must not reach the replacement pane")
+    assert not backend.m_dispatch_control.m_input_started.is_set()

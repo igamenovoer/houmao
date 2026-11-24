@@ -71,10 +71,58 @@ def render_agent_list_fancy(payload: object) -> None:
 # Agent state
 # ---------------------------------------------------------------------------
 
-_STATE_ESSENTIAL = (
-    "tracked_agent_id",
-    "availability",
-)
+
+def _agent_state_fields(data: dict[str, Any]) -> list[tuple[str, str]]:
+    """Read recorded metadata and qualified observation fields for state renderers."""
+
+    fields: list[tuple[str, str]] = []
+    identity = data.get("identity")
+    if isinstance(identity, dict):
+        fields.append(("lifecycle", _pv(identity.get("lifecycle_state"))))
+    publication = data.get("publication")
+    if isinstance(publication, dict) and publication.get("lease_freshness") is not None:
+        fields.append(("registry_lease", _pv(publication.get("lease_freshness"))))
+    control = data.get("control")
+    if isinstance(control, dict):
+        fields.extend(
+            (
+                ("evidence_source", _pv(control.get("source"))),
+                ("evidence_freshness", _pv(control.get("freshness"))),
+                ("observed_at_utc", _pv(control.get("observed_at_utc"))),
+                ("can_accept_prompt_now", _pv(control.get("can_accept_prompt_now"))),
+            )
+        )
+    turn = data.get("turn")
+    if isinstance(turn, dict):
+        fields.append(("turn_phase", _pv(turn.get("phase"))))
+        if turn.get("active_turn_id") is not None:
+            fields.append(("active_turn_id", _pv(turn.get("active_turn_id"))))
+    last_turn = data.get("last_turn")
+    if isinstance(last_turn, dict):
+        fields.append(("last_turn_result", _pv(last_turn.get("result"))))
+        if last_turn.get("turn_id") is not None:
+            fields.append(("last_turn_id", _pv(last_turn.get("turn_id"))))
+    gateway = data.get("gateway")
+    if isinstance(gateway, dict):
+        fields.append(("gateway", _pv(gateway.get("gateway_health"))))
+    mailboxes = data.get("mailboxes")
+    if isinstance(mailboxes, dict):
+        for channel in ("offline", "online"):
+            slot = mailboxes.get(channel)
+            binding = slot.get("binding") if isinstance(slot, dict) else None
+            if isinstance(binding, dict):
+                fields.append((f"{channel}_mailbox", _pv(binding.get("address"))))
+    for key in ("memory_root", "memo_file", "pages_dir"):
+        if data.get(key) is not None:
+            fields.append((key, _pv(data.get(key))))
+    diagnostics = data.get("diagnostics")
+    if isinstance(diagnostics, list):
+        fields.extend(
+            ("diagnostic", _pv(item.get("message")))
+            for item in diagnostics
+            if isinstance(item, dict) and item.get("message") is not None
+        )
+    return fields
 
 
 def render_agent_state_plain(payload: object) -> None:
@@ -94,37 +142,15 @@ def render_agent_state_plain(payload: object) -> None:
     avail = data.get("availability", "unknown")
     click.echo(f"  availability:  {avail}")
 
-    turn = data.get("turn")
-    if isinstance(turn, dict):
-        click.echo(f"  turn_active:   {_pv(turn.get('active'))}")
-        click.echo(f"  turn_id:       {_pv(turn.get('turn_id'))}")
-
-    last_turn = data.get("last_turn")
-    if isinstance(last_turn, dict):
-        click.echo(f"  last_status:   {_pv(last_turn.get('status'))}")
-        click.echo(f"  last_turn_id:  {_pv(last_turn.get('turn_id'))}")
-
-    gateway = data.get("gateway")
-    if isinstance(gateway, dict):
-        click.echo(f"  gateway:       {_pv(gateway.get('health'))}")
-
-    mailbox = data.get("mailbox")
-    if isinstance(mailbox, dict):
-        click.echo(f"  mailbox:       {_pv(mailbox.get('status'))}")
-
-    click.echo(f"  memory:        {_pv(data.get('memory_root'))}")
-    click.echo(f"  memo_file:     {_pv(data.get('memo_file'))}")
-    click.echo(f"  pages_dir:     {_pv(data.get('pages_dir'))}")
-
-    diags = data.get("diagnostics")
-    if isinstance(diags, list) and diags:
-        click.echo(f"  diagnostics:   {len(diags)} issue(s)")
+    for name, value in _agent_state_fields(data):
+        click.echo(f"  {name}: {value}")
 
 
 def render_agent_state_fancy(payload: object) -> None:
     """Render agent state as a rich panel."""
     from rich.console import Console
     from rich.table import Table
+    from rich.text import Text
 
     data = _as_dict(payload)
     if not data:
@@ -145,26 +171,8 @@ def render_agent_state_fancy(payload: object) -> None:
     style = "green" if avail == "available" else "red" if avail == "error" else "yellow"
     table.add_row("availability", f"[{style}]{avail}[/{style}]")
 
-    turn = data.get("turn")
-    if isinstance(turn, dict):
-        table.add_row("turn_active", _pv(turn.get("active")))
-        table.add_row("turn_id", _pv(turn.get("turn_id")))
-
-    last_turn = data.get("last_turn")
-    if isinstance(last_turn, dict):
-        table.add_row("last_status", _pv(last_turn.get("status")))
-
-    gateway = data.get("gateway")
-    if isinstance(gateway, dict):
-        table.add_row("gateway", _pv(gateway.get("health")))
-
-    mailbox = data.get("mailbox")
-    if isinstance(mailbox, dict):
-        table.add_row("mailbox", _pv(mailbox.get("status")))
-
-    table.add_row("memory_root", _pv(data.get("memory_root")))
-    table.add_row("memo_file", _pv(data.get("memo_file")))
-    table.add_row("pages_dir", _pv(data.get("pages_dir")))
+    for name, value in _agent_state_fields(data):
+        table.add_row(name, Text(value))
 
     Console().print(table)
 

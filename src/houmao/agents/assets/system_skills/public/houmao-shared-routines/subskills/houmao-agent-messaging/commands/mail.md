@@ -13,24 +13,22 @@ skill_invocation_notation: >
 
 # Route Mailbox Work To The Mail Skills
 
-Use this action only when the target has mailbox capability and the current task needs mailbox work instead of a normal prompt turn or raw gateway control.
+Use this action when the current task needs recipient contact or a mailbox handoff.
 
 ## Workflow
 
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the target selector and mailbox intent from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the target selector or mailbox intent is still missing, ask the user in Markdown before proceeding.
-4. Use `agents single ... mail resolve-live` or `agents self mail resolve-live` first when the task needs current mailbox bindings, mailbox capability confirmation, or an exact live `gateway.base_url`.
-5. When the mailbox task is a notifier-driven open-mail round and current context already provides the exact live gateway base URL, hand off to `houmao-shared-routines->houmao-process-emails-via-gateway`.
-6. Otherwise hand off ordinary mailbox work to `houmao-shared-routines->houmao-agent-email-comms`.
-7. Use the resolver output to tell the selected mailbox skill whether the turn has a live `gateway.base_url` or must use no-gateway fallback guidance.
-8. Report the selected mailbox lane and any resolved live-gateway fact that matters for the handoff.
+4. Use the known recipient address for the explicit channel. If the request names an agent and omits its address, read `agents single ... mail resolve-live` for the selected channel. Published contact is sufficient for addressing ordinary mail.
+5. Hand off ordinary mailbox work to `houmao-shared-routines->houmao-agent-email-comms`. For outbound agent mail, pass the recipient address and channel to the sender's `agents self mail send --channel <channel>` workflow. Recipient gateway availability and readiness do not gate delivery.
+6. For a notifier-driven open-mail round, hand off to `houmao-shared-routines->houmao-process-emails-via-gateway` with the exact live `gateway.base_url` from current context or verified discovery.
 
 
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
 ## Discovery Shape
 
-Resolve live bindings before handoff:
+Resolve a named recipient's address when needed:
 
 ```text
 <chosen houmao-mgr launcher> agents single --agent-name <name> mail resolve-live
@@ -40,10 +38,9 @@ Managed-agent HTTP discovery surface:
 
 - `GET /houmao/agents/{agent_ref}/mail/resolve-live`
 
-After `resolve-live`:
+After `resolve-live`, read `mailboxes.offline` or `mailboxes.online` according to the selected channel. A result with `source: registry_projection` is published contact with unverified availability.
 
-- use `houmao-shared-routines->houmao-agent-email-comms` for ordinary mailbox `status`, `list`, `peek`, `read`, `send`, `reply`, or `archive` work
-- use `houmao-shared-routines->houmao-process-emails-via-gateway` for one live-gateway open-mail round that already has the exact current base URL in context
+Pass the recipient address to the mailbox skill. The sender's binding and credentials come from verified self authority.
 
 ## Guardrails
 

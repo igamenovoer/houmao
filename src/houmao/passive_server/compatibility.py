@@ -190,7 +190,7 @@ def managed_runtime_headless_state_from_observation(
     *,
     identity: HoumaoManagedAgentIdentity,
     latest_turn: HeadlessTurnSnapshot | None,
-    owner_available: bool,
+    owner_available: bool | None,
     native_session_id: str | None = None,
     mailbox_summary: HoumaoManagedAgentMailboxSummaryView | None = None,
     gateway_summary: HoumaoManagedAgentGatewaySummaryView | None = None,
@@ -251,8 +251,8 @@ def managed_runtime_headless_detail_response(
     last_status = "unknown" if control.last_outcome == "uncertain" else control.last_outcome
     detail = HoumaoManagedAgentHeadlessDetailView(
         runtime_resumable=True,
-        tmux_session_live=control.owner_available is True,
-        can_accept_prompt_now=control.can_accept_prompt_now is True,
+        tmux_session_live=control.owner_available,
+        can_accept_prompt_now=control.can_accept_prompt_now,
         interruptible=active,
         turn=summary_state.turn,
         last_turn=summary_state.last_turn,
@@ -332,7 +332,8 @@ def managed_web_state_from_native(
             "error": "known_failure",
         }
         result = results.get(state.last_turn.result, "unknown")
-    fresh = web_state_is_fresh(state)
+    available = state.availability == "available"
+    fresh = available and web_state_is_fresh(state)
     active_turn_id = (
         f"native-turn:{state.identity.native_session_id}:{state.active_turn.turn}"
         if state.active_turn is not None
@@ -354,7 +355,7 @@ def managed_web_state_from_native(
     return HoumaoManagedAgentStateResponse(
         tracked_agent_id=identity.tracked_agent_id,
         identity=identity,
-        availability="available" if state.availability == "available" else "unavailable",
+        availability="available" if available else "unavailable",
         turn=HoumaoManagedAgentTurnView(
             phase=phase,
             active_turn_id=active_turn_id,
@@ -368,8 +369,8 @@ def managed_web_state_from_native(
         capabilities=_capabilities(identity),
         control=ManagedControlObservationV1(
             source="web_native",
-            freshness="current" if fresh else "stale",
-            observed_at_utc=state.observed_at_utc,
+            freshness="current" if fresh else "stale" if available else "unknown",
+            observed_at_utc=state.observed_at_utc if available else None,
             owner_available=state.host_process_alive,
             connection_ready=state.control_available,
             can_accept_prompt_now=fresh and state.control_available and state.can_accept_prompt_now,

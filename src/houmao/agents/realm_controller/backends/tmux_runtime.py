@@ -380,10 +380,10 @@ def cleanup_tmux_session(*, session_name: str) -> None:
         return
 
 
-def kill_tmux_session(*, session_name: str) -> None:
+def kill_tmux_session(*, session_name: str, session_id: str | None = None) -> None:
     """Terminate a tmux session and fail if tmux reports an error."""
 
-    result = tmux_command(["kill-session", "-t", f"={session_name}"])
+    result = tmux_command(["kill-session", "-t", session_id or f"={session_name}"])
     if result.returncode == 0:
         return
     detail = tmux_error_detail(result)
@@ -440,6 +440,7 @@ class TmuxBackedAuthorityHealth:
     primary_pane_exists: bool
     primary_window_handle_valid: bool | None = None
     primary_pane_handle_valid: bool | None = None
+    session_id: str | None = None
 
 
 def probe_tmux_backed_authority(
@@ -470,6 +471,7 @@ def probe_tmux_backed_authority(
         )
 
     server = TmuxServer()
+    panes = server.observe_session(name)
     observation = select_primary_tmux_surface(
         SessionManifestTmuxSectionV1(
             session_name=name,
@@ -478,7 +480,7 @@ def probe_tmux_backed_authority(
             primary_window_id=primary_window_id,
             primary_pane_id=primary_pane_id,
         ),
-        server.observe_session(name),
+        panes,
         joined=joined,
     )
     state: _TmuxHealthState
@@ -505,6 +507,7 @@ def probe_tmux_backed_authority(
         primary_pane_exists=observation.primary_pane_exists,
         primary_window_handle_valid=observation.primary_window_handle_valid,
         primary_pane_handle_valid=observation.primary_pane_handle_valid,
+        session_id=panes[0].session_id if panes else None,
     )
 
 
@@ -582,18 +585,25 @@ def unset_tmux_session_environment(*, session_name: str, variable_names: list[st
         )
 
 
-def show_tmux_environment(*, session_name: str, variable_name: str) -> TmuxCommandResult:
+def show_tmux_environment(
+    *, session_name: str, variable_name: str, session_id: str | None = None
+) -> TmuxCommandResult:
     """Return raw tmux `show-environment` output for one variable."""
 
     return tmux_command(
-        ["show-environment", "-t", f"={session_name}", variable_name], sensitive=True
+        ["show-environment", "-t", session_id or f"={session_name}", variable_name],
+        sensitive=True,
     )
 
 
-def read_tmux_session_environment_value(*, session_name: str, variable_name: str) -> str | None:
+def read_tmux_session_environment_value(
+    *, session_name: str, variable_name: str, session_id: str | None = None
+) -> str | None:
     """Return one optional tmux session environment value."""
 
-    result = show_tmux_environment(session_name=session_name, variable_name=variable_name)
+    result = show_tmux_environment(
+        session_name=session_name, variable_name=variable_name, session_id=session_id
+    )
     if result.returncode != 0:
         detail = tmux_error_detail(result).lower()
         if "unknown variable" in detail or "unknown-environment" in detail:

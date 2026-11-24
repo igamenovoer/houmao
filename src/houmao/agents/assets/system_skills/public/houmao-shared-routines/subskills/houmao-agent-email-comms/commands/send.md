@@ -13,7 +13,9 @@ Use this action for ordinary managed-agent outbound shared mailbox messages.
 
 If the caller is acting as operator and needs to leave an operator-origin note in a managed agent mailbox, use `commands/post.md` instead of ordinary `send`.
 
-Run the scoped command for the selected channel and binding.
+Use the known recipient address for the explicit channel. If the request names a peer and omits its address, read `houmao-mgr agents single --agent-name <name> mail resolve-live`. Published contact is sufficient for addressing the message. Delivery checks registration independently of recipient readiness and gateway status.
+
+Run the scoped command with the sender's verified binding ID for that channel.
 
 ```bash
 houmao-mgr agents self mail send --channel "$MAIL_CHANNEL" --expected-binding-id "$BINDING_ID" \

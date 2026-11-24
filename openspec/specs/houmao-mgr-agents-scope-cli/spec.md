@@ -59,36 +59,13 @@ At minimum, `agents global` SHALL expose:
 - **AND THEN** it does not list `launch`, `join`, or `external`
 
 ### Requirement: Agents single scope owns explicitly selected one-agent operations
-`houmao-mgr agents single` SHALL expose maintained operations for one explicitly selected local managed-agent identity.
+`agents single` SHALL use one group-level agent ID or name. Local gateway commands also accept a unique fresh tmux alias. Nested commands SHALL use the selected target without inferring it from the caller's session.
 
-`agents single` SHALL require exactly one group-level selector:
+#### Scenario: Acceptance criteria
 
-```text
---agent-id <id>
---agent-name <name>
-```
-
-At minimum, `agents single` SHALL expose:
-
-- `state`
-- `prompt`
-- `interrupt`
-- `stop`
-- `relaunch`
-- `gateway`
-- `mail`
-- `mailbox`
-- `memory`
-- `turn`
-- `cleanup`
-
-Nested `agents single` subcommands SHALL use the group-level selected identity. They SHALL NOT require the selected agent id or name to be repeated on every nested leaf command.
-
-`agents single` SHALL be the maintained public surface for selected-agent lifecycle controls that can mutate, interrupt, terminate, restart, or clean up the selected tmux-backed managed-agent runtime, including direct `prompt`, `interrupt`, `stop`, `relaunch`, and `cleanup` commands.
-
-`agents single` SHALL NOT infer the current tmux session when the group-level selector is omitted.
-
-`agents single` SHALL NOT expose current-session membership commands such as `join` or the future inverse `leave`.
+- **WHEN** a caller selects an agent for `state`, `prompt`, `interrupt`, `stop`, `relaunch`, `gateway`, `mail`, `mailbox`, `memory`, `turn`, or `cleanup`
+- **THEN** the command uses the group-level selection
+- **AND THEN** current-session membership operations such as `join` belong to `agents self`
 
 #### Scenario: Single prompt uses group-level selector
 - **WHEN** an operator runs `houmao-mgr agents single --agent-id agent-123 prompt --prompt ping`
@@ -111,7 +88,7 @@ Nested `agents single` subcommands SHALL use the group-level selected identity. 
 - **AND THEN** the diagnostic or help output points current-session adoption to `houmao-mgr agents self join`
 
 #### Scenario: Single command rejects missing selector inside tmux
-- **WHEN** an operator runs `houmao-mgr agents single gateway prompt --prompt ping` inside a managed tmux session without `--agent-id` or `--agent-name`
+- **WHEN** an operator runs `houmao-mgr agents single gateway prompt --prompt ping` inside a managed tmux session without a group-level selector
 - **THEN** the command fails clearly because `agents single` requires an explicit selected agent
 - **AND THEN** the diagnostic points the operator to either supply a single-agent selector or use `houmao-mgr agents self gateway prompt`
 
@@ -202,7 +179,7 @@ External references SHALL remain distinct from local managed-agent runtime ident
 ### Requirement: Current-session gateway and mail behavior moves to agents self
 Current-session gateway, mail, mailbox, memory, and turn operations SHALL be represented through `houmao-mgr agents self ...` command paths.
 
-Explicit one-agent gateway, mail, mailbox, memory, and turn operations SHALL be represented through `houmao-mgr agents single --agent-id <id> ...` or `houmao-mgr agents single --agent-name <name> ...`.
+Explicit one-agent gateway, mail, mailbox, memory, and turn operations SHALL be represented through `houmao-mgr agents single --agent-id <id> ...` or `houmao-mgr agents single --agent-name <name> ...`. Local gateway commands may also use the group-level tmux session alias.
 
 #### Scenario: Self gateway prompt replaces implicit selected-agent prompt
 - **WHEN** an agent wants to prompt its own managed session from inside the owning tmux session

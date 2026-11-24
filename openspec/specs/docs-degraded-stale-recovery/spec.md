@@ -16,16 +16,22 @@ The run-phase reference SHALL include a page documenting degraded and stale acti
 
 ### Requirement: Probe classification documented
 
-The recovery page SHALL document the three probe classifications returned by `probe_tmux_backed_authority()`:
+The recovery page SHALL document the confirmed classifications used in recovery.
 
-- `healthy` — tmux session exists and is reachable.
-- `degraded_missing_primary` — tmux session exists but the primary pane is missing or unresponsive (gateway remnant may survive).
-- `stale_missing_session` — tmux session is entirely missing.
+- `healthy` means the selected tmux session and its required primary surface are present.
+- `degraded_missing_primary` means the selected session is present and inspection has confirmed primary-surface degradation. A gateway remnant may survive.
+- `stale_missing_session` means inspection established that the recorded session is absent on its owning socket.
 
 #### Scenario: Reader understands probe outcomes
 
 - **WHEN** a reader examines the probe-classification section
-- **THEN** they see the three classes with distinguishing symptoms and how each class maps to a recovery path
+- **THEN** they see the distinguishing evidence for each confirmed classification and how it maps to a recovery path
+
+#### Scenario: Reader distinguishes an unavailable probe from a missing session
+
+- **WHEN** a reader looks up a permission error, socket refusal, or inconclusive inspection
+- **THEN** the page explains that the probe could not establish the selected session's condition
+- **AND THEN** it identifies the recorded owner as the place to verify the runtime before taking a recovery action
 
 ### Requirement: Recovery paths documented
 

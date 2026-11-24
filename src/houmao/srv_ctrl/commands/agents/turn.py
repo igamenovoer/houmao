@@ -88,7 +88,9 @@ def status_turn_command(
 ) -> None:
     """Show one managed headless turn status payload."""
 
-    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    target = resolve_managed_agent_target(
+        agent_id=agent_id, agent_name=agent_name, port=port, include_inactive=True
+    )
     emit(headless_turn_status(target, turn_id=turn_id))
 
 
@@ -113,7 +115,9 @@ def events_turn_command(
 ) -> None:
     """Show structured events for one managed headless turn."""
 
-    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    target = resolve_managed_agent_target(
+        agent_id=agent_id, agent_name=agent_name, port=port, include_inactive=True
+    )
     response = headless_turn_events(target, turn_id=turn_id)
     _render_turn_events_response(
         response=response,
@@ -134,7 +138,9 @@ def stdout_turn_command(
 ) -> None:
     """Print the raw persisted stdout artifact for one managed headless turn."""
 
-    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    target = resolve_managed_agent_target(
+        agent_id=agent_id, agent_name=agent_name, port=port, include_inactive=True
+    )
     click.echo(
         headless_turn_artifact_text(target, turn_id=turn_id, artifact_name="stdout"),
         nl=False,
@@ -153,7 +159,9 @@ def stderr_turn_command(
 ) -> None:
     """Print the raw persisted stderr artifact for one managed headless turn."""
 
-    target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    target = resolve_managed_agent_target(
+        agent_id=agent_id, agent_name=agent_name, port=port, include_inactive=True
+    )
     click.echo(
         headless_turn_artifact_text(target, turn_id=turn_id, artifact_name="stderr"),
         nl=False,

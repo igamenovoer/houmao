@@ -66,7 +66,7 @@ Clarification state:
 
 Related skills and boundaries:
 
-- Use `houmao-shared-routines->houmao-agent-messaging` for last-mile prompt dispatch. That lower-level skill owns gateway-preferred prompting: use ready-only gateway prompt control when available, otherwise use ordinary direct managed-agent prompting.
+- Use `houmao-shared-routines->houmao-agent-messaging` for last-mile prompt dispatch. Operator dispatch chooses ready-only gateway control when a gateway is available and the normal managed prompt when it is detached.
 - Use `houmao-shared-routines->houmao-agent-email-comms` for mailbox dispatch only when the operator prompt or chat context asks for mail, inbox, threaded, asynchronous, or mailbox delivery.
 - Use `houmao-agent-loop-pro` or `houmao-agent-loop-lite` when the requested work needs durable orchestration, generated loop state, validation, retries, scheduling, topology contracts, or recovery.
 

@@ -1333,7 +1333,7 @@ def _normalized_detail(detail: HoumaoManagedAgentDetailResponse) -> dict[str, An
         return {
             "transport": "tui",
             "ready_posture": detail.detail.surface.ready_posture,
-            "stable": detail.detail.stability.stable,
+            "stable": detail.detail.stability.stable if detail.detail.stability else None,
             "parsed_surface_present": detail.detail.parsed_surface is not None,
             "diagnostic_count": diagnostic_count,
         }

@@ -1818,7 +1818,7 @@ class _ServerManagedHeadlessGatewayAdapter:
         connectivity: GatewayConnectivityState = (
             "connected" if response.summary_state.availability == "available" else "unavailable"
         )
-        can_accept_prompt_now = detail.can_accept_prompt_now
+        can_accept_prompt_now = detail.can_accept_prompt_now is True
         return _GatewayTargetState(
             instance_id=response.tracked_agent_id,
             connectivity=connectivity,

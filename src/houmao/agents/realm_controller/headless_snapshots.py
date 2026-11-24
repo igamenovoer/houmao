@@ -48,7 +48,10 @@ class HeadlessTurnSnapshot:
 def headless_turn_artifacts_root(manifest_path: Path) -> Path:
     """Return the owned headless turn directory for a manifest."""
 
-    return (manifest_path.parent / f"{manifest_path.stem}.turn-artifacts").resolve()
+    root = manifest_path.parent.resolve() / f"{manifest_path.stem}.turn-artifacts"
+    if root.is_symlink():
+        raise BackendExecutionError("Headless turn artifact root must be runtime-owned.")
+    return root
 
 
 def list_headless_turns(
@@ -85,7 +88,7 @@ def latest_headless_turn(
 def headless_control_observation(
     turn: HeadlessTurnSnapshot | None,
     *,
-    owner_available: bool,
+    owner_available: bool | None,
     native_session_id: str | None = None,
 ) -> ManagedControlObservationV1:
     """Project owned process or exit evidence without inferring a missing outcome."""
@@ -94,7 +97,7 @@ def headless_control_observation(
     if turn is None:
         return ManagedControlObservationV1(
             source="headless_artifacts",
-            freshness="current",
+            freshness="current" if owner_available is not None else "unknown",
             observed_at_utc=observed_at,
             owner_available=owner_available,
             can_accept_prompt_now=owner_available,
@@ -175,6 +178,8 @@ def read_headless_turn(
 ) -> HeadlessTurnSnapshot:
     """Read one local snapshot without modifying process or usage authority."""
 
+    if turn_dir.is_symlink() or any(child.is_symlink() for child in turn_dir.iterdir()):
+        raise BackendExecutionError("Headless turn artifacts must be runtime-owned files.")
     stdout_path = turn_dir / "stdout.jsonl"
     stderr_path = turn_dir / "stderr.log"
     status_path = turn_dir / "exitcode"

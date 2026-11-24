@@ -1,6 +1,6 @@
 # Use Gateway Prompt Admission Control
 
-Use this action only when the user explicitly wants a nondefault live-gateway prompt-admission policy, gateway-owned TUI inspection, or prompt provenance beyond the ordinary gateway-preferred prompt path.
+Use this action when the user explicitly requests live-gateway prompt admission, gateway-owned TUI inspection, or prompt provenance.
 
 ## Workflow
 

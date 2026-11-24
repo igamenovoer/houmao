@@ -30,7 +30,7 @@ Use this Houmao skill when you need mailbox work around Houmao-managed agents.
 Classify the caller up front:
 
 - Preserve the actor frame established by the parent. An admin uses operator-origin `post` against an explicit target. Missing gateway or mail configuration does not turn a verified agent into an operator.
-- If the caller is one live Houmao-managed agent, use the ordinary shared-mailbox workflow in this skill: prefer the live gateway `/v1/mail/*` facade when available, and fall back to `houmao-mgr agents self mail ...` when the resolver returns `gateway: null`.
+- If the caller is a verified Houmao-managed agent, use `houmao-mgr agents self mail ...` for ordinary mail. The manager uses the sender's authorized binding and chooses its execution path.
 
 For managed-agent gateway-notified open-mail rounds only, use `houmao-shared-routines->houmao-process-emails-via-gateway` first and return here when that round needs exact mailbox operations or transport-local guidance.
 
@@ -84,7 +84,7 @@ If the request does not map cleanly to this workflow, use the native planning to
 ## Missing Input Questions
 
 - Recover required mailbox values from the current prompt, notifier context, resolver output, or recent mailbox context before asking.
-- If caller posture, selected channel, expected binding ID, gateway base URL, action, message ref, thread ref, recipient, subject, or body is still missing for the selected mailbox action, ask before proceeding.
+- Ask for any required value that remains missing after discovery. A live gateway base URL is required only for a gateway-specific action.
 - When asking for Houmao mailbox-system inputs, use readable Markdown:
   - separate `Required` values from `Optional` modifiers
   - `Required`: values that block the selected mailbox action or route

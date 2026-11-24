@@ -1,5 +1,6 @@
 """Manager Web inspection and timing validation preserve the native surface boundary."""
 
+from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,11 +12,13 @@ import pytest
 from houmao.agents.realm_controller.backends.dsh_web import DshWebSession
 from houmao.agents.realm_controller.gateway_models import GatewayTuiTrackingTimingOverridesV1
 from houmao.agents.realm_controller.manifest import write_session_manifest
+from houmao.execution.tmux import TmuxServer
 from houmao.server.models import HoumaoManagedAgentIdentity
-from houmao.srv_ctrl.commands import managed_agents
+from houmao.srv_ctrl.commands import managed_agent_observation, managed_agents
 from tests.unit.agents.realm_controller.test_dsh_web_models import _manifest
 from tests.unit.agents.realm_controller.test_dsh_web_observation import _page, _state
 from tests.unit.agents.realm_controller.test_gateway_support import _sample_headless_plan
+from tests.unit.srv_ctrl.test_managed_agents import _observation_target
 
 
 @pytest.mark.parametrize("available", [True, False])
@@ -24,25 +27,15 @@ def test_manager_native_web_detail_uses_fresh_structured_state_without_terminal_
     monkeypatch: pytest.MonkeyPatch,
     available: bool,
 ) -> None:
-    """Direct inspection reconnects read-only authority and closes only its API connection."""
+    """Native inspection reads the recorded Web owner without probing its supervisor."""
 
     manifest = tmp_path / "manifest.json"
     write_session_manifest(manifest, _manifest(tmp_path))
     plan = replace(
         _sample_headless_plan(tmp_path), backend="dsh_web", tool="dsh", native_surface_kind="web"
     )
-    controller = SimpleNamespace(
-        launch_plan=plan,
-        manifest_path=manifest,
-        agent_def_dir=tmp_path / "definitions",
-        agent_id="owner",
-        agent_identity="web-agent",
-        tmux_session_name="supervisor",
-        memory_root=None,
-        memo_file=None,
-        pages_dir=None,
-    )
-    identity = managed_agents._identity_from_controller(controller)
+    target = _observation_target(manifest)
+    identity = target.identity
     assert identity.transport == "web" and identity.native_surface.kind == "web"
     backend = object.__new__(DshWebSession)
     payload = _state()
@@ -55,43 +48,43 @@ def test_manager_native_web_detail_uses_fresh_structured_state_without_terminal_
     }
     monkeypatch.setattr(
         backend,
-        "observe_web_state",
+        "observe_web_state_read_only",
         Mock(return_value=payload)
         if available
         else Mock(side_effect=RuntimeError("private credential error")),
     )
-    monkeypatch.setattr(backend, "observe_web_history", lambda **_: _page(1))
-    close = Mock()
-    monkeypatch.setattr(backend, "close_control_connection", close)
-    monkeypatch.setattr(
-        managed_agents,
-        "resume_runtime_session",
-        Mock(return_value=SimpleNamespace(backend_session=backend)),
+    monkeypatch.setattr(backend, "observe_web_history_read_only", lambda **_: _page(1))
+    open_native_adapter = Mock(
+        return_value=SimpleNamespace(
+            agent_id="owner",
+            registry_generation_id="generation",
+            execution_binding=None,
+            launch_plan=plan,
+            execution_scope=nullcontext,
+            backend_session=backend,
+        )
     )
-    monkeypatch.setattr(managed_agents, "_live_gateway_client_for_controller", lambda _: None)
-    monkeypatch.setattr(managed_agents, "_local_gateway_summary", lambda _: None)
+    monkeypatch.setattr(managed_agent_observation, "resume_runtime_session", open_native_adapter)
     monkeypatch.setattr(
-        managed_agents,
-        "_refresh_local_tui_state",
-        Mock(side_effect=AssertionError("Web is not a terminal")),
-    )
-    monkeypatch.setattr(
-        managed_agents,
-        "_local_headless_state_response",
-        Mock(side_effect=AssertionError("Web is not headless")),
-    )
-    target = managed_agents.ManagedAgentTarget(
-        mode="local", agent_ref="owner", identity=identity, controller=controller
+        TmuxServer, "observe_session", Mock(side_effect=AssertionError("Supervisor inaccessible"))
     )
     detail = managed_agents.managed_agent_detail_payload(target)
     assert detail.detail.transport == "web"
     assert detail.summary_state.availability == ("available" if available else "unavailable")
     assert detail.summary_state.turn.phase == ("blocked" if available else "unknown")
+    assert detail.detail.state is not None
     assert not detail.detail.state.can_accept_prompt_now
     assert "parsed_surface" not in detail.detail.model_dump()
     assert "canonical_terminal_state_route" not in detail.detail.model_dump()
     assert "private credential" not in detail.model_dump_json()
-    close.assert_called_once()
+    assert detail.summary_state.control.source == "web_native"
+    if available:
+        assert detail.summary_state.control.freshness == "current"
+        assert detail.summary_state.control.observed_at_utc is not None
+    else:
+        assert detail.summary_state.control.freshness == "unknown"
+        assert detail.summary_state.control.observed_at_utc is None
+    open_native_adapter.assert_called_once_with(session_manifest_path=manifest, read_only=True)
 
 
 def test_manager_web_gateway_attach_rejects_terminal_timing_before_any_controller_effect() -> None:

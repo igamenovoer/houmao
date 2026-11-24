@@ -64,9 +64,9 @@ The user's task determines whether the plan has one packet or multiple packets. 
 Default to prompt delivery:
 
 - Use prompt delivery for every packet unless the current operator prompt or chat context indicates mailbox delivery.
-- Use `houmao-shared-routines->houmao-agent-messaging` ordinary prompt behavior for prompt packets.
-- If the target has a live gateway, use ready-only gateway-backed prompt delivery.
-- If the target has no live gateway, use ordinary direct managed-agent prompt delivery.
+- Use `houmao-shared-routines->houmao-agent-messaging` to verify whether each prompt target has a live gateway.
+- If the target has a live gateway, use its gateway-control action with ready-only admission.
+- If the target has no live gateway, use its normal managed prompt action.
 - Select `if-no-pending` or `always` only when the operator explicitly requests the corresponding busy-TUI behavior.
 - Do not choose mailbox merely because the target has a mailbox.
 
@@ -83,7 +83,7 @@ If a required route is unavailable, report the blocker or ask whether an alterna
 For `prompt` packets:
 
 - Use `houmao-shared-routines->houmao-agent-messaging`.
-- Let that skill own discovery, prompt, gateway-preferred admission-policy selection, fallback managed delivery, and concrete command/API details.
+- Use that skill's discovery, gateway-control, or normal prompt action for the route chosen above.
 
 For `mailbox` packets:
 

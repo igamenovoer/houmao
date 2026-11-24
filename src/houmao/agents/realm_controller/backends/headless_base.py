@@ -774,12 +774,16 @@ class HeadlessInteractiveSession:
 
         return self._observe_primary_surface()
 
-    def _primary_tmux_pane_target(self, *, allow_dead: bool = False) -> str:
+    def _primary_tmux_pane_target(
+        self, *, allow_dead: bool = False, allow_repair: bool = True
+    ) -> str:
         """Return a checked primary pane id for a terminal mutation."""
 
         session_name = self._require_tmux_session_name()
         try:
-            return self._observe_primary_surface(allow_repair=True, allow_dead=allow_dead).pane_id
+            return self._observe_primary_surface(
+                allow_repair=allow_repair, allow_dead=allow_dead
+            ).pane_id
         except (TmuxCommandError, SessionManifestError) as exc:
             raise BackendExecutionError(
                 f"Failed to resolve primary tmux pane in `{session_name}`: {exc}"

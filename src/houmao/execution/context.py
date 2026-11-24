@@ -67,6 +67,18 @@ def validate_execution_owner(binding: ExecutionBindingV1 | None) -> None:
         validate_observed_binding(binding)
 
 
+def require_owner_tmux_socket(binding: ExecutionBindingV1 | None, socket_path: str | None) -> str:
+    """Require this execution owner and its explicit recorded socket."""
+
+    validate_execution_owner(binding)
+    if socket_path is None:
+        raise ValueError("Live terminal inspection requires the recorded owner socket")
+    if binding is not None and binding.tmux_socket is not None:
+        if socket_path != binding.tmux_socket:
+            raise ValueError("Recorded tmux socket differs from execution owner")
+    return socket_path
+
+
 @contextmanager
 def execution_binding_scope(binding: ExecutionBindingV1 | None) -> Iterator[None]:
     """Restore one runtime's binding without changing another thread or caller."""

@@ -136,6 +136,8 @@ Project launch can select an already-provisioned execution owner with `--executo
 | Register an external reference | `houmao-mgr agents external register --name <local-name> --api-base-url <url> --agent-ref <remote-ref>` |
 | Project-backed launch | `houmao-mgr project agents launch --profile <name>` |
 
+A selected-agent `prompt` can reach a TUI peer with its gateway detached. Houmao checks the owner's readiness and hands off input at the recorded pane on the peer's socket. The caller needs access to that owner route. A successful TUI handoff reports delivery to the terminal.
+
 #### Migration Examples
 
 | Old ambiguous path | New maintained path |

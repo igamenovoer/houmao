@@ -13,8 +13,9 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter
 
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.gateway_models import GatewayTuiTrackingTimingOverridesV1
-from houmao.agents.realm_controller.manifest import require_registry_mode_authority
+from houmao.agents.realm_controller.manifest import load_registry_mode_authority
 from houmao.agents.realm_controller.models import RelaunchChatSessionSelection
+from houmao.agents.realm_controller.registry_models import ManagedAgentRegistryRecordV3
 from houmao.execution.context import execution_read_only_scope
 from houmao.execution.models import ExecutionBindingV1, ExecutionRequestV1, JsonObject
 from houmao.execution.owner import OwnerAdmissionError, OwnerPolicyV1
@@ -204,7 +205,7 @@ def _control(request: ExecutionRequestV1, binding: ExecutionBindingV1) -> JsonOb
         )
     if operation == "describe":
         try:
-            require_registry_mode_authority(record)
+            manifest = load_registry_mode_authority(record)
         except (SessionManifestError, OSError):
             raise OwnerAdmissionError(
                 "unusable_mode_authority",
@@ -214,12 +215,12 @@ def _control(request: ExecutionRequestV1, binding: ExecutionBindingV1) -> JsonOb
             ) from None
         return {
             "initialized": True,
-            "identity": _json_result(managed._identity_from_record(record)),
+            "identity": _json_result(managed._identity_from_record(record, manifest=manifest)),
             "lifecycle": _json_result(record.lifecycle),
             "generation_id": record.generation_id,
         }
     if operation == "cleanup":
-        return _cleanup(request.agent_id, arguments)
+        return _cleanup(record, arguments)
     if operation == "prompt":
         try:
             _PromptArguments.model_validate(arguments)
@@ -278,7 +279,10 @@ def _control(request: ExecutionRequestV1, binding: ExecutionBindingV1) -> JsonOb
             )
             if operation == "relaunch"
             else managed.resolve_managed_agent_target(
-                agent_id=request.agent_id, agent_name=None, port=None
+                agent_id=request.agent_id,
+                agent_name=None,
+                port=None,
+                include_inactive=operation in {"state", "inspect", "capture"},
             )
         )
     # Recheck after reconstruction, which can race another lifecycle controller.
@@ -341,7 +345,7 @@ def _control(request: ExecutionRequestV1, binding: ExecutionBindingV1) -> JsonOb
     raise OwnerAdmissionError("unsupported_operation", "Unsupported finite owner operation.")
 
 
-def _cleanup(agent_id: str, arguments: JsonObject) -> JsonObject:
+def _cleanup(record: ManagedAgentRegistryRecordV3, arguments: JsonObject) -> JsonObject:
     """Clean only the admitted owner's selected session through maintained safety checks."""
 
     from houmao.srv_ctrl.commands.runtime_cleanup import (
@@ -364,18 +368,19 @@ def _cleanup(agent_id: str, arguments: JsonObject) -> JsonObject:
     if kind == "session":
         return _json_result(
             cleanup_managed_session(
-                agent_id=agent_id,
+                agent_id=record.agent_id,
                 agent_name=None,
                 manifest_path=None,
                 session_root=None,
                 dry_run=dry_run,
                 purge_registry=purge,
+                expected_record=record,
             )
         )
     function = cleanup_managed_session_logs if kind == "logs" else cleanup_managed_session_mailbox
     return _json_result(
         function(
-            agent_id=agent_id,
+            agent_id=record.agent_id,
             agent_name=None,
             manifest_path=None,
             session_root=None,

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import time
-from typing import Any, Callable, Literal, TypeVar
+from typing import Any, Callable, TypeVar
 
 from houmao.execution.tmux import enclosing_tmux_session
 
@@ -27,7 +27,6 @@ from houmao.agents.realm_controller.agent_identity import (
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     read_tmux_session_environment_value,
-    tmux_session_exists,
 )
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.gateway_models import (
@@ -51,7 +50,6 @@ from houmao.agents.realm_controller.registry_storage import (
     resolve_live_agent_record_by_agent_id,
     resolve_live_agent_records_by_terminal_session_name,
 )
-from houmao.agents.realm_controller.runtime import resume_runtime_session
 from houmao.agents.realm_controller.session_authority import (
     ManifestSessionAuthority,
     resolve_manifest_session_authority,
@@ -79,7 +77,6 @@ from ..renderers.gateway import (
 from ..managed_agents import (
     GatewayPromptControlCliError,
     ManagedAgentTarget,
-    _identity_from_controller,
     attach_gateway,
     detach_gateway,
     gateway_create_reminders,
@@ -101,6 +98,7 @@ from ..managed_agents import (
     gateway_web_entry,
     resolve_current_session_managed_agent_target,
     resolve_managed_agent_target,
+    select_local_managed_agent_record,
 )
 
 
@@ -1405,24 +1403,6 @@ class _CurrentSessionManifestResolution:
     registry_record: ManagedAgentRegistryRecordV3 | None = None
 
 
-@dataclass(frozen=True)
-class _TmuxSessionResolutionContext:
-    """Resolution behavior and error labels for tmux-session targeting."""
-
-    label: str
-    registry_fallback_kind: Literal["agent_id", "terminal_session"]
-
-
-_CURRENT_SESSION_RESOLUTION_CONTEXT = _TmuxSessionResolutionContext(
-    label="Current-session attach",
-    registry_fallback_kind="agent_id",
-)
-_TARGET_TMUX_SESSION_RESOLUTION_CONTEXT = _TmuxSessionResolutionContext(
-    label="Tmux-session targeting",
-    registry_fallback_kind="terminal_session",
-)
-
-
 def _resolve_gateway_command_target(
     *,
     agent_id: str | None,
@@ -1547,87 +1527,29 @@ def _ag_ui_error_message(exc: HoumaoAgUiValidationError) -> str:
 
 
 def _resolve_gateway_current_session_target(
-    *, session_name: str | None = None, read_only: bool = False
+    *, session_name: str | None = None
 ) -> ManagedAgentTarget:
-    """Resolve one managed-agent target from current-session tmux metadata."""
+    """Use verified self authority for an explicitly or implicitly selected caller."""
 
-    if session_name is None:
-        return resolve_current_session_managed_agent_target()
-    return _resolve_gateway_tmux_session_target(
-        session_name=session_name,
-        context=_CURRENT_SESSION_RESOLUTION_CONTEXT,
-        read_only=read_only,
-    )
+    target = resolve_current_session_managed_agent_target()
+    if session_name is not None and target.identity.tmux_session_name != session_name:
+        raise click.ClickException("The current managed tmux session changed during selection.")
+    return target
 
 
 def _resolve_gateway_target_tmux_session_target(*, session_name: str) -> ManagedAgentTarget:
-    """Resolve one managed-agent target from an explicit tmux session selector."""
+    """Resolve an exact terminal alias through fresh local registry records."""
 
-    try:
-        session_exists = tmux_session_exists(session_name=session_name)
-    except TmuxCommandError as exc:
-        raise click.ClickException(str(exc)) from exc
-    if not session_exists:
+    record = _resolve_target_tmux_session_registry_record(session_name=session_name)
+    if record is None:
         raise click.ClickException(
-            f"`--target-tmux-session` resolved no live local tmux session named `{session_name}`."
+            f"`--target-tmux-session` found no fresh shared-registry record for `{session_name}`."
         )
-    return _resolve_gateway_tmux_session_target(
-        session_name=session_name,
-        context=_TARGET_TMUX_SESSION_RESOLUTION_CONTEXT,
-    )
+    return select_local_managed_agent_record(record, agent_ref=record.agent_id)
 
 
-def _resolve_gateway_tmux_session_target(
-    *,
-    session_name: str,
-    context: _TmuxSessionResolutionContext,
-    read_only: bool = False,
-) -> ManagedAgentTarget:
-    """Resolve one managed-agent target from tmux-session metadata."""
-
-    resolution = _resolve_tmux_session_manifest(
-        session_name=session_name,
-        context=context,
-    )
-    authority = resolution.authority
-    if read_only:
-        published_agent_id = _read_current_session_agent_id(session_name=session_name)
-        if published_agent_id is not None and published_agent_id != authority.agent_id:
-            raise click.ClickException(
-                "Current-session metadata is stale: the manifest and tmux agent IDs differ."
-            )
-
-    try:
-        if authority.backend == "houmao_server_rest":
-            raise click.ClickException(
-                f"{context.label} uses retired backend `houmao_server_rest`. Use "
-                "`houmao-passive-server` for maintained API-backed management or relaunch the "
-                "agent through a maintained local/headless workflow."
-            )
-
-        controller = resume_runtime_session(
-            session_manifest_path=resolution.manifest_path,
-            read_only=read_only,
-        )
-        return ManagedAgentTarget(
-            mode="local",
-            agent_ref=controller.agent_id
-            or controller.agent_identity
-            or controller.manifest_path.parent.name,
-            identity=_identity_from_controller(controller),
-            controller=controller,
-            record=resolution.registry_record,
-        )
-    except (OSError, RuntimeError, SessionManifestError) as exc:
-        raise click.ClickException(str(exc)) from exc
-
-
-def _resolve_tmux_session_manifest(
-    *,
-    session_name: str,
-    context: _TmuxSessionResolutionContext,
-) -> _CurrentSessionManifestResolution:
-    """Resolve one tmux-session manifest from tmux env or shared-registry fallback."""
+def _resolve_current_session_manifest(*, session_name: str) -> _CurrentSessionManifestResolution:
+    """Resolve the current session's manifest pointer for cleanup."""
 
     manifest_pointer_error: str | None = None
     manifest_path_value = _read_tmux_env_value(
@@ -1639,64 +1561,40 @@ def _resolve_tmux_session_manifest(
             manifest_path = _require_manifest_path(
                 manifest_path_value,
                 variable_name=AGENT_MANIFEST_PATH_ENV_VAR,
-                context=context,
             )
             return _CurrentSessionManifestResolution(
                 manifest_path=manifest_path,
                 authority=_load_tmux_session_manifest_authority(
                     manifest_path=manifest_path,
                     session_name=session_name,
-                    context=context,
                 ),
             )
         except click.ClickException as exc:
             manifest_pointer_error = str(exc)
 
-    registry_record = _resolve_tmux_session_registry_record(
-        session_name=session_name,
-        context=context,
-    )
+    registry_record = _resolve_current_session_registry_record(session_name=session_name)
     if registry_record is not None:
-        manifest_path = _require_registry_manifest_path(
-            registry_record,
-            context=context,
+        manifest_path = _require_manifest_path(
+            registry_record.runtime.manifest_path,
+            variable_name="runtime.manifest_path",
         )
         return _CurrentSessionManifestResolution(
             manifest_path=manifest_path,
             authority=_load_tmux_session_manifest_authority(
                 manifest_path=manifest_path,
                 session_name=session_name,
-                context=context,
             ),
             registry_record=registry_record,
         )
 
     if manifest_pointer_error is not None:
         raise click.ClickException(
-            f"{manifest_pointer_error} {_tmux_session_registry_fallback_unavailable_message(context)}"
+            f"{manifest_pointer_error} Shared-registry fallback by `{AGENT_ID_ENV_VAR}` was unavailable."
         )
-    raise click.ClickException(_tmux_session_missing_metadata_message(context=context))
-
-
-def _resolve_current_session_manifest(*, session_name: str) -> _CurrentSessionManifestResolution:
-    """Backward-compatible current-session manifest resolution wrapper."""
-
-    return _resolve_tmux_session_manifest(
-        session_name=session_name,
-        context=_CURRENT_SESSION_RESOLUTION_CONTEXT,
+    raise click.ClickException(
+        "Current-session attach is unavailable because the tmux session does not publish "
+        f"`{AGENT_MANIFEST_PATH_ENV_VAR}` or `{AGENT_ID_ENV_VAR}`."
     )
-
-
-def _resolve_tmux_session_registry_record(
-    *,
-    session_name: str,
-    context: _TmuxSessionResolutionContext,
-) -> ManagedAgentRegistryRecordV3 | None:
-    """Resolve one tmux session through the shared registry."""
-
-    if context.registry_fallback_kind == "agent_id":
-        return _resolve_current_session_registry_record(session_name=session_name)
-    return _resolve_target_tmux_session_registry_record(session_name=session_name)
 
 
 def _resolve_current_session_registry_record(
@@ -1758,7 +1656,6 @@ def _load_tmux_session_manifest_authority(
     *,
     manifest_path: Path,
     session_name: str,
-    context: _TmuxSessionResolutionContext,
 ) -> ManifestSessionAuthority:
     """Load one manifest authority and validate that it belongs to the target tmux session."""
 
@@ -1770,11 +1667,11 @@ def _load_tmux_session_manifest_authority(
             payload=payload,
         )
     except SessionManifestError as exc:
-        raise click.ClickException(f"{context.label} metadata is invalid: {exc}") from exc
+        raise click.ClickException(f"Current-session attach metadata is invalid: {exc}") from exc
 
     if authority.tmux_session_name != session_name:
         raise click.ClickException(
-            f"{context.label} metadata is stale: the resolved manifest belongs to tmux session "
+            f"Current-session attach metadata is stale: the resolved manifest belongs to tmux session "
             f"`{authority.tmux_session_name}`, not `{session_name}`."
         )
     return authority
@@ -1822,37 +1719,22 @@ def _require_manifest_path(
     value: str,
     *,
     variable_name: str,
-    context: _TmuxSessionResolutionContext,
 ) -> Path:
     """Validate one manifest pointer value read from tmux or shared registry."""
 
     path = Path(value)
     if not path.is_absolute():
         raise click.ClickException(
-            f"{context.label} metadata is invalid: `{variable_name}` must be an "
+            f"Current-session attach metadata is invalid: `{variable_name}` must be an "
             f"absolute path, got `{path}`."
         )
     resolved = path.resolve()
     if not resolved.is_file():
         raise click.ClickException(
-            f"{context.label} metadata is stale: `{variable_name}` points to missing manifest "
+            f"Current-session attach metadata is stale: `{variable_name}` points to missing manifest "
             f"`{resolved}`."
         )
     return resolved
-
-
-def _require_registry_manifest_path(
-    record: ManagedAgentRegistryRecordV3,
-    *,
-    context: _TmuxSessionResolutionContext,
-) -> Path:
-    """Validate the manifest path recovered from one shared-registry record."""
-
-    return _require_manifest_path(
-        record.runtime.manifest_path,
-        variable_name="runtime.manifest_path",
-        context=context,
-    )
 
 
 def _normalize_optional_tmux_session_selector(*, option_name: str, value: str | None) -> str | None:
@@ -1878,31 +1760,6 @@ def _raise_if_pair_port_without_explicit_selector(
     raise click.ClickException(
         "`--pair-port` is only supported with an explicit `--agent-id` or `--agent-name` "
         f"`{operation_name}` target."
-    )
-
-
-def _tmux_session_registry_fallback_unavailable_message(
-    context: _TmuxSessionResolutionContext,
-) -> str:
-    """Return the registry fallback unavailability detail for one targeting mode."""
-
-    if context.registry_fallback_kind == "agent_id":
-        return f"Shared-registry fallback by `{AGENT_ID_ENV_VAR}` was unavailable."
-    return "Shared-registry fallback by exact `terminal.session_name` was unavailable."
-
-
-def _tmux_session_missing_metadata_message(*, context: _TmuxSessionResolutionContext) -> str:
-    """Return the missing tmux metadata error for one targeting mode."""
-
-    if context.registry_fallback_kind == "agent_id":
-        return (
-            "Current-session attach is unavailable because the tmux session does not publish "
-            f"`{AGENT_MANIFEST_PATH_ENV_VAR}` or `{AGENT_ID_ENV_VAR}`."
-        )
-    return (
-        "Tmux-session targeting is unavailable because the tmux session does not publish "
-        f"`{AGENT_MANIFEST_PATH_ENV_VAR}` and no fresh shared-registry record matched "
-        "`terminal.session_name`."
     )
 
 

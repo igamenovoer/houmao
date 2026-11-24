@@ -22,6 +22,8 @@ houmao-mgr admin cleanup registry [OPTIONS]
 | `--dry-run` | Preview stale shared-registry records without deleting them. |
 | `--no-tmux-check` | Disable local tmux liveness checks for tmux-backed records; by default cleanup verifies the owning tmux session locally. |
 
+For a fresh active record, liveness-based removal requires a completed query on the recorded owner's tmux socket that confirms the session is absent. An unavailable check preserves the record and identifies it in the cleanup report. Lease expiry beyond the grace period remains an independent reason for removal.
+
 ### `runtime`
 
 Host-scoped cleanup of runtime-owned local artifacts.

@@ -13,6 +13,8 @@ import threading
 import time
 
 from houmao.agents.realm_controller.backends.tmux_runtime import tmux_session_exists
+from houmao.agents.realm_controller.boundary_models import SessionManifestTmuxSectionV1
+from houmao.agents.realm_controller.managed_terminal import observe_primary_tmux
 from houmao.execution.tmux import (
     TmuxCommandError,
     TmuxObservationUnavailable,
@@ -31,7 +33,7 @@ from houmao.server.models import (
 )
 from houmao.server.tui.parser import OfficialTuiParserAdapter
 from houmao.server.tui.process import PaneProcessInspector
-from houmao.server.tui.transport import TmuxTransportResolver
+from houmao.server.tui.transport import ResolvedTmuxTarget, TmuxTransportResolver
 from houmao.server.tui.tracking import LiveSessionTracker, utc_now_iso
 
 _DEFAULT_SUPPORTED_TUI_PROCESSES: dict[str, tuple[str, ...]] = {
@@ -49,6 +51,8 @@ class SingleSessionTrackingRuntime:
         *,
         identity: HoumaoTrackedSessionIdentity,
         tmux_socket_path: str | None = None,
+        primary_binding: SessionManifestTmuxSectionV1 | None = None,
+        joined: bool = False,
         watch_poll_interval_seconds: float = 0.5,
         recent_transition_limit: int = 24,
         snapshot_history_limit: int = 1000,
@@ -61,6 +65,14 @@ class SingleSessionTrackingRuntime:
     ) -> None:
         """Initialize the single-session tracking runtime."""
 
+        if primary_binding is not None:
+            if tmux_socket_path is not None and tmux_socket_path != primary_binding.socket_path:
+                raise ValueError("Tracker socket differs from the primary tmux binding")
+            if identity.tmux_session_name != primary_binding.session_name:
+                raise ValueError("Tracker session differs from the primary tmux binding")
+            tmux_socket_path = primary_binding.socket_path
+        self.m_primary_binding: SessionManifestTmuxSectionV1 | None = primary_binding
+        self.m_joined: bool = joined
         self.m_tmux_socket_path: str | None = (
             validate_tmux_socket_path(tmux_socket_path) if tmux_socket_path is not None else None
         )
@@ -157,6 +169,33 @@ class SingleSessionTrackingRuntime:
         with tmux_server_scope(self.m_tmux_socket_path):
             self._poll_owned_session()
 
+    def _resolve_target(self, identity: HoumaoTrackedSessionIdentity) -> ResolvedTmuxTarget | None:
+        """Resolve the recorded primary pane or the unmanaged tracking target."""
+
+        binding = self.m_primary_binding
+        if binding is not None:
+            if binding.socket_path is None:
+                raise TmuxObservationUnavailable("Managed terminal has no saved tmux socket.")
+            observation = observe_primary_tmux(binding, joined=self.m_joined)
+            if observation.state == "missing_session":
+                return None
+            if observation.state != "valid" or observation.pane is None:
+                raise TmuxObservationUnavailable(
+                    f"Recorded primary terminal pane is unavailable ({observation.state})."
+                )
+            return ResolvedTmuxTarget(pane=observation.pane)
+        if identity.manifest_path is not None and current_tmux_socket_path() is None:
+            raise TmuxObservationUnavailable("Managed terminal has no saved tmux socket.")
+        if not tmux_session_exists(
+            session_name=identity.tmux_session_name, allow_missing_server=True
+        ):
+            return None
+        return self.m_transport_resolver.resolve_target(
+            session_name=identity.tmux_session_name,
+            window_name=identity.tmux_window_name,
+            window_index="0",
+        )
+
     def _poll_owned_session(self) -> None:
         """Poll the tracked terminal within its selected tmux server."""
 
@@ -166,11 +205,8 @@ class SingleSessionTrackingRuntime:
         self.m_tracker.ensure_hook_channel_from_session_root(identity.session_root)
 
         try:
-            if identity.manifest_path is not None and current_tmux_socket_path() is None:
-                raise TmuxObservationUnavailable("Managed terminal has no saved tmux socket.")
-            if not tmux_session_exists(
-                session_name=identity.tmux_session_name, allow_missing_server=True
-            ):
+            target = self._resolve_target(identity)
+            if target is None:
                 self.m_tracker.record_cycle(
                     identity=identity,
                     observed_at_utc=observed_at_utc,
@@ -185,11 +221,6 @@ class SingleSessionTrackingRuntime:
                     output_text=None,
                 )
                 return
-            target = self.m_transport_resolver.resolve_target(
-                session_name=identity.tmux_session_name,
-                window_name=identity.tmux_window_name,
-                window_index="0",
-            )
         except TmuxCommandError as exc:
             self.m_tracker.record_cycle(
                 identity=identity,

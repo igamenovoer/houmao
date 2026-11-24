@@ -99,6 +99,11 @@ The packaged `houmao-agent-messaging` skill SHALL tell the agent to recover omit
 
 The skill SHALL NOT guess a missing required target or messaging intent that is not explicit in current or recent conversation context.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The skill SHALL select commands by communication intent:
 
 - use `houmao-mgr agents prompt` for a normal synchronous conversational turn
@@ -106,7 +111,9 @@ The skill SHALL select commands by communication intent:
 - use `houmao-mgr agents gateway prompt|interrupt` when live-gateway queue semantics are required
 - use `houmao-mgr agents gateway send-keys` when exact raw control input is required and the work must not be treated as a prompt turn
 - use `houmao-mgr agents mail resolve-live` when the task needs mailbox discovery, current mailbox capability, or the exact live `gateway.base_url` before mailbox handoff
-- use `houmao-mgr agents state`, `houmao-mgr agents gateway status`, and `houmao-mgr agents mail resolve-live` as discovery surfaces before deeper gateway or mailbox routing
+- use `houmao-mgr agents state` when the next action needs current runtime posture and `houmao-mgr agents gateway status` when it needs verified gateway status
+
+For outbound agent mail, the skill SHALL use a known or resolved recipient address for the explicit channel and act through the sending agent's verified mailbox binding. It SHALL allow address discovery and delivery to a registered recipient independently of live runtime or gateway verification.
 
 The skill SHALL prefer `houmao-mgr agents ...` and managed-agent `/houmao/agents/*` routes over direct gateway listener URLs when those higher-level surfaces already satisfy the current task.
 
@@ -134,6 +141,18 @@ The skill SHALL prefer `houmao-mgr agents ...` and managed-agent `/houmao/agents
 - **WHEN** the selected messaging action still lacks a required target after checking the current prompt and recent chat context
 - **THEN** the skill tells the agent to ask the user for the missing selector before proceeding
 - **AND THEN** it does not guess the target managed agent
+
+#### Scenario: Recipient contact is enough for ordinary mail
+
+- **WHEN** a managed agent needs to send ordinary mail to a named peer
+- **THEN** the skill uses the peer's known address or the peer's `mail resolve-live` result for the requested channel
+- **AND THEN** the skill sends through `agents self mail send` without making the recipient's live state or gateway status a prerequisite
+
+#### Scenario: Gateway is detached for a normal prompt
+
+- **WHEN** a normal prompt is requested and the selected peer has no live gateway
+- **THEN** the skill uses the scoped managed-agent prompt command through the recorded owner route if authorized and available
+- **AND THEN** the skill reports unavailability when no authorized direct route can admit the prompt
 
 ### Requirement: `houmao-agent-messaging` handles reset-context and lower-level gateway control honestly
 The packaged `houmao-agent-messaging` skill SHALL describe clear-context and chat-session control using the currently implemented gateway control surfaces rather than inventing unsupported `houmao-mgr` flags.

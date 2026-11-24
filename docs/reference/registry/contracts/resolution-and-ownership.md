@@ -106,6 +106,8 @@ At the registry-storage layer, two lookup modes exist:
 
 Name-based lookup can therefore report ambiguity when multiple live `agent_id`s share one canonical name.
 
+`houmao-mgr agents single --target-tmux-session <session> gateway status` matches the exact session name against fresh local registry records. A unique match selects its saved owner and socket even if the caller is in another tmux server. If more than one record matches, use the `--agent-id` from the diagnostic to select the intended peer. Use an agent ID or friendly name when selecting an explicit pair authority or delegated owner.
+
 ## Remove And Cleanup Ownership Boundaries
 
 `admin executors forget --agent-id <id>` removes only a lexical operator execution locator. It does not stop the agent, remove owner files, or revoke independent communication imports. Local stale-presence cleanup does not apply local leases or tmux liveness to execution locators. Use owner-routed lifecycle operations for the agent itself.

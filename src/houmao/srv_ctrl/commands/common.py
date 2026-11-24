@@ -42,6 +42,7 @@ class ManagedAgentScopeContext:
     scope: Literal["single", "self"]
     agent_id: str | None = None
     agent_name: str | None = None
+    target_tmux_session: str | None = None
 
 
 class OptionalValueOption(click.Option):

@@ -23,6 +23,8 @@ from houmao.agents.realm_controller.errors import BackendExecutionError, Session
 from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
     build_session_manifest_payload,
+    load_session_manifest,
+    parse_session_manifest_payload,
     write_session_manifest,
 )
 from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
@@ -66,6 +68,7 @@ from houmao.agents.realm_controller.registry_storage import (
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.realm_controller import runtime as runtime_module
 from houmao.mailbox.managed import ManagedMailboxOperationError
+from houmao.execution.tmux import TmuxCommandError
 from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
 from houmao.server.models import (
     HoumaoHeadlessTurnAcceptedResponse,
@@ -122,6 +125,9 @@ from houmao.srv_ctrl.commands.managed_agents import (
     unregister_mailbox_binding,
 )
 from houmao.srv_ctrl.commands import runtime_artifacts as runtime_artifacts_module
+from houmao.srv_ctrl.commands import managed_agent_observation as observation_module
+from houmao.execution.tmux import TmuxObservationUnavailable, TmuxServer
+from tests.unit.passive_server.test_discovery import _make_record
 
 
 def _healthy_tmux_authority_probe() -> "TmuxBackedAuthorityHealth":
@@ -133,60 +139,6 @@ def _healthy_tmux_authority_probe() -> "TmuxBackedAuthorityHealth":
         primary_window_exists=True,
         primary_pane_exists=True,
     )
-
-
-def test_resolve_managed_agent_target_prefers_shared_registry_for_local_records(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    record = SimpleNamespace(
-        agent_name="gpu",
-        agent_id="agent-1234",
-        lifecycle=SimpleNamespace(state="active"),
-        identity=SimpleNamespace(backend="codex_headless", tool="codex"),
-        runtime=SimpleNamespace(
-            agent_def_dir=str((tmp_path / "agent-def").resolve()),
-            manifest_path=str((tmp_path / "manifest.json").resolve()),
-            session_root=str((tmp_path / "session-root").resolve()),
-        ),
-        terminal=SimpleNamespace(session_name="gpu-session", socket_path=str(tmp_path / "owner.sock")),
-    )
-    controller = SimpleNamespace(
-        agent_id="agent-1234",
-        agent_identity="gpu",
-        launch_plan=SimpleNamespace(
-            backend="codex_headless", mode="headless", tool="codex", mailbox=None
-        ),
-        manifest_path=(tmp_path / "manifest.json").resolve(),
-        tmux_session_name="gpu-session",
-    )
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.managed_agents._resolve_local_managed_agent_record_with_miss_context",
-        lambda **kwargs: (record, None),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.managed_agents.probe_tmux_backed_authority",
-        lambda **kwargs: _healthy_tmux_authority_probe(),
-    )
-    monkeypatch.setattr(
-        managed_agents_module, "require_registry_mode_authority", lambda _record: None
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.managed_agents.resume_runtime_session",
-        lambda **kwargs: controller,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
-        lambda **kwargs: (_ for _ in ()).throw(AssertionError("server fallback should not run")),
-    )
-
-    target = resolve_managed_agent_target(agent_id=None, agent_name="gpu", port=None)
-
-    assert target.mode == "local"
-    assert target.controller is controller
-    assert target.identity.transport == "headless"
-    assert target.identity.agent_id == "agent-1234"
 
 
 def test_resolve_managed_agent_target_falls_back_to_server_when_registry_misses(
@@ -226,70 +178,6 @@ def test_resolve_managed_agent_target_falls_back_to_server_when_registry_misses(
     assert target.mode == "server"
     assert target.client is client
     assert target.identity == identity
-
-
-@pytest.mark.parametrize(
-    ("resume_error_type", "resume_error_detail"),
-    [
-        (
-            SessionManifestError,
-            "Session manifest not found: /tmp/missing-manifest.json",
-        ),
-        (
-            BackendExecutionError,
-            "Tmux-backed resume requires existing tmux session `gpu-session` but it is "
-            "unavailable: no server running on /tmp/tmux-stale/default",
-        ),
-    ],
-)
-def test_resolve_managed_agent_target_wraps_unusable_local_runtime_authority(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    resume_error_type: type[Exception],
-    resume_error_detail: str,
-) -> None:
-    record = SimpleNamespace(
-        agent_name="gpu",
-        agent_id="agent-1234",
-        lifecycle=SimpleNamespace(state="active"),
-        identity=SimpleNamespace(backend="codex_headless", tool="codex"),
-        runtime=SimpleNamespace(
-            agent_def_dir=str((tmp_path / "agent-def").resolve()),
-            manifest_path="/tmp/missing-manifest.json",
-            session_root=str((tmp_path / "session-root").resolve()),
-        ),
-        terminal=SimpleNamespace(session_name="gpu-session", socket_path=str(tmp_path / "owner.sock")),
-    )
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.managed_agents._resolve_local_managed_agent_record_with_miss_context",
-        lambda **kwargs: (record, None),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.managed_agents.probe_tmux_backed_authority",
-        lambda **kwargs: _healthy_tmux_authority_probe(),
-    )
-    monkeypatch.setattr(
-        managed_agents_module, "require_registry_mode_authority", lambda _record: None
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.managed_agents.resume_runtime_session",
-        lambda **kwargs: (_ for _ in ()).throw(resume_error_type(resume_error_detail)),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
-        lambda **kwargs: (_ for _ in ()).throw(AssertionError("server fallback should not run")),
-    )
-
-    with pytest.raises(click.ClickException) as exc_info:
-        resolve_managed_agent_target(agent_id=None, agent_name="gpu", port=None)
-
-    message = str(exc_info.value)
-    assert "Managed agent `gpu` is registered in the shared registry" in message
-    assert (
-        "its local tmux-backed runtime authority is no longer live or otherwise unusable" in message
-    )
-    assert resume_error_detail in message
 
 
 def test_resolve_managed_agent_target_rejects_prefixed_agent_name_selector() -> None:
@@ -1101,8 +989,11 @@ def test_stop_managed_agent_recovers_degraded_active_local_authority(
     publish_live_agent_record(record)
     cleanup_calls: list[str] = []
     monkeypatch.setattr(
+        managed_agents_module, "require_owned_degraded_tmux_session", lambda *_: "$7"
+    )
+    monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.kill_tmux_session",
-        lambda *, session_name: cleanup_calls.append(session_name),
+        lambda *, session_name, session_id: cleanup_calls.append(session_name),
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.probe_tmux_backed_authority",
@@ -1246,7 +1137,9 @@ def test_stop_managed_agent_registry_transition_failure_includes_guidance(
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.publish_managed_agent_record",
-        lambda record: (_ for _ in ()).throw(SessionManifestError("registry refused write")),
+        lambda record, **kwargs: (_ for _ in ()).throw(
+            SessionManifestError("registry refused write")
+        ),
     )
 
     target = ManagedAgentTarget(
@@ -1281,8 +1174,11 @@ def test_relaunch_managed_agent_revives_degraded_active_local_authority(
     publish_live_agent_record(record)
     cleanup_calls: list[str] = []
     monkeypatch.setattr(
+        managed_agents_module, "require_owned_degraded_tmux_session", lambda *_: "$7"
+    )
+    monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.kill_tmux_session",
-        lambda *, session_name: cleanup_calls.append(session_name),
+        lambda *, session_name, session_id: cleanup_calls.append(session_name),
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.probe_tmux_backed_authority",
@@ -1478,7 +1374,70 @@ def test_relaunch_managed_agent_failed_revival_leaves_stopped_record(
     assert stored.generation_id == record.generation_id
 
 
-def test_resolve_managed_agent_target_routes_degraded_active_record_into_local_degraded(
+@pytest.mark.parametrize("operation", ["stop", "stop recheck", "relaunch", "relaunch recheck"])
+def test_owner_terminal_probe_failure_surfaces_verification_without_recovery(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, operation: str
+) -> None:
+    """Report the selected agent even when failure occurs after initial classification."""
+
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
+    record = _degraded_or_stale_record(
+        tmp_path=tmp_path, manifest_present=True, session_name="HOUMAO-peer"
+    )
+    publish_live_agent_record(record)
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_resolve_local_relaunch_record_with_miss_context",
+        lambda **_: (record, None),
+    )
+
+    def _deny(**_: object) -> TmuxBackedAuthorityHealth:
+        raise TmuxCommandError("fixture refused peer socket", returncode=23)
+
+    def _unexpected_mutation(*args: object, **kwargs: object) -> None:
+        pytest.fail("Terminal inspection failure must preserve the active agent")
+
+    monkeypatch.setattr(managed_agents_module, "probe_tmux_backed_authority", _deny)
+    monkeypatch.setattr(managed_agents_module, "kill_tmux_session", _unexpected_mutation)
+    monkeypatch.setattr(managed_agents_module, "resume_runtime_session", _unexpected_mutation)
+    if operation.endswith(" recheck"):
+        target = ManagedAgentTarget(
+            mode="local_stale",
+            agent_ref=record.agent_id,
+            identity=_managed_identity(transport="headless"),
+            record=record,
+        )
+    else:
+        target = managed_agents_module.select_local_managed_agent_record(
+            record, agent_ref=record.agent_id
+        )
+
+    if operation == "stop recheck":
+        response = stop_managed_agent(target)
+        assert not response.success
+        detail = response.detail
+    else:
+        with pytest.raises(click.ClickException) as error:
+            if operation == "relaunch":
+                resolve_relaunch_managed_agent_target(
+                    agent_id=record.agent_id, agent_name=None, port=None
+                )
+            elif operation == "relaunch recheck":
+                relaunch_managed_agent(target)
+            else:
+                stop_managed_agent(target)
+        detail = error.value.message
+
+    assert "Owner terminal inspection unavailable" in detail
+    assert record.agent_id in detail
+    assert "status 23" in detail
+    assert "Verify the session from the recorded execution owner" in detail
+    assert "cleanup session" not in detail and "stale" not in detail
+    assert load_managed_agent_record_by_agent_id(record.agent_id) == record
+    assert Path(record.runtime.manifest_path).exists()
+
+
+def test_selected_agent_stop_dispatches_confirmed_degraded_recovery(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1506,6 +1465,13 @@ def test_resolve_managed_agent_target_routes_degraded_active_record_into_local_d
             AssertionError("resume should not run for degraded record")
         ),
     )
+    observed: list[ManagedAgentTarget] = []
+    expected = SimpleNamespace(success=True)
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_stop_degraded_or_stale_local_managed_agent",
+        lambda target: (observed.append(target), expected)[1],
+    )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
         lambda **kwargs: (_ for _ in ()).throw(AssertionError("server fallback should not run")),
@@ -1513,12 +1479,38 @@ def test_resolve_managed_agent_target_routes_degraded_active_record_into_local_d
 
     target = resolve_managed_agent_target(agent_id=None, agent_name="gpu", port=None)
 
-    assert target.mode == "local_degraded"
+    assert target.mode == "local"
     assert target.controller is None
     assert target.record is record
+    assert stop_managed_agent(target) is expected
+    assert observed[0].mode == "local_degraded"
 
 
-def test_resolve_managed_agent_target_routes_stale_active_record_into_local_stale(
+def test_controller_resume_preserves_wrapped_tmux_observation_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    record = _degraded_or_stale_record(
+        tmp_path=tmp_path, manifest_present=True, session_name="HOUMAO-peer"
+    )
+
+    def _resume(**_: object) -> None:
+        try:
+            raise TmuxObservationUnavailable("Fixture refused the socket", returncode=23)
+        except TmuxObservationUnavailable as exc:
+            raise BackendExecutionError("Runtime reconstruction failed") from exc
+
+    monkeypatch.setattr(managed_agents_module, "require_registry_mode_authority", lambda _: None)
+    monkeypatch.setattr(managed_agents_module, "resume_runtime_session", _resume)
+    with pytest.raises(click.ClickException) as error:
+        managed_agents_module._resume_controller_from_record(record)
+
+    assert record.agent_id in error.value.message
+    assert "Owner terminal inspection unavailable" in error.value.message
+    assert "status 23" in error.value.message
+    assert "no longer live" not in error.value.message
+
+
+def test_selected_agent_stop_dispatches_confirmed_stale_recovery(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1546,6 +1538,13 @@ def test_resolve_managed_agent_target_routes_stale_active_record_into_local_stal
             AssertionError("resume should not run for stale record")
         ),
     )
+    observed: list[ManagedAgentTarget] = []
+    expected = SimpleNamespace(success=True)
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_stop_degraded_or_stale_local_managed_agent",
+        lambda target: (observed.append(target), expected)[1],
+    )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
         lambda **kwargs: (_ for _ in ()).throw(AssertionError("server fallback should not run")),
@@ -1553,9 +1552,11 @@ def test_resolve_managed_agent_target_routes_stale_active_record_into_local_stal
 
     target = resolve_managed_agent_target(agent_id=None, agent_name="gpu", port=None)
 
-    assert target.mode == "local_stale"
+    assert target.mode == "local"
     assert target.controller is None
     assert target.record is record
+    assert stop_managed_agent(target) is expected
+    assert observed[0].mode == "local_stale"
 
 
 def test_gateway_status_rejects_stale_local_target_with_actionable_diagnostic(
@@ -2456,6 +2457,47 @@ def _write_manifest(
     return manifest_path
 
 
+def _observation_target(manifest_path: Path) -> ManagedAgentTarget:
+    """Build a registry selection from a synthetic runtime manifest."""
+
+    raw = load_session_manifest(manifest_path).payload
+    if raw["registry_generation_id"] is None:
+        raw["registry_generation_id"] = "state-generation"
+        raw["runtime"]["registry_generation_id"] = "state-generation"
+    if raw["runtime"]["execution_binding"] is None:
+        raw["tmux"]["socket_path"] = str(manifest_path.parent / "isolated-test.sock")
+    write_session_manifest(manifest_path, raw)
+    manifest = parse_session_manifest_payload(raw, source=str(manifest_path))
+    assert manifest.registry_generation_id is not None
+    assert manifest.agent_name is not None
+    assert manifest.tmux is not None
+    record = _make_record(
+        agent_id=manifest.agent_id,
+        agent_name=manifest.agent_name,
+        generation_id=manifest.registry_generation_id,
+        tool=manifest.tool,
+        backend=manifest.backend,
+        native_surface=manifest.native_surface,
+        session_name=manifest.tmux.session_name,
+        manifest_path=str(manifest_path),
+        session_root=str(manifest_path.parent),
+    )
+    record = record.model_copy(
+        update={
+            "execution_binding": manifest.runtime.execution_binding,
+            "terminal": record.terminal.model_copy(
+                update={"socket_path": manifest.tmux.socket_path}
+            ),
+        }
+    )
+    return ManagedAgentTarget(
+        mode="local",
+        agent_ref=manifest.agent_id,
+        identity=managed_agents_module._identity_from_record(record),
+        record=record,
+    )
+
+
 def _sample_local_tui_state(
     *, manifest_path: Path, tmux_window_name: str
 ) -> HoumaoTerminalStateResponse:
@@ -3146,74 +3188,6 @@ def test_relaunch_managed_agent_requires_local_authority_for_passive_pair() -> N
         relaunch_managed_agent(target)
 
 
-def test_identity_from_record_uses_persisted_tmux_window_name(
-    tmp_path: Path,
-) -> None:
-    manifest_path = _write_manifest(
-        tmp_path=tmp_path,
-        launch_plan=_sample_launch_plan(tmp_path=tmp_path, backend="local_interactive"),
-        tmux_window_name="manual",
-    )
-    record = SimpleNamespace(
-        agent_name="joined-agent",
-        agent_id="agent-joined",
-        mode="tui",
-        native_surface=None,
-        execution_binding=None,
-        identity=SimpleNamespace(backend="local_interactive", tool="codex"),
-        runtime=SimpleNamespace(
-            agent_def_dir=str((tmp_path / "agent-def").resolve()),
-            manifest_path=str(manifest_path),
-            session_root=str(manifest_path.parent),
-        ),
-        terminal=SimpleNamespace(session_name="join-sess"),
-    )
-
-    identity = managed_agents_module._identity_from_record(record)
-
-    assert identity.transport == "tui"
-    assert identity.tmux_window_name == "manual"
-    assert identity.tmux_session_name == "join-sess"
-
-
-def test_identity_from_record_uses_canonical_join_window_binding(
-    tmp_path: Path,
-) -> None:
-    manifest_path = _write_manifest(
-        tmp_path=tmp_path,
-        launch_plan=_sample_launch_plan(tmp_path=tmp_path, backend="local_interactive"),
-        tmux_window_name="manual",
-    )
-    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert payload["tmux"] is not None
-    payload["tmux"]["primary_window_name"] = None
-    assert payload["interactive"] is not None
-    payload["interactive"]["tmux_window_name"] = None
-    payload["backend_state"].pop("tmux_window_name", None)
-    payload["launch_plan"]["metadata"]["tmux_window_name"] = "manual"
-    payload["agent_launch_authority"]["session_origin"] = "joined_tmux"
-    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
-
-    record = SimpleNamespace(
-        agent_name="joined-agent",
-        agent_id="agent-joined",
-        mode="tui",
-        native_surface=None,
-        identity=SimpleNamespace(backend="local_interactive", tool="codex"),
-        execution_binding=None,
-        runtime=SimpleNamespace(
-            agent_def_dir=str((tmp_path / "agent-def").resolve()),
-            manifest_path=str(manifest_path),
-            session_root=str(manifest_path.parent),
-        ),
-        terminal=SimpleNamespace(session_name="join-sess"),
-    )
-
-    identity = managed_agents_module._identity_from_record(record)
-
-    assert identity.tmux_window_name == "agent"
-
-
 def test_local_tui_state_and_detail_payloads_use_joined_window_metadata(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -3224,24 +3198,12 @@ def test_local_tui_state_and_detail_payloads_use_joined_window_metadata(
         launch_plan=launch_plan,
         tmux_window_name="manual",
     )
-    controller = SimpleNamespace(
-        manifest_path=manifest_path,
-        tmux_session_name="join-sess",
-        launch_plan=launch_plan,
-        agent_identity="joined-agent",
-        agent_id="agent-joined",
-    )
-    target = ManagedAgentTarget(
-        mode="local",
-        agent_ref="agent-joined",
-        identity=managed_agents_module._identity_from_controller(controller),
-        controller=controller,
-    )
+    target = _observation_target(manifest_path)
 
     monkeypatch.setattr(
-        managed_agents_module,
-        "_refresh_local_tui_state",
-        lambda *, controller: _sample_local_tui_state(
+        observation_module,
+        "_observe_tui",
+        lambda **_: _sample_local_tui_state(
             manifest_path=manifest_path,
             tmux_window_name="manual",
         ),
@@ -3253,6 +3215,43 @@ def test_local_tui_state_and_detail_payloads_use_joined_window_metadata(
     assert state.identity.tmux_window_name == "manual"
     assert detail.identity.tmux_window_name == "manual"
     assert detail.detail.transport == "tui"
+
+
+def test_tui_state_preserves_publication_when_owner_socket_is_denied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest_path = _write_manifest(
+        tmp_path=tmp_path,
+        launch_plan=_sample_launch_plan(tmp_path=tmp_path, backend="local_interactive"),
+        tmux_window_name="manual",
+    )
+    target = _observation_target(manifest_path)
+    before = manifest_path.read_bytes()
+    attempts = []
+
+    def denied(server: TmuxServer, session_name: str) -> None:
+        """Refuse owner terminal observation while retaining the selected record."""
+
+        attempts.append((server.socket_path, session_name))
+        raise TmuxObservationUnavailable("Permission denied on the recorded owner socket")
+
+    monkeypatch.setattr(TmuxServer, "observe_session", denied)
+    detail = managed_agent_detail_payload(target)
+    state = detail.summary_state
+
+    assert attempts == [(str(manifest_path.parent / "isolated-test.sock"), "join-sess")]
+    assert detail.detail.transport == "tui"
+    assert detail.detail.probe_snapshot is None
+    assert state.identity.agent_id == target.agent_ref
+    assert state.identity.lifecycle_state == "active"
+    assert state.publication.lease_freshness == "current"
+    assert state.mailboxes is not None
+    assert state.turn.phase == "unknown"
+    assert state.availability == "unavailable"
+    assert state.control.can_accept_prompt_now is None
+    assert state.control.freshness == "unknown"
+    assert any("Permission denied" in diagnostic.message for diagnostic in state.diagnostics)
+    assert manifest_path.read_bytes() == before
 
 
 def test_joined_tui_state_and_detail_after_resume_keep_adopted_window_name(
@@ -3320,17 +3319,12 @@ def test_joined_tui_state_and_detail_after_resume_keep_adopted_window_name(
         session_manifest_path=joined.manifest_path,
     )
     persisted_payload = json.loads(joined.manifest_path.read_text(encoding="utf-8"))
-    target = ManagedAgentTarget(
-        mode="local",
-        agent_ref=joined.agent_id,
-        identity=managed_agents_module._identity_from_controller(controller),
-        controller=controller,
-    )
+    target = _observation_target(joined.manifest_path)
 
     monkeypatch.setattr(
-        managed_agents_module,
-        "_refresh_local_tui_state",
-        lambda *, controller: _sample_local_tui_state(
+        observation_module,
+        "_observe_tui",
+        lambda **_: _sample_local_tui_state(
             manifest_path=joined.manifest_path,
             tmux_window_name="manual",
         ),
@@ -3390,8 +3384,12 @@ def test_local_prompt_and_interrupt_use_captured_owner_request(monkeypatch, tmp_
     )
     interrupted = []
     monkeypatch.setattr(
-        managed_agents_module, "interrupt_owned_headless_attempt",
-        lambda path: interrupted.append(path) or SessionControlResult(status="ok", action="interrupt", detail="done"),
+        managed_agents_module,
+        "interrupt_owned_headless_attempt",
+        lambda path: (
+            interrupted.append(path)
+            or SessionControlResult(status="ok", action="interrupt", detail="done")
+        ),
     )
     target = ManagedAgentTarget(
         mode="local",
@@ -3411,7 +3409,9 @@ def test_local_prompt_and_interrupt_use_captured_owner_request(monkeypatch, tmp_
     assert interrupt_response.success is True
     assert interrupt_response.detail == "done"
     assert interrupted == [turn_dir]
-    assert calls == [("hello", {"execution_model": None, "turn_artifact_dir_name": claim.request_id})]
+    assert calls == [
+        ("hello", {"execution_model": None, "turn_artifact_dir_name": claim.request_id})
+    ]
 
 
 def test_prompt_managed_agent_rejects_execution_override_for_tui_target() -> None:
@@ -3497,7 +3497,7 @@ def test_server_interrupt_uses_transport_neutral_request_route() -> None:
     assert isinstance(captured[0][1], HoumaoManagedAgentInterruptRequest)
 
 
-def test_headless_detail_uses_exit_artifact_even_when_tmux_session_is_live(
+def test_headless_detail_uses_exit_artifact_with_unobservable_supervisor(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3510,32 +3510,25 @@ def test_headless_detail_uses_exit_artifact_even_when_tmux_session_is_live(
     turn_dir = manifest_path.parent / "manifest.turn-artifacts" / "turn-0001"
     turn_dir.mkdir(parents=True)
     (turn_dir / "exitcode").write_text("0\n", encoding="utf-8")
-    controller = SimpleNamespace(
-        manifest_path=manifest_path,
-        tmux_session_name="join-sess",
-        launch_plan=launch_plan,
-        backend_session=None,
-        agent_identity="joined-agent",
-        agent_id="agent-joined",
-        execution_scope=nullcontext,
-    )
-    target = ManagedAgentTarget(
-        mode="local",
-        agent_ref="agent-joined",
-        identity=managed_agents_module._identity_from_controller(controller),
-        controller=controller,
-    )
+    target = _observation_target(manifest_path)
 
-    monkeypatch.setattr(managed_agents_module, "_local_gateway_summary", lambda _controller: None)
-    monkeypatch.setattr(managed_agents_module, "_local_mailbox_summary", lambda _controller: None)
+    def unexpected(*_args: object, **_kwargs: object) -> None:
+        """Fail if saved headless state tries to open terminal or native control."""
+
+        pytest.fail("Saved headless state must not open runtime control")
+
+    monkeypatch.setattr(observation_module, "resume_runtime_session", unexpected)
+    monkeypatch.setattr(observation_module, "SingleSessionTrackingRuntime", unexpected)
     detail = managed_agent_detail_payload(target)
 
     assert detail.detail.transport == "headless"
-    assert detail.detail.tmux_session_live is True
-    assert detail.detail.can_accept_prompt_now is True
+    assert detail.detail.tmux_session_live is None
+    assert detail.detail.can_accept_prompt_now is None
     assert detail.detail.interruptible is False
     assert detail.detail.last_turn_status == "completed"
-    assert detail.summary_state.turn.phase == "ready"
+    assert detail.summary_state.turn.phase == "unknown"
+    assert detail.summary_state.identity.lifecycle_state == "active"
+    assert detail.summary_state.publication.lease_freshness == "current"
 
 
 def test_attach_gateway_uses_local_runtime_controller(

@@ -13,7 +13,7 @@ skill_invocation_notation: >
 
 # Managed-Agent HTTP Route Summary
 
-Prefer the pair-managed `/houmao/agents/*` seam whenever it already satisfies the task. For ordinary prompt turns and mailbox handoff, discover live gateway capability first and prefer gateway-backed delivery when it is currently available. Use direct gateway `/v1/...` only when the lower-level route is genuinely required and the exact live `gateway.base_url` is already available from current context or supported discovery.
+Prefer the pair-managed `/houmao/agents/*` routes when they satisfy the task. Use direct gateway `/v1/...` only when the lower-level route is required and the exact live `gateway.base_url` is available from current context or supported discovery.
 
 ## Discovery
 
@@ -23,11 +23,9 @@ Prefer the pair-managed `/houmao/agents/*` seam whenever it already satisfies th
 
 ## Ordinary Prompt
 
-- `GET /houmao/agents/{agent_ref}/gateway`
-- `POST /houmao/agents/{agent_ref}/gateway/control/prompt`
 - `POST /houmao/agents/{agent_ref}/requests`
 
-Normal prompt turns should check `/gateway` first. When a live gateway exists, prefer `/gateway/control/prompt` for gateway-backed prompt delivery. Use `/requests` when no live gateway is attached or when the task explicitly wants the transport-neutral managed-agent prompt route.
+Use `/requests` for ordinary managed-agent prompting. Use the gateway control routes for explicit gateway behavior.
 
 ## Transport-Neutral Interrupt
 
@@ -60,7 +58,7 @@ Use these routes when you need the exact raw gateway-owned tracker surface inste
 
 - `GET /houmao/agents/{agent_ref}/mail/resolve-live`
 
-Resolve live bindings first. Then hand mailbox work to `houmao-shared-routines->houmao-agent-email-comms` for ordinary mailbox operations or `houmao-shared-routines->houmao-process-emails-via-gateway` for one open-mail round. This messaging skill does not restate the lower-level mailbox operation routes.
+Use a known recipient address or resolve it for the requested channel. Published contact is sufficient for the recipient address. Hand ordinary mail off to `houmao-shared-routines->houmao-agent-email-comms`. Use a verified live gateway when handing off a notifier round to `houmao-shared-routines->houmao-process-emails-via-gateway`.
 
 ## Direct Gateway HTTP
 

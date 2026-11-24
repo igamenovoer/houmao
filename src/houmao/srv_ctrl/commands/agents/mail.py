@@ -477,7 +477,9 @@ def resolve_live_mail_command(
 ) -> None:
     """Resolve live mailbox bindings and optional gateway metadata for one managed agent."""
 
-    target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
+    target = resolve_managed_agent_mail_target(
+        agent_id=agent_id, agent_name=agent_name, port=port, mail_discovery=True
+    )
     emit(mail_resolve_live(target))
 
 

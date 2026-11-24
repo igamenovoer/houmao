@@ -238,9 +238,7 @@ def test_owner_dispatch_scope_prevents_same_user_recursive_delegation(
         "_resolve_local_managed_agent_record_with_miss_context",
         lambda **kwargs: (record, None),
     )
-    monkeypatch.setattr(helpers, "_is_local_tmux_backed_active_record", lambda record: False)
-    monkeypatch.setattr(helpers, "_resume_controller_from_record", lambda record: SimpleNamespace())
-    monkeypatch.setattr(helpers, "_identity_from_controller", lambda controller: _identity())
+    monkeypatch.setattr(helpers, "_identity_from_record", lambda record: _identity())
     with helpers.owner_local_target_scope():
         assert (
             helpers.resolve_managed_agent_target(

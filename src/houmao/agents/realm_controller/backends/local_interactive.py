@@ -515,9 +515,9 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
     def _submit_semantic_prompt(self, text: str) -> None:
         """Paste literal prompt text and submit it as a separate tmux phase."""
 
-        pane_target = self._primary_tmux_pane_target()
-        buffer_name = f"houmao-submit-prompt-{uuid.uuid4().hex}"
         control = getattr(self, "m_dispatch_control", None)
+        pane_target = self._primary_tmux_pane_target(allow_repair=control is None)
+        buffer_name = f"houmao-submit-prompt-{uuid.uuid4().hex}"
         buffer_loaded = False
         try:
             if control is not None:

@@ -25,7 +25,7 @@ This parent-scoped routine loads only through `houmao-shared-routines`. Require 
 
 Do not infer target identity from the current pane or promote an agent caller into the admin actor.
 
-Use this Houmao skill when you need to communicate with an already-running Houmao-managed agent, whether the caller is another agent with an installed Houmao skill home or an external operator working from outside the managed session. If the real task is generic read-only managed-agent inspection rather than communication, use `houmao-shared-routines->houmao-agent-inspect` instead.
+Use this Houmao skill to communicate with a managed agent as a verified agent or an external operator. Prompts need a reachable runtime. Mail can reach a registered address while the recipient is offline. For generic read-only inspection, use `houmao-shared-routines->houmao-agent-inspect`.
 
 The trigger word `houmao` is intentional. Enter this parent-scoped routine only through `houmao-shared-routines->houmao-agent-messaging`; never invoke its logical id as a standalone skill.
 
@@ -39,7 +39,7 @@ Available functionality:
 
 - Discover target agents and current gateway or mailbox capability.
 - Send ordinary prompts, interrupts, policy-controlled gateway prompts, and raw key input.
-- Route mailbox handoff work to the correct mailbox skill after resolving live bindings.
+- Resolve recipient contact and route mailbox work to the owning skill.
 - Apply reset-context or reset-then-send workflow guidance.
 
 Common starting prompts:
@@ -96,7 +96,7 @@ This packaged skill does not cover:
 
 Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
 
-1. Identify which messaging intent the user actually wants: discovery, ordinary prompt with gateway preference, interrupt, explicit gateway prompt admission, raw control input, mailbox handoff, or reset-context.
+1. Identify the messaging intent from the request. Use the action for discovery, ordinary prompt, interrupt, explicit gateway control, raw control input, mailbox work, or reset-context.
 2. If the request is really about generic read-only inspection of liveness, mailbox posture, logs, runtime artifacts, or tmux backing, route it to `houmao-shared-routines->houmao-agent-inspect` instead of handling it as messaging.
 3. Recover the target managed-agent selector from the current prompt first and recent chat context second when it was stated explicitly.
 4. If the selected action still lacks a required target or explicit message input, ask the user in Markdown before proceeding.
@@ -110,10 +110,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - `houmao-mgr agents single ...` for selected-agent CLI-driven work
    - `houmao-mgr agents self ...` for current-session CLI-driven work
    - `/houmao/agents/*` for pair-managed HTTP control
-8. Before ordinary prompt or mailbox handoff work, resolve current live gateway capability unless the current prompt or recent chat context already provides that fact explicitly:
-   - use `houmao-mgr agents single ... gateway status`, `houmao-mgr agents self gateway status`, or `GET /houmao/agents/{agent_ref}/gateway` for prompt-lane gateway decisions
-   - use `houmao-mgr agents single ... mail resolve-live`, `houmao-mgr agents self mail resolve-live`, or `GET /houmao/agents/{agent_ref}/mail/resolve-live` for mailbox bindings and the exact live `gateway.base_url`
-   - when mailbox work is required, use that discovery result to hand off to `houmao-shared-routines->houmao-agent-email-comms` for ordinary mailbox actions or `houmao-shared-routines->houmao-process-emails-via-gateway` for one open-mail round
+8. When an ordinary mail request supplies a name, resolve its address for the selected channel using `agents single ... mail resolve-live`. Published contact is sufficient for addressing the message. Hand off delivery through the verified sender's `agents self mail send --channel <channel>` workflow in `houmao-shared-routines->houmao-agent-email-comms`. Reserve gateway verification for tasks that require it, such as a notifier-driven open-mail round in `houmao-shared-routines->houmao-process-emails-via-gateway`.
 9. Use direct gateway `/v1/...` HTTP only when the task genuinely needs gateway-only control behavior and the exact live `gateway.base_url` is already available from current context or supported discovery.
 10. Load exactly one action page:
    - `commands/discover.md`
@@ -146,18 +143,18 @@ If the request does not map cleanly to this workflow, use the native planning to
 
 - Use `houmao-shared-routines->houmao-agent-inspect` when the user wants generic managed-agent inspection of current liveness, mailbox posture, runtime artifacts, logs, or direct tmux backing.
 - Use `commands/discover.md` when you first need to identify the target managed agent or discover current gateway and mailbox capability.
-- Use `commands/prompt.md` when the user wants one normal conversational turn; discover gateway availability first and prefer the gateway-backed prompt lane when a live gateway exists.
+- Use `commands/prompt.md` for one normal conversational turn through the managed prompt command.
 - Use `commands/interrupt.md` when the user wants the transport-neutral interrupt path for one managed agent.
-- Use `commands/gateway-queue.md` when the user explicitly wants a nondefault gateway prompt-admission policy, raw gateway-owned TUI inspection, or prompt-note provenance beyond the ordinary gateway-preferred prompt path.
+- Use `commands/gateway-queue.md` when the user explicitly wants a gateway prompt-admission policy, gateway-owned TUI inspection, or prompt-note provenance.
 - Use `commands/send-keys.md` when the user needs exact key delivery such as slash-command menus, arrow navigation, `Escape`, or partial typing in a live TUI session.
-- Use `commands/mail.md` when the target has mailbox capability and you need to route the work to the correct mailbox skill after resolving live bindings.
+- Use `commands/mail.md` to resolve contact or route work to the mailbox skill.
 - Use `commands/reset-context.md` when the user wants clear-context, reset-then-send, or next-prompt chat-session control.
 
 ## Guardrails
 
 - DO NOT guess the target managed agent, gateway base URL, mailbox capability, or intended messaging lane.
 - DO NOT present this skill as the owner of generic managed-agent inspection; use `houmao-shared-routines->houmao-agent-inspect` for that broader read-only work.
-- DO NOT skip live gateway discovery when prompt or outgoing mailbox routing depends on whether the target currently has a gateway.
+- DO NOT use gateway-specific control or a notifier round without verifying live gateway availability.
 - DO NOT treat raw `send-keys` as a substitute for ordinary prompt-turn work.
 - DO NOT redirect raw terminal shaping to `agents single ... prompt`, `agents self prompt`, or gateway prompt surfaces.
 - DO NOT guess a direct gateway host or port when the exact live `gateway.base_url` is not already available.

@@ -16,7 +16,10 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     tmux_session_exists,
 )
 from houmao.execution.tmux import TmuxCommandError, tmux_server_scope
-from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
+from houmao.agents.realm_controller.boundary_models import (
+    SessionManifestPayloadV4,
+    SessionManifestTmuxSectionV1,
+)
 from houmao.agents.realm_controller.errors import LaunchPlanError, SessionManifestError
 from houmao.agents.realm_controller.gateway_storage import gateway_paths_from_session_root
 from houmao.agents.realm_controller.loaders import load_brain_manifest
@@ -27,6 +30,7 @@ from houmao.agents.realm_controller.manifest import (
 )
 from houmao.agents.realm_controller.registry_models import ManagedAgentRegistryRecordV3
 from houmao.agents.realm_controller.registry_storage import (
+    load_managed_agent_record_by_agent_id,
     publish_managed_agent_record,
     record_path_for_agent_id,
     remove_managed_agent_record,
@@ -35,6 +39,14 @@ from houmao.agents.realm_controller.registry_storage import (
     resolve_cleanup_managed_agent_records_by_name,
     resolve_external_managed_agent_records_by_name,
 )
+from houmao.agents.realm_controller.terminal_recovery import (
+    recorded_tmux_binding,
+    require_owned_degraded_tmux_session,
+    require_same_recovery_manifest,
+    require_same_recovery_record,
+    terminal_inspection_unavailable,
+)
+from houmao.execution.context import require_owner_tmux_socket
 from houmao.owned_mutation import require_owned_mutation_path
 from houmao.owned_paths import HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR
 from houmao.project.overlay import (
@@ -211,6 +223,7 @@ def cleanup_managed_session(
     session_root: Path | None,
     dry_run: bool,
     purge_registry: bool = False,
+    expected_record: ManagedAgentRegistryRecordV3 | None = None,
 ) -> dict[str, object]:
     """Clean one resolved stopped managed-session envelope."""
 
@@ -220,9 +233,6 @@ def cleanup_managed_session(
         manifest_path=manifest_path,
         session_root=session_root,
     )
-    session_name = _cleanup_target_tmux_session_name(target)
-    socket_path = _cleanup_target_tmux_socket(target)
-    live = _tmux_session_presence(session_name, socket_path)
     session_details = _cleanup_target_details(target)
 
     planned_actions: list[CleanupAction] = []
@@ -241,39 +251,79 @@ def cleanup_managed_session(
     )
 
     registry_record = target.registry_record
+    if expected_record is not None:
+        require_same_recovery_record(expected_record, registry_record)
     session_root_present = session_action_path.exists() or session_action_path.is_symlink()
     session_cleanup_complete = False
 
     broken_active_purge_allowed = False
+    live: bool | None = None
+    inspection_error: str | None = None
     tmux_teardown_error: TmuxCommandError | None = None
-    if (
-        purge_registry
-        and _cleanup_target_has_active_registry_record(target)
-        and session_name
-        and socket_path is not None
-        and live is not None
-    ):
-        if live is False:
-            broken_active_purge_allowed = True
-        else:
+    lifecycle_state = registry_record.lifecycle.state if registry_record is not None else None
+    active_record = lifecycle_state == "active"
+    session_name: str | None = None
+    try:
+        binding = _cleanup_target_tmux_binding(target)
+        socket_path: str | None = None
+        if binding is not None:
+            session_name = binding.session_name
+            socket_path = binding.socket_path
+        if active_record and purge_registry:
+            assert registry_record is not None and socket_path is not None
+            assert session_name is not None and binding is not None
+            launch_authority = target.payload.agent_launch_authority if target.payload else None
             with tmux_server_scope(socket_path):
-                try:
-                    probe = probe_tmux_backed_authority(session_name=session_name)
-                    if probe.state == "stale_missing_session":
-                        broken_active_purge_allowed = True
-                        live = False
-                    elif probe.state == "degraded_missing_primary":
-                        broken_active_purge_allowed = True
-                        if not dry_run:
-                            kill_tmux_session(session_name=session_name)
+                probe = probe_tmux_backed_authority(
+                    session_name=session_name,
+                    primary_window_id=binding.primary_window_id,
+                    primary_pane_id=binding.primary_pane_id,
+                    primary_window_name=binding.primary_window_name,
+                    joined=launch_authority is not None
+                    and launch_authority.session_origin == "joined_tmux",
+                )
+                live = probe.session_exists
+                session_details["terminal_health"] = probe.state
+                if probe.state == "stale_missing_session":
+                    broken_active_purge_allowed = True
+                elif probe.state == "degraded_missing_primary":
+                    session_id = require_owned_degraded_tmux_session(
+                        registry_record, binding, probe
+                    )
+                    _require_current_cleanup_authority(target)
+                    broken_active_purge_allowed = True
+                    if not dry_run:
+                        try:
+                            kill_tmux_session(session_name=session_name, session_id=session_id)
+                        except TmuxCommandError as exc:
+                            tmux_teardown_error = exc
+                        else:
                             live = False
-                except TmuxCommandError as exc:
-                    if broken_active_purge_allowed:
-                        tmux_teardown_error = exc
-                    else:
-                        live = None
+        elif lifecycle_state != "relaunching":
+            live = _tmux_session_presence(
+                session_name, socket_path, allow_missing_server=not active_record
+            )
+        if (live is False or broken_active_purge_allowed) and tmux_teardown_error is None:
+            _require_current_cleanup_authority(target)
+    except (SessionManifestError, ValueError, OSError) as exc:
+        inspection_error = str(exc)
+        live = None
+    except TmuxCommandError as exc:
+        if registry_record is not None:
+            inspection_error = str(terminal_inspection_unavailable(registry_record, exc))
+        live = None
 
-    if tmux_teardown_error is not None:
+    if lifecycle_state == "relaunching":
+        blocked_actions.append(
+            CleanupAction(
+                artifact_kind="session_root",
+                path=session_action_path,
+                proposed_action="remove",
+                reason="managed session is relaunching",
+                details=session_details,
+            )
+        )
+    elif tmux_teardown_error is not None:
         blocked_actions.append(
             CleanupAction(
                 artifact_kind="session_root",
@@ -289,11 +339,17 @@ def cleanup_managed_session(
                 artifact_kind="session_root",
                 path=session_action_path,
                 proposed_action="remove",
-                reason="managed session liveness could not be verified on the recorded tmux socket",
-                details=session_details,
+                reason=(
+                    "Managed session liveness could not be verified on the recorded tmux socket. "
+                    "Verify the session from the recorded execution owner and retry."
+                ),
+                details={
+                    **session_details,
+                    **({"inspection_error": inspection_error} if inspection_error else {}),
+                },
             )
         )
-    elif not broken_active_purge_allowed and _cleanup_target_has_active_registry_record(target):
+    elif not broken_active_purge_allowed and active_record:
         blocked_actions.append(
             CleanupAction(
                 artifact_kind="session_root",
@@ -303,7 +359,7 @@ def cleanup_managed_session(
                 details=session_details,
             )
         )
-    elif live:
+    elif live and not broken_active_purge_allowed:
         blocked_actions.append(
             CleanupAction(
                 artifact_kind="session_root",
@@ -1061,6 +1117,10 @@ def _load_cleanup_target_from_registry_record(
     else:
         registry_session_root = _registry_record_session_root(record)
         if target is not None and target.payload is not None:
+            if registry_session_root is not None and target.session_root != registry_session_root:
+                raise CleanupResolutionError(
+                    "The registry's manifest path differs from its recorded runtime session root."
+                )
             return target
         if target is not None and (
             registry_session_root is None or registry_session_root == target.session_root
@@ -1429,16 +1489,6 @@ def _cleanup_action_mutable(action: CleanupAction, *, allowed_roots: tuple[Path,
     return True
 
 
-def _cleanup_target_tmux_session_name(target: ResolvedManagedSessionCleanupTarget) -> str | None:
-    """Return the best available tmux session name for one cleanup target."""
-
-    if target.payload is not None:
-        return _payload_tmux_session_name(target.payload)
-    if target.registry_record is not None:
-        return target.registry_record.terminal.session_name
-    return None
-
-
 def _cleanup_target_session_action_path(target: ResolvedManagedSessionCleanupTarget) -> Path:
     """Return the lexical path cleanup should mutate for the session-root artifact."""
 
@@ -1460,21 +1510,36 @@ def _runtime_root_for_session_path(session_root: Path) -> Path:
 def _cleanup_target_is_live(target: ResolvedManagedSessionCleanupTarget) -> bool:
     """Protect a cleanup target when liveness is observed or cannot be ruled out."""
 
-    session_name = _cleanup_target_tmux_session_name(target)
-    return _tmux_session_presence(session_name, _cleanup_target_tmux_socket(target)) is not False
+    try:
+        binding = _cleanup_target_tmux_binding(target)
+    except (SessionManifestError, ValueError, OSError):
+        return True
+    return (
+        binding is not None
+        and _tmux_session_presence(binding.session_name, binding.socket_path) is not False
+    )
 
 
-def _cleanup_target_tmux_socket(target: ResolvedManagedSessionCleanupTarget) -> str | None:
-    """Return the recorded owner socket without inheriting a caller socket."""
+def _cleanup_target_tmux_binding(
+    target: ResolvedManagedSessionCleanupTarget,
+) -> SessionManifestTmuxSectionV1 | None:
+    """Return validated cleanup authority without inheriting a caller socket."""
 
-    if target.payload is not None and target.payload.tmux is not None:
-        return target.payload.tmux.socket_path
     if target.registry_record is not None:
-        return target.registry_record.terminal.socket_path
-    return None
+        return recorded_tmux_binding(target.registry_record, target.payload)
+    payload = target.payload
+    if payload is None or _payload_tmux_session_name(payload) is None:
+        return None
+    binding = payload.tmux
+    require_owner_tmux_socket(
+        payload.runtime.execution_binding, binding.socket_path if binding is not None else None
+    )
+    return binding
 
 
-def _tmux_session_presence(session_name: str | None, socket_path: str | None) -> bool | None:
+def _tmux_session_presence(
+    session_name: str | None, socket_path: str | None, *, allow_missing_server: bool = True
+) -> bool | None:
     """Report checked presence or an unavailable owner observation."""
 
     if session_name is None or not session_name.strip():
@@ -1483,7 +1548,9 @@ def _tmux_session_presence(session_name: str | None, socket_path: str | None) ->
         return None
     try:
         with tmux_server_scope(socket_path):
-            return tmux_session_exists(session_name=session_name, allow_missing_server=True)
+            return tmux_session_exists(
+                session_name=session_name, allow_missing_server=allow_missing_server
+            )
     except TmuxCommandError:
         return None
 
@@ -1505,12 +1572,6 @@ def _cleanup_target_details(target: ResolvedManagedSessionCleanupTarget) -> dict
     if target.parse_error is not None:
         details["parse_error"] = target.parse_error
     return details
-
-
-def _cleanup_target_has_active_registry_record(target: ResolvedManagedSessionCleanupTarget) -> bool:
-    """Return whether cleanup matched an active lifecycle registry record."""
-
-    return target.registry_record is not None and target.registry_record.lifecycle.state == "active"
 
 
 def _planned_cleanup_registry_action_name(
@@ -1552,7 +1613,10 @@ def _apply_cleanup_registry_lifecycle_action(
 
     try:
         if lifecycle_action.proposed_action == "retire":
-            publish_managed_agent_record(_build_retired_registry_record_for_cleanup(record))
+            publish_managed_agent_record(
+                _build_retired_registry_record_for_cleanup(record),
+                expected_generation_id=record.generation_id,
+            )
         elif lifecycle_action.proposed_action == "purge":
             removed = remove_managed_agent_record(
                 record.agent_id,
@@ -1578,6 +1642,21 @@ def _apply_cleanup_registry_lifecycle_action(
         )
     else:
         applied_actions.append(lifecycle_action)
+
+
+def _require_current_cleanup_authority(target: ResolvedManagedSessionCleanupTarget) -> None:
+    """Recheck the selected record and manifest before removing owned artifacts."""
+
+    record = target.registry_record
+    if record is not None:
+        require_same_recovery_record(record, load_managed_agent_record_by_agent_id(record.agent_id))
+
+    try:
+        handle = load_session_manifest(target.manifest_path)
+        current = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+    except SessionManifestError:
+        current = None
+    require_same_recovery_manifest(target.payload, current)
 
 
 def _build_cleanup_registry_lifecycle_action(
@@ -1727,7 +1806,15 @@ def _payload_is_live(payload: SessionManifestPayloadV4) -> bool:
     """Protect a runtime envelope until the owner scope confirms absence."""
 
     session_name = _payload_tmux_session_name(payload)
-    socket_path = payload.tmux.socket_path if payload.tmux is not None else None
+    if session_name is None:
+        return False
+    try:
+        socket_path = require_owner_tmux_socket(
+            payload.runtime.execution_binding,
+            payload.tmux.socket_path if payload.tmux is not None else None,
+        )
+    except (ValueError, OSError):
+        return True
     return _tmux_session_presence(session_name, socket_path) is not False
 
 

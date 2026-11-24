@@ -35,6 +35,8 @@ The override flags affect only the submitted turn. They do not rewrite the store
 
 Show one managed headless turn status payload.
 
+`status`, `events`, `stdout`, and `stderr` read saved artifacts from the selected headless generation. The manifest must still match the registry record and be readable by the authorized execution owner. The artifacts remain readable after the terminal is gone while the runtime keeps them.
+
 ```
 houmao-mgr agents single --agent-id <id> turn status [OPTIONS] TURN_ID
 ```

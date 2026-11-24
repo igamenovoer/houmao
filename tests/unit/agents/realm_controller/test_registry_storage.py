@@ -1057,11 +1057,46 @@ def test_cleanup_does_not_infer_absence_from_failed_owner_probe(
         assert current_tmux_socket_path() == "/enclosing/current.sock"
     assert result.removed_agent_ids == ()
     assert result.preserved_agent_ids == (published.agent_id,)
-    assert result.actions[0].reason == (
-        "owner tmux inspection was unavailable"
-        if returncode
-        else "local tmux liveness probe confirmed the owning session"
-    )
+    if returncode:
+        assert "owner tmux inspection was unavailable" in result.actions[0].reason
+        assert "recorded execution owner" in result.actions[0].reason
+    else:
+        assert result.actions[0].reason == "local tmux liveness probe confirmed the owning session"
     assert resolve_live_agent_record(published.agent_id) == published
     assert probes == [("/owner/private.sock", "/owner/private.sock")]
     assert current_tmux_socket_path() is None
+
+
+@pytest.mark.parametrize("state", ["active", "relaunching"])
+def test_registry_cleanup_preserves_fresh_record_without_owner_liveness_authority(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, state: str
+) -> None:
+    """A foreign owner or an in-progress relaunch cannot justify liveness removal."""
+
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
+    record = _sample_lifecycle_record(lifecycle_state=state)
+    record.terminal.socket_path = str(tmp_path / "peer.sock")
+    published = publish_live_agent_record(record)
+
+    def _owner_unavailable(*args: object) -> str:
+        raise ValueError("Recorded execution owner did not match")
+
+    def _unexpected_probe(*args: object, **kwargs: object) -> bool:
+        pytest.fail("Cleanup cannot probe a record without liveness authority")
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.registry_storage.require_owner_tmux_socket",
+        _owner_unavailable,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.registry_storage.tmux_session_exists",
+        _unexpected_probe,
+    )
+    result = cleanup_stale_live_agent_records()
+
+    assert result.removed_agent_ids == ()
+    assert result.preserved_agent_ids == (published.agent_id,)
+    expected = "unavailable" if state == "active" else "relaunching"
+    assert expected in result.actions[0].reason
+    assert published.agent_id == result.actions[0].agent_id
+    assert (result.actions[0].path / "record.json").is_file()

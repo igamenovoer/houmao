@@ -57,6 +57,14 @@ Representative summary behavior:
 - When no live gateway is attached, or when direct fallback is the only safe option, the same routes continue projecting from passive observation or runtime state.
 - `/managed-history` returns a bounded posture history where supported. Durable headless events remain on `/turns/*`.
 
+### Local Manager State
+
+`houmao-mgr agents single --agent-id <id> state` selects the registry record and checks its saved manifest before observing the runtime. The response keeps registry lifecycle in `identity.lifecycle_state`. In JSON, `publication` carries the recorded lifecycle timestamp and lease evidence. Read `availability`, `control.source`, `control.freshness`, and `control.observed_at_utc` for the observation. An active or fresh registry record confirms publication.
+
+Web and service state use their verified native owner even when the supervisor socket is inaccessible. TUI state uses a current, matching gateway tracker observation when available. Otherwise, the manager reads the exact primary pane on the recorded owner socket. When that observation fails, reported identity and redacted mailbox summaries remain available, and live turn posture and prompt readiness are unknown.
+
+Headless state reads the saved turn outcome independently of current admission. Headless detail reports `tmux_session_live` and `can_accept_prompt_now` as `null` when the evidence cannot establish them. The normal prompt command checks admission at the selected owner.
+
 ## Detailed State
 
 `GET /houmao/agents/{agent_ref}/managed-state/detail` returns the shared envelope with these fields.

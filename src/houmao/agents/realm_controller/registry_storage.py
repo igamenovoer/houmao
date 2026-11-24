@@ -16,6 +16,7 @@ from pydantic import ValidationError
 
 from houmao.owned_mutation import remove_tree_or_path
 from houmao.owned_paths import resolve_registry_root
+from houmao.execution.context import require_owner_tmux_socket
 from houmao.execution.tmux import TmuxCommandError, tmux_server_scope
 from houmao.execution.locators import ExecutorLocatorError, load_executor_locator
 
@@ -52,13 +53,13 @@ def _record_tmux_session_exists(record: ManagedAgentRegistryRecordV3) -> bool | 
     session_name = record.terminal.current_session_name
     if session_name is None:
         return False
-    socket_path = record.terminal.socket_path
-    if socket_path is None:
-        return None
     try:
+        socket_path = require_owner_tmux_socket(
+            record.execution_binding, record.terminal.socket_path
+        )
         with tmux_server_scope(socket_path):
             return tmux_session_exists(session_name=session_name)
-    except TmuxCommandError:
+    except (TmuxCommandError, OSError, ValueError):
         return None
 
 
@@ -803,6 +804,8 @@ def cleanup_stale_managed_agent_records(
                                 remove_reason = (
                                     "registry lease expired beyond the cleanup grace period"
                                 )
+                            elif record.lifecycle.state == "relaunching":
+                                preserve_reason = "the active generation is relaunching"
                             elif (
                                 probe_local_tmux
                                 and record.terminal.current_session_name is not None
@@ -818,7 +821,10 @@ def cleanup_stale_managed_agent_records(
                                         "local tmux liveness probe confirmed the owning session"
                                     )
                                 else:
-                                    preserve_reason = "owner tmux inspection was unavailable"
+                                    preserve_reason = (
+                                        "owner tmux inspection was unavailable. Verify the "
+                                        "session from the recorded execution owner and retry"
+                                    )
                             elif not probe_local_tmux:
                                 preserve_reason = (
                                     "lease remains fresh and local tmux checking was disabled"

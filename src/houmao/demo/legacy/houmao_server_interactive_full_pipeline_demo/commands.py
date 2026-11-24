@@ -715,8 +715,9 @@ def _managed_agent_snapshot(
         terminal_history_route = detail_payload.canonical_terminal_history_route
         parsed_surface_present = detail_payload.parsed_surface is not None
         ready_posture = detail_payload.surface.ready_posture
-        stable = detail_payload.stability.stable
-        stable_for_seconds = detail_payload.stability.stable_for_seconds
+        if detail_payload.stability is not None:
+            stable = detail_payload.stability.stable
+            stable_for_seconds = detail_payload.stability.stable_for_seconds
     elif detail_payload.transport == "headless":
         can_accept_prompt_now = detail_payload.can_accept_prompt_now
         interruptible = detail_payload.interruptible

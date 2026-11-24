@@ -333,6 +333,7 @@ def test_probe_tmux_backed_authority_classifies_healthy_session(
         session_exists=True,
         primary_window_exists=True,
         primary_pane_exists=True,
+        session_id="$1",
     )
 
 
@@ -347,6 +348,7 @@ def test_probe_tmux_backed_authority_classifies_gateway_only_remnant_as_degraded
         session_exists=True,
         primary_window_exists=False,
         primary_pane_exists=False,
+        session_id="$1",
     )
 
 
@@ -366,6 +368,7 @@ def test_probe_tmux_backed_authority_classifies_stale_primary_handles(
         primary_pane_exists=True,
         primary_window_handle_valid=False,
         primary_pane_handle_valid=False,
+        session_id="$1",
     )
 
 

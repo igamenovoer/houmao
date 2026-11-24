@@ -114,9 +114,9 @@ For managed-agent cleanup commands:
 
 - `agents single ... cleanup session` prefers lifecycle registry records over runtime-root scans,
 - `agents single ... cleanup session` retires stopped records by default after successful session-root removal or validated absence,
-- `agents single ... cleanup session --purge-registry` deletes the lifecycle record entirely. This flag is intended for confirmed broken active local authority after tmux inspection reveals a degraded or stale session. See [Degraded and Stale Active Recovery](../../run-phase/degraded-stale-recovery.md).
+- `agents single ... cleanup session --purge-registry` deletes the lifecycle record after removing the runtime artifacts. For a fresh active record, purge requires the current generation and confirmed absence or a verified missing primary surface on the saved owner socket. [Degraded and Stale Active Recovery](../../run-phase/degraded-stale-recovery.md)
 - `agents single ... cleanup logs` and `agents single ... cleanup mailbox` preserve the lifecycle record,
-- active lifecycle records are not retired or purged through cleanup; stop the agent first.
+- default session cleanup requires a stopped or retired record.
 
 `houmao-mgr admin cleanup registry` is the operator-facing janitor for stale `live_agents/` directories.
 
@@ -126,8 +126,8 @@ Default behavior:
 - remove directories whose `record.json` is missing,
 - remove directories whose `record.json` is malformed,
 - remove directories whose record lease expired longer ago than the grace period,
-- classify lease-fresh tmux-backed records as stale by default when the named tmux session is absent on the local host,
-- preserve lease-fresh tmux-backed records when the local tmux probe confirms the owning session,
+- classify a lease-fresh record as stale when a completed query confirms the session is absent on its recorded owner's socket,
+- preserve a lease-fresh record when its session is present or owner terminal inspection is unavailable,
 - accept `--no-tmux-check` when you intentionally want lease-only cleanup for tmux-backed records,
 - preserve other fresh directories,
 - continue past per-directory removal failures and report them separately,

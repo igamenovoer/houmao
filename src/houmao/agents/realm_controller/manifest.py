@@ -620,6 +620,15 @@ def load_registry_mode_authority(record: ManagedAgentRegistryRecordV3) -> Sessio
 
     handle = load_session_manifest(Path(record.runtime.manifest_path))
     manifest = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+    validate_registry_mode_authority(record, manifest)
+    return manifest
+
+
+def validate_registry_mode_authority(
+    record: ManagedAgentRegistryRecordV3, manifest: SessionManifestPayloadV4
+) -> None:
+    """Require a loaded manifest to match the selected registry authority."""
+
     if (
         record.agent_id != manifest.agent_id
         or record.generation_id != manifest.registry_generation_id
@@ -632,7 +641,6 @@ def load_registry_mode_authority(record: ManagedAgentRegistryRecordV3) -> Sessio
         raise SessionManifestError(
             "Registry mode and native surface differ from manifest authority."
         )
-    return manifest
 
 
 def update_session_manifest(path: Path, updates: dict[str, Any]) -> SessionManifestHandle:

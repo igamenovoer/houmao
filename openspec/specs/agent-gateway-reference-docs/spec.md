@@ -191,22 +191,24 @@ The gateway reference SHALL explain the v1 mailbox facade's caller authority, li
 - **AND THEN** it documents the live admin rule for operator-origin post, binding controls, and owner-local attachment paths
 
 ### Requirement: Gateway operational docs explain outside-tmux tmux-session targeting
-The gateway operations docs SHALL distinguish local `--target-tmux-session` from `--current-session` and explicit agent selectors. They SHALL explain manifest-first resolution and fresh shared-registry `terminal.session_name` fallback when the tmux pointer is missing or stale. They SHALL keep tmux aliases local and distinguish `--pair-port` for pair authority from lower-level `--gateway-port` for the gateway listener.
+Gateway operations docs SHALL distinguish the local registry alias from verified self and explicit agent selectors. They SHALL explain the fresh registry lookup and how to disambiguate it.
 
 #### Scenario: Reader can choose between current-session and tmux-session targeting
-- **WHEN** a reader needs to attach a gateway from a normal shell outside the owning tmux session
-- **THEN** the gateway operations docs explain that `--target-tmux-session` is the correct selector for that workflow
-- **AND THEN** the docs explain that `--current-session` remains the inside-tmux same-session path
+
+- **WHEN** a reader wants to attach a gateway outside the owning tmux session
+- **THEN** the docs show `agents single --target-tmux-session <session> gateway attach`
+- **AND THEN** the docs show `agents self gateway attach` for current-session authority
 
 #### Scenario: Reader understands tmux-session targeting authority and limits
-- **WHEN** a reader needs to understand how `--target-tmux-session` finds the target session
-- **THEN** the gateway operations docs explain the manifest-first resolution path with shared-registry tmux-alias fallback
-- **AND THEN** the docs explain that tmux session names stay local CLI authority hints rather than remote API identifiers
+
+- **WHEN** multiple fresh local records share one tmux session alias
+- **THEN** the docs direct the reader to the candidate agent IDs
+- **AND THEN** the docs explain that aliases apply to the local registry
 
 #### Scenario: Reader can distinguish pair-authority port selection from gateway listener port selection
-- **WHEN** a reader needs to target an explicit pair-managed authority while using gateway commands
-- **THEN** the gateway operations docs explain that `--pair-port` selects the Houmao pair authority
-- **AND THEN** the docs explain that gateway listener port overrides belong to lower-level gateway attach surfaces rather than `houmao-mgr agents gateway ...`
+
+- **WHEN** a reader needs a different pair authority or listener
+- **THEN** the docs distinguish `--pair-port` with explicit agent selectors from the lower-level gateway listener port
 
 ### Requirement: Gateway reminder reference documentation explains prompt and send-keys delivery
 The gateway reference SHALL explain semantic `prompt` and raw `send_keys` reminder delivery through a page reachable from `docs/reference/gateway/index.md`. It SHALL document raw input grammar, Enter handling, backend support, and how the CLI, managed proxy, and direct API expose the live reminder model.

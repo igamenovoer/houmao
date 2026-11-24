@@ -1,30 +1,31 @@
 # Degraded and Stale Active Recovery
 
-Module: `src/houmao/agents/realm_controller/backends/tmux_runtime.py` — Tmux-backed authority health probing.
+## When Recovery Triggers
 
-When a managed agent's registry record claims `active` but the underlying tmux session is broken, Houmao routes selected-agent `agents single ... stop`, `agents single ... relaunch`, and `agents single ... cleanup` through dedicated recovery helpers rather than failing with a generic unusable-target error. This page documents the probe-first dispatch model and the recovery paths for each classification.
-
-## When recovery triggers
-
-Recovery runs automatically when a CLI command targets a local tmux-backed managed agent whose registry record is `active` but tmux inspection reveals a broken session. The affected commands are:
+When the selected agent has an active registry record, the following commands can recover a confirmed broken tmux session.
 
 - `houmao-mgr agents single --agent-id <id> stop`
 - `houmao-mgr agents single --agent-id <id> relaunch`
 - `houmao-mgr agents single --agent-id <id> cleanup session --purge-registry`
 
-The runtime probes the tmux session before acting. No new persisted lifecycle states are added; the probe result is host-local runtime state derived from tmux inspection and is never written to the shared registry.
+Houmao selects the agent and its saved execution owner and tmux socket before it probes the recorded session. Before recovery changes anything, it checks that the selected generation and owner still match.
 
-## Probe classification
+## Probe Classification
 
-`probe_tmux_backed_authority(session_name)` inspects tmux for the named session and the contractual primary surface (window index `0`, pane index `0`), then returns a `TmuxBackedAuthorityHealth` classification:
+The probe checks the exact session on its recorded socket. For an existing session it inspects the primary window at index `0` and checks the saved pane handles when available.
 
-| State | tmux session | Window `0` | Pane `0` | Meaning |
-|-------|-------------|------------|----------|---------|
-| `healthy` | exists | present | present | Session is fully operational. |
-| `degraded_missing_primary` | exists | may exist | missing | The tmux session survives but the primary pane is missing or unresponsive. A gateway remnant may still be running. |
-| `stale_missing_session` | missing | missing | missing | The tmux session is entirely gone. |
+| Result | Evidence |
+|---|---|
+| `healthy` | The selected session and its required primary surface are present. |
+| `degraded_missing_primary` | The selected session exists and its primary window or pane is missing. A gateway remnant may survive. |
+| `stale_missing_session` | A completed query on the recorded socket confirms the session is absent. |
+| Inspection unavailable | An owner mismatch, inaccessible socket, permission error, timeout, or failed query leaves the terminal condition unknown. |
 
-## Recovery flow
+The probe can also report a dead pane, ambiguous primary panes, or stale saved handles. Automatic broken-active recovery requires a confirmed missing session or a missing primary surface. To tear down a surviving session, Houmao verifies the observed session ID against the agent ID and manifest path published in the session.
+
+For unavailable inspection, verify the session from the recorded execution owner before retrying. The runtime artifacts and registry record remain available for verification.
+
+## Recovery Flow
 
 ```mermaid
 flowchart TD
@@ -33,6 +34,7 @@ flowchart TD
     B -->|Yes| D[probe_tmux_backed_authority]
     D --> E{Classification}
     E -->|healthy| C
+    E -->|inspection unavailable| L[Verify from the recorded owner]
     E -->|degraded_missing_primary| F[Degraded recovery path]
     E -->|stale_missing_session| G[Stale recovery path]
     F --> H[Kill gateway remnant]
@@ -42,43 +44,40 @@ flowchart TD
     J -->|No| K[Retire record without continuity]
 ```
 
-## Recovery paths
+## Recovery Paths
 
 ### Degraded (`degraded_missing_primary`)
 
-The tmux session exists but the primary pane is missing. A gateway remnant may still be alive.
+The tmux session exists and the primary window or pane is missing. A gateway remnant may still be alive.
 
-**`agents single ... stop`:**
-1. Kills the surviving gateway remnant by cleaning up the tmux session.
-2. If the preserved manifest authority is readable, resumes the stopped controller from the record and retires the registry record.
-3. If the manifest authority is unreadable, retires the record without continuity.
+**`agents single ... stop`**
 
-**`agents single ... relaunch`:**
-1. Kills the gateway remnant by cleaning up the tmux session.
-2. Resumes the stopped controller from the preserved manifest.
-3. Revives the stopped session through the normal startup path, rebuilding the primary surface and reprovisioning the gateway.
-4. If the manifest authority is unreadable, fails with an explicit error directing the operator to `agents single ... stop` followed by fresh `project agents launch`.
+1. Stops the verified surviving tmux session.
+2. Publishes a stopped record when the saved manifest supports relaunch.
+3. Removes the broken active record when relaunch authority is unavailable.
+
+**`agents single ... relaunch`**
+
+1. Stops the verified surviving tmux session.
+2. Restarts through the saved manifest, rebuilding the primary surface and reprovisioning the gateway according to its recorded posture.
+3. Directs the operator to `houmao-mgr project agents launch` if the saved authority cannot support a revival.
 
 ### Stale (`stale_missing_session`)
 
 The tmux session is entirely missing.
 
-**`agents single ... stop`:**
-1. If the preserved manifest authority is readable, resumes the stopped controller from the record and retires the registry record.
-2. If the manifest authority is unreadable, retires the record without continuity.
+Stop publishes a stopped record when the saved manifest supports relaunch. Relaunch revives the session from that authority. If the authority is unavailable, Houmao removes the broken active record and directs the operator to `houmao-mgr project agents launch` for a fresh launch.
 
-**`agents single ... relaunch`:**
-1. If the preserved manifest authority is readable, resumes the stopped controller and revives the session.
-2. If the manifest authority is unreadable, fails with an explicit error directing the operator to `agents single ... stop` followed by fresh `project agents launch`.
+## Cleanup Integration
 
-## Cleanup integration
+`agents single ... cleanup session --purge-registry` can remove the runtime artifacts and registry record for confirmed broken active local authority.
 
-`agents single ... cleanup session --purge-registry` is the destructive lifecycle step for confirmed broken active local authority. When `--purge-registry` is used:
+- A completed probe must establish the missing session or missing primary surface on the recorded socket.
+- If a session survives, cleanup verifies ownership and requires successful teardown before removing artifacts.
+- Registry purge follows successful session-root removal or validated absence.
+- With `--dry-run`, cleanup reports actions supported by the same evidence.
 
-- The command probes tmux to confirm the session is degraded or stale.
-- After successful session-root removal (or validated absence), it deletes the lifecycle record entirely rather than retiring it.
-
-This flag is intended for operators who have confirmed through tmux inspection that the session is unrecoverable and want to remove all traces of the record. The default selected-agent cleanup-session behavior (without `--purge-registry`) retires stopped records after removal, preserving relaunchability when possible.
+Default cleanup of a stopped session retires the registry record after artifact removal.
 
 ## See also
 

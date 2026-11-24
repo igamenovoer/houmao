@@ -26,6 +26,7 @@ from houmao.agents.realm_controller.errors import (
 )
 from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputResultV1,
+    GatewayCurrentInstanceV1,
     GatewayPromptControlErrorV1,
     GatewayReminderCreateResultV1,
     GatewayReminderListV1,
@@ -34,6 +35,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayStatusV1,
     GatewayTuiTrackingTimingOverridesV1,
 )
+from houmao.agents.realm_controller.gateway_client import GatewayEndpoint
 from houmao.agents.realm_controller.headless_snapshots import headless_turn_artifacts_root
 from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
@@ -1249,6 +1251,15 @@ def test_self_gateway_status_and_input_use_manifest_authority(
         return None, "generation-1"
 
     monkeypatch.setattr(managed_agents, "_gateway_status_for_controller", lambda _: gateway_status)
+    instance = GatewayCurrentInstanceV1(
+        pid=1, host="127.0.0.1", port=43123, managed_agent_instance_epoch=1
+    )
+    monkeypatch.setattr(
+        managed_agents,
+        "_verified_current_gateway",
+        lambda *_: (instance, GatewayEndpoint(host=instance.host, port=instance.port)),
+    )
+    monkeypatch.setattr(managed_agents, "load_gateway_current_instance", lambda _: instance)
     monkeypatch.setattr(managed_agents, "owner_gateway_client_binding", resolve_binding)
     monkeypatch.setattr(
         managed_agents,

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, fields
 from importlib.resources import files
 import json
@@ -685,6 +686,13 @@ class DshWebSession:
             state, dict(state.web_identity), self._read_web_launch_token(state)
         )
 
+    def observe_web_history_read_only(self, *, after_sequence: int, limit: int) -> dict[str, Any]:
+        """Read transition metadata through a temporary authenticated peer."""
+
+        state = self.state
+        with self._temporary_web_peer(state, self._read_web_launch_token(state)) as client:
+            return client.history(state.web_identity, after_sequence=after_sequence, limit=limit)
+
     def browser_entry(self) -> NativeWebEntry:
         """Verify the live native binding through a temporary, independent API peer."""
 
@@ -722,6 +730,13 @@ class DshWebSession:
     ) -> dict[str, Any]:
         """Fence a read-only native state query against changes in the owned listener."""
 
+        with self._temporary_web_peer(state, token) as client:
+            return client.state(identity)
+
+    @contextmanager
+    def _temporary_web_peer(self, state: DshWebSessionState, token: str) -> Iterator[DshWebClient]:
+        """Authenticate a transient client without changing runtime credentials."""
+
         origin = state.native_surface.origin
         port = urlsplit(origin).port
         pid, birth = state.native_pid, state.native_birth_token
@@ -746,11 +761,10 @@ class DshWebSession:
             verify_listener=require_owned_listener,
         )
         try:
-            live_state = client.state(identity)
+            yield client
+            require_owned_listener()
         finally:
             client.close()
-        require_owned_listener()
-        return live_state
 
     @staticmethod
     def _read_web_launch_token(state: DshWebSessionState) -> str:

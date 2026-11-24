@@ -20,18 +20,20 @@ from houmao.mailbox.errors import GatewayMailboxMutationError
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 import json
 from pathlib import Path
 import shlex
 from time import monotonic, sleep
-from typing import Any, Literal, TypeVar, TypedDict, cast
+from typing import Any, Literal, TypeVar, cast
 import uuid
 
 import click
 from pydantic import BaseModel, ValidationError
 
+from houmao.execution.context import validate_execution_owner
+from houmao.execution.tmux import TmuxObservationError
 from houmao.execution.locators import (
     ExecutorAgentLocatorV1,
     ExecutorLocatorError,
@@ -48,9 +50,10 @@ from houmao.execution.models import (
 from houmao.ag_ui.models import AgUiEventPublishRequest, AgUiEventPublishResponse
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig, MailboxChannel
 from houmao.agents.mailbox_runtime_support import (
+    LiveGatewayBindingResolution,
+    LiveMailboxesBindingResolution,
     resolve_live_mailbox_binding_from_manifest_path,
     mailboxes_resolved_config_from_payload,
-    safe_registry_mailboxes_projection,
 )
 from houmao.agents.model_selection import ModelConfig, normalize_model_config
 from houmao.agents.realm_controller.backends.cao_rest import CaoRestSession
@@ -60,14 +63,10 @@ from houmao.agents.realm_controller.backends.kimi_web import KimiWebSession
 from houmao.agents.realm_controller.backends.local_interactive import LocalInteractiveSession
 from houmao.agents.realm_controller.backends.dsh_web import DshWebSession
 from houmao.agents.realm_controller.backends.service_runtime import ManagedServiceSession
-from houmao.agents.realm_controller.web_observation import WebObservation, web_state_is_fresh
+from houmao.agents.realm_controller.web_observation import WebObservation
 from houmao.agents.realm_controller.gateway_storage import web_attach_metadata_from_state
 from houmao.passive_server.compatibility import (
-    managed_runtime_headless_detail_response,
-    managed_runtime_headless_state_from_observation,
-    managed_service_detail_response,
-    managed_service_state_from_observation,
-    managed_web_state_from_native,
+    gateway_summary_from_status,
 )
 from houmao.agents.realm_controller.backends.headless_output import (
     HeadlessProvider,
@@ -80,7 +79,6 @@ from houmao.agents.realm_controller.backends.headless_runner import (
 from houmao.agents.realm_controller.headless_snapshots import (
     HeadlessTurnSnapshot,
     headless_turn_artifacts_root,
-    latest_headless_turn,
     read_headless_turn,
 )
 from houmao.agents.realm_controller.backends.tmux_runtime import (
@@ -96,6 +94,14 @@ from houmao.agents.realm_controller.errors import (
     GatewayHttpError,
     MailboxCommandError,
     SessionManifestError,
+)
+from houmao.agents.realm_controller.terminal_recovery import (
+    OwnerTerminalInspectionUnavailable,
+    recorded_tmux_binding,
+    require_owned_degraded_tmux_session,
+    require_same_recovery_manifest,
+    require_same_recovery_record,
+    terminal_inspection_unavailable,
 )
 from houmao.mailbox.services import (
     GatewayMailboxError,
@@ -160,10 +166,12 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayReminderV1,
     GatewayRequestPayloadInterruptV1,
     GatewayStatusV1,
+    GatewayCurrentInstanceV1,
     GatewayTuiTrackingTimingOverridesV1,
     GatewayWebEntryTicketV1,
 )
 from houmao.agents.realm_controller.gateway_storage import (
+    GatewayPaths,
     build_offline_gateway_status,
     gateway_paths_from_manifest_path,
     load_gateway_current_instance,
@@ -211,12 +219,11 @@ from houmao.agents.realm_controller.models import (
     SessionEvent,
 )
 from houmao.agents.realm_controller.managed_control import (
-    ManagedControlObservationV1,
-    managed_control_capabilities,
     terminal_prompt_not_ready_reasons,
 )
 from houmao.agents.realm_controller.run_modes import RunMode
 from houmao.agents.realm_controller.manifest import (
+    load_registry_mode_authority,
     require_registry_mode_authority,
     load_session_manifest,
     parse_session_manifest_payload,
@@ -237,7 +244,6 @@ from houmao.mailbox.protocol import (
 from houmao.shared_tui_tracking.ownership import SingleSessionTrackingRuntime
 from houmao.gateway.plugins import GatewayPluginConfiguration
 from houmao.server.models import (
-    HoumaoErrorDetail,
     HoumaoHeadlessTurnAcceptedResponse,
     HoumaoHeadlessTurnEvent,
     HoumaoHeadlessTurnEventsResponse,
@@ -248,17 +254,10 @@ from houmao.server.models import (
     HoumaoManagedAgentDetailResponse,
     HoumaoManagedAgentGatewayPromptControlRequest,
     HoumaoManagedAgentGatewayRequestCreate,
-    HoumaoManagedAgentGatewaySummaryView,
-    HoumaoManagedAgentWebDetailView,
     HoumaoManagedAgentIdentity,
-    HoumaoManagedAgentLastTurnView,
     HoumaoManagedAgentListResponse,
-    HoumaoManagedAgentMailboxSummaryView,
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentStateResponse,
-    HoumaoManagedAgentTuiDetailView,
-    HoumaoManagedAgentTurnView,
-    ManagedAgentAvailability,
     ManagedAgentLifecycleState,
     ManagedAgentTurnStatus,
     HoumaoTerminalSnapshotHistoryResponse,
@@ -277,6 +276,7 @@ from .common import (
     resolve_managed_agent_identity,
     resolve_server_base_url,
 )
+from .managed_agent_observation import observe_selected_agent
 
 _HEADLESS_BACKENDS = frozenset(
     {"claude_headless", "codex_headless", "kimi_headless", "dsh_headless"}
@@ -306,7 +306,27 @@ class ManagedAgentTarget:
     self_manifest: VerifiedSelfManifest | None = None
 
 
-_RunningAgentAuthority = RuntimeSessionController | VerifiedSelfManifest
+@dataclass(frozen=True)
+class VerifiedRegistryManifest:
+    """A selected local manifest verified against its registry record."""
+
+    manifest_path: Path
+    payload: SessionManifestPayloadV4
+    record: ManagedAgentRegistryRecordV3
+
+    @property
+    def agent_id(self) -> str:
+        """Return the authoritative agent ID."""
+
+        return self.record.agent_id
+
+
+class ManifestAuthorityUnavailable(click.ClickException):
+    """The selected record is visible but its private manifest cannot be read."""
+
+
+_VerifiedManifest = VerifiedRegistryManifest | VerifiedSelfManifest
+_RunningAgentAuthority = RuntimeSessionController | _VerifiedManifest
 
 
 class ExecutorGatewayStatusV1(GatewayStatusV1):
@@ -452,7 +472,7 @@ def _executor_identity(locator: ExecutorAgentLocatorV1) -> HoumaoManagedAgentIde
 
 
 def _resolve_executor_target_for_selector(
-    *, agent_id: str | None, agent_name: str | None
+    *, agent_id: str | None, agent_name: str | None, mail_discovery: bool = False
 ) -> ManagedAgentTarget | None:
     """Resolve delegated locators before local probes and reject cross-context ambiguity."""
 
@@ -478,6 +498,16 @@ def _resolve_executor_target_for_selector(
             raise click.ClickException(
                 f"Managed-agent selector is ambiguous or has conflicting execution owners: {record.agent_id}, {locator.agent_id}. Select a non-conflicting authoritative agent ID."
             )
+    if mail_discovery and local_matches:
+        published = local_matches[0]
+        identity = _qualify_executor_identity(_identity_from_record(published), locator)
+        return ManagedAgentTarget(
+            mode="executor",
+            agent_ref=locator.agent_id,
+            identity=identity.model_copy(update={"execution_status": "unverified"}),
+            executor_locator=locator,
+            record=published,
+        )
     return ManagedAgentTarget(
         mode="executor",
         agent_ref=locator.agent_id,
@@ -615,6 +645,7 @@ def _require_live_local_controller(
     target: ManagedAgentTarget,
     *,
     operation: str,
+    existing_only: bool = False,
 ) -> RuntimeSessionController:
     """Return the local runtime controller or raise one operator-facing diagnostic."""
 
@@ -627,9 +658,14 @@ def _require_live_local_controller(
     if target.self_manifest is not None:
         authority = target.self_manifest
         try:
-            controller = resume_runtime_session(
-                session_manifest_path=authority.path, read_only=True
-            )
+            if existing_only:
+                controller = resume_runtime_session(
+                    session_manifest_path=authority.path, existing_only=True
+                )
+            else:
+                controller = resume_runtime_session(
+                    session_manifest_path=authority.path, read_only=True
+                )
         except (OSError, RuntimeError, ValueError) as exc:
             raise click.ClickException(str(exc)) from exc
         if (
@@ -638,24 +674,103 @@ def _require_live_local_controller(
         ):
             raise click.ClickException("The managed runtime changed during self resolution.")
         return controller
+    if target.mode == "local" and target.record is not None:
+        selected_authority = read_selected_manifest(target)
+        controller = _resume_controller_from_record(target.record, existing_only=existing_only)
+        if (
+            controller.agent_id != selected_authority.agent_id
+            or controller.registry_generation_id != selected_authority.record.generation_id
+            or controller.execution_binding != selected_authority.payload.runtime.execution_binding
+        ):
+            raise click.ClickException(
+                f"The managed runtime for `{selected_authority.agent_id}` changed during controller acquisition."
+            )
+        return controller
     raise click.ClickException(
         _format_unavailable_local_controller_message(target=target, operation=operation)
     )
 
 
-def _running_agent_authority(
-    target: ManagedAgentTarget, *, operation: str
-) -> _RunningAgentAuthority:
-    """Select the authorized manifest or an existing local controller."""
+def read_selected_manifest(target: ManagedAgentTarget) -> _VerifiedManifest:
+    """Read and verify one selected owner's manifest without opening a controller."""
 
     if target.self_manifest is not None:
         return target.self_manifest
+    record = target.record
+    if target.mode != "local" or record is None:
+        raise ManifestAuthorityUnavailable(
+            _format_unavailable_local_controller_message(
+                target=target, operation="read the saved runtime manifest"
+            )
+        )
+    try:
+        validate_execution_owner(record.execution_binding)
+    except (RuntimeError, ValueError) as exc:
+        raise ManifestAuthorityUnavailable(
+            f"Saved runtime authority for `{record.agent_id}` requires its recorded execution owner."
+        ) from exc
+    path = Path(record.runtime.manifest_path).expanduser()
+    try:
+        if not path.is_absolute() or path.resolve() != path:
+            raise click.ClickException(
+                f"Saved manifest path for `{record.agent_id}` is outside its recorded authority."
+            )
+        if record.runtime.session_root is not None and path.parent != Path(
+            record.runtime.session_root
+        ):
+            raise click.ClickException(
+                f"Saved manifest path for `{record.agent_id}` differs from its recorded session root."
+            )
+        if not path.is_file():
+            raise ManifestAuthorityUnavailable(
+                f"Saved runtime manifest for `{record.agent_id}` is unavailable."
+            )
+        payload = load_registry_mode_authority(record)
+        tmux = payload.tmux
+        if (
+            record.lifecycle.state == "active"
+            and tmux is not None
+            and (
+                tmux.session_name != record.terminal.current_session_name
+                or (
+                    record.terminal.socket_path is not None
+                    and tmux.socket_path != record.terminal.socket_path
+                )
+            )
+        ):
+            raise SessionManifestError("Registry and manifest terminal bindings differ.")
+    except OSError as exc:
+        raise ManifestAuthorityUnavailable(
+            f"Saved runtime manifest for `{record.agent_id}` is unavailable."
+        ) from exc
+    except SessionManifestError as exc:
+        if isinstance(exc.__cause__, OSError) or not path.is_file():
+            raise ManifestAuthorityUnavailable(
+                f"Saved runtime manifest for `{record.agent_id}` is unavailable."
+            ) from exc
+        raise click.ClickException(
+            f"Cannot verify saved runtime authority for `{record.agent_id}`: {exc}"
+        ) from exc
+    return VerifiedRegistryManifest(manifest_path=path, payload=payload, record=record)
+
+
+def _running_agent_authority(
+    target: ManagedAgentTarget, *, operation: str
+) -> _RunningAgentAuthority:
+    """Select the authorized manifest or honor an already-acquired controller."""
+
+    if target.self_manifest is not None:
+        return target.self_manifest
+    if target.mode == "local" and target.record is not None and target.controller is None:
+        return read_selected_manifest(target)
     return _require_live_local_controller(target, operation=operation)
 
 
 def _read_running_agent_manifest(authority: _RunningAgentAuthority) -> SessionManifestPayloadV4:
     """Read current bindings while keeping a resolved self command on its generation."""
 
+    if isinstance(authority, VerifiedRegistryManifest):
+        return authority.payload
     if isinstance(authority, VerifiedSelfManifest) and authority.path.resolve() != authority.path:
         raise click.ClickException("The managed manifest changed during self resolution.")
     handle = load_session_manifest(authority.manifest_path)
@@ -1219,6 +1334,8 @@ def resolve_managed_agent_target(
     agent_id: str | None,
     agent_name: str | None,
     port: int | None,
+    include_inactive: bool = False,
+    mail_discovery: bool = False,
 ) -> ManagedAgentTarget:
     """Resolve one managed-agent target through registry-first discovery."""
 
@@ -1251,7 +1368,9 @@ def resolve_managed_agent_target(
         )
 
     executor_target = _resolve_executor_target_for_selector(
-        agent_id=normalized_agent_id, agent_name=normalized_agent_name
+        agent_id=normalized_agent_id,
+        agent_name=normalized_agent_name,
+        mail_discovery=mail_discovery,
     )
     if executor_target is not None:
         return executor_target
@@ -1259,39 +1378,10 @@ def resolve_managed_agent_target(
     record, miss_context = _resolve_local_managed_agent_record_with_miss_context(
         agent_id=normalized_agent_id,
         agent_name=normalized_agent_name,
+        include_inactive=include_inactive or mail_discovery,
     )
     if record is not None:
-        if record.identity.backend == "houmao_server_rest":
-            raise click.ClickException(
-                "This managed agent is registered with retired backend "
-                "`houmao_server_rest`. Use `houmao-passive-server` for maintained API-backed "
-                "management or relaunch the agent through a maintained local/headless workflow."
-            )
-        if _is_local_tmux_backed_active_record(record):
-            health = _probe_local_tmux_authority_for_record(record)
-            if health.state == "degraded_missing_primary":
-                return ManagedAgentTarget(
-                    mode="local_degraded",
-                    agent_ref=normalized_ref,
-                    identity=_identity_from_record(record),
-                    record=record,
-                )
-            if health.state == "stale_missing_session":
-                return ManagedAgentTarget(
-                    mode="local_stale",
-                    agent_ref=normalized_ref,
-                    identity=_identity_from_record(record),
-                    record=record,
-                )
-        controller = _resume_controller_from_record(record)
-        identity = _identity_from_controller(controller)
-        return ManagedAgentTarget(
-            mode="local",
-            agent_ref=normalized_ref,
-            identity=identity,
-            controller=controller,
-            record=record,
-        )
+        return select_local_managed_agent_record(record, agent_ref=normalized_ref)
 
     external_record = _resolve_external_managed_agent_record_for_selector(
         agent_id=normalized_agent_id,
@@ -1380,7 +1470,10 @@ def resolve_relaunch_managed_agent_target(
                 "`houmao_server_rest`. Relaunch it through a maintained local/headless workflow."
             )
         if _is_local_tmux_backed_active_record(record):
-            health = _probe_local_tmux_authority_for_record(record)
+            try:
+                health = _probe_local_tmux_authority_for_record(record)
+            except SessionManifestError as exc:
+                raise click.ClickException(str(exc)) from exc
             if health.state == "degraded_missing_primary":
                 return ManagedAgentTarget(
                     mode="local_degraded",
@@ -1440,6 +1533,7 @@ def resolve_managed_agent_mail_target(
     agent_id: str | None,
     agent_name: str | None,
     port: int | None,
+    mail_discovery: bool = False,
 ) -> ManagedAgentTarget:
     """Resolve one scoped managed-agent mail target."""
 
@@ -1465,6 +1559,7 @@ def resolve_managed_agent_mail_target(
             agent_id=selected_agent_id,
             agent_name=selected_agent_name,
             port=port,
+            mail_discovery=mail_discovery,
         )
 
     if port is not None:
@@ -1561,6 +1656,7 @@ def _resolve_local_managed_agent_record_with_miss_context(
     *,
     agent_id: str | None,
     agent_name: str | None,
+    include_inactive: bool = False,
 ) -> tuple[ManagedAgentRegistryRecordV3 | None, _LocalManagedAgentSelectorMiss | None]:
     """Resolve one local record and preserve friendly-name miss diagnostics."""
 
@@ -1568,7 +1664,9 @@ def _resolve_local_managed_agent_record_with_miss_context(
         record = load_managed_agent_record_by_agent_id(agent_id)
         if record is None:
             return None, None
-        if record.lifecycle.state != "active" or not is_live_agent_record_fresh(record):
+        if not include_inactive and (
+            record.lifecycle.state != "active" or not is_live_agent_record_fresh(record)
+        ):
             raise click.ClickException(
                 _format_inactive_local_registry_match(
                     selector_name="--agent-id",
@@ -1579,7 +1677,11 @@ def _resolve_local_managed_agent_record_with_miss_context(
         return record, None
 
     assert agent_name is not None
-    name_matches = resolve_live_agent_records_by_name(agent_name)
+    name_matches = (
+        resolve_managed_agent_records_by_name(agent_name)
+        if include_inactive
+        else resolve_live_agent_records_by_name(agent_name)
+    )
     if len(name_matches) > 1:
         raise click.ClickException(
             _format_ambiguous_local_registry_matches(
@@ -1591,7 +1693,7 @@ def _resolve_local_managed_agent_record_with_miss_context(
         )
     if len(name_matches) == 1:
         return name_matches[0], None
-    all_matches = resolve_managed_agent_records_by_name(agent_name)
+    all_matches = () if include_inactive else resolve_managed_agent_records_by_name(agent_name)
     if all_matches:
         if len(all_matches) > 1:
             raise click.ClickException(
@@ -2190,6 +2292,59 @@ def managed_agent_identity_payload(target: ManagedAgentTarget) -> HoumaoManagedA
     return target.identity
 
 
+def _observe_recorded_managed_agent(target: ManagedAgentTarget) -> HoumaoManagedAgentDetailResponse:
+    """Read one registry selection without a terminal preflight or writable resume."""
+
+    record = target.record
+    assert record is not None
+    path = Path(record.runtime.manifest_path)
+    identity = target.identity
+    try:
+        authority = read_selected_manifest(target)
+        manifest = _read_running_agent_manifest(authority)
+    except ManifestAuthorityUnavailable as exc:
+        return observe_selected_agent(
+            identity=identity,
+            record=record,
+            manifest_path=path,
+            manifest=None,
+            authority_error=exc.format_message(),
+        )
+    tmux = manifest.tmux
+    path = authority.manifest_path
+    identity = identity.model_copy(
+        update={
+            "runtime_session_id": manifest.runtime.session_id or identity.runtime_session_id,
+            "tmux_window_name": tmux.primary_window_name if tmux is not None else None,
+        }
+    )
+    client = None
+    gateway = None
+    if record.lifecycle.state == "active":
+        try:
+            status = _gateway_status_for_controller(authority)
+            if status.gateway_health == "healthy":
+                client = _live_gateway_client_for_controller(authority, private=True)
+            if status.gateway_health != "healthy" or client is not None:
+                gateway = gateway_summary_from_status(status)
+        except (click.ClickException, GatewayHttpError):
+            pass
+    result = observe_selected_agent(
+        identity=identity,
+        record=record,
+        manifest_path=path,
+        manifest=manifest,
+        gateway_client=client,
+        gateway_summary=gateway,
+    )
+    latest = read_selected_manifest(target)
+    if _read_running_agent_manifest(latest).tmux != tmux and manifest.mode == "tui":
+        raise click.ClickException(
+            f"The terminal binding for `{record.agent_id}` changed during observation."
+        )
+    return result
+
+
 def managed_agent_state_payload(target: ManagedAgentTarget) -> HoumaoManagedAgentStateResponse:
     """Return a managed-agent state payload for one resolved target."""
 
@@ -2207,20 +2362,12 @@ def managed_agent_state_payload(target: ManagedAgentTarget) -> HoumaoManagedAgen
         if target.external_record is not None:
             return _annotate_external_state_response(response, target.external_record)
         return response
-    controller = _require_live_local_controller(target, operation="inspect managed-agent state")
-    if target.identity.transport == "web":
-        return _local_web_state_response(controller=controller, identity=target.identity)
-    if target.identity.transport == "tui":
-        tracked_state = _refresh_local_tui_state(controller=controller)
-        return _local_tui_state_response_from_state(
-            controller=controller,
-            tracked_state=tracked_state,
+    if target.mode == "local" and target.record is not None:
+        return _observe_recorded_managed_agent(target).summary_state
+    raise click.ClickException(
+        _format_unavailable_local_controller_message(
+            target, operation="inspect managed-agent state"
         )
-    if target.identity.transport == "service":
-        return _local_service_state_response(controller, identity=target.identity)
-    return _local_headless_state_response(
-        controller=controller,
-        identity=target.identity,
     )
 
 
@@ -2243,41 +2390,12 @@ def managed_agent_detail_payload(target: ManagedAgentTarget) -> HoumaoManagedAge
         if target.external_record is not None:
             return _annotate_external_detail_response(response, target.external_record)
         return response
-    controller = _require_live_local_controller(target, operation="inspect managed-agent detail")
-    if target.identity.transport == "web":
-        summary = _local_web_state_response(controller=controller, identity=target.identity)
-        assert summary.web is not None
-        return HoumaoManagedAgentDetailResponse(
-            tracked_agent_id=summary.tracked_agent_id,
-            identity=summary.identity,
-            summary_state=summary,
-            detail=HoumaoManagedAgentWebDetailView(state=summary.web),
+    if target.mode == "local" and target.record is not None:
+        return _observe_recorded_managed_agent(target)
+    raise click.ClickException(
+        _format_unavailable_local_controller_message(
+            target, operation="inspect managed-agent detail"
         )
-    if target.identity.transport == "tui":
-        tracked_state = _refresh_local_tui_state(controller=controller)
-        summary_state = _local_tui_state_response_from_state(
-            controller=controller,
-            tracked_state=tracked_state,
-        )
-        tui_detail = _local_tui_detail_response_from_state(tracked_state=tracked_state)
-        return HoumaoManagedAgentDetailResponse(
-            tracked_agent_id=summary_state.tracked_agent_id,
-            identity=summary_state.identity,
-            summary_state=summary_state,
-            detail=tui_detail,
-        )
-    if target.identity.transport == "service":
-        return managed_service_detail_response(
-            _local_service_state_response(controller, identity=target.identity)
-        )
-    summary_state = _local_headless_state_response(
-        controller=controller,
-        identity=target.identity,
-    )
-    latest_turn = _latest_local_headless_turn(controller=controller)
-    return managed_runtime_headless_detail_response(
-        summary_state=summary_state,
-        latest_turn=latest_turn,
     )
 
 
@@ -2453,7 +2571,24 @@ def prompt_managed_agent(
             ),
         )
 
-    controller = _require_live_local_controller(target, operation="submit a prompt")
+    if target.identity.mode == "tui" and target.record is not None:
+        try:
+            selected = read_selected_manifest(target)
+            health = _probe_recorded_terminal(target.record, selected.payload)
+        except OwnerTerminalInspectionUnavailable as exc:
+            raise click.ClickException(str(exc)) from exc
+        if health.state in {"stale_missing_session", "degraded_missing_primary"}:
+            failed = replace(
+                target, mode="local_stale" if not health.session_exists else "local_degraded"
+            )
+            raise click.ClickException(
+                _format_unavailable_local_controller_message(
+                    target=failed, operation="submit a prompt"
+                )
+            )
+    controller = _require_live_local_controller(
+        target, operation="submit a prompt", existing_only=True
+    )
     return _dispatch_owned_manager_prompt(
         controller,
         tracked_agent_id=target.identity.tracked_agent_id,
@@ -2510,7 +2645,9 @@ def _dispatch_owned_manager_prompt(
             turn_artifact_dir_name=claim.request_id,
         )
     except BackendExecutionError as exc:
-        if isinstance(backend, KimiWebSession) and not dispatch.m_input_started.is_set():
+        if isinstance(backend, (KimiWebSession, LocalInteractiveSession)) and not (
+            dispatch.m_input_started.is_set()
+        ):
             claim.finish("failed")
             raise click.ClickException(str(exc)) from None
         claim.finish("uncertain" if dispatch_attempted else "failed")
@@ -2584,7 +2721,10 @@ def _manager_prompt_readiness(
         return lambda: _require_manager_service_ready(controller)
     if mode != "tui":
         return None
-    tracker = _local_tui_runtime_for_controller(controller)
+    manifest = controller.require_managed_control_owner()
+    if manifest.tmux is None or manifest.tmux.socket_path is None:
+        raise OwnerAdmissionError("unavailable", "The terminal has no recorded owner socket.")
+    tracker = _local_tui_runtime_for_controller(controller, manifest=manifest)
     with controller.execution_scope():
         deadline = monotonic() + 2.0
         state = tracker.refresh_once()
@@ -2730,6 +2870,24 @@ def stop_managed_agent(target: ManagedAgentTarget) -> HoumaoManagedAgentActionRe
         assert target.record is not None
         return _stop_degraded_or_stale_local_managed_agent(target)
 
+    record = target.record
+    if (
+        target.controller is None
+        and target.mode == "local"
+        and record is not None
+        and _is_local_tmux_backed_active_record(record)
+    ):
+        try:
+            health = _probe_local_tmux_authority_for_record(record)
+        except SessionManifestError as exc:
+            raise click.ClickException(str(exc)) from exc
+        if health.state == "degraded_missing_primary":
+            return _stop_degraded_or_stale_local_managed_agent(
+                replace(target, mode="local_degraded")
+            )
+        if health.state == "stale_missing_session":
+            return _stop_degraded_or_stale_local_managed_agent(replace(target, mode="local_stale"))
+
     controller = _require_live_local_controller(target, operation="stop managed agent")
     manifest_path = str(controller.manifest_path)
     session_root = str(controller.manifest_path.parent)
@@ -2788,14 +2946,13 @@ def _recover_broken_active_local_record(
             ),
             retired=True,
         )
-    if current.generation_id != original.generation_id:
-        raise SessionManifestError(
-            "Shared-registry generation changed before broken-active recovery for "
-            f"agent_id `{original.agent_id}`: expected `{original.generation_id}`, "
-            f"found `{current.generation_id}`. Retry the command against the current record."
-        )
     if not _is_local_tmux_backed_active_record(current):
-        if current.lifecycle.state == "stopped":
+        if (
+            current.lifecycle.state == "stopped"
+            and current.generation_id == original.generation_id
+            and current.execution_binding == original.execution_binding
+            and current.runtime == original.runtime
+        ):
             return _BrokenActiveRecoveryResult(
                 record=current,
                 manifest_path=current.runtime.manifest_path,
@@ -2812,7 +2969,9 @@ def _recover_broken_active_local_record(
             f"`{current.lifecycle.state}`."
         )
 
-    health = _probe_local_tmux_authority_for_record(current)
+    require_same_recovery_record(original, current)
+    manifest = _read_recovery_manifest(current)
+    health = _probe_recorded_terminal(current, manifest)
     if health.state not in {"degraded_missing_primary", "stale_missing_session"}:
         raise SessionManifestError(
             "Broken-active recovery rechecked local tmux authority for "
@@ -2820,16 +2979,21 @@ def _recover_broken_active_local_record(
             f"`{health.state}` instead of stale or degraded authority. Retry the command."
         )
 
-    last_session_name = current.terminal.session_name or None
-    if health.state == "degraded_missing_primary" and last_session_name:
+    binding = recorded_tmux_binding(current, manifest)
+    session_id = (
+        require_owned_degraded_tmux_session(current, binding, health)
+        if health.state == "degraded_missing_primary"
+        else None
+    )
+    require_same_recovery_record(current, load_managed_agent_record_by_agent_id(current.agent_id))
+    require_same_recovery_manifest(manifest, _read_recovery_manifest(current))
+    if session_id is not None:
         from houmao.execution.tmux import tmux_server_scope
 
-        socket_path = current.terminal.socket_path
-        if socket_path is None:
-            raise SessionManifestError("Broken-active cleanup requires the recorded tmux socket")
+        assert binding.socket_path is not None
         try:
-            with tmux_server_scope(socket_path):
-                kill_tmux_session(session_name=last_session_name)
+            with tmux_server_scope(binding.socket_path):
+                kill_tmux_session(session_name=binding.session_name, session_id=session_id)
         except TmuxCommandError as exc:
             raise SessionManifestError(f"Could not stop the degraded tmux session: {exc}") from exc
 
@@ -2859,7 +3023,9 @@ def _recover_broken_active_local_record(
         )
 
     stopped_record = _stopped_record_from_broken_active_record(current)
-    published = publish_managed_agent_record(stopped_record)
+    published = publish_managed_agent_record(
+        stopped_record, expected_generation_id=current.generation_id
+    )
     return _BrokenActiveRecoveryResult(
         record=published,
         manifest_path=published.runtime.manifest_path,
@@ -2915,6 +3081,14 @@ def _stop_degraded_or_stale_local_managed_agent(
     record = target.record
     try:
         recovery = _recover_broken_active_local_record(target)
+    except OwnerTerminalInspectionUnavailable as exc:
+        return HoumaoManagedAgentActionResponse(
+            success=False,
+            tracked_agent_id=target.identity.tracked_agent_id,
+            detail=str(exc),
+            manifest_path=_non_empty_record_manifest_path(record),
+            session_root=_non_empty_record_session_root(record),
+        )
     except (OSError, SessionManifestError) as exc:
         manifest_path = _non_empty_record_manifest_path(record)
         session_root = _non_empty_record_session_root(record)
@@ -3028,6 +3202,8 @@ def _relaunch_degraded_or_stale_local_managed_agent(
     record = target.record
     try:
         recovery = _recover_broken_active_local_record(target)
+    except OwnerTerminalInspectionUnavailable as exc:
+        raise click.ClickException(str(exc)) from exc
     except (OSError, SessionManifestError) as exc:
         raise click.ClickException(
             f"Managed agent `{record.agent_name or record.agent_id}` cannot be relaunched: "
@@ -3071,9 +3247,19 @@ def gateway_status(target: ManagedAgentTarget) -> GatewayStatusV1:
     client = _live_gateway_client_for_controller(authority, private=True, require_available=True)
     if client is not None:
         try:
-            return client.status()
+            status = client.status()
         except GatewayHttpError as exc:
             raise click.ClickException(exc.detail) from None
+        if isinstance(authority, (VerifiedRegistryManifest, VerifiedSelfManifest)):
+            paths = gateway_paths_from_manifest_path(authority.manifest_path)
+            try:
+                assert paths is not None
+                current = load_gateway_current_instance(paths.current_instance_path)
+                if not _gateway_status_matches_instance(status, current):
+                    raise SessionManifestError("Gateway status belongs to a superseded instance.")
+            except SessionManifestError as exc:
+                raise _gateway_inspection_unavailable(authority, exc) from None
+        return status
     return _gateway_status_for_controller(authority)
 
 
@@ -5335,17 +5521,79 @@ def mail_resolve_live(target: ManagedAgentTarget) -> dict[str, Any]:
             source_override="pair_authority",
         )
 
-    authority = _running_agent_authority(
-        target,
-        operation="resolve live managed-agent mail bindings",
-    )
+    record = target.record
+    if record is not None and (target.mode == "executor" or record.lifecycle.state != "active"):
+        return _published_mail_payload(target, record)
     try:
-        resolution = resolve_live_mailbox_binding_from_manifest_path(
-            manifest_path=authority.manifest_path,
+        authority = _running_agent_authority(
+            target, operation="resolve live managed-agent mail bindings"
         )
-    except ValueError as exc:
+    except ManifestAuthorityUnavailable:
+        if record is None:
+            raise
+        return _published_mail_payload(target, record)
+    try:
+        if isinstance(authority, (VerifiedRegistryManifest, VerifiedSelfManifest)):
+            manifest = _read_running_agent_manifest(authority)
+            mailboxes = mailboxes_resolved_config_from_payload(
+                manifest.launch_plan.mailboxes, manifest_path=authority.manifest_path
+            )
+            resolution = LiveMailboxesBindingResolution(
+                mailboxes=mailboxes, gateway=_mail_discovery_gateway(authority)
+            )
+        else:
+            resolution = resolve_live_mailbox_binding_from_manifest_path(
+                manifest_path=authority.manifest_path,
+            )
+    except (ValueError, OSError, SessionManifestError) as exc:
         raise click.ClickException(str(exc)) from exc
     return _normalized_live_mail_payload(target=target, payload=resolution.payload())
+
+
+def _published_mail_payload(
+    target: ManagedAgentTarget, record: ManagedAgentRegistryRecordV3
+) -> dict[str, Any]:
+    """Return public recipient contact without claiming current availability."""
+
+    channels: dict[str, Any] = {}
+    for channel in ("offline", "online"):
+        slot = record.mailboxes.offline if channel == "offline" else record.mailboxes.online
+        channels[channel] = {
+            "revision": slot.revision,
+            "binding": None
+            if slot.binding is None
+            else slot.binding.model_dump(exclude={"availability"}),
+            "availability": "unverified",
+        }
+    return _normalized_live_mail_payload(
+        target=target,
+        payload={
+            "source": "registry_projection",
+            "mailboxes": channels,
+            "canonical_mail_identity": record.canonical_mail_identity,
+            "gateway": None,
+        },
+    )
+
+
+def _mail_discovery_gateway(authority: _VerifiedManifest) -> LiveGatewayBindingResolution | None:
+    """Show a live gateway only when its instance identifies this selected owner."""
+
+    paths = gateway_paths_from_manifest_path(authority.manifest_path)
+    if paths is None:
+        return None
+    try:
+        instance, endpoint = _verified_current_gateway(authority, paths)
+    except (GatewayHttpError, OSError, SessionManifestError):
+        return None
+    return LiveGatewayBindingResolution(
+        host=instance.host,
+        port=instance.port,
+        base_url=owner_gateway_base_url(endpoint.port),
+        state_path=paths.state_path,
+        protocol_version=instance.protocol_version,
+        source="current_instance_record",
+    )
 
 
 def _local_manager_mail_authority_error(
@@ -5441,7 +5689,9 @@ def submit_headless_turn(
             ),
         )
 
-    controller = _require_live_local_controller(target, operation="submit headless turn")
+    controller = _require_live_local_controller(
+        target, operation="submit headless turn", existing_only=True
+    )
     outcome = _dispatch_owned_manager_prompt(
         controller,
         tracked_agent_id=target.identity.tracked_agent_id,
@@ -5604,20 +5854,20 @@ def _identity_merge_key(identity: HoumaoManagedAgentIdentity) -> str:
     return identity.tracked_agent_id
 
 
-def _identity_from_record(record: ManagedAgentRegistryRecordV3) -> HoumaoManagedAgentIdentity:
+def _identity_from_record(
+    record: ManagedAgentRegistryRecordV3, *, manifest: SessionManifestPayloadV4 | None = None
+) -> HoumaoManagedAgentIdentity:
     """Project one registry record into the shared identity payload."""
 
     transport = record.mode
-    manifest = _managed_manifest_for_identity(Path(record.runtime.manifest_path))
     tracked_agent_id = record.agent_id or record.agent_name or record.terminal.session_name
-    tmux_window_name = _managed_tmux_window_name_from_manifest_path(
-        manifest_path=Path(record.runtime.manifest_path),
-        default=(
-            HEADLESS_AGENT_WINDOW_NAME
-            if transport == "headless" or record.identity.backend == "local_interactive"
-            else None
-        ),
+    tmux_window_name = (
+        HEADLESS_AGENT_WINDOW_NAME
+        if transport == "headless" or record.identity.backend == "local_interactive"
+        else None
     )
+    if manifest is not None and manifest.tmux is not None:
+        tmux_window_name = manifest.tmux.primary_window_name or tmux_window_name
     return HoumaoManagedAgentIdentity(
         tracked_agent_id=tracked_agent_id,
         transport=transport,
@@ -5628,7 +5878,7 @@ def _identity_from_record(record: ManagedAgentRegistryRecordV3) -> HoumaoManaged
         session_name=record.terminal.session_name if transport == "tui" else None,
         terminal_id=None,
         runtime_session_id=manifest.runtime.session_id
-        if transport == "web" and manifest is not None
+        if manifest is not None
         else tracked_agent_id,
         tmux_session_name=record.terminal.session_name,
         tmux_window_name=tmux_window_name,
@@ -5644,16 +5894,43 @@ def _identity_from_record(record: ManagedAgentRegistryRecordV3) -> HoumaoManaged
     )
 
 
+def select_local_managed_agent_record(
+    record: ManagedAgentRegistryRecordV3, *, agent_ref: str
+) -> ManagedAgentTarget:
+    """Select an already-disambiguated local record without opening its runtime."""
+
+    if record.identity.backend == "houmao_server_rest":
+        raise click.ClickException(
+            "This managed agent is registered with retired backend "
+            "`houmao_server_rest`. Use `houmao-passive-server` for maintained API-backed "
+            "management or relaunch the agent through a maintained local/headless workflow."
+        )
+    return ManagedAgentTarget(
+        mode="local", agent_ref=agent_ref, identity=_identity_from_record(record), record=record
+    )
+
+
 def _resume_controller_from_record(
     record: ManagedAgentRegistryRecordV3,
+    *,
+    existing_only: bool = False,
 ) -> RuntimeSessionController:
     """Resume one local runtime controller from a registry record."""
 
     manifest_path = Path(record.runtime.manifest_path).expanduser().resolve()
     try:
         require_registry_mode_authority(record)
-        return resume_runtime_session(session_manifest_path=manifest_path)
-    except BrainLaunchRuntimeError as exc:
+        return resume_runtime_session(
+            session_manifest_path=manifest_path, existing_only=existing_only
+        )
+    except (BrainLaunchRuntimeError, TmuxObservationError) as exc:
+        cause: BaseException | None = exc
+        while cause is not None:
+            if isinstance(cause, TmuxObservationError):
+                raise click.ClickException(
+                    str(terminal_inspection_unavailable(record, cause))
+                ) from exc
+            cause = cause.__cause__
         tracked_name = record.agent_name or record.agent_id or record.terminal.session_name
         raise click.ClickException(
             f"Managed agent `{tracked_name}` is registered in the shared registry but "
@@ -5665,57 +5942,53 @@ def _resume_controller_from_record(
 def _probe_local_tmux_authority_for_record(
     record: ManagedAgentRegistryRecordV3,
 ) -> TmuxBackedAuthorityHealth:
-    """Classify local tmux authority for one active managed-agent registry record.
+    """Classify one active agent's terminal on its selected owner socket."""
 
-    Inspects the tmux session named in ``record.terminal``. Only meaningful for
-    active local tmux-backed records; callers should branch on the persisted
-    lifecycle state before invoking this probe.
-    """
+    return _probe_recorded_terminal(record, _read_recovery_manifest(record))
+
+
+def _read_recovery_manifest(
+    record: ManagedAgentRegistryRecordV3,
+) -> SessionManifestPayloadV4 | None:
+    """Load a usable manifest, retaining registry authority for missing runtimes."""
+
+    try:
+        validate_execution_owner(record.execution_binding)
+    except (ValueError, OSError) as exc:
+        raise terminal_inspection_unavailable(
+            record, "The recorded owner route is unavailable"
+        ) from exc
+    manifest_path = Path(record.runtime.manifest_path)
+    try:
+        handle = load_session_manifest(manifest_path)
+        return parse_session_manifest_payload(handle.payload, source=str(handle.path))
+    except SessionManifestError:
+        return None
+
+
+def _probe_recorded_terminal(
+    record: ManagedAgentRegistryRecordV3, manifest: SessionManifestPayloadV4 | None
+) -> TmuxBackedAuthorityHealth:
+    """Use saved primary handles when available and surface checked query failures."""
 
     from houmao.execution.tmux import tmux_server_scope
 
-    session_name = record.terminal.session_name
-    socket_path = record.terminal.socket_path
-    tmux = None
-    joined = False
-    manifest_path = Path(record.runtime.manifest_path)
-    if manifest_path.is_file():
-        try:
-            handle = load_session_manifest(manifest_path)
-            payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
-        except SessionManifestError:
-            payload = None
-        if payload is not None and payload.tmux is not None:
-            if (
-                payload.agent_id != record.agent_id
-                or payload.registry_generation_id != record.generation_id
-                or payload.tmux.session_name != session_name
-                or (socket_path is not None and payload.tmux.socket_path != socket_path)
-            ):
-                raise SessionManifestError("Registry and manifest tmux authority differ")
-            tmux = payload.tmux
-            socket_path = tmux.socket_path
-            joined = (
-                payload.agent_launch_authority is not None
-                and payload.agent_launch_authority.session_origin == "joined_tmux"
-            )
-    if socket_path is None:
-        raise SessionManifestError("Live tmux inspection requires the recorded owner socket")
+    binding = recorded_tmux_binding(record, manifest)
+    authority = manifest.agent_launch_authority if manifest is not None else None
+    assert binding.socket_path is not None
     try:
-        with tmux_server_scope(socket_path):
-            if tmux is None:
-                return probe_tmux_backed_authority(session_name=session_name)
+        with tmux_server_scope(binding.socket_path):
+            if manifest is None:
+                return probe_tmux_backed_authority(session_name=binding.session_name)
             return probe_tmux_backed_authority(
-                session_name=session_name,
-                primary_window_id=tmux.primary_window_id,
-                primary_pane_id=tmux.primary_pane_id,
-                primary_window_name=tmux.primary_window_name,
-                joined=joined,
+                session_name=binding.session_name,
+                primary_window_id=binding.primary_window_id,
+                primary_pane_id=binding.primary_pane_id,
+                primary_window_name=binding.primary_window_name,
+                joined=authority is not None and authority.session_origin == "joined_tmux",
             )
     except TmuxCommandError as exc:
-        raise SessionManifestError(
-            f"Cannot inspect owner tmux session `{session_name}`: {exc}"
-        ) from exc
+        raise terminal_inspection_unavailable(record, exc) from exc
 
 
 def _record_has_readable_manifest_authority(
@@ -5939,19 +6212,29 @@ def _live_gateway_client_for_controller(
     """Return a client preserving the running agent's owner and signer binding."""
 
     status = _gateway_status_for_controller(authority)
-    if (
-        status.gateway_health != "healthy"
-        or status.gateway_host is None
-        or status.gateway_port is None
-    ):
+    if status.gateway_health != "healthy":
         return None
-    endpoint = GatewayEndpoint(host=status.gateway_host, port=status.gateway_port)
-    try:
-        GatewayClient(endpoint=endpoint).health()
-    except GatewayHttpError as exc:
-        if require_available:
-            raise click.ClickException(exc.detail) from None
-        return None
+    if isinstance(authority, (VerifiedRegistryManifest, VerifiedSelfManifest)):
+        paths = gateway_paths_from_manifest_path(authority.manifest_path)
+        try:
+            assert paths is not None
+            instance, endpoint = _verified_current_gateway(authority, paths)
+            if not _gateway_status_matches_instance(status, instance):
+                raise SessionManifestError("Gateway status belongs to a superseded instance.")
+        except (GatewayHttpError, OSError, SessionManifestError) as exc:
+            if require_available:
+                raise _gateway_inspection_unavailable(authority, exc) from None
+            return None
+    else:
+        if status.gateway_host is None or status.gateway_port is None:
+            return None
+        endpoint = GatewayEndpoint(host=status.gateway_host, port=status.gateway_port)
+        try:
+            GatewayClient(endpoint=endpoint).health()
+        except GatewayHttpError as exc:
+            if require_available:
+                raise click.ClickException(exc.detail) from None
+            return None
     scope = get_managed_agent_scope_context()
     try:
         binding, incarnation = owner_gateway_client_binding(
@@ -5964,59 +6247,64 @@ def _live_gateway_client_for_controller(
     except (GatewayAccessError, SessionManifestError, ValueError):
         raise click.ClickException("Gateway caller binding is unavailable.") from None
     if (
-        isinstance(authority, VerifiedSelfManifest)
+        isinstance(authority, (VerifiedRegistryManifest, VerifiedSelfManifest))
         and incarnation != authority.record.generation_id
     ):
         raise click.ClickException("The gateway belongs to a different runtime generation.")
     return GatewayClient(endpoint=endpoint, binding=binding, target_incarnation=incarnation)
 
 
-def _local_gateway_summary(
-    controller: RuntimeSessionController,
-) -> HoumaoManagedAgentGatewaySummaryView | None:
-    """Return one optional gateway summary for local direct control."""
+def _verified_current_gateway(
+    authority: _VerifiedManifest, paths: GatewayPaths
+) -> tuple[GatewayCurrentInstanceV1, GatewayEndpoint]:
+    """Match the persisted instance and the responding endpoint to this owner."""
 
-    try:
-        status = _gateway_status_for_controller(controller)
-    except click.ClickException:
-        return None
+    instance = load_gateway_current_instance(paths.current_instance_path)
+    saved = instance.endpoint_descriptor
+    binding = authority.payload.runtime.execution_binding
     if (
-        status.gateway_health == "healthy"
-        and status.gateway_host is not None
-        and status.gateway_port is not None
+        saved is None
+        or binding is None
+        or saved.target.owner.agent_id != authority.agent_id
+        or saved.target.owner.context_id != binding.context_id
+        or saved.target.incarnation != authority.record.generation_id
     ):
-        try:
-            descriptor = GatewayClient(
-                endpoint=GatewayEndpoint(host=status.gateway_host, port=status.gateway_port),
-                timeout_seconds=1.0,
-            ).describe_endpoint()
-            binding = controller.execution_binding
-            if (
-                descriptor.target.owner.agent_id != controller.agent_id
-                or descriptor.target.incarnation != controller.registry_generation_id
-                or binding is None
-                or descriptor.target.owner.context_id != binding.context_id
-            ):
-                raise ValueError("Gateway belongs to a different owner.")
-        except (GatewayHttpError, ValueError):
-            return HoumaoManagedAgentGatewaySummaryView(
-                gateway_health="not_attached",
-                managed_agent_connectivity="unavailable",
-                managed_agent_recovery="idle",
-                request_admission="blocked_unavailable",
-                active_execution="idle",
-                queue_depth=status.queue_depth,
-            )
-    return HoumaoManagedAgentGatewaySummaryView(
-        gateway_health=status.gateway_health,
-        managed_agent_connectivity=status.managed_agent_connectivity,
-        managed_agent_recovery=status.managed_agent_recovery,
-        request_admission=status.request_admission,
-        active_execution=status.active_execution,
-        queue_depth=status.queue_depth,
-        gateway_host=status.gateway_host,
-        gateway_port=status.gateway_port,
+        raise SessionManifestError("Current gateway instance differs from the selected owner.")
+    endpoint = GatewayEndpoint(host=instance.host, port=instance.port)
+    descriptor = GatewayClient(endpoint=endpoint, timeout_seconds=2.0).describe_endpoint()
+    if (
+        descriptor.target != saved.target
+        or descriptor.presence_id != saved.presence_id
+        or descriptor.protocol != saved.protocol
+    ):
+        raise SessionManifestError("Gateway listener belongs to a different instance.")
+    if load_gateway_current_instance(paths.current_instance_path).endpoint_descriptor != saved:
+        raise SessionManifestError("Current gateway instance changed during observation.")
+    return instance, endpoint
+
+
+def _gateway_status_matches_instance(
+    status: GatewayStatusV1, instance: GatewayCurrentInstanceV1
+) -> bool:
+    """Compare status evidence with the verified gateway's instance coordinates."""
+
+    return (
+        status.gateway_health == "healthy"
+        and status.gateway_host == instance.host
+        and status.gateway_port == instance.port
+        and status.protocol_version == instance.protocol_version
+        and status.managed_agent_instance_epoch == instance.managed_agent_instance_epoch
+        and status.managed_agent_instance_id == instance.managed_agent_instance_id
     )
+
+
+def _gateway_inspection_unavailable(
+    authority: _VerifiedManifest, cause: Exception
+) -> click.ClickException:
+    """Report a failed gateway observation without claiming detachment."""
+
+    reason = str(cause) if isinstance(cause, SessionManifestError) else "Endpoint is unavailable."
+    return click.ClickException(f"Gateway status unavailable for `{authority.agent_id}`. {reason}")
 
 
 def _require_live_gateway_client_for_controller(
@@ -6034,27 +6322,22 @@ def _require_live_gateway_client_for_controller(
     return client
 
 
-def _local_mailbox_summary(
-    controller: RuntimeSessionController,
-) -> HoumaoManagedAgentMailboxSummaryView:
-    """Project both configured slots without exposing protected references."""
-
-    return HoumaoManagedAgentMailboxSummaryView.model_validate(
-        {
-            **safe_registry_mailboxes_projection(controller.launch_plan.mailboxes),
-            "canonical_mail_identity": controller.launch_plan.mailboxes.canonical_mail_identity,
-        }
-    )
-
-
 def _local_tui_runtime_for_controller(
     controller: RuntimeSessionController,
+    *,
+    manifest: SessionManifestPayloadV4 | None = None,
 ) -> SingleSessionTrackingRuntime:
     """Return one ephemeral single-session tracker for a local TUI controller."""
 
+    if manifest is None:
+        manifest = _managed_manifest_for_identity(controller.manifest_path)
+    binding = manifest.tmux if manifest is not None else None
+    launch_authority = manifest.agent_launch_authority if manifest is not None else None
     return SingleSessionTrackingRuntime(
         identity=_tracked_tui_identity_for_controller(controller),
         supported_tui_processes=_SUPPORTED_LOCAL_TUI_PROCESSES,
+        primary_binding=binding,
+        joined=launch_authority is not None and launch_authority.session_origin == "joined_tmux",
     )
 
 
@@ -6131,265 +6414,6 @@ def _managed_tmux_window_name_from_manifest_path(
     return default
 
 
-def _refresh_local_tui_state(
-    *,
-    controller: RuntimeSessionController,
-) -> HoumaoTerminalStateResponse:
-    """Poll one local interactive session once and return the tracked state."""
-
-    with controller.execution_scope():
-        return _local_tui_runtime_for_controller(controller).refresh_once()
-
-
-def _local_tui_state_response_from_state(
-    *,
-    controller: RuntimeSessionController,
-    tracked_state: HoumaoTerminalStateResponse,
-) -> HoumaoManagedAgentStateResponse:
-    """Project one local TUI tracked-state sample into managed-agent summary state."""
-
-    diagnostics = _tracked_errors(tracked_state=tracked_state)
-    turn_phase = tracked_state.turn.phase
-    identity = _managed_identity_from_local_tui_state(
-        controller=controller, tracked_state=tracked_state
-    )
-    probe = tracked_state.probe_snapshot
-    known = probe is not None and tracked_state.diagnostics.availability == "available"
-    surface = tracked_state.surface
-    return HoumaoManagedAgentStateResponse(
-        tracked_agent_id=tracked_state.tracked_session.tracked_session_id,
-        identity=identity,
-        capabilities=managed_control_capabilities(
-            tool=identity.tool,
-            mode="tui",
-            backend=controller.launch_plan.backend,
-            native_surface=identity.native_surface,
-        ),
-        control=ManagedControlObservationV1(
-            source="terminal_tracker",
-            freshness="current" if known else "unknown",
-            observed_at_utc=probe.observed_at_utc if probe is not None else None,
-            owner_available=True,
-            can_accept_prompt_now=(
-                known
-                and turn_phase == "ready"
-                and surface.accepting_input == "yes"
-                and surface.ready_posture == "yes"
-                and surface.pending_input == "no"
-            ),
-        ),
-        availability=_availability_from_local_tui_state(tracked_state),
-        turn=HoumaoManagedAgentTurnView(
-            phase=turn_phase,
-            active_turn_id=(
-                f"tui-anchor:{tracked_state.tracked_session.tracked_session_id}"
-                if turn_phase == "active"
-                else None
-            ),
-        ),
-        last_turn=HoumaoManagedAgentLastTurnView(
-            result=tracked_state.last_turn.result,
-            turn_id=None,
-            turn_index=None,
-            updated_at_utc=tracked_state.last_turn.updated_at_utc,
-        ),
-        diagnostics=diagnostics,
-        mailboxes=_local_mailbox_summary(controller),
-        gateway=_local_gateway_summary(controller),
-        **_controller_memory_state_fields(controller=controller),
-    )
-
-
-def _local_tui_detail_response_from_state(
-    *,
-    tracked_state: HoumaoTerminalStateResponse,
-) -> HoumaoManagedAgentTuiDetailView:
-    """Project one local TUI tracked-state sample into managed-agent detail."""
-
-    terminal_id = tracked_state.terminal_id
-    return HoumaoManagedAgentTuiDetailView(
-        terminal_id=terminal_id,
-        canonical_terminal_state_route=f"/houmao/terminals/{terminal_id}/state",
-        canonical_terminal_history_route=f"/houmao/terminals/{terminal_id}/history",
-        diagnostics=tracked_state.diagnostics,
-        probe_snapshot=tracked_state.probe_snapshot,
-        parsed_surface=tracked_state.parsed_surface,
-        surface=tracked_state.surface,
-        stability=tracked_state.stability,
-    )
-
-
-def _managed_identity_from_local_tui_state(
-    *,
-    controller: RuntimeSessionController,
-    tracked_state: HoumaoTerminalStateResponse,
-) -> HoumaoManagedAgentIdentity:
-    """Project one local tracked TUI identity into the shared managed-agent model."""
-
-    tracked = tracked_state.tracked_session
-    return _identity_from_controller(controller).model_copy(
-        update={
-            "tracked_agent_id": tracked.tracked_session_id,
-            "session_name": tracked.session_name,
-            "terminal_id": tracked_state.terminal_id,
-            "tmux_window_name": tracked.tmux_window_name,
-        }
-    )
-
-
-def _availability_from_local_tui_state(
-    tracked_state: HoumaoTerminalStateResponse,
-) -> ManagedAgentAvailability:
-    """Map one TUI tracked-state sample into the coarse managed-agent availability."""
-
-    if tracked_state.diagnostics.availability == "error":
-        return "error"
-    if tracked_state.diagnostics.availability in {"unavailable", "tui_down"}:
-        return "unavailable"
-    return "available"
-
-
-def _tracked_errors(*, tracked_state: HoumaoTerminalStateResponse) -> list[HoumaoErrorDetail]:
-    """Return surfaced probe / parse errors from one tracked TUI sample."""
-
-    diagnostics: list[HoumaoErrorDetail] = []
-    if tracked_state.diagnostics.probe_error is not None:
-        diagnostics.append(tracked_state.diagnostics.probe_error)
-    if tracked_state.diagnostics.parse_error is not None:
-        diagnostics.append(tracked_state.diagnostics.parse_error)
-    return diagnostics
-
-
-class _ControllerMemoryStateFields(TypedDict):
-    """Named optional memory locations accepted by managed state responses."""
-
-    memory_root: str | None
-    memo_file: str | None
-    pages_dir: str | None
-
-
-def _controller_memory_state_fields(
-    *,
-    controller: RuntimeSessionController,
-) -> _ControllerMemoryStateFields:
-    """Return memory fields for one managed-agent state response."""
-
-    memory_root = getattr(controller, "memory_root", None)
-    memo_file = getattr(controller, "memo_file", None)
-    pages_dir = getattr(controller, "pages_dir", None)
-    return {
-        "memory_root": str(memory_root) if memory_root is not None else None,
-        "memo_file": str(memo_file) if memo_file is not None else None,
-        "pages_dir": str(pages_dir) if pages_dir is not None else None,
-    }
-
-
-def _local_web_state_response(
-    *,
-    controller: RuntimeSessionController,
-    identity: HoumaoManagedAgentIdentity,
-) -> HoumaoManagedAgentStateResponse:
-    """Observe the latest owned Web binding without starting a host or parsing logs."""
-
-    manifest = _managed_manifest_for_identity(controller.manifest_path)
-    if manifest is None:
-        raise click.ClickException("Verified native Web manifest authority is unavailable")
-    metadata = web_attach_metadata_from_state(manifest.backend_state)
-    observer = WebObservation(metadata=metadata, state=lambda: {}, history=lambda **_: {})
-    state = observer.unavailable()
-    client = _live_gateway_client_for_controller(controller)
-    if client is not None:
-        try:
-            observed = client.get_web_state()
-            if (
-                observed.identity == metadata.identity
-                and observed.origin == metadata.origin
-                and observed.browser_url == metadata.browser_url
-                and observed.availability == "available"
-                and web_state_is_fresh(observed)
-            ):
-                state = observed
-        except GatewayHttpError:
-            pass
-    if state.availability != "available":
-        backend: DshWebSession | KimiWebSession | None = None
-        try:
-            fresh = resume_runtime_session(
-                session_manifest_path=controller.manifest_path,
-                read_only=True,
-            )
-            if not isinstance(fresh.backend_session, (DshWebSession, KimiWebSession)):
-                raise click.ClickException(
-                    "Native Web observation requires the Web runtime adapter"
-                )
-            backend = fresh.backend_session
-            state = WebObservation(
-                metadata=metadata,
-                state=backend.observe_web_state,
-                history=backend.observe_web_history,
-            ).refresh()
-        except (RuntimeError, OSError, ValueError):
-            state = observer.unavailable()
-        finally:
-            if backend is not None:
-                backend.close_control_connection()
-    summary = managed_web_state_from_native(
-        identity=identity,
-        state=state,
-        mailbox_summary=_local_mailbox_summary(controller),
-        gateway_summary=_local_gateway_summary(controller),
-    )
-    return summary.model_copy(update=dict(_controller_memory_state_fields(controller=controller)))
-
-
-def _local_service_state_response(
-    controller: RuntimeSessionController, *, identity: HoumaoManagedAgentIdentity
-) -> HoumaoManagedAgentStateResponse:
-    """Report the provider connection separately from local owner liveness."""
-
-    return managed_service_state_from_observation(
-        identity=identity,
-        observation=controller.observe_managed_service(),
-        gateway_summary=_local_gateway_summary(controller),
-        mailbox_summary=_local_mailbox_summary(controller),
-    )
-
-
-def _local_headless_state_response(
-    *,
-    controller: RuntimeSessionController,
-    identity: HoumaoManagedAgentIdentity,
-) -> HoumaoManagedAgentStateResponse:
-    """Build one local managed-agent state response for a headless controller."""
-
-    native_session = (
-        controller.backend_session.state.session_id
-        if isinstance(controller.backend_session, HeadlessInteractiveSession)
-        else None
-    )
-    summary = managed_runtime_headless_state_from_observation(
-        identity=identity,
-        latest_turn=_latest_local_headless_turn(controller=controller),
-        owner_available=True,
-        native_session_id=native_session,
-        mailbox_summary=_local_mailbox_summary(controller),
-        gateway_summary=_local_gateway_summary(controller),
-    )
-    return summary.model_copy(update=dict(_controller_memory_state_fields(controller=controller)))
-
-
-def _latest_local_headless_turn(
-    *, controller: RuntimeSessionController
-) -> HeadlessTurnSnapshot | None:
-    """Return the latest persisted turn for the addressed headless owner."""
-
-    return latest_headless_turn(
-        manifest_path=controller.manifest_path,
-        tool=controller.launch_plan.tool,
-        backend=controller.launch_plan.backend,
-    )
-
-
 def _turn_snapshot_from_id(
     *,
     controller: _RunningAgentAuthority,
@@ -6397,19 +6421,26 @@ def _turn_snapshot_from_id(
 ) -> HeadlessTurnSnapshot:
     """Return one local turn snapshot or fail clearly."""
 
-    root = headless_turn_artifacts_root(controller.manifest_path).resolve()
-    candidate = (root / turn_id).resolve()
-    if candidate.parent != root or not candidate.is_dir():
+    if Path(turn_id).name != turn_id or turn_id in {"", ".", ".."}:
         raise click.ClickException(f"Headless turn `{turn_id}` was not found.")
     provider = _headless_provider_for_authority(controller)
-    return read_headless_turn(candidate, dsh_cli=provider == "dsh", provider=provider)
+    try:
+        root = headless_turn_artifacts_root(controller.manifest_path)
+        candidate = root / turn_id
+        if candidate.is_symlink() or not candidate.is_dir():
+            raise click.ClickException(f"Headless turn `{turn_id}` was not found.")
+        return read_headless_turn(candidate, dsh_cli=provider == "dsh", provider=provider)
+    except (OSError, BackendExecutionError) as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 def _headless_provider_for_authority(authority: _RunningAgentAuthority) -> HeadlessProvider:
     """Read the saved provider identity for one running agent's artifacts."""
 
-    if isinstance(authority, VerifiedSelfManifest):
+    if isinstance(authority, (VerifiedRegistryManifest, VerifiedSelfManifest)):
         payload = _read_running_agent_manifest(authority)
+        if payload.mode != "headless":
+            raise click.ClickException("Saved turn reads require a headless managed agent.")
         return resolve_headless_provider(tool=payload.tool, backend=payload.backend)
     return resolve_headless_provider(
         tool=authority.launch_plan.tool, backend=authority.launch_plan.backend
