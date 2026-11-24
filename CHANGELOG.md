@@ -4,6 +4,29 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [3.0.0rc6] - 2026-11-24
+
+### Added
+
+- **Tmux server selection.** Launch profiles and one-shot launches can select the user's default server, a fresh private server, an existing socket, or the shared Houmao server. Houmao starts its shared server on demand and resumes each agent on its recorded socket. [Launch Profiles](https://igamenovoer.github.io/houmao/getting-started/launch-profiles/#choosing-a-tmux-server)
+- **Public gateway dashboard.** Open the gateway in a browser for a summary and a link to its native Web interface when available. [Gateway Access](https://igamenovoer.github.io/houmao/reference/gateway/operations/access/#open-a-live-web-agent)
+
+### Changed
+
+- **Kimi native configuration.** Managed launches read provider and model settings from `config.toml`. A model's ordered `support_efforts` maps numeric reasoning levels to its native labels. [Kimi Configuration](https://igamenovoer.github.io/houmao/reference/build-phase/launch-policy/#kimi-native-configuration)
+- **Tmux-backed fixtures.** Local managed and raw terminal or Web fixtures share the Houmao server by default. Prepare a fixture with `--tmux-server new` to give it a private server.
+
+### Fixed
+
+- Discover and contact managed peers across tmux servers using registry and manifest records. Managed self queries resolve from the runtime manifest, and provider startup uses the resolved launch environment.
+- Open the recorded DSH Web conversation in its native Workspace, including before its first prompt.
+- Accept supported agent tool releases and release candidates at or above the applicable version floor.
+
+### Notes
+
+- Install with `uv tool install 'houmao==3.0.0rc6'`. For the matching public skills, use `npx skills add https://github.com/igamenovoer/houmao-skills#v3.0.0rc6`.
+- [Compare v3.0.0rc5 and v3.0.0rc6](https://github.com/igamenovoer/houmao/compare/v3.0.0rc5...v3.0.0rc6)
+
 ## [3.0.0rc5] - 2026-11-20
 
 ### Changed
