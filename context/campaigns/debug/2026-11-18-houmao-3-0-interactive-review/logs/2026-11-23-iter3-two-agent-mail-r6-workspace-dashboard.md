@@ -81,3 +81,7 @@ A first attempted host reproduction was invalid and is not product evidence: it 
 No product code was changed. A fix should make the managed shared registry available to in-agent global discovery, either by preserving the non-secret root in the Web native environment or by making the command select the verified-self registry when invoked in a managed context. Add an end-to-end assertion inside both Web agents; host-only listing does not cover this failure.
 
 Follow-up inspection found that Houmao already has a central `LaunchPlan.env`, an owner-private persisted launch environment, and a mapping-based tmux setter, but the Web backends do not connect them. One-off `project agents launch --env-set NAME=value|NAME` can add values to the native Web process, but persistent specialist records reject Houmao-owned names and neither Web backend publishes the mapping to tmux. [Issue #93](https://github.com/igamenovoer/houmao/issues/93) requests one authoritative environment-publication contract across backends, covering tmux, native processes, relaunch, and in-agent peer discovery with explicit credential-handling rules.
+
+## R6 Teardown
+
+Before the R7 rerun, both R6 notifiers were disabled and both owned native Web hosts stopped successfully. Ports `37605` and `37606` returned `connect_ex=111`, and both fixture-isolated tmux servers were no longer running. R6 mail delivery remained untested; only the operator-requested peer-listing turns ran. R7 uses fresh state and the unified launch-environment implementation.
