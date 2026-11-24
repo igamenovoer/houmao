@@ -7,6 +7,7 @@ Comprehensive test suite organized by purpose.
 - **unit/** - Fast, deterministic unit tests (pytest/unittest)
 - **integration/** - Tests with external services, I/O, or multi-component interactions
 - **manual/** - Manually executed scripts (not collected by CI)
+- **instructional/** - Agent-driven live verification suites (see `instructional/README.md`)
 
 ## Conventions
 

@@ -4,7 +4,7 @@
 Classify every new file by purpose before placing it: `distro` (part of the released product), `CI` (quality control for production code), `utility` (development, testing, migration, or operational tooling), or `temp` (disposable state for a one-off test or experiment). Place it in the matching location below; this map is the single reference for path-to-purpose decisions.
 
 - `src/houmao/` (`distro`): core runtime code — CLI entrypoints, launch/runtime logic, and CAO integration, plus stable reusable infrastructure maintained as supported package code.
-- `tests/` (`CI`): the pytest suite, split by intent — `tests/unit/` fast hermetic tests, `tests/integration/` multi-component or external dependency tests, `tests/workflow/` end-to-end workflow suites, `tests/manual/` non-CI manual scripts, `tests/fixtures/` shared fixtures and auth bundles. Production modules must remain independent of test-only trees.
+- `tests/` (`CI`): the pytest suite, split by intent — `tests/unit/` fast hermetic tests, `tests/integration/` multi-component or external dependency tests, `tests/workflow/` end-to-end workflow suites, `tests/manual/` non-CI manual scripts, `tests/instructional/` agent-driven live verification suites documented by their own `README.md`, and `tests/fixtures/` shared fixtures and auth bundles. Production modules must remain independent of test-only trees.
 - `scripts/` (`utility`): automation and helper CLIs, grouped in purpose-specific subdirectories (`agents/`, `demo/`, `explore/`, `openspec/`, `parity/`, `qualification/`).
 - `tools/` (`utility`): development and operational tooling such as `tools/terminal_record/`.
 - `apps/` (standalone, not packaged): developer applications outside the Houmao Python package (for example `apps/ag-ui-workbench/`); each app owns its JavaScript dependencies, lockfile, build scripts, and tests. Do not add `apps/` to Python package include rules or runtime imports.
@@ -67,6 +67,7 @@ Framework: `pytest` (with some `unittest` compatibility). Follow file naming fro
 - `tests/unit/**/test_*.py`
 - `tests/integration/**/test_*.py`
 - `tests/manual/manual_*.py`
+- `tests/instructional/cases/*.md` plus `tests/instructional/helpers/*.py` for agent-driven live verification; run them from the suite `README.md` with project-local `tmp/` state, not from CI.
 
 Keep unit tests deterministic and isolated; prefer fixtures over network access. Run `pixi run test` before opening a PR, and add integration coverage when behavior spans subprocesses, tmux, or CAO paths.
 For browser checks, Playwright is available from the Bun global toolchain. Use `bunx playwright ...` for CLI commands, or run small Bun scripts that import `playwright`; the installed Playwright browser bundle can launch Chromium headlessly.
