@@ -678,6 +678,39 @@ test("runtime disposal aborts watched streams and closes tmux sockets", async ()
   expect(socket.closed).toBeTruthy();
 });
 
+test("signed watchers require explicit reconnect after an authorization refusal", async () => {
+  let attempts = 0;
+  let retries = 0;
+  const signedTarget = { ...target, useOperatorSigner: true };
+  const runtime = new WorkbenchRuntime(
+    runtimeServices({
+      connectAgUi: async (selected, _input, handlers, signal) => {
+        attempts += 1;
+        expect(selected.useOperatorSigner).toBe(true);
+        if (attempts === 1) throw new AgUiHttpError(403, "Forbidden", "observation denied");
+        handlers.onOpen?.();
+        await untilAborted(signal);
+      },
+      setTimeout: () => ++retries,
+    }),
+  );
+  try {
+    runtime.dispatch({
+      type: "watchedTargets/snapshotReceived",
+      watchedTargets: { "watched-alpha": watchedRecord("watched-alpha", signedTarget) },
+    });
+    await expect.poll(() => runtime.snapshot().watchedTargets["watched-alpha"].status).toBe("error");
+    expect(runtime.snapshot().watchedTargets["watched-alpha"].error).toBe("observation denied");
+    expect(attempts).toBe(1);
+    expect(retries).toBe(0);
+    runtime.dispatch({ type: "watchedTarget/reconnectRequested", key: "watched-alpha" });
+    await expect.poll(() => runtime.snapshot().watchedTargets["watched-alpha"].status).toBe("connected");
+    expect(attempts).toBe(2);
+  } finally {
+    runtime.dispose();
+  }
+});
+
 function runtimeServices(overrides: Partial<WorkbenchRuntimeServices> = {}): WorkbenchRuntimeServices {
   return {
     fetchActiveThread: async () => ({ status: "empty" }),

@@ -67,6 +67,44 @@ Validation flows:
 
 ## Operator Workflows
 
+### Sign AG-UI Requests as a Local Operator
+
+Ask the target owner to enroll your public SSH key under your operator identity and grant the AG-UI permissions you need. An observe-only operator can attach and read events. A run-capable operator also needs permission to submit a run and receive its output. Launch a separate local workbench for each operator so each instance uses that operator's key and local browser session.
+
+Save a client binding and its dedicated OpenSSH private key as owner-private files (mode `0600`) in an owner-private directory (mode `0700`) outside the checkout. Copy the exact agent ID and execution context ID from the target owner's trusted deployment information. The gateway base is the origin and any deployment prefix before `/v1/ag-ui`.
+
+```json
+{
+  "base_url": "http://127.0.0.1:8765",
+  "owner": { "agent_id": "writer", "context_id": "owner-context-id" },
+  "purpose": "caller",
+  "private_key_path": "/home/alice/.config/houmao/writer_ed25519"
+}
+```
+
+Save the launch configuration as a second owner-private file. The `gatewayBaseUrl` must match the client binding. A manual binding pins that gateway base. For discovery, add `"passiveServerUrl": "http://127.0.0.1:9891"` to approve that passive server. Discovery may update the gateway port. The configured scheme, host, deployment prefix, and target owner remain pinned. Use verified HTTPS for remote signed targets and include their hosts in `HOUMAO_AG_UI_WORKBENCH_ALLOWED_HOSTS`.
+
+```json
+{
+  "clientBindingPath": "/home/alice/.config/houmao/writer-client.json",
+  "agentId": "writer",
+  "gatewayBaseUrl": "http://127.0.0.1:8765"
+}
+```
+
+```bash
+bun run build
+pixi run bun run start --operator-config /home/alice/.config/houmao/workbench.json
+```
+
+Open the printed operator URL within two minutes. The launch secret is single-use. The authorized tab keeps its local session for up to eight hours or until the workbench stops. The private key, its path, and the upstream proof stay on the host. The signing helper uses the installed Houmao Python client. If you need a different Python environment, set `HOUMAO_AG_UI_WORKBENCH_PYTHON` to its interpreter. For a private HTTPS CA, configure `ca_bundle_path` in the client binding and supply the same trust to Node through `NODE_EXTRA_CA_CERTS` at launch.
+
+In the picker or a manual target form, select **Use operator key** for the approved target. Editing a pane's URL clears that selection. Leave it off for unsigned access to an open gateway or generic AG-UI server. When the gateway refuses a connect, the pane keeps the refusal until you press **Connect** or choose **Reconnect** in the picker. The workbench continues to resolve temporary transport failures by agent address.
+
+Signed mode serves built assets on a numeric loopback address and requires the operator session on local host bridges, including tmux. It accepts JSON and AG-UI event streams through the private API. The generic raw proxy is unavailable in signed mode.
+
+### Use a Pane or Terminal
+
 The workbench no longer creates a dedicated Operator tab. To act as an operator, either open a `tmux` tab and directly control a TUI session, or mark one discovered Houmao agent pane as the operator pane for orientation.
 
 The operator marker is UI metadata only. It does not change AG-UI request bodies, gateway routing, watched-target behavior, prompt delivery, event caching, tmux attachment, or managed-agent lifecycle behavior. Only panes that target a discovered Houmao agent can be marked as operator. If the marked pane closes or is retargeted away from a discovered Houmao agent, the marker is cleared.

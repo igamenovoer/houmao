@@ -176,6 +176,10 @@ export type WorkbenchRuntimeAction =
       key: string;
     }
   | {
+      type: "watchedTarget/reconnectRequested";
+      key: string;
+    }
+  | {
       type: "watchedTarget/clearCacheRequested";
       key: string;
     }

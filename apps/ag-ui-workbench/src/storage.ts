@@ -228,6 +228,7 @@ function sanitizeTarget(value: unknown, fallback: TargetConfig): TargetConfig {
     url: typeof target.url === "string" ? target.url : fallback.url,
     threadId: typeof target.threadId === "string" ? target.threadId : fallback.threadId,
     source: sanitizeTargetSource(target.source),
+    ...(target.useOperatorSigner === true ? { useOperatorSigner: true } : {}),
   };
 }
 

@@ -21,11 +21,12 @@ export type WatcherStatus =
 
 export function watchedTargetKey(target: TargetConfig): string {
   const threadId = safeKeyPart(target.threadId || "default-thread");
+  const mode = target.useOperatorSigner ? "operator:" : "";
   if (target.source?.kind === "discovered") {
     const address = target.source.agentId || target.source.agentName || target.source.agentRef || target.label;
-    return `discovered:${safeKeyPart(address)}:${threadId}`;
+    return `${mode}discovered:${safeKeyPart(address)}:${threadId}`;
   }
-  return `manual:${safeKeyPart(normalizedManualUrl(target.url))}:${threadId}`;
+  return `${mode}manual:${safeKeyPart(normalizedManualUrl(target.url))}:${threadId}`;
 }
 
 export function watchedTargetLabel(record: WatchedTargetRecord): string {

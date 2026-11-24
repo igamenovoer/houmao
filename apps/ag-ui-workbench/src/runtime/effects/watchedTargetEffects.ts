@@ -1,7 +1,7 @@
 import { Subscription } from "rxjs";
 
-import { buildConnectInput, AgUiHttpError } from "../../ag-ui/client";
-import { AgentAddressUnavailableError } from "../../ag-ui/discovery";
+import { buildConnectInput, AgUiHttpError, isAgUiAuthorizationRefusal } from "../../ag-ui/client";
+import { AgentAddressUnavailableError, DiscoveryHttpError } from "../../ag-ui/discovery";
 import { cachedRecordId, type CachedAgUiEventRecord } from "../../ag-ui/eventCache";
 import { extractConnectionId, type PaneRunStatus } from "../../ag-ui/reducer";
 import type { TargetConfig } from "../../ag-ui/types";
@@ -33,6 +33,11 @@ export function installWatchedTargetEffects(
       switch (action.type) {
         case "watchedTargets/snapshotReceived":
           reconcileWatchers(action.watchedTargets);
+          break;
+        case "watchedTarget/reconnectRequested":
+          if (runtime.snapshot().watchedTargets[action.key]?.status === "error") {
+            void connectAttempt(action.key);
+          }
           break;
         case "watchedTarget/clearCacheRequested":
           void clearTargetCache(action.key);
@@ -242,6 +247,20 @@ export function installWatchedTargetEffects(
       if (abort.signal.aborted || controller.stopped) {
         return;
       }
+      if (
+        isAgUiAuthorizationRefusal(error) ||
+        (error instanceof DiscoveryHttpError && (error.status === 401 || error.status === 403))
+      ) {
+        controller.reconnectAttempt = 0;
+        runtime.dispatch({
+          type: "watchedTarget/requestFailed",
+          key,
+          target: controller.target,
+          error: requestErrorMessage(error),
+          receivedAt: nowUtc(),
+        });
+        return;
+      }
       if (baseTarget.source?.kind === "discovered") {
         const status = retryStatusForError(error);
         if (!(error instanceof AgentAddressUnavailableError)) {
@@ -379,6 +398,7 @@ function sameTarget(left: TargetConfig, right: TargetConfig): boolean {
   return (
     left.label === right.label &&
     left.url === right.url &&
+    Boolean(left.useOperatorSigner) === Boolean(right.useOperatorSigner) &&
     left.threadId === right.threadId &&
     JSON.stringify(left.source ?? { kind: "manual" }) ===
       JSON.stringify(right.source ?? { kind: "manual" })

@@ -1,15 +1,25 @@
 import { startWorkbenchServer, type WorkbenchServerMode } from "./app";
+import { readOperatorConfig } from "./operatorSigner";
 
 interface CliOptions {
   host?: string;
   port?: number;
   mode: WorkbenchServerMode;
+  operatorConfigPath?: string;
 }
 
 const options = parseArgs(process.argv.slice(2));
-const server = await startWorkbenchServer(options);
+const server = await startWorkbenchServer({
+  ...options,
+  operatorSignerConfig: options.operatorConfigPath
+    ? await readOperatorConfig(options.operatorConfigPath)
+    : undefined,
+});
 
 console.log(`Houmao AG-UI workbench listening at ${server.url}`);
+if (server.operatorLaunchUrl) {
+  console.log(`Open the one-use operator URL within two minutes: ${server.operatorLaunchUrl}`);
+}
 
 const shutdown = async () => {
   await server.close();
@@ -44,6 +54,17 @@ function parseArgs(args: string[]): CliOptions {
       index += 1;
     } else if (arg.startsWith("--port=")) {
       options.port = parsePort(arg.slice("--port=".length));
+    } else if (arg === "--operator-config") {
+      const filename = args[++index];
+      if (!filename || filename.startsWith("-")) {
+        throw new Error("--operator-config requires an owner-private configuration file.");
+      }
+      options.operatorConfigPath = filename;
+    } else if (arg.startsWith("--operator-config=")) {
+      options.operatorConfigPath = arg.slice("--operator-config=".length);
+      if (!options.operatorConfigPath) {
+        throw new Error("--operator-config requires an owner-private configuration file.");
+      }
     }
   }
   return options;

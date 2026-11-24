@@ -684,6 +684,7 @@ export function reduceRuntimeState(
         ...state,
         errors: [...state.errors, { message: action.error, receivedAt: action.receivedAt }].slice(-20),
       };
+    case "watchedTarget/reconnectRequested":
     case "runtime/noop":
       return state;
     default:
@@ -693,7 +694,8 @@ export function reduceRuntimeState(
 
 export function gatewayKeyForTarget(target: TargetConfig): GatewayKey | null {
   try {
-    return normalizeAgUiTarget(target).baseUrl;
+    const baseUrl = normalizeAgUiTarget(target).baseUrl;
+    return target.useOperatorSigner ? `operator:${baseUrl}` : baseUrl;
   } catch {
     return null;
   }
@@ -861,6 +863,7 @@ function sameActiveThreadTarget(left: TargetConfig, right: TargetConfig): boolea
   return (
     left.label === right.label &&
     left.url === right.url &&
+    Boolean(left.useOperatorSigner) === Boolean(right.useOperatorSigner) &&
     left.threadId === right.threadId &&
     JSON.stringify(left.source ?? { kind: "manual" }) ===
       JSON.stringify(right.source ?? { kind: "manual" })

@@ -11,6 +11,7 @@ import type { AgentPickerRequest, DiscoveredAgentSummary, TargetConfig } from ".
 import type { WatchedTargetRuntime } from "../ag-ui/useWatchedTargets";
 import type { WatchedTargetRecord } from "../ag-ui/watchedTargets";
 import type { PaneRecord } from "../storage";
+import { hasOperatorSession } from "../operatorSession";
 
 interface AgentPickerProps {
   request: AgentPickerRequest | null;
@@ -24,6 +25,7 @@ interface AgentPickerProps {
   onRetargetPane: (paneId: string, target: TargetConfig, options?: AgentPickerApplyOptions) => void;
   onWatchTarget: (target: TargetConfig) => string;
   onUnwatchTarget: (key: string) => void;
+  onReconnectTarget: (key: string) => void;
   onOpenWatchedTarget: (key: string) => void;
   onClose: () => void;
 }
@@ -46,6 +48,7 @@ export function AgentPicker({
   onRetargetPane,
   onWatchTarget,
   onUnwatchTarget,
+  onReconnectTarget,
   onOpenWatchedTarget,
   onClose,
 }: AgentPickerProps) {
@@ -56,6 +59,7 @@ export function AgentPicker({
   const [resolvingAgentId, setResolvingAgentId] = useState<string | null>(null);
   const [action, setAction] = useState<PickerAction>("new-pane");
   const [destinationPaneId, setDestinationPaneId] = useState("operator");
+  const [useOperatorSigner, setUseOperatorSigner] = useState(false);
   const refreshGenerationRef = useRef(0);
 
   const paneEntries = useMemo(
@@ -85,6 +89,7 @@ export function AgentPicker({
     }
     setError("");
     setFilter("");
+    setUseOperatorSigner(false);
   }, [paneEntries, request]);
 
   useEffect(() => {
@@ -146,10 +151,11 @@ export function AgentPicker({
     setError("");
     try {
       const resolved = await resolveDiscoveredAgentTarget(passiveServerUrl, agent);
+      const target = { ...resolved.target, useOperatorSigner };
       if (action === "retarget") {
-        onRetargetPane(destinationPaneId, resolved.target, { autoConnect: true });
+        onRetargetPane(destinationPaneId, target, { autoConnect: true });
       } else {
-        onCreatePane(resolved.target, { autoConnect: true });
+        onCreatePane(target, { autoConnect: true });
       }
       onClose();
     } catch (resolveError) {
@@ -164,7 +170,7 @@ export function AgentPicker({
     setError("");
     try {
       const resolved = await resolveDiscoveredAgentTarget(passiveServerUrl, agent);
-      onWatchTarget(resolved.target);
+      onWatchTarget({ ...resolved.target, useOperatorSigner });
     } catch (resolveError) {
       setError(discoveryErrorMessage(resolveError));
     } finally {
@@ -234,6 +240,16 @@ export function AgentPicker({
           </button>
         </div>
 
+        {hasOperatorSession() ? (
+          <label>
+            <input
+              type="checkbox"
+              checked={useOperatorSigner}
+              onChange={(event) => setUseOperatorSigner(event.target.checked)}
+            />
+            Use operator key for the selected agent
+          </label>
+        ) : null}
         <label className="agent-filter">
           <span>
             <Search size={13} />
@@ -290,6 +306,15 @@ export function AgentPicker({
                 </div>
                 {watchedKey ? (
                   <>
+                    {watchStatus === "error" ? (
+                      <button
+                        title={watchedTargetRuntimes[watchedKey]?.error || `Reconnect ${agent.agent_name}`}
+                        onClick={() => onReconnectTarget(watchedKey)}
+                      >
+                        <RefreshCw size={14} />
+                        Reconnect
+                      </button>
+                    ) : null}
                     <button
                       title={`Open watched ${agent.agent_name}`}
                       data-testid={`open-watched-agent-${agent.agent_id}`}

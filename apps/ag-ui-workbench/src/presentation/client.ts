@@ -1,3 +1,4 @@
+import { fetchWorkbench } from "../operatorSession";
 import {
   WORKBENCH_API_PREFIX,
   type PresentationSessionCreateRequest,
@@ -17,7 +18,7 @@ export interface PresentationSessionListResponse {
 export async function listPresentationSessions(
   signal?: AbortSignal,
 ): Promise<PresentationSessionListResponse> {
-  const response = await fetch(`${WORKBENCH_API_PREFIX}/presentation-sessions`, {
+  const response = await fetchWorkbench(`${WORKBENCH_API_PREFIX}/presentation-sessions`, {
     method: "GET",
     signal,
     headers: { accept: "application/json" },
@@ -32,7 +33,7 @@ export async function createPresentationSession(
   request: PresentationSessionCreateRequest,
   signal?: AbortSignal,
 ): Promise<PresentationSessionView> {
-  const response = await fetch(`${WORKBENCH_API_PREFIX}/presentation-sessions`, {
+  const response = await fetchWorkbench(`${WORKBENCH_API_PREFIX}/presentation-sessions`, {
     method: "POST",
     signal,
     headers: {
@@ -52,7 +53,7 @@ export async function disposePresentationSession(
   sessionId: string,
   signal?: AbortSignal,
 ): Promise<boolean> {
-  const response = await fetch(
+  const response = await fetchWorkbench(
     `${WORKBENCH_API_PREFIX}/presentation-sessions/${encodeURIComponent(sessionId)}`,
     {
       method: "DELETE",

@@ -1,3 +1,5 @@
+import { fetchWorkbench, operatorSocketProtocol } from "../operatorSession";
+
 export type TmuxAttachMode = "read-write" | "read-only";
 
 export interface TmuxBridgeStatus {
@@ -22,7 +24,7 @@ export interface TmuxSessionsResponse {
 }
 
 export async function fetchTmuxStatus(signal?: AbortSignal): Promise<TmuxBridgeStatus> {
-  const response = await fetch("/__houmao_tmux/status", {
+  const response = await fetchWorkbench("/__houmao_tmux/status", {
     method: "GET",
     signal,
     headers: {
@@ -36,7 +38,7 @@ export async function fetchTmuxStatus(signal?: AbortSignal): Promise<TmuxBridgeS
 }
 
 export async function fetchTmuxSessions(signal?: AbortSignal): Promise<TmuxSessionsResponse> {
-  const response = await fetch("/__houmao_tmux/sessions", {
+  const response = await fetchWorkbench("/__houmao_tmux/sessions", {
     method: "GET",
     signal,
     headers: {
@@ -51,5 +53,8 @@ export async function fetchTmuxSessions(signal?: AbortSignal): Promise<TmuxSessi
 
 export function openTmuxAttachSocket(): WebSocket {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return new WebSocket(`${protocol}//${window.location.host}/__houmao_tmux/attach`);
+  return new WebSocket(
+    `${protocol}//${window.location.host}/__houmao_tmux/attach`,
+    operatorSocketProtocol(),
+  );
 }

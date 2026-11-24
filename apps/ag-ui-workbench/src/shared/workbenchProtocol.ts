@@ -1,6 +1,9 @@
 import type { RunAgentInput } from "../ag-ui/types";
 
 export const WORKBENCH_API_PREFIX = "/__houmao_workbench";
+export const OPERATOR_BOOTSTRAP_PATH = `${WORKBENCH_API_PREFIX}/operator/session`;
+export const OPERATOR_SESSION_HEADER = "x-houmao-workbench-session";
+export const OPERATOR_SOCKET_PREFIX = "houmao.operator.";
 
 export type WorkbenchErrorCode =
   | "request_invalid"
@@ -18,7 +21,12 @@ export interface WorkbenchErrorPayload {
 
 export interface AgUiTargetRequest {
   targetUrl: string;
+  signer?: OperatorSignerSelection;
 }
+
+export type OperatorSignerSelection =
+  | { kind: "manual" }
+  | { kind: "discovered"; agentId: string; passiveServerUrl: string };
 
 export interface AgUiStreamRequest extends AgUiTargetRequest {
   input: RunAgentInput;
@@ -124,7 +132,21 @@ export function validateAgUiTargetRequest(value: unknown): ValidationResult<AgUi
   if (!targetUrl) {
     return invalid("target_missing", "targetUrl must be a non-empty string.", "targetUrl");
   }
-  return { ok: true, value: { targetUrl } };
+  const signer = record.value.signer;
+  if (signer === undefined) {
+    return { ok: true, value: { targetUrl } };
+  }
+  if (isRecord(signer) && signer.kind === "manual") {
+    return { ok: true, value: { targetUrl, signer: { kind: "manual" } } };
+  }
+  if (isRecord(signer) && signer.kind === "discovered") {
+    const agentId = stringField(signer, "agentId");
+    const passiveServerUrl = stringField(signer, "passiveServerUrl");
+    if (agentId && passiveServerUrl) {
+      return { ok: true, value: { targetUrl, signer: { kind: "discovered", agentId, passiveServerUrl } } };
+    }
+  }
+  return invalid("request_invalid", "The operator signer selection is invalid.", "signer");
 }
 
 export function validateAgUiStreamRequest(value: unknown): ValidationResult<AgUiStreamRequest> {
@@ -139,7 +161,7 @@ export function validateAgUiStreamRequest(value: unknown): ValidationResult<AgUi
   return {
     ok: true,
     value: {
-      targetUrl: target.value.targetUrl,
+      ...target.value,
       input: record.input as RunAgentInput,
     },
   };
@@ -158,7 +180,7 @@ export function validateAgUiDetachRequest(value: unknown): ValidationResult<AgUi
   return {
     ok: true,
     value: {
-      targetUrl: target.value.targetUrl,
+      ...target.value,
       connectionId,
     },
   };
@@ -183,7 +205,7 @@ export function validateActiveThreadSetRequest(
   return {
     ok: true,
     value: {
-      targetUrl: target.value.targetUrl,
+      ...target.value,
       threadId,
       source,
     },
@@ -202,7 +224,7 @@ export function validateActiveThreadClearRequest(
   return {
     ok: true,
     value: {
-      targetUrl: target.value.targetUrl,
+      ...target.value,
       expectedThreadId: expectedThreadId || undefined,
     },
   };

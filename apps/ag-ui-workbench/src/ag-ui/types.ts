@@ -29,6 +29,7 @@ export interface TargetConfig {
   url: string;
   threadId: string;
   source?: TargetSource;
+  useOperatorSigner?: boolean;
 }
 
 export interface NormalizedAgUiTarget {

@@ -198,7 +198,7 @@ test("validates docked multi-pane isolation, graphics, detach, and persistence",
   await page.getByTestId("run-agent-2").click();
   await expect(page.getByTestId("unsupported-graphic-agent-2")).toContainText("Unsupported graphic format: iframe");
   await expect(
-    page.getByTestId("invalid-component-agent-2").filter({ hasText: "traces must be a non-empty array" }),
+    page.getByTestId("invalid-component-agent-2").filter({ hasText: "schemaVersion 2 chartType payloads are retired" }),
   ).toBeVisible();
   await expect(page.getByTestId("invalid-component-agent-2").filter({ hasText: "spec.data.url" })).toBeVisible();
   await expect(page.getByTestId("unknown-component-agent-2")).toContainText("houmao.chart.scatter");

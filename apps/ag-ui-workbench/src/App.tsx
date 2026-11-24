@@ -1,3 +1,4 @@
+import { fetchWorkbench } from "./operatorSession";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { DockviewReact } from "dockview-react";
 import type { DockviewApi, DockviewReadyEvent, IDockviewPanel } from "dockview-react";
@@ -306,9 +307,12 @@ export default function App() {
           [record.key]: existing ? updateWatchedTargetRecord(existing, target) : record,
         },
       });
+      if (existing && runtime.snapshot().watchedTargets[record.key]?.status === "error") {
+        runtime.dispatch({ type: "watchedTarget/reconnectRequested", key: record.key });
+      }
       return record.key;
     },
-    [persist],
+    [persist, runtime],
   );
 
   const connectPaneToTarget = useCallback(
@@ -422,7 +426,7 @@ export default function App() {
 
   const refreshProxyStatus = async () => {
     try {
-      const response = await fetch("/__houmao_ag_ui_proxy/status");
+      const response = await fetchWorkbench("/__houmao_ag_ui_proxy/status");
       setProxyStatus(response.ok ? "loopback proxy ready" : "proxy error");
     } catch {
       setProxyStatus("proxy unavailable");
@@ -641,6 +645,7 @@ export default function App() {
           onRetargetPane={retargetPane}
           onWatchTarget={watchTarget}
           onUnwatchTarget={unwatchTarget}
+          onReconnectTarget={(key) => runtime.dispatch({ type: "watchedTarget/reconnectRequested", key })}
           onOpenWatchedTarget={openPaneForWatchedTarget}
           onClose={() => setPickerRequest(null)}
         />
@@ -668,6 +673,7 @@ function sameTarget(left: TargetConfig, right: TargetConfig): boolean {
   return (
     left.label === right.label &&
     left.url === right.url &&
+    Boolean(left.useOperatorSigner) === Boolean(right.useOperatorSigner) &&
     left.threadId === right.threadId &&
     JSON.stringify(left.source ?? { kind: "manual" }) ===
       JSON.stringify(right.source ?? { kind: "manual" })

@@ -401,6 +401,7 @@ function sameTarget(left: TargetConfig, right: TargetConfig): boolean {
   return (
     left.label === right.label &&
     left.url === right.url &&
+    Boolean(left.useOperatorSigner) === Boolean(right.useOperatorSigner) &&
     left.threadId === right.threadId &&
     JSON.stringify(left.source ?? { kind: "manual" }) ===
       JSON.stringify(right.source ?? { kind: "manual" })

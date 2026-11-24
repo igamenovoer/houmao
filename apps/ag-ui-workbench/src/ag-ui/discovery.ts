@@ -8,6 +8,7 @@ import type {
   TargetConfig,
 } from "./types";
 import { WORKBENCH_API_PREFIX } from "../shared/workbenchProtocol";
+import { fetchWorkbench } from "../operatorSession";
 
 export class DiscoveryHttpError extends Error {
   readonly status: number;
@@ -65,6 +66,7 @@ export async function resolveStoredDiscoveredTarget(
       threadId: target.threadId,
       label: target.label,
       source,
+      useOperatorSigner: target.useOperatorSigner,
     },
   );
 }
@@ -92,6 +94,7 @@ export async function resolveAgentAddressTarget(
     source?: Extract<TargetConfig["source"], { kind: "discovered" }>;
     threadId?: string;
     label?: string;
+    useOperatorSigner?: boolean;
   } = {},
 ): Promise<ResolvedDiscoveredTarget> {
   const base = normalizePassiveServerBase(passiveServerUrl);
@@ -124,6 +127,7 @@ export async function resolveAgentAddressTarget(
       label: context.label || agent.agent_name || agent.agent_id,
       url: targetUrl,
       threadId: context.threadId || threadIdForAgent(agent),
+      useOperatorSigner: context.useOperatorSigner,
       source: {
         kind: "discovered",
         passiveServerUrl: base.toString(),
@@ -185,7 +189,7 @@ function routeUrl(base: URL, path: string): string {
 }
 
 async function fetchJson<T>(targetUrl: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(`${WORKBENCH_API_PREFIX}/fetch-json`, {
+  const response = await fetchWorkbench(`${WORKBENCH_API_PREFIX}/fetch-json`, {
     method: "POST",
     signal,
     headers: {

@@ -1,3 +1,4 @@
+import { fetchWorkbench } from "../operatorSession";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { IDockviewPanelProps } from "dockview-react";
 import {
@@ -379,7 +380,7 @@ export function DebugAgentPanel(props: IDockviewPanelProps<PanelParams>) {
         replayEnabled: debugAgent.replayEnabled,
         validateOnly,
       });
-      const response = await fetch(request.url, {
+      const response = await fetchWorkbench(request.url, {
         method: "POST",
         headers: {
           "content-type": "application/json",

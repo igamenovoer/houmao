@@ -21,6 +21,9 @@ import {
   validateAgUiTargetRequest,
   validateFetchJsonRequest,
   validatePresentationSessionCreateRequest,
+  OPERATOR_SESSION_HEADER,
+  type AgUiTargetRequest,
+  type OperatorSignerSelection,
   type WorkbenchErrorPayload,
 } from "../shared/workbenchProtocol";
 import {
@@ -39,6 +42,14 @@ import {
   debugStatus,
   handleDebugRequest,
 } from "./debugAgent";
+import { isOperatorLoopbackHost, OperatorSession } from "./operatorSession";
+import {
+  createProofHelper,
+  OperatorSigner,
+  OperatorSignerError,
+  type OperatorSignerConfig,
+  type ProofHelper,
+} from "./operatorSigner";
 import { PresentationSessionRegistry } from "./presentationSessions";
 import { handleTmuxAttachSocket, handleTmuxHttpRequest, TMUX_PREFIX } from "./tmuxBridge";
 import type { TmuxPtyAdapterFactory } from "./tmuxPtyAdapter";
@@ -54,11 +65,14 @@ export interface WorkbenchServerOptions {
   presentationSessions?: PresentationSessionRegistry;
   logger?: boolean;
   tmuxPtyAdapterFactory?: TmuxPtyAdapterFactory;
+  operatorSignerConfig?: OperatorSignerConfig;
+  proofHelper?: ProofHelper;
 }
 
 export interface RunningWorkbenchServer {
   app: FastifyInstance;
   url: string;
+  operatorLaunchUrl?: string;
   host: string;
   port: number;
   close: () => Promise<void>;
@@ -69,7 +83,10 @@ interface FetchUpstreamOptions {
   request: FastifyRequest;
   method: string;
   headers?: HeadersInit;
-  body?: BodyInit;
+  body?: string;
+  isolate?: boolean;
+  signer?: OperatorSignerSelection;
+  operator?: OperatorSigner;
 }
 
 interface ActiveAgUiStream {
@@ -87,16 +104,31 @@ export async function createWorkbenchFastifyApp(
   const mode = options.mode ?? "static";
   const presentationSessions = options.presentationSessions ?? new PresentationSessionRegistry();
   const activeAgUiStreams = new Set<ActiveAgUiStream>();
+  const operatorSession = options.operatorSignerConfig ? new OperatorSession() : undefined;
+  if (operatorSession && options.host !== undefined && !isOperatorLoopbackHost(options.host)) {
+    throw new Error("Local operator signing requires a 127.0.0.1 or ::1 listener.");
+  }
+  const operator = options.operatorSignerConfig
+    ? new OperatorSigner(
+        options.operatorSignerConfig,
+        options.proofHelper ?? createProofHelper(path.join(appRoot, "src/server/sign_ag_ui_request.py")),
+      )
+    : undefined;
+  if (operatorSession && mode === "development") {
+    throw new Error("Build the workbench and use static mode for local operator signing.");
+  }
   const app = fastify({
     logger: options.logger ?? false,
     bodyLimit: 2 * 1024 * 1024,
   });
 
   app.decorate("presentationSessions", presentationSessions);
+  app.decorate("operatorSession", operatorSession ?? null);
 
+  operatorSession?.register(app, [WORKBENCH_API_PREFIX, PROXY_PREFIX, DEBUG_PREFIX, TMUX_PREFIX]);
   registerStatusRoutes(app, options, presentationSessions);
-  registerAgUiRoutes(app, activeAgUiStreams);
-  registerMountedRawRoutes(app, PROXY_PREFIX, handleProxyRequest);
+  registerAgUiRoutes(app, activeAgUiStreams, operator);
+  registerMountedRawRoutes(app, PROXY_PREFIX, operator ? handleIsolatedProxyStatus : handleProxyRequest);
   registerMountedRawRoutes(app, DEBUG_PREFIX, handleDebugRequest);
   registerMountedRawRoutes(app, TMUX_PREFIX, handleTmuxHttpRequest);
   registerTmuxWebSocket(app, options);
@@ -122,6 +154,9 @@ export async function startWorkbenchServer(
 ): Promise<RunningWorkbenchServer> {
   const host = options.host ?? process.env.HOUMAO_AG_UI_WORKBENCH_HOST ?? DEFAULT_HOST;
   const port = options.port ?? portFromEnv() ?? DEFAULT_PORT;
+  if (options.operatorSignerConfig && !isOperatorLoopbackHost(host)) {
+    throw new Error("Local operator signing requires a 127.0.0.1 or ::1 listener.");
+  }
   const app = await createWorkbenchFastifyApp(options);
   const address = await app.listen({ host, port });
   return {
@@ -129,6 +164,7 @@ export async function startWorkbenchServer(
     url: address,
     host,
     port: boundPort(app) ?? port,
+    operatorLaunchUrl: app.operatorSession?.setOrigin(address),
     close: async () => {
       await app.close();
     },
@@ -165,7 +201,13 @@ function registerStatusRoutes(
 function registerAgUiRoutes(
   app: FastifyInstance,
   activeAgUiStreams: Set<ActiveAgUiStream>,
+  operator: OperatorSigner | undefined,
 ): void {
+  const sign = (target: AgUiTargetRequest) => ({
+    signer: target.signer,
+    operator,
+    isolate: operator !== undefined,
+  });
   app.post(`${WORKBENCH_API_PREFIX}/ag-ui/streams/close-all`, async () => {
     const abortedCount = abortActiveAgUiStreams(activeAgUiStreams);
     closeDebugAgentStreams();
@@ -206,6 +248,7 @@ function registerAgUiRoutes(
       request,
       method: validated.value.method ?? "GET",
       headers: { accept: "application/json" },
+      isolate: operator !== undefined,
     });
     return sendUpstreamAsText(reply, upstream);
   });
@@ -218,6 +261,7 @@ function registerAgUiRoutes(
     const target = normalizeAgUiTargetUrl(validated.value.targetUrl);
     const upstream = await fetchAllowedTarget({
       targetUrl: target.capabilitiesUrl,
+      ...sign(validated.value),
       request,
       method: "GET",
       headers: { accept: "application/json" },
@@ -235,6 +279,7 @@ function registerAgUiRoutes(
       reply,
       {
         targetUrl: target.connectUrl,
+        ...sign(validated.value),
         request,
         method: "POST",
         headers: {
@@ -257,6 +302,7 @@ function registerAgUiRoutes(
       reply,
       {
         targetUrl: target.runsUrl,
+        ...sign(validated.value),
         request,
         method: "POST",
         headers: {
@@ -280,6 +326,7 @@ function registerAgUiRoutes(
     const target = normalizeAgUiTargetUrl(validated.value.targetUrl);
     const upstream = await fetchAllowedTarget({
       targetUrl: detachUrl(target, validated.value.connectionId),
+      ...sign(validated.value),
       request,
       method: "DELETE",
       headers: { accept: "application/json" },
@@ -297,6 +344,7 @@ function registerAgUiRoutes(
     const target = normalizeAgUiTargetUrl(validated.value.targetUrl);
     const upstream = await fetchAllowedTarget({
       targetUrl: `${target.baseUrl}/destination`,
+      ...sign(validated.value),
       request,
       method: "GET",
       headers: { accept: "application/json" },
@@ -312,6 +360,7 @@ function registerAgUiRoutes(
     const target = normalizeAgUiTargetUrl(validated.value.targetUrl);
     const upstream = await fetchAllowedTarget({
       targetUrl: `${target.baseUrl}/active-thread`,
+      ...sign(validated.value),
       request,
       method: "GET",
       headers: { accept: "application/json" },
@@ -327,6 +376,7 @@ function registerAgUiRoutes(
     const target = normalizeAgUiTargetUrl(validated.value.targetUrl);
     const upstream = await fetchAllowedTarget({
       targetUrl: `${target.baseUrl}/active-thread`,
+      ...sign(validated.value),
       request,
       method: "PUT",
       headers: {
@@ -353,6 +403,7 @@ function registerAgUiRoutes(
     }
     const upstream = await fetchAllowedTarget({
       targetUrl: endpoint.toString(),
+      ...sign(validated.value),
       request,
       method: "DELETE",
       headers: { accept: "application/json" },
@@ -388,6 +439,14 @@ function registerMountedRawRoutes(
 function registerTmuxWebSocket(app: FastifyInstance, options: WorkbenchServerOptions): void {
   const wss = new WebSocketServer({ noServer: true });
   wss.on("connection", (ws) => {
+    if (app.operatorSession) {
+      const expiry = setTimeout(
+        () => ws.close(1008, "operator session expired"),
+        app.operatorSession.remainingSessionMs(),
+      );
+      expiry.unref();
+      ws.once("close", () => clearTimeout(expiry));
+    }
     handleTmuxAttachSocket(ws, {
       ptyAdapterFactory: options.tmuxPtyAdapterFactory,
     });
@@ -395,6 +454,10 @@ function registerTmuxWebSocket(app: FastifyInstance, options: WorkbenchServerOpt
   app.server.on("upgrade", (req, socket, head) => {
     const requestUrl = new URL(req.url ?? "/", "http://127.0.0.1");
     if (requestUrl.pathname !== `${TMUX_PREFIX}/attach`) {
+      return;
+    }
+    if (app.operatorSession && !app.operatorSession.authorizesUpgrade(req)) {
+      socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
@@ -406,6 +469,25 @@ function registerTmuxWebSocket(app: FastifyInstance, options: WorkbenchServerOpt
       client.close(1001, "workbench server closing");
     }
     wss.close();
+  });
+}
+
+async function handleIsolatedProxyStatus(
+  request: FastifyRequest["raw"],
+  reply: FastifyReply["raw"],
+): Promise<void> {
+  if (request.method === "GET" && request.url === "/status") {
+    sendJson(reply, 200, {
+      status: "ready",
+      loopbackTargetsAllowed: true,
+      extraAllowedHosts: configuredAllowedHosts(),
+      operatorSigning: true,
+    });
+    return;
+  }
+  sendJson(reply, 403, {
+    code: "generic_proxy_unavailable",
+    detail: "Use the workbench's private JSON and AG-UI operations.",
   });
 }
 
@@ -550,12 +632,7 @@ async function fetchAllowedTarget(options: FetchUpstreamOptions): Promise<Respon
   const abortUpstream = () => abortController.abort();
   options.request.raw.on("aborted", abortUpstream);
   try {
-    return await fetch(policy.url, {
-      method: options.method,
-      headers: forwardedPrivateHeaders(options.headers),
-      body: options.body,
-      signal: abortController.signal,
-    });
+    return await performUpstreamRequest(options, policy.url, abortController.signal);
   } catch (error) {
     if (abortController.signal.aborted) {
       return new Response("", { status: 499, statusText: "Client Closed Request" });
@@ -600,12 +677,7 @@ async function streamUpstream(
   options.request.raw.on("aborted", abortUpstream);
   reply.raw.on("close", abortUpstream);
   try {
-    const upstream = await fetch(policy.url, {
-      method: options.method,
-      headers: forwardedPrivateHeaders(options.headers),
-      body: options.body,
-      signal: abortController.signal,
-    });
+    const upstream = await performUpstreamRequest(options, policy.url, abortController.signal);
     reply.hijack();
     await pipeFetchResponseToServerResponse(upstream, reply.raw);
   } catch (error) {
@@ -625,6 +697,88 @@ async function streamUpstream(
     reply.raw.off("close", abortUpstream);
     activeAgUiStreams.delete(streamRecord);
   }
+}
+
+async function performUpstreamRequest(
+  options: FetchUpstreamOptions,
+  url: string,
+  signal: AbortSignal,
+): Promise<Response> {
+  const headers = forwardedPrivateHeaders(options.headers);
+  let destination = url;
+  if (options.signer !== undefined) {
+    if (options.operator === undefined) {
+      return errorResponse(403, "operator_signer_unavailable", "This workbench has no configured operator signer.");
+    }
+    try {
+      const proof = await options.operator.prepare(
+        options.signer, url, options.method, options.body ?? "", signal,
+      );
+      destination = proof.url;
+      for (const [name, value] of Object.entries(proof.headers)) {
+        headers.set(name, value);
+      }
+    } catch (error) {
+      if (error instanceof OperatorSignerError) {
+        return errorResponse(error.status, error.code, error.message);
+      }
+      return errorResponse(502, "operator_proof_unavailable", "The configured operator proof is unavailable.");
+    }
+  }
+  const upstreamUrl = new URL(destination);
+  if (
+    options.isolate &&
+    options.signer === undefined &&
+    upstreamUrl.protocol === "http:" &&
+    upstreamUrl.host === options.request.headers.host &&
+    upstreamUrl.pathname.startsWith(`${DEBUG_PREFIX}/`)
+  ) {
+    const session = options.request.headers[OPERATOR_SESSION_HEADER];
+    if (typeof session === "string") {
+      headers.set(OPERATOR_SESSION_HEADER, session);
+      headers.set("origin", upstreamUrl.origin);
+    }
+  }
+  const upstream = await fetch(destination, {
+    method: options.method,
+    headers,
+    body: options.body,
+    redirect: options.isolate ? "manual" : "follow",
+    signal,
+  });
+  if (!options.isolate) {
+    return upstream;
+  }
+  if (upstream.status >= 300 && upstream.status < 400) {
+    await upstream.body?.cancel();
+    return errorResponse(403, "upstream_redirect_refused", "The workbench refused an upstream redirect.");
+  }
+  if (upstream.status === 401 || upstream.status === 403) {
+    await upstream.body?.cancel();
+    return errorResponse(upstream.status, "upstream_authorization_refused", "The gateway refused the selected operation.");
+  }
+  const contentType = upstream.headers.get("content-type")?.split(";", 1)[0].toLowerCase();
+  const acceptsSse = headers.get("accept") === "text/event-stream";
+  if (
+    upstream.body !== null &&
+    contentType !== "application/json" &&
+    !(acceptsSse && contentType === "text/event-stream")
+  ) {
+    await upstream.body.cancel();
+    return errorResponse(502, "upstream_content_refused", "The workbench requires JSON or AG-UI event data.");
+  }
+  return new Response(upstream.body, {
+    status: upstream.status,
+    headers: {
+      "content-type": `${contentType ?? "application/json"}; charset=utf-8`,
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+    },
+  });
+}
+
+function errorResponse(status: number, code: string, detail: string): Response {
+  return Response.json({ code, detail }, { status });
 }
 
 async function sendUpstreamAsText(reply: FastifyReply, upstream: Response): Promise<FastifyReply> {
@@ -746,5 +900,6 @@ function boundPort(app: FastifyInstance): number | undefined {
 declare module "fastify" {
   interface FastifyInstance {
     presentationSessions: PresentationSessionRegistry;
+    operatorSession: OperatorSession | null;
   }
 }

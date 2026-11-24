@@ -164,7 +164,7 @@ function isLoopbackHostname(hostname: string): boolean {
     normalized === "::1" ||
     normalized === "0:0:0:0:0:0:0:1" ||
     normalized === "0.0.0.0" ||
-    normalized.startsWith("127.")
+    /^127(?:\.[0-9]{1,3}){3}$/.test(normalized)
   );
 }
 

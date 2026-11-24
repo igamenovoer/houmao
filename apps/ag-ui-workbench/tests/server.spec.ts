@@ -3,7 +3,9 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { expect, test } from "@playwright/test";
 import { WebSocket } from "ws";
 
-import { createWorkbenchFastifyApp } from "../src/server/app";
+import { createWorkbenchFastifyApp, startWorkbenchServer, type RunningWorkbenchServer } from "../src/server/app";
+import { OPERATOR_BOOTSTRAP_PATH, OPERATOR_SESSION_HEADER, OPERATOR_SOCKET_PREFIX, WORKBENCH_API_PREFIX } from "../src/shared/workbenchProtocol";
+import type { ProofHelper, ProofRequest } from "../src/server/operatorSigner";
 import { PresentationSessionRegistry } from "../src/server/presentationSessions";
 import { detachTmuxAttachClient, tmuxAttachEnvironment } from "../src/server/tmuxBridge";
 import {
@@ -121,6 +123,237 @@ test("Fastify AG-UI bridge forwards allowed capabilities and RUN_ERROR streams",
     await upstream.close();
   }
 });
+
+test("operator sessions protect exact AG-UI forwarding and host bridges", async () => {
+  const requests: Array<{ path: string; signature: string | undefined; body: Buffer }> = [];
+  const signedBodies: ProofRequest[] = [];
+  let redirected = 0;
+  const offTarget = await startHttpServer((_req, res) => {
+    redirected += 1;
+    sendJson(res, 200, {});
+  });
+  const upstream = await startHttpServer(async (req, res) => {
+    const signature = req.headers["houmao-signature"] as string | undefined;
+    requests.push({ path: req.url ?? "", signature, body: await readBody(req) });
+    if (req.url === "/v1/ag-ui/runs" && signature === "alice") {
+      sendJson(res, 403, { detail: "private fixture detail" });
+      return;
+    }
+    if (req.url === "/v1/ag-ui/destination") {
+      res.writeHead(307, { location: offTarget.baseUrl });
+      res.end();
+      return;
+    }
+    if (req.url === "/html") {
+      res.writeHead(200, { "content-type": "text/html", "set-cookie": "upstream=secret" });
+      res.end("<script>document.body.textContent = 'fixture'</script>");
+      return;
+    }
+    res.writeHead(200, {
+      "content-type": "text/event-stream",
+      "houmao-signature": "never-return-upstream-proof",
+      "set-cookie": "upstream=secret",
+    });
+    res.end('data: {"type":"RUN_FINISHED"}\n\n');
+  });
+  const proofFor = (principal: string): ProofHelper => async (request) => {
+    signedBodies.push(request);
+    return { "Houmao-Challenge": "fixture", "Houmao-Signature": principal };
+  };
+  const alice = await startSignedWorkbench(upstream.baseUrl, proofFor("alice"));
+  const bob = await startSignedWorkbench(upstream.baseUrl, proofFor("bob"));
+  try {
+    const input = { threadId: "café", runId: "r-1", messages: [{ content: "心" }] };
+    const targetUrl = `${upstream.baseUrl}/v1/ag-ui`;
+    const signer = { kind: "manual" };
+    const rejected = await postWorkbench(alice, "/ag-ui/connect", { targetUrl, input, signer });
+    expect(rejected.status).toBe(401);
+    expect(signedBodies).toHaveLength(0);
+    const bridge = await fetch(`${alice.url}/__houmao_tmux/sessions`);
+    expect(bridge.status).toBe(401);
+    const aliceSession = await openOperatorSession(alice);
+    const bobSession = await openOperatorSession(bob);
+    expect((await bootstrapOperator(alice)).status).toBe(403);
+    expect((await postWorkbench(bob, "/ag-ui/connect", { targetUrl, input, signer }, aliceSession)).status).toBe(401);
+    expect((await postWorkbench(alice, "/ag-ui/connect", { targetUrl, input, signer }, aliceSession, bob.url)).status).toBe(403);
+    expect((await fetch(`${alice.url}/__houmao_debug_agents/status`, {
+      headers: { [OPERATOR_SESSION_HEADER]: aliceSession },
+    })).status).toBe(200);
+    await expectUpgradeRefused(alice, undefined, alice.url);
+    await expectUpgradeRefused(alice, aliceSession, bob.url);
+    const websocket = new WebSocket(
+      `${alice.url.replace("http:", "ws:")}/__houmao_tmux/attach`,
+      `${OPERATOR_SOCKET_PREFIX}${aliceSession}`,
+      { origin: alice.url },
+    );
+    await new Promise<void>((resolve, reject) => {
+      websocket.once("open", resolve);
+      websocket.once("error", reject);
+    });
+    websocket.close();
+
+    const observe = await postWorkbench(alice, "/ag-ui/connect", { targetUrl, input, signer }, aliceSession);
+    expect(observe.status).toBe(200);
+    expect(observe.headers.get("houmao-signature")).toBeNull();
+    expect(observe.headers.get("set-cookie")).toBeNull();
+    expect(await observe.text()).toContain("RUN_FINISHED");
+    const denied = await postWorkbench(alice, "/ag-ui/run", { targetUrl, input, signer }, aliceSession);
+    expect(denied.status).toBe(403);
+    expect(await denied.text()).not.toContain("private fixture detail");
+    const run = await postWorkbench(bob, "/ag-ui/run", { targetUrl, input, signer }, bobSession);
+    expect(run.status).toBe(200);
+    await run.text();
+    expect(requests.map((request) => request.signature)).toEqual(["alice", "alice", "bob"]);
+    expect(Buffer.from(signedBodies[2].bodyBase64, "base64")).toEqual(requests[2].body);
+    expect(signedBodies[2]).toMatchObject({ method: "POST", path: "/v1/ag-ui/runs", baseUrl: upstream.baseUrl });
+
+    const unapproved = await postWorkbench(
+      bob, "/ag-ui/run", { targetUrl: offTarget.baseUrl, input, signer }, bobSession,
+    );
+    expect(unapproved.status).toBe(403);
+    expect(signedBodies).toHaveLength(3);
+    expect((await postWorkbench(bob, "/ag-ui/destination", { targetUrl, signer }, bobSession)).status).toBe(403);
+    expect(redirected).toBe(0);
+    const unsigned = await postWorkbench(bob, "/ag-ui/connect", { targetUrl, input }, bobSession);
+    expect(unsigned.status).toBe(200);
+    await unsigned.text();
+    expect(requests.at(-1)?.signature).toBeUndefined();
+    expect(signedBodies).toHaveLength(4);
+    expect((await postWorkbench(bob, "/fetch-json", { targetUrl: `${upstream.baseUrl}/html`, signer }, bobSession)).status).toBe(502);
+    const rawProxy = await fetch(`${bob.url}/__houmao_ag_ui_proxy?target=${upstream.baseUrl}/html`, {
+      headers: { [OPERATOR_SESSION_HEADER]: bobSession },
+    });
+    expect(rawProxy.status).toBe(403);
+    expect(rawProxy.headers.get("content-security-policy")).toContain("script-src 'self'");
+    expect(await rawProxy.text()).not.toContain("<script>");
+    expect(requests.at(-1)?.signature).toBeUndefined();
+  } finally {
+    await Promise.all([alice.close(), bob.close(), upstream.close(), offTarget.close()]);
+  }
+});
+
+test("a discovered signed target verifies a fresh listener on reconnect", async () => {
+  const first = await startHttpServer((_req, res) => sendJson(res, 200, { listener: "first" }));
+  const second = await startHttpServer((_req, res) => sendJson(res, 200, { listener: "second" }));
+  let live = first;
+  let generation = "generation-1";
+  let discoveryAgent = "writer";
+  let redirect = false;
+  const passive = await startHttpServer((req, res) => {
+    expect(req.url).toBe("/houmao/agents/writer/resolve");
+    if (redirect) {
+      res.writeHead(302, { location: second.baseUrl });
+      res.end();
+      return;
+    }
+    const target = new URL(live.baseUrl);
+    sendJson(res, 200, {
+      status: "live_with_gateway",
+      agentId: discoveryAgent,
+      generationId: generation,
+      gateway: { host: target.hostname, port: Number(target.port) },
+    });
+  });
+  const challenges: ProofRequest[] = [];
+  const workbench = await startSignedWorkbench(first.baseUrl, async (request) => {
+    challenges.push(request);
+    return { "Houmao-Challenge": "fixture", "Houmao-Signature": "alice" };
+  }, passive.baseUrl);
+  try {
+    const session = await openOperatorSession(workbench);
+    const selected = {
+      targetUrl: `${first.baseUrl}/v1/ag-ui`,
+      signer: { kind: "discovered", agentId: "writer", passiveServerUrl: passive.baseUrl },
+    };
+    const initial = await postWorkbench(workbench, "/ag-ui/capabilities", selected, session);
+    await expect(initial.json()).resolves.toEqual({ listener: "first" });
+    live = second;
+    generation = "generation-2";
+    const reconnected = await postWorkbench(workbench, "/ag-ui/capabilities", selected, session);
+    await expect(reconnected.json()).resolves.toEqual({ listener: "second" });
+    expect(challenges.map(({ baseUrl, generationId }) => ({ baseUrl, generationId }))).toEqual([
+      { baseUrl: first.baseUrl, generationId: "generation-1" },
+      { baseUrl: second.baseUrl, generationId: "generation-2" },
+    ]);
+
+    discoveryAgent = "another-agent";
+    expect((await postWorkbench(workbench, "/ag-ui/capabilities", selected, session)).status).toBe(403);
+    redirect = true;
+    expect((await postWorkbench(workbench, "/ag-ui/capabilities", selected, session)).status).toBe(403);
+    expect((await postWorkbench(workbench, "/ag-ui/capabilities", {
+      ...selected, signer: { kind: "manual" },
+    }, session)).status).toBe(403);
+    expect(challenges).toHaveLength(2);
+  } finally {
+    await Promise.all([workbench.close(), first.close(), second.close(), passive.close()]);
+  }
+});
+
+function startSignedWorkbench(gatewayBaseUrl: string, proofHelper: ProofHelper, passiveServerUrl?: string) {
+  return startWorkbenchServer({
+    mode: "test",
+    host: "127.0.0.1",
+    port: 0,
+    operatorSignerConfig: {
+      clientBindingPath: "/operator/private-binding.json",
+      agentId: "writer",
+      gatewayBaseUrl,
+      passiveServerUrl,
+    },
+    proofHelper,
+  });
+}
+
+function bootstrapOperator(workbench: RunningWorkbenchServer): Promise<Response> {
+  const url = new URL(workbench.operatorLaunchUrl!);
+  const token = new URLSearchParams(url.hash.slice(1)).get("operator");
+  return fetch(`${workbench.url}${OPERATOR_BOOTSTRAP_PATH}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: workbench.url },
+    body: JSON.stringify({ token }),
+  });
+}
+
+async function openOperatorSession(workbench: RunningWorkbenchServer): Promise<string> {
+  const response = await bootstrapOperator(workbench);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  return ((await response.json()) as { session: string }).session;
+}
+
+function postWorkbench(
+  workbench: RunningWorkbenchServer,
+  path: string,
+  body: object,
+  session?: string,
+  origin = workbench.url,
+): Promise<Response> {
+  const headers = new Headers({ "content-type": "application/json", origin });
+  if (session) headers.set(OPERATOR_SESSION_HEADER, session);
+  return fetch(`${workbench.url}${WORKBENCH_API_PREFIX}${path}`, {
+    method: "POST", headers, body: JSON.stringify(body),
+  });
+}
+
+async function expectUpgradeRefused(
+  workbench: RunningWorkbenchServer, session: string | undefined, origin: string,
+): Promise<void> {
+  const socket = new WebSocket(
+    `${workbench.url.replace("http:", "ws:")}/__houmao_tmux/attach`,
+    session ? `${OPERATOR_SOCKET_PREFIX}${session}` : [],
+    { origin },
+  );
+  await new Promise<void>((resolve, reject) => {
+    socket.once("error", (error) => {
+      if (error.message.includes("403")) resolve();
+      else reject(error);
+    });
+    socket.once("open", () => {
+      socket.close();
+      reject(new Error("Unexpected local tmux upgrade."));
+    });
+  });
+}
 
 test("private AG-UI stream abort closes the upstream stream", async () => {
   let upstreamClosed = false;
@@ -928,11 +1161,16 @@ async function closeServer(server: Server): Promise<void> {
 }
 
 async function readJson(req: IncomingMessage): Promise<unknown> {
+  const body = await readBody(req);
+  return body.length ? JSON.parse(body.toString("utf8")) : {};
+}
+
+async function readBody(req: IncomingMessage): Promise<Buffer> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
-  return chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
+  return Buffer.concat(chunks);
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {

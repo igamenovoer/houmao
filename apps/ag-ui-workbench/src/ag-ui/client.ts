@@ -1,6 +1,7 @@
 import type { CapabilitiesResponse, RunAgentInput, TargetConfig, RawTimelineEntry, AgUiEvent } from "./types";
 import { SseParser } from "./sse";
-import { WORKBENCH_API_PREFIX } from "../shared/workbenchProtocol";
+import { fetchWorkbench, hasOperatorSession } from "../operatorSession";
+import { WORKBENCH_API_PREFIX, type AgUiTargetRequest } from "../shared/workbenchProtocol";
 
 export type ActiveThreadSource = "gui_button" | "gui_connect" | "manual";
 
@@ -26,6 +27,10 @@ export class AgUiHttpError extends Error {
   }
 }
 
+export function isAgUiAuthorizationRefusal(error: unknown): boolean {
+  return error instanceof AgUiHttpError && (error.status === 401 || error.status === 403);
+}
+
 export interface StreamHandlers {
   onOpen?: () => void;
   onEvent: (event: AgUiEvent, raw: RawTimelineEntry) => void;
@@ -34,14 +39,14 @@ export interface StreamHandlers {
 }
 
 export async function fetchCapabilities(config: TargetConfig, signal?: AbortSignal): Promise<CapabilitiesResponse> {
-  const response = await fetch(`${WORKBENCH_API_PREFIX}/ag-ui/capabilities`, {
+  const response = await fetchWorkbench(`${WORKBENCH_API_PREFIX}/ag-ui/capabilities`, {
     method: "POST",
     signal,
     headers: {
       accept: "application/json",
       "content-type": "application/json",
     },
-    body: JSON.stringify({ targetUrl: config.url }),
+    body: JSON.stringify(targetRequest(config)),
   });
   if (!response.ok) {
     throw new AgUiHttpError(response.status, response.statusText, await response.text());
@@ -71,13 +76,13 @@ export async function detachAgUi(config: TargetConfig, connectionId: string | nu
   if (!connectionId) {
     return;
   }
-  const response = await fetch(`${WORKBENCH_API_PREFIX}/ag-ui/detach`, {
+  const response = await fetchWorkbench(`${WORKBENCH_API_PREFIX}/ag-ui/detach`, {
     method: "POST",
     headers: {
       accept: "application/json",
       "content-type": "application/json",
     },
-    body: JSON.stringify({ targetUrl: config.url, connectionId }),
+    body: JSON.stringify({ ...targetRequest(config), connectionId }),
   });
   if (!response.ok && response.status !== 404) {
     throw new AgUiHttpError(response.status, response.statusText, await response.text());
@@ -85,14 +90,14 @@ export async function detachAgUi(config: TargetConfig, connectionId: string | nu
 }
 
 export async function fetchAgUiDestination(config: TargetConfig, signal?: AbortSignal): Promise<AgUiDestinationState> {
-  const response = await fetch(`${WORKBENCH_API_PREFIX}/ag-ui/destination`, {
+  const response = await fetchWorkbench(`${WORKBENCH_API_PREFIX}/ag-ui/destination`, {
     method: "POST",
     signal,
     headers: {
       accept: "application/json",
       "content-type": "application/json",
     },
-    body: JSON.stringify({ targetUrl: config.url }),
+    body: JSON.stringify(targetRequest(config)),
   });
   if (!response.ok) {
     throw new AgUiHttpError(response.status, response.statusText, await response.text());
@@ -101,14 +106,14 @@ export async function fetchAgUiDestination(config: TargetConfig, signal?: AbortS
 }
 
 export async function fetchActiveAgUiThread(config: TargetConfig, signal?: AbortSignal): Promise<AgUiThreadDestination> {
-  const response = await fetch(`${WORKBENCH_API_PREFIX}/ag-ui/active-thread`, {
+  const response = await fetchWorkbench(`${WORKBENCH_API_PREFIX}/ag-ui/active-thread`, {
     method: "POST",
     signal,
     headers: {
       accept: "application/json",
       "content-type": "application/json",
     },
-    body: JSON.stringify({ targetUrl: config.url }),
+    body: JSON.stringify(targetRequest(config)),
   });
   if (!response.ok) {
     throw new AgUiHttpError(response.status, response.statusText, await response.text());
@@ -121,13 +126,13 @@ export async function setActiveAgUiThread(
   threadId: string,
   source: ActiveThreadSource = "manual",
 ): Promise<AgUiThreadDestination> {
-  const response = await fetch(`${WORKBENCH_API_PREFIX}/ag-ui/active-thread`, {
+  const response = await fetchWorkbench(`${WORKBENCH_API_PREFIX}/ag-ui/active-thread`, {
     method: "PUT",
     headers: {
       accept: "application/json",
       "content-type": "application/json",
     },
-    body: JSON.stringify({ targetUrl: config.url, threadId, source }),
+    body: JSON.stringify({ ...targetRequest(config), threadId, source }),
   });
   if (!response.ok) {
     throw new AgUiHttpError(response.status, response.statusText, await response.text());
@@ -139,13 +144,13 @@ export async function clearActiveAgUiThread(
   config: TargetConfig,
   expectedThreadId?: string,
 ): Promise<AgUiThreadDestination | null> {
-  const response = await fetch(`${WORKBENCH_API_PREFIX}/ag-ui/active-thread`, {
+  const response = await fetchWorkbench(`${WORKBENCH_API_PREFIX}/ag-ui/active-thread`, {
     method: "DELETE",
     headers: {
       accept: "application/json",
       "content-type": "application/json",
     },
-    body: JSON.stringify({ targetUrl: config.url, expectedThreadId }),
+    body: JSON.stringify({ ...targetRequest(config), expectedThreadId }),
   });
   if (!response.ok && response.status !== 404) {
     throw new AgUiHttpError(response.status, response.statusText, await response.text());
@@ -158,13 +163,13 @@ export async function clearActiveAgUiThread(
 
 export function closeAllWorkbenchAgUiStreams(): void {
   const url = `${WORKBENCH_API_PREFIX}/ag-ui/streams/close-all`;
-  if (navigator.sendBeacon) {
+  if (!hasOperatorSession() && navigator.sendBeacon) {
     const payload = new Blob(["{}"], { type: "application/json" });
     if (navigator.sendBeacon(url, payload)) {
       return;
     }
   }
-  void fetch(url, {
+  void fetchWorkbench(url, {
     method: "POST",
     keepalive: true,
     headers: {
@@ -175,7 +180,7 @@ export function closeAllWorkbenchAgUiStreams(): void {
 }
 
 export async function closeWorkbenchAgUiStreamsForTarget(config: TargetConfig): Promise<void> {
-  await fetch(`${WORKBENCH_API_PREFIX}/ag-ui/streams/close-target`, {
+  await fetchWorkbench(`${WORKBENCH_API_PREFIX}/ag-ui/streams/close-target`, {
     method: "POST",
     headers: {
       accept: "application/json",
@@ -192,19 +197,19 @@ async function streamAgUi(
   handlers: StreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch(endpointUrl, {
+  const response = await fetchWorkbench(endpointUrl, {
     method: "POST",
     signal,
     headers: {
       accept: "text/event-stream",
       "content-type": "application/json",
     },
-    body: JSON.stringify({ targetUrl: config.url, input }),
+    body: JSON.stringify({ ...targetRequest(config), input }),
   });
-  handlers.onOpen?.();
   if (!response.ok) {
     throw new AgUiHttpError(response.status, response.statusText, await response.text());
   }
+  handlers.onOpen?.();
   if (!response.body) {
     throw new Error("AG-UI stream response had no body.");
   }
@@ -228,6 +233,17 @@ async function streamAgUi(
     }
     parser.feed(decoder.decode(value, { stream: true }));
   }
+}
+
+function targetRequest(config: TargetConfig): AgUiTargetRequest {
+  const request: AgUiTargetRequest = { targetUrl: config.url };
+  if (config.useOperatorSigner) {
+    const source = config.source;
+    request.signer = source?.kind === "discovered"
+      ? { kind: "discovered", agentId: source.agentId, passiveServerUrl: source.passiveServerUrl }
+      : { kind: "manual" };
+  }
+  return request;
 }
 
 function workbenchStreamUrl(route: "connect" | "run"): string {

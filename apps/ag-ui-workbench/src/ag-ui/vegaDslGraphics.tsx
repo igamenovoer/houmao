@@ -4,6 +4,8 @@ import vegaEmbed, {
   type VisualizationSpec,
 } from "vega-embed";
 
+import { hasOperatorSession } from "../operatorSession";
+
 export interface VegaDslRendererContext {
   paneId: string;
   toolCallId: string;
@@ -101,6 +103,7 @@ function VegaLiteView({ paneId, payload }: { paneId: string; payload: VegaLitePa
     const spec = responsiveSpec(payload.spec, height);
     void vegaEmbed(element, spec as VisualizationSpec, {
       actions: false,
+      ast: hasOperatorSession(),
       defaultStyle: false,
       loader: DISABLED_LOADER,
       mode: "vega-lite",
