@@ -4,13 +4,19 @@
 
 ### Requirement: Peer File Commands Select Target and Source Independently
 
-`agents single` SHALL expose `files` operations for the selected agent ID or name. The CLI SHALL verify the target and call its attached gateway directly. It SHALL use an explicitly selected signer through the shared SSHSIG client or send an unsigned request under verified open mode. It SHALL establish target and signer independently.
+`agents single` SHALL expose `files` operations for the selected agent ID or name. It SHALL verify the attached endpoint through the shared client and support trusted remote coordinates when needed. It SHALL select the caller signer independently of the target or send an unsigned request under verified open mode.
 
 #### Scenario: A source edits a target on another tmux server
 
 - **WHEN** a caller selects an agent by ID or name and explicitly selects the enrolled logical peer's key
 - **THEN** the CLI uses the selected signer and target's verified gateway independently of the source agent's runtime, gateway, or tmux placement
-- **AND THEN** the file command requires no second selector or tmux socket argument
+- **AND THEN** the file command does not require a tmux socket argument or a source runtime lookup when the signer is explicit
+
+#### Scenario: Only a remote endpoint is available
+
+- **WHEN** the caller selects a target and supplies trusted remote coordinates for its URL, owner context, generation, and gateway presence
+- **THEN** the client verifies those coordinates and deployment trust before signing
+- **AND THEN** a listener or generation mismatch prevents the command from sending protected input
 
 #### Scenario: Peer routing or authority is unavailable
 
@@ -32,12 +38,12 @@
 
 ### Requirement: Peer File Commands Expose Read-Only Inspection
 
-`files` SHALL expose `mounts`, `list`, `read`, `diff`, `status`, and `history`. The CLI SHALL use explicit logical paths and applicable revision, draft, or operation references. Inspection SHALL preserve authorized gateway results without initiating an edit, commit, push, or activation.
+`files` SHALL expose `mounts`, `list`, `read`, `diff`, `status`, and `history`. Inspection SHALL use explicit logical paths and applicable revision, draft, or operation references. Published content, candidates, and receipts require current `files.read`. Draft inspection requires the current draft lease and `files.edit`. Inspection SHALL initiate no edit, commit, push, or activation.
 
 #### Scenario: A caller discovers and inspects an authorized mount
 
 - **WHEN** a peer requests mount discovery, file listing, or file content
-- **THEN** the CLI returns the authorized logical mount or entries for the selected revision or draft
+- **THEN** the CLI returns the authorized mount and its canonical resource ID, or the authorized entries for the selected revision or draft
 - **AND THEN** owner-private paths and other callers' drafts remain undisclosed
 
 #### Scenario: A target has no eligible skill projection
@@ -76,7 +82,7 @@ File mutations SHALL return receipts with applicable references and actual calle
 
 - **WHEN** the CLI cannot confirm the outcome after submitting a push
 - **THEN** it reports an unconfirmed result with the original operation ID
-- **AND THEN** `files status` can inspect that ID without dispatching publication again
+- **AND THEN** a caller with current `files.read` can use `files status` on that ID without dispatching publication again
 
 #### Scenario: A peer inspects an earlier commit
 
@@ -90,8 +96,13 @@ The CLI SHALL use `agents single access` for owner-local enrollment, grant, revo
 #### Scenario: An owner enrolls or revokes source access
 
 - **WHEN** the verified local owner enrolls a public SSH key for a stable logical peer principal and grants selected `files.read`, `files.edit`, or `files.push` permissions for a mount
-- **THEN** shared access inspection reports the enrolled key and effective grants subject to their current expiry and revocation
+- **THEN** shared access inspection reports retained enrollments and grants subject to their current expiry and revocation
 - **AND THEN** the scoped peer in keyed mode receives only its effective grants and roles independently of its runtime generation
+
+#### Scenario: An owner inspects a retained grant while the target is detached
+
+- **WHEN** the owner inspects the permission for a mount whose live availability cannot be verified
+- **THEN** the CLI can show the retained assignment and reports live applicability as unresolved
 
 #### Scenario: A peer attempts to administer grants
 

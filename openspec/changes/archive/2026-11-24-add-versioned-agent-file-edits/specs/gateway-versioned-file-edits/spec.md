@@ -8,12 +8,12 @@ Let authorized callers edit logical agent files in private drafts, record attrib
 
 ### Requirement: The Gateway Exposes Owner-Defined Logical Mounts
 
-The target gateway SHALL expose logical mounts owned by its bound agent over HTTP. A mount SHALL declare supported paths, operations, validation, and activation. The gateway SHALL apply shared authorization for the caller, target owner domain, and exact mount using `files.read`, `files.edit`, and `files.push`. Path resolution SHALL stay within that mount and use owner-side storage.
+The target gateway SHALL expose owner-defined logical mounts over HTTP. Each mount SHALL declare supported paths, operations, validation, and activation. The gateway SHALL use the exact policy resource `files:<mount-id>` and the mount's supported `files.read`, `files.edit`, and `files.push` actions. The mount ID SHALL be stable within its owned home lineage. Path resolution SHALL stay within that mount and use owner-side storage.
 
 #### Scenario: A peer browses the published revision
 
 - **WHEN** a peer with read authority lists a mount or reads an exposed file
-- **THEN** the gateway returns only that mount's authorized logical entries and published revision
+- **THEN** the gateway returns only authorized mounts with their canonical policy resource identifiers, or the authorized logical entries and published revision of the selected mount
 - **AND THEN** it excludes native home paths, credentials, and unpublished drafts of other callers
 
 #### Scenario: An edit crosses a mount boundary
@@ -55,9 +55,15 @@ The target gateway SHALL expose logical mounts owned by its bound agent over HTT
 - **THEN** proof from the revoked key or the earlier authorization cannot authorize that effect
 - **AND THEN** a replacement enrolled key for the same logical principal uses the principal's current permissions
 
+#### Scenario: A replacement mount uses an existing display name
+
+- **WHEN** the owner replaces a mount or provisions a fresh home with a mount under the same logical name
+- **THEN** the new mount has its own resource ID
+- **AND THEN** grants on the earlier resource do not confer permission over the new mount
+
 ### Requirement: A Draft Lease Isolates File Edits
 
-Opening a draft SHALL bind its admitted origin, target generation, mount, and base commit to an expiring exclusive editing lease. An anonymous draft SHALL use an unguessable lease capability bound to the target and open epoch. Draft operations SHALL recheck the lease and current authorization at completion. Changes SHALL remain outside native discovery while the published tree stays readable.
+Opening a draft SHALL bind its admitted origin, target generation, mount, and base commit to an expiring exclusive editing lease. Signed drafts SHALL bind the verified actor kind and principal. Anonymous drafts SHALL require an unguessable lease capability tied to the original open epoch. Before a draft effect, the gateway SHALL recheck the lease and exact admitted authority. Draft changes SHALL stay outside native discovery.
 
 #### Scenario: A peer edits a multi-file skill during a turn
 
@@ -69,6 +75,12 @@ Opening a draft SHALL bind its admitted origin, target generation, mount, and ba
 
 - **WHEN** an upload finishes after the peer's lease expires or is replaced
 - **THEN** the old upload cannot change the draft or publish data
+
+#### Scenario: The owner replaces a signed draft's enrollment
+
+- **WHEN** the owner revokes the earlier signing key and enrolls a replacement for the same principal
+- **THEN** an in-flight effect admitted with the revoked enrollment is refused
+- **AND THEN** a fresh request from the replacement key can use the still-current lease if it proves the same principal and has current draft permission
 
 #### Scenario: An edit session ends without a commit
 
@@ -84,9 +96,9 @@ Opening a draft SHALL bind its admitted origin, target generation, mount, and ba
 
 #### Scenario: The admin roster changes during an open lease
 
-- **WHEN** an in-flight operation relies on an earlier open epoch and the roster authority changes before the write or commit
+- **WHEN** a signed or unsigned operation relies on an earlier open epoch and the roster changes before the write or commit
 - **THEN** the gateway refuses the operation without changing the draft or active files
-- **AND THEN** reopening the roster cannot restore the earlier capability
+- **AND THEN** reopening the roster cannot restore the earlier admission or an anonymous lease capability bound to its epoch
 
 ### Requirement: Commit Records Immutable Git History
 
@@ -137,7 +149,7 @@ The gateway SHALL derive Git author from the authenticated draft origin or expli
 
 ### Requirement: Push Compares the Published Base Before Effects
 
-Push SHALL name an immutable candidate, expected published commit, and operation ID. Under target admission it SHALL recheck the current publisher's authorization, candidate, mount, target generation, expected base, and managed projection. An in-flight push using open authority SHALL remain bound to its open epoch. Push SHALL publish only a candidate based on that exact publication.
+Push SHALL name an immutable candidate, expected published commit, and operation ID. Under maintenance, it SHALL recheck the candidate, mount, target generation, listener, base revision, and managed projection. The shared policy SHALL authorize handoff using the original publisher and admitted basis before publication. Push SHALL publish only a candidate based on the exact expected revision.
 
 #### Scenario: Two peers prepared from the same revision
 
@@ -172,6 +184,12 @@ Push SHALL name an immutable candidate, expected published commit, and operation
 - **WHEN** a peer on an isolated account can read the candidate but its push grant for that mount is absent or revoked at the protected effect
 - **THEN** the gateway refuses publication and leaves the active revision unchanged
 
+#### Scenario: The owner revokes access after the committed handoff
+
+- **WHEN** the owner changes policy after the exact publication handoff commits
+- **THEN** the handed-off operation can settle under its admitted execution contract
+- **AND THEN** later requests use current policy
+
 ### Requirement: Push Shows Publication and Activation Separately
 
 The gateway SHALL expose the published commit and native effective commit or evidence separately. An adapter SHALL make a complete projection visible at its qualified publication boundary and report activation at its supported native boundary. Native readiness and partial or unknown effects SHALL remain explicit.
@@ -195,7 +213,7 @@ The gateway SHALL expose the published commit and native effective commit or evi
 
 ### Requirement: Push Receipts Survive Gateway Interruption
 
-The owner SHALL persist the operation identity, actual publisher, and publication intent before effects. An authorized read by operation ID SHALL return the best known result. Repeating the same operation ID and intent SHALL preserve the same receipt without replaying native work after a possible handoff.
+The owner SHALL persist the operation ID, publisher, and exact intent before the policy handoff. Status by operation ID SHALL require current `files.read` and return the best known result. An authorized repeat from the same publisher with the exact intent SHALL return its retained receipt without replaying work. Recovery SHALL distinguish the authorization handoff from projection and native activation evidence.
 
 #### Scenario: A response is lost after switching the files
 
@@ -203,9 +221,21 @@ The owner SHALL persist the operation identity, actual publisher, and publicatio
 - **THEN** recovery uses the recorded intent and publication evidence to resolve the published revision
 - **AND THEN** activation remains unknown until the owner can attribute native evidence
 
+#### Scenario: The gateway fails between the policy handoff and journal settlement
+
+- **WHEN** retained policy records the authorized handoff and the gateway stops before the mount journal records publication
+- **THEN** recovery uses the linked handoff, intent, and projection evidence to report the strongest attributable result
+- **AND THEN** a duplicate request cannot dispatch the publication or activation again
+
+#### Scenario: A caller tries to inspect unrelated receipts with only push permission
+
+- **WHEN** a caller with `files.push` but without `files.read` requests status for an operation ID
+- **THEN** the gateway refuses the status request
+- **AND THEN** the caller can still receive the result of its own authorized push submission
+
 #### Scenario: An operation ID is reused with different inputs
 
-- **WHEN** a caller supplies a different candidate, expected base, or target for an already recorded operation
+- **WHEN** a caller supplies a different publisher, candidate, expected base, or target for an already recorded operation
 - **THEN** the gateway returns a conflict without changing the existing receipt or dispatching work
 
 #### Scenario: A fresh attempt follows a confirmed busy result

@@ -8,7 +8,7 @@ Peers can currently change an agent's skill and plugin files outside its executi
 
 - Expose owner-defined logical file mounts through the target gateway. Authorized peers can open a draft, edit files, inspect the diff, and save a Git commit without changing active files.
 - Add an explicit push operation that compares the expected published revision, takes target maintenance, and publishes and activates the selected commit. Return a durable receipt with separate published and effective revision evidence.
-- Use the shared gateway policy for mount access. Grant specific operations to an enrolled logical agent independently of its running context. Named admins and callers admitted through a valid empty roster can use every supported file operation.
+- Authorize each operation on a stable mount resource through the retained gateway policy. Owners can grant selected actions to an enrolled logical agent independently of its running context. Named admins and callers admitted through a valid empty roster can use every supported file operation.
 - Use Dulwich for Git history on the gateway host. Record the authenticated requester as author and the target gateway as committer. Keep the file client HTTP-based and make the mount contract extensible to other resource types.
 - Deliver an owner-enabled private skills mount for qualified DSH Web agents first. Add scoped manager commands for the file workflow and use the common access commands to administer grants.
 
@@ -26,4 +26,4 @@ Peers can currently change an agent's skill and plugin files outside its executi
 
 ## Impact
 
-This change depends on `replace-gateway-access-with-pycasbin`. It adds a Dulwich dependency, owner-private revision and operation storage, typed gateway endpoints, scoped CLI commands, and a DSH Web companion adapter. The first implementation uses direct verified gateway HTTP. MCP and native-specific mounts, WebDAV, standard Git transport, and passive proxy routes can build on this contract in later changes.
+This change builds on the retained PyCasbin policy, SSHSIG v2 caller proof, and owner-local access commands now available in Houmao. It adds a Dulwich dependency, owner-private revision and operation storage, typed gateway endpoints, scoped CLI commands, and a DSH Web companion adapter. The first implementation uses direct verified gateway HTTP. MCP and native-specific mounts, WebDAV, standard Git transport, and passive proxy routes can build on this contract in later changes.

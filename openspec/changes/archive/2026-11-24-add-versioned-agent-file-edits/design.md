@@ -1,0 +1,62 @@
+# Design
+
+## Context
+
+The existing native refresh reads material already installed in the native home. DSH Web's broad refresh reconciles the effective profile and reloads skill providers and MCP instances. A peer grant for one skill mount requires a narrower activation path. The manager's prompt reservation already serializes owner input across processes. The gateway's current refresh flag is local to its process. The retained gateway policy already provides exact request admission and a handoff ordered against policy changes. [Native Refresh](../../../src/houmao/agents/assets/dsh/managed-refresh.mjs) · [Owner Admission](../../../src/houmao/agents/realm_controller/owner_admission.py) · [Shared Authorization](../../specs/agent-authorization-policy/spec.md)
+
+## Goals / Non-Goals
+
+Use a reusable logical file interface, real Git revision identities, and one owner-controlled publication boundary. The initial deployment is a direct HTTP gateway with an opted-in DSH Web skills mount. The public native refresh route continues to handle material already present in native inputs. Standard Git transport, WebDAV, passive proxying, and additional mount adapters are future integrations.
+
+## Decisions
+
+### Mounts Own File Projection and Activation Scope
+
+Register each mount by an owner-selected adapter, logical name, and stable opaque mount ID tied to its retained home lineage. Gateway reattachment and same-home relaunch retain this ID. A replacement mount or fresh home gets a new ID, even when it uses the same logical name. A mount adapter defines path and content validation, complete revision preparation, the affected native scope, and read-back evidence. For example, a future MCP mount can expose structured declarations with owner-side credential references.
+
+Use canonical relative POSIX names. Allow regular files and directories. Check both endpoints of a rename. Reject traversal, links, reserved names, and collisions with unmanaged resources. Bound signed request bodies, file counts and bytes, drafts, history queries, and retention. Pin a revision for each published-tree read. Store logical content and safe identifiers in history. Native secrets, generated native configuration, and physical paths stay in owner-private projection or control state.
+
+### Edit Over HTTP and Record Git Objects With Dulwich
+
+Use a core route family under `/v1/control/file-edits`. Provide mount discovery, tree and file reads, draft creation and renewal, file and directory operations, diff, commit, abort, push, operation status, and history. Bind the normalized rename destination and push preconditions to the exact request. Reuse bounded body buffering at gateway admission. Return short write receipts with follow-up IDs.
+
+Keep an owner-private bare Dulwich repository for each managed mount. Write blobs, trees, and commits from validated logical files. Empty directories belong to the draft and populated directories follow from committed file paths. Derive Git author from the admitted caller. A verified logical agent is recorded by its approved label and stable identity. An unsigned open call uses explicit anonymous authorship. Use the target gateway's identity as Git committer. The gateway constructs Git-safe identities and records canonical provenance in owner-private bookkeeping. The request supplies the message. Keep saved candidates and published ancestry reachable, including the lineage needed for rollback. Dulwich handles object and ref operations in-process.
+
+Use SQLite for the mount's edit lease and draft metadata, operation journal, and published index. One short renewable lease applies per mount. Bind it to the exact target generation, mount ID, base commit, and admitted origin. A durable lease epoch fences stale writes. For signed drafts, match the verified actor kind and principal so a new enrollment for the same principal can resume a still-current lease with fresh authorization. An anonymous draft requires a secret lease capability tied to its opening epoch. Keep the capability out of audit output. An upload stages bytes in isolation. Recheck its original admission under the current shared policy and its lease in the short transition that installs the completed upload. A commit freezes the draft and releases the lease. Abort and expiry discard draft edits. Immutable candidates survive editing leases.
+
+### Use Shared Authorization for Mount Operations
+
+Declare the file routes in core gateway admission. Resolve each live mount to the exact resource `files:<mount-id>` and register only that mount's supported `files.read`, `files.edit`, and `files.push` actions in the live catalog. Filter discovery by current read permission and return the canonical resource for each visible mount. A grant on a former mount ID applies only to that mount's retained lineage. The target owner uses the common `access` commands for enrollment and exact policy grants. When the live mount cannot be verified, offline `access explain` can show retained assignments and report live applicability as unresolved.
+
+Reuse the direct gateway's SSHSIG v2 caller proof and preserve its exact target, listener, credential enrollment, resource, action, and admitted basis. File routes accept direct caller proof or valid unsigned open authority. Refuse relay and backing-service proof on those routes. Named admins and callers admitted through a valid empty roster have all supported mount permissions. A roster transition invalidates pending requests admitted under the old open epoch, including signed requests. A named-admin handoff still requires the exact key's qualifying roster entry. Keep the shared admission check at ingress, then explicitly use the shared handoff for file mutations after preparation and lease or maintenance checks. The generic handler-entry fence must yield to that later effect boundary. Recheck current permissions before returning protected data.
+
+The file CLI reuses the verified endpoint resolver and shared gateway client. Resolve an owner-local target normally. For a remote target, allow an independently verified endpoint selection with the owner context, generation, gateway presence, and deployment trust. Select a configured peer signer or an explicit enrolled signer separately from the target. For example, `reviewer` can use its enrolled key under Alice's account to edit `writer`'s skills under Bob's account. The target performs file and Git operations under Bob's account and records `reviewer` as author. A later publisher gets separate attribution in the push journal and receipt.
+
+Editing requires a verified attached target gateway. Gateway-free mail and direct prompting retain their established routes. An enrolled peer signer can be provisioned before its agent launches. Where both agents share an OS account, the gateway coordinates cooperating callers and shared OS permissions still apply outside it.
+
+### Make Push a Conditional Owner Operation
+
+Push takes a caller-generated operation ID, candidate commit, expected published commit, and target generation. Bind the journal entry to that intent, the mount, the publisher, and the admitted authorization. A caller with current push authority can publish another caller's exact saved commit without changing its author. With current push permission, the same publisher and intent can repeat an ID to retrieve that attempt's receipt. `files status` is a separate operation and requires current `files.read`. A new attempt after a confirmed busy result uses a new ID. A timeout after possible effects triggers read-only status reconciliation.
+
+1. Validate the candidate and prepare its immutable native projection off-path. Record the attempt and capture the current publication marker. This phase can run while the target is working.
+2. Acquire a cross-process owner maintenance reservation that participating ordinary input and lifecycle operations honor. Acquire the adapter's immediate native maintenance boundary for the affected execution and any required native serializer. Keep a durable claim across gateway restarts and release it using attributable settlement and readiness evidence. Confine database transactions to state transitions.
+3. Under those claims, check the target generation, expected base, published marker, and prepared revision against the journal. Persist the exact push intent and link it to a deterministic, namespaced handoff ID derived from the mount, target generation, and operation ID. Commit the original publisher's exact `files.push` decision through the shared authorization handoff. This orders revocation and publication authorization under the retained policy's writer lock. Release that lock before filesystem or native operations. A committed handoff can settle under its admitted execution contract.
+4. Publish the complete prepared tree by switching one owner-managed revision marker where the adapter qualifies that mechanism. The adapter pins the resolved revision for each read. Activate only the declared native effect scope while maintenance is held. Record the publication and the strongest attributable activation result.
+
+The policy handoff record establishes authorization. The projection marker records the visible revision and its exact operation together. The published index records that result for logical reads. The journal records the prior and candidate revisions before the switch. If the gateway fails before recording the result, recovery links the marker to its retained handoff without dispatching again. During unresolved recovery, report the evidence available and refuse competing publication. Native acknowledgement comes from the identified execution. Release maintenance after native settlement and valid readiness even if some freshness evidence remains unknown. Explicit owner recovery fences the old execution before removing an unresolved claim.
+
+### Qualify a Dedicated DSH Web Skills Provider
+
+Install an opt-in filesystem skill provider in the exact managed agent scope from the existing DSH Web composition hook. Use a distinct, watcher-disabled provider backed by a private versioned directory. Mount its own logical tree, starting from an empty managed revision. The provider retains revision-specific locators across catalog and body reads. Test standard skill-tool visibility and owner access to the native projection before advertising live capability. The local DSH reference implements this provider under `packages/skill/skill-filesystem`. [DSH Web Composition](../../../src/houmao/agents/assets/dsh/managed-web.mjs)
+
+Within `runMaintenance`, check pending interactions and inputs and fence competing native agent activation. Publish the dedicated provider's revision and invalidate its discovery through the qualified native registration mechanism. Account for the provider in existing common-state observation. Verify expected names, origin, and body and asset availability at the next qualified load. The provider API can invalidate a catalog cache used by other providers, so live qualification must establish the actual activation scope. Keep broad profile reconciliation and MCP restarts outside this push. Report unavailable before publication if the build, preset, sharing, or effects exceed the qualified boundary.
+
+## Risks / Trade-offs
+
+- Git metadata, the native projection, and activation evidence have independent failure boundaries. The recorded operation and revision marker support recovery and preserve uncertainty where evidence is incomplete.
+- Mount revisions can outlive editing sessions. Keep published history, reachable candidates with bounded retention, and referenced native revisions. Reclaim only snapshots with no live, draft, or recovery reference.
+- Same-UID shell edits can bypass cooperating writers. Use owner-private storage and execution isolation for managed mounts. Reject detected foreign drift before push.
+
+## Migration Plan
+
+Enable the dedicated mount for eligible DSH Web runs through owner provisioning at launch. Existing skill sources stay outside the managed mount. Retain commits and journals in owner-private storage keyed by target and explicit home lineage. Reattachment recovers the same owner's journal. An ordinary same-home relaunch verifies the retained publication and binds a new provider generation. Fresh homes begin with separate history. Rollback creates and pushes a new commit containing an earlier revision's files.

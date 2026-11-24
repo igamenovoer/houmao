@@ -4,7 +4,7 @@
 
 ### Requirement: Versioned File Operations Use Shared Gateway Authorization
 
-The live target gateway SHALL authorize file operations through shared Casbin policy for the exact mount and action. The target owner SHALL control enrollment and revocation of peer SSH public keys for stable logical agents. In a keyed domain, a nonadmin SHALL prove possession of an enrolled key through normal caller proof and hold the exact grant. Current named administrators and callers admitted under a valid empty roster SHALL have access to every supported file operation.
+The live target gateway SHALL authorize each file operation through the retained owner policy for its exact mount resource and declared action. A keyed nonadmin SHALL use current enrolled caller proof and hold the corresponding permission. Current named admins and callers admitted under a valid empty roster SHALL have access to every supported file action.
 
 #### Scenario: An enrolled peer uses a scoped file operation
 
@@ -30,7 +30,7 @@ The live target gateway SHALL authorize file operations through shared Casbin po
 
 ### Requirement: File Effects Require Current Direct Target Authority
 
-File requests SHALL use the verified live target gateway directly. Before an effect, it SHALL recheck the bound target generation and listener incarnation, exact mount and action, current credential and policy, and admitted authority. Revalidation SHALL include the original admin enrollment or open epoch when applicable. Unsigned callers SHALL retain anonymous provenance.
+File requests SHALL use direct SSHSIG v2 caller proof or valid unsigned open access at the verified target gateway. Before each protected effect or disclosure, it SHALL recheck the target generation, listener, exact permission, credential enrollment, and original authority. That authority SHALL retain the qualifying admin entry or open epoch where applicable. Unsigned callers SHALL retain anonymous provenance.
 
 #### Scenario: A peer's credential or grant changes after admission
 
@@ -48,11 +48,16 @@ File requests SHALL use the verified live target gateway directly. Before an eff
 - **WHEN** the bound target generation or listener incarnation changes before the operation takes effect
 - **THEN** the gateway refuses to apply the pending operation to the replacement
 
-#### Scenario: Anonymous access resumes after an earlier admission
+#### Scenario: Open access resumes after an earlier admission
 
-- **WHEN** an anonymous operation was admitted under an empty roster that later becomes keyed and then empty again before the operation takes effect
-- **THEN** the operation is refused under its earlier open epoch
+- **WHEN** a signed or unsigned request received open authority and the roster becomes keyed and then empty again before the effect
+- **THEN** the gateway refuses the operation under its earlier open epoch
 - **AND THEN** a fresh request can use the current open epoch
+
+#### Scenario: A file route receives delegated proof
+
+- **WHEN** a file route receives relay or backing-service proof in place of direct caller admission
+- **THEN** the gateway refuses the request before effects
 
 #### Scenario: The verified live target is unavailable
 
