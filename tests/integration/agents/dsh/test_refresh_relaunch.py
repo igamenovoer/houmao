@@ -9,6 +9,8 @@ from typing import Any
 
 import pytest
 
+from houmao.agents.realm_controller.registry_storage import load_managed_agent_record_by_agent_id
+
 
 @pytest.mark.parametrize("chat_policy", ["default", "exact"])
 def test_edited_launch_profile_refresh_and_separate_relaunch_keep_their_boundaries(
@@ -154,6 +156,22 @@ def test_edited_launch_profile_refresh_and_separate_relaunch_keep_their_boundari
         assert after["agent_id"] == manifest["agent_id"]
         assert after["runtime"]["session_id"] == runtime_id
         assert after["registry_generation_id"] != generation
+        terminal = after["tmux"]
+        assert terminal["socket_path"] == run["tmux_socket_path"]
+        panes = launch._fixture_tmux(run).observe_session(terminal["session_name"])
+        assert panes is not None
+        assert any(
+            (pane.window_id, pane.pane_id)
+            == (terminal["primary_window_id"], terminal["primary_pane_id"])
+            and pane.window_index == terminal["primary_window_index"] == "0"
+            for pane in panes
+        )
+        record = load_managed_agent_record_by_agent_id(after["agent_id"], env=environment)
+        assert record is not None and record.generation_id == after["registry_generation_id"]
+        assert (record.terminal.socket_path, record.terminal.current_session_name) == (
+            terminal["socket_path"],
+            terminal["session_name"],
+        )
         assert len(requests) == 1, "Explicit headless relaunch must not create a model turn"
 
         # The local headless gateway retains its original generation's controller.

@@ -37,7 +37,7 @@ from common import (  # noqa: E402
     probe_openai_models,
     resolve_houmao_mgr,
     run_houmao_mgr,
-    run_real_tmux,
+    isolated_tmux_server,
 )
 
 from houmao.agents.dsh_configuration import DshEffectiveToolParams  # noqa: E402
@@ -233,13 +233,14 @@ def _probe_isolated_tmux(run_root: Path) -> dict[str, Any]:
     socket_path = isolated_tmux_socket(run_root)
     before_default = list_tmux_sessions()
     probe_session = "houmao-g0-smoke"
-    run_real_tmux(["kill-session", "-t", probe_session], socket_path=socket_path)
-    created = run_real_tmux(
+    server = isolated_tmux_server(socket_path)
+    server.command(["kill-session", "-t", f"={probe_session}"])
+    created = server.start(
         ["new-session", "-d", "-s", probe_session, "sleep", "5"],
-        socket_path=socket_path,
+        environment=server.native_environment(),
     )
     listed = list_tmux_sessions(socket_path=socket_path)
-    run_real_tmux(["kill-session", "-t", probe_session], socket_path=socket_path)
+    server.command(["kill-session", "-t", f"={probe_session}"])
     after_default = list_tmux_sessions()
     return {
         "socket_path": str(socket_path),

@@ -11,10 +11,10 @@ from typing import Any, cast
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     read_tmux_session_environment_value,
-    run_tmux,
     set_tmux_session_environment,
     tmux_session_exists,
 )
+from houmao.execution.tmux import TmuxServer
 from houmao.terminal_record.service import stop_terminal_record
 
 from .config import ResolvedDemoConfig
@@ -464,10 +464,7 @@ def _tmux_session_is_live(session_name: str) -> bool:
 def _list_tmux_session_names() -> tuple[str, ...]:
     """Return the current tmux session names."""
 
-    result = run_tmux(["list-sessions", "-F", "#{session_name}"])
-    if result.returncode != 0:
-        return ()
-    return tuple(line.strip() for line in result.stdout.splitlines() if line.strip())
+    return tuple(sorted(TmuxServer().list_sessions(allow_missing_server=True)))
 
 
 def _load_manifest_owned_resources(

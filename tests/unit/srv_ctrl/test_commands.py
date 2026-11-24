@@ -382,7 +382,9 @@ def test_main_recovers_stale_local_managed_agent_stop_without_traceback(
             manifest_path=str((tmp_path / "missing-manifest.json").resolve()),
             session_root=str((tmp_path / "session-root").resolve()),
         ),
-        terminal=SimpleNamespace(session_name="gpu-session", socket_path=None),
+        terminal=SimpleNamespace(
+            session_name="gpu-session", socket_path=str(tmp_path / "owned.sock")
+        ),
     )
 
     monkeypatch.setattr(
@@ -1135,17 +1137,13 @@ def test_self_home_and_refresh_check_use_saved_runtime_inputs(
     manifest = _prepare_manifest_self(tmp_path, monkeypatch)
     home = tmp_path / "runtime" / "home"
 
-    def owns_tmux(*, session_name: str) -> bool:
-        assert session_name == "owner-session"
+    def observe_tmux(binding: object, *, joined: bool) -> SimpleNamespace:
+        assert binding.session_name == "owner-session"
+        assert not joined
         assert current_tmux_socket_path() == str(tmp_path / "owned.sock")
-        return True
+        return SimpleNamespace(state="valid", pane=SimpleNamespace(pane_dead=False))
 
-    monkeypatch.setattr(native_refresh, "tmux_session_exists", owns_tmux)
-    monkeypatch.setattr(
-        native_refresh,
-        "resolve_primary_tmux_surface",
-        lambda **_: SimpleNamespace(pane_dead=False),
-    )
+    monkeypatch.setattr(native_refresh, "observe_primary_tmux", observe_tmux)
     hints = {AGENT_MANIFEST_PATH_ENV_VAR: str(manifest), AGENT_ID_ENV_VAR: "agent-id"}
     monkeypatch.setattr(
         native_refresh,

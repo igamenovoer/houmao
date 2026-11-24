@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from houmao.agents.launch_env import owner_tmux_launch_environment
 from houmao.agents.launch_overrides import LaunchOverrides
 from houmao.agents.launch_policy.models import OperatorPromptMode
 from houmao.agents.realm_controller.backends.tmux_runtime import (
@@ -21,9 +22,9 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     capture_tmux_pane,
     find_tmux_pane,
     list_tmux_panes,
-    run_tmux,
     tmux_session_exists,
 )
+from houmao.execution.tmux import TmuxServer, tmux_command
 from houmao.shared_tui_tracking.models import RuntimeObservation
 
 from .agent_assets import default_recipe_path
@@ -131,7 +132,8 @@ def launch_tmux_session(
             f"{shlex.quote(str(launch_script))}; exec bash --noprofile --norc",
         ]
 
-    result = run_tmux(
+    server = TmuxServer()
+    result = server.start(
         [
             "new-session",
             "-d",
@@ -140,11 +142,11 @@ def launch_tmux_session(
             "-c",
             str(workdir),
             *launch_argv,
-        ]
+        ],
+        environment=owner_tmux_launch_environment(os.environ),
     )
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr or "failed to launch tmux session")
-    run_tmux(["set-option", "-t", session_name, "remain-on-exit", "on"])
+    result.require_success()
+    server.checked_command(["set-option", "-t", f"={session_name}", "remain-on-exit", "on"])
 
 
 def resolve_active_pane_id(*, session_name: str) -> str:
@@ -275,12 +277,10 @@ def capture_pane_text(*, pane_id: str) -> str:
 
 
 def capture_visible_pane_text(*, pane_id: str) -> str:
-    """Capture only the currently visible tmux pane surface."""
+    """Capture the visible diagnostic viewport, retaining all of its rows."""
 
-    result = run_tmux(["capture-pane", "-p", "-e", "-t", pane_id])
-    if result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip() or "unknown tmux error"
-        raise TmuxCommandError(f"Failed to capture visible tmux pane `{pane_id}`: {detail}")
+    result = TmuxServer().capture_exact(["capture-pane", "-p", "-e", "-t", pane_id])
+    result.require_success()
     return result.stdout
 
 
@@ -332,7 +332,7 @@ def kill_tmux_session_if_exists(*, session_name: str) -> None:
 
     if not tmux_session_exists(session_name=session_name):
         return
-    result = run_tmux(["kill-session", "-t", session_name])
+    result = tmux_command(["kill-session", "-t", f"={session_name}"])
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip() or "unknown tmux error"
         raise TmuxCommandError(f"Failed to kill tmux session `{session_name}`: {detail}")

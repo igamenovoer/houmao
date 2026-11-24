@@ -16,15 +16,15 @@ from collections import deque
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from houmao.execution.tmux import tmux_server_scope
-
-from houmao.agents.realm_controller.backends.tmux_runtime import (
-    TmuxCommandError,
-    tmux_session_exists,
-)
+from houmao.agents.realm_controller.backends.tmux_runtime import tmux_session_exists
 from houmao.agents.realm_controller.native_surface import (
     TerminalNativeSurfaceV1,
     WebNativeSurfaceV1,
+)
+from houmao.execution.tmux import (
+    TmuxCommandError,
+    TmuxObservationUnavailable,
+    tmux_server_scope,
 )
 from houmao.hook_observation.install import hook_observation_applies
 from houmao.hook_observation.reader import HookObservationChannel
@@ -226,21 +226,21 @@ class AgentTuiObserver:
 
         observed_at_utc = _utc_now_iso()
 
-        # 1. Check tmux session existence
-        if not tmux_session_exists(session_name=self.m_session_name):
-            self._record_diagnostics(
-                transport_state="tmux_missing",
-                process_state="unknown",
-                parse_status="transport_unavailable",
-                probe_error=None,
-                parse_error=None,
-                parsed_surface=None,
-                probe_snapshot=None,
-            )
-            return
-
-        # 2. Resolve tmux target
+        # Check the saved server and resolve the pane within one observation scope.
         try:
+            if self.m_tmux_socket_path is None:
+                raise TmuxObservationUnavailable("Managed terminal has no saved tmux socket.")
+            if not tmux_session_exists(session_name=self.m_session_name, allow_missing_server=True):
+                self._record_diagnostics(
+                    transport_state="tmux_missing",
+                    process_state="unknown",
+                    parse_status="transport_unavailable",
+                    probe_error=None,
+                    parse_error=None,
+                    parsed_surface=None,
+                    probe_snapshot=None,
+                )
+                return
             target = self.m_transport_resolver.resolve_target(
                 session_name=self.m_session_name,
                 window_name=self.m_window_name,
@@ -749,6 +749,8 @@ class TuiObservationService:
             for agent_id, observer in self.m_observers.items()
             if agent_id not in terminals
             or observer.m_generation_id != terminals[agent_id][0].generation_id
+            or observer.m_tmux_socket_path != terminals[agent_id][0].terminal.socket_path
+            or observer.m_session_name != terminals[agent_id][1].tmux_session_name
             or observer.m_pane_id != terminals[agent_id][1].pane_id
         }
         for agent_id in stale_ids:

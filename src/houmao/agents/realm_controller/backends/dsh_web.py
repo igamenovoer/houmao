@@ -20,6 +20,8 @@ from typing import Any, cast
 from urllib.parse import urlsplit
 from uuid import uuid4
 
+from houmao.execution.tmux import tmux_command as run_tmux
+
 from houmao.agents.dsh_configuration import DshEffectiveToolParams, prepare_dsh_home
 from houmao.agents.launch_policy import LaunchPolicyError, validate_packaged_tool_version
 from houmao.agents.model_mapping_policy import resolve_reasoning_mapping
@@ -40,11 +42,11 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     create_tmux_session,
     detached_tool_environment,
     generate_tmux_session_name,
-    has_tmux_session,
+    tmux_session_exists,
     kill_tmux_session,
     prepare_headless_agent_window,
+    resolve_primary_tmux_surface,
     publish_tmux_launch_environment,
-    run_tmux,
     TmuxCommandError,
 )
 from houmao.agents.realm_controller.backends.web_entry import NativeWebEntry, owns_ipv4_web_listener
@@ -461,11 +463,11 @@ class DshWebSession:
             else generate_tmux_session_name(tool="dsh", role_name=role_name)
         )
         invocation = root / "supervisor-input.json"
-        created = has_tmux_session(session_name=name).returncode == 1
+        created = not tmux_session_exists(session_name=name, allow_missing_server=True)
         if not created and (existing is None or existing.tmux_session_name != name):
             raise BackendExecutionError("DSH Web refuses to adopt an existing supervisor session")
         if not created:
-            ownership = run_tmux(["show-options", "-v", "-t", name, "@houmao_dsh_web_owner"])
+            ownership = run_tmux(["show-options", "-v", "-t", f"={name}:", "@houmao_dsh_web_owner"])
             if (
                 ownership.returncode != 0
                 or existing is None
@@ -500,13 +502,23 @@ class DshWebSession:
                     launch_plan=self.plan,
                 )
                 ownership = run_tmux(
-                    ["set-option", "-t", name, "@houmao_dsh_web_owner", str(control)]
+                    ["set-option", "-t", f"={name}:", "@houmao_dsh_web_owner", str(control)]
                 )
                 if ownership.returncode != 0:
                     raise BackendExecutionError(
                         "DSH Web supervisor ownership could not be recorded"
                     )
-            surface = prepare_headless_agent_window(session_name=name, fresh_session=created)
+            if created:
+                surface = prepare_headless_agent_window(session_name=name, fresh_session=True)
+            else:
+                assert existing is not None
+                if existing.tmux_pane_id is None or existing.tmux_window_id is None:
+                    raise BackendExecutionError("Saved supervisor pane identity is unavailable")
+                surface = resolve_primary_tmux_surface(
+                    session_name=name,
+                    pane_id=existing.tmux_pane_id,
+                    window_id=existing.tmux_window_id,
+                )
             publish_tmux_launch_environment(session_name=name, launch_plan=self.plan)
             command = shlex.join(
                 [
@@ -566,7 +578,9 @@ class DshWebSession:
             )
             self.state.native_surface
             self._bind_managed_accounting(new_session=existing is None or new_session)
-            ownership = run_tmux(["set-option", "-t", name, "@houmao_dsh_web_owner", str(control)])
+            ownership = run_tmux(
+                ["set-option", "-t", f"={name}:", "@houmao_dsh_web_owner", str(control)]
+            )
             if ownership.returncode != 0:
                 raise BackendExecutionError("DSH Web supervisor ownership could not be recorded")
             write_usage_json(root / "owned-state.json", self.state.to_payload())
@@ -1296,9 +1310,8 @@ class DshWebSession:
             finally:
                 self.close_control_connection()
             self._stop_supervisor_file(Path(self.state.bootstrap_path).parent / "supervisor.json")
-            if (
-                self.m_force_cleanup
-                and has_tmux_session(session_name=self.state.tmux_session_name).returncode == 0
+            if self.m_force_cleanup and tmux_session_exists(
+                session_name=self.state.tmux_session_name, allow_missing_server=True
             ):
                 if not self._owns_supervisor_session(
                     self.state.tmux_session_name, self.state.control_path
@@ -1308,7 +1321,7 @@ class DshWebSession:
             return SessionControlResult(
                 status="ok", action="terminate", detail="Stopped the owned native Web Host"
             )
-        except (OSError, BackendExecutionError) as exc:
+        except (OSError, BackendExecutionError, TmuxCommandError) as exc:
             return SessionControlResult(
                 status="error",
                 action="terminate",
@@ -1331,7 +1344,7 @@ class DshWebSession:
     def _owns_supervisor_session(name: str, control_path: str) -> bool:
         """Fence pane/session cleanup against the exact recorded supervisor owner."""
 
-        result = run_tmux(["show-options", "-v", "-t", name, "@houmao_dsh_web_owner"])
+        result = run_tmux(["show-options", "-v", "-t", f"={name}:", "@houmao_dsh_web_owner"])
         return result.returncode == 0 and result.stdout.strip() == control_path
 
     @staticmethod

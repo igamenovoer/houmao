@@ -41,6 +41,7 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     HEADLESS_AGENT_WINDOW_NAME,
     TmuxPaneRecord,
 )
+from houmao.execution.tmux import TmuxObservationUnavailable, TmuxServer
 from houmao.server.managed_agents import (
     ManagedHeadlessActiveTurnRecord,
     ManagedHeadlessAuthorityRecord,
@@ -265,6 +266,7 @@ class _FakeHeadlessController:
     ) -> None:
         self.manifest_path = manifest_path
         self.tmux_session_name = tmux_session_name
+        self.tmux_socket_path = "/tmp/houmao-server-headless-unit.sock"
         self.backend_session = _FakeHeadlessSession(
             turn_index=turn_index,
             tmux_session_name=tmux_session_name,
@@ -972,11 +974,18 @@ def test_refresh_terminal_state_records_tui_down_but_keeps_tracker(
     assert service.terminal_state("abcd1234").diagnostics.availability == "tui_down"
 
 
-def test_poll_known_session_marks_tmux_missing_and_requests_worker_exit(
+@pytest.mark.parametrize("observation_failed", [False, True])
+def test_poll_known_session_distinguishes_absence_from_unavailable_observation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    observation_failed: bool,
 ) -> None:
-    monkeypatch.setattr("houmao.server.service.tmux_session_exists", lambda **_: False)
+    def _session_exists(**_kwargs: object) -> bool:
+        if observation_failed:
+            raise TmuxObservationUnavailable("socket unavailable", returncode=23)
+        return False
+
+    monkeypatch.setattr("houmao.server.service.tmux_session_exists", _session_exists)
     service = HoumaoServerService(
         config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
         transport=_FakeTransport(
@@ -1006,11 +1015,17 @@ def test_poll_known_session_marks_tmux_missing_and_requests_worker_exit(
 
     keep_running = service.poll_known_session("cao-gpu")
 
-    assert keep_running is False
+    assert keep_running is observation_failed
     state = service.terminal_state("abcd1234")
-    assert state.transport_state == "tmux_missing"
-    assert state.parse_status == "transport_unavailable"
-    assert state.diagnostics.availability == "unavailable"
+    if observation_failed:
+        assert state.transport_state == "probe_error"
+        assert state.parse_status == "probe_error"
+        assert state.diagnostics.probe_error is not None
+        assert state.diagnostics.probe_error.message == "socket unavailable"
+    else:
+        assert state.transport_state == "tmux_missing"
+        assert state.parse_status == "transport_unavailable"
+        assert state.diagnostics.availability == "unavailable"
 
 
 def test_terminal_history_returns_recent_in_memory_transitions(
@@ -1610,9 +1625,11 @@ def test_submit_headless_interrupt_returns_no_op_when_no_active_work(tmp_path: P
     assert accepted.headless_turn_id is None
 
 
+@pytest.mark.parametrize("socket_accessible", [True, False])
 def test_launch_headless_persists_authority_and_projects_shared_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    socket_accessible: bool,
 ) -> None:
     monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str((tmp_path / "registry").resolve()))
     workdir = tmp_path / "workspace"
@@ -1647,7 +1664,17 @@ def test_launch_headless_persists_authority_and_projects_shared_state(
         "houmao.server.service.start_runtime_session",
         lambda **kwargs: recorded_start_kwargs.update(kwargs) or fake_controller,
     )
-    monkeypatch.setattr("houmao.server.service.tmux_session_exists", lambda **_kwargs: True)
+    seen_sockets: list[str] = []
+
+    def _list_sessions(self: TmuxServer, *, allow_missing_server: bool = False) -> set[str]:
+        if allow_missing_server:
+            return set()
+        seen_sockets.append(self.socket_path)
+        if not socket_accessible:
+            raise TmuxObservationUnavailable("owner tmux socket is inaccessible", returncode=23)
+        return {"HOUMAO-gpu"}
+
+    monkeypatch.setattr(TmuxServer, "list_sessions", _list_sessions)
 
     service = HoumaoServerService(
         config=HoumaoServerConfig(
@@ -1680,10 +1707,17 @@ def test_launch_headless_persists_authority_and_projects_shared_state(
     assert authority.backend == "claude_headless"
     assert authority.manifest_path == str(manifest_path)
     assert authority.agent_def_dir == str(agent_def_dir)
+    assert authority.tmux_socket_path == fake_controller.tmux_socket_path
+    assert seen_sockets and set(seen_sockets) == {fake_controller.tmux_socket_path}
     assert response.identity.transport == "headless"
     assert response.identity.tmux_window_name == HEADLESS_AGENT_WINDOW_NAME
-    assert shared_state.availability == "available"
-    assert shared_state.turn.phase == "ready"
+    if socket_accessible:
+        assert shared_state.availability == "available"
+        assert shared_state.turn.phase == "ready"
+    else:
+        assert shared_state.availability == "unavailable"
+        assert shared_state.turn.phase == "unknown"
+        assert any(diagnostic.kind == "tmux_probe_error" for diagnostic in shared_state.diagnostics)
     assert shared_state.identity.runtime_session_id == response.tracked_agent_id
     assert shared_state.identity.tmux_window_name == HEADLESS_AGENT_WINDOW_NAME
     assert shared_agents[0].tmux_window_name == HEADLESS_AGENT_WINDOW_NAME
@@ -2233,8 +2267,11 @@ def test_interrupt_active_turn_uses_persisted_process_identity_before_tmux_fallb
         )
         service.m_managed_headless_store.write_active_turn(active_turn)
         monkeypatch.setattr(
-            "houmao.server.service.run_tmux",
-            lambda _args: (_ for _ in ()).throw(AssertionError("tmux fallback was not expected")),
+            service,
+            "_interrupt_headless_tmux_target",
+            lambda **kwargs: (_ for _ in ()).throw(
+                AssertionError("tmux fallback was not expected")
+            ),
         )
 
         service._interrupt_active_turn_record(active_turn)
@@ -2254,52 +2291,26 @@ def test_interrupt_active_turn_uses_persisted_process_identity_before_tmux_fallb
     assert turn_record.interrupt_requested_at_utc is not None
 
 
-def test_interrupt_headless_tmux_target_uses_stable_agent_pane(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    "case",
+    [
+        "matching",
+        "missing_socket",
+        "different_binding",
+        "stale",
+        "superseded",
+        "rebound",
+        "unavailable",
+    ],
+)
+def test_interrupt_headless_tmux_target_checks_durable_binding(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, case: str
 ) -> None:
-    config = HoumaoServerConfig(
-        api_base_url="http://127.0.0.1:9889",
-        runtime_root=tmp_path,
-    )
     service = HoumaoServerService(
-        config=config,
-        transport=_FakeTransport({}),
-    )
-    active_turn = ManagedHeadlessActiveTurnRecord(
-        tracked_agent_id="claude-headless-fallback",
-        turn_id="turn-live",
-        turn_index=1,
-        turn_artifact_dir=str(tmp_path / "turn-artifacts" / "turn-live"),
-        started_at_utc="2026-03-23T12:00:00+00:00",
-        tmux_session_name="HOUMAO-fallback",
-        tmux_window_name="diagnostics",
-    )
-    tmux_calls: list[list[str]] = []
-
-    monkeypatch.setattr(
-        "houmao.server.service.run_tmux",
-        lambda args: (
-            tmux_calls.append(list(args))
-            or subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+        config=HoumaoServerConfig(
+            api_base_url="http://127.0.0.1:9889",
+            runtime_root=tmp_path,
         ),
-    )
-
-    service._interrupt_headless_tmux_target(active_turn=active_turn)
-
-    assert tmux_calls == [["send-keys", "-t", "HOUMAO-fallback:0.0", "C-c"]]
-
-
-def test_interrupt_headless_tmux_target_prefers_persisted_pane_id(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    config = HoumaoServerConfig(
-        api_base_url="http://127.0.0.1:9889",
-        runtime_root=tmp_path,
-    )
-    service = HoumaoServerService(
-        config=config,
         transport=_FakeTransport({}),
     )
     active_turn = ManagedHeadlessActiveTurnRecord(
@@ -2313,23 +2324,71 @@ def test_interrupt_headless_tmux_target_prefers_persisted_pane_id(
         tmux_window_id="@4",
         tmux_pane_id="%4",
     )
-    tmux_calls: list[list[str]] = []
-
-    monkeypatch.setattr(
-        "houmao.server.service.resolve_primary_tmux_surface",
-        lambda **_kwargs: type("Surface", (), {"pane_id": "%4"})(),
+    store = service.m_managed_headless_store
+    store.write_active_turn(active_turn)
+    socket_path = str(tmp_path / "owner.sock")
+    authority = ManagedHeadlessAuthorityRecord(
+        tracked_agent_id=active_turn.tracked_agent_id,
+        backend="claude_headless",
+        tool="claude",
+        manifest_path=str(tmp_path / "manifest.json"),
+        session_root=str(tmp_path),
+        tmux_session_name=active_turn.tmux_session_name,
+        tmux_socket_path=None if case == "missing_socket" else socket_path,
+        tmux_window_id="@4",
+        tmux_pane_id="%5" if case == "different_binding" else "%4",
+        agent_def_dir=str(tmp_path / "agent-defs"),
+        created_at_utc=active_turn.started_at_utc,
+        updated_at_utc=active_turn.started_at_utc,
     )
-    monkeypatch.setattr(
-        "houmao.server.service.run_tmux",
-        lambda args: (
-            tmux_calls.append(list(args))
-            or subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
-        ),
-    )
+    store.write_authority(authority)
+    observations: list[str] = []
+    sends: list[tuple[str, tuple[str, ...]]] = []
 
-    service._interrupt_headless_tmux_target(active_turn=active_turn)
+    def _observe(self: TmuxServer, session_name: str) -> tuple[TmuxPaneRecord, ...]:
+        assert self.socket_path == socket_path
+        observations.append(session_name)
+        if case == "unavailable":
+            raise TmuxObservationUnavailable("owner socket is inaccessible", returncode=23)
+        if case == "superseded":
+            store.write_active_turn(active_turn.model_copy(update={"turn_id": "turn-next"}))
+        if case == "rebound":
+            store.write_authority(authority.model_copy(update={"tmux_pane_id": "%5"}))
+        return (
+            TmuxPaneRecord(
+                pane_id="%5" if case == "stale" else "%4",
+                session_name=session_name,
+                session_id="$1",
+                window_id="@4",
+                window_index="0",
+                window_name="agent",
+                pane_index="1",
+                pane_active=False,
+            ),
+        )
 
-    assert tmux_calls == [["send-keys", "-t", "%4", "C-c"]]
+    def _send_keys(self: TmuxServer, target: str, *keys: str, literal: bool = False) -> None:
+        assert self.socket_path == socket_path
+        assert not literal
+        sends.append((target, keys))
+
+    monkeypatch.setattr(TmuxServer, "observe_session", _observe)
+    monkeypatch.setattr(TmuxServer, "send_keys", _send_keys)
+
+    if case == "unavailable":
+        with pytest.raises(HTTPException) as exc:
+            service._interrupt_headless_tmux_target(active_turn=active_turn)
+        assert exc.value.status_code == 502
+        assert exc.value.detail == "owner socket is inaccessible"
+    else:
+        service._interrupt_headless_tmux_target(active_turn=active_turn)
+
+    if case in {"different_binding", "missing_socket"}:
+        assert observations == []
+    else:
+        assert observations == [active_turn.tmux_session_name]
+    expected_sends = [("%4", ("C-c",))] if case == "matching" else []
+    assert sends == expected_sends
 
 
 def test_headless_turn_inspection_reads_persisted_events_artifacts_and_history(

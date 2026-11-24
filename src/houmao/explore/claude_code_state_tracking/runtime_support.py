@@ -10,19 +10,21 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from houmao.agents.launch_env import owner_tmux_launch_environment
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     capture_tmux_pane,
     find_tmux_pane,
     list_tmux_panes,
-    run_tmux,
 )
+from houmao.execution.tmux import TmuxServer
 from houmao.explore.claude_code_state_tracking.detectors.base import BaseTurnSignalDetector
 
 
 def launch_tmux_session(*, session_name: str, workdir: Path, launch_script: Path) -> None:
     """Launch one detached tmux session and keep the pane visible on exit."""
 
-    result = run_tmux(
+    server = TmuxServer()
+    result = server.start(
         [
             "new-session",
             "-d",
@@ -31,11 +33,11 @@ def launch_tmux_session(*, session_name: str, workdir: Path, launch_script: Path
             "-c",
             str(workdir),
             str(launch_script),
-        ]
+        ],
+        environment=owner_tmux_launch_environment(os.environ),
     )
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr or "failed to launch tmux session")
-    run_tmux(["set-option", "-t", session_name, "remain-on-exit", "on"])
+    result.require_success()
+    server.checked_command(["set-option", "-t", f"={session_name}", "remain-on-exit", "on"])
 
 
 def resolve_active_pane_id(*, session_name: str) -> str:
@@ -51,15 +53,16 @@ def resolve_active_pane_id(*, session_name: str) -> str:
 def send_text(*, pane_id: str, text: str, submit: bool) -> None:
     """Send literal text and optional submit to one tmux pane."""
 
-    run_tmux(["send-keys", "-t", pane_id, "-l", text])
+    server = TmuxServer()
+    server.send_keys(pane_id, text, literal=True)
     if submit:
-        run_tmux(["send-keys", "-t", pane_id, "Enter"])
+        server.send_keys(pane_id, "Enter")
 
 
 def send_key(*, pane_id: str, key: str) -> None:
     """Send one tmux key token to one pane."""
 
-    run_tmux(["send-keys", "-t", pane_id, key])
+    TmuxServer().send_keys(pane_id, key)
 
 
 def wait_for_ready(

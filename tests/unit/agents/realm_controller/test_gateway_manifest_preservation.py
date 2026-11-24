@@ -63,6 +63,9 @@ def test_gateway_controls_preserve_newer_native_conversation(
         "houmao.agents.realm_controller.runtime.unset_tmux_session_environment_shared", Mock()
     )
     monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.tmux_session_exists_shared", lambda **_: True
+    )
+    monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._read_optional_tmux_session_env_var",
         Mock(return_value=None),
     )

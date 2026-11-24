@@ -140,7 +140,7 @@ also exports `HOUMAO_HOOK_COLLECTOR_URL`, `HOUMAO_HOOK_STORE`, and
 
 ## Boundaries
 
-- Harness code is stdlib-only (plus the repo's `run_tmux` helper import).
+- The harness uses the standard library and Houmao's shared tmux adapter.
 - `s1-control` launches with no `--settings` (hooks off) as the P2.3 matched
   control and records pane-settle wall-clock timings instead of events.
 - `SessionEnd` is deliberately not subscribed in the v1 event set (design P2

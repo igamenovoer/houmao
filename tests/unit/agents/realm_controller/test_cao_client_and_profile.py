@@ -966,7 +966,7 @@ def test_managed_cao_terminal_reads_private_environment_during_bootstrap(
     )
     private_path: Path | None = None
 
-    def fake_tmux(args: list[str]) -> subprocess.CompletedProcess[str]:
+    def fake_tmux(args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
         """Track session options and environment updates around terminal creation."""
 
         tmux_calls.append(args)
@@ -1008,7 +1008,7 @@ def test_managed_cao_terminal_reads_private_environment_during_bootstrap(
         )
 
     monkeypatch.setattr(cao_rest_backend, "run_tmux_shared", fake_tmux)
-    monkeypatch.setattr(tmux_runtime, "run_tmux", fake_tmux)
+    monkeypatch.setattr(tmux_runtime, "tmux_command", fake_tmux)
     session = object.__new__(CaoRestSession)
     session._plan = plan
     session._session_name = "owned"

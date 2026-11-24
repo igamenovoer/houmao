@@ -87,7 +87,7 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     HEADLESS_AGENT_WINDOW_NAME,
     TmuxBackedAuthorityHealth,
     TmuxCommandError,
-    cleanup_tmux_session,
+    kill_tmux_session,
     probe_tmux_backed_authority,
 )
 from houmao.agents.realm_controller.errors import (
@@ -2822,7 +2822,16 @@ def _recover_broken_active_local_record(
 
     last_session_name = current.terminal.session_name or None
     if health.state == "degraded_missing_primary" and last_session_name:
-        cleanup_tmux_session(session_name=last_session_name)
+        from houmao.execution.tmux import tmux_server_scope
+
+        socket_path = current.terminal.socket_path
+        if socket_path is None:
+            raise SessionManifestError("Broken-active cleanup requires the recorded tmux socket")
+        try:
+            with tmux_server_scope(socket_path):
+                kill_tmux_session(session_name=last_session_name)
+        except TmuxCommandError as exc:
+            raise SessionManifestError(f"Could not stop the degraded tmux session: {exc}") from exc
 
     manifest_path = current.runtime.manifest_path
     session_root = current.runtime.session_root
@@ -5663,11 +5672,50 @@ def _probe_local_tmux_authority_for_record(
     lifecycle state before invoking this probe.
     """
 
-    session_name = record.terminal.session_name
     from houmao.execution.tmux import tmux_server_scope
 
-    with tmux_server_scope(record.terminal.socket_path):
-        return probe_tmux_backed_authority(session_name=session_name)
+    session_name = record.terminal.session_name
+    socket_path = record.terminal.socket_path
+    tmux = None
+    joined = False
+    manifest_path = Path(record.runtime.manifest_path)
+    if manifest_path.is_file():
+        try:
+            handle = load_session_manifest(manifest_path)
+            payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+        except SessionManifestError:
+            payload = None
+        if payload is not None and payload.tmux is not None:
+            if (
+                payload.agent_id != record.agent_id
+                or payload.registry_generation_id != record.generation_id
+                or payload.tmux.session_name != session_name
+                or (socket_path is not None and payload.tmux.socket_path != socket_path)
+            ):
+                raise SessionManifestError("Registry and manifest tmux authority differ")
+            tmux = payload.tmux
+            socket_path = tmux.socket_path
+            joined = (
+                payload.agent_launch_authority is not None
+                and payload.agent_launch_authority.session_origin == "joined_tmux"
+            )
+    if socket_path is None:
+        raise SessionManifestError("Live tmux inspection requires the recorded owner socket")
+    try:
+        with tmux_server_scope(socket_path):
+            if tmux is None:
+                return probe_tmux_backed_authority(session_name=session_name)
+            return probe_tmux_backed_authority(
+                session_name=session_name,
+                primary_window_id=tmux.primary_window_id,
+                primary_pane_id=tmux.primary_pane_id,
+                primary_window_name=tmux.primary_window_name,
+                joined=joined,
+            )
+    except TmuxCommandError as exc:
+        raise SessionManifestError(
+            f"Cannot inspect owner tmux session `{session_name}`: {exc}"
+        ) from exc
 
 
 def _record_has_readable_manifest_authority(

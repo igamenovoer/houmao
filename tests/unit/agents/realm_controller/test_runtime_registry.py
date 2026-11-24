@@ -12,6 +12,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from houmao.agents.realm_controller.backends.headless_base import HeadlessSessionState
+from houmao.agents.realm_controller.boundary_models import SessionManifestTmuxSectionV1
 from houmao.agents.realm_controller.errors import (
     BackendExecutionError,
     LaunchPlanError,
@@ -154,6 +155,17 @@ class _FakeHeadlessSession:
 
     def update_launch_plan(self, launch_plan: LaunchPlan) -> None:
         self.m_launch_plan = launch_plan
+
+    def set_tmux_binding(self, binding: SessionManifestTmuxSectionV1, repair: object) -> None:
+        """Expose the controller's saved coordinates in the fake backend state."""
+
+        self.m_state = replace(
+            self.m_state,
+            tmux_session_name=binding.session_name,
+            tmux_window_name=binding.primary_window_name,
+            tmux_window_id=binding.primary_window_id,
+            tmux_pane_id=binding.primary_pane_id,
+        )
 
     def configure_stop_force_cleanup(self, *, force_cleanup: bool) -> None:
         self.m_force_cleanup = force_cleanup
@@ -330,8 +342,8 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
         lambda **kwargs: None,
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.has_tmux_session_shared",
-        lambda **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+        "houmao.agents.realm_controller.runtime.tmux_session_exists_shared",
+        lambda **kwargs: True,
     )
 
     controller = start_runtime_session(
@@ -456,6 +468,7 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
 
     before_relaunch = controller.registry_generation_id
     assert before_relaunch is not None
+    stale_controller = resume_runtime_session(session_manifest_path=controller.manifest_path)
     retained_manifest = runtime_root / "retained-predecessor.json"
     retained_manifest.write_bytes(controller.manifest_path.read_bytes())
     with pytest.raises(SessionManifestError, match="no longer names"):
@@ -479,9 +492,9 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     assert relaunched_record.generation_id == controller.registry_generation_id
     manifest_after_relaunch = controller.manifest_path.read_bytes()
     with pytest.raises(SessionManifestError, match="generation changed"):
-        snapshot.interrupt()
+        stale_controller.interrupt()
     with pytest.raises(SessionManifestError, match="generation changed"):
-        snapshot.persist_manifest()
+        stale_controller.persist_manifest()
     with pytest.raises(SessionManifestError, match="no longer names"):
         runtime_module.require_active_managed_control_manifest(
             retained_manifest, generation_id=before_relaunch
@@ -591,8 +604,8 @@ def test_resume_stopped_runtime_session_revives_headless_runtime(
         lambda **kwargs: None,
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.has_tmux_session_shared",
-        lambda **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+        "houmao.agents.realm_controller.runtime.tmux_session_exists_shared",
+        lambda **kwargs: True,
     )
 
     controller = start_runtime_session(
@@ -701,8 +714,8 @@ def test_stopped_revival_uses_saved_mode_and_relaunch_policy_after_profile_edit(
         lambda **kwargs: None,
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.has_tmux_session_shared",
-        lambda **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+        "houmao.agents.realm_controller.runtime.tmux_session_exists_shared",
+        lambda **kwargs: True,
     )
 
     controller = start_runtime_session(
@@ -824,8 +837,8 @@ def test_start_runtime_session_persists_managed_force_mode_in_launch_metadata(
         lambda **kwargs: None,
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.has_tmux_session_shared",
-        lambda **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+        "houmao.agents.realm_controller.runtime.tmux_session_exists_shared",
+        lambda **kwargs: True,
     )
 
     controller = start_runtime_session(
@@ -879,8 +892,8 @@ def test_start_runtime_session_seeds_gateway_defaults_from_manifest_extra(
         lambda **kwargs: None,
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.has_tmux_session_shared",
-        lambda **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+        "houmao.agents.realm_controller.runtime.tmux_session_exists_shared",
+        lambda **kwargs: True,
     )
 
     controller = start_runtime_session(
@@ -933,8 +946,8 @@ def test_external_launch_authority_defers_runtime_publish_but_stop_preserves_sto
         lambda **kwargs: None,
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.has_tmux_session_shared",
-        lambda **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+        "houmao.agents.realm_controller.runtime.tmux_session_exists_shared",
+        lambda **kwargs: True,
     )
 
     controller = start_runtime_session(
@@ -1003,8 +1016,8 @@ def test_send_prompt_preserves_success_when_registry_refresh_fails(
         lambda **kwargs: None,
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.has_tmux_session_shared",
-        lambda **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+        "houmao.agents.realm_controller.runtime.tmux_session_exists_shared",
+        lambda **kwargs: True,
     )
 
     controller = start_runtime_session(
@@ -1060,8 +1073,8 @@ def test_stop_preserves_success_when_registry_cleanup_fails(
         lambda **kwargs: None,
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.has_tmux_session_shared",
-        lambda **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+        "houmao.agents.realm_controller.runtime.tmux_session_exists_shared",
+        lambda **kwargs: True,
     )
 
     controller = start_runtime_session(
@@ -1117,8 +1130,8 @@ def test_refresh_mailbox_bindings_preserves_success_when_registry_refresh_fails(
         lambda **kwargs: None,
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.has_tmux_session_shared",
-        lambda **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+        "houmao.agents.realm_controller.runtime.tmux_session_exists_shared",
+        lambda **kwargs: True,
     )
 
     associate_registry_store(registry_root, tmp_path / "mail-old")
@@ -1175,6 +1188,7 @@ def test_attach_and_detach_gateway_refreshes_registry_payload(
         "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
         lambda **kwargs: None,
     )
+    monkeypatch.setattr(runtime_module, "tmux_session_exists_shared", lambda **_: False)
 
     controller = start_runtime_session(
         agent_def_dir=agent_def_dir,

@@ -14,7 +14,7 @@ from uuid import uuid4
 import pytest
 import yaml
 
-from houmao.execution.tmux import capture_tmux_socket_path, tmux_argv, tmux_subprocess_environment
+from houmao.execution.tmux import TmuxObservationUnavailable, TmuxServer, capture_tmux_socket_path
 
 _REPO = Path(__file__).resolve().parents[3]
 _HELPER = _REPO / "scripts/agents/test-fixtures"
@@ -322,7 +322,7 @@ def test_headless_qualification_reports_missing_selected_environment() -> None:
 def test_fixture_tmux_commands_have_explicit_server_and_clear_inherited_authority(
     fixture_tools: tuple[ModuleType, ModuleType, ModuleType], tmp_path: Path
 ) -> None:
-    """Both direct commands and in-process runtime PATH lookup stay off the shared server."""
+    """Both fixture and runtime adapters honor the prepared restrictive PATH shim."""
 
     _, prepare, launch = fixture_tools
     run_dir = tmp_path / uuid4().hex[:12]
@@ -330,9 +330,9 @@ def test_fixture_tmux_commands_have_explicit_server_and_clear_inherited_authorit
     if not metadata:
         pytest.skip("tmux unavailable")
     run = {"run_dir": str(run_dir), **metadata}
-    command = launch._tmux_command(run, "has-session", "-t", "owned")
+    fixture_server = launch._fixture_tmux(run)
     socket = metadata["tmux_socket_path"]
-    assert command[1:3] == ["-S", socket]
+    assert fixture_server.socket_path == socket
     env = prepare.isolated_environment(
         {},
         run_dir=run_dir,
@@ -351,35 +351,23 @@ def test_fixture_tmux_commands_have_explicit_server_and_clear_inherited_authorit
     try:
         with prepare.command_environment(env):
             assert capture_tmux_socket_path() == socket
-            subprocess.run(
-                tmux_argv(["-f", "/dev/null", "new-session", "-d", "-s", "owned"]),
-                env=tmux_subprocess_environment(),
-                check=True,
-                capture_output=True,
-            )
-            observed = subprocess.run(
-                ["tmux", f"-S{socket}", "display-message", "-p", "-t", "owned", "#{socket_path}"],
-                env=tmux_subprocess_environment(),
-                check=True,
-                capture_output=True,
-                text=True,
+            runtime_server = TmuxServer()
+            runtime_server.start(
+                ["-f", "/dev/null", "new-session", "-d", "-s", "owned"], environment=env
+            ).require_success()
+            observed = runtime_server.checked_command(
+                ["display-message", "-p", "-t", "=owned:", "#{socket_path}"],
             )
             assert observed.stdout.strip() == socket
-            refused = subprocess.run(
-                ["tmux", "-S", str(tmp_path / "foreign.sock"), "has-session", "-t", "owned"],
-                env=tmux_subprocess_environment(),
-                check=False,
-                capture_output=True,
-            )
-            assert refused.returncode == 2
-        subprocess.run(command, env=env, check=True, capture_output=True)
+            foreign = TmuxServer(tmp_path / "foreign.sock")
+            refused = foreign.command(["list-sessions"])
+            assert (refused.returncode, refused.stdout, refused.stderr) == (2, "", "")
+            with pytest.raises(TmuxObservationUnavailable, match="status 2") as failure:
+                foreign.observe_session("owned")
+            assert failure.value.returncode == 2
+        assert fixture_server.observe_session("owned")
     finally:
-        subprocess.run(
-            launch._tmux_command(run, "kill-session", "-t", "owned"),
-            env=env,
-            check=False,
-            capture_output=True,
-        )
+        fixture_server.command(["kill-session", "-t", "=owned"])
 
 
 @pytest.mark.parametrize(

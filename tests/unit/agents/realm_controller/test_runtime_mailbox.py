@@ -332,8 +332,12 @@ def test_start_and_resume_runtime_session_preserve_symlink_mailbox_binding(
     # tmux-backed backends publish gateway capability on resume; the tmux
     # environment write is unrelated to mailbox binding preservation.
     monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.tmux_session_exists_shared",
+        lambda **_: False,
+    )
+    monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
-        lambda *, session_name, env_vars: None,
+        lambda **_: None,
     )
 
     controller = _start_configured_session(

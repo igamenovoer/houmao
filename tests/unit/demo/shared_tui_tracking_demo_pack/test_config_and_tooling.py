@@ -10,6 +10,7 @@ from houmao.demo.shared_tui_tracking_demo_pack.schema_validation import (
     load_schema,
     validate_demo_config_document,
 )
+from houmao.execution.tmux import TmuxCommandResult
 from houmao.shared_tui_tracking.registry import DetectorProfileRegistry, app_id_from_tool
 
 
@@ -96,11 +97,12 @@ def test_launch_tmux_session_can_retain_restart_shell(tmp_path: Path, monkeypatc
 
     commands: list[list[str]] = []
 
-    def fake_tmux(command: list[str]):
+    def fake_tmux(_server: tooling.TmuxServer, command: list[str], **_kwargs: object):
         commands.append(command)
-        return SimpleNamespace(returncode=0, stderr="")
+        return TmuxCommandResult(tuple(command), 0, "", "")
 
-    monkeypatch.setattr(tooling, "run_tmux", fake_tmux)
+    monkeypatch.setattr(tooling.TmuxServer, "start", fake_tmux)
+    monkeypatch.setattr(tooling.TmuxServer, "checked_command", fake_tmux)
     launch_script = tmp_path / "launch helper.sh"
 
     tooling.launch_tmux_session(
@@ -113,4 +115,4 @@ def test_launch_tmux_session_can_retain_restart_shell(tmp_path: Path, monkeypatc
     assert commands[0][-3:-1] == ["bash", "-lc"]
     assert commands[0][-1].endswith("; exec bash --noprofile --norc")
     assert "'" in commands[0][-1]
-    assert commands[1] == ["set-option", "-t", "session", "remain-on-exit", "on"]
+    assert commands[1] == ["set-option", "-t", "=session", "remain-on-exit", "on"]

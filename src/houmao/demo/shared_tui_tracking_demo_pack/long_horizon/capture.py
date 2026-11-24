@@ -15,9 +15,9 @@ from typing import Any
 
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     parse_tmux_control_input,
-    run_tmux,
     send_tmux_control_input,
 )
+from houmao.execution.tmux import TmuxServer
 from houmao.demo.shared_tui_tracking_demo_pack.recorded import RuntimeObserver
 from houmao.terminal_record.runtime_bridge import (
     append_managed_control_input_for_tmux_session,
@@ -329,6 +329,7 @@ def execute_operations(
     frames_dir.mkdir(parents=True, exist_ok=True)
     delivered_by_number: dict[int, str] = {}
     executions: list[OperationExecution] = []
+    server = TmuxServer()
     action_baseline = capture_visible_pane_text(pane_id=pane_id)
     for operation in operations:
         if operation.before_gate != "none":
@@ -360,7 +361,7 @@ def execute_operations(
             )
             delivered_by_number[operation.number] = sequence
         for command in operation.tmux_commands:
-            run_tmux(list(command))
+            server.checked_command(command)
         if operation.after_gate != "none":
             _wait_for_gate(
                 gate=operation.after_gate,

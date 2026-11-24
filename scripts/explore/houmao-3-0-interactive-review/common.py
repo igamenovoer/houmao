@@ -18,6 +18,7 @@ from urllib.request import Request, urlopen
 
 from houmao.agents.realm_controller.errors import GatewayHttpError
 from houmao.agents.realm_controller.gateway_access_runtime import load_gateway_admin_seed
+from houmao.execution.tmux import TmuxCommandResult, TmuxServer
 from houmao.gateway.access import (
     GatewayAdminKey,
     GatewayClientBinding,
@@ -197,69 +198,41 @@ def _default_tmux_socket() -> Path:
     return Path(f"/tmp/tmux-{os.getuid()}/default").resolve()
 
 
-def run_real_tmux(
-    args: Sequence[str],
-    *,
-    socket_path: Path | None = None,
-) -> CommandResult:
-    """Invoke `tmux` directly with inherited `TMUX`/`TMUX_PANE`/`TMUX_TMPDIR` cleared."""
+def isolated_tmux_server(socket_path: Path) -> TmuxServer:
+    """Bind campaign mutations to an explicit socket outside the shared default."""
 
-    real_tmux = str(resolve_real_tmux())
-    cmd = [real_tmux]
-    if socket_path is not None:
-        resolved_socket = socket_path.resolve()
-        if resolved_socket == _default_tmux_socket():
-            raise ValueError("Refusing to target system default tmux socket as isolated")
-        cmd.extend(["-S", str(resolved_socket)])
-    elif args and args[0] == "kill-server":
-        raise ValueError("Refusing to invoke `kill-server` on the default tmux server")
-
-    cmd.extend(args)
-    env = {key: value for key, value in os.environ.items() if key not in _CLEAR_ENV_VARS}
-    completed = subprocess.run(
-        cmd,
-        env=env,
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=15.0,
-    )
-    return CommandResult(
-        argv=tuple(cmd),
-        returncode=completed.returncode,
-        stdout=completed.stdout,
-        stderr=completed.stderr,
-    )
+    resolved_socket = socket_path.resolve()
+    if resolved_socket == _default_tmux_socket():
+        raise ValueError("Refusing to target system default tmux socket as isolated")
+    return TmuxServer(resolved_socket, executable=str(resolve_real_tmux()))
 
 
 def list_tmux_sessions(*, socket_path: Path | None = None) -> list[str]:
     """List session names on either the default server or an explicit isolated socket."""
 
-    res = run_real_tmux(["list-sessions", "-F", "#{session_name}"], socket_path=socket_path)
-    if res.returncode != 0:
-        return []
-    return [line.strip() for line in res.stdout.splitlines() if line.strip()]
+    server = (
+        isolated_tmux_server(socket_path)
+        if socket_path is not None
+        else TmuxServer(_default_tmux_socket(), executable=str(resolve_real_tmux()))
+    )
+    return sorted(server.list_sessions(allow_missing_server=True))
 
 
 def capture_tmux_pane(socket_path: Path, session_name: str, *, lines: int = 40) -> str:
     """Read the last `lines` lines from an isolated tmux session pane."""
 
-    res = run_real_tmux(
-        ["capture-pane", "-p", "-t", session_name, "-S", f"-{max(1, lines)}"],
-        socket_path=socket_path,
+    res = isolated_tmux_server(socket_path).capture_exact(
+        ["capture-pane", "-p", "-t", f"={session_name}:", "-S", f"-{max(1, lines)}"],
     )
     if res.returncode != 0:
         return f"<capture-pane failed rc={res.returncode}: {res.stderr.strip()}>"
     return res.stdout
 
 
-def kill_isolated_tmux_server(socket_path: Path) -> CommandResult:
+def kill_isolated_tmux_server(socket_path: Path) -> TmuxCommandResult:
     """Shut down only the isolated `-S <socket_path>` tmux server."""
 
-    resolved_socket = socket_path.resolve()
-    if resolved_socket == _default_tmux_socket():
-        raise ValueError("Refusing to stop the default tmux server")
-    return run_real_tmux(["kill-server"], socket_path=resolved_socket)
+    return isolated_tmux_server(socket_path).command(["kill-server"])
 
 
 def run_houmao_mgr(

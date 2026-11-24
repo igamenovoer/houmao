@@ -18,7 +18,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from houmao.agents.realm_controller.backends.tmux_runtime import run_tmux
+from houmao.agents.launch_env import owner_tmux_launch_environment
+from houmao.execution.tmux import TmuxServer, tmux_command
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_KIMI_HOME = REPO_ROOT / ".kimi-code"
@@ -78,14 +79,15 @@ def launch_kimi(
     if doctor.returncode != 0:
         raise RuntimeError(f"`kimi doctor config` failed: {doctor.stdout[-400:]}")
 
-    if run_tmux(["has-session", "-t", session_name]).returncode == 0:
+    server = TmuxServer()
+    if session_name in server.list_sessions(allow_missing_server=True):
         raise RuntimeError(f"tmux session `{session_name}` already exists")
 
     posture_args = ["--auto"] if unattended else []
     pane_command = " ".join(
         ["exec", "env", f"KIMI_CODE_HOME={kimi_home}", executable, *posture_args]
     )
-    result = run_tmux(
+    result = server.start(
         [
             "new-session",
             "-d",
@@ -98,19 +100,19 @@ def launch_kimi(
             "-c",
             str(workdir),
             pane_command,
-        ]
+        ],
+        environment=owner_tmux_launch_environment(os.environ),
     )
-    if result.returncode != 0:
-        raise RuntimeError(f"tmux new-session failed: {result.stderr.strip()}")
+    result.require_success()
 
     pane_id = ""
     surface_text = ""
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
-        panes = run_tmux(["list-panes", "-t", session_name, "-F", "#{pane_id}"])
+        panes = tmux_command(["list-panes", "-t", f"={session_name}:", "-F", "#{pane_id}"])
         if panes.returncode == 0 and panes.stdout.strip():
             pane_id = panes.stdout.splitlines()[0].strip()
-            capture = run_tmux(["capture-pane", "-p", "-t", pane_id])
+            capture = tmux_command(["capture-pane", "-p", "-t", pane_id])
             surface_text = capture.stdout if capture.returncode == 0 else ""
             if any(marker in surface_text for marker in _SURFACE_MARKERS):
                 break
@@ -120,7 +122,7 @@ def launch_kimi(
             f"kimi surface did not stabilize within {timeout_seconds}s in `{session_name}`"
         )
 
-    pane_pid_row = run_tmux(["display-message", "-p", "-t", pane_id, "#{pane_pid}"])
+    pane_pid_row = tmux_command(["display-message", "-p", "-t", pane_id, "#{pane_pid}"])
     pane_pid = int(pane_pid_row.stdout.strip()) if pane_pid_row.returncode == 0 else None
 
     metadata: dict[str, Any] = {
@@ -169,4 +171,4 @@ def launch_kimi(
 def kill_session(*, session_name: str) -> None:
     """Tear down the campaign-owned tmux session."""
 
-    run_tmux(["kill-session", "-t", session_name])
+    tmux_command(["kill-session", "-t", f"={session_name}"])

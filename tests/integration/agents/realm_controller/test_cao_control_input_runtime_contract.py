@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,6 +12,7 @@ from houmao.agents.realm_controller.backends.cao_rest import (
 )
 from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
 from houmao.cao.models import CaoTerminal
+from houmao.execution.tmux import TmuxCommandResult
 from houmao.terminal_record.models import (
     DEFAULT_SAMPLE_INTERVAL_SECONDS,
     TERMINAL_RECORD_SCHEMA_VERSION,
@@ -76,18 +76,12 @@ def test_cao_control_input_uses_persisted_tmux_window_without_live_lookup(
             raise AssertionError("persisted tmux_window_name should avoid CAO fallback")
 
     def _fake_run_tmux(
+        _server: object,
         args: list[str],
-        *,
-        timeout_seconds: float | None = None,
-    ) -> subprocess.CompletedProcess[str]:
-        del timeout_seconds
+        **_kwargs: bool,
+    ) -> TmuxCommandResult:
         commands.append(args)
-        return subprocess.CompletedProcess(
-            args=["tmux", *args],
-            returncode=0,
-            stdout="",
-            stderr="",
-        )
+        return TmuxCommandResult(tuple(args), 0, "", "")
 
     monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.cao_rest.CaoRestClient",
@@ -104,12 +98,12 @@ def test_cao_control_input_uses_persisted_tmux_window_without_live_lookup(
         ],
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.backends.tmux_runtime.run_tmux",
+        "houmao.execution.tmux.TmuxServer.command",
         _fake_run_tmux,
     )
     monkeypatch.setattr(
-        "houmao.terminal_record.runtime_bridge.read_tmux_session_environment_value",
-        lambda *, session_name, variable_name: None,
+        "houmao.terminal_record.runtime_bridge._read_terminal_record_live_state_path",
+        lambda _tmux, _name: None,
     )
 
     session = CaoRestSession(
@@ -126,9 +120,9 @@ def test_cao_control_input_uses_persisted_tmux_window_without_live_lookup(
     assert result.status == "ok"
     assert result.action == "control_input"
     assert commands == [
-        ["send-keys", "-t", "@2", "-l", "/model"],
-        ["send-keys", "-t", "@2", "Enter"],
-        ["send-keys", "-t", "@2", "Down"],
+        ["send-keys", "-t", "@2", "-l", "--", "/model"],
+        ["send-keys", "-t", "@2", "--", "Enter"],
+        ["send-keys", "-t", "@2", "--", "Down"],
     ]
     assert session.state.tmux_window_name == "developer-1"
 
@@ -177,18 +171,12 @@ def test_cao_control_input_falls_back_to_live_terminal_metadata(
         ]
 
     def _fake_run_tmux(
+        _server: object,
         args: list[str],
-        *,
-        timeout_seconds: float | None = None,
-    ) -> subprocess.CompletedProcess[str]:
-        del timeout_seconds
+        **_kwargs: bool,
+    ) -> TmuxCommandResult:
         commands.append(args)
-        return subprocess.CompletedProcess(
-            args=["tmux", *args],
-            returncode=0,
-            stdout="",
-            stderr="",
-        )
+        return TmuxCommandResult(tuple(args), 0, "", "")
 
     monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.cao_rest.CaoRestClient",
@@ -199,12 +187,12 @@ def test_cao_control_input_falls_back_to_live_terminal_metadata(
         _fake_list_tmux_windows,
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.backends.tmux_runtime.run_tmux",
+        "houmao.execution.tmux.TmuxServer.command",
         _fake_run_tmux,
     )
     monkeypatch.setattr(
-        "houmao.terminal_record.runtime_bridge.read_tmux_session_environment_value",
-        lambda *, session_name, variable_name: None,
+        "houmao.terminal_record.runtime_bridge._read_terminal_record_live_state_path",
+        lambda _tmux, _name: None,
     )
 
     session = CaoRestSession(
@@ -219,7 +207,7 @@ def test_cao_control_input_falls_back_to_live_terminal_metadata(
     result = session.send_input_ex("<[Escape]>")
 
     assert result.status == "ok"
-    assert commands == [["send-keys", "-t", "@7", "Escape"]]
+    assert commands == [["send-keys", "-t", "@7", "--", "Escape"]]
     assert terminal_lookup_count["count"] == 1
     assert session.state.tmux_window_name == "developer-7"
 
@@ -336,18 +324,12 @@ def test_cao_control_input_appends_managed_event_for_active_terminal_recorder(
             raise AssertionError("persisted tmux_window_name should avoid CAO fallback")
 
     def _fake_run_tmux(
+        _server: object,
         args: list[str],
-        *,
-        timeout_seconds: float | None = None,
-    ) -> subprocess.CompletedProcess[str]:
-        del timeout_seconds
+        **_kwargs: bool,
+    ) -> TmuxCommandResult:
         commands.append(args)
-        return subprocess.CompletedProcess(
-            args=["tmux", *args],
-            returncode=0,
-            stdout="",
-            stderr="",
-        )
+        return TmuxCommandResult(tuple(args), 0, "", "")
 
     monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.cao_rest.CaoRestClient",
@@ -364,12 +346,12 @@ def test_cao_control_input_appends_managed_event_for_active_terminal_recorder(
         ],
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.backends.tmux_runtime.run_tmux",
+        "houmao.execution.tmux.TmuxServer.command",
         _fake_run_tmux,
     )
     monkeypatch.setattr(
-        "houmao.terminal_record.runtime_bridge.read_tmux_session_environment_value",
-        lambda *, session_name, variable_name: str(paths.live_state_path),
+        "houmao.terminal_record.runtime_bridge._read_terminal_record_live_state_path",
+        lambda _tmux, _name: paths.live_state_path,
     )
 
     session = CaoRestSession(
@@ -389,8 +371,8 @@ def test_cao_control_input_appends_managed_event_for_active_terminal_recorder(
 
     assert result.status == "ok"
     assert commands == [
-        ["send-keys", "-t", "@2", "-l", "/model"],
-        ["send-keys", "-t", "@2", "Enter"],
+        ["send-keys", "-t", "@2", "-l", "--", "/model"],
+        ["send-keys", "-t", "@2", "--", "Enter"],
     ]
     assert len(payload) == 1
     assert payload[0]["event_id"] == "i000001"

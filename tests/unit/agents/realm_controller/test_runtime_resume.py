@@ -371,7 +371,7 @@ def test_resume_local_interactive_uses_persisted_tmux_state(
     assert controller.launch_plan.backend == "local_interactive"
 
 
-def test_resume_local_interactive_restores_join_launch_window_name_when_manifest_fields_are_missing(
+def test_resume_local_interactive_ignores_join_window_name_without_a_saved_binding_name(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -430,8 +430,8 @@ def test_resume_local_interactive_restores_join_launch_window_name_when_manifest
         session_manifest_path=session_path,
     )
 
-    assert captured["state"].tmux_window_name == "manual"
-    assert controller.launch_plan.metadata["tmux_window_name"] == "manual"
+    assert captured["state"].tmux_window_name is None
+    assert controller.launch_plan.metadata["tmux_window_name"] is None
 
 
 def test_resume_unattended_local_interactive_reuses_plan_without_mutating_owned_files(

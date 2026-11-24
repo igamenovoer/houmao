@@ -9,7 +9,7 @@ import json
 import os
 from pathlib import Path
 import pwd
-from typing import get_args
+from typing import TYPE_CHECKING, get_args
 
 from houmao.execution.models import (
     ControllerScopeV1,
@@ -18,6 +18,9 @@ from houmao.execution.models import (
     ExecutionProfileV1,
 )
 from houmao.execution.tmux import tmux_server_scope
+
+if TYPE_CHECKING:
+    from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
 
 _BINDING: ContextVar[ExecutionBindingV1 | None] = ContextVar(
     "houmao_execution_binding", default=None
@@ -77,8 +80,8 @@ def execution_binding_scope(binding: ExecutionBindingV1 | None) -> Iterator[None
 
 
 @contextmanager
-def persisted_execution_scope(manifest_path: Path) -> Iterator[None]:
-    """Restore owner and socket before independent services probe a local runtime."""
+def persisted_execution_scope(manifest_path: Path) -> Iterator[SessionManifestPayloadV4]:
+    """Yield the parsed manifest while its owner and socket are selected."""
 
     from houmao.agents.realm_controller.manifest import (
         load_session_manifest,
@@ -90,11 +93,13 @@ def persisted_execution_scope(manifest_path: Path) -> Iterator[None]:
     binding = payload.runtime.execution_binding
     validate_execution_owner(binding)
     socket_path = payload.tmux.socket_path if payload.tmux is not None else None
-    if binding is not None and binding.tmux_socket is not None and payload.tmux is not None:
+    if socket_path is None:
+        raise ValueError("Persisted tmux scope requires a saved tmux socket")
+    if binding is not None and binding.tmux_socket is not None:
         if socket_path != binding.tmux_socket:
             raise ValueError("Persisted tmux socket differs from execution binding")
     with execution_binding_scope(binding), tmux_server_scope(socket_path):
-        yield
+        yield payload
 
 
 def parse_execution_binding(value: object) -> ExecutionBindingV1 | None:

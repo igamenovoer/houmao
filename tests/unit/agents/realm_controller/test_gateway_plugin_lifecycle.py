@@ -196,6 +196,10 @@ def _runtime(
         distribution_version="1.0",
     )
     monkeypatch.setattr(host_module, "load_plugin_definition", lambda _name: loaded)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "HOUMAO-plugin-lifecycle",
+    )
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=paths.gateway_root, host="127.0.0.1", port=port
     )

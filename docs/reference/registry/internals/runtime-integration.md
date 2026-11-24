@@ -14,6 +14,29 @@ The runtime, not the backend helpers, owns shared-registry publication.
 
 That keeps the registry aligned with the same layer that already owns manifest persistence and stable discovery metadata.
 
+## Managed Terminal Binding
+
+The manifest's `tmux` section records the owner-local socket, session name, primary window role and name, and window and pane IDs. Runtime operations restore those coordinates together. The registry derives its terminal socket and session name from that binding. Backend state and launch authority retain the coordinate fields needed by their existing record formats. The gateway stores its auxiliary window separately in the gateway instance record.
+
+Live inspection checks the saved handles in window `0` on the recorded socket. Owned launches can use a nonzero pane index. Joined sessions preserve the adopted window name and pane-zero contract. A missing socket prevents live control even when the caller runs inside tmux.
+
+Read-only inspection can report a unique replacement pane while leaving the manifest and registry untouched. An owner-authorized control operation can repair stale handles after checking the replacement again. The manifest write compares the owner, generation, and prior binding under lock and updates both handles together. The registry refresh uses the committed binding.
+
+## Terminal Operations
+
+Python callers use the socket-bound adapter in `houmao.execution.tmux`. Checked libtmux commands preserve exit status when a higher-level method loses it. Pane observations distinguish confirmed absence from unavailable or invalid results. Cleanup requires checked evidence and uses the recorded owner's socket.
+
+Native invocations remain at the adapter boundary where the process contract requires them.
+
+| Operation | Required Process Behavior |
+| --- | --- |
+| Server or session birth | Start the tmux client with a curated child environment. |
+| Prompt buffer load | Pass prompt bytes through stdin. |
+| Deadline-bound wait | Time out the waiting tmux client without blocking the caller. |
+| Headless worker notification | Send the completion signal from the delegated pane shell. |
+| Exact capture | Preserve trailing blank rows for compatibility and terminal recording. |
+| Recorder attach | Hand off to the recorder's PTY with the selected socket and session. |
+
 ## Start And Resume
 
 For tmux-backed sessions, the runtime keeps one `registry_generation_id` in the controller and persists it in the session manifest.

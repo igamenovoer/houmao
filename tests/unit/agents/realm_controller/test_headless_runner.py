@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import json
 from pathlib import Path
+from types import SimpleNamespace
 import signal
 import subprocess
 
@@ -184,8 +185,8 @@ def test_headless_runner_preserves_current_provider_raw_records_while_canonicali
     monkeypatch.setattr(headless_runner_module, "run_tmux_shared", _fake_run_tmux)
     monkeypatch.setattr(
         headless_runner_module,
-        "prepare_headless_agent_window_shared",
-        lambda **_kwargs: None,
+        "resolve_primary_tmux_surface_shared",
+        lambda **_kwargs: SimpleNamespace(pane_id="%7"),
     )
     monkeypatch.setattr(
         headless_runner_module,
@@ -248,8 +249,10 @@ def test_headless_runner_tmux_persists_process_metadata(
     monkeypatch.setattr(headless_runner_module, "run_tmux_shared", _fake_run_tmux)
     monkeypatch.setattr(
         headless_runner_module,
-        "prepare_headless_agent_window_shared",
-        lambda *, session_name: prepared_sessions.append(session_name),
+        "resolve_primary_tmux_surface_shared",
+        lambda *, session_name: (
+            (prepared_sessions.append(session_name)) or SimpleNamespace(pane_id="%7")
+        ),
     )
     monkeypatch.setattr(
         headless_runner_module,
@@ -280,9 +283,7 @@ def test_headless_runner_tmux_persists_process_metadata(
     assert persisted["child_pid"] == result.process_metadata.child_pid
     assert persisted["launched_at_utc"]
     assert prepared_sessions == ["HOUMAO-headless-test"]
-    assert any(
-        call[:4] == ["respawn-pane", "-k", "-t", "HOUMAO-headless-test:0.0"] for call in tmux_calls
-    )
+    assert any(call[:4] == ["respawn-pane", "-k", "-t", "%7"] for call in tmux_calls)
     assert not any(call[:1] == ["new-window"] for call in tmux_calls)
 
 
@@ -329,8 +330,10 @@ def test_headless_runner_tmux_mirrors_output_to_console_and_files(
     monkeypatch.setattr(headless_runner_module, "run_tmux_shared", _fake_run_tmux)
     monkeypatch.setattr(
         headless_runner_module,
-        "prepare_headless_agent_window_shared",
-        lambda *, session_name: prepared_sessions.append(session_name),
+        "resolve_primary_tmux_surface_shared",
+        lambda *, session_name: (
+            (prepared_sessions.append(session_name)) or SimpleNamespace(pane_id="%7")
+        ),
     )
     monkeypatch.setattr(
         headless_runner_module,
@@ -358,10 +361,7 @@ def test_headless_runner_tmux_mirrors_output_to_console_and_files(
     assert "visible-stdout" in captured["stdout"]
     assert "visible-stderr" in captured["stderr"]
     assert prepared_sessions == ["HOUMAO-headless-visible-output"]
-    assert any(
-        call[:4] == ["respawn-pane", "-k", "-t", "HOUMAO-headless-visible-output:0.0"]
-        for call in tmux_calls
-    )
+    assert any(call[:4] == ["respawn-pane", "-k", "-t", "%7"] for call in tmux_calls)
     assert not any(call[:1] == ["new-window"] for call in tmux_calls)
 
 
@@ -396,8 +396,10 @@ def test_headless_runner_tmux_reuses_stable_agent_pane_across_turns(
     monkeypatch.setattr(headless_runner_module, "run_tmux_shared", _fake_run_tmux)
     monkeypatch.setattr(
         headless_runner_module,
-        "prepare_headless_agent_window_shared",
-        lambda *, session_name: prepared_sessions.append(session_name),
+        "resolve_primary_tmux_surface_shared",
+        lambda *, session_name: (
+            (prepared_sessions.append(session_name)) or SimpleNamespace(pane_id="%7")
+        ),
     )
     monkeypatch.setattr(
         headless_runner_module,
@@ -419,8 +421,8 @@ def test_headless_runner_tmux_reuses_stable_agent_pane_across_turns(
         assert result.returncode == 0
 
     assert respawn_targets == [
-        "HOUMAO-headless-reuse:0.0",
-        "HOUMAO-headless-reuse:0.0",
+        "%7",
+        "%7",
     ]
     assert prepared_sessions == [
         "HOUMAO-headless-reuse",
@@ -488,8 +490,8 @@ def test_headless_runner_tmux_bridge_preserves_raw_stdout_and_writes_canonical_e
     monkeypatch.setattr(headless_runner_module, "run_tmux_shared", _fake_run_tmux)
     monkeypatch.setattr(
         headless_runner_module,
-        "prepare_headless_agent_window_shared",
-        lambda **_kwargs: None,
+        "resolve_primary_tmux_surface_shared",
+        lambda **_kwargs: SimpleNamespace(pane_id="%7"),
     )
     monkeypatch.setattr(
         headless_runner_module,
@@ -547,12 +549,12 @@ def test_headless_runner_interrupt_fallback_uses_stable_agent_pane(
     monkeypatch.setattr(headless_runner_module, "run_tmux_shared", _fake_run_tmux)
 
     runner = HeadlessCliRunner()
-    runner._active_tmux_pane_target = "HOUMAO-headless-test:0.0"  # type: ignore[attr-defined]
+    runner._active_tmux_pane_target = "%7"  # type: ignore[attr-defined]
 
     result = runner.interrupt()
 
     assert result.status == "ok"
-    assert tmux_calls == [["send-keys", "-t", "HOUMAO-headless-test:0.0", "C-c"]]
+    assert tmux_calls == [["send-keys", "-t", "%7", "C-c"]]
 
 
 def test_headless_runner_terminate_fallback_uses_stable_agent_pane(
@@ -567,9 +569,9 @@ def test_headless_runner_terminate_fallback_uses_stable_agent_pane(
     monkeypatch.setattr(headless_runner_module, "run_tmux_shared", _fake_run_tmux)
 
     runner = HeadlessCliRunner()
-    runner._active_tmux_pane_target = "HOUMAO-headless-test:0.0"  # type: ignore[attr-defined]
+    runner._active_tmux_pane_target = "%7"  # type: ignore[attr-defined]
 
     result = runner.terminate()
 
     assert result.status == "ok"
-    assert tmux_calls == [["send-keys", "-t", "HOUMAO-headless-test:0.0", "C-c"]]
+    assert tmux_calls == [["send-keys", "-t", "%7", "C-c"]]

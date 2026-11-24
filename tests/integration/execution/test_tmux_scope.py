@@ -20,15 +20,19 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     list_tmux_sessions,
     publish_tmux_launch_environment,
     read_tmux_session_environment_value,
-    run_tmux,
     set_tmux_session_environment,
 )
 from houmao.agents.realm_controller.backends.local_interactive import LocalInteractiveSession
-from houmao.agents.realm_controller.backends import tmux_runtime
 from houmao.agents.realm_controller.errors import BackendExecutionError
 from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
 from houmao.agents.launch_env import owner_launch_baseline
-from houmao.execution.tmux import tmux_server_scope
+from houmao.execution.tmux import (
+    TmuxCommandResult,
+    TmuxObservationUnavailable,
+    TmuxServer,
+    tmux_command,
+    tmux_server_scope,
+)
 
 
 @pytest.fixture
@@ -44,7 +48,7 @@ def isolated_launch_tmux(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
             try:
                 yield
             finally:
-                run_tmux(["kill-server"])
+                tmux_command(["kill-server"])
 
 
 def _managed_tui_plan(tmp_path: Path, *, args: list[str]) -> LaunchPlan:
@@ -77,12 +81,12 @@ def test_managed_tmux_launch_masks_private_and_expired_keys(
     monkeypatch.setenv("FIXTURE_PROVIDER_TOKEN", "ambient-secret")
     plan = _managed_tui_plan(tmp_path, args=[])
     create_tmux_session(session_name="owned", working_directory=tmp_path, launch_plan=plan)
-    assert run_tmux(["show-environment", "-g", "FIXTURE_PROVIDER_TOKEN"]).returncode != 0
+    assert tmux_command(["show-environment", "-g", "FIXTURE_PROVIDER_TOKEN"]).returncode != 0
     assert (
-        run_tmux(["set-environment", "-g", "FIXTURE_PROVIDER_TOKEN", "prior-server"]).returncode
+        tmux_command(["set-environment", "-g", "FIXTURE_PROVIDER_TOKEN", "prior-server"]).returncode
         == 0
     )
-    assert run_tmux(["set-environment", "-g", "EXPIRED", "prior-server"]).returncode == 0
+    assert tmux_command(["set-environment", "-g", "EXPIRED", "prior-server"]).returncode == 0
     set_tmux_session_environment(session_name="owned", env_vars={"USER_SETTING": "preserved"})
     assert plan.public_env is not None
     publish_tmux_launch_environment(
@@ -96,7 +100,7 @@ def test_managed_tmux_launch_masks_private_and_expired_keys(
     result_path = tmp_path / "pane-env"
     command = 'printf "%s\\n" "${FIXTURE_PROVIDER_TOKEN-unset}" "${EXPIRED-unset}" '
     command += f'"$USER_SETTING" "$TERMINAL_SEMICOLON" >{shlex.quote(str(result_path))}'
-    launched = run_tmux(["new-window", "-d", "-t", "owned:", command])
+    launched = tmux_command(["new-window", "-d", "-t", "owned:", command])
     assert launched.returncode == 0, launched.stderr
     _wait_for_launch_result(result_path)
     assert result_path.read_text().splitlines() == ["unset", "unset", "preserved", "literal;"]
@@ -134,7 +138,9 @@ def test_managed_tui_starts_with_published_and_private_values(
         "synthetic-launch-secret",
         "unset",
     ]
-    pane_command = run_tmux(["display-message", "-p", "-t", "owned:0.0", "#{pane_start_command}"])
+    pane_command = tmux_command(
+        ["display-message", "-p", "-t", "owned:0.0", "#{pane_start_command}"]
+    )
     assert pane_command.returncode == 0
     assert "synthetic-launch-secret" not in pane_command.stdout
     assert (
@@ -152,14 +158,18 @@ def test_managed_tui_aborts_on_tmux_publication_error(
 ) -> None:
     """Suppress tmux diagnostics that echo values and clean the failed owned session."""
 
-    def fail_publication(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+    command = TmuxServer.command
+
+    def fail_publication(
+        self: TmuxServer, args: list[str], *, sensitive: bool = False, no_start: bool = False
+    ) -> TmuxCommandResult:
         """Return a value-bearing diagnostic from the failed publication command."""
 
         if args[:1] == ["set-environment"] and args[-2:-1] == ["http_proxy"]:
-            return subprocess.CompletedProcess(args, 1, "", "tmux rejected value fixture-token")
-        return run_tmux(args, **kwargs)  # type: ignore[arg-type]
+            return TmuxCommandResult(tuple(args), 1, "", "tmux rejected value fixture-token")
+        return command(self, args, sensitive=sensitive, no_start=no_start)
 
-    monkeypatch.setattr(tmux_runtime, "run_tmux", fail_publication)
+    monkeypatch.setattr(TmuxServer, "command", fail_publication)
     marker = tmp_path / "started"
     plan = _managed_tui_plan(tmp_path, args=["-c", f"touch {shlex.quote(str(marker))}"])
     with pytest.raises(
@@ -201,20 +211,52 @@ def test_same_session_names_route_to_recorded_socket(monkeypatch: pytest.MonkeyP
     with tempfile.TemporaryDirectory(prefix="houmao-execution-tmux-") as directory:
         sockets = [Path(directory) / f"owner-{index}.sock" for index in range(2)]
         try:
+            primary_ids: list[tuple[str | None, str, str]] = []
             for index, socket in enumerate(sockets):
                 with tmux_server_scope(socket):
-                    started = run_tmux(["-f", "/dev/null", "new-session", "-d", "-s", "same-name"])
+                    server = TmuxServer()
+                    started = server.start(
+                        [
+                            "-f",
+                            "/dev/null",
+                            "new-session",
+                            "-d",
+                            "-s",
+                            "same-name",
+                            "-n",
+                            "primary",
+                        ],
+                        environment=clean_env,
+                    )
                     assert started.returncode == 0, started.stderr
-                    assert run_tmux(["new-session", "-d", "-s", "sibling"]).returncode == 0
-                    assert run_tmux(["new-session", "-d", "-s", "same-name-other"]).returncode == 0
+                    server.start(
+                        ["new-session", "-d", "-s", "sibling"], environment=clean_env
+                    ).require_success()
+                    server.start(
+                        ["new-session", "-d", "-s", "same-name-other"], environment=clean_env
+                    ).require_success()
+                    server.checked_command(
+                        ["new-window", "-d", "-t", "=same-name:", "-n", f"auxiliary-{index}"]
+                    )
+                    panes = server.observe_session("same-name")
+                    assert panes is not None
+                    assert {pane.window_name for pane in panes} == {"primary", f"auxiliary-{index}"}
+                    primary = next(pane for pane in panes if pane.window_name == "primary")
+                    primary_ids.append((primary.session_id, primary.window_id, primary.pane_id))
                     set_tmux_session_environment(
                         session_name="same-name", env_vars={"HOUMAO_TEST_OWNER": str(index)}
                     )
+            assert primary_ids[0] == primary_ids[1]
             # Simulate an operator enclosed in the other server. Explicit scope
             # must still select owner 0 and remove inherited native selectors.
             monkeypatch.setenv("TMUX", f"{sockets[1]},123,0")
             monkeypatch.setenv("TMUX_PANE", "%0")
             with tmux_server_scope(sockets[0]):
+                server = TmuxServer()
+                panes = server.observe_session("same-name")
+                assert panes is not None
+                assert {pane.window_name for pane in panes} == {"primary", "auxiliary-0"}
+                assert server.observe_session("same") is None
                 assert (
                     read_tmux_session_environment_value(
                         session_name="same-name", variable_name="HOUMAO_TEST_OWNER"
@@ -224,6 +266,7 @@ def test_same_session_names_route_to_recorded_socket(monkeypatch: pytest.MonkeyP
                 assert list_tmux_sessions() == {"same-name", "same-name-other", "sibling"}
                 kill_tmux_session(session_name="same-name")
                 assert has_tmux_session(session_name="same-name").returncode == 1
+                assert server.observe_session("same-name") is None
                 assert has_tmux_session(session_name="sibling").returncode == 0
                 with pytest.raises(TmuxCommandError):
                     kill_tmux_session(session_name="same-name")
@@ -236,6 +279,12 @@ def test_same_session_names_route_to_recorded_socket(monkeypatch: pytest.MonkeyP
                     == "1"
                 )
                 assert list_tmux_sessions() == {"same-name", "same-name-other", "sibling"}
+            assert os.environ["TMUX"] == f"{sockets[1]},123,0"
+            assert os.environ["TMUX_PANE"] == "%0"
+            inaccessible = TmuxServer(Path(directory) / "inaccessible.sock")
+            assert inaccessible.list_sessions(allow_missing_server=True) == set()
+            with pytest.raises(TmuxObservationUnavailable):
+                inaccessible.observe_session("same-name")
         finally:
             # These two sockets were created exclusively by this fixture. Never
             # clean up an inherited/default server or a non-fixture session.
@@ -247,3 +296,80 @@ def test_same_session_names_route_to_recorded_socket(monkeypatch: pytest.MonkeyP
                     check=False,
                     timeout=10,
                 )
+
+
+def test_checked_pane_input_preserves_bytes_and_explicit_enter(
+    isolated_launch_tmux: None, tmp_path: Path
+) -> None:
+    """Deliver literal input and bracketed paste to a real isolated raw-mode pane."""
+
+    ready, received = tmp_path / "ready", tmp_path / "received"
+    shell = (
+        "stty -echo -icanon -icrnl min 1 time 0 && "
+        "printf '\\033[?2004h' && "
+        f"touch {shlex.quote(str(ready))} && "
+        f"exec cat > {shlex.quote(str(received))}"
+    )
+    server = TmuxServer()
+    server.start(
+        ["-f", "/dev/null", "new-session", "-d", "-s", "input", shell],
+        environment=owner_launch_baseline(os.environ),
+    ).require_success()
+    deadline = time.monotonic() + 5
+    while (not ready.exists() or not received.exists()) and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert ready.exists() and received.exists()
+
+    panes = server.observe_session("input")
+    assert panes is not None and len(panes) == 1
+    pane_id = panes[0].pane_id
+    literal = "-literal;"
+    prompt = "pasted; -- token"
+    server.send_keys(pane_id, literal, literal=True)
+    server.load_buffer("prompt", prompt)
+    server.paste_buffer("prompt", pane_id)
+    server.delete_buffer("prompt")
+    assert server.command(["show-buffer", "-b", "prompt"]).returncode != 0
+
+    expected = literal.encode() + b"\x1b[200~" + prompt.encode() + b"\x1b[201~"
+    deadline = time.monotonic() + 5
+    while received.stat().st_size < len(expected) and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert received.read_bytes() == expected
+
+    server.send_keys(pane_id, "Enter")
+    deadline = time.monotonic() + 5
+    while received.stat().st_size == len(expected) and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert received.read_bytes() == expected + b"\r"
+    assert server.capture_pane(pane_id, history=True, escape_sequences=True) == ""
+    exact = server.capture_exact(["capture-pane", "-p", "-t", pane_id])
+    exact.require_success()
+    assert panes[0].pane_height is not None
+    assert exact.stdout == "\n" * panes[0].pane_height
+
+
+def test_cold_default_server_creates_owned_native_socket_directory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Allow native initialization of a fresh, explicitly isolated default location."""
+
+    if shutil.which("tmux") is None:
+        pytest.skip("tmux is required for execution-context routing integration")
+    monkeypatch.delenv("TMUX", raising=False)
+    monkeypatch.delenv("TMUX_PANE", raising=False)
+    with tempfile.TemporaryDirectory(prefix="houmao-default-tmux-") as directory:
+        monkeypatch.setenv("TMUX_TMPDIR", directory)
+        server = TmuxServer()
+        socket = Path(server.socket_path)
+        assert socket == Path(directory) / f"tmux-{os.getuid()}" / "default"
+        assert not socket.parent.exists()
+        try:
+            server.start(
+                ["-f", "/dev/null", "new-session", "-d", "-s", "owned"],
+                environment=os.environ,
+            ).require_success()
+            assert socket.is_socket()
+            assert server.list_sessions() == {"owned"}
+        finally:
+            server.command(["kill-server"])

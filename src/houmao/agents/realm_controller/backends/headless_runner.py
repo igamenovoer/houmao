@@ -20,7 +20,9 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from houmao.execution.tmux import tmux_argv
+from houmao.execution.tmux import tmux_command as run_tmux_shared
+
+from houmao.execution.tmux import TmuxServer
 
 from houmao.agents.realm_controller.backends.dispatch_control import (
     HeadlessDispatchControl,
@@ -60,9 +62,7 @@ from .headless_output import (
 from .tmux_runtime import (
     HEADLESS_AGENT_WINDOW_NAME,
     TmuxCommandError,
-    headless_agent_pane_target as headless_agent_pane_target_shared,
-    prepare_headless_agent_window as prepare_headless_agent_window_shared,
-    run_tmux as run_tmux_shared,
+    resolve_primary_tmux_surface as resolve_primary_tmux_surface_shared,
     tmux_error_detail as tmux_error_detail_shared,
     wait_for_tmux_signal as wait_for_tmux_signal_shared,
 )
@@ -615,7 +615,7 @@ class HeadlessCliRunner:
                     "set +e",
                     f"cd {shlex.quote(str(cwd))}",
                     bridge_command_text,
-                    f"{shlex.join(tmux_argv(['wait-for', '-S', wait_signal]))} >/dev/null 2>&1 || true",
+                    f"{shlex.join(TmuxServer().signal_invocation(wait_signal))} >/dev/null 2>&1 || true",
                     'idle_shell="${SHELL:-/bin/sh}"',
                     'exec "$idle_shell" -l',
                 ]
@@ -625,12 +625,9 @@ class HeadlessCliRunner:
             if pane_target is None:
                 try:
                     self._require_dispatch_allowed()
-                    surface = prepare_headless_agent_window_shared(session_name=tmux_session_name)
-                    pane_target = (
-                        surface.pane_id
-                        if surface is not None
-                        else headless_agent_pane_target_shared(session_name=tmux_session_name)
-                    )
+                    pane_target = resolve_primary_tmux_surface_shared(
+                        session_name=tmux_session_name,
+                    ).pane_id
                 except TmuxCommandError as exc:
                     raise BackendExecutionError(
                         f"Failed to prepare tmux headless agent surface in `{tmux_session_name}`: {exc}"
@@ -884,7 +881,7 @@ class HeadlessCliRunner:
                 'wait "$stderr_tee_pid" || true',
                 f"printf '%s\\n' \"$status\" > {shlex.quote(str(status_tmp_path))}",
                 (f"mv {shlex.quote(str(status_tmp_path))} {shlex.quote(str(status_path))}"),
-                f"{shlex.join(tmux_argv(['wait-for', '-S', wait_signal]))} >/dev/null 2>&1 || true",
+                f"{shlex.join(TmuxServer().signal_invocation(wait_signal))} >/dev/null 2>&1 || true",
                 'idle_shell="${SHELL:-/bin/sh}"',
                 'exec "$idle_shell" -l',
             ]
@@ -893,12 +890,9 @@ class HeadlessCliRunner:
 
         if pane_target is None:
             try:
-                surface = prepare_headless_agent_window_shared(session_name=tmux_session_name)
-                pane_target = (
-                    surface.pane_id
-                    if surface is not None
-                    else headless_agent_pane_target_shared(session_name=tmux_session_name)
-                )
+                pane_target = resolve_primary_tmux_surface_shared(
+                    session_name=tmux_session_name,
+                ).pane_id
             except TmuxCommandError as exc:
                 raise BackendExecutionError(
                     f"Failed to prepare tmux headless agent surface in `{tmux_session_name}`: {exc}"

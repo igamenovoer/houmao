@@ -166,12 +166,12 @@ class CompatibilityControlCore:
             agent_profile=agent_profile,
         )
         self.m_tmux.ensure_tmux_available()
+        window = self.m_tmux.create_session_with_window(
+            session_name=resolved_session_name,
+            window_name=window_name,
+            working_directory=resolved_working_directory,
+        )
         try:
-            window = self.m_tmux.create_session_with_window(
-                session_name=resolved_session_name,
-                window_name=window_name,
-                working_directory=resolved_working_directory,
-            )
             terminal_record = CompatibilityTerminalRecord(
                 terminal_id=self._generate_terminal_id(),
                 session_name=resolved_session_name,
@@ -192,7 +192,10 @@ class CompatibilityControlCore:
             CompatibilityProviderError,
             CompatibilityTmuxError,
         ):
-            self.m_tmux.kill_session(session_name=resolved_session_name)
+            try:
+                self.m_tmux.kill_window(window_id=window.window_id)
+            except CompatibilityTmuxError:
+                pass
             raise
 
         with self.m_lock:

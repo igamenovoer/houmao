@@ -8,10 +8,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+from houmao.execution.tmux import tmux_command as run_tmux
+
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     read_tmux_session_environment_value,
-    run_tmux,
     set_tmux_session_environment,
     tmux_session_exists,
 )

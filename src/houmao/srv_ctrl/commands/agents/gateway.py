@@ -5,11 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
-import subprocess
 import time
 from typing import Any, Callable, Literal, TypeVar
 
-from houmao.execution.tmux import tmux_argv, tmux_subprocess_environment
+from houmao.execution.tmux import enclosing_tmux_session
 
 import click
 
@@ -1785,44 +1784,26 @@ def _require_current_tmux_session_name() -> str:
     """Return the current tmux session name or fail clearly."""
 
     try:
-        environment = tmux_subprocess_environment()
-        extra: dict[str, Any] = {"env": environment} if environment is not None else {}
-        result = subprocess.run(
-            tmux_argv(["display-message", "-p", "#S"]),
-            capture_output=True,
-            check=True,
-            text=True,
-            **extra,
-        )
-    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        owner = enclosing_tmux_session()
+    except (TmuxCommandError, ValueError) as exc:
+        raise click.ClickException(
+            f"Current-session attach could not determine the current tmux session: {exc}"
+        ) from exc
+    if owner is None:
         raise click.ClickException(
             "Current-session attach must be run from inside the target tmux session."
-        ) from exc
-    session_name: str = result.stdout.strip()
-    if not session_name:
-        raise click.ClickException(
-            "Current-session attach could not determine the current tmux session name."
         )
-    return session_name
+    return owner[1]
 
 
 def _try_current_tmux_session_name() -> str | None:
     """Return the current tmux session name, or `None` when not in tmux."""
 
     try:
-        environment = tmux_subprocess_environment()
-        extra: dict[str, Any] = {"env": environment} if environment is not None else {}
-        result = subprocess.run(
-            tmux_argv(["display-message", "-p", "#S"]),
-            capture_output=True,
-            check=True,
-            text=True,
-            **extra,
-        )
-    except (subprocess.CalledProcessError, FileNotFoundError):
+        owner = enclosing_tmux_session()
+    except (TmuxCommandError, ValueError):
         return None
-    session_name: str = result.stdout.strip()
-    return session_name or None
+    return owner[1] if owner is not None else None
 
 
 def _read_tmux_env_value(*, session_name: str, variable_name: str) -> str | None:

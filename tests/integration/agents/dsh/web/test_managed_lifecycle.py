@@ -19,7 +19,6 @@ from houmao.agents.realm_controller.backends.dsh_web import DshWebSession, DshWe
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     create_tmux_session,
     has_tmux_session,
-    run_tmux,
 )
 from houmao.agents.realm_controller.errors import BackendExecutionError, SessionManifestError
 from houmao.agents.realm_controller.models import (
@@ -31,6 +30,7 @@ from houmao.agents.realm_controller.runtime import (
     RuntimeSessionController,
     _relaunch_backend_session,
 )
+from houmao.execution.tmux import TmuxServer
 from tests.integration.agents.dsh.test_gateway_passive import bind_fixture_gateway_owner
 from tests.integration.agents.dsh.test_managed_acp import _launch_plan
 from tests.integration.agents.dsh.web.conftest import (
@@ -97,7 +97,8 @@ def _stop(session: DshWebSession) -> None:
     """Stop only the exact private host and its explicitly isolated supervisor session."""
 
     session.configure_stop_force_cleanup(force_cleanup=True)
-    assert session.terminate().status == "ok"
+    result = session.terminate()
+    assert result.status == "ok", result.detail
 
 
 def test_managed_workspace_membership_survives_exact_and_replacement_lifecycles(
@@ -262,7 +263,8 @@ def test_two_owned_hosts_reconnect_without_retargeting_or_disclosing_native_outp
         assert len(requests) == 2
         assert "first exact lifecycle input" in json.dumps(requests[-1]["messages"])
         bootstrap = json.loads(Path(restored.state.bootstrap_path).read_text())
-        console = run_tmux(["capture-pane", "-p", "-t", restored.state.tmux_pane_id]).stdout
+        assert restored.state.tmux_pane_id is not None
+        console = TmuxServer().capture_pane(restored.state.tmux_pane_id)
         assert bootstrap["launch_token"] not in console
         assert "synthetic-local-only" not in console
         assert Path(restored.state.bootstrap_path).stat().st_mode & 0o077 == 0
@@ -307,6 +309,22 @@ def test_explicit_relaunch_restores_exact_history_under_fresh_execution_identity
         )
         assert result.status == "ok", result.detail
         controller.persist_manifest(refresh_registry=False)
+        saved = json.loads(manifest.read_text())
+        terminal = saved["tmux"]
+        assert terminal["socket_path"] == str(isolated_tmux)
+        assert terminal["primary_window_role"] == "supervisor_logs"
+        assert (terminal["primary_window_id"], terminal["primary_pane_id"]) == (
+            saved["backend_state"]["tmux_window_id"],
+            saved["backend_state"]["tmux_pane_id"],
+        )
+        panes = TmuxServer(isolated_tmux).observe_session(terminal["session_name"])
+        assert panes is not None
+        assert any(
+            (pane.window_id, pane.pane_id)
+            == (terminal["primary_window_id"], terminal["primary_pane_id"])
+            and pane.window_index == terminal["primary_window_index"] == "0"
+            for pane in panes
+        )
         assert session.state.web_identity["native_session_id"] == previous["native_session_id"]
         for key in ("generation", "host_incarnation", "agent_incarnation"):
             assert session.state.web_identity[key] != previous[key]
@@ -338,7 +356,9 @@ def test_external_supervisor_session_is_refused_without_changing_its_pane(
     plan, manifest = _web_plan(tmp_path, dsh_executable, endpoint)
     name = "external-owned-by-test"
     create_tmux_session(session_name=name, working_directory=tmp_path)
-    before = run_tmux(["list-panes", "-t", name, "-F", "#{pane_id}:#{pane_pid}"]).stdout
+    server = TmuxServer()
+    before = server.observe_session(name)
+    assert before is not None
     with pytest.raises(BackendExecutionError, match="refuses to adopt"):
         DshWebSession.from_launch_plan(
             launch_plan=plan,
@@ -348,7 +368,7 @@ def test_external_supervisor_session_is_refused_without_changing_its_pane(
             tmux_session_name=name,
         )
     assert has_tmux_session(session_name=name).returncode == 0
-    assert run_tmux(["list-panes", "-t", name, "-F", "#{pane_id}:#{pane_pid}"]).stdout == before
+    assert server.observe_session(name) == before
     assert not manifest.exists() and not requests
 
 

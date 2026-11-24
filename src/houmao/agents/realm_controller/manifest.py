@@ -19,12 +19,14 @@ from typing import Any, Iterator
 from pydantic import ValidationError
 
 from houmao.execution.tmux import capture_tmux_socket_path, validate_tmux_socket_path
+from houmao.execution.models import ExecutionBindingV1
 
 from .boundary_models import (
     LaunchPlanPayloadV1,
     RegistryLaunchAuthorityV1,
     SessionManifestAgentLaunchAuthorityV1,
     SessionManifestPayloadV4,
+    SessionManifestTmuxSectionV1,
     format_pydantic_error,
 )
 from .errors import SessionManifestError
@@ -63,6 +65,7 @@ class SessionManifestRequest:
     gateway_admin_seed: GatewayLaunchSeed | None = None
     registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime"
     agent_launch_authority: SessionManifestAgentLaunchAuthorityV1 | dict[str, Any] | None = None
+    tmux_binding: SessionManifestTmuxSectionV1 | None = None
 
 
 def generate_session_id(prefix: str = "session") -> str:
@@ -294,6 +297,7 @@ def write_session_manifest(
     *,
     expected_web_identity: dict[str, Any] | None = None,
     expected_registry_generation_id: str | None = None,
+    expected_tmux_binding: SessionManifestTmuxSectionV1 | None = None,
 ) -> SessionManifestHandle:
     """Validate and persist a session manifest.
 
@@ -307,6 +311,8 @@ def write_session_manifest(
         Exact previously published Web execution for an intentional lifecycle change.
     expected_registry_generation_id:
         Captured generation authorizing a deliberate execution-bound replacement.
+    expected_tmux_binding:
+        Captured primary binding for a controller writing an existing manifest.
 
     Returns
     -------
@@ -319,6 +325,12 @@ def write_session_manifest(
         if path.exists():
             current = load_session_manifest(path).payload
             _require_same_manifest_owner(current, proposed)
+            if expected_tmux_binding is not None and current.get(
+                "tmux"
+            ) != expected_tmux_binding.model_dump(mode="json"):
+                raise SessionManifestError(
+                    "Runtime primary tmux binding changed; resolve the current manifest again"
+                )
             proposed["gateway_admin_seed"] = current.get("gateway_admin_seed")
             current_binding = current["runtime"].get("execution_binding")
             if current_binding is not None:
@@ -495,6 +507,43 @@ def mutate_session_mailbox_binding(
         return _write_session_manifest_locked(path, current)
 
 
+def repair_session_tmux_binding(
+    path: Path,
+    *,
+    expected_agent_id: str,
+    expected_session_id: str | None,
+    expected_generation_id: str,
+    expected_binding: SessionManifestTmuxSectionV1,
+    expected_execution_binding: ExecutionBindingV1,
+    window_name: str,
+    window_id: str,
+    pane_id: str,
+) -> SessionManifestHandle:
+    """Commit a re-observed primary pane against the current owner and binding."""
+
+    with _session_manifest_lock(path):
+        current = load_session_manifest(path).payload
+        if (
+            current.get("agent_id") != expected_agent_id
+            or current["runtime"].get("session_id") != expected_session_id
+            or current.get("registry_generation_id") != expected_generation_id
+            or current["runtime"].get("execution_binding")
+            != expected_execution_binding.model_dump(mode="json")
+            or current.get("tmux") != expected_binding.model_dump(mode="json")
+        ):
+            raise SessionManifestError(
+                "Runtime owner, generation, or primary tmux binding changed; "
+                "resolve the current manifest again"
+            )
+        current["tmux"] = {
+            **current["tmux"],
+            "primary_window_name": window_name,
+            "primary_window_id": window_id,
+            "primary_pane_id": pane_id,
+        }
+        return _write_session_manifest_locked(path, current)
+
+
 def load_session_manifest(path: Path) -> SessionManifestHandle:
     """Load and validate a session manifest payload.
 
@@ -556,6 +605,7 @@ def parse_session_manifest_payload(payload: object, *, source: str) -> SessionMa
     return _validate_session_manifest_payload(
         payload,
         context=f"session_manifest.v6 validation failed for {source}",
+        verify_service_projection=True,
     )
 
 
@@ -649,9 +699,14 @@ def _validate_launch_plan_payload(payload: object, *, context: str) -> LaunchPla
 
 
 def _validate_session_manifest_payload(
-    payload: object, *, context: str
+    payload: object, *, context: str, verify_service_projection: bool = False
 ) -> SessionManifestPayloadV4:
     try:
+        if isinstance(payload, dict) and payload.get("tmux") is not None:
+            binding = SessionManifestTmuxSectionV1.model_validate(payload["tmux"])
+            payload = _project_manifest_tmux_binding(
+                payload, binding, verify_service_projection=verify_service_projection
+            )
         return SessionManifestPayloadV4.model_validate(payload)
     except ValidationError as exc:
         if "gateway_authority is required" in str(exc):
@@ -662,13 +717,91 @@ def _validate_session_manifest_payload(
         raise SessionManifestError(format_pydantic_error(context, exc)) from exc
 
 
+def _project_manifest_tmux_binding(
+    payload: dict[str, Any],
+    binding: SessionManifestTmuxSectionV1,
+    *,
+    verify_service_projection: bool,
+) -> dict[str, Any]:
+    """Derive serialized terminal coordinates from the validated managed binding."""
+
+    projected = {**payload, "tmux_session_name": binding.session_name}
+    backend_state = payload.get("backend_state")
+    if isinstance(backend_state, dict) and not (
+        verify_service_projection and payload.get("backend") == "codex_app_server"
+    ):
+        coordinates = {
+            "tmux_session_name": binding.session_name,
+            "tmux_window_name": binding.primary_window_name,
+            "tmux_window_id": binding.primary_window_id,
+            "tmux_pane_id": binding.primary_pane_id,
+            "tmux_socket_path": binding.socket_path,
+        }
+        projected["backend_state"] = {
+            **backend_state,
+            **{key: value for key, value in coordinates.items() if key in backend_state},
+        }
+    authority = payload.get("agent_launch_authority")
+    if isinstance(authority, dict):
+        projected["agent_launch_authority"] = {
+            **authority,
+            "tmux_session_name": binding.session_name,
+            "primary_window_index": binding.primary_window_index,
+            "primary_window_id": binding.primary_window_id,
+            "primary_pane_id": binding.primary_pane_id,
+        }
+    interactive = payload.get("interactive")
+    if isinstance(interactive, dict):
+        projected["interactive"] = {**interactive, "tmux_window_name": binding.primary_window_name}
+    native_surface = payload.get("native_surface")
+    if isinstance(native_surface, dict) and native_surface.get("kind") == "terminal":
+        projected["native_surface"] = {
+            **native_surface,
+            "tmux_session_name": binding.session_name,
+            "pane_id": binding.primary_pane_id,
+        }
+    cao = payload.get("cao")
+    if isinstance(cao, dict) and isinstance(backend_state, dict):
+        projected["cao"] = {
+            **cao,
+            "session_name": binding.session_name,
+            "tmux_window_name": binding.primary_window_name,
+        }
+        projected["backend_state"].update(
+            session_name=binding.session_name, tmux_window_name=binding.primary_window_name
+        )
+    launch_plan = payload.get("launch_plan")
+    if isinstance(launch_plan, dict) and isinstance(launch_plan.get("metadata"), dict):
+        metadata = dict(launch_plan["metadata"])
+        if "tmux_socket_path" in metadata:
+            metadata["tmux_socket_path"] = binding.socket_path
+        if "tmux_window_name" in metadata:
+            metadata["tmux_window_name"] = binding.primary_window_name
+        projected["launch_plan"] = {**launch_plan, "metadata": metadata}
+    gateway = payload.get("gateway_authority")
+    if isinstance(gateway, dict):
+        projected["gateway_authority"] = {
+            **gateway,
+            **{
+                key: {**gateway[key], "tmux_window_name": binding.primary_window_name}
+                for key in ("attach", "control")
+                if isinstance(gateway.get(key), dict)
+            },
+        }
+    return projected
+
+
 def _resolve_manifest_identity(
     request: SessionManifestRequest,
 ) -> tuple[str | None, str | None, str | None]:
     """Resolve manifest identity metadata from explicit values and backend state."""
 
     agent_name = request.agent_name
-    tmux_session_name = request.tmux_session_name
+    tmux_session_name = (
+        request.tmux_binding.session_name
+        if request.tmux_binding is not None
+        else request.tmux_session_name
+    )
 
     if request.launch_plan.backend in {
         "codex_headless",
@@ -763,6 +896,8 @@ def _build_manifest_tmux_section(
 ) -> dict[str, Any] | None:
     """Build the normalized v4 tmux section for tmux-backed sessions."""
 
+    if request.tmux_binding is not None:
+        return request.tmux_binding.model_dump(mode="json")
     if tmux_session_name is None:
         return None
     selected_socket = request.backend_state.get(

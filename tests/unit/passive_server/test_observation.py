@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from houmao.agents.realm_controller.backends.tmux_runtime import TmuxCommandError, TmuxPaneRecord
 from houmao.agents.realm_controller.native_surface import TerminalNativeSurfaceV1
+from houmao.execution.tmux import TmuxCommandResult, TmuxServer, tmux_server_scope
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.discovery import (
     DiscoveredAgent,
@@ -42,6 +46,7 @@ def _make_observer(
     tool: str = "claude",
     session_name: str = "HOUMAO-alpha-abc123",
     observed_version: str | None = "2.1.296 (Claude Code)",
+    tmux_socket_path: str | None = "/example/owner.sock",
 ) -> AgentTuiObserver:
     """Create an observer for testing."""
 
@@ -51,6 +56,7 @@ def _make_observer(
         tool=tool,
         session_name=session_name,
         observed_version=observed_version,
+        tmux_socket_path=tmux_socket_path,
     )
 
 
@@ -205,6 +211,54 @@ class TestObserverTmuxMissing:
         state = obs.current_state()
         assert state.diagnostics.availability == "unavailable"
         assert state.diagnostics.transport_state == "tmux_missing"
+
+    @pytest.mark.parametrize("stderr", ["", "Permission denied"])
+    def test_checked_preflight_failure_records_error_and_retries(
+        self, monkeypatch: pytest.MonkeyPatch, stderr: str
+    ) -> None:
+        obs = _make_observer()
+        replies = iter([(23, stderr), (1, "no server running on /example/owner.sock")])
+
+        def _command(
+            server: TmuxServer,
+            args: Sequence[str],
+            *,
+            sensitive: bool = False,
+            no_start: bool = False,
+        ) -> TmuxCommandResult:
+            assert server.socket_path == "/example/owner.sock"
+            assert tuple(args) == ("list-sessions", "-F", "#{session_name}")
+            status, message = next(replies)
+            return TmuxCommandResult(tuple(args), status, "", message)
+
+        monkeypatch.setattr(TmuxServer, "command", _command)
+        obs.poll_cycle()
+
+        diagnostics = obs.current_state().diagnostics
+        assert obs.observed_at_utc is not None
+        assert diagnostics.availability == "unavailable"
+        assert diagnostics.transport_state == "probe_error"
+        assert diagnostics.probe_error is not None
+        assert "status 23" in diagnostics.probe_error.message
+        obs.poll_cycle()
+
+        diagnostics = obs.current_state().diagnostics
+        assert diagnostics.transport_state == "tmux_missing"
+        assert diagnostics.probe_error is None
+
+    def test_missing_socket_does_not_probe_enclosing_server(self) -> None:
+        obs = _make_observer(tmux_socket_path=None)
+        with (
+            tmux_server_scope("/example/enclosing.sock"),
+            patch("houmao.passive_server.observation.tmux_session_exists") as probe,
+        ):
+            obs.poll_cycle()
+
+        probe.assert_not_called()
+        diagnostics = obs.current_state().diagnostics
+        assert diagnostics.transport_state == "probe_error"
+        assert diagnostics.probe_error is not None
+        assert "saved tmux socket" in diagnostics.probe_error.message
 
     def test_tmux_resolve_error(self) -> None:
         obs = _make_observer()
@@ -426,6 +480,25 @@ class TestObservationServiceReconciliation:
         assert svc.get_observer(record.agent_id, generation_id=agent.record.generation_id) is None
         new = svc.get_observer(record.agent_id, generation_id="replaced")
         assert new is not None and new is not old
+
+    def test_replaces_tracker_when_saved_socket_changes(self, tmp_path: Path) -> None:
+        config = PassiveServerConfig(runtime_root=tmp_path)
+        svc = TuiObservationService(discovery=RegistryDiscoveryService(config), config=config)
+        agent = _agent()
+        agent.record.terminal.socket_path = "/example/old.sock"
+        svc._reconcile_observers([agent])
+        old = svc.get_observer(agent.record.agent_id)
+        assert old is not None
+
+        record = agent.record.model_copy(deep=True)
+        record.terminal.socket_path = "/example/new.sock"
+        svc._reconcile_observers(
+            [DiscoveredAgent(record=record, summary=_summary_from_record(record))]
+        )
+
+        new = svc.get_observer(record.agent_id, generation_id=agent.record.generation_id)
+        assert new is not None and new is not old
+        assert new.m_tmux_socket_path == "/example/new.sock"
 
 
 class TestObservationServicePollLoop:

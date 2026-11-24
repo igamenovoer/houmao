@@ -16,6 +16,8 @@ from typing import Any, cast
 from uuid import uuid4
 import webbrowser
 
+from houmao.execution.tmux import tmux_command as run_tmux
+
 from houmao.agents.launch_policy import LaunchPolicyError, validate_packaged_tool_version
 from houmao.agents.model_selection import ModelConfig
 from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
@@ -37,11 +39,11 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     create_tmux_session,
     detached_tool_environment,
     generate_tmux_session_name,
-    has_tmux_session,
+    tmux_session_exists,
     kill_tmux_session,
     prepare_headless_agent_window,
+    resolve_primary_tmux_surface,
     publish_tmux_launch_environment,
-    run_tmux,
     TmuxCommandError,
 )
 from houmao.agents.realm_controller.backends.web_entry import NativeWebEntry
@@ -304,7 +306,7 @@ class KimiWebSession:
         name = tmux_session_name or generate_tmux_session_name(tool="kimi", role_name=role_name)
         environment = {**plan.env, "KIMI_CODE_HOME": str(home)}
         previous = self.m_state
-        created = has_tmux_session(session_name=name).returncode == 1
+        created = not tmux_session_exists(session_name=name, allow_missing_server=True)
         if not created and (previous is None or not self._owns_tmux(name, previous.control_path)):
             raise BackendExecutionError("Kimi Web refuses to adopt another tmux session")
         try:
@@ -322,9 +324,19 @@ class KimiWebSession:
                 create_tmux_session(
                     session_name=name, working_directory=workspace, launch_plan=plan
                 )
-            if run_tmux(["set-option", "-t", name, _TMUX_OPTION, str(control)]).returncode:
+            if run_tmux(["set-option", "-t", f"={name}:", _TMUX_OPTION, str(control)]).returncode:
                 raise BackendExecutionError("Kimi Web cannot mark its owned tmux session")
-            surface = prepare_headless_agent_window(session_name=name, fresh_session=created)
+            if created:
+                surface = prepare_headless_agent_window(session_name=name, fresh_session=True)
+            else:
+                assert previous is not None
+                if previous.tmux_pane_id is None or previous.tmux_window_id is None:
+                    raise BackendExecutionError("Saved supervisor pane identity is unavailable")
+                surface = resolve_primary_tmux_surface(
+                    session_name=name,
+                    pane_id=previous.tmux_pane_id,
+                    window_id=previous.tmux_window_id,
+                )
             publish_tmux_launch_environment(session_name=name, launch_plan=plan)
             command = shlex.join(
                 [
@@ -611,7 +623,7 @@ class KimiWebSession:
     def _owns_tmux(name: str, control: str) -> bool:
         """Confirm the exact owned tmux session before acting on any pane."""
 
-        result = run_tmux(["show-options", "-v", "-t", name, _TMUX_OPTION])
+        result = run_tmux(["show-options", "-v", "-t", f"={name}:", _TMUX_OPTION])
         return result.returncode == 0 and result.stdout.strip() == control
 
     def terminate(self) -> SessionControlResult:
@@ -633,9 +645,8 @@ class KimiWebSession:
             ):
                 raise BackendExecutionError("Kimi Web supervisor identity changed")
             DshWebSession._stop_supervisor_file(supervisor_file)
-            if (
-                self.m_force_cleanup
-                and has_tmux_session(session_name=state.tmux_session_name).returncode == 0
+            if self.m_force_cleanup and tmux_session_exists(
+                session_name=state.tmux_session_name, allow_missing_server=True
             ):
                 if not self._owns_tmux(state.tmux_session_name, state.control_path):
                     raise BackendExecutionError("Kimi Web supervisor ownership changed")

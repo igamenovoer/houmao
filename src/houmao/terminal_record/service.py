@@ -16,17 +16,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from houmao.agents.realm_controller.backends.shadow_parser_stack import ShadowParserStack
-from houmao.agents.realm_controller.backends.tmux_runtime import (
-    TmuxCommandError,
-    capture_tmux_pane,
-    ensure_tmux_available,
-    has_tmux_session,
-    kill_tmux_session,
-    list_tmux_clients,
-    resolve_tmux_pane as resolve_tmux_pane_shared,
-    run_tmux,
-    tmux_error_detail,
-)
+from houmao.execution.tmux import TmuxCommandError, TmuxPaneRecord, TmuxServer
 from houmao.shared_tui_tracking.models import (
     RecordedInputEvent,
     RecordedObservation,
@@ -95,6 +85,10 @@ class TerminalRecordController:
         self.m_live_state_path = live_state_path.resolve()
         self.m_live_state = load_live_state(self.m_live_state_path)
         self.m_manifest = load_manifest(Path(self.m_live_state.manifest_path))
+        self.m_tmux: TmuxServer = _recorder_tmux(self.m_manifest.target)
+        self.m_recorder_session_id: str | None = None
+        self.m_recorder_pane_id: str | None = None
+        self.m_recorder_stop_attempted: bool = False
         self.m_paths = TerminalRecordPaths.from_run_root(run_root=Path(self.m_manifest.run_root))
         self.m_repo_root = Path(self.m_manifest.repo_root)
         self.m_next_sample_index = _next_snapshot_index(self.m_paths.pane_snapshots_path)
@@ -104,28 +98,35 @@ class TerminalRecordController:
         """Run the recorder controller loop."""
 
         try:
-            self._write_live_state(status="running", controller_pid=os.getpid(), last_error=None)
+            self._launch_recorder_session()
             if self.m_manifest.mode == "active":
                 publish_active_terminal_record_session(
+                    tmux=self.m_tmux,
                     session_name=self.m_manifest.target.session_name,
                     live_state_path=self.m_live_state_path,
                 )
-            self._launch_recorder_session()
+            self._write_live_state(status="running", controller_pid=os.getpid(), last_error=None)
             self._sampling_loop()
             self._finalize(stop_reason=self._resolve_stop_reason())
         except Exception as exc:  # noqa: BLE001
-            self._write_live_state(status="failed", controller_pid=os.getpid(), last_error=str(exc))
+            try:
+                self._stop_recorder_session()
+            except TmuxCommandError:
+                pass
+            try:
+                if self.m_manifest.mode == "active":
+                    clear_active_terminal_record_session(
+                        tmux=self.m_tmux,
+                        session_name=self.m_manifest.target.session_name,
+                        live_state_path=self.m_live_state_path,
+                    )
+            except TmuxCommandError:
+                pass
             self._update_manifest(
                 stopped_at_utc=now_utc_iso(),
                 stop_reason=f"failed: {exc}",
             )
-            try:
-                if self.m_manifest.mode == "active":
-                    clear_active_terminal_record_session(
-                        session_name=self.m_manifest.target.session_name
-                    )
-            except TmuxCommandError:
-                pass
+            self._write_live_state(status="failed", controller_pid=os.getpid(), last_error=str(exc))
             return 1
         return 0
 
@@ -157,8 +158,9 @@ class TerminalRecordController:
     def _launch_recorder_session(self) -> None:
         """Launch the recorder tmux session that owns the `asciinema` command."""
 
-        command = _build_recorder_shell_command(self.m_manifest)
-        result = run_tmux(
+        self._target_pane()
+        command = _build_recorder_shell_command(self.m_manifest, tmux=self.m_tmux)
+        result = self.m_tmux.checked_command(
             [
                 "new-session",
                 "-d",
@@ -166,34 +168,49 @@ class TerminalRecordController:
                 self.m_manifest.recorder_session_name,
                 "-c",
                 str(self.m_repo_root),
+                "-P",
+                "-F",
+                "#{session_id}\t#{pane_id}",
                 command,
-            ]
+            ],
+            sensitive=True,
+            no_start=True,
         )
-        if result.returncode != 0:
-            detail = tmux_error_detail(result)
-            raise TerminalRecordError(
-                f"Failed to launch recorder session `{self.m_manifest.recorder_session_name}`: "
-                f"{detail or 'unknown tmux error'}"
-            )
+        session_id, _, pane_id = result.stdout.strip().partition("\t")
+        if not session_id.startswith("$") or not session_id[1:].isdigit():
+            raise TerminalRecordError("Recorder session creation did not return a session ID.")
+        self.m_recorder_session_id = session_id
+        if not pane_id.startswith("%") or not pane_id[1:].isdigit():
+            raise TerminalRecordError("Recorder session creation did not return a pane ID.")
+        self.m_recorder_pane_id = pane_id
 
     def _capture_snapshot(self) -> None:
         """Capture one pane snapshot and append it to disk."""
 
-        output_text = capture_tmux_pane(target=self.m_manifest.target.pane_id)
-        width, height = _target_pane_dimensions(target=self.m_manifest.target.pane_id)
+        pane = self._target_pane()
+        output_text = self.m_tmux.capture_pane(pane.pane_id, history=True, escape_sequences=True)
         snapshot = TerminalRecordPaneSnapshot(
             sample_id=f"s{self.m_next_sample_index:06d}",
             elapsed_seconds=_elapsed_seconds(self.m_manifest.started_at_utc),
             ts_utc=now_utc_iso(),
             target_pane_id=self.m_manifest.target.pane_id,
             output_text=output_text,
-            target_pane_width=width,
-            target_pane_height=height,
+            target_pane_width=pane.pane_width,
+            target_pane_height=pane.pane_height,
             capture_command=PANE_CAPTURE_COMMAND,
             output_text_sha256=hashlib.sha256(output_text.encode("utf-8")).hexdigest(),
         )
         append_ndjson(self.m_paths.pane_snapshots_path, snapshot.to_payload())
         self.m_next_sample_index += 1
+
+    def _target_pane(self) -> TmuxPaneRecord:
+        """Observe the bound target without substituting a different pane."""
+
+        target = self.m_manifest.target
+        pane = _resolve_recording_pane(self.m_tmux, target.session_name, target.pane_id)
+        if pane.window_id != target.window_id:
+            raise TerminalRecordError(f"Target pane {target.pane_id!r} moved to another window.")
+        return pane
 
     def _stop_requested(self) -> bool:
         """Return whether stop has been requested for this run."""
@@ -205,8 +222,17 @@ class TerminalRecordController:
     def _recorder_session_stopped(self) -> bool:
         """Return whether the recorder tmux session is no longer running."""
 
-        result = has_tmux_session(session_name=self.m_manifest.recorder_session_name)
-        return result.returncode != 0
+        return not self._owned_recorder_panes()
+
+    def _owned_recorder_panes(self) -> tuple[TmuxPaneRecord, ...]:
+        """Observe only the recorder session identified in its creation receipt."""
+
+        if self.m_recorder_session_id is None:
+            return ()
+        panes = self.m_tmux.observe_session(self.m_manifest.recorder_session_name)
+        if not panes or panes[0].session_id != self.m_recorder_session_id:
+            return ()
+        return panes
 
     def _duration_reached(self) -> bool:
         """Return whether the optional capture duration has elapsed."""
@@ -220,8 +246,13 @@ class TerminalRecordController:
 
         if self.m_manifest.mode != "active":
             return False
-        clients = list_tmux_clients(session_name=self.m_manifest.target.session_name)
-        return len(clients) > 1
+        session_id = self._target_pane().session_id
+        if session_id is None:
+            raise TerminalRecordError("Recorder target observation did not return a session ID.")
+        result = self.m_tmux.checked_command(
+            ["list-clients", "-t", session_id, "-F", "#{client_tty}"]
+        )
+        return len(result.stdout.splitlines()) > 1
 
     def _taint_run(self, reason: str) -> None:
         """Record one taint reason and degrade capture level."""
@@ -267,21 +298,30 @@ class TerminalRecordController:
         self._stop_recorder_session()
         if self.m_manifest.mode == "active":
             self._merge_cast_input_events()
-            clear_active_terminal_record_session(session_name=self.m_manifest.target.session_name)
+            clear_active_terminal_record_session(
+                tmux=self.m_tmux,
+                session_name=self.m_manifest.target.session_name,
+                live_state_path=self.m_live_state_path,
+            )
         self._update_manifest(stopped_at_utc=now_utc_iso(), stop_reason=stop_reason)
         self._write_live_state(status="stopped", controller_pid=os.getpid(), last_error=None)
 
     def _stop_recorder_session(self) -> None:
         """Stop the recorder tmux session with a grace period."""
 
-        result = has_tmux_session(session_name=self.m_manifest.recorder_session_name)
-        if result.returncode != 0:
+        session_id = self.m_recorder_session_id
+        if session_id is None or self.m_recorder_stop_attempted:
             return
-        run_tmux(["send-keys", "-t", self.m_manifest.recorder_session_name, "C-c"])
-        time.sleep(0.2)
-        result = has_tmux_session(session_name=self.m_manifest.recorder_session_name)
-        if result.returncode == 0:
-            kill_tmux_session(session_name=self.m_manifest.recorder_session_name)
+        self.m_recorder_stop_attempted = True
+        panes = self._owned_recorder_panes()
+        if not panes:
+            return
+        pane_id = self.m_recorder_pane_id
+        if pane_id is not None and any(pane.pane_id == pane_id for pane in panes):
+            self.m_tmux.send_keys(pane_id, "C-c")
+            time.sleep(0.2)
+        if not self._recorder_session_stopped():
+            self.m_tmux.checked_command(["kill-session", "-t", session_id])
 
     def _merge_cast_input_events(self) -> None:
         """Append normalized `asciinema` input events after the recorder stops."""
@@ -375,7 +415,6 @@ def start_terminal_record(
 ) -> dict[str, Any]:
     """Start one terminal recorder controller process."""
 
-    ensure_tmux_available()
     if sample_interval_seconds <= 0:
         raise TerminalRecordError("sample_interval_seconds must be positive")
     if duration_seconds is not None and duration_seconds <= 0:
@@ -396,7 +435,9 @@ def start_terminal_record(
     attach_command = None
     recorder_session_name = _recorder_session_name(run_id=selected_run_root.name)
     if mode == "active":
-        attach_command = f"env -u TMUX tmux attach-session -t {recorder_session_name}"
+        attach_command = _recorder_attach_command(
+            _recorder_tmux(target), f"={recorder_session_name}"
+        )
     visual_recording_kind: VisualRecordingKind = (
         "interactive_client" if mode == "active" else "readonly_observer"
     )
@@ -1139,28 +1180,38 @@ def resolve_terminal_record_target(
 ) -> TerminalRecordTarget:
     """Resolve one tmux recorder target from session and optional pane."""
 
-    result = has_tmux_session(session_name=target_session)
-    if result.returncode != 0:
-        raise TerminalRecordError(f"Target tmux session does not exist: {target_session}")
-    try:
-        pane = resolve_tmux_pane_shared(session_name=target_session, pane_id=target_pane)
-    except TmuxCommandError as exc:
-        detail = str(exc)
-        if target_pane is None and "Ambiguous tmux pane target" in detail:
-            raise TerminalRecordError(
-                f"Target session `{target_session}` has multiple panes; provide --target-pane."
-            ) from exc
-        if target_pane is not None and f"pane id `{target_pane}`" in detail:
-            raise TerminalRecordError(
-                f"Target pane `{target_pane}` was not found in session `{target_session}`."
-            ) from exc
-        raise TerminalRecordError(detail) from exc
+    tmux = TmuxServer()
+    pane = _resolve_recording_pane(tmux, target_session, target_pane)
     return TerminalRecordTarget(
         session_name=pane.session_name,
         pane_id=pane.pane_id,
         window_id=pane.window_id,
         window_name=pane.window_name,
+        socket_path=tmux.socket_path,
     )
+
+
+def _resolve_recording_pane(
+    tmux: TmuxServer, session_name: str, pane_id: str | None
+) -> TmuxPaneRecord:
+    """Require one exact pane in the selected session."""
+
+    try:
+        panes = tmux.observe_session(session_name)
+    except TmuxCommandError as exc:
+        raise TerminalRecordError(str(exc)) from exc
+    if not panes:
+        raise TerminalRecordError(f"Target tmux session does not exist: {session_name}")
+    if pane_id is None:
+        if len(panes) == 1:
+            return panes[0]
+        raise TerminalRecordError(
+            f"Target session `{session_name}` has multiple panes; provide --target-pane."
+        )
+    for pane in panes:
+        if pane.pane_id == pane_id:
+            return pane
+    raise TerminalRecordError(f"Target pane `{pane_id}` was not found in session `{session_name}`.")
 
 
 def parse_asciinema_cast_input_events(
@@ -1554,24 +1605,6 @@ def _hook_observed_output_path(
     return paths.run_root / f"hook_observed_{output_tag}.ndjson"
 
 
-def _target_pane_dimensions(*, target: str) -> tuple[int | None, int | None]:
-    """Return target pane dimensions when tmux can report them."""
-
-    try:
-        result = run_tmux(["display-message", "-p", "-t", target, "#{pane_width} #{pane_height}"])
-    except TmuxCommandError:
-        return None, None
-    if result.returncode != 0:
-        return None, None
-    parts = result.stdout.strip().split()
-    if len(parts) != 2:
-        return None, None
-    try:
-        return int(parts[0]), int(parts[1])
-    except ValueError:
-        return None, None
-
-
 def _next_snapshot_index(path: Path) -> int:
     """Return the next source snapshot index for one NDJSON stream."""
 
@@ -1737,18 +1770,35 @@ def _recorder_session_name(*, run_id: str) -> str:
     return f"HMREC-{normalized}"
 
 
-def _build_recorder_shell_command(manifest: TerminalRecordManifest) -> str:
+def _recorder_tmux(target: TerminalRecordTarget) -> TmuxServer:
+    """Bind live recording to the socket persisted at recorder start."""
+
+    if target.socket_path is None:
+        raise TerminalRecordError("Recorder manifest has no tmux socket authority.")
+    return TmuxServer(target.socket_path)
+
+
+def _recorder_attach_command(
+    tmux: TmuxServer, target: str, *, detach_others: bool = False, readonly: bool = False
+) -> str:
+    """Build a native attach invocation for a caller-owned PTY."""
+
+    argv = tmux.attach_invocation(target, detach_others=detach_others, readonly=readonly)
+    # The process inherits asciinema's PTY. Strip selectors from the enclosing recorder pane
+    # so the native client always uses the adapter's explicit socket and checked target.
+    return shlex.join(["env", "-u", "TMUX", "-u", "TMUX_PANE", *argv])
+
+
+def _build_recorder_shell_command(manifest: TerminalRecordManifest, *, tmux: TmuxServer) -> str:
     """Return one shell command that launches the repo-owned `asciinema` recorder."""
 
-    tmux_parts = ["env", "-u", "TMUX", "tmux", "attach-session"]
-    if manifest.mode == "active":
-        tmux_parts.append("-d")
-    if manifest.mode == "passive":
-        tmux_parts.append("-r")
-    tmux_parts.extend(["-t", manifest.target.session_name])
-    tmux_command = shlex.join(tmux_parts)
-    if manifest.target.pane_id:
-        tmux_command = f"{tmux_command} \\; select-pane -t {shlex.quote(manifest.target.pane_id)}"
+    target = manifest.target
+    tmux_command = _recorder_attach_command(
+        tmux,
+        f"={target.session_name}:{target.window_id}.{target.pane_id}",
+        detach_others=manifest.mode == "active",
+        readonly=manifest.mode == "passive",
+    )
 
     record_args = [
         "pixi",

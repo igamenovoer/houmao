@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import re
 import shlex
 import time
+import uuid
 from pathlib import Path
+
+from houmao.execution.tmux import tmux_command as run_tmux_shared
 
 from houmao.agents.model_selection import ModelConfig
 from houmao.hook_observation.install import remove_launch_wrapper, write_launch_wrapper
@@ -37,11 +39,11 @@ from .tmux_runtime import (
     TmuxCommandError,
     TmuxControlInputError,
     capture_tmux_pane as capture_tmux_pane_shared,
+    delete_tmux_buffer as delete_tmux_buffer_shared,
     kill_tmux_session as kill_tmux_session_shared,
     load_tmux_buffer as load_tmux_buffer_shared,
     parse_tmux_control_input as parse_tmux_control_input_shared,
     paste_tmux_buffer as paste_tmux_buffer_shared,
-    run_tmux as run_tmux_shared,
     send_tmux_control_input as send_tmux_control_input_shared,
     tmux_error_detail as tmux_error_detail_shared,
 )
@@ -360,16 +362,7 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
     ) -> None:
         self._prepare_tool_home()
         session_name = self._require_tmux_session_name()
-        if not self._uses_joined_surface():
-            try:
-                self._prepare_primary_surface(session_name=session_name)
-            except TmuxCommandError as exc:
-                raise BackendExecutionError(
-                    f"Failed to prepare tmux interactive agent surface in `{session_name}`: {exc}"
-                ) from exc
-        else:
-            self._refresh_primary_surface_best_effort()
-        pane_target = self._primary_tmux_pane_target()
+        pane_target = self._primary_tmux_pane_target(allow_dead=True)
         pane_command, wrapper_path = self._provider_pane_command(chat_session=chat_session)
 
         try:
@@ -522,14 +515,15 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
     def _submit_semantic_prompt(self, text: str) -> None:
         """Paste literal prompt text and submit it as a separate tmux phase."""
 
-        session_name = self._require_tmux_session_name()
         pane_target = self._primary_tmux_pane_target()
-        buffer_name = self._prompt_buffer_name(session_name)
+        buffer_name = f"houmao-submit-prompt-{uuid.uuid4().hex}"
         control = getattr(self, "m_dispatch_control", None)
+        buffer_loaded = False
         try:
             if control is not None:
                 control.require_allowed()
             load_tmux_buffer_shared(buffer_name=buffer_name, text=text)
+            buffer_loaded = True
             if control is not None:
                 control.require_allowed()
                 control.m_input_started.set()
@@ -550,9 +544,9 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
                 f"Failed to submit prompt to local interactive session: {exc}"
             ) from exc
         finally:
-            if control is not None:
+            if buffer_loaded:
                 try:
-                    run_tmux_shared(["delete-buffer", "-b", buffer_name])
+                    delete_tmux_buffer_shared(buffer_name=buffer_name)
                 except TmuxCommandError:
                     pass
 
@@ -571,7 +565,7 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
         """Return the current tmux pane capture for the stable interactive surface."""
 
         try:
-            return capture_tmux_pane_shared(target=self._primary_tmux_pane_target())
+            return capture_tmux_pane_shared(target=self._refresh_primary_surface().pane_id)
         except TmuxCommandError as exc:
             raise BackendExecutionError(
                 f"Failed to capture local interactive pane output: {exc}"
@@ -684,7 +678,7 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
         """Raise when the tracked provider process is no longer live."""
 
         try:
-            pane = self._refresh_primary_surface()
+            pane = self._observe_primary_surface(allow_dead=True)
         except TmuxCommandError as exc:
             raise BackendExecutionError(
                 f"tmux session `{self._require_tmux_session_name()}` is missing the stable "
@@ -698,15 +692,6 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
             f"longer live (state={inspection.process_state})."
         )
 
-    def _prompt_buffer_name(self, session_name: str) -> str:
-        """Return the stable tmux buffer name used for semantic prompt submission."""
-
-        digest = hashlib.md5(
-            session_name.encode("utf-8"),
-            usedforsecurity=False,
-        ).hexdigest()[:16]
-        return f"houmao-submit-prompt-{digest}"
-
     def _wait_for_provider_tui(
         self,
         *,
@@ -718,7 +703,7 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
         last_capture = ""
         while time.monotonic() < deadline:
             try:
-                pane = self._refresh_primary_surface()
+                pane = self._observe_primary_surface(allow_dead=True)
             except TmuxCommandError as exc:
                 raise BackendExecutionError(
                     f"Failed to inspect tmux panes for `{session_name}`: {exc}"

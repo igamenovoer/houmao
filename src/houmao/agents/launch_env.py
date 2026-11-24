@@ -45,6 +45,20 @@ def owner_launch_baseline(environment: Mapping[str, str]) -> dict[str, str]:
     }
 
 
+def owner_tmux_launch_environment(
+    environment: Mapping[str, str], *, excluded_names: frozenset[str] = frozenset()
+) -> dict[str, str]:
+    """Curate the tmux server process environment before starting its first session."""
+
+    baseline = owner_launch_baseline(environment)
+    for name in ("TMUX_TMPDIR", "TZ"):
+        if name in environment:
+            baseline[name] = environment[name]
+    for name in excluded_names:
+        baseline.pop(name, None)
+    return baseline
+
+
 def parse_persistent_env_record_specs(
     values: Sequence[str],
     *,

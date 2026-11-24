@@ -13,8 +13,10 @@ from houmao.agents.realm_controller.agent_identity import (
     AGENT_MANIFEST_PATH_ENV_VAR,
 )
 from houmao.agents.realm_controller.backends.tmux_runtime import TmuxCommandError
+from houmao.agents.realm_controller.boundary_models import SessionManifestTmuxSectionV1
 from houmao.agents.realm_controller.errors import GatewayError
 from houmao.agents.realm_controller.managed_control import ManagedControlObservationV1
+from houmao.agents.realm_controller.managed_terminal import PrimaryTmuxObservation
 from houmao.agents.realm_controller.models import BackendKind
 from houmao.agents.realm_controller.run_modes import mode_for_backend
 from houmao.execution.tmux import current_tmux_socket_path, tmux_server_scope
@@ -33,8 +35,13 @@ def _payload(tmp_path: Path, *, backend: BackendKind = "dsh_headless") -> Simple
         tmux_session_name="HOUMAO-selected",
         registry_generation_id="generation",
         registry_launch_authority="runtime",
-        runtime=SimpleNamespace(session_id="logical-runtime"),
-        tmux=SimpleNamespace(primary_window_id="@7", primary_pane_id="%8"),
+        runtime=SimpleNamespace(session_id="logical-runtime", execution_binding=None),
+        tmux=SessionManifestTmuxSectionV1(
+            socket_path=str(tmp_path / "owner.sock"),
+            session_name="HOUMAO-selected",
+            primary_window_id="@7",
+            primary_pane_id="%8",
+        ),
         agent_launch_authority=SimpleNamespace(
             primary_window_id="@7",
             primary_pane_id="%8",
@@ -78,9 +85,8 @@ def _install(
     monkeypatch.setattr(
         native_refresh, "parse_session_manifest_payload", lambda *_args, **_kwargs: payload
     )
-    monkeypatch.setattr(native_refresh, "tmux_session_exists", lambda **_: True)
-    surface = Mock(return_value=SimpleNamespace(pane_dead=False))
-    monkeypatch.setattr(native_refresh, "resolve_primary_tmux_surface", surface)
+    surface = Mock(return_value=PrimaryTmuxObservation("valid", session_exists=True))
+    monkeypatch.setattr(native_refresh, "observe_primary_tmux", surface)
 
     def read(*, session_name: str, variable_name: str) -> str | None:
         """Permit single explicit authority selectors, never an environment dump."""
@@ -126,9 +132,7 @@ def test_native_home_differs_from_caller_and_uses_exact_primary_authority(
     home = native_refresh.inspect_native_home_from_manifest(manifest)
     assert home.home_dir == payload.launch_plan.home_selector.home_path
     assert home.home_env_var == "DSH_HOME"
-    surface.assert_called_once_with(
-        session_name="HOUMAO-selected", window_id="@7", pane_id="%8", require_pane_index_zero=True
-    )
+    surface.assert_called_once_with(payload.tmux, joined=False)
 
 
 def test_between_worker_dsh_home_stays_inspectable_without_projection(
@@ -265,7 +269,7 @@ def test_missing_active_identity_is_unavailable(
         native_refresh.inspect_native_home_from_manifest(manifest)
 
 
-@pytest.mark.parametrize("condition", ["missing", "stale_handles", "dead_primary"])
+@pytest.mark.parametrize("condition", ["missing", "stale_handles", "dead_primary", "unavailable"])
 def test_missing_stale_or_stopped_primary_cannot_authorize_home(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, condition: str
 ) -> None:
@@ -274,11 +278,13 @@ def test_missing_stale_or_stopped_primary_cannot_authorize_home(
     payload = _payload(tmp_path)
     manifest, _environment, surface = _install(tmp_path, monkeypatch, payload)
     if condition == "missing":
-        monkeypatch.setattr(native_refresh, "tmux_session_exists", lambda **_: False)
+        surface.return_value = PrimaryTmuxObservation("missing_session", session_exists=False)
     elif condition == "stale_handles":
-        surface.side_effect = TmuxCommandError("Captured primary no longer exists")
+        surface.return_value = PrimaryTmuxObservation("stale_handles", session_exists=True)
+    elif condition == "dead_primary":
+        surface.return_value = PrimaryTmuxObservation("dead_pane", session_exists=True)
     else:
-        surface.return_value = SimpleNamespace(pane_dead=True)
+        surface.side_effect = TmuxCommandError("Selected socket is unavailable")
     with pytest.raises(GatewayError):
         native_refresh.inspect_native_home_from_manifest(manifest)
 
@@ -379,19 +385,35 @@ def test_read_only_home_inspection_restores_saved_socket_before_probing(
     """Inspection cannot borrow an unrelated current server's same-named session."""
 
     payload = _payload(tmp_path)
-    payload.tmux.socket_path = "/owner/recorded.sock"
-    manifest, _environment, _surface = _install(tmp_path, monkeypatch, payload)
+    payload.tmux = payload.tmux.model_copy(update={"socket_path": "/owner/recorded.sock"})
+    manifest, _environment, surface = _install(tmp_path, monkeypatch, payload)
     probes: list[str | None] = []
 
-    def exists(**_: object) -> bool:
+    def observe(*_args: object, **_kwargs: object) -> PrimaryTmuxObservation:
         """Capture authority before the first native liveness probe."""
 
         probes.append(current_tmux_socket_path())
-        return True
+        return PrimaryTmuxObservation("valid", session_exists=True)
 
-    monkeypatch.setattr(native_refresh, "tmux_session_exists", exists)
+    surface.side_effect = observe
     with tmux_server_scope("/operator/enclosing.sock"):
         result = native_refresh.inspect_native_home_from_manifest(manifest)
         assert current_tmux_socket_path() == "/operator/enclosing.sock"
     assert result.agent_id == "selected"
     assert probes == ["/owner/recorded.sock"]
+
+
+def test_read_only_home_rejects_missing_saved_socket(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A missing socket never borrows tmux authority from an enclosing server."""
+
+    payload = _payload(tmp_path)
+    payload.tmux = payload.tmux.model_copy(update={"socket_path": None})
+    manifest, _environment, surface = _install(tmp_path, monkeypatch, payload)
+
+    with tmux_server_scope("/operator/enclosing.sock"):
+        with pytest.raises(GatewayError, match="Primary native runtime authority is unavailable"):
+            native_refresh.inspect_native_home_from_manifest(manifest)
+
+    surface.assert_not_called()

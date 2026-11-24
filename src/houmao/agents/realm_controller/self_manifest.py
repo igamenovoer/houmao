@@ -17,7 +17,6 @@ from houmao.agents.realm_controller.backends.dsh_acp_connection import _read_pro
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     read_tmux_session_environment_value,
-    run_tmux,
 )
 from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
 from houmao.agents.realm_controller.errors import SessionManifestError
@@ -32,7 +31,11 @@ from houmao.agents.realm_controller.registry_storage import (
     load_managed_agent_record_by_agent_id,
 )
 from houmao.execution.context import current_execution_binding, validate_execution_owner
-from houmao.execution.tmux import tmux_server_scope, validate_tmux_socket_path
+from houmao.execution.tmux import (
+    enclosing_tmux_session,
+    tmux_server_scope,
+    validate_tmux_socket_path,
+)
 from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
 
 
@@ -75,13 +78,12 @@ def _resolve_self_manifest() -> VerifiedSelfManifest:
         pointer = os.environ.get(AGENT_MANIFEST_PATH_ENV_VAR)
     else:
         socket, session = owner
-        target = f"={session}"
         with tmux_server_scope(socket):
             pointer = read_tmux_session_environment_value(
-                session_name=target, variable_name=AGENT_MANIFEST_PATH_ENV_VAR
+                session_name=session, variable_name=AGENT_MANIFEST_PATH_ENV_VAR
             )
             published_agent_id = read_tmux_session_environment_value(
-                session_name=target, variable_name=AGENT_ID_ENV_VAR
+                session_name=session, variable_name=AGENT_ID_ENV_VAR
             )
         if pointer is None and published_agent_id is not None:
             admitted = current_execution_binding()
@@ -162,19 +164,7 @@ def _self_tmux_session() -> tuple[str, str] | None:
             raise ValueError("The Web tool context requires both its tmux socket and session.")
         return validate_tmux_socket_path(socket_hint), session_hint
 
-    inherited = os.environ.get("TMUX")
-    if not inherited:
-        return None
-    parts = inherited.rsplit(",", 2)
-    if len(parts) != 3 or not all(part.isascii() and part.isdigit() for part in parts[1:]):
-        raise ValueError("The current tmux context is malformed.")
-    socket = validate_tmux_socket_path(parts[0])
-    with tmux_server_scope(socket):
-        result = run_tmux(["display-message", "-p", "-t", f"${parts[2]}:", "#{session_name}"])
-    session = result.stdout.strip()
-    if result.returncode != 0 or not session:
-        raise ValueError("Cannot find the caller's current managed tmux session.")
-    return socket, session
+    return enclosing_tmux_session()
 
 
 def _require_web_caller(payload: SessionManifestPayloadV4) -> None:

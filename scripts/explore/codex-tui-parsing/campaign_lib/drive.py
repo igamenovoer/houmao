@@ -17,9 +17,9 @@ from typing import Any
 
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     parse_tmux_control_input,
-    run_tmux,
     send_tmux_control_input,
 )
+from houmao.execution.tmux import TmuxCommandError, TmuxServer
 from houmao.terminal_record.runtime_bridge import append_managed_control_input_for_tmux_session
 
 _KEY_MAP = {
@@ -57,6 +57,7 @@ class TmuxDriver:
 
         self.m_session_name = session_name
         self.m_pane_id = pane_id
+        self.m_tmux_server: TmuxServer = TmuxServer()
         self.m_drive_log_path = drive_log_path
         self.m_record_started_at = datetime.fromisoformat(record_started_at_utc)
         drive_log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -134,7 +135,7 @@ class TmuxDriver:
 
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
-            capture = run_tmux(["capture-pane", "-p", "-t", self.m_pane_id])
+            capture = self.m_tmux_server.command(["capture-pane", "-p", "-t", self.m_pane_id])
             if capture.returncode == 0 and pattern in capture.stdout:
                 return
             time.sleep(0.4)
@@ -145,7 +146,7 @@ class TmuxDriver:
 
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
-            capture = run_tmux(["capture-pane", "-p", "-t", self.m_pane_id])
+            capture = self.m_tmux_server.command(["capture-pane", "-p", "-t", self.m_pane_id])
             if capture.returncode == 0 and pattern not in capture.stdout:
                 return
             time.sleep(0.4)
@@ -154,15 +155,16 @@ class TmuxDriver:
     def capture_visible_text(self) -> str:
         """Return the current plain visible pane text (diagnostics only)."""
 
-        capture = run_tmux(["capture-pane", "-p", "-t", self.m_pane_id])
+        capture = self.m_tmux_server.command(["capture-pane", "-p", "-t", self.m_pane_id])
         return capture.stdout if capture.returncode == 0 else ""
 
     def _send_special(self, tmux_key: str) -> None:
         """Send one special key name through tmux send-keys."""
 
-        result = run_tmux(["send-keys", "-t", self.m_pane_id, tmux_key])
-        if result.returncode != 0:
-            raise DriveError(f"tmux send-keys {tmux_key} failed: {result.stderr.strip()}")
+        try:
+            self.m_tmux_server.send_keys(self.m_pane_id, tmux_key)
+        except TmuxCommandError as exc:
+            raise DriveError(str(exc)) from exc
 
     def _log_input(self, *, sequence: str) -> None:
         """Append one managed input event to the active recorder, when present."""

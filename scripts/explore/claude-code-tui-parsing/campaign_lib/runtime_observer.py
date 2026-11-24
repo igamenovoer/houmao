@@ -16,7 +16,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from houmao.agents.realm_controller.backends.tmux_runtime import run_tmux
+from houmao.execution.tmux import TmuxObservationError, TmuxServer
 
 
 class RuntimeObserver:
@@ -35,6 +35,7 @@ class RuntimeObserver:
         """Initialize the observer for one recorded pane."""
 
         self.m_session_name = session_name
+        self.m_tmux_server: TmuxServer = TmuxServer()
         self.m_pane_id = pane_id
         self.m_output_path = output_path
         self.m_started_at = datetime.fromisoformat(record_started_at_utc)
@@ -67,31 +68,19 @@ class RuntimeObserver:
     def _sample_once(self) -> None:
         """Write one runtime observation row."""
 
-        session_exists = run_tmux(["has-session", "-t", self.m_session_name]).returncode == 0
-        pane_exists = False
-        pane_dead = False
-        pane_pid: int | None = None
-        pane_pid_alive = False
-        if session_exists:
-            panes = run_tmux(
-                [
-                    "list-panes",
-                    "-t",
-                    self.m_session_name,
-                    "-F",
-                    "#{pane_id} #{pane_dead} #{pane_pid}",
-                ]
-            )
-            if panes.returncode == 0:
-                for row in panes.stdout.splitlines():
-                    parts = row.split()
-                    if parts and parts[0] == self.m_pane_id:
-                        pane_exists = True
-                        pane_dead = len(parts) > 1 and parts[1] == "1"
-                        if len(parts) > 2 and parts[2].isdigit():
-                            pane_pid = int(parts[2])
-                            pane_pid_alive = _pid_alive(pane_pid)
-                        break
+        observation_error: str | None = None
+        try:
+            panes = self.m_tmux_server.observe_session(self.m_session_name)
+            session_exists: bool | None = panes is not None
+        except TmuxObservationError as exc:
+            observation_error = str(exc)
+            panes = None
+            session_exists = None
+        pane = next((row for row in panes or () if row.pane_id == self.m_pane_id), None)
+        pane_exists = pane is not None
+        pane_dead = pane.pane_dead if pane is not None else False
+        pane_pid = pane.pane_pid if pane is not None else None
+        pane_pid_alive = _pid_alive(pane_pid) if pane_pid is not None else False
         supported_pid, supported_alive = _find_supported_process(
             pane_pid=pane_pid, marker=self.m_process_marker
         )
@@ -100,6 +89,7 @@ class RuntimeObserver:
             "ts_utc": datetime.now(UTC).isoformat(timespec="seconds"),
             "elapsed_seconds": round(elapsed, 3),
             "session_exists": session_exists,
+            "tmux_observation_error": observation_error,
             "pane_exists": pane_exists,
             "pane_dead": pane_dead,
             "pane_pid": pane_pid,

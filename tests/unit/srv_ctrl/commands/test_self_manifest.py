@@ -237,8 +237,9 @@ def test_self_identity_reads_only_runtime_authority(
     monkeypatch.setenv(AGENT_MANIFEST_PATH_ENV_VAR, str(path))
     controller = Mock(side_effect=AssertionError("identity must not resume a controller"))
     monkeypatch.setattr(core, "resolve_current_session_managed_agent_target", controller)
-    tmux = Mock(side_effect=AssertionError("headless identity must not probe tmux"))
-    monkeypatch.setattr(self_manifest, "run_tmux", tmux)
+    tmux = Mock(side_effect=AssertionError("headless identity must not dispatch tmux"))
+    monkeypatch.delenv("TMUX", raising=False)
+    monkeypatch.setattr("houmao.execution.tmux.TmuxServer.checked_command", tmux)
     before = {file: file.read_bytes() for file in tmp_path.rglob("*") if file.is_file()}
 
     result = CliRunner().invoke(cli, [f"--print-{style}", "agents", "self", "identity"])
@@ -308,7 +309,7 @@ def test_detached_web_context_requires_the_exact_owner(
     monkeypatch.setattr(self_manifest, "read_tmux_session_environment_value", read_tmux)
 
     assert self_manifest.resolve_self_manifest().path == path
-    assert all(call.kwargs["session_name"] == "=owner-session" for call in read_tmux.call_args_list)
+    assert all(call.kwargs["session_name"] == "owner-session" for call in read_tmux.call_args_list)
 
     monkeypatch.setenv(SELF_TMUX_SOCKET_ENV_VAR, str(tmp_path / "another.sock"))
     with pytest.raises(ValueError, match="owning tmux socket and session"):
@@ -329,7 +330,7 @@ def test_self_resolves_tmux_published_id_through_current_registry(
     monkeypatch.setenv("TMUX", f"{tmp_path / 'owned.sock'},100,2")
     monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
     tmux = Mock(return_value=CompletedProcess([], 0, stdout="owner-session\n"))
-    monkeypatch.setattr(self_manifest, "run_tmux", tmux)
+    monkeypatch.setattr("houmao.execution.tmux.TmuxServer.checked_command", tmux)
     session_env = {AGENT_ID_ENV_VAR: "agent-id", AGENT_MANIFEST_PATH_ENV_VAR: None}
     monkeypatch.setattr(
         self_manifest,

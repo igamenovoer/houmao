@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
+import shutil
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from houmao.agents.realm_controller.backends.shadow_parser_stack import ShadowParserStack
-from houmao.agents.realm_controller.backends.tmux_runtime import TmuxCommandError, TmuxPaneRecord
+from houmao.execution.tmux import TmuxPaneRecord, TmuxServer, tmux_server_scope
 from houmao.terminal_record import service as terminal_record_service
 from houmao.terminal_record.models import (
     DEFAULT_SAMPLE_INTERVAL_SECONDS,
@@ -48,6 +51,7 @@ def _target() -> TerminalRecordTarget:
         pane_id="%1",
         window_id="@2",
         window_name="developer-1",
+        socket_path="/tmp/hmrec-unit.sock",
     )
 
 
@@ -129,25 +133,17 @@ def _read_ndjson(path: Path) -> list[dict[str, object]]:
 def test_resolve_terminal_record_target_rejects_ambiguous_sessions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        terminal_record_service,
-        "has_tmux_session",
-        lambda *, session_name: subprocess.CompletedProcess(
-            args=["tmux", "has-session", "-t", session_name],
-            returncode=0,
-            stdout="",
-            stderr="",
-        ),
+    pane = TmuxPaneRecord(
+        pane_id="%1",
+        session_name="HOUMAO-gpu",
+        window_id="@1",
+        window_index="1",
+        window_name="primary",
+        pane_index="0",
+        pane_active=True,
     )
     monkeypatch.setattr(
-        terminal_record_service,
-        "resolve_tmux_pane_shared",
-        lambda *, session_name, pane_id: (_ for _ in ()).throw(
-            TmuxCommandError(
-                f"Ambiguous tmux pane target for `{session_name}`: 2 panes matched; "
-                "provide pane_id, window_id, window_index, or window_name."
-            )
-        ),
+        TmuxServer, "observe_session", lambda self, name: (pane, replace(pane, pane_id="%2"))
     )
 
     with pytest.raises(TerminalRecordError, match="multiple panes; provide --target-pane"):
@@ -157,39 +153,32 @@ def test_resolve_terminal_record_target_rejects_ambiguous_sessions(
 def test_resolve_terminal_record_target_accepts_explicit_pane_in_non_current_window(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        terminal_record_service,
-        "has_tmux_session",
-        lambda *, session_name: subprocess.CompletedProcess(
-            args=["tmux", "has-session", "-t", session_name],
-            returncode=0,
-            stdout="",
-            stderr="",
-        ),
+    pane = TmuxPaneRecord(
+        pane_id="%9",
+        session_name="HOUMAO-gpu",
+        window_id="@9",
+        window_index="2",
+        window_name="gateway",
+        pane_index="0",
+        pane_active=False,
+        pane_dead=False,
+        pane_pid=4242,
     )
     monkeypatch.setattr(
-        terminal_record_service,
-        "resolve_tmux_pane_shared",
-        lambda *, session_name, pane_id: TmuxPaneRecord(
-            pane_id=pane_id or "%9",
-            session_name=session_name,
-            window_id="@9",
-            window_index="2",
-            window_name="gateway",
-            pane_index="0",
-            pane_active=False,
-            pane_dead=False,
-            pane_pid=4242,
-        ),
+        TmuxServer,
+        "observe_session",
+        lambda self, name: (replace(pane, pane_id="%1", window_id="@1", pane_active=True), pane),
     )
 
-    target = resolve_terminal_record_target(target_session="HOUMAO-gpu", target_pane="%9")
+    with tmux_server_scope(_target().socket_path):
+        target = resolve_terminal_record_target(target_session="HOUMAO-gpu", target_pane="%9")
 
     assert target == TerminalRecordTarget(
         session_name="HOUMAO-gpu",
         pane_id="%9",
         window_id="@9",
         window_name="gateway",
+        socket_path=_target().socket_path,
     )
 
 
@@ -242,7 +231,6 @@ def test_start_terminal_record_persists_manifest_and_attach_command(
         observed["text"] = text
         return _DummyProcess()
 
-    monkeypatch.setattr(terminal_record_service, "ensure_tmux_available", lambda: None)
     monkeypatch.setattr(terminal_record_service, "_repo_root", lambda: tmp_path)
     monkeypatch.setattr(
         terminal_record_service,
@@ -265,7 +253,20 @@ def test_start_terminal_record_persists_manifest_and_attach_command(
 
     assert result["status"] == "running"
     assert result["run_root"] == str(run_root.resolve())
-    assert result["attach_command"] == f"env -u TMUX tmux attach-session -t HMREC-{run_root.name}"
+    assert shlex.split(result["attach_command"]) == [
+        "env",
+        "-u",
+        "TMUX",
+        "-u",
+        "TMUX_PANE",
+        shutil.which("tmux") or "tmux",
+        "-S",
+        _target().socket_path,
+        "attach-session",
+        "-t",
+        f"=HMREC-{run_root.name}",
+    ]
+    assert manifest.target.socket_path == _target().socket_path
     assert manifest.input_capture_level == "authoritative_managed"
     assert manifest.visual_recording_kind == "interactive_client"
     assert observed["cwd"] == run_root.parent
@@ -311,7 +312,6 @@ def test_start_terminal_record_accepts_kimi_tool_and_duration(
             ),
         )
 
-    monkeypatch.setattr(terminal_record_service, "ensure_tmux_available", lambda: None)
     monkeypatch.setattr(terminal_record_service, "_repo_root", lambda: tmp_path)
     monkeypatch.setattr(
         terminal_record_service,
@@ -438,17 +438,38 @@ def test_build_recorder_shell_command_changes_by_mode(tmp_path: Path) -> None:
     active_manifest = _manifest(run_root=tmp_path / "active-run", mode="active")
     passive_manifest = _manifest(run_root=tmp_path / "passive-run", mode="passive")
 
-    active_command = _build_recorder_shell_command(active_manifest)
-    passive_command = _build_recorder_shell_command(passive_manifest)
+    tmux = TmuxServer(_target().socket_path)
+    active_command = _build_recorder_shell_command(active_manifest, tmux=tmux)
+    passive_command = _build_recorder_shell_command(passive_manifest, tmux=tmux)
 
     assert "pixi run asciinema record" in active_command
     assert "--capture-input" in active_command
-    assert "attach-session -d -t HOUMAO-gpu" in active_command
-    assert "select-pane -t %1" in active_command
+    attach_prefix = [
+        "env",
+        "-u",
+        "TMUX",
+        "-u",
+        "TMUX_PANE",
+        shutil.which("tmux") or "tmux",
+        "-S",
+        _target().socket_path,
+        "attach-session",
+    ]
+    assert shlex.split(shlex.split(active_command)[-1]) == [
+        *attach_prefix,
+        "-d",
+        "-t",
+        "=HOUMAO-gpu:@2.%1",
+    ]
 
     assert "pixi run asciinema record" in passive_command
     assert "--capture-input" not in passive_command
-    assert "attach-session -r -t HOUMAO-gpu" in passive_command
+    assert shlex.split(shlex.split(passive_command)[-1]) == [
+        *attach_prefix,
+        "-r",
+        "-t",
+        "=HOUMAO-gpu:@2.%1",
+    ]
 
 
 def test_capture_snapshot_appends_incrementing_samples(
@@ -460,16 +481,27 @@ def test_capture_snapshot_appends_incrementing_samples(
     controller = TerminalRecordController(live_state_path=paths.live_state_path)
     outputs = iter(["first frame", "second frame"])
 
-    monkeypatch.setattr(
-        terminal_record_service,
-        "capture_tmux_pane",
-        lambda *, target: next(outputs),
+    target = _target()
+    pane = TmuxPaneRecord(
+        pane_id=target.pane_id,
+        session_name=target.session_name,
+        window_id=target.window_id,
+        window_index="2",
+        window_name=target.window_name,
+        pane_index="0",
+        pane_active=False,
+        pane_width=120,
+        pane_height=40,
     )
-    monkeypatch.setattr(
-        terminal_record_service,
-        "_target_pane_dimensions",
-        lambda *, target: (120, 40),
-    )
+
+    def _capture(self: TmuxServer, pane_id: str, *, history: bool, escape_sequences: bool) -> str:
+        assert pane_id == target.pane_id
+        assert self.socket_path == target.socket_path
+        assert history and escape_sequences
+        return next(outputs)
+
+    monkeypatch.setattr(TmuxServer, "capture_pane", _capture)
+    monkeypatch.setattr(TmuxServer, "observe_session", lambda self, session_name: (pane,))
 
     controller._capture_snapshot()
     controller._capture_snapshot()
@@ -499,7 +531,7 @@ def test_finalize_active_controller_updates_manifest_and_live_state(
     monkeypatch.setattr(
         terminal_record_service,
         "clear_active_terminal_record_session",
-        lambda *, session_name: calls.append(f"clear:{session_name}"),
+        lambda *, tmux, session_name, live_state_path: calls.append(f"clear:{session_name}"),
     )
 
     controller._finalize(stop_reason="stop_requested")

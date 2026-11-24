@@ -14,7 +14,7 @@ from houmao.execution.tmux import tmux_server_scope
 from houmao.agents.launch_policy import is_supported_dsh_version
 from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
 
-from houmao.agents.realm_controller.errors import GatewayError
+from houmao.agents.realm_controller.errors import GatewayError, SessionManifestError
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_ID_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
@@ -23,6 +23,7 @@ from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
 )
+from houmao.agents.realm_controller.managed_terminal import observe_primary_tmux
 from houmao.agents.realm_controller.native_refresh_models import (
     CommonPluginObservationV1,
     CommonPluginResourceV1,
@@ -39,8 +40,6 @@ from houmao.agents.realm_controller.owner_admission import (
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     read_tmux_session_environment_value,
-    resolve_primary_tmux_surface,
-    tmux_session_exists,
 )
 
 if TYPE_CHECKING:
@@ -52,8 +51,8 @@ def inspect_native_home_from_manifest(path: Path) -> NativeHomeV1:
 
     handle = load_session_manifest(path)
     payload = parse_session_manifest_payload(handle.payload, source=str(path))
-    binding = getattr(payload.runtime, "execution_binding", None)
-    socket_path = getattr(payload.tmux, "socket_path", None)
+    binding = payload.runtime.execution_binding
+    socket_path = payload.tmux.socket_path if payload.tmux is not None else None
     try:
         validate_execution_owner(binding)
     except ValueError as exc:
@@ -61,6 +60,8 @@ def inspect_native_home_from_manifest(path: Path) -> NativeHomeV1:
     if binding is not None and binding.tmux_socket is not None:
         if socket_path != binding.tmux_socket:
             raise GatewayError("Native tmux socket differs from execution binding")
+    if socket_path is None:
+        raise GatewayError("Primary native runtime authority is unavailable")
     with execution_binding_scope(binding), tmux_server_scope(socket_path):
         return _inspect_native_home_payload(path, payload)
 
@@ -68,11 +69,8 @@ def inspect_native_home_from_manifest(path: Path) -> NativeHomeV1:
 def _inspect_native_home_payload(path: Path, payload: SessionManifestPayloadV4) -> NativeHomeV1:
     """Inspect a validated manifest while its exact owner socket is selected."""
 
-    name = payload.tmux_session_name
     if (
-        not name
-        or not tmux_session_exists(session_name=name)
-        or payload.registry_launch_authority != "runtime"
+        payload.registry_launch_authority != "runtime"
         or not payload.registry_generation_id
         or not payload.runtime.session_id
     ):
@@ -81,24 +79,25 @@ def _inspect_native_home_payload(path: Path, payload: SessionManifestPayloadV4) 
     authority = payload.agent_launch_authority
     if tmux is None or authority is None:
         raise GatewayError("Primary native runtime authority is unavailable")
+    name = tmux.session_name
     try:
-        surface = resolve_primary_tmux_surface(
-            session_name=name,
-            window_id=tmux.primary_window_id or authority.primary_window_id,
-            pane_id=tmux.primary_pane_id or authority.primary_pane_id,
-            require_pane_index_zero=True,
-        )
+        observed = observe_primary_tmux(tmux, joined=authority.session_origin == "joined_tmux")
+        if observed.state == "missing_session":
+            raise GatewayError("Active native runtime authority is unavailable")
+        if observed.state == "dead_pane":
+            raise GatewayError("Active native runtime identity is unavailable")
+        if observed.state != "valid":
+            raise GatewayError("Primary native runtime authority is unavailable")
         manifest_binding = read_tmux_session_environment_value(
             session_name=name, variable_name=AGENT_MANIFEST_PATH_ENV_VAR
         )
         agent_binding = read_tmux_session_environment_value(
             session_name=name, variable_name=AGENT_ID_ENV_VAR
         )
-    except TmuxCommandError:
+    except (SessionManifestError, TmuxCommandError):
         raise GatewayError("Primary native runtime authority is unavailable") from None
     if (
-        surface.pane_dead
-        or not manifest_binding
+        not manifest_binding
         or not Path(manifest_binding).is_absolute()
         or Path(manifest_binding).resolve() != path.resolve()
         or agent_binding != payload.agent_id

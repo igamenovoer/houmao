@@ -29,7 +29,7 @@ This doc set summarizes the active terminal-recorder contract from these sources
 
 - the `add-terminal-record-tooling` OpenSpec change under `openspec/changes/`
 - the recorder package under `src/houmao/terminal_record/`
-- tmux shared primitives under `src/houmao/agents/realm_controller/backends/tmux_runtime.py`
+- shared tmux operations under `src/houmao/execution/tmux.py`
 - managed control-input integration under `src/houmao/agents/realm_controller/backends/`
 - recorder lifecycle and integration tests under `tests/unit/terminal_record/` and `tests/integration/agents/realm_controller/`
 
@@ -38,7 +38,7 @@ The most important implementation files are:
 - `src/houmao/terminal_record/service.py`
 - `src/houmao/terminal_record/models.py`
 - `src/houmao/terminal_record/runtime_bridge.py`
-- `src/houmao/agents/realm_controller/backends/tmux_runtime.py`
+- `src/houmao/execution/tmux.py`
 - `src/houmao/agents/realm_controller/backends/` (managed control-input integration)
 - `tools/terminal_record/cli.py`
 - `tests/unit/terminal_record/test_service.py`

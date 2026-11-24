@@ -9,14 +9,16 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, Literal, Mapping, MutableMapping
+from typing import TYPE_CHECKING, Final, Literal, Mapping, MutableMapping
 
-from houmao.agents.launch_env import owner_launch_baseline
+from houmao.agents.launch_env import owner_tmux_launch_environment
 from houmao.execution.tmux import (
+    TmuxCommandError as TmuxCommandError,
+    TmuxCommandResult,
+    TmuxPaneRecord as TmuxPaneRecord,
+    TmuxServer,
     capture_tmux_socket_path,
-    current_tmux_socket_path,
-    tmux_argv,
-    tmux_subprocess_environment,
+    tmux_command,
 )
 
 from ..agent_identity import (
@@ -27,15 +29,11 @@ from ..agent_identity import (
     normalize_agent_identity_name,
 )
 from ..errors import SessionManifestError
+from ..boundary_models import SessionManifestTmuxSectionV1
+from ..managed_terminal import select_primary_tmux_surface
 
 if TYPE_CHECKING:
-    import libtmux
-
     from ..models import LaunchPlan
-
-
-class TmuxCommandError(RuntimeError):
-    """Raised when a tmux command cannot be executed reliably."""
 
 
 class TmuxControlInputError(ValueError):
@@ -63,36 +61,6 @@ class TmuxControlInputSegment:
 
     kind: Literal["literal", "special"]
     value: str
-
-
-@dataclass(frozen=True)
-class TmuxPaneRecord:
-    """One tmux pane record resolved from `list-panes` output."""
-
-    pane_id: str
-    session_name: str
-    window_id: str
-    window_index: str
-    window_name: str
-    pane_index: str
-    pane_active: bool
-    pane_dead: bool = False
-    pane_pid: int | None = None
-
-
-@dataclass(frozen=True)
-class TmuxPrimarySurfaceRecord:
-    """Structured identity for the contractual primary managed-agent surface."""
-
-    session_name: str
-    window_id: str
-    window_index: str
-    window_name: str
-    pane_id: str
-    pane_index: str
-    pane_active: bool
-    pane_dead: bool = False
-    pane_pid: int | None = None
 
 
 _TMUX_SPECIAL_KEY_TOKEN_RE = re.compile(r"<\[([^\s<>\[\]]+)\]>")
@@ -157,16 +125,17 @@ def apply_tmux_config_injection(*, session_name: str) -> None:
     if not tmux_config_injection_enabled():
         return
 
+    target = f"={session_name}:"
     commands = (
-        ["set-option", "-t", session_name, "mouse", "on"],
-        ["set-option", "-t", session_name, "default-terminal", TMUX_RICH_COLOR_TERM],
-        ["set-option", "-at", session_name, "terminal-overrides", ",*256col*:Tc"],
-        ["set-environment", "-t", session_name, "TERM", TMUX_RICH_COLOR_TERM],
-        ["set-environment", "-t", session_name, "COLORTERM", TMUX_RICH_COLOR_COLORTERM],
-        ["set-environment", "-t", session_name, "-r", "NO_COLOR"],
+        ["set-option", "-t", target, "mouse", "on"],
+        ["set-option", "-t", target, "default-terminal", TMUX_RICH_COLOR_TERM],
+        ["set-option", "-at", target, "terminal-overrides", ",*256col*:Tc"],
+        ["set-environment", "-t", target, "TERM", TMUX_RICH_COLOR_TERM],
+        ["set-environment", "-t", target, "COLORTERM", TMUX_RICH_COLOR_COLORTERM],
+        ["set-environment", "-t", target, "-r", "NO_COLOR"],
     )
     for args in commands:
-        result = run_tmux(list(args))
+        result = tmux_command(list(args))
         if result.returncode == 0:
             continue
         detail = tmux_error_detail(result)
@@ -178,21 +147,9 @@ def apply_tmux_config_injection(*, session_name: str) -> None:
 
 
 def list_tmux_sessions() -> set[str]:
-    """Return active tmux session names."""
+    """Return active tmux session names from a checked observation."""
 
-    try:
-        return {
-            session.session_name.strip()
-            for session in _libtmux_server().sessions
-            if isinstance(session.session_name, str) and session.session_name.strip()
-        }
-    except Exception as exc:  # noqa: BLE001
-        detail = str(exc).strip().lower()
-        if "no server running" in detail or "failed to connect to server" in detail:
-            return set()
-        raise TmuxCommandError(
-            f"Failed to list tmux sessions: {str(exc).strip() or 'unknown tmux error'}"
-        ) from exc
+    return TmuxServer().list_sessions(allow_missing_server=True)
 
 
 def create_tmux_session(
@@ -206,7 +163,11 @@ def create_tmux_session(
         else frozenset()
     )
     initial_env = [argument for name in sorted(masked_names) for argument in ("-e", f"{name}=")]
-    result = run_tmux(
+    server = TmuxServer()
+    environment = owner_tmux_launch_environment(
+        server.native_environment(), excluded_names=masked_names
+    )
+    result = server.start(
         [
             "new-session",
             "-d",
@@ -217,7 +178,7 @@ def create_tmux_session(
             str(working_directory),
             *initial_env,
         ],
-        excluded_environment_names=masked_names,
+        environment=environment,
     )
     if result.returncode == 0:
         try:
@@ -235,20 +196,14 @@ def create_tmux_session(
 def headless_agent_window_target(*, session_name: str) -> str:
     """Return the stable tmux window target for one headless agent surface."""
 
-    return f"{session_name}:{HEADLESS_AGENT_WINDOW_INDEX}"
-
-
-def headless_agent_pane_target(*, session_name: str) -> str:
-    """Return the stable tmux pane target for one headless agent surface."""
-
-    return f"{headless_agent_window_target(session_name=session_name)}.{HEADLESS_AGENT_PANE_INDEX}"
+    return f"={session_name}:{HEADLESS_AGENT_WINDOW_INDEX}"
 
 
 def prepare_headless_agent_window(
     *,
     session_name: str,
     fresh_session: bool = False,
-) -> TmuxPrimarySurfaceRecord:
+) -> TmuxPaneRecord:
     """Normalize, rename, select, and return the primary tmux surface handles."""
 
     panes = list_tmux_panes(session_name=session_name)
@@ -260,12 +215,10 @@ def prepare_headless_agent_window(
         panes=panes,
         fresh_session=fresh_session,
     )
-    surface = _surface_from_pane(
-        _select_single_live_pane(
-            panes=tuple(pane for pane in panes if pane.window_id == window_id),
-            selector_detail=f"window id `{window_id}`",
-            session_name=session_name,
-        )
+    surface = _select_single_live_pane(
+        panes=tuple(pane for pane in panes if pane.window_id == window_id),
+        selector_detail=f"window id `{window_id}`",
+        session_name=session_name,
     )
     if surface.window_index != HEADLESS_AGENT_WINDOW_INDEX:
         _run_tmux_step(
@@ -304,6 +257,7 @@ def prepare_headless_agent_window(
 
     return resolve_primary_tmux_surface(
         session_name=session_name,
+        pane_id=surface.pane_id,
         window_id=window_id,
         window_name=HEADLESS_AGENT_WINDOW_NAME,
     )
@@ -312,7 +266,7 @@ def prepare_headless_agent_window(
 def _run_tmux_step(args: list[str], *, description: str, target: str) -> None:
     """Run one tmux surface-preparation command with contextual errors."""
 
-    result = run_tmux(args)
+    result = tmux_command(args)
     if result.returncode == 0:
         return
     detail = tmux_error_detail(result)
@@ -349,7 +303,7 @@ def _select_primary_window_id_for_preparation(
             f"Tmux session `{session_name}` has multiple windows at index "
             f"`{HEADLESS_AGENT_WINDOW_INDEX}`; refusing to choose one."
         )
-    if len(window_ids) == 1:
+    if fresh_session and len(window_ids) == 1:
         return window_ids[0]
     raise TmuxCommandError(
         f"Tmux session `{session_name}` is missing primary window "
@@ -365,88 +319,34 @@ def resolve_primary_tmux_surface(
     window_id: str | None = None,
     window_name: str | None = None,
     require_pane_index_zero: bool = False,
-) -> TmuxPrimarySurfaceRecord:
-    """Resolve and validate one primary tmux surface from persisted handles."""
-
-    return _surface_from_pane(
-        resolve_primary_tmux_pane(
-            session_name=session_name,
-            pane_id=pane_id,
-            window_id=window_id,
-            window_name=window_name,
-            require_pane_index_zero=require_pane_index_zero,
-        )
-    )
-
-
-def resolve_primary_tmux_pane(
-    *,
-    session_name: str,
-    pane_id: str | None = None,
-    window_id: str | None = None,
-    window_name: str | None = None,
-    require_pane_index_zero: bool = False,
 ) -> TmuxPaneRecord:
-    """Resolve one live primary pane without falling back to current focus."""
+    """Resolve a primary selector without repairing or relaxing explicit handles."""
 
-    panes = list_tmux_panes(session_name=session_name)
-    if not panes:
-        raise TmuxCommandError(f"No tmux panes are available for `{session_name}`.")
-
-    matching = panes
-    selectors: list[str] = []
-    if pane_id is not None:
-        selectors.append(f"pane id `{pane_id}`")
-        matching = tuple(pane for pane in matching if pane.pane_id == pane_id)
-    if window_id is not None:
-        selectors.append(f"window id `{window_id}`")
-        matching = tuple(pane for pane in matching if pane.window_id == window_id)
-    if window_name is not None:
-        selectors.append(f"window name `{window_name}`")
-        matching = tuple(pane for pane in matching if pane.window_name == window_name)
-
-    matching = tuple(pane for pane in matching if pane.window_index == HEADLESS_AGENT_WINDOW_INDEX)
-    selector_detail = (
-        " and ".join(selectors) if selectors else (f"window index `{HEADLESS_AGENT_WINDOW_INDEX}`")
+    matching = tuple(
+        pane
+        for pane in list_tmux_panes(session_name=session_name)
+        if (pane_id is None or pane.pane_id == pane_id)
+        and (window_id is None or pane.window_id == window_id)
+        and (window_name is None or pane.window_name == window_name)
     )
-    if not matching:
-        raise TmuxCommandError(
-            f"No tmux panes matched primary {selector_detail} in `{session_name}`."
-        )
-
-    pane = _select_single_live_pane(
-        panes=matching,
-        selector_detail=f"primary {selector_detail}",
-        session_name=session_name,
-    )
-    if require_pane_index_zero and pane.pane_index != HEADLESS_AGENT_PANE_INDEX:
-        raise TmuxCommandError(
-            f"Primary tmux pane `{pane.pane_id}` in `{session_name}` has pane index "
-            f"`{pane.pane_index}`, expected `{HEADLESS_AGENT_PANE_INDEX}`."
-        )
-    return pane
-
-
-def find_primary_tmux_surface(
-    *,
-    session_name: str,
-    pane_id: str | None = None,
-    window_id: str | None = None,
-    window_name: str | None = None,
-    require_pane_index_zero: bool = False,
-) -> TmuxPrimarySurfaceRecord | None:
-    """Return the primary surface when handles are valid, otherwise ``None``."""
-
-    try:
-        return resolve_primary_tmux_surface(
+    observation = select_primary_tmux_surface(
+        SessionManifestTmuxSectionV1(
             session_name=session_name,
-            pane_id=pane_id,
-            window_id=window_id,
-            window_name=window_name,
-            require_pane_index_zero=require_pane_index_zero,
-        )
-    except TmuxCommandError:
-        return None
+            primary_window_name=window_name,
+            primary_window_id=window_id,
+            primary_pane_id=pane_id,
+        ),
+        matching,
+        joined=require_pane_index_zero,
+    )
+    surface = observation.pane or observation.replacement
+    if surface is not None:
+        return surface
+    if observation.state == "ambiguous_pane":
+        raise TmuxCommandError(f"Ambiguous tmux primary surface for `{session_name}`.")
+    raise TmuxCommandError(
+        f"No tmux panes matched primary selector in `{session_name}` ({observation.state})."
+    )
 
 
 def _select_single_live_pane(
@@ -468,22 +368,6 @@ def _select_single_live_pane(
     )
 
 
-def _surface_from_pane(pane: TmuxPaneRecord) -> TmuxPrimarySurfaceRecord:
-    """Project a pane record into the persisted primary-surface identity."""
-
-    return TmuxPrimarySurfaceRecord(
-        session_name=pane.session_name,
-        window_id=pane.window_id,
-        window_index=pane.window_index,
-        window_name=pane.window_name,
-        pane_id=pane.pane_id,
-        pane_index=pane.pane_index,
-        pane_active=pane.pane_active,
-        pane_dead=pane.pane_dead,
-        pane_pid=pane.pane_pid,
-    )
-
-
 def cleanup_tmux_session(*, session_name: str) -> None:
     """Best-effort tmux session cleanup."""
 
@@ -496,7 +380,7 @@ def cleanup_tmux_session(*, session_name: str) -> None:
 def kill_tmux_session(*, session_name: str) -> None:
     """Terminate a tmux session and fail if tmux reports an error."""
 
-    result = run_tmux(["kill-session", "-t", f"={session_name}"])
+    result = tmux_command(["kill-session", "-t", f"={session_name}"])
     if result.returncode == 0:
         return
     detail = tmux_error_detail(result)
@@ -505,16 +389,26 @@ def kill_tmux_session(*, session_name: str) -> None:
     )
 
 
-def has_tmux_session(*, session_name: str) -> subprocess.CompletedProcess[str]:
+def has_tmux_session(*, session_name: str) -> TmuxCommandResult:
     """Return raw tmux `has-session` command output."""
 
-    return run_tmux(["has-session", "-t", f"={session_name}"])
+    return tmux_command(["has-session", "-t", f"={session_name}"])
 
 
-def tmux_session_exists(*, session_name: str) -> bool:
-    """Return whether one tmux session currently exists."""
+def tmux_session_exists(*, session_name: str, allow_missing_server: bool = False) -> bool:
+    """Check presence on the selected socket, propagating observation failures."""
 
-    return has_tmux_session(session_name=session_name).returncode == 0
+    return session_name in TmuxServer().list_sessions(allow_missing_server=allow_missing_server)
+
+
+_TmuxHealthState = Literal[
+    "healthy",
+    "degraded_missing_primary",
+    "degraded_ambiguous_primary",
+    "degraded_dead_primary",
+    "degraded_stale_primary_handles",
+    "stale_missing_session",
+]
 
 
 @dataclass(frozen=True)
@@ -530,19 +424,14 @@ class TmuxBackedAuthorityHealth:
     primary_window_exists:
         Whether the contractual primary window index `0` is present.
     primary_pane_exists:
-        Whether the contractual primary pane index `0` is present in window `0`.
+        Whether a contractual primary pane is present in window `0`.
     primary_window_handle_valid:
         Whether a supplied primary window id still resolves to window index `0`.
     primary_pane_handle_valid:
         Whether a supplied primary pane id still resolves under window index `0`.
     """
 
-    state: Literal[
-        "healthy",
-        "degraded_missing_primary",
-        "degraded_stale_primary_handles",
-        "stale_missing_session",
-    ]
+    state: _TmuxHealthState
     session_exists: bool
     primary_window_exists: bool
     primary_pane_exists: bool
@@ -555,17 +444,19 @@ def probe_tmux_backed_authority(
     session_name: str,
     primary_window_id: str | None = None,
     primary_pane_id: str | None = None,
+    primary_window_name: str | None = None,
+    joined: bool = False,
 ) -> TmuxBackedAuthorityHealth:
     """Classify local tmux authority for one persisted managed session name.
 
     Inspects tmux for the named session and the contractual primary surface
-    (window index `0`, pane index `0`), plus optional persisted tmux handles,
+    (window index `0`), plus optional persisted tmux handles,
     and returns a derived health classification. The result is host-local
     runtime state and is never persisted into shared registry state.
     """
 
     name = session_name.strip()
-    if not name or not tmux_session_exists(session_name=name):
+    if not name:
         return TmuxBackedAuthorityHealth(
             state="stale_missing_session",
             session_exists=False,
@@ -575,65 +466,42 @@ def probe_tmux_backed_authority(
             primary_pane_handle_valid=False if primary_pane_id else None,
         )
 
-    try:
-        panes = list_tmux_panes(session_name=name)
-    except TmuxCommandError:
-        return TmuxBackedAuthorityHealth(
-            state="stale_missing_session",
-            session_exists=False,
-            primary_window_exists=False,
-            primary_pane_exists=False,
-            primary_window_handle_valid=False if primary_window_id else None,
-            primary_pane_handle_valid=False if primary_pane_id else None,
-        )
-
-    primary_window_present = any(pane.window_index == HEADLESS_AGENT_WINDOW_INDEX for pane in panes)
-    primary_pane_present = any(
-        pane.window_index == HEADLESS_AGENT_WINDOW_INDEX
-        and pane.pane_index == HEADLESS_AGENT_PANE_INDEX
-        for pane in panes
+    server = TmuxServer()
+    observation = select_primary_tmux_surface(
+        SessionManifestTmuxSectionV1(
+            session_name=name,
+            socket_path=server.socket_path,
+            primary_window_name=primary_window_name,
+            primary_window_id=primary_window_id,
+            primary_pane_id=primary_pane_id,
+        ),
+        server.observe_session(name),
+        joined=joined,
     )
-    primary_window_handle_valid = (
-        any(
-            pane.window_id == primary_window_id and pane.window_index == HEADLESS_AGENT_WINDOW_INDEX
-            for pane in panes
-        )
-        if primary_window_id is not None
-        else None
-    )
-    primary_pane_handle_valid = (
-        any(
-            pane.pane_id == primary_pane_id and pane.window_index == HEADLESS_AGENT_WINDOW_INDEX
-            for pane in panes
-        )
-        if primary_pane_id is not None
-        else None
-    )
-    if primary_window_handle_valid is False or primary_pane_handle_valid is False:
-        return TmuxBackedAuthorityHealth(
-            state="degraded_stale_primary_handles",
-            session_exists=True,
-            primary_window_exists=primary_window_present,
-            primary_pane_exists=primary_pane_present,
-            primary_window_handle_valid=primary_window_handle_valid,
-            primary_pane_handle_valid=primary_pane_handle_valid,
-        )
-    if primary_pane_present:
-        return TmuxBackedAuthorityHealth(
-            state="healthy",
-            session_exists=True,
-            primary_window_exists=True,
-            primary_pane_exists=True,
-            primary_window_handle_valid=primary_window_handle_valid,
-            primary_pane_handle_valid=primary_pane_handle_valid,
-        )
+    state: _TmuxHealthState
+    if observation.state == "missing_session":
+        state = "stale_missing_session"
+    elif observation.state == "valid" or (
+        observation.replacement is not None
+        and primary_window_id is None
+        and primary_pane_id is None
+    ):
+        state = "healthy"
+    elif observation.state == "stale_handles":
+        state = "degraded_stale_primary_handles"
+    elif observation.state == "ambiguous_pane":
+        state = "degraded_ambiguous_primary"
+    elif observation.state == "dead_pane":
+        state = "degraded_dead_primary"
+    else:
+        state = "degraded_missing_primary"
     return TmuxBackedAuthorityHealth(
-        state="degraded_missing_primary",
-        session_exists=True,
-        primary_window_exists=primary_window_present,
-        primary_pane_exists=False,
-        primary_window_handle_valid=primary_window_handle_valid,
-        primary_pane_handle_valid=primary_pane_handle_valid,
+        state=state,
+        session_exists=observation.session_exists,
+        primary_window_exists=observation.primary_window_exists,
+        primary_pane_exists=observation.primary_pane_exists,
+        primary_window_handle_valid=observation.primary_window_handle_valid,
+        primary_pane_handle_valid=observation.primary_pane_handle_valid,
     )
 
 
@@ -679,7 +547,7 @@ def _publish_tmux_launch_variable(*, target: str, name: str, value: str | None) 
         literal_value = value[:-1] + r"\;" if value.endswith(";") else value
         args.extend(["--", name, literal_value])
     try:
-        result = run_tmux(args)
+        result = tmux_command(args, sensitive=True)
     except (TmuxCommandError, ValueError):
         raise TmuxCommandError(
             f"Failed to publish tmux launch variable `{name}` in `{target}`"
@@ -689,24 +557,17 @@ def _publish_tmux_launch_variable(*, target: str, name: str, value: str | None) 
 
 
 def set_tmux_session_environment(*, session_name: str, env_vars: Mapping[str, str]) -> None:
-    """Set multiple tmux session environment variables."""
+    """Set environment variables in the exactly named session."""
 
-    for key, value in env_vars.items():
-        result = run_tmux(["set-environment", "-t", session_name, key, value])
-        if result.returncode == 0:
-            continue
-        detail = tmux_error_detail(result)
-        raise TmuxCommandError(
-            f"Failed to set tmux environment variable `{key}` in session "
-            f"`{session_name}`: {detail or 'unknown tmux error'}"
-        )
+    for name, value in env_vars.items():
+        _publish_tmux_launch_variable(target=f"={session_name}", name=name, value=value)
 
 
 def unset_tmux_session_environment(*, session_name: str, variable_names: list[str]) -> None:
     """Unset multiple tmux session environment variables."""
 
     for variable_name in variable_names:
-        result = run_tmux(["set-environment", "-t", session_name, "-u", variable_name])
+        result = tmux_command(["set-environment", "-t", f"={session_name}", "-u", variable_name])
         if result.returncode == 0:
             continue
         detail = tmux_error_detail(result)
@@ -716,12 +577,12 @@ def unset_tmux_session_environment(*, session_name: str, variable_names: list[st
         )
 
 
-def show_tmux_environment(
-    *, session_name: str, variable_name: str
-) -> subprocess.CompletedProcess[str]:
+def show_tmux_environment(*, session_name: str, variable_name: str) -> TmuxCommandResult:
     """Return raw tmux `show-environment` output for one variable."""
 
-    return run_tmux(["show-environment", "-t", session_name, variable_name])
+    return tmux_command(
+        ["show-environment", "-t", f"={session_name}", variable_name], sensitive=True
+    )
 
 
 def read_tmux_session_environment_value(*, session_name: str, variable_name: str) -> str | None:
@@ -734,7 +595,7 @@ def read_tmux_session_environment_value(*, session_name: str, variable_name: str
             return None
         raise TmuxCommandError(
             f"Failed to read tmux environment variable `{variable_name}` from "
-            f"`{session_name}`: {tmux_error_detail(result) or 'unknown tmux error'}"
+            f"`{session_name}` (exit {result.returncode})"
         )
 
     line = (result.stdout or "").strip()
@@ -743,58 +604,34 @@ def read_tmux_session_environment_value(*, session_name: str, variable_name: str
     expected_prefix = f"{variable_name}="
     if not line.startswith(expected_prefix):
         raise TmuxCommandError(
-            f"Unexpected tmux environment output for `{variable_name}` in `{session_name}`: {line}"
+            f"Unexpected tmux environment output for `{variable_name}` in `{session_name}`"
         )
     value = line[len(expected_prefix) :].strip()
     return value or None
 
 
 def list_tmux_clients(*, session_name: str) -> tuple[str, ...]:
-    """Return attached tmux client identifiers for one session."""
+    """Return attached tmux client identifiers for the exact session."""
 
-    session = _require_libtmux_session(session_name=session_name)
-    result = session.cmd("list-clients", "-F", "#{client_tty}")
-    if result.returncode != 0:
-        detail = _libtmux_cmd_detail(result)
-        lowered = detail.lower()
-        if "no current client" in lowered or "no server running" in lowered:
-            return ()
-        raise TmuxCommandError(
-            f"Failed to list tmux clients for `{session_name}`: {detail or 'unknown tmux error'}"
-        )
-    return tuple(line.strip() for line in result.stdout if str(line).strip())
+    result = TmuxServer().checked_command(
+        ["list-clients", "-t", f"={session_name}", "-F", "#{client_tty}"],
+    )
+    return tuple(line for line in result.stdout.splitlines() if line)
 
 
 def attach_tmux_session(*, session_name: str) -> None:
-    """Attach the caller terminal to one tmux session through libtmux."""
+    """Attach the caller terminal through the selected libtmux server."""
 
-    session = _require_libtmux_session(session_name=session_name)
-    attach_method = getattr(session, "attach", None)
-    try:
-        if callable(attach_method):
-            attach_method()
-            return
-        result = session.cmd("attach-session")
-    except Exception as exc:  # noqa: BLE001
-        raise TmuxCommandError(
-            f"Failed to attach tmux session `{session_name}`: "
-            f"{str(exc).strip() or 'unknown tmux error'}"
-        ) from exc
-    if result.returncode != 0:
-        detail = _libtmux_cmd_detail(result)
-        raise TmuxCommandError(
-            f"Failed to attach tmux session `{session_name}`: {detail or 'unknown tmux error'}"
-        )
+    TmuxServer().checked_command(["attach-session", "-t", f"={session_name}"])
 
 
 def list_tmux_panes(*, session_name: str) -> tuple[TmuxPaneRecord, ...]:
-    """Return pane records for all panes in one tmux session."""
+    """Return checked pane records across all windows in the exact session."""
 
-    session = _require_libtmux_session(session_name=session_name)
-    return tuple(
-        _tmux_pane_record_from_libtmux_pane(pane=pane, session_name=session_name)
-        for pane in session.panes
-    )
+    panes = TmuxServer().observe_session(session_name)
+    if panes is None:
+        raise TmuxCommandError(f"Tmux session `{session_name}` does not exist.")
+    return panes
 
 
 def resolve_tmux_pane(
@@ -886,83 +723,38 @@ def resolve_tmux_pane(
 def find_tmux_pane(*, session_name: str, pane_id: str) -> TmuxPaneRecord | None:
     """Return one optional tmux pane record by pane id."""
 
-    try:
-        return resolve_tmux_pane(session_name=session_name, pane_id=pane_id)
-    except TmuxCommandError as exc:
-        if f"pane id `{pane_id}`" in str(exc):
-            return None
-        raise
+    panes = TmuxServer().observe_session(session_name)
+    return next((pane for pane in panes or () if pane.pane_id == pane_id), None)
 
 
 def capture_tmux_pane(*, target: str) -> str:
-    """Return capture-pane text for one tmux target."""
+    """Return the pane's normalized capture and scrollback."""
 
-    if target.startswith("%"):
-        pane = _require_libtmux_pane(pane_id=target)
-        try:
-            return "\n".join(pane.capture_pane(start="-", end="-", escape_sequences=True))
-        except Exception as exc:  # noqa: BLE001
-            raise TmuxCommandError(
-                f"Failed to capture tmux pane `{target}`: {str(exc).strip() or 'unknown tmux error'}"
-            ) from exc
-
-    result = _libtmux_server().cmd("capture-pane", "-p", "-e", "-S", "-", target=target)
-    if result.returncode != 0:
-        detail = _libtmux_cmd_detail(result)
-        raise TmuxCommandError(
-            f"Failed to capture tmux pane `{target}`: {detail or 'unknown tmux error'}"
-        )
-    return "\n".join(str(line) for line in result.stdout)
+    return TmuxServer().capture_pane(target, history=True, escape_sequences=True)
 
 
 def load_tmux_buffer(*, buffer_name: str, text: str) -> None:
     """Load literal text into one named tmux buffer."""
 
-    try:
-        environment = tmux_subprocess_environment()
-        extra: dict[str, Any] = {"env": environment} if environment is not None else {}
-        result = subprocess.run(
-            tmux_argv(["load-buffer", "-b", buffer_name, "-"]),
-            check=False,
-            capture_output=True,
-            text=True,
-            input=text,
-            **extra,
-        )
-    except OSError as exc:
-        raise TmuxCommandError(
-            f"Failed to run tmux command `load-buffer` for `{buffer_name}`: {exc}"
-        ) from exc
-
-    if result.returncode == 0:
-        return
-    detail = tmux_error_detail(result)
-    raise TmuxCommandError(
-        f"Failed to load tmux buffer `{buffer_name}`: {detail or 'unknown tmux error'}"
-    )
+    TmuxServer().load_buffer(buffer_name, text)
 
 
 def paste_tmux_buffer(*, target: str, buffer_name: str, bracketed_paste: bool = True) -> None:
     """Paste one named tmux buffer into the target pane."""
 
-    args = ["paste-buffer"]
-    if bracketed_paste:
-        args.append("-p")
-    args.extend(["-b", buffer_name, "-t", target])
-    result = run_tmux(args)
-    if result.returncode == 0:
-        return
-    detail = tmux_error_detail(result)
-    raise TmuxCommandError(
-        f"Failed to paste tmux buffer `{buffer_name}` into `{target}`: "
-        f"{detail or 'unknown tmux error'}"
-    )
+    TmuxServer().paste_buffer(buffer_name, target, bracketed=bracketed_paste)
+
+
+def delete_tmux_buffer(*, buffer_name: str) -> None:
+    """Delete a buffer on the bound tmux server."""
+
+    TmuxServer().delete_buffer(buffer_name)
 
 
 def select_tmux_pane(*, target: str) -> None:
     """Select one tmux pane."""
 
-    result = run_tmux(["select-pane", "-t", target])
+    result = tmux_command(["select-pane", "-t", target])
     if result.returncode != 0:
         detail = tmux_error_detail(result)
         raise TmuxCommandError(
@@ -972,10 +764,10 @@ def select_tmux_pane(*, target: str) -> None:
 
 def wait_for_tmux_signal(
     *, signal_name: str, timeout_seconds: float | None = None
-) -> subprocess.CompletedProcess[str]:
+) -> TmuxCommandResult:
     """Wait for a tmux wait-for signal."""
 
-    return run_tmux(["wait-for", signal_name], timeout_seconds=timeout_seconds)
+    return TmuxServer().wait_for(signal_name, timeout_seconds=timeout_seconds)
 
 
 def parse_tmux_control_input(
@@ -1051,17 +843,9 @@ def send_tmux_control_input(*, target: str, segments: tuple[TmuxControlInputSegm
         Raised when tmux rejects any segment delivery command.
     """
 
+    server = TmuxServer()
     for segment in segments:
-        if segment.kind == "literal":
-            result = run_tmux(["send-keys", "-t", target, "-l", segment.value])
-        else:
-            result = run_tmux(["send-keys", "-t", target, segment.value])
-        if result.returncode == 0:
-            continue
-        detail = tmux_error_detail(result)
-        raise TmuxCommandError(
-            f"Failed to send tmux control input to `{target}`: {detail or 'unknown tmux error'}"
-        )
+        server.send_keys(target, segment.value, literal=segment.kind == "literal")
 
 
 def generate_tmux_session_name(
@@ -1086,176 +870,13 @@ def generate_tmux_session_name(
         raise TmuxCommandError(str(exc)) from exc
 
 
-def run_tmux(
-    args: list[str],
-    *,
-    timeout_seconds: float | None = None,
-    excluded_environment_names: frozenset[str] = frozenset(),
-) -> subprocess.CompletedProcess[str]:
-    """Run a tmux command with normalized invocation behavior."""
-
-    try:
-        environment = tmux_subprocess_environment()
-        if args and args[0] in {"new-session", "start-server"}:
-            source = os.environ if environment is None else environment
-            environment = owner_launch_baseline(source)
-            for name in ("TMUX", "TMUX_TMPDIR", "TZ"):
-                if name in source:
-                    environment[name] = source[name]
-            for name in excluded_environment_names:
-                environment.pop(name, None)
-        extra: dict[str, Any] = {"env": environment} if environment is not None else {}
-        return subprocess.run(
-            tmux_argv(args),
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            **extra,
-        )
-    except OSError as exc:
-        raise TmuxCommandError(f"Failed to run tmux command `{args}`: {exc}") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise TmuxCommandError(f"Timed out running tmux command `{args}`") from exc
-
-
-def tmux_error_detail(result: subprocess.CompletedProcess[str]) -> str:
+def tmux_error_detail(result: TmuxCommandResult | subprocess.CompletedProcess[str]) -> str:
     """Extract concise stderr/stdout detail from a tmux command result."""
 
-    return (result.stderr or result.stdout or "").strip()
-
-
-def _libtmux_server() -> "libtmux.Server":
-    """Return one libtmux server handle."""
-
-    try:
-        import libtmux
-    except ImportError as exc:
-        raise TmuxCommandError("`libtmux` is required for repo-owned tmux integration.") from exc
-    try:
-        socket_path = current_tmux_socket_path()
-        return (
-            libtmux.Server(socket_path=socket_path) if socket_path is not None else libtmux.Server()
-        )
-    except Exception as exc:  # noqa: BLE001
-        raise TmuxCommandError(
-            f"Failed to initialize libtmux server: {str(exc).strip() or 'unknown tmux error'}"
-        ) from exc
-
-
-def _require_libtmux_session(*, session_name: str) -> Any:
-    """Return one live libtmux session by name."""
-
-    for session in _libtmux_server().sessions:
-        if getattr(session, "session_name", None) == session_name:
-            return session
-    raise TmuxCommandError(f"Tmux session `{session_name}` does not exist.")
-
-
-def _require_libtmux_pane(*, pane_id: str) -> Any:
-    """Return one live libtmux pane by pane id."""
-
-    server = _libtmux_server()
-    try:
-        import libtmux
-
-        return libtmux.Pane.from_pane_id(server=server, pane_id=pane_id)
-    except Exception as exc:  # noqa: BLE001
-        raise TmuxCommandError(
-            f"Tmux pane `{pane_id}` could not be resolved: {str(exc).strip() or 'unknown tmux error'}"
-        ) from exc
-
-
-def _tmux_pane_record_from_libtmux_pane(*, pane: Any, session_name: str) -> TmuxPaneRecord:
-    """Convert one libtmux pane object into the repository pane record."""
-
-    pane_dead = _coerce_bool_tmux_flag(
-        _optional_libtmux_pane_value(
-            pane=pane,
-            attr_name="pane_dead",
-            format_expression=_TMUX_PANE_DEAD_FORMAT,
-        )
-    )
-    pane_pid_value = _optional_libtmux_pane_value(
-        pane=pane,
-        attr_name="pane_pid",
-        format_expression=_TMUX_PANE_PID_FORMAT,
-    )
-    return TmuxPaneRecord(
-        pane_id=_require_libtmux_text(getattr(pane, "pane_id", None), field_name="pane_id"),
-        session_name=_require_libtmux_text(
-            getattr(pane, "session_name", None) or session_name,
-            field_name="session_name",
-        ),
-        window_id=_require_libtmux_text(getattr(pane, "window_id", None), field_name="window_id"),
-        window_index=_require_libtmux_text(
-            getattr(pane, "window_index", None),
-            field_name="window_index",
-        ),
-        window_name=_require_libtmux_text(
-            getattr(pane, "window_name", None),
-            field_name="window_name",
-        ),
-        pane_index=_require_libtmux_text(
-            getattr(pane, "pane_index", None), field_name="pane_index"
-        ),
-        pane_active=_coerce_bool_tmux_flag(
-            _normalize_libtmux_scalar(getattr(pane, "pane_active", None))
-        ),
-        pane_dead=pane_dead,
-        pane_pid=int(pane_pid_value)
-        if pane_pid_value is not None and pane_pid_value.isdigit()
-        else None,
-    )
-
-
-def _optional_libtmux_pane_value(
-    *,
-    pane: Any,
-    attr_name: str,
-    format_expression: str,
-) -> str | None:
-    """Return one optional pane value from a direct attribute or object-bound format query."""
-
-    direct_value = _normalize_libtmux_scalar(getattr(pane, attr_name, None))
-    if direct_value is not None:
-        return direct_value
-    try:
-        output = pane.display_message(format_expression, get_text=True)
-    except Exception as exc:  # noqa: BLE001
-        raise TmuxCommandError(
-            f"Failed to query tmux pane format `{format_expression}`: "
-            f"{str(exc).strip() or 'unknown tmux error'}"
-        ) from exc
-    if not output:
-        return None
-    return _normalize_libtmux_scalar(output[0])
-
-
-def _require_libtmux_text(value: Any, *, field_name: str) -> str:
-    """Return one normalized required libtmux scalar string."""
-
-    normalized = _normalize_libtmux_scalar(value)
-    if normalized is None:
-        raise TmuxCommandError(f"libtmux pane is missing required `{field_name}`.")
-    return normalized
-
-
-def _normalize_libtmux_scalar(value: Any) -> str | None:
-    """Normalize one optional libtmux scalar into text."""
-
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return "1" if value else "0"
-    text = str(value).strip()
-    return text or None
-
-
-def _coerce_bool_tmux_flag(value: str | None) -> bool:
-    """Return one tmux flag string as a boolean."""
-
-    return value == "1"
+    detail = (result.stderr or result.stdout or "").strip()
+    if not detail and result.returncode != 0:
+        return f"tmux exited with status {result.returncode}"
+    return detail
 
 
 def _prefer_live_tmux_pane(panes: tuple[TmuxPaneRecord, ...]) -> TmuxPaneRecord:
@@ -1268,12 +889,3 @@ def _prefer_live_tmux_pane(panes: tuple[TmuxPaneRecord, ...]) -> TmuxPaneRecord:
         if not pane.pane_dead:
             return pane
     return panes[0]
-
-
-def _libtmux_cmd_detail(result: Any) -> str:
-    """Extract concise stderr/stdout detail from one libtmux command result."""
-
-    stderr = getattr(result, "stderr", []) or []
-    stdout = getattr(result, "stdout", []) or []
-    lines = stderr or stdout
-    return "\n".join(str(line).strip() for line in lines if str(line).strip())

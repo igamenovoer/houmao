@@ -95,19 +95,14 @@ def test_native_web_fixture_keeps_one_browser_api_session(
         launch.launch_run(root, prompt="Fixture first Web marker", timeout=45)
         launch.prompt_run(root, prompt="Fixture second Web marker", timeout=45)
         run = prepare.load_run(root)
-        observed = subprocess.run(
-            launch._tmux_command(
-                run,
+        observed = launch._fixture_tmux(run).checked_command(
+            [
                 "display-message",
                 "-p",
                 "-t",
-                run["identity"]["tmux_session_name"],
+                f"={run['identity']['tmux_session_name']}:",
                 "#{socket_path}",
-            ),
-            env=launch.run_environment(run),
-            capture_output=True,
-            text=True,
-            check=True,
+            ],
         )
         assert run["tmux_socket_path"] != str(isolated_tmux)
         assert observed.stdout.strip() == run["tmux_socket_path"]

@@ -9,7 +9,6 @@ import os
 import re
 import shlex
 import shutil
-import subprocess
 import time
 import uuid
 from dataclasses import dataclass, replace
@@ -17,12 +16,15 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Callable, Final, Literal, Protocol, cast
 
+from houmao.execution.tmux import tmux_command as run_tmux_shared
+
 from houmao.cao.models import CaoTerminal, CaoTerminalOutputResponse, CaoTerminalStatus
 from houmao.cao.no_proxy import (
     inject_loopback_no_proxy_env_for_cao_base_url,
 )
 from houmao.cao.rest_client import CaoApiError, CaoRestClient
 from houmao.execution.context import execution_is_read_only
+from houmao.execution.tmux import TmuxCommandResult
 from houmao.terminal_record.runtime_bridge import (
     append_managed_control_input_for_tmux_session,
 )
@@ -81,7 +83,6 @@ from .tmux_runtime import (
     overlay_tmux_rich_color_environment,
     parse_tmux_control_input as parse_tmux_control_input_shared,
     publish_tmux_launch_environment,
-    run_tmux as run_tmux_shared,
     send_tmux_control_input as send_tmux_control_input_shared,
     set_tmux_session_environment as set_tmux_session_environment_shared,
     tmux_error_detail as tmux_error_detail_shared,
@@ -2281,7 +2282,7 @@ def _move_tmux_window(*, source_window_id: str, target: str) -> None:
         )
 
 
-def _tmux_error_detail(result: subprocess.CompletedProcess[str]) -> str:
+def _tmux_error_detail(result: TmuxCommandResult) -> str:
     detail = tmux_error_detail_shared(result)
     return detail or "unknown tmux error"
 

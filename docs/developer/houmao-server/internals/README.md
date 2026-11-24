@@ -30,6 +30,8 @@ The key architectural boundary is:
 
 ## Public Surface Versus Internal Authority
 
+The CAO compatibility controller uses the shared tmux adapter for window lifecycle, pane lookup, and input. Its capture route preserves native `capture-pane` output, including trailing blank rows. The adapter runs a named native capture operation because libtmux discards trailing empty output lines.
+
 The public Houmao-owned routes for the tracker are still terminal-keyed:
 
 - `POST /houmao/launches/register`

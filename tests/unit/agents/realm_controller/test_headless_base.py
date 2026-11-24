@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-import subprocess
+from types import SimpleNamespace
 from dataclasses import replace
 
 import pytest
@@ -738,7 +738,7 @@ def test_headless_resume_republishes_manifest_and_agent_def_dir_to_tmux_env(
     )
 
     assert captured_tmux_env["session_name"] == "HOUMAO-kimi"
-    assert prepared_sessions == ["HOUMAO-kimi"]
+    assert prepared_sessions == []
     env_vars = captured_tmux_env["env_vars"]
     assert isinstance(env_vars, dict)
     assert env_vars[AGENT_MANIFEST_PATH_ENV_VAR] == str((tmp_path / "session.json").resolve())
@@ -942,17 +942,16 @@ def test_read_only_backend_resume_does_not_prepare_or_publish_tmux(
 @pytest.fixture(autouse=True)
 def _stub_tmux_for_headless_base(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.headless_base.HeadlessInteractiveSession._observe_primary_surface",
+        lambda self, **_: SimpleNamespace(pane_id="%9"),
+    )
+    monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.headless_base.ensure_tmux_available_shared",
         lambda: None,
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.backends.headless_base.has_tmux_session_shared",
-        lambda *, session_name: subprocess.CompletedProcess(
-            args=["tmux", "has-session", "-t", session_name],
-            returncode=0,
-            stdout="",
-            stderr="",
-        ),
+        "houmao.agents.realm_controller.backends.headless_base.tmux_session_exists_shared",
+        lambda **_: True,
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.headless_base.set_tmux_session_environment_shared",

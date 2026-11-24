@@ -21,6 +21,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from houmao.execution.tmux import tmux_command as run_tmux
+
 from houmao.agents.model_selection import ModelConfig
 from houmao.agents.realm_controller.backends.dispatch_control import (
     HeadlessDispatchControl,
@@ -35,11 +37,10 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     cleanup_tmux_session,
     create_tmux_session,
     detached_tool_environment,
-    has_tmux_session,
+    tmux_session_exists,
     list_tmux_panes,
     prepare_headless_agent_window,
     publish_tmux_launch_environment,
-    run_tmux,
     TmuxCommandError,
     TmuxPaneRecord,
 )
@@ -470,7 +471,7 @@ class ManagedServiceSession:
         created = False
         try:
             with self._socket_scope():
-                if has_tmux_session(session_name=name).returncode != 0:
+                if not tmux_session_exists(session_name=name, allow_missing_server=True):
                     create_tmux_session(
                         session_name=name,
                         working_directory=config.working_directory,
@@ -869,7 +870,9 @@ class ManagedServiceSession:
             _remove_retired_service_socket(descriptor)
             if self.m_force_cleanup:
                 with self._socket_scope():
-                    if has_tmux_session(session_name=state.tmux_session_name).returncode == 0:
+                    if tmux_session_exists(
+                        session_name=state.tmux_session_name, allow_missing_server=True
+                    ):
                         self._saved_supervisor_pane()
                         cleanup_tmux_session(session_name=state.tmux_session_name)
         except (OSError, TmuxCommandError, BackendExecutionError) as error:

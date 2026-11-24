@@ -407,7 +407,7 @@ def test_tui_confirms_after_managed_prompt_enter(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(
         local_interactive, "send_tmux_control_input_shared", lambda **_: operations.append("enter")
     )
-    monkeypatch.setattr(local_interactive, "run_tmux_shared", lambda _: None)
+    monkeypatch.setattr(local_interactive, "delete_tmux_buffer_shared", lambda **_: None)
 
     assert backend.send_prompt("managed prompt")[0].kind == "submitted"
     assert operations == ["bootstrap", "enter", "managed prompt", "enter", "handoff"]
@@ -446,7 +446,7 @@ def test_tui_replacement_after_paste_prevents_enter_and_clears_buffer(
         lambda **_kwargs: operations.append("enter"),
     )
     monkeypatch.setattr(
-        local_interactive, "run_tmux_shared", lambda args: operations.append(args[0])
+        local_interactive, "delete_tmux_buffer_shared", lambda **_: operations.append("delete-buffer")
     )
     with pytest.raises(BackendExecutionError, match="no longer active"):
         backend._submit_semantic_prompt("discarded request")

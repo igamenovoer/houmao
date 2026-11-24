@@ -71,6 +71,7 @@ class TerminalRecordTarget:
     pane_id: str
     window_id: str
     window_name: str
+    socket_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -115,6 +116,7 @@ class TerminalRecordManifest:
             window_name=_require_string(
                 target_payload.get("window_name"), context="target.window_name"
             ),
+            socket_path=_optional_string(target_payload.get("socket_path")),
         )
         taint_reasons_raw = payload.get("taint_reasons", [])
         if not isinstance(taint_reasons_raw, list) or not all(

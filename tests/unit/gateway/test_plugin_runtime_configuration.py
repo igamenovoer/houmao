@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-import subprocess
 
 from click.testing import CliRunner
 import pytest
 
 from houmao.agents.realm_controller import runtime
-from houmao.agents.realm_controller.errors import GatewayHttpError, SessionManifestError
+from houmao.agents.realm_controller.errors import (
+    GatewayAttachError,
+    GatewayHttpError,
+    SessionManifestError,
+)
 from houmao.agents.realm_controller.errors import BackendExecutionError
 from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
 from houmao.agents.realm_controller.backends.tmux_runtime import TmuxCommandError
@@ -26,9 +29,11 @@ from houmao.agents.realm_controller.gateway_storage import (
     ensure_gateway_capability,
     gateway_paths_from_session_root,
     load_gateway_desired_config,
+    write_gateway_current_instance,
     write_gateway_desired_config,
 )
 from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
+from houmao.execution.tmux import TmuxPaneRecord
 from houmao.gateway.deployment import GatewayDeployment
 from houmao.gateway.plugins import (
     GatewayPluginConfiguration,
@@ -524,19 +529,25 @@ def test_gateway_window_cleanup_succeeds_when_last_window_removes_session(
         tmux_pane_id="%9",
         managed_agent_instance_epoch=1,
     )
-    monkeypatch.setattr(
-        runtime, "run_tmux_shared", lambda args: subprocess.CompletedProcess(args, 0, "", "")
-    )
+    killed = False
 
-    def absent(**_: object) -> tuple[object, ...]:
-        """Model libtmux rejecting an already removed owned session."""
+    def observe(_server: object, session_name: str) -> tuple[TmuxPaneRecord, ...] | None:
+        """Report the exact remaining gateway pane until its window is killed."""
 
-        raise TmuxCommandError("Owned session is absent")
+        assert session_name == "HOUMAO-example"
+        if killed:
+            return None
+        return (TmuxPaneRecord("%9", session_name, "@9", "1", "gateway", "0", False),)
 
-    monkeypatch.setattr(runtime, "list_tmux_panes_shared", absent)
-    monkeypatch.setattr(
-        runtime, "has_tmux_session_shared", lambda **_: SimpleNamespace(returncode=1)
-    )
+    def kill(_server: object, args: list[str]) -> None:
+        """Accept only the confirmed window and model synchronous last-window teardown."""
+
+        nonlocal killed
+        assert args == ["kill-window", "-t", "@9"]
+        killed = True
+
+    monkeypatch.setattr(runtime.TmuxServer, "observe_session", observe)
+    monkeypatch.setattr(runtime.TmuxServer, "checked_command", kill)
     assert (
         runtime._stop_same_session_gateway_surface(
             session_name="HOUMAO-example", current_instance=current, strict=True
@@ -556,14 +567,51 @@ def test_gateway_cleanup_preserves_unrelated_tmux_inspection_errors(
 ) -> None:
     """An inspection failure still propagates when the selected session exists."""
 
-    def failed(**_: object) -> tuple[object, ...]:
+    def failed(_server: object, _session_name: str) -> tuple[object, ...]:
         """Report a non-absence tmux failure."""
 
         raise TmuxCommandError("Inspection failed")
 
-    monkeypatch.setattr(runtime, "list_tmux_panes_shared", failed)
-    monkeypatch.setattr(
-        runtime, "has_tmux_session_shared", lambda **_: SimpleNamespace(returncode=0)
-    )
+    monkeypatch.setattr(runtime.TmuxServer, "observe_session", failed)
     with pytest.raises(TmuxCommandError, match="Inspection failed"):
         runtime._find_tmux_pane(session_name="HOUMAO-example", pane_id="%9")
+
+
+def test_failed_auxiliary_teardown_preserves_gateway_receipt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Keep the current gateway discoverable when checked window teardown fails."""
+
+    paths = gateway_paths_from_session_root(session_root=tmp_path)
+    paths.current_instance_path.parent.mkdir(parents=True)
+    current = GatewayCurrentInstanceV1(
+        pid=123,
+        host="127.0.0.1",
+        port=12345,
+        execution_mode="tmux_auxiliary_window",
+        tmux_window_id="@9",
+        tmux_window_index="1",
+        tmux_pane_id="%9",
+        managed_agent_instance_epoch=1,
+    )
+    write_gateway_current_instance(paths.current_instance_path, current)
+    receipt = paths.current_instance_path.read_bytes()
+    monkeypatch.setattr(runtime, "_tmux_session_name_for_controller", lambda _controller: "owner")
+    monkeypatch.setattr(
+        runtime.TmuxServer,
+        "observe_session",
+        lambda _server, name: (TmuxPaneRecord("%9", name, "@9", "1", "gateway", "0", False),),
+    )
+
+    def refused(_server: object, args: list[str]) -> None:
+        """Fail the exact kill without claiming the old window is gone."""
+
+        assert args == ["kill-window", "-t", "@9"]
+        raise TmuxCommandError("tmux kill-window exited with status 2", returncode=2)
+
+    monkeypatch.setattr(runtime.TmuxServer, "checked_command", refused)
+    with pytest.raises(GatewayAttachError, match="status 2"):
+        runtime._clear_stale_gateway_runtime_state(
+            controller=SimpleNamespace(), paths=paths, attach_contract=SimpleNamespace()
+        )
+    assert paths.current_instance_path.read_bytes() == receipt

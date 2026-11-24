@@ -2,8 +2,10 @@ from __future__ import annotations
 import click
 import json
 import sqlite3
+from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 import pytest
@@ -11,6 +13,7 @@ from click.testing import CliRunner
 
 import houmao.srv_ctrl.commands.agents.gateway as gateway_commands
 import houmao.srv_ctrl.commands.runtime_cleanup as runtime_cleanup
+from houmao.agents.realm_controller.boundary_models import SessionManifestTmuxSectionV1
 from houmao.agents.realm_controller.gateway_storage import gateway_paths_from_session_root
 from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
@@ -34,8 +37,24 @@ from houmao.mailbox.managed import (
     register_mailbox,
 )
 from houmao.agents.realm_controller.registry_storage import RegistryCleanupAction
+from houmao.execution.tmux import (
+    TmuxCommandError,
+    TmuxCommandResult,
+    TmuxServer,
+    current_tmux_socket_path,
+    tmux_server_scope,
+)
 from houmao.project.overlay import bootstrap_project_overlay
 from houmao.srv_ctrl.commands.main import cli
+
+
+@pytest.fixture(autouse=True)
+def _bind_absent_owner_socket() -> Iterator[None]:
+    """Bind synthetic records to an isolated socket that never starts a server."""
+
+    with TemporaryDirectory(prefix="hm-cleanup-") as directory:
+        with tmux_server_scope(Path(directory) / "owner.sock"):
+            yield
 
 
 def _launch_plan(
@@ -99,6 +118,10 @@ def _write_runtime_manifest(
             agent_name="joined-agent",
             agent_id="agent-joined",
             tmux_session_name=tmux_session_name,
+            tmux_binding=SessionManifestTmuxSectionV1(
+                session_name=tmux_session_name,
+                socket_path=current_tmux_socket_path(),
+            ),
             session_id=session_id,
             agent_def_dir=agent_def_dir,
             memory_root=memory_root,
@@ -148,6 +171,7 @@ def _registry_record(
         terminal=RegistryTerminalV2(
             current_session_name=current_session_name,
             last_session_name=session_name or "join-sess",
+            socket_path=current_tmux_socket_path(),
         ),
         liveness=(
             RegistryLivenessV1(
@@ -505,7 +529,9 @@ def test_managed_session_cleanup_recovers_stopped_session_by_agent_id(
         "_resolve_effective_runtime_root",
         lambda runtime_root: (tmp_path / "runtime").resolve(),
     )
-    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: False)
+    monkeypatch.setattr(
+        runtime_cleanup, "tmux_session_exists", lambda *, session_name, allow_missing_server: False
+    )
 
     payload = runtime_cleanup.cleanup_managed_session(
         agent_id="agent-joined",
@@ -538,7 +564,9 @@ def test_managed_session_cleanup_recovers_stopped_session_by_agent_name(
         "_resolve_effective_runtime_root",
         lambda runtime_root: (tmp_path / "runtime").resolve(),
     )
-    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: False)
+    monkeypatch.setattr(
+        runtime_cleanup, "tmux_session_exists", lambda *, session_name, allow_missing_server: False
+    )
 
     payload = runtime_cleanup.cleanup_managed_session(
         agent_id=None,
@@ -569,7 +597,9 @@ def test_managed_session_cleanup_unlinks_session_root_symlink_without_touching_t
         "_resolve_effective_runtime_root",
         lambda runtime_root: (tmp_path / "runtime").resolve(),
     )
-    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: False)
+    monkeypatch.setattr(
+        runtime_cleanup, "tmux_session_exists", lambda *, session_name, allow_missing_server: False
+    )
 
     payload = runtime_cleanup.cleanup_managed_session(
         agent_id=None,
@@ -662,7 +692,9 @@ def test_managed_session_cleanup_stopped_selector_ambiguity_lists_candidates(
         "_resolve_effective_runtime_root",
         lambda runtime_root: (tmp_path / "runtime").resolve(),
     )
-    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: False)
+    monkeypatch.setattr(
+        runtime_cleanup, "tmux_session_exists", lambda *, session_name, allow_missing_server: False
+    )
 
     with pytest.raises(runtime_cleanup.CleanupResolutionError) as exc_info:
         runtime_cleanup.resolve_managed_session_cleanup_target(
@@ -696,7 +728,9 @@ def test_managed_session_cleanup_stopped_selector_no_match_is_explicit(
         "_resolve_effective_runtime_root",
         lambda runtime_root: (tmp_path / "runtime").resolve(),
     )
-    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: False)
+    monkeypatch.setattr(
+        runtime_cleanup, "tmux_session_exists", lambda *, session_name, allow_missing_server: False
+    )
 
     with pytest.raises(runtime_cleanup.CleanupResolutionError) as exc_info:
         runtime_cleanup.resolve_managed_session_cleanup_target(
@@ -809,7 +843,7 @@ def test_managed_session_cleanup_blocks_live_session_removal(
     monkeypatch.setattr(
         runtime_cleanup,
         "tmux_session_exists",
-        lambda *, session_name: session_name == "join-sess",
+        lambda *, session_name, allow_missing_server: session_name == "join-sess",
     )
 
     payload = runtime_cleanup.cleanup_managed_session(
@@ -845,7 +879,9 @@ def test_managed_session_cleanup_retires_stopped_registry_record_by_default(
             record if agent_id == "agent-joined" and agent_name is None else None
         ),
     )
-    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: False)
+    monkeypatch.setattr(
+        runtime_cleanup, "tmux_session_exists", lambda *, session_name, allow_missing_server: False
+    )
     monkeypatch.setattr(
         runtime_cleanup,
         "publish_managed_agent_record",
@@ -890,7 +926,9 @@ def test_managed_session_cleanup_purges_registry_record_when_requested(
             record if agent_id == "agent-joined" and agent_name is None else None
         ),
     )
-    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: False)
+    monkeypatch.setattr(
+        runtime_cleanup, "tmux_session_exists", lambda *, session_name, allow_missing_server: False
+    )
     monkeypatch.setattr(
         runtime_cleanup,
         "remove_managed_agent_record",
@@ -936,7 +974,9 @@ def test_managed_session_cleanup_dry_run_reports_registry_lifecycle_action(
             record if agent_id == "agent-joined" and agent_name is None else None
         ),
     )
-    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: False)
+    monkeypatch.setattr(
+        runtime_cleanup, "tmux_session_exists", lambda *, session_name, allow_missing_server: False
+    )
     monkeypatch.setattr(
         runtime_cleanup,
         "publish_managed_agent_record",
@@ -985,7 +1025,9 @@ def test_managed_session_cleanup_blocks_active_registry_record_even_without_live
             record if agent_id == "agent-joined" and agent_name is None else None
         ),
     )
-    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: False)
+    monkeypatch.setattr(
+        runtime_cleanup, "tmux_session_exists", lambda *, session_name, allow_missing_server: False
+    )
     monkeypatch.setattr(
         runtime_cleanup,
         "publish_managed_agent_record",
@@ -1031,7 +1073,9 @@ def test_managed_session_cleanup_purge_registry_retires_stale_active_broken_auth
             record if agent_id == "agent-joined" and agent_name is None else None
         ),
     )
-    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: False)
+    monkeypatch.setattr(
+        runtime_cleanup, "tmux_session_exists", lambda *, session_name, allow_missing_server: False
+    )
     monkeypatch.setattr(
         runtime_cleanup,
         "probe_tmux_backed_authority",
@@ -1045,7 +1089,7 @@ def test_managed_session_cleanup_purge_registry_retires_stale_active_broken_auth
     cleanup_calls: list[str] = []
     monkeypatch.setattr(
         runtime_cleanup,
-        "cleanup_tmux_session",
+        "kill_tmux_session",
         lambda *, session_name: cleanup_calls.append(session_name),
     )
     purge_calls: list[tuple[str, str | None]] = []
@@ -1076,11 +1120,13 @@ def test_managed_session_cleanup_purge_registry_retires_stale_active_broken_auth
     assert purge_calls == [(record.agent_id, record.generation_id)]
 
 
-def test_managed_session_cleanup_purge_registry_kills_degraded_active_remnant(
+@pytest.mark.parametrize("kill_succeeds", [True, False])
+def test_managed_session_cleanup_purge_registry_checks_degraded_remnant_teardown(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    kill_succeeds: bool,
 ) -> None:
-    """Explicit --purge-registry kills the surviving tmux session for a degraded active."""
+    """Purge a surviving degraded session only after checked teardown succeeds."""
 
     from houmao.agents.realm_controller.backends.tmux_runtime import (
         TmuxBackedAuthorityHealth,
@@ -1101,7 +1147,9 @@ def test_managed_session_cleanup_purge_registry_kills_degraded_active_remnant(
             record if agent_id == "agent-joined" and agent_name is None else None
         ),
     )
-    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: True)
+    monkeypatch.setattr(
+        runtime_cleanup, "tmux_session_exists", lambda *, session_name, allow_missing_server: True
+    )
     monkeypatch.setattr(
         runtime_cleanup,
         "probe_tmux_backed_authority",
@@ -1113,15 +1161,20 @@ def test_managed_session_cleanup_purge_registry_kills_degraded_active_remnant(
         ),
     )
     cleanup_calls: list[str] = []
-    monkeypatch.setattr(
-        runtime_cleanup,
-        "cleanup_tmux_session",
-        lambda *, session_name: cleanup_calls.append(session_name),
-    )
+    owner_socket = current_tmux_socket_path()
+
+    def _kill(*, session_name: str) -> None:
+        assert current_tmux_socket_path() == owner_socket
+        cleanup_calls.append(session_name)
+        if not kill_succeeds:
+            raise TmuxCommandError("tmux kill-session exited with status 23", returncode=23)
+
+    monkeypatch.setattr(runtime_cleanup, "kill_tmux_session", _kill)
+    purged: list[str] = []
     monkeypatch.setattr(
         runtime_cleanup,
         "remove_managed_agent_record",
-        lambda agent_id, *, generation_id=None: True,
+        lambda agent_id, *, generation_id=None: purged.append(agent_id) or True,
     )
 
     payload = runtime_cleanup.cleanup_managed_session(
@@ -1134,10 +1187,69 @@ def test_managed_session_cleanup_purge_registry_kills_degraded_active_remnant(
     )
 
     assert cleanup_calls == ["join-sess"]
-    assert not session_root.exists()
-    applied_kinds = {action["artifact_kind"] for action in payload["applied_actions"]}
-    assert "session_root" in applied_kinds
-    assert "managed_agent_registry_record" in applied_kinds
+    if kill_succeeds:
+        assert not session_root.exists()
+        assert purged == [record.agent_id]
+        applied_kinds = {action["artifact_kind"] for action in payload["applied_actions"]}
+        assert applied_kinds == {"session_root", "managed_agent_registry_record"}
+    else:
+        assert session_root.exists()
+        assert purged == []
+        assert payload["applied_actions"] == []
+        blocked = payload["blocked_actions"][0]
+        assert "teardown" in blocked["reason"]
+        assert "exited with status 23" in blocked["details"]["tmux_error"]
+
+
+@pytest.mark.parametrize("lifecycle_state", ["active", "stopped"])
+@pytest.mark.parametrize("stderr", ["", "Permission denied"])
+def test_managed_session_cleanup_preserves_artifacts_when_owner_probe_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, lifecycle_state: str, stderr: str
+) -> None:
+    """A failed owner query cannot authorize file or registry removal."""
+
+    manifest_path = _write_runtime_manifest(tmp_path)
+    record = _registry_record(
+        manifest_path=manifest_path,
+        session_root=manifest_path.parent,
+        lifecycle_state=lifecycle_state,
+    )
+    owner_socket = current_tmux_socket_path()
+    assert owner_socket is not None
+    calls: list[tuple[str, ...]] = []
+
+    def _failed_probe(
+        self: TmuxServer, args: Sequence[str], *, sensitive: bool = False, no_start: bool = False
+    ) -> TmuxCommandResult:
+        assert self.socket_path == owner_socket
+        assert args[0] == "list-sessions"
+        calls.append(tuple(args))
+        return TmuxCommandResult(tuple(args), 23, "", stderr)
+
+    def _unexpected_mutation(*args: object, **kwargs: object) -> None:
+        pytest.fail("An unavailable owner observation cannot authorize cleanup")
+
+    monkeypatch.setattr(TmuxServer, "command", _failed_probe)
+    monkeypatch.setattr(
+        runtime_cleanup, "_resolve_local_cleanup_registry_record", lambda **_: record
+    )
+    monkeypatch.setattr(runtime_cleanup, "remove_managed_agent_record", _unexpected_mutation)
+    monkeypatch.setattr(runtime_cleanup, "publish_managed_agent_record", _unexpected_mutation)
+
+    with tmux_server_scope(Path(owner_socket).with_name("enclosing.sock")):
+        payload = runtime_cleanup.cleanup_managed_session(
+            agent_id=record.agent_id,
+            agent_name=None,
+            manifest_path=None,
+            session_root=None,
+            dry_run=False,
+            purge_registry=True,
+        )
+
+    assert manifest_path.is_file()
+    assert calls == [("list-sessions", "-F", "#{session_name}")]
+    assert payload["applied_actions"] == []
+    assert "could not be verified" in payload["blocked_actions"][0]["reason"]
 
 
 def test_managed_session_cleanup_without_purge_still_blocks_broken_active(
@@ -1161,7 +1273,9 @@ def test_managed_session_cleanup_without_purge_still_blocks_broken_active(
             record if agent_id == "agent-joined" and agent_name is None else None
         ),
     )
-    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: False)
+    monkeypatch.setattr(
+        runtime_cleanup, "tmux_session_exists", lambda *, session_name, allow_missing_server: False
+    )
     probe_calls: list[str] = []
     monkeypatch.setattr(
         runtime_cleanup,
@@ -1203,7 +1317,7 @@ def test_managed_session_cleanup_explicit_session_root_blocks_live_removal_via_r
     monkeypatch.setattr(
         runtime_cleanup,
         "tmux_session_exists",
-        lambda *, session_name: session_name == "join-sess",
+        lambda *, session_name, allow_missing_server: session_name == "join-sess",
     )
 
     payload = runtime_cleanup.cleanup_managed_session(

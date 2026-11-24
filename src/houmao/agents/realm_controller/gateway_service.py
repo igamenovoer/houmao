@@ -5,7 +5,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from houmao.mailbox.models import GatewayMailSyncStatusV1
-from houmao.execution.context import persisted_execution_scope
+from houmao.execution.context import persisted_execution_scope, validate_execution_owner
+from houmao.execution.tmux import (
+    TmuxCommandError,
+    TmuxPaneRecord,
+    TmuxServer,
+    validate_tmux_socket_path,
+)
 
 if TYPE_CHECKING:
     from houmao.agents.realm_controller.backends.service_runtime import ManagedServiceSession
@@ -312,6 +318,7 @@ from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
 )
+from houmao.agents.realm_controller.managed_terminal import observe_primary_tmux
 from houmao.agents.realm_controller.session_authority import resolve_manifest_session_authority
 from houmao.agents.realm_controller.web_observation import WebObservation, web_observation_is_fresh
 from houmao.agents.realm_controller.runtime import (
@@ -330,7 +337,6 @@ from houmao.agents.realm_controller.backends.headless_output import (
 )
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     HEADLESS_AGENT_WINDOW_NAME,
-    resolve_primary_tmux_surface,
     tmux_session_exists,
 )
 from houmao.cao.rest_client import CaoApiError, CaoRestClient
@@ -377,9 +383,6 @@ _MemoryResponseT = TypeVar("_MemoryResponseT")
 _MailRouteResponseT = TypeVar("_MailRouteResponseT")
 _GatewayControlIntentAction = Literal["interrupt", "context"]
 _GATEWAY_EXECUTION_MODE_ENV_VAR = "HOUMAO_GATEWAY_EXECUTION_MODE"
-_GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_ID"
-_GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_INDEX"
-_GATEWAY_TMUX_PANE_ID_ENV_VAR = "HOUMAO_GATEWAY_TMUX_PANE_ID"
 _MAIL_NOTIFIER_TEMPLATE_RESOURCE = "system_prompts/mailbox/mail-notifier.md"
 
 
@@ -1077,7 +1080,7 @@ class _RestBackedGatewayAdapter:
         try:
             self.m_controller = resume_runtime_session(
                 session_manifest_path=self.m_manifest_path,
-                read_only=True,
+                existing_only=True,
             )
         except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
             raise GatewayError(
@@ -1299,16 +1302,24 @@ class _NativeWebGatewayAdapter:
     ) -> None:
         """Forward only explicitly requested native policy through runtime accounting."""
 
-        events = self._resume_controller().send_web_prompt(
-            prompt=prompt,
-            admission_policy=admission_policy,
-            operator=operator,
-            turn_artifact_dir_name=turn_id,
-            session_selection=session_selection,
-            execution_model=execution_model,
-            refresh_registry=False,
+        controller = resume_runtime_session(
+            session_manifest_path=self.m_manifest_path, existing_only=True
         )
-        self._require_successful_terminal_result(events)
+        try:
+            events = controller.send_web_prompt(
+                prompt=prompt,
+                admission_policy=admission_policy,
+                operator=operator,
+                turn_artifact_dir_name=turn_id,
+                session_selection=session_selection,
+                execution_model=execution_model,
+                refresh_registry=False,
+            )
+            self._require_successful_terminal_result(events)
+        finally:
+            closer = getattr(controller.backend_session, "close_control_connection", None)
+            if callable(closer):
+                closer()
 
     def capture_plugin_execution_identity(self) -> tuple[str, ...]:
         """Capture an authenticated live binding without activating cold sessions."""
@@ -1406,7 +1417,9 @@ class _NativeWebGatewayAdapter:
     ) -> None:
         """Bind one explicit or ordinary insertion to its request's native guard."""
 
-        controller = resume_runtime_session(session_manifest_path=self.m_manifest_path)
+        controller = resume_runtime_session(
+            session_manifest_path=self.m_manifest_path, existing_only=True
+        )
         backend = cast(_WebBackend, controller.backend_session)
         self.m_attempts[id(control)] = backend
         backend.configure_request_dispatch(control)
@@ -1445,7 +1458,15 @@ class _NativeWebGatewayAdapter:
     def interrupt(self) -> None:
         """Interrupt the explicitly observed native turn through its exact binding."""
 
-        result = self._resume_controller().interrupt()
+        controller = resume_runtime_session(
+            session_manifest_path=self.m_manifest_path, existing_only=True
+        )
+        try:
+            result = controller.interrupt()
+        finally:
+            closer = getattr(controller.backend_session, "close_control_connection", None)
+            if callable(closer):
+                closer()
         if result.status != "ok":
             raise GatewayError(result.detail)
 
@@ -1500,6 +1521,7 @@ class _LocalHeadlessGatewayAdapter:
         if manifest_path_value is None:
             raise GatewayError("Local tmux gateway attach requires a runtime manifest.")
         self.m_manifest_path = Path(manifest_path_value).expanduser().resolve()
+        self.m_observer: RuntimeSessionController | None = None
         self.m_controller: RuntimeSessionController | None = None
         self.m_instance_id = attach_contract.runtime_session_id or attach_contract.attach_identity
 
@@ -1623,7 +1645,7 @@ class _LocalHeadlessGatewayAdapter:
         """Interrupt one resumed local tmux-backed runtime."""
 
         self._require_live_tmux_session()
-        result = self._resume_controller().interrupt()
+        result = self._open_controller(read_only=False).interrupt()
         if result.status != "ok":
             raise GatewayError(result.detail)
 
@@ -1684,7 +1706,7 @@ class _LocalHeadlessGatewayAdapter:
         if self.m_attach_contract.backend == "dsh_headless":
             raise GatewayError("Raw control input is unsupported for DSH headless gateway targets.")
         self._require_live_tmux_session()
-        result = self._resume_controller().send_input_ex(
+        result = self._open_controller(read_only=False).send_input_ex(
             sequence,
             escape_special_keys=escape_special_keys,
         )
@@ -1703,27 +1725,32 @@ class _LocalHeadlessGatewayAdapter:
         return _GatewayControlInputSupport(supported=True)
 
     def _resume_prompt_controller(self) -> RuntimeSessionController:
-        """Read native DSH continuation from the latest admitted owner snapshot."""
+        """Open the latest admitted owner snapshot for this prompt attempt."""
 
-        if self.m_attach_contract.backend == "dsh_headless":
-            self.m_controller = None
-        return self._resume_controller()
+        self.m_observer = None
+        self.m_controller = self._open_controller(read_only=False)
+        return self.m_controller
 
     def _resume_controller(self) -> RuntimeSessionController:
-        """Return the resumed local runtime controller, materializing it lazily."""
+        """Return the read-only observer independently of the active prompt controller."""
 
-        if self.m_controller is not None:
-            return self.m_controller
+        if self.m_observer is None:
+            self.m_observer = self._open_controller(read_only=True)
+        return self.m_observer
+
+    def _open_controller(self, *, read_only: bool) -> RuntimeSessionController:
+        """Restore the existing owner without starting or publishing resources."""
+
         try:
-            self.m_controller = resume_runtime_session(
+            return resume_runtime_session(
                 session_manifest_path=self.m_manifest_path,
-                read_only=True,
+                read_only=read_only,
+                existing_only=True,
             )
         except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
             raise GatewayError(
                 f"Failed to resume runtime-owned local tmux-backed session: {exc}"
             ) from exc
-        return self.m_controller
 
     def _require_live_tmux_session(self) -> None:
         """Require the tmux session to still be live."""
@@ -1838,16 +1865,31 @@ class _ServerManagedHeadlessGatewayAdapter:
         if manifest_value is None or self.inspect_target().connectivity != "connected":
             raise GatewayError("Managed execution identity is unavailable")
         try:
-            with persisted_execution_scope(Path(manifest_value)):
-                payload = json.loads(Path(manifest_value).read_text(encoding="utf-8"))
-                generation = payload.get("registry_generation_id")
-                surface = resolve_primary_tmux_surface(
-                    session_name=self.m_attach_contract.tmux_session_name,
-                    window_name=HEADLESS_AGENT_WINDOW_NAME,
+            with persisted_execution_scope(Path(manifest_value)) as payload:
+                generation = payload.registry_generation_id
+                binding = payload.tmux
+                if (
+                    binding is None
+                    or binding.session_name != self.m_attach_contract.tmux_session_name
+                    or payload.backend != self.m_attach_contract.backend
+                ):
+                    raise GatewayError(
+                        "Managed execution primary binding differs from gateway target"
+                    )
+                launch_authority = payload.agent_launch_authority
+                observed = observe_primary_tmux(
+                    binding,
+                    joined=(
+                        launch_authority is not None
+                        and launch_authority.session_origin == "joined_tmux"
+                    ),
                 )
+                if observed.state != "valid" or observed.pane is None:
+                    raise GatewayError("Managed execution primary binding is unavailable")
+                surface = observed.pane
         except (OSError, ValueError, RuntimeError) as exc:
             raise GatewayError("Managed execution identity is unavailable") from exc
-        if not isinstance(generation, str) or not generation:
+        if not generation:
             raise GatewayError("Managed execution generation is unavailable")
         return generation, surface.window_id, surface.pane_id
 
@@ -2315,9 +2357,14 @@ class GatewayServiceRuntime:
         self.m_rate_limited_logs: dict[str, tuple[float, int]] = {}
         self.m_mailbox_adapters: dict[MailChannel, tuple[str, ScopedMailboxAdapter]] = {}
         self.m_execution_mode = self._execution_mode_from_env()
-        self.m_tmux_window_id = _optional_env_string(_GATEWAY_TMUX_WINDOW_ID_ENV_VAR)
-        self.m_tmux_window_index = _optional_env_string(_GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR)
-        self.m_tmux_pane_id = _optional_env_string(_GATEWAY_TMUX_PANE_ID_ENV_VAR)
+        own_pane = (
+            self._observe_auxiliary_tmux_pane()
+            if self.m_execution_mode == "tmux_auxiliary_window"
+            else None
+        )
+        self.m_tmux_window_id = own_pane.window_id if own_pane is not None else None
+        self.m_tmux_window_index = own_pane.window_index if own_pane is not None else None
+        self.m_tmux_pane_id = own_pane.pane_id if own_pane is not None else None
         self.m_tui_tracking: SingleSessionTrackingRuntime | None = None
         self.m_direct_prompt_thread: threading.Thread | None = None
         self.m_direct_prompt_turn_id: str | None = None
@@ -2841,6 +2888,52 @@ class GatewayServiceRuntime:
         if raw_value not in {"detached_process", "tmux_auxiliary_window"}:
             raise GatewayError(f"Unsupported gateway execution mode `{raw_value}` in environment.")
         return cast(Literal["detached_process", "tmux_auxiliary_window"], raw_value)
+
+    def _observe_auxiliary_tmux_pane(self) -> TmuxPaneRecord:
+        """Verify the gateway's enclosing pane on the attached session and owner socket."""
+
+        context = os.environ.get("TMUX", "").rsplit(",", 2)
+        pane_id = os.environ.get("TMUX_PANE", "")
+        if (
+            len(context) != 3
+            or any(not item.isascii() or not item.isdecimal() for item in context[1:])
+            or not pane_id.startswith("%")
+            or not pane_id[1:].isascii()
+            or not pane_id[1:].isdecimal()
+        ):
+            raise GatewayError("Gateway auxiliary mode requires a valid enclosing tmux pane")
+
+        session_name = self.m_attach_contract.tmux_session_name
+        try:
+            socket_path = validate_tmux_socket_path(context[0])
+            if self.m_manifest_path is not None:
+                handle = load_session_manifest(self.m_manifest_path)
+                manifest = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+                validate_execution_owner(manifest.runtime.execution_binding)
+                binding = manifest.tmux
+                if (
+                    binding is None
+                    or binding.session_name != session_name
+                    or manifest.backend != self.m_attach_contract.backend
+                    or binding.socket_path not in {None, socket_path}
+                ):
+                    raise GatewayError(
+                        "Gateway enclosing tmux pane differs from manifest authority"
+                    )
+            panes = TmuxServer(socket_path).observe_session(session_name)
+        except (OSError, SessionManifestError, TmuxCommandError, ValueError) as exc:
+            raise GatewayError("Cannot observe the gateway's enclosing tmux pane") from exc
+
+        session_id = f"${context[2]}"
+        for pane in panes or ():
+            if (
+                pane.pane_id == pane_id
+                and pane.session_id == session_id
+                and pane.window_index != "0"
+                and not pane.pane_dead
+            ):
+                return pane
+        raise GatewayError("Gateway enclosing pane is outside its live auxiliary tmux window")
 
     def start(self) -> None:
         """Initialize current-instance state and start the queue worker."""

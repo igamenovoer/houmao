@@ -23,10 +23,13 @@ import sys
 import sysconfig
 import tempfile
 import time
-from typing import Any, Callable
+from typing import Any, Callable, TYPE_CHECKING
 import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
+
+if TYPE_CHECKING:
+    from houmao.execution.tmux import TmuxServer
 import uuid
 
 _SELF_CLIENTS: dict[str, Any] = {}
@@ -196,14 +199,7 @@ def _qualify(source_root: Path, wheelhouse: Path, work_root: Path) -> dict[str, 
                 log=log,
             )
         finally:
-            subprocess.run(
-                [real_tmux, "-S", _isolated_socket(socket_root), "kill-server"],
-                cwd=work_root,
-                env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
+            _cleanup_isolated_tmux(python, cwd=work_root, environment=env)
     report = json.loads((work_root / "qualification.json").read_text(encoding="utf-8"))
     report["artifacts"] = artifacts
     (work_root / "qualification.json").write_text(
@@ -224,15 +220,37 @@ def _prepare_isolated_socket(socket_root: str) -> None:
     Path(_isolated_socket(socket_root)).parent.mkdir(mode=0o700)
 
 
-def _tmux_command(*arguments: str) -> list[str]:
+def _tmux_server() -> TmuxServer:
     """Select only the installed runner's private tmux server."""
 
-    return [
-        os.environ["HOUMAO_PLUGIN_FIXTURE_REAL_TMUX"],
-        "-S",
+    from houmao.execution.tmux import TmuxServer
+
+    return TmuxServer(
         _isolated_socket(os.environ["TMUX_TMPDIR"]),
-        *arguments,
-    ]
+        executable=os.environ["HOUMAO_PLUGIN_FIXTURE_REAL_TMUX"],
+    )
+
+
+def _cleanup_isolated_tmux(python: Path, *, cwd: Path, environment: dict[str, str]) -> None:
+    """Use the installed adapter to clean only the qualification's short socket."""
+
+    subprocess.run(
+        [
+            str(python),
+            "-I",
+            "-c",
+            "from sys import argv\n"
+            "from houmao.execution.tmux import TmuxServer\n"
+            "TmuxServer(argv[1], executable=argv[2]).command(['kill-server'])\n",
+            _isolated_socket(environment["TMUX_TMPDIR"]),
+            environment["HOUMAO_PLUGIN_FIXTURE_REAL_TMUX"],
+        ],
+        cwd=cwd,
+        env=environment,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
 
 
 def _bind_self(base_url: str, controller: Any, *, save: Path | None = None) -> None:
@@ -956,11 +974,8 @@ def _installed_run(source_root: Path, work_root: Path) -> dict[str, object]:
                         manifest["registry_generation_id"] = uuid.uuid4().hex
                         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
                     else:
-                        subprocess.run(
-                            _tmux_command("kill-window", "-t", f"{controller.tmux_session_name}:0"),
-                            check=True,
-                            capture_output=True,
-                            text=True,
+                        _tmux_server().checked_command(
+                            ["kill-window", "-t", f"={controller.tmux_session_name}:0"],
                         )
                     (root / "released").touch()
                     lost = pending.result(timeout=10)
@@ -999,14 +1014,10 @@ def _installed_run(source_root: Path, work_root: Path) -> dict[str, object]:
         finally:
             stopped = controller.stop(force_cleanup=True)
             _require(stopped.status == "ok", "Qualification could not stop its runtime session")
-            remaining = subprocess.run(
-                _tmux_command("has-session", "-t", str(controller.tmux_session_name)),
-                capture_output=True,
-                text=True,
-                check=False,
-            )
             _require(
-                remaining.returncode != 0, "Qualification left its synthetic tmux session running"
+                controller.tmux_session_name
+                not in _tmux_server().list_sessions(allow_missing_server=True),
+                "Qualification left its synthetic tmux session running",
             )
     _require(
         owners[0]["agent_id"] != owners[1]["agent_id"],

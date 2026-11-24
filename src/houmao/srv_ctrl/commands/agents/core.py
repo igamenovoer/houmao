@@ -13,11 +13,10 @@ import math
 from pathlib import Path
 from shlex import join as shell_join
 import shutil
-import subprocess
 import sys
 from typing import Any, Literal, cast
 
-from houmao.execution.tmux import tmux_argv, tmux_server_scope, tmux_subprocess_environment
+from houmao.execution.tmux import TmuxServer, tmux_server_scope
 
 import click
 
@@ -2466,17 +2465,13 @@ def _require_join_primary_pane(session_name: str) -> TmuxPaneRecord:
 
 
 def _resolve_join_pane_current_path(session_name: str, pane_id: str) -> Path:
+    """Read the checked join pane's current working directory."""
+
     try:
-        environment = tmux_subprocess_environment()
-        extra: dict[str, Any] = {"env": environment} if environment is not None else {}
-        result = subprocess.run(
-            tmux_argv(["display-message", "-p", "-t", pane_id, "#{pane_current_path}"]),
-            check=True,
-            capture_output=True,
-            text=True,
-            **extra,
+        result = TmuxServer().checked_command(
+            ["display-message", "-p", "-t", pane_id, "#{pane_current_path}"]
         )
-    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+    except TmuxCommandError as exc:
         raise click.ClickException(
             f"Failed to read pane current path from tmux session `{session_name}`."
         ) from exc

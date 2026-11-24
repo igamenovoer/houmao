@@ -12,11 +12,14 @@ import hashlib
 import threading
 import time
 
-from houmao.agents.realm_controller.backends.tmux_runtime import (
+from houmao.agents.realm_controller.backends.tmux_runtime import tmux_session_exists
+from houmao.execution.tmux import (
     TmuxCommandError,
-    tmux_session_exists,
+    TmuxObservationUnavailable,
+    current_tmux_socket_path,
+    tmux_server_scope,
+    validate_tmux_socket_path,
 )
-from houmao.execution.tmux import tmux_server_scope, validate_tmux_socket_path
 from houmao.hook_observation.reader import HookObservationChannel
 from houmao.server.models import (
     HoumaoErrorDetail,
@@ -162,23 +165,26 @@ class SingleSessionTrackingRuntime:
         monotonic_ts = time.monotonic()
         self.m_tracker.ensure_hook_channel_from_session_root(identity.session_root)
 
-        if not tmux_session_exists(session_name=identity.tmux_session_name):
-            self.m_tracker.record_cycle(
-                identity=identity,
-                observed_at_utc=observed_at_utc,
-                monotonic_ts=monotonic_ts,
-                transport_state="tmux_missing",
-                process_state="unknown",
-                parse_status="transport_unavailable",
-                probe_snapshot=None,
-                probe_error=None,
-                parse_error=None,
-                parsed_surface=None,
-                output_text=None,
-            )
-            return
-
         try:
+            if identity.manifest_path is not None and current_tmux_socket_path() is None:
+                raise TmuxObservationUnavailable("Managed terminal has no saved tmux socket.")
+            if not tmux_session_exists(
+                session_name=identity.tmux_session_name, allow_missing_server=True
+            ):
+                self.m_tracker.record_cycle(
+                    identity=identity,
+                    observed_at_utc=observed_at_utc,
+                    monotonic_ts=monotonic_ts,
+                    transport_state="tmux_missing",
+                    process_state="unknown",
+                    parse_status="transport_unavailable",
+                    probe_snapshot=None,
+                    probe_error=None,
+                    parse_error=None,
+                    parsed_surface=None,
+                    output_text=None,
+                )
+                return
             target = self.m_transport_resolver.resolve_target(
                 session_name=identity.tmux_session_name,
                 window_name=identity.tmux_window_name,

@@ -20,17 +20,19 @@ The long-running controller process owns one recorder run root.
 
 Start flow:
 
-1. Resolve the target tmux session and pane. If a session has multiple panes and no explicit pane is given, fail instead of guessing.
-2. Persist `manifest.json` and `live_state.json`.
+1. Resolve the exact target session and pane through the shared tmux adapter. Require an explicit pane when the session contains multiple panes.
+2. Persist the resolved socket, session, window, and pane in `manifest.json` and write `live_state.json`.
 3. Spawn the controller process.
 4. Launch a recorder-owned tmux session that runs `pixi run asciinema record ...`.
-5. Begin the sampling loop against the target pane using `tmux capture-pane`.
+5. Observe the recorded pane's dimensions and sample its rendered text through the same socket-bound adapter.
+
+The adapter supplies an explicit socket and a session, window, and pane target for the `asciinema` child. The native `attach-session` command inherits that child's PTY so the cast can record the interactive client. It starts on the selected pane even when another window was active.
 
 During the run:
 
 - active mode surfaces a recorder-owned attach path and publishes `HOUMAO_TERMINAL_RECORD_LIVE_STATE` into the target tmux session
 - passive mode attaches read-only for visual observation and does not claim exclusive input ownership
-- the sampling loop continuously appends exact pane content to `pane_snapshots.ndjson`
+- the sampling loop appends normalized capture text for the selected pane to `pane_snapshots.ndjson`
 - active mode degrades from `authoritative_managed` to `managed_only` if extra tmux clients attach and taint the run
 - if the human-facing cast recorder exits early, the controller records `visual_recording_exited` taint metadata and keeps pane-snapshot sampling until a stop request, duration gate, or hard capture failure
 
@@ -38,7 +40,7 @@ Stop flow:
 
 1. Persist a stop request through `live_state.json`.
 2. Capture one final pane snapshot before finalization.
-3. Stop the recorder tmux session.
+3. Stop the recorder tmux session using the session and pane IDs returned at its creation.
 4. In active mode, merge `asciinema` input frames into `input_events.ndjson` and clear the tmux session env publication.
 5. Finalize `manifest.json` and `live_state.json` without deleting artifacts.
 

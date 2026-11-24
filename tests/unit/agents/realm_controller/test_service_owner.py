@@ -150,9 +150,7 @@ def test_service_publishes_before_starting_private_supervisor(
             return SimpleNamespace(returncode=1)
         return SimpleNamespace(returncode=0)
 
-    monkeypatch.setattr(
-        service_runtime, "has_tmux_session", lambda **_: SimpleNamespace(returncode=1)
-    )
+    monkeypatch.setattr(service_runtime, "tmux_session_exists", lambda **_: False)
     monkeypatch.setattr(service_runtime, "create_tmux_session", lambda **_: None)
     monkeypatch.setattr(
         service_runtime, "cleanup_tmux_session", lambda **_: calls.append("cleanup")

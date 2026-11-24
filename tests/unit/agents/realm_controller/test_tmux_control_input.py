@@ -7,6 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from houmao.execution.tmux import TmuxCommandResult
+
 from houmao.agents.realm_controller.backends.headless_base import HeadlessSessionState
 from houmao.agents.realm_controller.backends import local_interactive as local_interactive_module
 from houmao.agents.realm_controller.backends.local_interactive import LocalInteractiveSession
@@ -132,6 +134,7 @@ def _make_local_interactive_session(tmp_path: Path) -> LocalInteractiveSession:
         working_directory=str(tmp_path),
         tmux_session_name="HOUMAO-local",
     )
+    session._primary_tmux_pane_target = lambda **_: "%10"  # type: ignore[method-assign]
     return session
 
 
@@ -161,6 +164,7 @@ def _make_kimi_local_interactive_session(tmp_path: Path) -> LocalInteractiveSess
         working_directory=str(tmp_path),
         tmux_session_name="HOUMAO-kimi",
     )
+    session._primary_tmux_pane_target = lambda **_: "%11"  # type: ignore[method-assign]
     return session
 
 
@@ -175,7 +179,7 @@ def _install_fake_local_interactive_launch_surface(
     session._prepare_primary_surface = lambda *, session_name: events.append(  # type: ignore[method-assign]  # noqa: SLF001
         ("prepare_surface", session_name)
     )
-    session._primary_tmux_pane_target = lambda: "HOUMAO-kimi:0.0"  # type: ignore[method-assign]  # noqa: SLF001
+    session._primary_tmux_pane_target = lambda **_: "%11"  # type: ignore[method-assign]  # noqa: SLF001
     session._wait_for_provider_tui = lambda **_kwargs: events.append(  # type: ignore[method-assign]  # noqa: SLF001
         ("ready", None)
     )
@@ -294,8 +298,8 @@ def test_send_tmux_control_input_uses_literal_mode_without_auto_enter(
         )
 
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.backends.tmux_runtime.run_tmux",
-        _fake_run_tmux,
+        "houmao.execution.tmux.TmuxServer.command",
+        lambda self, args, **_: _fake_run_tmux(args) and TmuxCommandResult(tuple(args), 0, "", ""),
     )
 
     send_tmux_control_input(
@@ -308,9 +312,9 @@ def test_send_tmux_control_input_uses_literal_mode_without_auto_enter(
     )
 
     assert commands == [
-        ["send-keys", "-t", "@2", "-l", "/model"],
-        ["send-keys", "-t", "@2", "Enter"],
-        ["send-keys", "-t", "@2", "Down"],
+        ["send-keys", "-t", "@2", "-l", "--", "/model"],
+        ["send-keys", "-t", "@2", "--", "Enter"],
+        ["send-keys", "-t", "@2", "--", "Down"],
     ]
 
 
@@ -356,9 +360,9 @@ def test_local_interactive_send_prompt_uses_paste_buffer_and_separate_submit(
     buffer_name, prompt_text = loaded_buffers[0]
     assert buffer_name.startswith("houmao-submit-prompt-")
     assert prompt_text == "reply with <[Enter]> literally"
-    assert pasted_buffers == [("HOUMAO-local:0.0", buffer_name, True)]
+    assert pasted_buffers == [("%10", buffer_name, True)]
     assert parse_calls == [("<[Enter]>", False)]
-    assert sent_segments == [("HOUMAO-local:0.0", enter_segments)]
+    assert sent_segments == [("%10", enter_segments)]
     assert session.state.turn_index == 1
     assert events[0].kind == "submitted"
     assert events[0].payload == {"tmux_session_name": "HOUMAO-local"}
@@ -402,7 +406,7 @@ def test_kimi_local_interactive_send_prompt_uses_semantic_submit_path(
     session.send_prompt("print <[Enter]> literally")
 
     assert loaded_buffers[0][1] == "print <[Enter]> literally"
-    assert pasted_buffers == [("HOUMAO-kimi:0.0", loaded_buffers[0][0], True)]
+    assert pasted_buffers == [("%11", loaded_buffers[0][0], True)]
     assert sent_sequences == ["<[Enter]>"]
 
 
@@ -550,8 +554,9 @@ def test_local_interactive_send_mail_prompt_observes_sentinel_result(
         lambda *, target: next(captures),
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.backends.headless_base.resolve_primary_tmux_surface_shared",
-        lambda **_kwargs: SimpleNamespace(
+        LocalInteractiveSession,
+        "_observe_primary_surface",
+        lambda self, **_kwargs: SimpleNamespace(
             session_name="HOUMAO-local",
             window_name="agent",
             window_id="@1",
@@ -660,8 +665,9 @@ def test_local_interactive_send_mail_prompt_checks_one_final_capture_after_timeo
         lambda *, target: next(captures),
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.backends.headless_base.resolve_primary_tmux_surface_shared",
-        lambda **_kwargs: SimpleNamespace(
+        LocalInteractiveSession,
+        "_observe_primary_surface",
+        lambda self, **_kwargs: SimpleNamespace(
             session_name="HOUMAO-local",
             window_name="agent",
             window_id="@1",
@@ -766,8 +772,9 @@ def test_local_interactive_send_mail_prompt_returns_submitted_without_sentinel(
         lambda *, target: next(captures),
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.backends.headless_base.resolve_primary_tmux_surface_shared",
-        lambda **_kwargs: SimpleNamespace(
+        LocalInteractiveSession,
+        "_observe_primary_surface",
+        lambda self, **_kwargs: SimpleNamespace(
             session_name="HOUMAO-local",
             window_name="agent",
             window_id="@1",
@@ -826,7 +833,7 @@ def test_local_interactive_send_input_ex_keeps_raw_sequence_unmodified(
     result = session.send_input_ex("hello world")
 
     assert parse_calls == [("hello world", False)]
-    assert sent_segments == [("HOUMAO-local:0.0", raw_segments)]
+    assert sent_segments == [("%10", raw_segments)]
     assert result.status == "ok"
     assert result.action == "control_input"
 
@@ -854,7 +861,7 @@ def test_local_interactive_interrupt_uses_escape(
     result = session.interrupt()
 
     assert parse_calls == [("<[Escape]>", False)]
-    assert sent_segments == [("HOUMAO-local:0.0", escape_segments)]
+    assert sent_segments == [("%10", escape_segments)]
     assert result.status == "ok"
     assert result.action == "interrupt"
 
@@ -882,7 +889,7 @@ def test_kimi_local_interactive_interrupt_uses_escape(
     result = session.interrupt()
 
     assert parse_calls == ["<[Escape]>"]
-    assert sent_segments == [("HOUMAO-kimi:0.0", escape_segments)]
+    assert sent_segments == [("%11", escape_segments)]
     assert result.status == "ok"
     assert result.action == "interrupt"
 

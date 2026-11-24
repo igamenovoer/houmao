@@ -1,16 +1,12 @@
-"""Tmux helpers for the Houmao-owned CAO-compatible control core."""
+"""Tmux operations for the Houmao-owned CAO-compatible control core."""
 
 from __future__ import annotations
 
 import shutil
-import subprocess
 import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
-
-from houmao.execution.tmux import tmux_argv, tmux_subprocess_environment
 
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TMUX_COLOR_ENV_UNSET_NAMES,
@@ -19,6 +15,10 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     TMUX_RICH_COLOR_TERM,
     tmux_config_injection_enabled,
 )
+from houmao.execution.tmux import TmuxCommandError, TmuxServer
+
+CompatibilityTmuxError = TmuxCommandError
+_WINDOW_FORMAT = "#{window_id}\t#{window_index}\t#{window_name}"
 
 
 @dataclass(frozen=True)
@@ -30,24 +30,19 @@ class TmuxWindowRecord:
     window_name: str
 
 
-class CompatibilityTmuxError(RuntimeError):
-    """Raised when tmux operations fail for the compatibility core."""
-
-
 class CompatibilityTmuxController:
-    """Small tmux wrapper used by the native compatibility core."""
+    """Preserve compatibility terminal behavior through shared tmux operations."""
 
     def ensure_tmux_available(self) -> None:
-        """Fail fast when `tmux` is not available on `PATH`."""
+        """Fail fast when tmux is not available on PATH."""
 
         if shutil.which("tmux") is None:
-            raise CompatibilityTmuxError("`tmux` is not available on PATH.")
+            raise CompatibilityTmuxError("tmux is not available on PATH.")
 
     def session_exists(self, *, session_name: str) -> bool:
-        """Return whether one tmux session currently exists."""
+        """Return whether the exact session exists on the selected server."""
 
-        result = self._run_tmux(["has-session", "-t", f"={session_name}"])
-        return result.returncode == 0
+        return session_name in TmuxServer().list_sessions(allow_missing_server=True)
 
     def create_session_with_window(
         self,
@@ -58,7 +53,8 @@ class CompatibilityTmuxController:
     ) -> TmuxWindowRecord:
         """Create a detached tmux session with one named initial window."""
 
-        result = self._run_tmux(
+        tmux = TmuxServer()
+        result = tmux.start(
             [
                 "new-session",
                 "-d",
@@ -70,22 +66,24 @@ class CompatibilityTmuxController:
                 str(working_directory),
                 "-P",
                 "-F",
-                "#{window_id}\t#{window_index}\t#{window_name}",
-            ]
+                f"#{{session_id}}\t{_WINDOW_FORMAT}",
+            ],
+            environment=tmux.native_environment(),
         )
-        if result.returncode != 0:
-            raise CompatibilityTmuxError(
-                f"Failed to create tmux session `{session_name}`: {self._tmux_detail(result)}"
-            )
+        result.require_success()
+        session_id, _, window_row = result.stdout.partition("\t")
+        if not session_id.startswith("$") or not session_id[1:].isdigit():
+            raise CompatibilityTmuxError(f"Missing tmux session id for {session_name!r}.")
         try:
-            self._apply_config_injection(session_name=session_name)
+            record = self._parse_window_record(window_row, context=session_name)
+            self._apply_config_injection(tmux, session_id=session_id, session_name=session_name)
         except CompatibilityTmuxError:
             try:
-                self.kill_session(session_name=session_name)
+                tmux.checked_command(["kill-session", "-t", session_id])
             except CompatibilityTmuxError:
                 pass
             raise
-        return self._parse_window_record(result.stdout.strip(), context=session_name)
+        return record
 
     def create_window(
         self,
@@ -94,113 +92,83 @@ class CompatibilityTmuxController:
         window_name: str,
         working_directory: Path,
     ) -> TmuxWindowRecord:
-        """Create a detached tmux window in an existing session."""
+        """Create a detached tmux window in the exact named session."""
 
-        result = self._run_tmux(
+        tmux = TmuxServer()
+        session_id = self._session_id(tmux, session_name)
+        result = tmux.checked_command(
             [
                 "new-window",
                 "-d",
                 "-t",
-                session_name,
+                f"{session_id}:",
                 "-n",
                 window_name,
                 "-c",
                 str(working_directory),
                 "-P",
                 "-F",
-                "#{window_id}\t#{window_index}\t#{window_name}",
+                _WINDOW_FORMAT,
             ]
         )
-        if result.returncode != 0:
-            raise CompatibilityTmuxError(
-                f"Failed to create tmux window in `{session_name}`: {self._tmux_detail(result)}"
-            )
-        return self._parse_window_record(result.stdout.strip(), context=session_name)
+        return self._parse_window_record(result.stdout, context=session_name)
 
     def kill_session(self, *, session_name: str) -> None:
-        """Terminate one tmux session."""
+        """Terminate one exact tmux session if present."""
 
-        result = self._run_tmux(["kill-session", "-t", f"={session_name}"])
-        if result.returncode != 0:
-            detail = self._tmux_detail(result).lower()
-            if "can't find session" in detail or "no server running" in detail:
-                return
-            raise CompatibilityTmuxError(
-                f"Failed to kill tmux session `{session_name}`: {self._tmux_detail(result)}"
-            )
+        tmux = TmuxServer()
+        if session_name in tmux.list_sessions(allow_missing_server=True):
+            tmux.checked_command(["kill-session", "-t", self._session_id(tmux, session_name)])
 
     def kill_window(self, *, window_id: str) -> None:
-        """Terminate one tmux window."""
+        """Terminate one tmux window if present."""
 
-        result = self._run_tmux(["kill-window", "-t", window_id])
-        if result.returncode != 0:
-            detail = self._tmux_detail(result).lower()
-            if "can't find window" in detail or "no server running" in detail:
-                return
-            raise CompatibilityTmuxError(
-                f"Failed to kill tmux window `{window_id}`: {self._tmux_detail(result)}"
-            )
+        tmux = TmuxServer()
+        if not tmux.list_sessions(allow_missing_server=True):
+            return
+        result = tmux.command(["kill-window", "-t", window_id])
+        if result.returncode == 1 and result.stderr.strip() == f"can't find window: {window_id}":
+            return
+        result.require_success()
 
     def list_windows(self, *, session_name: str) -> list[TmuxWindowRecord]:
-        """Return tmux window records for one session."""
+        """Return tmux window records for the exact named session."""
 
-        result = self._run_tmux(
-            [
-                "list-windows",
-                "-t",
-                session_name,
-                "-F",
-                "#{window_id}\t#{window_index}\t#{window_name}",
-            ]
+        tmux = TmuxServer()
+        result = tmux.checked_command(
+            ["list-windows", "-t", self._session_id(tmux, session_name), "-F", _WINDOW_FORMAT]
         )
-        if result.returncode != 0:
-            raise CompatibilityTmuxError(
-                f"Failed to list tmux windows for `{session_name}`: {self._tmux_detail(result)}"
-            )
         return [
-            self._parse_window_record(line.strip(), context=session_name)
+            self._parse_window_record(line, context=session_name)
             for line in result.stdout.splitlines()
-            if line.strip()
+            if line
         ]
 
     def list_clients(self, *, session_name: str) -> tuple[str, ...]:
         """Return currently attached tmux clients for one session."""
 
-        result = self._run_tmux(["list-clients", "-t", session_name, "-F", "#{client_tty}"])
-        if result.returncode != 0:
-            detail = self._tmux_detail(result).lower()
-            if "no current client" in detail or "no server running" in detail:
-                return ()
-            raise CompatibilityTmuxError(
-                f"Failed to list tmux clients for `{session_name}`: {self._tmux_detail(result)}"
-            )
-        return tuple(line.strip() for line in result.stdout.splitlines() if line.strip())
+        tmux = TmuxServer()
+        result = tmux.checked_command(
+            ["list-clients", "-t", self._session_id(tmux, session_name), "-F", "#{client_tty}"]
+        )
+        return tuple(result.stdout.splitlines())
 
     def capture_window(self, *, window_id: str) -> str:
-        """Capture the full rendered pane output for one tmux window."""
+        """Capture rendered text with the original whitespace and trailing blank rows."""
 
-        result = self._run_tmux(["capture-pane", "-p", "-e", "-S", "-", "-t", f"{window_id}.0"])
-        if result.returncode != 0:
-            raise CompatibilityTmuxError(
-                f"Failed to capture tmux window `{window_id}`: {self._tmux_detail(result)}"
-            )
+        tmux = TmuxServer()
+        pane_id = self._require_window_pane(tmux, window_id)
+        result = tmux.capture_exact(["capture-pane", "-p", "-e", "-S", "-", "-t", pane_id])
+        result.require_success()
         return result.stdout
 
     def get_window_working_directory(self, *, window_id: str) -> str | None:
-        """Return the current pane working directory for one window."""
+        """Return the current working directory of the window's target pane."""
 
-        result = self._run_tmux(
-            ["display-message", "-p", "-t", f"{window_id}.0", "#{pane_current_path}"]
-        )
-        if result.returncode != 0:
-            detail = self._tmux_detail(result).lower()
-            if "can't find pane" in detail or "can't find window" in detail:
-                return None
-            raise CompatibilityTmuxError(
-                f"Failed to read tmux working directory for `{window_id}`: {self._tmux_detail(result)}"
-            )
-        working_directory = result.stdout.strip()
-        return working_directory or None
+        pane = self._window_pane(TmuxServer(), window_id)
+        if pane is None:
+            return None
+        return pane[1] or None
 
     def wait_for_shell(
         self,
@@ -220,145 +188,123 @@ class CompatibilityTmuxController:
             previous_output = output
             time.sleep(polling_interval_seconds)
         raise CompatibilityTmuxError(
-            f"Timed out waiting for shell readiness in tmux window `{window_id}`."
+            f"Timed out waiting for shell readiness in tmux window {window_id!r}."
         )
 
     def send_command(self, *, window_id: str, command: str) -> None:
-        """Send one shell command followed by Enter."""
+        """Send one literal shell command followed by Enter."""
 
-        result = self._run_tmux(["send-keys", "-t", f"{window_id}.0", "-l", command])
-        if result.returncode != 0:
-            raise CompatibilityTmuxError(
-                f"Failed to send tmux command to `{window_id}`: {self._tmux_detail(result)}"
-            )
-        enter_result = self._run_tmux(["send-keys", "-t", f"{window_id}.0", "Enter"])
-        if enter_result.returncode != 0:
-            raise CompatibilityTmuxError(
-                f"Failed to submit tmux command in `{window_id}`: {self._tmux_detail(enter_result)}"
-            )
+        tmux = TmuxServer()
+        pane_id = self._require_window_pane(tmux, window_id)
+        tmux.send_keys(pane_id, command, literal=True)
+        tmux.send_keys(pane_id, "Enter")
 
     def send_text(self, *, window_id: str, text: str, enter_count: int = 2) -> None:
         """Paste one input payload plus the configured number of Enter keys."""
 
-        buffer_name = f"houmao_cao_{uuid.uuid4().hex[:8]}"
+        tmux = TmuxServer()
+        pane_id = self._require_window_pane(tmux, window_id)
+        buffer_name = f"houmao_cao_{uuid.uuid4().hex}"
+        tmux.load_buffer(buffer_name, text)
         try:
-            environment = tmux_subprocess_environment()
-            extra: dict[str, Any] = {"env": environment} if environment is not None else {}
-            load_result = subprocess.run(
-                tmux_argv(["load-buffer", "-b", buffer_name, "-"]),
-                check=False,
-                input=text.encode("utf-8"),
-                capture_output=True,
-                **extra,
-            )
-            if load_result.returncode != 0:
-                raise CompatibilityTmuxError(
-                    f"Failed to load tmux paste buffer `{buffer_name}`: {self._tmux_detail(load_result)}"
-                )
+            tmux.paste_buffer(buffer_name, pane_id, delete_after=True)
+        except CompatibilityTmuxError:
+            try:
+                tmux.delete_buffer(buffer_name)
+            except CompatibilityTmuxError:
+                pass
+            raise
 
-            paste_result = self._run_tmux(
-                ["paste-buffer", "-p", "-b", buffer_name, "-t", f"{window_id}.0"]
-            )
-            if paste_result.returncode != 0:
-                raise CompatibilityTmuxError(
-                    f"Failed to paste tmux buffer into `{window_id}`: {self._tmux_detail(paste_result)}"
-                )
-
-            time.sleep(0.3)
-            for index in range(enter_count):
-                if index > 0:
-                    time.sleep(0.5)
-                enter_result = self._run_tmux(["send-keys", "-t", f"{window_id}.0", "Enter"])
-                if enter_result.returncode != 0:
-                    raise CompatibilityTmuxError(
-                        f"Failed to send Enter to `{window_id}`: {self._tmux_detail(enter_result)}"
-                    )
-        finally:
-            self._run_tmux(["delete-buffer", "-b", buffer_name])
+        time.sleep(0.3)
+        for index in range(enter_count):
+            if index > 0:
+                time.sleep(0.5)
+            tmux.send_keys(pane_id, "Enter")
 
     def send_special_key(self, *, window_id: str, key_name: str) -> None:
         """Send one tmux special key to a window."""
 
-        result = self._run_tmux(["send-keys", "-t", f"{window_id}.0", key_name])
-        if result.returncode != 0:
-            raise CompatibilityTmuxError(
-                f"Failed to send special key `{key_name}` to `{window_id}`: {self._tmux_detail(result)}"
-            )
+        tmux = TmuxServer()
+        tmux.send_keys(self._require_window_pane(tmux, window_id), key_name)
 
-    def _run_tmux(self, args: list[str]) -> subprocess.CompletedProcess[str]:
-        """Run one tmux command with normalized error handling."""
+    @staticmethod
+    def _session_id(tmux: TmuxServer, session_name: str) -> str:
+        """Return the live session handle from the checked exact observation."""
 
-        try:
-            environment = tmux_subprocess_environment()
-            extra: dict[str, Any] = {"env": environment} if environment is not None else {}
-            return subprocess.run(
-                tmux_argv(args),
-                check=False,
-                capture_output=True,
-                text=True,
-                **extra,
-            )
-        except OSError as exc:
-            raise CompatibilityTmuxError(f"Failed to run tmux command `{args}`: {exc}") from exc
+        panes = tmux.observe_session(session_name)
+        if not panes or panes[0].session_id is None:
+            raise CompatibilityTmuxError(f"Tmux session {session_name!r} does not exist.")
+        return panes[0].session_id
 
-    def _apply_config_injection(self, *, session_name: str) -> None:
+    @staticmethod
+    def _window_pane(tmux: TmuxServer, window_id: str) -> tuple[str, str] | None:
+        """Return the pane and working path for the compatibility window target."""
+
+        result = tmux.command(
+            [
+                "display-message",
+                "-p",
+                "-t",
+                f"{window_id}.0",
+                "#{window_id}\t#{pane_id}\t#{pane_current_path}",
+            ]
+        )
+        if result.returncode and any(
+            reason in result.stderr.lower() for reason in ("can't find pane", "can't find window")
+        ):
+            return None
+        result.require_success()
+        if not result.stdout.strip():
+            return None
+        fields = result.stdout.rstrip("\n").split("\t", maxsplit=2)
+        if (
+            len(fields) != 3
+            or fields[0] != window_id
+            or not fields[1].startswith("%")
+            or not fields[1][1:].isdigit()
+        ):
+            raise CompatibilityTmuxError(f"Invalid pane observation for tmux window {window_id!r}.")
+        return fields[1], fields[2].strip()
+
+    @classmethod
+    def _require_window_pane(cls, tmux: TmuxServer, window_id: str) -> str:
+        """Require a pane in the compatibility window before using its exact handle."""
+
+        pane = cls._window_pane(tmux, window_id)
+        if pane is None:
+            raise CompatibilityTmuxError(f"No tmux pane is available in window {window_id!r}.")
+        return pane[0]
+
+    @staticmethod
+    def _apply_config_injection(tmux: TmuxServer, *, session_id: str, session_name: str) -> None:
         """Apply Houmao-owned tmux defaults to one compatibility session."""
 
         if not tmux_config_injection_enabled():
             return
 
         commands = (
-            ["set-option", "-t", session_name, "mouse", "on"],
-            ["set-option", "-t", session_name, "default-terminal", TMUX_RICH_COLOR_TERM],
-            ["set-option", "-at", session_name, "terminal-overrides", ",*256col*:Tc"],
-            ["set-environment", "-t", session_name, "TERM", TMUX_RICH_COLOR_TERM],
-            [
-                "set-environment",
-                "-t",
-                session_name,
-                "COLORTERM",
-                TMUX_RICH_COLOR_COLORTERM,
-            ],
-            ["set-environment", "-t", session_name, "-u", TMUX_COLOR_ENV_UNSET_NAMES[0]],
+            ["set-option", "-t", session_id, "mouse", "on"],
+            ["set-option", "-t", session_id, "default-terminal", TMUX_RICH_COLOR_TERM],
+            ["set-option", "-at", session_id, "terminal-overrides", ",*256col*:Tc"],
+            ["set-environment", "-t", session_id, "TERM", TMUX_RICH_COLOR_TERM],
+            ["set-environment", "-t", session_id, "COLORTERM", TMUX_RICH_COLOR_COLORTERM],
+            ["set-environment", "-t", session_id, "-u", TMUX_COLOR_ENV_UNSET_NAMES[0]],
         )
-        for args in commands:
-            result = self._run_tmux(list(args))
-            if result.returncode == 0:
-                continue
+        try:
+            for args in commands:
+                tmux.checked_command(args)
+        except CompatibilityTmuxError as exc:
             raise CompatibilityTmuxError(
                 "Failed to apply Houmao tmux config injection to session "
-                f"`{session_name}` with command `tmux {' '.join(args)}`: "
-                f"{self._tmux_detail(result)}. Set {TMUX_CONFIG_INJECTION_ENV_VAR}=0 "
+                f"{session_name!r}: {exc}. Set {TMUX_CONFIG_INJECTION_ENV_VAR}=0 "
                 "to disable Houmao tmux config injection and retry."
-            )
-
-    @staticmethod
-    def _tmux_detail(result: subprocess.CompletedProcess[Any]) -> str:
-        """Return concise tmux stderr or stdout detail."""
-
-        stderr = (
-            result.stderr.decode("utf-8", errors="replace")
-            if isinstance(result.stderr, bytes)
-            else result.stderr
-        )
-        stdout = (
-            result.stdout.decode("utf-8", errors="replace")
-            if isinstance(result.stdout, bytes)
-            else result.stdout
-        )
-        return str(stderr or stdout or "unknown tmux error").strip()
+            ) from exc
 
     @staticmethod
     def _parse_window_record(line: str, *, context: str) -> TmuxWindowRecord:
-        """Parse one tmux window listing row."""
+        """Parse one tmux window listing or creation receipt."""
 
-        parts = line.split("\t", maxsplit=2)
-        if len(parts) != 3:
-            raise CompatibilityTmuxError(
-                f"Failed to parse tmux window record for `{context}`: unexpected row `{line}`."
-            )
-        return TmuxWindowRecord(
-            window_id=parts[0],
-            window_index=parts[1],
-            window_name=parts[2],
-        )
+        parts = line.rstrip("\n").split("\t", maxsplit=2)
+        if len(parts) != 3 or not parts[0].startswith("@") or not parts[1].isdigit():
+            raise CompatibilityTmuxError(f"Invalid tmux window record for {context!r}.")
+        return TmuxWindowRecord(window_id=parts[0], window_index=parts[1], window_name=parts[2])

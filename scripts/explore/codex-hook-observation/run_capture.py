@@ -45,7 +45,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from houmao.agents.realm_controller.backends.tmux_runtime import run_tmux
+from houmao.agents.launch_env import owner_tmux_launch_environment
+from houmao.execution.tmux import TmuxServer, tmux_command
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 HARNESS_DIR = Path(__file__).resolve().parent
@@ -553,6 +554,7 @@ class PaneDriver:
 
         self.m_session_name = session_name
         self.m_pane_id = pane_id
+        self.m_tmux_server: TmuxServer = TmuxServer()
         self.m_log_path = log_path
 
     def log(self, action: str, **detail: Any) -> None:
@@ -576,23 +578,19 @@ class PaneDriver:
     def visible_text(self) -> str:
         """Return the current plain visible pane text (empty on tmux failure)."""
 
-        result = run_tmux(["capture-pane", "-p", "-t", self.m_pane_id])
+        result = self.m_tmux_server.capture_exact(["capture-pane", "-p", "-t", self.m_pane_id])
         return result.stdout if result.returncode == 0 else ""
 
     def send_text(self, text: str) -> None:
         """Type literal text with tmux send-keys -l (no gateway record)."""
 
-        result = run_tmux(["send-keys", "-t", self.m_pane_id, "-l", text])
-        if result.returncode != 0:
-            raise RuntimeError(f"send-keys literal failed: {result.stderr.strip()}")
+        self.m_tmux_server.send_keys(self.m_pane_id, text, literal=True)
         self.log("send_text", text=text)
 
     def send_key(self, key: str) -> None:
         """Send one named tmux key (Enter, Escape, Down, C-c, ...)."""
 
-        result = run_tmux(["send-keys", "-t", self.m_pane_id, key])
-        if result.returncode != 0:
-            raise RuntimeError(f"send-keys {key} failed: {result.stderr.strip()}")
+        self.m_tmux_server.send_keys(self.m_pane_id, key)
         self.log("send_key", key=key)
 
     def submit_text(self, text: str) -> None:
@@ -1043,12 +1041,13 @@ def launch_tmux_session(
 ) -> str:
     """Launch the wrapper in a detached 220x56 tmux session; return the pane id."""
 
-    if run_tmux(["has-session", "-t", session_name]).returncode == 0:
+    server = TmuxServer()
+    if session_name in server.list_sessions(allow_missing_server=True):
         raise RuntimeError(f"tmux session {session_name} already exists")
     pane_command = "bash " + _shell_single_quote(str(wrapper))
     for arg in extra_args:
         pane_command += " " + _shell_single_quote(arg)
-    result = run_tmux(
+    result = server.start(
         [
             "new-session",
             "-d",
@@ -1061,14 +1060,14 @@ def launch_tmux_session(
             "-c",
             str(workdir),
             pane_command,
-        ]
+        ],
+        environment=owner_tmux_launch_environment(os.environ),
     )
-    if result.returncode != 0:
-        raise RuntimeError(f"tmux new-session failed: {result.stderr.strip()}")
+    result.require_success()
     pane_id = ""
     deadline = time.monotonic() + 30.0
     while time.monotonic() < deadline:
-        panes = run_tmux(["list-panes", "-t", session_name, "-F", "#{pane_id}"])
+        panes = tmux_command(["list-panes", "-t", f"={session_name}:", "-F", "#{pane_id}"])
         if panes.returncode == 0 and panes.stdout.strip():
             pane_id = panes.stdout.splitlines()[0].strip()
             break
@@ -1081,7 +1080,7 @@ def launch_tmux_session(
 def pane_pid(pane_id: str) -> int | None:
     """Return the pane's shell pid, or None when tmux cannot report it."""
 
-    result = run_tmux(["display-message", "-p", "-t", pane_id, "#{pane_pid}"])
+    result = tmux_command(["display-message", "-p", "-t", pane_id, "#{pane_pid}"])
     if result.returncode != 0 or not result.stdout.strip():
         return None
     try:
@@ -1093,13 +1092,13 @@ def pane_pid(pane_id: str) -> int | None:
 def kill_tmux_session(session_name: str) -> None:
     """Kill one campaign-owned tmux session, ignoring absence."""
 
-    run_tmux(["kill-session", "-t", session_name])
+    tmux_command(["kill-session", "-t", f"={session_name}"])
 
 
 def session_alive(session_name: str) -> bool:
     """Return True while the tmux session still exists."""
 
-    return run_tmux(["has-session", "-t", session_name]).returncode == 0
+    return session_name in TmuxServer().list_sessions(allow_missing_server=True)
 
 
 def kill_process_tree(pid: int) -> list[int]:

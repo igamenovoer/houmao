@@ -287,9 +287,7 @@ def test_dsh_publishes_before_starting_private_supervisor(
             )
         ),
     )
-    monkeypatch.setattr(
-        backend_module, "has_tmux_session", lambda **_: SimpleNamespace(returncode=1)
-    )
+    monkeypatch.setattr(backend_module, "tmux_session_exists", lambda **_: False)
     monkeypatch.setattr(backend_module, "create_tmux_session", lambda **_: None)
     monkeypatch.setattr(
         backend_module,
@@ -385,7 +383,7 @@ def test_changed_supervisor_marker_refuses_tmux_cleanup(
     )
     session.m_client = Mock()
     session.configure_stop_force_cleanup(force_cleanup=True)
-    monkeypatch.setattr(backend_module, "has_tmux_session", lambda **_: Mock(returncode=0))
+    monkeypatch.setattr(backend_module, "tmux_session_exists", lambda **_: True)
     monkeypatch.setattr(
         backend_module, "run_tmux", lambda _: Mock(returncode=0, stdout="replacement")
     )

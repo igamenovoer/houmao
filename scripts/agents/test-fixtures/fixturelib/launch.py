@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,7 @@ from typing import Any
 from urllib.error import URLError
 from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
+from uuid import uuid4
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -26,6 +28,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayPromptControlRequestV1,
 )
 from houmao.agents.realm_controller.native_surface import NativeSurfaceV1, TerminalNativeSurfaceV1
+from houmao.execution.tmux import TmuxCommandError, TmuxServer
 from houmao.gateway.client import GatewayClient, GatewayHttpError
 
 from fixturelib.auth import private_write, write_json
@@ -64,20 +67,22 @@ def run_environment(run: dict[str, Any]) -> dict[str, str]:
     return env
 
 
-def _tmux_command(run: dict[str, Any], *arguments: str) -> list[str]:
-    """Address the explicitly isolated fixture server, never the caller's server."""
+def _fixture_tmux(run: dict[str, Any]) -> TmuxServer:
+    """Bind fixture-owned actions to the prepared socket and restrictive shim."""
 
     server = run.get("tmux_server")
     executable = run.get("tmux_executable")
     root = Path(run["run_dir"])
     socket_path = fixture_tmux_socket_path(root)
+    shim = root / "bin/tmux"
     if (
         server != "houmao-fixture-" + root.name
         or run.get("tmux_socket_path") != socket_path
         or not executable
+        or not shim.is_file()
     ):
         raise FixtureError("Fixture has no verified isolated tmux server")
-    return [executable, "-S", socket_path, *arguments]
+    return TmuxServer(socket_path, executable=str(shim))
 
 
 def public_run(run: dict[str, Any]) -> dict[str, Any]:
@@ -430,9 +435,8 @@ def _raw_tui(run: dict[str, Any]) -> None:
 
     name = "fixture-" + Path(run["run_dir"]).name
     command = [sys.executable, str(Path(__file__).with_name("raw_child.py")), run["run_dir"]]
-    started = subprocess.run(
-        _tmux_command(
-            run,
+    started = _fixture_tmux(run).start(
+        [
             "new-session",
             "-d",
             "-P",
@@ -443,12 +447,10 @@ def _raw_tui(run: dict[str, Any]) -> None:
             "-c",
             run["workdir"],
             shlex.join(command),
-        ),
-        check=True,
-        capture_output=True,
-        text=True,
-        env=run_environment(run),
+        ],
+        environment=run_environment(run),
     )
+    started.require_success()
     surface = TerminalNativeSurfaceV1(tmux_session_name=name, pane_id=started.stdout.strip())
     run["identity"] = {
         "tmux_session_name": name,
@@ -507,7 +509,7 @@ def launch_run(
         _save(run)
         raise FixtureError("Client executable is unavailable; prepare a fresh fixture run")
     if config["surface"] == "manager" or config["mode"] in {"tui", "web"}:
-        _tmux_command(run)
+        _fixture_tmux(run)
         run_environment(run)
     run["status"] = "launching"
     _save(run)
@@ -573,7 +575,7 @@ def launch_run(
         if prompt and (config["surface"] != "raw" or config["mode"] == "web"):
             return prompt_run(path, prompt=prompt, timeout=timeout)
         return public_run(run)
-    except (FixtureError, OSError, subprocess.SubprocessError) as exc:
+    except (FixtureError, OSError, subprocess.SubprocessError, TmuxCommandError) as exc:
         if isinstance(exc, ManagedCommandError):
             run["identity"] = exc.payload
         run["status"] = "launch_failed"
@@ -625,18 +627,25 @@ def prompt_run(path: Path, *, prompt: str, timeout: float = 300) -> dict[str, An
                 raise FixtureError("Raw continuation requires a captured provider session ID")
             _raw_turn(run, prompt, timeout)
         else:
-            target = identity["tmux_session_name"]
-            subprocess.run(
-                _tmux_command(run, "send-keys", "-t", target, "-l", prompt),
-                check=True,
-                env=run_environment(run),
-            )
+            server = _fixture_tmux(run)
+            target = identity["native_surface"]["pane_id"]
+            panes = server.observe_session(identity["tmux_session_name"])
+            if panes is None or not any(
+                pane.pane_id == target and not pane.pane_dead for pane in panes
+            ):
+                raise FixtureError("Raw fixture primary pane is unavailable")
+            buffer_name = f"houmao-fixture-{uuid4().hex}"
+            try:
+                server.load_buffer(buffer_name, prompt)
+                server.paste_buffer(
+                    buffer_name, target, bracketed=False, delete_after=True, raw_newlines=True
+                )
+            except TmuxCommandError:
+                with suppress(TmuxCommandError):
+                    server.delete_buffer(buffer_name)
+                raise
             time.sleep(0.25)
-            subprocess.run(
-                _tmux_command(run, "send-keys", "-t", target, "Enter"),
-                check=True,
-                env=run_environment(run),
-            )
+            server.send_keys(target, "Enter")
     elif config["surface"] == "passive-server":
         ref = quote(identity["tracked_agent_id"], safe="")
         accepted = _http(identity["passive_url"], f"/houmao/agents/{ref}/turns", {"prompt": prompt})
@@ -753,11 +762,8 @@ def _cleanup(run: dict[str, Any]) -> None:
             ref = quote(identity["tracked_agent_id"], safe="")
             _http(identity["passive_url"], f"/houmao/agents/{ref}/stop", {})
         elif config["surface"] == "raw" and identity.get("tmux_session_name"):
-            subprocess.run(
-                _tmux_command(run, "kill-session", "-t", identity["tmux_session_name"]),
-                check=True,
-                capture_output=True,
-                env=run_environment(run),
+            _fixture_tmux(run).checked_command(
+                ["kill-session", "-t", f"={identity['tmux_session_name']}"],
             )
         run["cleanup"] = "stopped_owned_identity" if identity else "no_owned_identity"
         if run.get("gateway_cleanup") == "detach_failed":
@@ -770,7 +776,7 @@ def _cleanup(run: dict[str, Any]) -> None:
                 run["cleanup"] = "failed_requires_scoped_follow_up"
             except OSError:
                 run["gateway_cleanup"] = "already_unavailable"
-    except (FixtureError, OSError, subprocess.SubprocessError):
+    except (FixtureError, OSError, subprocess.SubprocessError, TmuxCommandError):
         run["cleanup"] = "failed_requires_scoped_follow_up"
 
 
@@ -818,12 +824,8 @@ def check_run(path: Path, *, live: bool = False) -> dict[str, Any]:
         elif identity.get("gateway_port"):
             run["usage"] = _gateway_request(run, "/v1/usage")
         elif identity.get("tmux_session_name"):
-            subprocess.run(
-                _tmux_command(run, "has-session", "-t", identity["tmux_session_name"]),
-                check=True,
-                capture_output=True,
-                env=run_environment(run),
-            )
+            if _fixture_tmux(run).observe_session(identity["tmux_session_name"]) is None:
+                raise FixtureError("Fixture tmux session is missing")
         elif run["configuration"]["surface"] != "raw":
             raise FixtureError("Live check requires a launched authority identity")
     _save(run)

@@ -81,6 +81,13 @@ def test_web_internal_gateway_start_omits_terminal_timing_flags(
             return subprocess.CompletedProcess(argv, 0, stdout="@2\t2\t%4\n", stderr="")
 
         monkeypatch.setattr(runtime_module, "run_tmux_shared", capture_tmux)
+        monkeypatch.setattr(
+            runtime_module.TmuxServer,
+            "observe_session",
+            lambda _server, name: (
+                runtime_module.TmuxPaneRecord("%0", name, "@0", "0", "agent", "0", True),
+            ),
+        )
         runtime_module._launch_same_session_gateway_window(
             controller=controller,
             session_name="owned-supervisor",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Callable, Literal
@@ -47,6 +48,12 @@ from houmao.agents.realm_controller.registry_storage import (
     resolve_relaunchable_managed_agent_record_by_agent_id,
 )
 from houmao.agents.realm_controller.schema_validation import load_schema
+from houmao.execution.tmux import (
+    TmuxCommandResult,
+    TmuxServer,
+    current_tmux_socket_path,
+    tmux_server_scope,
+)
 from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
 from houmao.server.models import HoumaoManagedAgentIdentity
 
@@ -727,6 +734,7 @@ def test_cleanup_default_tmux_probe_marks_fresh_record_stale(
         generation_id=new_registry_generation_id(),
         now=now,
     )
+    fresh_record.terminal.socket_path = str(tmp_path / "owner.sock")
     fresh_dir = live_agents_dir / fresh_record.agent_id
     fresh_dir.mkdir()
     (fresh_dir / "record.json").write_text(
@@ -766,6 +774,7 @@ def test_cleanup_default_tmux_probe_marks_sentinel_record_stale_when_tmux_dead(
         now=published_at,
         lease_ttl=TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL,
     )
+    sentinel_record.terminal.socket_path = str(tmp_path / "owner.sock")
     sentinel_dir = live_agents_dir / sentinel_record.agent_id
     sentinel_dir.mkdir()
     (sentinel_dir / "record.json").write_text(
@@ -803,6 +812,7 @@ def test_cleanup_default_tmux_probe_preserves_live_fresh_record(
         generation_id=new_registry_generation_id(),
         now=now,
     )
+    fresh_record.terminal.socket_path = str(tmp_path / "owner.sock")
     fresh_dir = live_agents_dir / fresh_record.agent_id
     fresh_dir.mkdir()
     (fresh_dir / "record.json").write_text(
@@ -1018,30 +1028,40 @@ def test_stale_local_cleanup_preserves_external_registry_records(
     assert load_external_managed_agent_record_by_agent_id(record.external_agent_id) == record
 
 
-def test_cleanup_probes_the_recorded_tmux_socket(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize(
+    ("returncode", "stderr"),
+    [(0, ""), (23, ""), (1, "Permission denied")],
+)
+def test_cleanup_does_not_infer_absence_from_failed_owner_probe(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, returncode: int, stderr: str
 ) -> None:
-    """A live owner record is classified only against its captured server."""
-
-    from houmao.execution.tmux import current_tmux_socket_path
+    """Keep a fresh record when the selected owner is live or could not be checked."""
 
     monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
     record = _sample_record()
     record.terminal.socket_path = "/owner/private.sock"
     published = publish_live_agent_record(record)
-    probes: list[str | None] = []
+    probes: list[tuple[str, str | None]] = []
 
-    def exists(*, session_name: str) -> bool:
-        """Observe the server selected by the cleanup operation."""
+    def _list_sessions(
+        self: TmuxServer, args: Sequence[str], *, sensitive: bool = False, no_start: bool = False
+    ) -> TmuxCommandResult:
+        assert tuple(args) == ("list-sessions", "-F", "#{session_name}")
+        probes.append((self.socket_path, current_tmux_socket_path()))
+        stdout = f"{published.terminal.current_session_name}\n" if returncode == 0 else ""
+        return TmuxCommandResult(tuple(args), returncode, stdout, stderr)
 
-        assert session_name == published.terminal.current_session_name
-        probes.append(current_tmux_socket_path())
-        return True
-
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.registry_storage.tmux_session_exists", exists
+    monkeypatch.setattr(TmuxServer, "command", _list_sessions)
+    with tmux_server_scope("/enclosing/current.sock"):
+        result = cleanup_stale_live_agent_records()
+        assert current_tmux_socket_path() == "/enclosing/current.sock"
+    assert result.removed_agent_ids == ()
+    assert result.preserved_agent_ids == (published.agent_id,)
+    assert result.actions[0].reason == (
+        "owner tmux inspection was unavailable"
+        if returncode
+        else "local tmux liveness probe confirmed the owning session"
     )
-    result = cleanup_stale_live_agent_records()
-    assert published.agent_id in result.preserved_agent_ids
-    assert probes == ["/owner/private.sock"]
+    assert resolve_live_agent_record(published.agent_id) == published
+    assert probes == [("/owner/private.sock", "/owner/private.sock")]
     assert current_tmux_socket_path() is None

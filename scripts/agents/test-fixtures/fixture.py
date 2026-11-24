@@ -9,6 +9,7 @@ import sys
 from typing import Literal
 
 from houmao.agents.realm_controller.run_modes import RUN_MODES
+from houmao.execution.tmux import TmuxCommandError
 
 from fixturelib.auth import (
     bundle_path,
@@ -248,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
                 }
         print(json.dumps(payload, sort_keys=True, indent=2))
         return 0
-    except (FixtureError, OSError) as exc:
+    except (FixtureError, OSError, TmuxCommandError) as exc:
         message = (
             str(exc) if isinstance(exc, FixtureError) else "Fixture filesystem operation failed"
         )

@@ -12,6 +12,7 @@ import pytest
 import yaml
 
 from houmao.agents.realm_controller.backends.dispatch_control import _dispatch_origin_birth_token
+from houmao.agents.realm_controller.registry_storage import load_managed_agent_record_by_agent_id
 from tests.integration.agents.dsh.conftest import ControlledModelGate
 
 
@@ -80,6 +81,24 @@ def test_service_fixture_reuses_one_bound_acp_process_and_usage_journal(
         current = json.loads(manifest_path.read_text())
         assert current["backend_state"]["service_incarnation"] == incarnation
         assert current["backend_state"]["native_session_id"] == native_session
+        terminal = current["tmux"]
+        server = launch._fixture_tmux(run)
+        assert terminal["socket_path"] == server.socket_path
+        assert terminal["primary_window_role"] == "supervisor_logs"
+        panes = server.observe_session(terminal["session_name"])
+        assert panes is not None
+        assert any(
+            (pane.window_id, pane.pane_id)
+            == (terminal["primary_window_id"], terminal["primary_pane_id"])
+            and pane.window_index == terminal["primary_window_index"] == "0"
+            for pane in panes
+        )
+        record = load_managed_agent_record_by_agent_id(current["agent_id"], env=environment)
+        assert record is not None and record.generation_id == current["registry_generation_id"]
+        assert (record.terminal.socket_path, record.terminal.current_session_name) == (
+            terminal["socket_path"],
+            terminal["session_name"],
+        )
         assert [row["model"] for row in requests] == [
             "controlled",
             "controlled-alternate",

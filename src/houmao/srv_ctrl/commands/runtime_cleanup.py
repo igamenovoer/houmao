@@ -11,10 +11,11 @@ from pathlib import Path
 import click
 
 from houmao.agents.realm_controller.backends.tmux_runtime import (
-    cleanup_tmux_session,
+    kill_tmux_session,
     probe_tmux_backed_authority,
     tmux_session_exists,
 )
+from houmao.execution.tmux import TmuxCommandError, tmux_server_scope
 from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
 from houmao.agents.realm_controller.errors import LaunchPlanError, SessionManifestError
 from houmao.agents.realm_controller.gateway_storage import gateway_paths_from_session_root
@@ -219,8 +220,9 @@ def cleanup_managed_session(
         manifest_path=manifest_path,
         session_root=session_root,
     )
-    live = _cleanup_target_is_live(target)
     session_name = _cleanup_target_tmux_session_name(target)
+    socket_path = _cleanup_target_tmux_socket(target)
+    live = _tmux_session_presence(session_name, socket_path)
     session_details = _cleanup_target_details(target)
 
     planned_actions: list[CleanupAction] = []
@@ -243,15 +245,55 @@ def cleanup_managed_session(
     session_cleanup_complete = False
 
     broken_active_purge_allowed = False
-    if purge_registry and _cleanup_target_has_active_registry_record(target) and session_name:
-        probe = probe_tmux_backed_authority(session_name=session_name)
-        if probe.state in {"degraded_missing_primary", "stale_missing_session"}:
+    tmux_teardown_error: TmuxCommandError | None = None
+    if (
+        purge_registry
+        and _cleanup_target_has_active_registry_record(target)
+        and session_name
+        and socket_path is not None
+        and live is not None
+    ):
+        if live is False:
             broken_active_purge_allowed = True
-            if probe.state == "degraded_missing_primary" and not dry_run:
-                cleanup_tmux_session(session_name=session_name)
-                live = False
+        else:
+            with tmux_server_scope(socket_path):
+                try:
+                    probe = probe_tmux_backed_authority(session_name=session_name)
+                    if probe.state == "stale_missing_session":
+                        broken_active_purge_allowed = True
+                        live = False
+                    elif probe.state == "degraded_missing_primary":
+                        broken_active_purge_allowed = True
+                        if not dry_run:
+                            kill_tmux_session(session_name=session_name)
+                            live = False
+                except TmuxCommandError as exc:
+                    if broken_active_purge_allowed:
+                        tmux_teardown_error = exc
+                    else:
+                        live = None
 
-    if not broken_active_purge_allowed and _cleanup_target_has_active_registry_record(target):
+    if tmux_teardown_error is not None:
+        blocked_actions.append(
+            CleanupAction(
+                artifact_kind="session_root",
+                path=session_action_path,
+                proposed_action="remove",
+                reason="checked teardown of degraded managed tmux session failed",
+                details={**session_details, "tmux_error": str(tmux_teardown_error)},
+            )
+        )
+    elif live is None:
+        blocked_actions.append(
+            CleanupAction(
+                artifact_kind="session_root",
+                path=session_action_path,
+                proposed_action="remove",
+                reason="managed session liveness could not be verified on the recorded tmux socket",
+                details=session_details,
+            )
+        )
+    elif not broken_active_purge_allowed and _cleanup_target_has_active_registry_record(target):
         blocked_actions.append(
             CleanupAction(
                 artifact_kind="session_root",
@@ -1416,12 +1458,34 @@ def _runtime_root_for_session_path(session_root: Path) -> Path:
 
 
 def _cleanup_target_is_live(target: ResolvedManagedSessionCleanupTarget) -> bool:
-    """Return whether one cleanup target still appears live on the local host."""
+    """Protect a cleanup target when liveness is observed or cannot be ruled out."""
 
     session_name = _cleanup_target_tmux_session_name(target)
+    return _tmux_session_presence(session_name, _cleanup_target_tmux_socket(target)) is not False
+
+
+def _cleanup_target_tmux_socket(target: ResolvedManagedSessionCleanupTarget) -> str | None:
+    """Return the recorded owner socket without inheriting a caller socket."""
+
+    if target.payload is not None and target.payload.tmux is not None:
+        return target.payload.tmux.socket_path
+    if target.registry_record is not None:
+        return target.registry_record.terminal.socket_path
+    return None
+
+
+def _tmux_session_presence(session_name: str | None, socket_path: str | None) -> bool | None:
+    """Report checked presence or an unavailable owner observation."""
+
     if session_name is None or not session_name.strip():
         return False
-    return tmux_session_exists(session_name=session_name)
+    if socket_path is None:
+        return None
+    try:
+        with tmux_server_scope(socket_path):
+            return tmux_session_exists(session_name=session_name, allow_missing_server=True)
+    except TmuxCommandError:
+        return None
 
 
 def _cleanup_target_details(target: ResolvedManagedSessionCleanupTarget) -> dict[str, object]:
@@ -1660,12 +1724,11 @@ def _payload_tmux_session_name(payload: SessionManifestPayloadV4) -> str | None:
 
 
 def _payload_is_live(payload: SessionManifestPayloadV4) -> bool:
-    """Return whether one manifest still appears live on the local host."""
+    """Protect a runtime envelope until the owner scope confirms absence."""
 
     session_name = _payload_tmux_session_name(payload)
-    if session_name is None or not session_name.strip():
-        return False
-    return tmux_session_exists(session_name=session_name)
+    socket_path = payload.tmux.socket_path if payload.tmux is not None else None
+    return _tmux_session_presence(session_name, socket_path) is not False
 
 
 def _path_is_old_enough(

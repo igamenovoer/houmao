@@ -5,14 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Final
 
-from houmao.agents.realm_controller.backends.tmux_runtime import (
-    TmuxCommandError,
-    read_tmux_session_environment_value,
-    set_tmux_session_environment,
-    unset_tmux_session_environment,
-)
-
-from .models import (
+from houmao.execution.tmux import TmuxCommandError, TmuxServer
+from houmao.terminal_record.models import (
     InputCaptureLevel,
     TerminalRecordInputEvent,
     append_ndjson,
@@ -25,24 +19,31 @@ from .models import (
 TERMINAL_RECORD_LIVE_STATE_ENV_VAR: Final[str] = "HOUMAO_TERMINAL_RECORD_LIVE_STATE"
 
 
-def publish_active_terminal_record_session(*, session_name: str, live_state_path: Path) -> None:
+def publish_active_terminal_record_session(
+    *, tmux: TmuxServer, session_name: str, live_state_path: Path
+) -> None:
     """Publish the active recorder live-state pointer into tmux session env."""
 
-    set_tmux_session_environment(
-        session_name=session_name,
-        env_vars={
-            TERMINAL_RECORD_LIVE_STATE_ENV_VAR: str(live_state_path.resolve()),
-        },
+    tmux.checked_command(
+        [
+            "set-environment",
+            "-t",
+            f"={session_name}",
+            TERMINAL_RECORD_LIVE_STATE_ENV_VAR,
+            str(live_state_path.resolve()),
+        ]
     )
 
 
-def clear_active_terminal_record_session(*, session_name: str) -> None:
-    """Clear active recorder env publication from a tmux session."""
+def clear_active_terminal_record_session(
+    *, tmux: TmuxServer, session_name: str, live_state_path: Path
+) -> None:
+    """Clear the session's recorder pointer when it still references this run."""
 
-    unset_tmux_session_environment(
-        session_name=session_name,
-        variable_names=[TERMINAL_RECORD_LIVE_STATE_ENV_VAR],
-    )
+    if _read_terminal_record_live_state_path(tmux, session_name) == live_state_path:
+        tmux.checked_command(
+            ["set-environment", "-u", "-t", f"={session_name}", TERMINAL_RECORD_LIVE_STATE_ENV_VAR]
+        )
 
 
 def append_managed_control_input_for_tmux_session(
@@ -54,7 +55,10 @@ def append_managed_control_input_for_tmux_session(
 ) -> None:
     """Append one managed control-input event when an active recorder is present."""
 
-    live_state_path = _read_terminal_record_live_state_path(session_name=session_name)
+    try:
+        live_state_path = _read_terminal_record_live_state_path(TmuxServer(), session_name)
+    except TmuxCommandError:
+        return
     if live_state_path is None or not live_state_path.is_file():
         return
 
@@ -82,19 +86,17 @@ def append_managed_control_input_for_tmux_session(
     append_ndjson(input_events_path, event.to_payload())
 
 
-def _read_terminal_record_live_state_path(*, session_name: str) -> Path | None:
+def _read_terminal_record_live_state_path(tmux: TmuxServer, session_name: str) -> Path | None:
     """Return one optional active recorder live-state path from tmux env."""
 
-    try:
-        value = read_tmux_session_environment_value(
-            session_name=session_name,
-            variable_name=TERMINAL_RECORD_LIVE_STATE_ENV_VAR,
-        )
-    except TmuxCommandError:
+    result = tmux.command(
+        ["show-environment", "-t", f"={session_name}", TERMINAL_RECORD_LIVE_STATE_ENV_VAR]
+    )
+    if result.returncode and result.stderr.strip() == "unknown variable":
         return None
-    if value is None:
-        return None
-    return Path(value)
+    result.require_success()
+    name, _, value = result.stdout.rstrip("\n").partition("=")
+    return Path(value) if name == TERMINAL_RECORD_LIVE_STATE_ENV_VAR and value else None
 
 
 def _managed_capture_level(level: InputCaptureLevel) -> bool:

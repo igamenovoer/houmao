@@ -235,22 +235,23 @@ def _teardown_recorder_session(recording_root: Path, *, session_name: str) -> No
     before digests are taken.
     """
 
-    from houmao.agents.realm_controller.backends.tmux_runtime import run_tmux
+    from houmao.execution.tmux import TmuxServer
 
     try:
         manifest = json.loads((recording_root / "manifest.json").read_text(encoding="utf-8"))
         recorder_session = manifest.get("recorder_session_name")
     except (OSError, json.JSONDecodeError):
         recorder_session = None
+    server = TmuxServer()
     if recorder_session:
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
-            if run_tmux(["has-session", "-t", recorder_session]).returncode != 0:
+            if recorder_session not in server.list_sessions(allow_missing_server=True):
                 break
             time.sleep(0.3)
-        if run_tmux(["has-session", "-t", recorder_session]).returncode == 0:
-            run_tmux(["kill-session", "-t", recorder_session])
-    run_tmux(["detach-client", "-s", session_name])
+        else:
+            server.command(["kill-session", "-t", f"={recorder_session}"])
+    server.command(["detach-client", "-s", f"={session_name}"])
 
 
 def _wait_quiescence(recording_root: Path, timeout_seconds: float = 30.0) -> None:

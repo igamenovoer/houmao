@@ -149,7 +149,7 @@ def test_resolve_managed_agent_target_prefers_shared_registry_for_local_records(
             manifest_path=str((tmp_path / "manifest.json").resolve()),
             session_root=str((tmp_path / "session-root").resolve()),
         ),
-        terminal=SimpleNamespace(session_name="gpu-session", socket_path=None),
+        terminal=SimpleNamespace(session_name="gpu-session", socket_path=str(tmp_path / "owner.sock")),
     )
     controller = SimpleNamespace(
         agent_id="agent-1234",
@@ -258,7 +258,7 @@ def test_resolve_managed_agent_target_wraps_unusable_local_runtime_authority(
             manifest_path="/tmp/missing-manifest.json",
             session_root=str((tmp_path / "session-root").resolve()),
         ),
-        terminal=SimpleNamespace(session_name="gpu-session", socket_path=None),
+        terminal=SimpleNamespace(session_name="gpu-session", socket_path=str(tmp_path / "owner.sock")),
     )
 
     monkeypatch.setattr(
@@ -1036,6 +1036,7 @@ def _degraded_or_stale_record(
             session_root=str(runtime_dir.resolve()),
         ),
         terminal=RegistryTerminalV2(
+            socket_path=str(tmp_path / "owner.sock"),
             current_session_name=session_name,
             last_session_name=session_name,
         ),
@@ -1100,7 +1101,7 @@ def test_stop_managed_agent_recovers_degraded_active_local_authority(
     publish_live_agent_record(record)
     cleanup_calls: list[str] = []
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.managed_agents.cleanup_tmux_session",
+        "houmao.srv_ctrl.commands.managed_agents.kill_tmux_session",
         lambda *, session_name: cleanup_calls.append(session_name),
     )
     monkeypatch.setattr(
@@ -1149,7 +1150,7 @@ def test_stop_managed_agent_recovers_stale_active_local_authority(
     publish_live_agent_record(record)
     cleanup_calls: list[str] = []
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.managed_agents.cleanup_tmux_session",
+        "houmao.srv_ctrl.commands.managed_agents.kill_tmux_session",
         lambda *, session_name: cleanup_calls.append(session_name),
     )
     monkeypatch.setattr(
@@ -1202,7 +1203,7 @@ def test_stop_managed_agent_retires_stale_active_record_without_manifest(
         ),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.managed_agents.cleanup_tmux_session",
+        "houmao.srv_ctrl.commands.managed_agents.kill_tmux_session",
         lambda *, session_name: (_ for _ in ()).throw(
             AssertionError("stale missing session should not be killed")
         ),
@@ -1280,7 +1281,7 @@ def test_relaunch_managed_agent_revives_degraded_active_local_authority(
     publish_live_agent_record(record)
     cleanup_calls: list[str] = []
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.managed_agents.cleanup_tmux_session",
+        "houmao.srv_ctrl.commands.managed_agents.kill_tmux_session",
         lambda *, session_name: cleanup_calls.append(session_name),
     )
     monkeypatch.setattr(
@@ -1346,7 +1347,7 @@ def test_relaunch_managed_agent_revives_stale_active_local_authority(
     publish_live_agent_record(record)
     cleanup_calls: list[str] = []
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.managed_agents.cleanup_tmux_session",
+        "houmao.srv_ctrl.commands.managed_agents.kill_tmux_session",
         lambda *, session_name: cleanup_calls.append(session_name),
     )
     monkeypatch.setattr(
@@ -3175,7 +3176,7 @@ def test_identity_from_record_uses_persisted_tmux_window_name(
     assert identity.tmux_session_name == "join-sess"
 
 
-def test_identity_from_record_falls_back_to_join_launch_metadata_tmux_window_name(
+def test_identity_from_record_uses_canonical_join_window_binding(
     tmp_path: Path,
 ) -> None:
     manifest_path = _write_manifest(
@@ -3210,7 +3211,7 @@ def test_identity_from_record_falls_back_to_join_launch_metadata_tmux_window_nam
 
     identity = managed_agents_module._identity_from_record(record)
 
-    assert identity.tmux_window_name == "manual"
+    assert identity.tmux_window_name == "agent"
 
 
 def test_local_tui_state_and_detail_payloads_use_joined_window_metadata(

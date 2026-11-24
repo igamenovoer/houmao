@@ -204,14 +204,7 @@ def qualify(
                 log=log,
             )
         finally:
-            subprocess.run(
-                [str(real_tmux), "-S", support._isolated_socket(socket_root), "kill-server"],
-                cwd=work,
-                env=environment,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
+            support._cleanup_isolated_tmux(python, cwd=work, environment=environment)
     result = json.loads((work / "qualification.json").read_text())
     result["artifacts"] = artifacts
     result["environment"] = {
@@ -242,11 +235,8 @@ def _body_snapshot(support: ModuleType, controller: Any) -> tuple[str, object]:
 
     document = json.loads(controller.manifest_path.read_text())
     pane = document["agent_launch_authority"]["primary_pane_id"]
-    process = subprocess.run(
-        support._tmux_command("display-message", "-p", "-t", pane, "#{pane_pid}"),
-        capture_output=True,
-        text=True,
-        check=True,
+    process = support._tmux_server().checked_command(
+        ["display-message", "-p", "-t", pane, "#{pane_pid}"],
     )
     return process.stdout.strip(), document["backend_state"]["session_id"]
 
@@ -271,11 +261,8 @@ def _cleanup_runtime(support: ModuleType, controller: Any) -> None:
         controller.stop(force_cleanup=True)
     except Exception:
         pass
-    subprocess.run(
-        support._tmux_command("kill-session", "-t", controller.tmux_session_name),
-        capture_output=True,
-        check=False,
-    )
+    server = support._tmux_server()
+    server.command(["kill-session", "-t", f"={controller.tmux_session_name}"])
     if pid is not None and support._process_alive(pid):
         try:
             command = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
@@ -299,12 +286,10 @@ def _cleanup_runtime(support: ModuleType, controller: Any) -> None:
         if support._process_alive(pid):
             os.kill(pid, signal.SIGKILL)
         support._wait(lambda: not support._process_alive(pid), "Owned gateway survived cleanup")
-    remaining = subprocess.run(
-        support._tmux_command("has-session", "-t", controller.tmux_session_name),
-        capture_output=True,
-        check=False,
+    _require(
+        controller.tmux_session_name not in server.list_sessions(allow_missing_server=True),
+        "Owned body session survived cleanup",
     )
-    _require(remaining.returncode != 0, "Owned body session survived cleanup")
 
 
 def _record_live_gateway(
@@ -471,10 +456,8 @@ def _failure_cases(
             manifest["registry_generation_id"] = uuid.uuid4().hex
             controller.manifest_path.write_text(json.dumps(manifest))
         else:
-            subprocess.run(
-                support._tmux_command("kill-window", "-t", f"{controller.tmux_session_name}:0"),
-                check=True,
-                capture_output=True,
+            support._tmux_server().checked_command(
+                ["kill-window", "-t", f"={controller.tmux_session_name}:0"],
             )
         (root / "released").touch()
         _receipt(

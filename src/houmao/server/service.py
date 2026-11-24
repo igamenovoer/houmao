@@ -101,6 +101,8 @@ from houmao.agents.realm_controller.errors import (
     SessionManifestError,
 )
 from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
+from houmao.agents.realm_controller.boundary_models import SessionManifestTmuxSectionV1
+from houmao.agents.realm_controller.managed_terminal import select_primary_tmux_surface
 from houmao.agents.realm_controller.run_modes import resolve_run_mode
 from houmao.agents.mailbox_runtime_support import resolve_live_mailbox_binding_from_manifest_path
 from houmao.agents.realm_controller.manifest import (
@@ -122,13 +124,9 @@ from houmao.agents.realm_controller.runtime import (
 from houmao.agents.realm_controller.models import HeadlessTurnSessionSelection
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     HEADLESS_AGENT_WINDOW_NAME,
-    TmuxCommandError,
-    headless_agent_pane_target,
-    resolve_primary_tmux_surface,
-    run_tmux,
     tmux_session_exists,
-    tmux_error_detail,
 )
+from houmao.execution.tmux import TmuxCommandError, TmuxServer
 from houmao.hook_observation.reader import HookObservationChannel
 from houmao.server.managed_agents import (
     ManagedHeadlessActiveTurnRecord,
@@ -947,6 +945,7 @@ class HoumaoServerService:
             manifest_path=str(controller.manifest_path),
             session_root=str(controller.manifest_path.parent),
             tmux_session_name=self._require_controller_tmux_session_name(controller),
+            tmux_socket_path=controller.tmux_socket_path,
             tmux_window_id=_controller_primary_tmux_window_id(controller),
             tmux_pane_id=_controller_primary_tmux_pane_id(controller),
             agent_def_dir=str(agent_def_dir),
@@ -1922,23 +1921,22 @@ class HoumaoServerService:
         observed_at_utc = utc_now_iso()
         monotonic_ts = time.monotonic()
 
-        if not tmux_session_exists(session_name=identity.tmux_session_name):
-            tracker.record_cycle(
-                identity=identity,
-                observed_at_utc=observed_at_utc,
-                monotonic_ts=monotonic_ts,
-                transport_state="tmux_missing",
-                process_state="unknown",
-                parse_status="transport_unavailable",
-                probe_snapshot=None,
-                probe_error=None,
-                parse_error=None,
-                parsed_surface=None,
-                output_text=None,
-            )
-            return False
-
         try:
+            if not tmux_session_exists(session_name=identity.tmux_session_name):
+                tracker.record_cycle(
+                    identity=identity,
+                    observed_at_utc=observed_at_utc,
+                    monotonic_ts=monotonic_ts,
+                    transport_state="tmux_missing",
+                    process_state="unknown",
+                    parse_status="transport_unavailable",
+                    probe_snapshot=None,
+                    probe_error=None,
+                    parse_error=None,
+                    parsed_surface=None,
+                    output_text=None,
+                )
+                return False
             target = self.m_transport_resolver.resolve_target(
                 session_name=identity.tmux_session_name,
                 window_name=identity.tmux_window_name,
@@ -2871,18 +2869,11 @@ class HoumaoServerService:
                     ),
                 )
             )
-        elif tmux_session_exists(session_name=authority.tmux_session_name):
-            availability = "available"
         else:
-            availability = "unavailable"
-            diagnostics.append(
-                HoumaoErrorDetail(
-                    kind="tmux_session_missing",
-                    message=(
-                        f"Native headless tmux session `{authority.tmux_session_name}` is not live."
-                    ),
-                )
-            )
+            tmux_error = _headless_tmux_diagnostic(authority)
+            availability = "available" if tmux_error is None else "unavailable"
+            if tmux_error is not None:
+                diagnostics.append(tmux_error)
 
         if active_turn is not None:
             turn_view = HoumaoManagedAgentTurnView(
@@ -3165,10 +3156,13 @@ class HoumaoServerService:
             tracked_agent_id=authority.tracked_agent_id
         )
         latest_turn = self._latest_headless_turn_record(tracked_agent_id=authority.tracked_agent_id)
-        tmux_session_live = tmux_session_exists(session_name=authority.tmux_session_name)
+        tmux_error = _headless_tmux_diagnostic(authority)
+        diagnostics = list(summary_state.diagnostics)
+        if tmux_error is not None and tmux_error not in diagnostics:
+            diagnostics.append(tmux_error)
         return HoumaoManagedAgentHeadlessDetailView(
             runtime_resumable=handle.controller is not None,
-            tmux_session_live=tmux_session_live,
+            tmux_session_live=tmux_error is None,
             can_accept_prompt_now=summary_state.availability == "available" and active_turn is None,
             interruptible=active_turn is not None,
             chat_session=self._headless_chat_session_state_from_handle(handle),
@@ -3197,7 +3191,7 @@ class HoumaoServerService:
             last_turn_error=latest_turn.error if latest_turn is not None else None,
             mailboxes=summary_state.mailboxes,
             gateway=summary_state.gateway,
-            diagnostics=list(summary_state.diagnostics),
+            diagnostics=diagnostics,
         )
 
     def _managed_headless_detail_from_gateway_handle(
@@ -3588,9 +3582,7 @@ class HoumaoServerService:
         tracked_agent_id = handle.authority.tracked_agent_id
         controller = self._resume_or_get_headless_controller(handle)
         if isinstance(request_model, HoumaoManagedAgentSubmitPromptRequest):
-            if controller is None or not tmux_session_exists(
-                session_name=handle.authority.tmux_session_name
-            ):
+            if controller is None:
                 raise HTTPException(
                     status_code=503,
                     detail=(
@@ -3598,6 +3590,9 @@ class HoumaoServerService:
                         "headless runtime control is not currently operable."
                     ),
                 )
+            tmux_error = _headless_tmux_diagnostic(handle.authority)
+            if tmux_error is not None:
+                raise HTTPException(status_code=503, detail=tmux_error.message)
             if (
                 self.m_managed_headless_store.read_active_turn(tracked_agent_id=tracked_agent_id)
                 is not None
@@ -4865,26 +4860,45 @@ class HoumaoServerService:
         *,
         active_turn: ManagedHeadlessActiveTurnRecord,
     ) -> None:
-        """Interrupt one headless turn through tmux as a last-resort fallback."""
+        """Interrupt only the observed primary pane recorded for this active turn."""
 
-        target = _active_turn_primary_tmux_target(active_turn)
-        try:
-            result = run_tmux(["send-keys", "-t", target, "C-c"])
-        except TmuxCommandError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
-        if result.returncode == 0:
-            return
-        detail = (tmux_error_detail(result) or "unknown tmux error").lower()
+        authority = self.m_managed_headless_store.read_authority(
+            tracked_agent_id=active_turn.tracked_agent_id
+        )
         if (
-            "can't find pane" in detail
-            or "can't find window" in detail
-            or "no server running" in detail
+            authority is None
+            or authority.tracked_agent_id != active_turn.tracked_agent_id
+            or authority.tmux_socket_path is None
+            or active_turn.tmux_window_id is None
+            or active_turn.tmux_pane_id is None
+            or authority.tmux_session_name != active_turn.tmux_session_name
+            or authority.tmux_window_id != active_turn.tmux_window_id
+            or authority.tmux_pane_id != active_turn.tmux_pane_id
         ):
             return
-        raise HTTPException(
-            status_code=502,
-            detail=f"Failed to interrupt tmux headless agent surface `{target}`: {detail}",
+        binding = SessionManifestTmuxSectionV1(
+            socket_path=authority.tmux_socket_path,
+            session_name=authority.tmux_session_name,
+            primary_window_id=authority.tmux_window_id,
+            primary_pane_id=authority.tmux_pane_id,
         )
+        tmux = TmuxServer(authority.tmux_socket_path)
+        try:
+            observation = select_primary_tmux_surface(
+                binding, tmux.observe_session(binding.session_name)
+            )
+            if observation.state != "valid" or observation.pane is None:
+                return
+            current = self.m_managed_headless_store.read_active_turn(
+                tracked_agent_id=active_turn.tracked_agent_id
+            )
+            current_authority = self.m_managed_headless_store.read_authority(
+                tracked_agent_id=active_turn.tracked_agent_id
+            )
+            if current == active_turn and current_authority == authority:
+                tmux.send_keys(observation.pane.pane_id, "C-c")
+        except TmuxCommandError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     def _require_controller_tmux_session_name(self, controller: RuntimeSessionController) -> str:
         """Return the bound tmux session name for one headless controller."""
@@ -5036,25 +5050,27 @@ def _controller_primary_tmux_pane_id(controller: RuntimeSessionController) -> st
     return value if isinstance(value, str) and value.strip() else None
 
 
-def _active_turn_primary_tmux_target(active_turn: ManagedHeadlessActiveTurnRecord) -> str:
-    """Return the best tmux target for interrupting one active headless turn."""
+def _headless_tmux_diagnostic(
+    authority: ManagedHeadlessAuthorityRecord,
+) -> HoumaoErrorDetail | None:
+    """Report saved socket liveness and retain an unavailable observation diagnostic."""
 
-    if active_turn.tmux_pane_id is not None:
-        try:
-            return resolve_primary_tmux_surface(
-                session_name=active_turn.tmux_session_name,
-                pane_id=active_turn.tmux_pane_id,
-                window_id=active_turn.tmux_window_id,
-            ).pane_id
-        except TmuxCommandError:
-            pass
+    socket_path = authority.tmux_socket_path
+    if socket_path is None:
+        return HoumaoErrorDetail(
+            kind="tmux_socket_missing",
+            message="Managed headless authority is missing its saved tmux socket.",
+        )
     try:
-        return resolve_primary_tmux_surface(
-            session_name=active_turn.tmux_session_name,
-            window_name=active_turn.tmux_window_name,
-        ).pane_id
-    except TmuxCommandError:
-        return headless_agent_pane_target(session_name=active_turn.tmux_session_name)
+        sessions = TmuxServer(socket_path).list_sessions()
+    except TmuxCommandError as exc:
+        return HoumaoErrorDetail(kind="tmux_probe_error", message=str(exc))
+    if authority.tmux_session_name not in sessions:
+        return HoumaoErrorDetail(
+            kind="tmux_session_missing",
+            message=f"Native headless tmux session `{authority.tmux_session_name}` is not live.",
+        )
+    return None
 
 
 TerminalWatchWorker = SessionWatchWorker

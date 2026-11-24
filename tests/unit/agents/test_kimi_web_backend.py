@@ -291,7 +291,7 @@ def web_startup_plan(
         token_file=Path(prior_state.cookie_path),
         request=native.request,
     )
-    monkeypatch.setattr(f"{module}.has_tmux_session", lambda **_: SimpleNamespace(returncode=1))
+    monkeypatch.setattr(f"{module}.tmux_session_exists", lambda **_: False)
     monkeypatch.setattr(f"{module}.create_tmux_session", lambda **_: None)
     monkeypatch.setattr(f"{module}.run_tmux", lambda *_: SimpleNamespace(returncode=0))
     monkeypatch.setattr(

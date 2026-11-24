@@ -98,7 +98,11 @@ def test_execute_operations_persists_semantic_and_frame_evidence(
         "_send_recorded_sequence",
         lambda **kwargs: sent.append(str(kwargs["sequence"])),
     )
-    monkeypatch.setattr(capture, "run_tmux", lambda command: commands.append(command))
+    monkeypatch.setattr(
+        capture.TmuxServer,
+        "checked_command",
+        lambda _server, command: commands.append(list(command)),
+    )
     monkeypatch.setattr(
         capture,
         "_wait_for_gate",

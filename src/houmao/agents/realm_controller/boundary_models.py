@@ -467,6 +467,8 @@ class SessionManifestRuntimeSectionV1(_StrictBoundaryModel):
 class SessionManifestTmuxSectionV1(_StrictBoundaryModel):
     """Normalized tmux session authority for one managed surface."""
 
+    model_config = ConfigDict(frozen=True)
+
     session_name: str
     socket_path: str | None = None
     primary_window_index: str = "0"

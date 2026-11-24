@@ -14,6 +14,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from houmao.execution.tmux import tmux_command as run_tmux
+
 from houmao.agents.launch_overrides import LaunchOverrides
 from houmao.agents.launch_policy.models import OperatorPromptMode
 from houmao.agents.realm_controller.backends.tmux_runtime import (
@@ -21,7 +23,6 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     capture_tmux_pane,
     find_tmux_pane,
     list_tmux_panes,
-    run_tmux,
     tmux_session_exists,
 )
 from houmao.shared_tui_tracking.models import RuntimeObservation

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -42,17 +42,16 @@ def _sample_codex_launch_plan(tmp_path: Path) -> LaunchPlan:
 @pytest.fixture(autouse=True)
 def _stub_tmux(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.headless_base.HeadlessInteractiveSession._observe_primary_surface",
+        lambda self, **_: SimpleNamespace(pane_id="%9"),
+    )
+    monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.headless_base.ensure_tmux_available_shared",
         lambda: None,
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.backends.headless_base.has_tmux_session_shared",
-        lambda *, session_name: subprocess.CompletedProcess(
-            args=["tmux", "has-session", "-t", session_name],
-            returncode=0,
-            stdout="",
-            stderr="",
-        ),
+        "houmao.agents.realm_controller.backends.headless_base.tmux_session_exists_shared",
+        lambda **_: True,
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.headless_base.set_tmux_session_environment_shared",
@@ -169,8 +168,8 @@ def test_headless_force_cleanup_succeeds_for_proven_absent_session(
         "houmao.agents.realm_controller.backends.headless_base.kill_tmux_session_shared", absent
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.backends.headless_base.has_tmux_session_shared",
-        lambda **_: subprocess.CompletedProcess([], 1, "", ""),
+        "houmao.agents.realm_controller.backends.headless_base.tmux_session_exists_shared",
+        lambda **_: False,
     )
     session.configure_stop_force_cleanup(force_cleanup=True)
     result = session.terminate()

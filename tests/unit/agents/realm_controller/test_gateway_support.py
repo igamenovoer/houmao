@@ -780,6 +780,9 @@ def test_ensure_gateway_capability_publishes_manifest_first_discovery_env(
         lambda record: record,
     )
 
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.tmux_session_exists_shared", lambda **_: False
+    )
     controller.persist_manifest(refresh_registry=False)
     controller.ensure_gateway_capability()
 
@@ -812,6 +815,9 @@ def test_legacy_tmux_session_stop_skips_gateway_teardown(tmp_path: Path) -> None
 def _mock_bound_controller_policy(monkeypatch: pytest.MonkeyPatch) -> None:
     """Supply an initialized policy for tests focused on attach sequencing."""
 
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.tmux_session_exists_shared", lambda **_: False
+    )
     store = SimpleNamespace(load=lambda: None, load_self=lambda _generation: None)
     access = SimpleNamespace(store=store, target=SimpleNamespace(incarnation="fixture"))
     monkeypatch.setattr(
@@ -1059,6 +1065,9 @@ def test_gateway_service_exposes_foreground_tmux_execution_metadata(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    socket_path = str(tmp_path / "owner.sock")
+    monkeypatch.setenv("TMUX", f"{socket_path},137,11")
+    monkeypatch.setenv("TMUX_PANE", "%9")
     gateway_root = _seed_local_interactive_gateway_root(tmp_path)
     manifest_path = default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
     paths = gateway_paths_from_manifest_path(manifest_path)
@@ -1087,9 +1096,23 @@ def test_gateway_service_exposes_foreground_tmux_execution_metadata(
         _FakeGatewayTrackingRuntime,
     )
     monkeypatch.setenv("HOUMAO_GATEWAY_EXECUTION_MODE", "tmux_auxiliary_window")
-    monkeypatch.setenv("HOUMAO_GATEWAY_TMUX_WINDOW_ID", "@9")
-    monkeypatch.setenv("HOUMAO_GATEWAY_TMUX_WINDOW_INDEX", "2")
-    monkeypatch.setenv("HOUMAO_GATEWAY_TMUX_PANE_ID", "%9")
+    monkeypatch.setenv("HOUMAO_GATEWAY_TMUX_WINDOW_ID", "@99")
+    monkeypatch.setenv("HOUMAO_GATEWAY_TMUX_PANE_ID", "%99")
+
+    class _ObservedServer:
+        def __init__(self, socket: str) -> None:
+            assert socket == socket_path
+
+        def observe_session(self, session_name: str) -> tuple[TmuxPaneRecord, ...]:
+            assert session_name == "HOUMAO-local"
+            return (
+                TmuxPaneRecord("%1", session_name, "@1", "0", "agent", "0", True, session_id="$11"),
+                TmuxPaneRecord(
+                    "%9", session_name, "@9", "2", "gateway", "0", False, session_id="$11"
+                ),
+            )
+
+    monkeypatch.setattr(gateway_service_module, "TmuxServer", _ObservedServer)
 
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
@@ -1118,6 +1141,36 @@ def test_gateway_service_exposes_foreground_tmux_execution_metadata(
     assert gateway_manifest.gateway_port == 43123
     assert gateway_manifest.gateway_execution_mode == "tmux_auxiliary_window"
     assert gateway_manifest.gateway_tmux_window_index == "2"
+
+
+@pytest.mark.parametrize("mode", ["detached_process", "tmux_auxiliary_window"])
+def test_gateway_startup_never_borrows_foreign_tmux_socket(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, mode: str
+) -> None:
+    """Detached startup skips tmux and auxiliary startup verifies the owner first."""
+
+    monkeypatch.setenv("TMUX", f"{tmp_path / 'owner.sock'},137,11")
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    monkeypatch.setenv("HOUMAO_GATEWAY_EXECUTION_MODE", mode)
+    monkeypatch.setenv("TMUX", f"{tmp_path / 'foreign.sock'},137,11")
+    monkeypatch.setenv("TMUX_PANE", "%9")
+    monkeypatch.setattr(
+        gateway_service_module, "TmuxServer", lambda _: pytest.fail("unexpected tmux probe")
+    )
+    if mode == "tmux_auxiliary_window":
+        with pytest.raises(
+            gateway_service_module.GatewayError, match="differs from manifest authority"
+        ):
+            GatewayServiceRuntime.from_gateway_root(
+                gateway_root=gateway_root, host="127.0.0.1", port=43123
+            )
+    else:
+        runtime = GatewayServiceRuntime.from_gateway_root(
+            gateway_root=gateway_root, host="127.0.0.1", port=43123
+        )
+        assert runtime.m_tmux_window_id is None
+        assert runtime.m_tmux_window_index is None
+        assert runtime.m_tmux_pane_id is None
 
 
 def test_refresh_gateway_manifest_publication_overwrites_stale_bookkeeping(tmp_path: Path) -> None:
@@ -2240,6 +2293,9 @@ def test_gateway_status_invalidates_stale_live_bindings(
         ),
     )
 
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.tmux_session_exists_shared", lambda **_: False
+    )
     controller.persist_manifest(refresh_registry=False)
     controller.ensure_gateway_capability()
     paths = gateway_paths_from_manifest_path(manifest_path)
@@ -2294,7 +2350,7 @@ def test_gateway_status_invalidates_stale_live_bindings(
     assert AGENT_GATEWAY_HOST_ENV_VAR in captured_unset["variable_names"]
 
 
-def test_same_session_gateway_shell_command_expands_live_tmux_pane(tmp_path: Path) -> None:
+def test_same_session_gateway_shell_command_delegates_pane_observation(tmp_path: Path) -> None:
     manifest_path = default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
     _seed_local_interactive_gateway_root(tmp_path)
     paths = gateway_paths_from_manifest_path(manifest_path)
@@ -2314,12 +2370,12 @@ def test_same_session_gateway_shell_command_expands_live_tmux_pane(tmp_path: Pat
         ),
     )
 
-    assert "tmux display-message -p -t \"$TMUX_PANE\" '#{window_id}'" in command
-    assert "tmux display-message -p -t \"$TMUX_PANE\" '#{window_index}'" in command
+    assert "HOUMAO_GATEWAY_EXECUTION_MODE=tmux_auxiliary_window" in command
+    assert "tmux display-message" not in command
+    assert "HOUMAO_GATEWAY_TMUX_" not in command
     assert "--tui-watch-poll-interval-seconds 0.25" in command
     assert "--tui-stale-active-recovery-seconds 6.0" in command
     assert "--tui-final-stable-active-recovery-seconds 18.0" in command
-    assert "'$TMUX_PANE'" not in command
 
 
 def test_gateway_service_main_parses_tui_tracking_args(
@@ -2406,8 +2462,8 @@ def test_same_session_gateway_liveness_ignores_current_agent_window(
     )
 
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.list_tmux_panes_shared",
-        lambda *, session_name: (
+        "houmao.agents.realm_controller.runtime.TmuxServer.observe_session",
+        lambda _server, session_name: (
             TmuxPaneRecord(
                 pane_id="%1",
                 session_name=session_name,
@@ -2464,9 +2520,10 @@ def test_runtime_owned_foreground_gateway_attach_persists_tmux_execution_handle(
     )
 
     tmux_state = {
-        "handles": [("@9", "1", "%9"), ("@10", "2", "%10")],
+        "handles": [("@9", "1", "%9"), ("@10", "1", "%10")],
         "alive": {"%9": True, "%10": True},
         "current": None,
+        "dead": set(),
         "kill_calls": [],
     }
 
@@ -2476,6 +2533,7 @@ def test_runtime_owned_foreground_gateway_attach_persists_tmux_execution_handle(
         del timeout_seconds
         if args[:1] == ["new-window"]:
             window_id, window_index, pane_id = tmux_state["handles"].pop(0)
+            assert args[args.index("-t") + 1] == f"=HOUMAO-local:{window_index}"
             tmux_state["current"] = (window_id, window_index, pane_id)
             write_gateway_current_instance(
                 paths.current_instance_path,
@@ -2518,7 +2576,7 @@ def test_runtime_owned_foreground_gateway_attach_persists_tmux_execution_handle(
             )
         raise AssertionError(f"Unexpected tmux call: {args}")
 
-    def _fake_list_tmux_panes(*, session_name: str):  # type: ignore[no-untyped-def]
+    def _fake_list_tmux_panes(_server: object, session_name: str):  # type: ignore[no-untyped-def]
         assert session_name == "HOUMAO-local"
         current = tmux_state["current"]
         if current is None:
@@ -2538,7 +2596,7 @@ def test_runtime_owned_foreground_gateway_attach_persists_tmux_execution_handle(
                     "window_name": "gateway",
                     "pane_index": "0",
                     "pane_active": True,
-                    "pane_dead": False,
+                    "pane_dead": pane_id in tmux_state["dead"],
                     "pane_pid": 4242,
                 },
             )(),
@@ -2556,7 +2614,11 @@ def test_runtime_owned_foreground_gateway_attach_persists_tmux_execution_handle(
         _fake_run_tmux,
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.list_tmux_panes_shared",
+        "houmao.agents.realm_controller.runtime.TmuxServer.checked_command",
+        lambda _server, args: _fake_run_tmux(args),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.TmuxServer.observe_session",
         _fake_list_tmux_panes,
     )
     monkeypatch.setattr(
@@ -2583,7 +2645,7 @@ def test_runtime_owned_foreground_gateway_attach_persists_tmux_execution_handle(
     assert first_desired_config.desired_execution_mode == "tmux_auxiliary_window"
     assert first_desired_config.desired_port == 43123
 
-    tmux_state["alive"]["%9"] = False
+    tmux_state["dead"].add("%9")
 
     second_attach = controller.attach_gateway()
     assert second_attach.status == "ok"
@@ -2591,7 +2653,7 @@ def test_runtime_owned_foreground_gateway_attach_persists_tmux_execution_handle(
     second_desired_config = load_gateway_desired_config(paths.desired_config_path)
     assert second_current_instance.execution_mode == "tmux_auxiliary_window"
     assert second_current_instance.tmux_window_id == "@10"
-    assert second_current_instance.tmux_window_index == "2"
+    assert second_current_instance.tmux_window_index == "1"
     assert second_current_instance.tmux_pane_id == "%10"
     assert second_desired_config.desired_execution_mode == "tmux_auxiliary_window"
 
@@ -2657,7 +2719,7 @@ def test_runtime_owned_foreground_gateway_attach_tolerates_initial_tmux_pane_del
             stderr="",
         )
 
-    def _fake_list_tmux_panes(*, session_name: str):  # type: ignore[no-untyped-def]
+    def _fake_list_tmux_panes(_server: object, session_name: str):  # type: ignore[no-untyped-def]
         assert session_name == "HOUMAO-local"
         tmux_state["list_calls"] += 1
         if tmux_state["list_calls"] < 3:
@@ -2693,7 +2755,7 @@ def test_runtime_owned_foreground_gateway_attach_tolerates_initial_tmux_pane_del
         _fake_run_tmux,
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.list_tmux_panes_shared",
+        "houmao.agents.realm_controller.runtime.TmuxServer.observe_session",
         _fake_list_tmux_panes,
     )
     monkeypatch.setattr(
@@ -2775,8 +2837,8 @@ def test_runtime_owned_foreground_gateway_attach_accepts_current_instance_before
         _fake_run_tmux,
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.list_tmux_panes_shared",
-        lambda *, session_name: (),
+        "houmao.agents.realm_controller.runtime.TmuxServer.observe_session",
+        lambda _server, session_name: (),
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.GatewayClient",
@@ -2913,7 +2975,7 @@ def test_same_session_gateway_detach_refuses_reserved_window_zero(
         },
     )()
 
-    def _fake_list_tmux_panes(*, session_name: str):  # type: ignore[no-untyped-def]
+    def _fake_list_tmux_panes(_server: object, session_name: str):  # type: ignore[no-untyped-def]
         assert session_name == "HOUMAO-local"
         return (
             type(
@@ -2934,6 +2996,9 @@ def test_same_session_gateway_detach_refuses_reserved_window_zero(
         )
 
     monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.tmux_session_exists_shared", lambda **_: False
+    )
+    monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
         lambda **kwargs: None,
     )
@@ -2942,11 +3007,11 @@ def test_same_session_gateway_detach_refuses_reserved_window_zero(
         lambda _path: reserved_window_instance,
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.list_tmux_panes_shared",
+        "houmao.agents.realm_controller.runtime.TmuxServer.observe_session",
         _fake_list_tmux_panes,
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.run_tmux_shared",
+        "houmao.agents.realm_controller.runtime.TmuxServer.checked_command",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("reserved tmux window `0` must not be targeted")
         ),
@@ -2988,6 +3053,9 @@ def test_same_session_gateway_stale_cleanup_skips_reserved_window_zero(
     )()
 
     monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.tmux_session_exists_shared", lambda **_: False
+    )
+    monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
         lambda **kwargs: None,
     )
@@ -3000,11 +3068,11 @@ def test_same_session_gateway_stale_cleanup_skips_reserved_window_zero(
         lambda _path: reserved_window_instance,
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.list_tmux_panes_shared",
-        lambda *, session_name: (),
+        "houmao.agents.realm_controller.runtime.TmuxServer.observe_session",
+        lambda _server, session_name: (),
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.run_tmux_shared",
+        "houmao.agents.realm_controller.runtime.TmuxServer.checked_command",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("reserved tmux window `0` must not be targeted")
         ),

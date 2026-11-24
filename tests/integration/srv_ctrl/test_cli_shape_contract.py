@@ -17,11 +17,13 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxPaneRecord,
 )
 from houmao.agents.realm_controller.backends.headless_base import HeadlessSessionState
+from houmao.agents.realm_controller.boundary_models import SessionManifestTmuxSectionV1
 from houmao.agents.realm_controller.models import (
     LaunchPlan,
     SessionControlResult,
 )
 from houmao.agents.realm_controller.registry_storage import resolve_live_agent_record
+from houmao.execution.tmux import TmuxCommandResult
 from houmao.project.overlay import bootstrap_project_overlay
 from houmao.server.models import (
     HoumaoRecentTransition,
@@ -202,6 +204,17 @@ class _FakeHeadlessSession:
 
         self.m_launch_plan = launch_plan
 
+    def set_tmux_binding(self, binding: SessionManifestTmuxSectionV1, repair: object) -> None:
+        """Expose the saved controller binding to the fake backend."""
+
+        self.m_state = replace(
+            self.m_state,
+            tmux_session_name=binding.session_name,
+            tmux_window_name=binding.primary_window_name,
+            tmux_window_id=binding.primary_window_id,
+            tmux_pane_id=binding.primary_pane_id,
+        )
+
     def configure_stop_force_cleanup(self, *, force_cleanup: bool) -> None:
         """Accept stop cleanup configuration without side effects."""
 
@@ -347,8 +360,8 @@ def _install_fake_tmux_runtime(
         ),
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.has_tmux_session_shared",
-        lambda *, session_name: SimpleNamespace(returncode=0 if session_name else 1),
+        "houmao.agents.realm_controller.runtime.tmux_session_exists_shared",
+        lambda *, session_name: bool(session_name),
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
@@ -367,10 +380,6 @@ def _install_fake_tmux_runtime(
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.SingleSessionTrackingRuntime",
         _FakeSingleSessionTrackingRuntime,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.managed_agents.tmux_session_exists",
-        lambda *, session_name: bool(session_name),
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.probe_tmux_backed_authority",
@@ -1160,6 +1169,36 @@ def _fake_joined_session_artifacts(
     )
 
 
+def _stub_join_pane_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Observe the current path of the exact pane selected for join."""
+
+    def checked_command(_server: object, args: list[str]) -> TmuxCommandResult:
+        """Return one checked adapter result without touching a real tmux server."""
+
+        assert args == ["display-message", "-p", "-t", "%1", "#{pane_current_path}"]
+        return TmuxCommandResult(tuple(args), 0, "/tmp/project\n", "")
+
+    monkeypatch.setattr(agents_core.TmuxServer, "checked_command", checked_command)
+
+
+def _stub_join_result_manifest(monkeypatch: pytest.MonkeyPatch, *, headless: bool = False) -> None:
+    """Describe the fake materialization result for the CLI output renderer."""
+
+    monkeypatch.setattr(
+        agents_core, "load_session_manifest", lambda path: SimpleNamespace(path=path, payload={})
+    )
+    monkeypatch.setattr(
+        agents_core,
+        "parse_session_manifest_payload",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            tool="codex",
+            backend="codex_headless" if headless else "local_interactive",
+            mode="headless" if headless else "tui",
+            native_surface=None,
+        ),
+    )
+
+
 def test_houmao_mgr_agents_join_tui_auto_detects_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
@@ -1167,16 +1206,8 @@ def test_houmao_mgr_agents_join_tui_auto_detects_provider(monkeypatch: pytest.Mo
     monkeypatch.setattr(agents_core, "list_tmux_panes", lambda session_name: (_sample_join_pane(),))
     monkeypatch.setattr(agents_core, "_detect_join_provider", lambda pane_pid: "codex")
 
-    def fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
-        del args, kwargs
-        return subprocess.CompletedProcess(
-            args=["tmux"],
-            returncode=0,
-            stdout="/tmp/project\n",
-            stderr="",
-        )
-
-    monkeypatch.setattr(agents_core.subprocess, "run", fake_run)
+    _stub_join_pane_path(monkeypatch)
+    _stub_join_result_manifest(monkeypatch)
 
     def fake_materialize_joined_launch(**kwargs: object) -> agents_core.JoinedSessionArtifacts:
         captured.update(kwargs)
@@ -1184,7 +1215,7 @@ def test_houmao_mgr_agents_join_tui_auto_detects_provider(monkeypatch: pytest.Mo
 
     monkeypatch.setattr(agents_core, "materialize_joined_launch", fake_materialize_joined_launch)
 
-    result = CliRunner().invoke(cli, ["agents", "join", "--agent-name", "coder"])
+    result = CliRunner().invoke(cli, ["agents", "self", "join", "--agent-name", "coder"])
 
     assert result.exit_code == 0, result.output
     assert captured["provider"] == "codex"
@@ -1209,13 +1240,8 @@ def test_houmao_mgr_agents_join_respects_workdir_override(
     monkeypatch.setattr(agents_core, "_require_current_tmux_session_name", lambda: "join-sess")
     monkeypatch.setattr(agents_core, "list_tmux_panes", lambda session_name: (_sample_join_pane(),))
     monkeypatch.setattr(agents_core, "_detect_join_provider", lambda pane_pid: "codex")
-    monkeypatch.setattr(
-        agents_core.subprocess,
-        "run",
-        lambda *args, **kwargs: subprocess.CompletedProcess(
-            args=["tmux"], returncode=0, stdout="/tmp/project\n", stderr=""
-        ),
-    )
+    _stub_join_pane_path(monkeypatch)
+    _stub_join_result_manifest(monkeypatch)
 
     def fake_materialize_joined_launch(**kwargs: object) -> agents_core.JoinedSessionArtifacts:
         captured.update(kwargs)
@@ -1227,6 +1253,7 @@ def test_houmao_mgr_agents_join_respects_workdir_override(
         cli,
         [
             "agents",
+            "self",
             "join",
             "--agent-name",
             "coder",
@@ -1240,7 +1267,7 @@ def test_houmao_mgr_agents_join_respects_workdir_override(
 
 
 def test_houmao_mgr_agents_join_help_uses_workdir_flag() -> None:
-    result = CliRunner().invoke(cli, ["agents", "join", "--help"])
+    result = CliRunner().invoke(cli, ["agents", "self", "join", "--help"])
 
     assert result.exit_code == 0, result.output
     assert "--workdir DIRECTORY" in result.output
@@ -1253,13 +1280,8 @@ def test_houmao_mgr_agents_join_headless_last_resume(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(agents_core, "_require_current_tmux_session_name", lambda: "join-sess")
     monkeypatch.setattr(agents_core, "list_tmux_panes", lambda session_name: (_sample_join_pane(),))
     monkeypatch.setattr(agents_core, "_detect_join_provider", lambda pane_pid: None)
-    monkeypatch.setattr(
-        agents_core.subprocess,
-        "run",
-        lambda *args, **kwargs: subprocess.CompletedProcess(
-            args=["tmux"], returncode=0, stdout="/tmp/project\n", stderr=""
-        ),
-    )
+    _stub_join_pane_path(monkeypatch)
+    _stub_join_result_manifest(monkeypatch, headless=True)
 
     def fake_materialize_joined_launch(**kwargs: object) -> agents_core.JoinedSessionArtifacts:
         captured.update(kwargs)
@@ -1271,6 +1293,7 @@ def test_houmao_mgr_agents_join_headless_last_resume(monkeypatch: pytest.MonkeyP
         cli,
         [
             "agents",
+            "self",
             "join",
             "--headless",
             "--agent-name",
@@ -1303,13 +1326,8 @@ def test_houmao_mgr_agents_join_can_opt_out_of_houmao_skill_install(
     monkeypatch.setattr(agents_core, "_require_current_tmux_session_name", lambda: "join-sess")
     monkeypatch.setattr(agents_core, "list_tmux_panes", lambda session_name: (_sample_join_pane(),))
     monkeypatch.setattr(agents_core, "_detect_join_provider", lambda pane_pid: "codex")
-    monkeypatch.setattr(
-        agents_core.subprocess,
-        "run",
-        lambda *args, **kwargs: subprocess.CompletedProcess(
-            args=["tmux"], returncode=0, stdout="/tmp/project\n", stderr=""
-        ),
-    )
+    _stub_join_pane_path(monkeypatch)
+    _stub_join_result_manifest(monkeypatch)
 
     def fake_materialize_joined_launch(**kwargs: object) -> agents_core.JoinedSessionArtifacts:
         captured.update(kwargs)
@@ -1319,7 +1337,7 @@ def test_houmao_mgr_agents_join_can_opt_out_of_houmao_skill_install(
 
     result = CliRunner().invoke(
         cli,
-        ["agents", "join", "--agent-name", "coder", "--no-install-houmao-skills"],
+        ["agents", "self", "join", "--agent-name", "coder", "--no-install-houmao-skills"],
     )
 
     assert result.exit_code == 0, result.output
@@ -1332,17 +1350,11 @@ def test_houmao_mgr_agents_join_rejects_provider_mismatch(
     monkeypatch.setattr(agents_core, "_require_current_tmux_session_name", lambda: "join-sess")
     monkeypatch.setattr(agents_core, "list_tmux_panes", lambda session_name: (_sample_join_pane(),))
     monkeypatch.setattr(agents_core, "_detect_join_provider", lambda pane_pid: "codex")
-    monkeypatch.setattr(
-        agents_core.subprocess,
-        "run",
-        lambda *args, **kwargs: subprocess.CompletedProcess(
-            args=["tmux"], returncode=0, stdout="/tmp/project\n", stderr=""
-        ),
-    )
+    _stub_join_pane_path(monkeypatch)
 
     result = CliRunner().invoke(
         cli,
-        ["agents", "join", "--agent-name", "coder", "--provider", "claude_code"],
+        ["agents", "self", "join", "--agent-name", "coder", "--provider", "claude_code"],
     )
 
     assert result.exit_code != 0
@@ -1357,7 +1369,7 @@ def test_houmao_mgr_agents_join_requires_tmux(monkeypatch: pytest.MonkeyPatch) -
 
     monkeypatch.setattr(agents_core, "_require_current_tmux_session_name", fail_current_session)
 
-    result = CliRunner().invoke(cli, ["agents", "join", "--agent-name", "coder"])
+    result = CliRunner().invoke(cli, ["agents", "self", "join", "--agent-name", "coder"])
 
     assert result.exit_code != 0
     assert "inside the target tmux session" in result.output
@@ -1369,18 +1381,13 @@ def test_houmao_mgr_agents_join_rejects_blank_resume_selector(
     monkeypatch.setattr(agents_core, "_require_current_tmux_session_name", lambda: "join-sess")
     monkeypatch.setattr(agents_core, "list_tmux_panes", lambda session_name: (_sample_join_pane(),))
     monkeypatch.setattr(agents_core, "_detect_join_provider", lambda pane_pid: None)
-    monkeypatch.setattr(
-        agents_core.subprocess,
-        "run",
-        lambda *args, **kwargs: subprocess.CompletedProcess(
-            args=["tmux"], returncode=0, stdout="/tmp/project\n", stderr=""
-        ),
-    )
+    _stub_join_pane_path(monkeypatch)
 
     result = CliRunner().invoke(
         cli,
         [
             "agents",
+            "self",
             "join",
             "--headless",
             "--agent-name",
