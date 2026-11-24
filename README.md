@@ -90,14 +90,14 @@ The normal experience is conversational: your CLI agent reads the Houmao skills 
 
 ## Quick Start
 
-**Prerequisites:** Python 3.11+ with [`uv`](https://docs.astral.sh/uv/), `tmux`, and Linux or macOS. The preferred skill installer also needs `npx`. Managed agents run in tmux-backed sessions, which is why `tmux` is required.
+**Prerequisites:** Python 3.11+ with [`uv`](https://docs.astral.sh/uv/), tmux 3.3a or later, and Linux or macOS. The preferred skill installer also needs `npx`. Managed agents run in tmux-backed sessions, which is why `tmux` is required.
 
 ```bash
 # 1. Install the CLI: `houmao-mgr --version` should print a version after this
 uv tool install houmao
 
-# 2. Verify tmux: prints a path such as /usr/bin/tmux
-command -v tmux
+# 2. Verify tmux is version 3.3a or later
+tmux -V
 
 # 3. Install Houmao skills into your CLI agent: select your agent and the complete
 #    admin surface (welcome, admin entrypoint, shared routines, and both loop skills)
