@@ -471,6 +471,7 @@ class SessionManifestTmuxSectionV1(_StrictBoundaryModel):
 
     session_name: str
     socket_path: str | None = None
+    server_allow_start: bool | None = None
     primary_window_index: str = "0"
     primary_window_role: Literal["managed_agent_surface", "supervisor_logs"] = (
         "managed_agent_surface"

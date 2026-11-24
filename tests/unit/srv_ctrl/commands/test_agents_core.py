@@ -1320,6 +1320,7 @@ def test_launch_managed_agent_locally_keep_stale_reuses_predecessor_home(
             launch_plan=SimpleNamespace(
                 mailboxes=SimpleNamespace(offline=SimpleNamespace(binding=None))
             ),
+            tmux=None,
             brain_manifest_path=str(tmp_path / "brain.yaml"),
         ),
     )
@@ -1456,6 +1457,7 @@ def test_launch_managed_agent_locally_reuse_home_rebuilds_stopped_predecessor_ho
             launch_plan=SimpleNamespace(
                 mailboxes=SimpleNamespace(offline=SimpleNamespace(binding=None))
             ),
+            tmux=None,
             brain_manifest_path=str(tmp_path / "brain.yaml"),
         ),
     )
@@ -1593,6 +1595,7 @@ def test_launch_managed_agent_locally_reuse_home_explicit_session_name_override_
             launch_plan=SimpleNamespace(
                 mailboxes=SimpleNamespace(offline=SimpleNamespace(binding=None))
             ),
+            tmux=None,
             brain_manifest_path=str(tmp_path / "brain.yaml"),
         ),
     )
@@ -1934,6 +1937,7 @@ def test_launch_managed_agent_locally_reuse_home_projects_current_specialist_inp
             launch_plan=SimpleNamespace(
                 mailboxes=SimpleNamespace(offline=SimpleNamespace(binding=None))
             ),
+            tmux=None,
             brain_manifest_path=str(tmp_path / "brain.yaml"),
         ),
     )
@@ -2058,6 +2062,7 @@ def test_launch_managed_agent_locally_clean_removes_replaceable_predecessor_arti
             launch_plan=SimpleNamespace(
                 mailboxes=SimpleNamespace(offline=SimpleNamespace(binding={}))
             ),
+            tmux=None,
             brain_manifest_path=str(tmp_path / "brain.yaml"),
         ),
     )
@@ -2262,6 +2267,7 @@ def test_launch_managed_agent_locally_reports_post_takeover_build_failure(
             launch_plan=SimpleNamespace(
                 mailboxes=SimpleNamespace(offline=SimpleNamespace(binding=None))
             ),
+            tmux=None,
             brain_manifest_path=str(tmp_path / "brain.yaml"),
         ),
     )

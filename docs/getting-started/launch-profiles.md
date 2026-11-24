@@ -74,7 +74,7 @@ A launch profile may store, with no inline secrets:
 - secret-free partial `tool_params` for the source tool,
 - managed system-skill policy for packaged Houmao-owned skills,
 - declarative mailbox configuration (transport, root, address, principal id, and Stalwart-only fields when applicable),
-- launch posture defaults (optional `defaults.posture.mode`, headless pane display, gateway auto-attach, fixed loopback gateway port),
+- launch posture defaults (run mode, tmux server, headless pane display, gateway auto-attach, fixed loopback gateway port),
 - an optional gateway mail-notifier appendix default,
 - a relaunch-only provider chat-session policy for future selected-agent `agents single ... relaunch` operations,
 - a managed prompt-header whole-header policy (`inherit`, `enabled`, or `disabled`) plus optional per-section policy (`identity`, `memo-cue`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack` set to `enabled` or `disabled`),
@@ -90,6 +90,27 @@ Use `--tool-params <json-or-@path>` on `project profile create|set` or `internal
 The `set` command merges the supplied fields with the stored mapping. Use `--clear-tool-params` to restore inheritance from lower layers. A confirmed replacement with `create --yes` or `add --yes` clears tool parameters if the replacement omits them. Inspect the stored mapping with `get --name <profile>`.
 
 Use `--tool-params` on the launch command to override these fields for a single instance. See [Typed Tool Parameters](../reference/build-phase/launch-overrides.md#typed-tool-parameters) for the five layers and migration from older recipe files.
+
+## Choosing a Tmux Server
+
+Save a tmux server choice with `--tmux-server` on `project profile create|set` or `project agents launch-profiles add|set`. At launch, Houmao resolves the saved choice in the execution owner’s context.
+
+| Mode | Server |
+| --- | --- |
+| `user-default` | Use the execution account’s native tmux default regardless of the enclosing tmux session. Start it if needed. |
+| `houmao-default` | Use the owner’s shared Houmao server and start it if needed. |
+| `new` | Start a private tmux server for each new agent instance. |
+| `socket` | Use the running server at the absolute path supplied with `--tmux-socket-path`. |
+
+```bash
+houmao-mgr project profile create \
+  --name worker --specialist researcher --tmux-server houmao-default
+
+houmao-mgr project agents launch-profiles set \
+  --name nightly --tmux-server socket --tmux-socket-path /run/user/1000/research.sock
+```
+
+The matching `get` command and `.houmao/agents/launch-profiles/<name>.yaml` show the saved `defaults.posture.tmux` block. A `set` without tmux flags preserves the block. Setting a new mode replaces the entire block. Use `--clear-tmux-server` on `set` to restore the launch-time fallback.
 
 ## Effective-Launch Precedence
 

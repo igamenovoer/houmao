@@ -4997,6 +4997,125 @@ def test_project_profile_rejects_removed_system_skill_selector(
     assert not (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").exists()
 
 
+@pytest.mark.parametrize(
+    ("command", "create_args"),
+    [
+        (["project", "profile"], ["create", "--specialist", "researcher"]),
+        (
+            ["project", "agents", "launch-profiles"],
+            ["add", "--recipe", "researcher-codex-default"],
+        ),
+    ],
+    ids=["specialist", "recipe"],
+)
+def test_project_launch_profile_tmux_selector_round_trip(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    command: list[str],
+    create_args: list[str],
+) -> None:
+    """Inspect and patch each tmux mode through either profile authoring command."""
+
+    runner, repo_root, _auth_json_path = _bootstrap_codex_researcher_project(monkeypatch, tmp_path)
+    overlay = require_project_overlay(repo_root)
+    catalog = ProjectCatalog.from_overlay(overlay)
+    projection_path = overlay.agents_root / "launch-profiles" / "worker.yaml"
+    socket_path = tmp_path / "unstarted.sock"
+    profile = ["--name", "worker"]
+
+    def run(*flags: str) -> None:
+        """Apply and verify one profile command."""
+
+        result = runner.invoke(cli, [*command, *flags])
+        assert result.exit_code == 0, result.output
+
+    def assert_posture(selector: dict[str, str] | None) -> None:
+        """Verify inspection, projection, and typed catalog retrieval."""
+
+        expected: dict[str, object] = {"gateway_auto_attach": False}
+        if selector is not None:
+            expected["tmux"] = selector
+        result = runner.invoke(cli, [*command, "get", *profile])
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output)["defaults"]["posture"] == expected
+        projection = yaml.safe_load(projection_path.read_text(encoding="utf-8"))
+        assert projection["defaults"]["posture"] == expected
+        stored = catalog.load_launch_profile("worker")
+        assert stored.posture_payload == expected
+        if selector is None:
+            assert stored.tmux_server_selector is None
+        else:
+            assert stored.tmux_server_selector is not None
+            assert stored.tmux_server_selector.model_dump(exclude_none=True) == selector
+
+    run(*create_args, *profile, "--no-gateway", "--tmux-server", "houmao-default")
+    assert_posture({"server": "houmao-default"})
+    run("set", *profile, "--workdir", str(repo_root))
+    assert_posture({"server": "houmao-default"})
+    run("set", *profile, "--tmux-server", "socket", "--tmux-socket-path", str(socket_path))
+    assert_posture({"server": "socket", "socket_path": str(socket_path)})
+    assert not socket_path.exists()
+    run("set", *profile, "--tmux-server", "new")
+    assert_posture({"server": "new"})
+    run("set", *profile, "--tmux-server", "user-default")
+    assert_posture({"server": "user-default"})
+
+    for flags in (
+        ["--tmux-server", "socket"],
+        ["--tmux-server", "socket", "--tmux-socket-path", "relative.sock"],
+        ["--tmux-server", "new", "--tmux-socket-path", str(socket_path)],
+        ["--tmux-socket-path", str(socket_path)],
+        ["--clear-tmux-server", "--tmux-server", "new"],
+        ["--clear-tmux-server", "--tmux-socket-path", str(socket_path)],
+    ):
+        result = runner.invoke(cli, [*command, "set", *profile, *flags])
+        assert result.exit_code != 0
+        assert "--tmux-socket-path" in result.output
+    assert_posture({"server": "user-default"})
+    run("set", *profile, "--clear-tmux-server")
+    assert_posture(None)
+    run("set", *profile, "--tmux-server", "new")
+    run(*create_args, *profile, "--no-gateway", "--yes")
+    assert_posture(None)
+
+
+@pytest.mark.parametrize(
+    ("selector", "invalid_field"),
+    [
+        ({"server": "unknown"}, "server"),
+        ({"server": "socket"}, "socket_path"),
+        ({"server": "socket", "socket_path": "relative.sock"}, "socket_path"),
+        ({"server": "new", "socket_path": "/run/user/1000/research.sock"}, "socket_path"),
+    ],
+)
+def test_project_catalog_rejects_invalid_tmux_selector(
+    tmp_path: Path, selector: dict[str, str], invalid_field: str
+) -> None:
+    """Reject invalid API writes before they become a saved profile."""
+
+    overlay = bootstrap_project_overlay(tmp_path).project_overlay
+    catalog = ProjectCatalog.from_overlay(overlay)
+    with pytest.raises(ValueError, match=f"defaults.posture.tmux.*{invalid_field}"):
+        catalog.store_launch_profile(
+            name="worker",
+            profile_lane="launch_profile",
+            source_kind="recipe",
+            source_name="researcher-codex-default",
+            managed_agent_name=None,
+            managed_agent_id=None,
+            workdir=None,
+            auth_tool=None,
+            auth_name=None,
+            operator_prompt_mode=None,
+            env_mapping=None,
+            mailbox_mapping=None,
+            posture_mapping={"tmux": selector},
+            prompt_overlay_mode=None,
+            prompt_overlay_text=None,
+        )
+    assert catalog.list_launch_profiles() == []
+
+
 def test_project_profile_headless_display_defaults(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -6654,6 +6773,7 @@ def test_project_agents_launch_kimi_profile_preserves_tui_prompt_mode(
             managed_header_policy="inherit",
             prompt_overlay_mode=None,
             posture_payload={},
+            tmux_server_selector=None,
             managed_agent_name="writer-1",
             auth_name=None,
             workdir=None,
@@ -7930,7 +8050,14 @@ def test_project_agents_launch_rejects_no_gateway_with_gateway_background(
 
 
 def _stub_launch_result_manifest(
-    monkeypatch, path, *, mode="headless", backend="claude_headless", tool="claude", surface=None
+    monkeypatch,
+    path,
+    *,
+    mode="headless",
+    backend="claude_headless",
+    tool="claude",
+    surface=None,
+    allow_start=True,
 ):
     """Model a verified manifest for the launch renderer and handoff unit tests."""
 
@@ -7940,7 +8067,7 @@ def _stub_launch_result_manifest(
         mode=mode,
         backend=backend,
         native_surface=surface,
-        tmux=SimpleNamespace(socket_path="/owner/isolated.sock"),
+        tmux=SimpleNamespace(socket_path="/owner/isolated.sock", server_allow_start=allow_start),
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.load_session_manifest",
@@ -8048,7 +8175,7 @@ def test_emit_local_launch_completion_reports_gateway_endpoint(
 
 
 @pytest.mark.parametrize(
-    ("mode", "backend", "tool", "surface", "interactive", "handoff"),
+    ("mode", "backend", "tool", "surface", "interactive", "allow_start", "handoff"),
     [
         (
             "headless",
@@ -8056,6 +8183,7 @@ def test_emit_local_launch_completion_reports_gateway_endpoint(
             "claude",
             None,
             False,
+            True,
             {
                 "control_command": "houmao-mgr agents single --agent-id agent-123",
             },
@@ -8065,6 +8193,7 @@ def test_emit_local_launch_completion_reports_gateway_endpoint(
             "dsh_acp",
             "dsh",
             None,
+            True,
             True,
             {
                 "control_command": "houmao-mgr agents single --agent-id agent-123",
@@ -8076,9 +8205,22 @@ def test_emit_local_launch_completion_reports_gateway_endpoint(
             "kimi",
             TerminalNativeSurfaceV1(tmux_session_name="HOUMAO-repo-research-1", pane_id="%4"),
             False,
+            True,
             {
                 "terminal_handoff": "skipped_non_interactive",
                 "attach_command": "tmux -S /owner/isolated.sock attach-session -t HOUMAO-repo-research-1",
+            },
+        ),
+        (
+            "tui",
+            "local_interactive",
+            "kimi",
+            TerminalNativeSurfaceV1(tmux_session_name="HOUMAO-repo-research-1", pane_id="%4"),
+            True,
+            False,
+            {
+                "terminal_handoff": "attach",
+                "attach_command": "tmux -S /owner/isolated.sock -N attach-session -t HOUMAO-repo-research-1",
             },
         ),
         (
@@ -8086,6 +8228,7 @@ def test_emit_local_launch_completion_reports_gateway_endpoint(
             "dsh_web",
             "dsh",
             WebNativeSurfaceV1(origin="http://127.0.0.1:38899", native_session_id="native-session"),
+            True,
             True,
             {
                 "browser_origin": "http://127.0.0.1:38899",
@@ -8102,22 +8245,37 @@ def test_emit_local_launch_completion_reports_memo_seed_status_and_native_handof
     tool: str,
     surface: TerminalNativeSurfaceV1 | WebNativeSurfaceV1 | None,
     interactive: bool,
+    allow_start: bool,
     handoff: dict[str, str],
 ) -> None:
     manifest_path = (tmp_path / "manifest.json").resolve()
     _stub_launch_result_manifest(
-        monkeypatch, manifest_path, mode=mode, backend=backend, tool=tool, surface=surface
+        monkeypatch,
+        manifest_path,
+        mode=mode,
+        backend=backend,
+        tool=tool,
+        surface=surface,
+        allow_start=allow_start,
     )
     emitted: list[dict[str, object]] = []
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core._caller_has_interactive_terminal", lambda: interactive
     )
 
-    def unexpected_attach(**_kwargs):
-        pytest.fail("The launch should only publish its handoff.")
+    attach_observations: list[tuple[str, str | None, bool | None]] = []
+
+    def observe_attach(*, session_name: str) -> None:
+        """Record the attach scope without opening a real terminal."""
+
+        from houmao.execution.tmux import current_tmux_allow_start, current_tmux_socket_path
+
+        attach_observations.append(
+            (session_name, current_tmux_socket_path(), current_tmux_allow_start())
+        )
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.attach_tmux_session_shared", unexpected_attach
+        "houmao.srv_ctrl.commands.agents.core.attach_tmux_session_shared", observe_attach
     )
 
     monkeypatch.setattr(
@@ -8164,6 +8322,11 @@ def test_emit_local_launch_completion_reports_memo_seed_status_and_native_handof
         session_name="HOUMAO-repo-research-1",
     )
 
+    assert attach_observations == (
+        [("HOUMAO-repo-research-1", "/owner/isolated.sock", allow_start)]
+        if isinstance(surface, TerminalNativeSurfaceV1) and interactive
+        else []
+    )
     assert emitted == [
         {
             "status": "Managed agent launch complete",
@@ -8685,6 +8848,7 @@ def test_project_agents_launch_profile_forwards_clean_force_mode(
             managed_header_policy="inherit",
             prompt_overlay_mode=None,
             posture_payload={"mode": "headless"},
+            tmux_server_selector=None,
             managed_agent_name="profile-agent",
             auth_name=None,
             workdir=None,
@@ -8779,6 +8943,7 @@ def test_project_agents_launch_profile_forwards_reuse_home_with_current_profile_
             managed_header_policy="inherit",
             prompt_overlay_mode="append",
             posture_payload={"mode": "headless"},
+            tmux_server_selector=None,
             managed_agent_name="profile-agent",
             auth_name="alice-creds",
             workdir=None,

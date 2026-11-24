@@ -68,7 +68,12 @@ def _prepare_fixture(
             "DEEPSEEK_BASE_URL_ANTHROPIC": endpoint,
         },
     )
-    run = prepare.prepare_run(config, run_root=tmp_path / "runs", executable=str(dsh_executable))
+    run = prepare.prepare_run(
+        config,
+        run_root=tmp_path / "runs",
+        executable=str(dsh_executable),
+        tmux_server="new" if surface == "manager" or mode == "web" else None,
+    )
     return run, prepare, launch
 
 

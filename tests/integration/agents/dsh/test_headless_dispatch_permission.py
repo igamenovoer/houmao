@@ -43,7 +43,7 @@ def test_native_headless_dispatch_cannot_outlive_the_request(
         },
     )
     prepared = prepare.prepare_run(
-        config, run_root=tmp_path / "runs", executable=str(dsh_executable)
+        config, run_root=tmp_path / "runs", executable=str(dsh_executable), tmux_server="new"
     )
     root = Path(prepared["run_dir"])
     marker = tmp_path / "native-started"

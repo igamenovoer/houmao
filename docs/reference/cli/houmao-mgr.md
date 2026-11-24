@@ -395,6 +395,7 @@ Low-level boundary notes:
 - Supplying a new `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir` source on `launch-profiles set` replaces the stored seed. `--clear-memo-seed` cannot be combined with a new memo seed source.
 - Memo seeds always replace only the managed-memory components represented by the seed source. `--memo-seed-text` and `--memo-seed-file` touch only `houmao-memo.md`; `--memo-seed-dir` touches `houmao-memo.md` only when that file is present and touches pages only when `pages/` is present. `--memo-seed-text ''` stores an intentional empty memo seed without clearing pages. `--clear-memo-seed` removes stored seed configuration instead of writing an empty memo.
 - `launch-profiles set` also accepts `--managed-header` or `--no-managed-header` and repeatable `--managed-header-section SECTION=enabled|disabled`. Whole-header flags are mutually exclusive, `--clear-managed-header` returns the stored whole-header field to `inherit`, `--clear-managed-header-section SECTION` removes one stored section entry, and `--clear-managed-header-sections` removes all stored section entries.
+- `project agents launch-profiles add|set` accepts the [tmux server profile options](#tmux-server-profile-options).
 - `launch-profiles list` accepts optional `--recipe` and `--tool` filters when those identities are derivable from the referenced recipe.
 - `launch-profiles remove` deletes one launch-profile resource without deleting the referenced recipe.
 - Launch profiles authored here are recipe-backed and explicit. They are stored as the same kind of catalog object that backs easy `project profile ...`, but the explicit lane keeps the lower-level launch contract visible by intent.
@@ -499,6 +500,7 @@ When name flags are omitted, `set` uses the bundle's recorded names. Use `--clea
 - `project profile create` rejects an existing profile name by default. Passing `--yes` confirms same-lane replacement of an existing project profile; replacement uses create semantics, so omitted optional fields are cleared instead of preserved. `--yes` does not allow replacing an explicit launch profile with an project profile.
 - `project profile set --name <profile>` patches stored defaults on an existing project profile while preserving unspecified fields. Clear flags include `--clear-agent-name`, `--clear-agent-id`, `--clear-workdir`, `--clear-auth`, `--clear-prompt-mode`, `--clear-env`, `--clear-system-skills`, `--clear-mailbox`, `--clear-mode`, `--clear-relaunch-chat-session`, `--clear-managed-header`, `--clear-managed-header-section`, `--clear-managed-header-sections`, `--clear-prompt-overlay`, `--clear-gateway-mail-notifier-appendix`, and `--clear-memo-seed`.
 - Use `project profile create` or `set` to store a live headless pane style and detail level. [Headless Display Options](#headless-display-options)
+- `project profile create|set` accepts the [tmux server profile options](#tmux-server-profile-options).
 - Easy-profile managed system-skill policy follows the shared launch-profile rules: omitted means inherit from the specialist/recipe source, pack selectors without mode infer `extend`, `replace` stores exact pack selection, and `none` disables Houmao system-skill packs for future launches.
 - Project profiles support the same stored notifier appendix default as native launch dossiers through `--gateway-mail-notifier-appendix-text`; launches seed it into runtime gateway notifier state without enabling polling.
 - Easy-profile memo seed semantics match native launch dossiers: stored seeds replace only represented memo/pages components, and `--clear-memo-seed` removes stored seed configuration rather than seeding an empty memo.
@@ -509,8 +511,20 @@ When name flags are omitted, `set` uses the bundle's recorded names. Use `--clea
 - `project profile remove` removes only the profile definition. It does not remove the specialist that the profile referenced.
 - For the conceptual model that ties project profiles to native launch dossiers, see [Launch Profiles](../../getting-started/launch-profiles.md).
 
+##### Tmux Server Profile Options
+
+| Option | Effect |
+| --- | --- |
+| `--tmux-server {user-default\|houmao-default\|new\|socket}` | Store the server mode for future tmux-backed births. |
+| `--tmux-socket-path <absolute-path>` | Supply the address of the running server when the mode is `socket`. |
+| `--clear-tmux-server` | Remove the stored selector on `set`. Supply this flag on its own for the tmux selector. |
+
+Both project profile authoring lanes validate and save the selector without contacting tmux. The matching `get` command reports it under `defaults.posture.tmux`. Omit all three options on `set` to keep the prior selector. Setting a mode replaces the whole selector, including any saved socket path.
+
 `project agents launch` notes:
 
+- `--tmux-server` replaces the profile’s `defaults.posture.tmux` for one birth. With both omitted, the launch uses its admitted executor socket or explicit local scope, then the enclosing tmux server, then the account’s native default. `--session-name` names a session on the selected server. Relaunch uses the socket saved at birth.
+- `project agents launch --profile review --tmux-server socket --tmux-socket-path /run/user/1000/review.sock` requires that server to be running in the execution owner’s context. A missing server or a choice that conflicts with the executor’s bound socket fails before force takeover. Use `--tmux-server houmao-default` to allow startup on the shared Houmao socket.
 - `--mode {headless|service|tui|web}` overrides `defaults.posture.mode` for this birth. With both omitted, Claude, Codex, and Kimi select `tui` and DSH selects `web`. `project profile set --clear-mode` removes a stored default. Configure `unattended` or `as_is` separately through the prompt policy.
 - The selected execution owner checks the supported tool and mode before starting a provider. See [Session Lifecycle](../run-phase/session-lifecycle.md) for the mode matrix, handoff, and runtime schema boundary.
 - Exactly one of `--specialist` or `--profile` is required. The two selectors are mutually exclusive.

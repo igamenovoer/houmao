@@ -19,6 +19,12 @@ def main() -> None:
     os.umask(0o077)
     command = raw_command(run)
     env = run_environment(run)
+    # The bound server supplied these selectors to its own pane process.
+    inherited = os.environ.get("TMUX", "")
+    if inherited.rsplit(",", 2)[0] == run.get("tmux_socket_path"):
+        env["TMUX"] = inherited
+        if pane := os.environ.get("TMUX_PANE"):
+            env["TMUX_PANE"] = pane
     os.chdir(run["workdir"])
     os.execvpe(command[0], command, env)
 

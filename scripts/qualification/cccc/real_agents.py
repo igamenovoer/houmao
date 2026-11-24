@@ -322,7 +322,9 @@ def qualify(arguments: argparse.Namespace) -> dict[str, Any]:
                 provider.post("/api/v1/groups", json={"title": "real-agent-smoke-" + marker})
             )["group_id"]
             for actor_id in ("sender", "receiver"):
-                prepared = prepare_run(config, run_root=work / "runs", prompt_file=role)
+                prepared = prepare_run(
+                    config, run_root=work / "runs", prompt_file=role, tmux_server="new"
+                )
                 run_path = Path(prepared["run_dir"])
                 run_paths.append(run_path)
                 launch_run(run_path)

@@ -42,7 +42,9 @@ def test_edited_launch_profile_refresh_and_separate_relaunch_keep_their_boundari
             "DEEPSEEK_BASE_URL_ANTHROPIC": endpoint,
         },
     )
-    run = prepare.prepare_run(config, run_root=tmp_path / "runs", executable=str(dsh_executable))
+    run = prepare.prepare_run(
+        config, run_root=tmp_path / "runs", executable=str(dsh_executable), tmux_server="new"
+    )
     root = Path(run["run_dir"])
     environment = launch.run_environment(launch.load_run(root))
     project = Path(run["project_dir"])
@@ -57,6 +59,8 @@ def test_edited_launch_profile_refresh_and_separate_relaunch_keep_their_boundari
             "fixture-agent",
             "--mode",
             "headless",
+            "--tmux-server",
+            "new",
             "--prompt-overlay-mode",
             "append",
             "--prompt-overlay-text",
@@ -67,18 +71,11 @@ def test_edited_launch_profile_refresh_and_separate_relaunch_keep_their_boundari
         env=environment,
     )
 
-    def profile_launch(project: Path, args: list[str], *, env: dict[str, str]) -> dict[str, Any]:
-        """Use the fixture's actual maintained launch route with its selected named profile."""
-
-        if args[:2] == ["agents", "launch"]:
-            args = list(args)
-            index = args.index("--specialist")
-            args[index : index + 2] = ["--profile", "refresh-boundary"]
-        return prepare.manager_call(project, args, env=env)
-
-    monkeypatch.setattr(launch, "manager_call", profile_launch)
+    run["project_profile"] = "refresh-boundary"
+    prepare.write_json(root / "run.json", run)
     try:
         first = launch.launch_run(root, prompt="original conversation marker", timeout=45)
+        run = prepare.load_run(root)
         identity = first["identity"]
         manifest_path = Path(identity["manifest_path"])
         manifest = json.loads(manifest_path.read_text())

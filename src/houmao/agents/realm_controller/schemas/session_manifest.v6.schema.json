@@ -1589,6 +1589,18 @@
           "default": null,
           "title": "Socket Path"
         },
+        "server_allow_start": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Server Allow Start"
+        },
         "primary_window_index": {
           "default": "0",
           "title": "Primary Window Index",

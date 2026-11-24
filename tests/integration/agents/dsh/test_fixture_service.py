@@ -46,7 +46,7 @@ def test_service_fixture_reuses_one_bound_acp_process_and_usage_journal(
         },
     )
     prepared = prepare.prepare_run(
-        config, run_root=tmp_path / "runs", executable=str(dsh_executable)
+        config, run_root=tmp_path / "runs", executable=str(dsh_executable), tmux_server="new"
     )
     root = Path(prepared["run_dir"])
     project = Path(prepared["project_dir"])

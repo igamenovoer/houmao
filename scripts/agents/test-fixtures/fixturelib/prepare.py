@@ -8,12 +8,10 @@ import io
 import json
 import os
 from pathlib import Path
-import shlex
 import shutil
-import stat
 import subprocess
 import threading
-from typing import Any
+from typing import Any, Literal
 
 import tomli_w
 import yaml
@@ -32,6 +30,7 @@ from fixturelib.config import FixtureError, HOME_VARIABLE, REPO_ROOT, ResolvedCo
 
 _COMMAND_LOCK = threading.RLock()
 _FIXTURE_TMUX_SOCKET_ENV = "HOUMAO_FIXTURE_TMUX_SOCKET"
+FixtureTmuxMode = Literal["houmao-default", "new"]
 _PROVIDER_PREFIXES = (
     "ANTHROPIC_",
     "CLAUDE_CODE_",
@@ -95,51 +94,9 @@ def isolated_environment(
 
 
 def fixture_tmux_socket_path(run_dir: Path) -> str:
-    """Return a short socket path named for the unique external run."""
+    """Return the socket path used by runs prepared with the legacy shim."""
 
     return f"/tmp/tmux-{os.getuid()}/houmao-fixture-{run_dir.name}"
-
-
-def _prepare_tmux_isolation(run_dir: Path) -> dict[str, str]:
-    """Force all fixture/runtime tmux subprocesses onto this run's private server."""
-
-    executable = shutil.which("tmux")
-    if executable is None:
-        return {}
-    server = "houmao-fixture-" + run_dir.name
-    socket_path = fixture_tmux_socket_path(run_dir)
-    socket_root = Path(socket_path).parent
-    socket_root.mkdir(mode=0o700, exist_ok=True)
-    root_stat = socket_root.lstat()
-    if not stat.S_ISDIR(root_stat.st_mode) or root_stat.st_uid != os.getuid():
-        raise FixtureError("Fixture tmux socket directory has no verified local owner")
-    if root_stat.st_mode & 0o077:
-        raise FixtureError("Fixture tmux socket directory must be private")
-    quoted_socket = shlex.quote(socket_path)
-    shim = run_dir / "bin/tmux"
-    private_write(
-        shim,
-        (
-            "#!/bin/sh\nunset TMUX TMUX_PANE\n"
-            'case "$1" in\n'
-            f'  -S) [ "$2" = {quoted_socket} ] || exit 2; shift 2 ;;\n'
-            f"  -S{quoted_socket}) shift ;;\n"
-            "  -S*|-L*) exit 2 ;;\n"
-            "esac\n"
-            'case "$1" in -S*|-L*) exit 2 ;; esac\n'
-            "exec "
-            + shlex.quote(str(Path(executable).resolve()))
-            + " -S "
-            + quoted_socket
-            + ' "$@"\n'
-        ).encode(),
-    )
-    shim.chmod(0o700)
-    return {
-        "tmux_server": server,
-        "tmux_socket_path": socket_path,
-        "tmux_executable": str(Path(executable).resolve()),
-    }
 
 
 @contextmanager
@@ -436,6 +393,7 @@ def _prepare_project(
     *,
     role: str,
     env: dict[str, str],
+    tmux_server: FixtureTmuxMode | None,
 ) -> dict[str, Any]:
     """Prepare the project through existing CLI and shared credential writer behavior."""
 
@@ -563,21 +521,22 @@ def _prepare_project(
         args.extend(["--env-set", f"{key}={value}"])
     specialist = manager_call(project, args, env=env)
     result = {"project_dir": str(project), "specialist": specialist, "credential": credential}
-    if config.reasoning_level is not None:
-        manager_call(
-            project,
-            [
-                "profile",
-                "create",
-                "--name",
-                "fixture-agent",
-                "--specialist",
-                "fixture-agent",
-                "--reasoning-level",
-                str(config.reasoning_level),
-            ],
-            env=env,
-        )
+    if tmux_server is not None or config.reasoning_level is not None:
+        profile_args = [
+            "profile",
+            "create",
+            "--name",
+            "fixture-agent",
+            "--specialist",
+            "fixture-agent",
+        ]
+        if config.model is not None:
+            profile_args.extend(["--model", config.model])
+        if config.reasoning_level is not None:
+            profile_args.extend(["--reasoning-level", str(config.reasoning_level)])
+        if tmux_server is not None:
+            profile_args.extend(["--tmux-server", tmux_server])
+        manager_call(project, profile_args, env=env)
         result["project_profile"] = "fixture-agent"
     return result
 
@@ -590,6 +549,7 @@ def prepare_run(
     role: str = "server-api-smoke",
     prompt_file: Path | None = None,
     executable: str | None = None,
+    tmux_server: FixtureTmuxMode | None = None,
 ) -> dict[str, Any]:
     """Prepare private native inputs and an optional managed project before launch."""
 
@@ -597,6 +557,13 @@ def prepare_run(
         raise FixtureError("Role must be one directory identifier")
     if config.client == "dsh" and config.auth_method == "native-login":
         raise FixtureError("DSH fixtures require explicitly selected API credentials")
+    local_tmux = config.surface == "manager" or (
+        config.surface == "raw" and config.mode in {"tui", "web"}
+    )
+    if tmux_server is not None and not local_tmux:
+        raise FixtureError("--tmux-server requires a local tmux-backed fixture")
+    if local_tmux and tmux_server is None:
+        tmux_server = "houmao-default"
     selection = config.selection()
     seed = (seed_root or REPO_ROOT / "tests/fixtures/plain-agent-def").resolve()
     prompt = (prompt_file or seed / "roles" / role / "system-prompt.md").resolve()
@@ -637,8 +604,8 @@ def prepare_run(
         "assets_root": str(run_dir / "assets"),
         "home_path": str(run_dir / "home"),
     }
-    if config.surface != "raw" or config.mode in {"tui", "web"}:
-        metadata.update(_prepare_tmux_isolation(run_dir))
+    if tmux_server is not None:
+        metadata["tmux_server_mode"] = tmux_server
     write_json(run_dir / "run.json", metadata)
     try:
         assets, values = _render_assets(
@@ -663,9 +630,7 @@ def prepare_run(
             )
         selected_env = {**values, **runtime_values(config), HOME_VARIABLE[config.client]: str(home)}
         write_json(run_dir / "private-env.json", selected_env)
-        env = isolated_environment(
-            selected_env, run_dir=run_dir, tmux_socket_path=metadata.get("tmux_socket_path")
-        )
+        env = isolated_environment(selected_env, run_dir=run_dir)
         if config.client == "dsh":
             from houmao.agents.dsh_configuration import DshEffectiveToolParams, prepare_dsh_home
 
@@ -684,7 +649,11 @@ def prepare_run(
 
                 metadata["raw_dsh_patch"] = str(prepare_raw_dsh_patch(prepared_dsh))
         if config.surface != "raw":
-            metadata.update(_prepare_project(config, run_dir, assets, values, role=role, env=env))
+            metadata.update(
+                _prepare_project(
+                    config, run_dir, assets, values, role=role, env=env, tmux_server=tmux_server
+                )
+            )
         metadata["status"] = "prepared"
         write_json(run_dir / "run.json", metadata)
     except BaseException:

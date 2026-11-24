@@ -76,6 +76,7 @@ def _launch(request: ExecutionRequestV1, policy: OwnerPolicyV1) -> JsonObject:
     """Validate target-side launch parameters and call the shared project launch service."""
 
     from houmao.srv_ctrl.commands.output import collect_output_payloads
+    from houmao.srv_ctrl.commands.agents.core import ManagedTmuxPreflightError
     from houmao.srv_ctrl.commands.project_context import store_project_command_context
     from houmao.srv_ctrl.commands.project_easy import (
         ProjectRunModePreflightError,
@@ -136,6 +137,8 @@ def _launch(request: ExecutionRequestV1, policy: OwnerPolicyV1) -> JsonObject:
                 launch_project_agent(**parameters)
             except ProjectRunModePreflightError as exc:
                 raise OwnerAdmissionError("invalid_run_mode", str(exc)) from None
+            except ManagedTmuxPreflightError as exc:
+                raise OwnerAdmissionError("invalid_tmux_server", str(exc)) from None
     for result in results:
         if isinstance(result, dict) and result.get("agent_id"):
             return _json_result(result)

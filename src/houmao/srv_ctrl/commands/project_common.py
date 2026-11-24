@@ -10,6 +10,7 @@ from typing import Any, Literal, cast
 
 import click
 import yaml
+from pydantic import ValidationError
 
 from houmao.agents.definition_parser import ToolAdapter, parse_agent_preset, parse_tool_adapter
 from houmao.agents.kimi_launch_env import reject_kimi_config_env
@@ -62,6 +63,7 @@ from houmao.agents.tool_params import (
     parse_tool_params_cli_input,
     validate_tool_params,
 )
+from houmao.execution.tmux_selection import TmuxServerMode, TmuxServerSelector
 from houmao.project.catalog import (
     AuthProfileCatalogEntry,
     LaunchProfilePrivateSkillInput,
@@ -1115,6 +1117,24 @@ def _stored_mailbox_or_click(
         raise click.ClickException(str(exc)) from exc
 
 
+def _tmux_server_selector_or_click(
+    *, tmux_server: TmuxServerMode | None, tmux_socket_path: str | None
+) -> TmuxServerSelector | None:
+    """Validate the two CLI inputs as one tmux server selector."""
+
+    if tmux_server is None:
+        if tmux_socket_path is not None:
+            raise click.ClickException("`--tmux-socket-path` requires `--tmux-server socket`.")
+        return None
+    try:
+        return TmuxServerSelector(server=tmux_server, socket_path=tmux_socket_path)
+    except ValidationError as exc:
+        message = exc.errors()[0]["msg"]
+        raise click.ClickException(
+            f"Invalid `--tmux-server` or `--tmux-socket-path`: {message}"
+        ) from exc
+
+
 def _resolve_profile_posture_mapping(
     *,
     current: dict[str, Any] | None,
@@ -1128,6 +1148,8 @@ def _resolve_profile_posture_mapping(
     headless_display_detail: HeadlessDisplayDetail | None = None,
     clear_headless_display_style: bool = False,
     clear_headless_display_detail: bool = False,
+    tmux_server_selector: TmuxServerSelector | None = None,
+    clear_tmux_server: bool = False,
 ) -> dict[str, Any]:
     """Resolve one persisted launch-posture mapping."""
 
@@ -1142,6 +1164,10 @@ def _resolve_profile_posture_mapping(
         payload.pop("mode", None)
     if mode is not None:
         payload["mode"] = mode
+    if clear_tmux_server:
+        payload.pop("tmux", None)
+    elif tmux_server_selector is not None:
+        payload["tmux"] = tmux_server_selector.model_dump(exclude_none=True)
     for field, value, clear in (
         ("headless_display_style", headless_display_style, clear_headless_display_style),
         ("headless_display_detail", headless_display_detail, clear_headless_display_detail),
@@ -1531,9 +1557,19 @@ def _store_launch_profile_from_cli(
     headless_display_detail: HeadlessDisplayDetail | None = None,
     clear_headless_display_style: bool = False,
     clear_headless_display_detail: bool = False,
+    tmux_server: TmuxServerMode | None = None,
+    tmux_socket_path: str | None = None,
+    clear_tmux_server: bool = False,
 ) -> dict[str, object]:
     """Create or update one catalog-backed launch profile from CLI inputs."""
 
+    if clear_tmux_server and (tmux_server is not None or tmux_socket_path is not None):
+        raise click.ClickException(
+            "`--clear-tmux-server` cannot be combined with `--tmux-server` or `--tmux-socket-path`."
+        )
+    tmux_server_selector = _tmux_server_selector_or_click(
+        tmux_server=tmux_server, tmux_socket_path=tmux_socket_path
+    )
     catalog = ProjectCatalog.from_overlay(overlay)
     if operation == "create":
         try:
@@ -1685,6 +1721,8 @@ def _store_launch_profile_from_cli(
             current=None,
             mode=mode,
             clear_mode=clear_mode,
+            tmux_server_selector=tmux_server_selector,
+            clear_tmux_server=clear_tmux_server,
             headless_display_style=headless_display_style,
             headless_display_detail=headless_display_detail,
             clear_headless_display_style=clear_headless_display_style,
@@ -1802,6 +1840,8 @@ def _store_launch_profile_from_cli(
             current=current.entry.posture_payload,
             mode=mode,
             clear_mode=clear_mode,
+            tmux_server_selector=tmux_server_selector,
+            clear_tmux_server=clear_tmux_server,
             headless_display_style=headless_display_style,
             headless_display_detail=headless_display_detail,
             clear_headless_display_style=clear_headless_display_style,
@@ -1915,6 +1955,8 @@ def _store_launch_profile_from_cli(
             clear_mailbox,
             mode is not None,
             clear_mode,
+            tmux_server_selector is not None,
+            clear_tmux_server,
             headless_display_style is not None,
             headless_display_detail is not None,
             clear_headless_display_style,
@@ -2657,6 +2699,7 @@ __all__ = [
     "_build_profile_mailbox_mapping_or_click",
     "_stored_mailbox_or_click",
     "_resolve_profile_posture_mapping",
+    "_tmux_server_selector_or_click",
     "_store_launch_profile_from_cli",
     "_launch_profile_provenance_payload",
     "_specialist_payload",

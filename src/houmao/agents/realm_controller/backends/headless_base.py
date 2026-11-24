@@ -469,8 +469,8 @@ class HeadlessInteractiveSession:
         """Terminate in-flight work and optionally cleanup tmux session."""
 
         runner_result = self._runner.terminate()
+        session_name = self._state.tmux_session_name
         if runner_result.status == "error":
-            session_name = self._state.tmux_session_name
             if not self._force_cleanup_on_terminate or not session_name:
                 return runner_result
             try:
@@ -483,7 +483,6 @@ class HeadlessInteractiveSession:
                 return runner_result
 
         if not self._force_cleanup_on_terminate:
-            session_name = self._state.tmux_session_name
             detail = (
                 "Stopped headless runtime control; preserved tmux session "
                 f"`{session_name}` for inspection."
@@ -496,7 +495,8 @@ class HeadlessInteractiveSession:
                 detail=detail,
             )
 
-        session_name = self._require_tmux_session_name()
+        if not session_name:
+            return runner_result
         try:
             if tmux_session_exists_shared(session_name=session_name, allow_missing_server=True):
                 self._observe_primary_surface(allow_dead=True)

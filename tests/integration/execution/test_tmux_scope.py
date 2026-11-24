@@ -9,6 +9,8 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import pytest
 
@@ -26,7 +28,8 @@ from houmao.agents.realm_controller.backends.local_interactive import LocalInter
 from houmao.agents.realm_controller.errors import BackendExecutionError
 from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
 from houmao.agents.realm_controller.runtime import _resolve_managed_launch_environment
-from houmao.agents.launch_env import owner_launch_baseline
+from houmao.agents.launch_env import owner_launch_baseline, owner_tmux_launch_environment
+from houmao.execution import tmux_selection
 from houmao.execution.tmux import (
     TmuxCommandResult,
     TmuxObservationUnavailable,
@@ -34,6 +37,7 @@ from houmao.execution.tmux import (
     tmux_command,
     tmux_server_scope,
 )
+from houmao.execution.tmux_selection import TmuxServerSelector, resolve_tmux_server
 
 
 @pytest.fixture
@@ -443,20 +447,27 @@ def test_checked_pane_input_preserves_bytes_and_explicit_enter(
     assert exact.stdout == "\n" * panes[0].pane_height
 
 
+@pytest.mark.parametrize("changed_environment", [False, True])
 def test_cold_default_server_creates_owned_native_socket_directory(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, changed_environment: bool
 ) -> None:
-    """Allow native initialization of a fresh, explicitly isolated default location."""
+    """Initialize the captured native default even after the caller's root changes."""
 
     if shutil.which("tmux") is None:
         pytest.skip("tmux is required for execution-context routing integration")
     monkeypatch.delenv("TMUX", raising=False)
     monkeypatch.delenv("TMUX_PANE", raising=False)
     with tempfile.TemporaryDirectory(prefix="houmao-default-tmux-") as directory:
+        root = Path(directory).resolve()
         monkeypatch.setenv("TMUX_TMPDIR", directory)
-        server = TmuxServer()
+        resolved = resolve_tmux_server(TmuxServerSelector(server="user-default"))
+        server = TmuxServer(resolved.socket_path, allow_start=resolved.allow_start)
         socket = Path(server.socket_path)
-        assert socket == Path(directory) / f"tmux-{os.getuid()}" / "default"
+        assert socket == root / f"tmux-{os.getuid()}" / "default"
+        other_root = root / "other"
+        other_root.mkdir()
+        if changed_environment:
+            monkeypatch.setenv("TMUX_TMPDIR", str(other_root))
         assert not socket.parent.exists()
         try:
             server.start(
@@ -465,5 +476,87 @@ def test_cold_default_server_creates_owned_native_socket_directory(
             ).require_success()
             assert socket.is_socket()
             assert server.list_sessions() == {"owned"}
+            assert list(other_root.iterdir()) == []
         finally:
-            server.command(["kill-server"])
+            server.command(["kill-server"], no_start=True)
+
+
+def test_houmao_default_starts_once_and_keeps_sibling_sessions(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Two cold launches start their sessions at the same published private socket."""
+
+    if shutil.which("tmux") is None:
+        pytest.skip("tmux is required for execution-context routing integration")
+    monkeypatch.delenv("TMUX", raising=False)
+    monkeypatch.delenv("TMUX_PANE", raising=False)
+    with tempfile.TemporaryDirectory(prefix="houmao-shared-tmx-") as directory:
+        namespace = Path(directory) / "sockets"
+        monkeypatch.setattr(tmux_selection, "_managed_socket_directory", lambda uid: namespace)
+        selector = TmuxServerSelector(server="houmao-default")
+        first = resolve_tmux_server(selector, registry_root=tmp_path / "registry-1")
+        second = resolve_tmux_server(selector, registry_root=tmp_path / "registry-2")
+        assert first == second
+        socket = Path(first.socket_path)
+        assert not socket.exists()
+
+        barrier = Barrier(2, timeout=10)
+
+        def start(session: str) -> None:
+            """Launch concurrently on the one bound server using a clean configuration."""
+
+            with tmux_server_scope(socket, allow_start=first.allow_start):
+                server = TmuxServer()
+                barrier.wait()
+                server.start(
+                    ["-f", "/dev/null", "new-session", "-d", "-s", session],
+                    environment=owner_tmux_launch_environment(os.environ),
+                ).require_success()
+
+        server = TmuxServer(socket)
+        try:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                list(pool.map(start, ("first", "second")))
+            assert server.list_sessions() == {"first", "second"}
+            with tmux_server_scope(socket):
+                kill_tmux_session(session_name="first")
+            assert server.list_sessions() == {"second"}
+            assert resolve_tmux_server(selector, registry_root=tmp_path / "registry-1") == first
+        finally:
+            server.command(["kill-server"], no_start=True)
+
+
+def test_existing_only_session_start_does_not_revive_lost_server(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The common session creator enforces existing-only startup after preflight."""
+
+    if shutil.which("tmux") is None:
+        pytest.skip("tmux is required for execution-context routing integration")
+    monkeypatch.delenv("TMUX", raising=False)
+    monkeypatch.delenv("TMUX_PANE", raising=False)
+    with tempfile.TemporaryDirectory(prefix="houmao-existing-tmx-") as directory:
+        socket = Path(directory) / "connect-only.sock"
+        server = TmuxServer(socket)
+        selector = TmuxServerSelector(server="socket", socket_path=str(socket))
+        try:
+            server.start(
+                ["-f", "/dev/null", "new-session", "-d", "-s", "first"],
+                environment=owner_tmux_launch_environment(os.environ),
+            ).require_success()
+            selected = resolve_tmux_server(selector)
+            assert not selected.allow_start
+            with tmux_server_scope(selected.socket_path, allow_start=selected.allow_start):
+                create_tmux_session(session_name="connected", working_directory=tmp_path)
+                assert server.list_sessions() == {"first", "connected"}
+                kill_tmux_session(session_name="connected")
+                kill_tmux_session(session_name="first")
+
+                with pytest.raises(TmuxObservationUnavailable):
+                    server.list_sessions()
+                with pytest.raises(TmuxCommandError, match="connect-only.sock"):
+                    create_tmux_session(session_name="late", working_directory=tmp_path)
+                with pytest.raises(TmuxObservationUnavailable):
+                    server.list_sessions()
+        finally:
+            server.command(["kill-server"], no_start=True)

@@ -12,6 +12,7 @@ from houmao.agents.realm_controller.backends.headless_output import (
 from houmao.agents.realm_controller.errors import LaunchPlanError, SessionManifestError
 from houmao.agents.realm_controller.gateway_access_runtime import load_gateway_admin_seed
 from houmao.agents.realm_controller.run_modes import RUN_MODES, RunMode, resolve_run_mode
+from houmao.execution.tmux_selection import TMUX_SERVER_MODES, TmuxServerMode
 from houmao.project.launch_profiles import (
     HEADLESS_DISPLAY_DETAILS,
     HEADLESS_DISPLAY_STYLES,
@@ -153,6 +154,10 @@ def easy_profile_group() -> None:
     help="Persist the run mode for launches from this profile.",
 )
 @click.option(
+    "--tmux-server", type=click.Choice(TMUX_SERVER_MODES), help="Store a tmux server mode."
+)
+@click.option("--tmux-socket-path", help="Store the absolute path for `--tmux-server socket`.")
+@click.option(
     "--headless-display-style",
     type=click.Choice(HEADLESS_DISPLAY_STYLES),
     default=None,
@@ -272,6 +277,8 @@ def create_easy_profile_command(
     memo_seed_dir: Path | None,
     yes: bool,
     tool_params: str | None = None,
+    tmux_server: TmuxServerMode | None = None,
+    tmux_socket_path: str | None = None,
     headless_display_style: HeadlessDisplayStyle | None = None,
     headless_display_detail: HeadlessDisplayDetail | None = None,
 ) -> None:
@@ -319,6 +326,8 @@ def create_easy_profile_command(
         mail_management_url=mail_management_url,
         mode=mode,
         clear_mode=False,
+        tmux_server=tmux_server,
+        tmux_socket_path=tmux_socket_path,
         headless_display_style=headless_display_style,
         headless_display_detail=headless_display_detail,
         no_gateway=no_gateway,
@@ -483,6 +492,11 @@ def create_easy_profile_command(
     help="Persist the run mode for launches from this profile.",
 )
 @click.option("--clear-mode", is_flag=True, help="Clear the stored run mode.")
+@click.option(
+    "--tmux-server", type=click.Choice(TMUX_SERVER_MODES), help="Store a tmux server mode."
+)
+@click.option("--tmux-socket-path", help="Store the absolute path for `--tmux-server socket`.")
+@click.option("--clear-tmux-server", is_flag=True, help="Clear the stored tmux server selector.")
 @click.option(
     "--headless-display-style",
     type=click.Choice(HEADLESS_DISPLAY_STYLES),
@@ -658,6 +672,9 @@ def set_easy_profile_command(
     clear_memo_seed: bool,
     tool_params: str | None = None,
     clear_tool_params: bool = False,
+    tmux_server: TmuxServerMode | None = None,
+    tmux_socket_path: str | None = None,
+    clear_tmux_server: bool = False,
     headless_display_style: HeadlessDisplayStyle | None = None,
     headless_display_detail: HeadlessDisplayDetail | None = None,
     clear_headless_display_style: bool = False,
@@ -708,6 +725,9 @@ def set_easy_profile_command(
         mail_management_url=mail_management_url,
         mode=mode,
         clear_mode=clear_mode,
+        tmux_server=tmux_server,
+        tmux_socket_path=tmux_socket_path,
+        clear_tmux_server=clear_tmux_server,
         headless_display_style=headless_display_style,
         headless_display_detail=headless_display_detail,
         clear_headless_display_style=clear_headless_display_style,
@@ -1866,6 +1886,10 @@ def easy_instance_group() -> None:
 )
 @click.option("--session-name", default=None, help="Optional tmux session name.")
 @click.option(
+    "--tmux-server", type=click.Choice(TMUX_SERVER_MODES), help="One-shot tmux server choice."
+)
+@click.option("--tmux-socket-path", help="Absolute owner-side path for --tmux-server socket.")
+@click.option(
     "--mode",
     type=click.Choice(RUN_MODES),
     default=None,
@@ -2032,6 +2056,8 @@ def launch_easy_instance_command(
     tool_params: str | None = None,
     headless_display_style: HeadlessDisplayStyle | None = None,
     headless_display_detail: HeadlessDisplayDetail | None = None,
+    tmux_server: TmuxServerMode | None = None,
+    tmux_socket_path: str | None = None,
 ) -> None:
     """Launch one managed-agent instance from a compiled specialist definition."""
 
@@ -2079,6 +2105,8 @@ def launch_project_agent(
     tool_params: str | None = None,
     headless_display_style: HeadlessDisplayStyle | None = None,
     headless_display_detail: HeadlessDisplayDetail | None = None,
+    tmux_server: TmuxServerMode | None = None,
+    tmux_socket_path: str | None = None,
 ) -> None:
     """Launch one managed-agent instance from a compiled specialist definition."""
 
@@ -2132,6 +2160,9 @@ def launch_project_agent(
     stored_mode: RunMode | None = None
     stored_display_style: HeadlessDisplayStyle | None = None
     stored_display_detail: HeadlessDisplayDetail | None = None
+    tmux_selector = _tmux_server_selector_or_click(
+        tmux_server=tmux_server, tmux_socket_path=tmux_socket_path
+    )
     if profile is not None:
         resolved_profile = _load_launch_profile_or_click(
             overlay=overlay,
@@ -2177,6 +2208,8 @@ def launch_project_agent(
             resolved_profile.gateway_mail_notifier_appendix_text
         )
         posture_payload = dict(resolved_profile.entry.posture_payload)
+        if tmux_selector is None:
+            tmux_selector = resolved_profile.entry.tmux_server_selector
         raw_agent_definition_deployment = posture_payload.get("houmao_agent_definition")
         if raw_agent_definition_deployment is not None:
             if not isinstance(raw_agent_definition_deployment, dict):
@@ -2365,6 +2398,7 @@ def launch_project_agent(
         agent_id_mode=agent_id_mode,
         auth=resolved_auth,
         session_name=_optional_non_empty_value(session_name),
+        tmux_selector=tmux_selector,
         mode=selection.mode,
         provider=specialist_metadata.provider,
         working_directory=working_directory,

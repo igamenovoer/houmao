@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from contextlib import suppress
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 import json
 import os
 from pathlib import Path
@@ -22,14 +23,22 @@ from uuid import uuid4
 
 from pydantic import TypeAdapter, ValidationError
 
+from houmao.agents.launch_env import owner_tmux_launch_environment
+from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.gateway_access_runtime import owner_gateway_client_binding
 from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputRequestV1,
     GatewayPromptControlRequestV1,
 )
+from houmao.agents.realm_controller.manifest import (
+    load_session_manifest,
+    parse_session_manifest_payload,
+)
 from houmao.agents.realm_controller.native_surface import NativeSurfaceV1, TerminalNativeSurfaceV1
-from houmao.execution.tmux import TmuxCommandError, TmuxServer
+from houmao.execution.tmux import TmuxCommandError, TmuxServer, tmux_server_scope
+from houmao.execution.tmux_selection import TmuxServerSelector, resolve_tmux_server
 from houmao.gateway.client import GatewayClient, GatewayHttpError
+from houmao.owned_paths import resolve_registry_root
 
 from fixturelib.auth import private_write, write_json
 from fixturelib.config import FixtureError
@@ -47,6 +56,7 @@ _VERSION_OUTPUT = re.compile(
     r"(?:codex-cli )?(\d{1,4}\.\d{1,4}\.\d{1,4}(?:[-+][\w.-]{1,40})?)(?: \(Claude Code\))?"
 )
 _NATIVE_SURFACE = TypeAdapter(NativeSurfaceV1)
+_RAW_TMUX_OWNER = "HOUMAO_FIXTURE_RUN_ID"
 
 
 def run_environment(run: dict[str, Any]) -> dict[str, str]:
@@ -61,15 +71,21 @@ def run_environment(run: dict[str, Any]) -> dict[str, str]:
         isinstance(k, str) and isinstance(v, str) for k, v in selected.items()
     ):
         raise FixtureError("Invalid prepared private environment")
-    env = isolated_environment(selected, run_dir=root, tmux_socket_path=run.get("tmux_socket_path"))
+    legacy_socket = run.get("tmux_socket_path") if "tmux_server_mode" not in run else None
+    env = isolated_environment(selected, run_dir=root, tmux_socket_path=legacy_socket)
     if run["configuration"]["mode"] == "tui":
         env[f"HOUMAO_HOOK_OBSERVATION_{run['configuration']['client'].upper()}"] = "1"
     return env
 
 
-def _fixture_tmux(run: dict[str, Any]) -> TmuxServer:
-    """Bind fixture-owned actions to the prepared socket and restrictive shim."""
+def _fixture_tmux(run: dict[str, Any], *, allow_start: bool = False) -> TmuxServer:
+    """Bind raw fixture actions to the saved socket, including legacy isolated runs."""
 
+    if "tmux_server_mode" in run:
+        socket_path = run.get("tmux_socket_path")
+        if not isinstance(socket_path, str):
+            raise FixtureError("Fixture has no captured tmux socket")
+        return TmuxServer(socket_path, allow_start=allow_start)
     server = run.get("tmux_server")
     executable = run.get("tmux_executable")
     root = Path(run["run_dir"])
@@ -82,7 +98,39 @@ def _fixture_tmux(run: dict[str, Any]) -> TmuxServer:
         or not shim.is_file()
     ):
         raise FixtureError("Fixture has no verified isolated tmux server")
-    return TmuxServer(socket_path, executable=str(shim))
+    return TmuxServer(socket_path, executable=str(shim), allow_start=allow_start)
+
+
+def _select_raw_tmux(run: dict[str, Any]) -> bool:
+    """Resolve and save a raw fixture's socket before starting its owned session."""
+
+    mode = run.get("tmux_server_mode")
+    if mode is None:
+        _fixture_tmux(run)
+        return True
+    environment = run_environment(run)
+    try:
+        selected = resolve_tmux_server(
+            TmuxServerSelector(server=mode),
+            registry_root=resolve_registry_root(env=environment),
+            environment=environment,
+        )
+    except (OSError, ValueError, TmuxCommandError) as exc:
+        raise FixtureError("Cannot select the requested fixture tmux server") from exc
+    run["tmux_socket_path"] = selected.socket_path
+    _save(run)
+    return selected.allow_start
+
+
+@contextmanager
+def _raw_web_environment(run: dict[str, Any], *, allow_start: bool = False) -> Iterator[None]:
+    """Bind the raw Web supervisor and each follow-up to the saved server."""
+
+    with (
+        command_environment(run_environment(run)),
+        tmux_server_scope(_fixture_tmux(run).socket_path, allow_start=allow_start),
+    ):
+        yield
 
 
 def public_run(run: dict[str, Any]) -> dict[str, Any]:
@@ -94,6 +142,8 @@ def public_run(run: dict[str, Any]) -> dict[str, Any]:
         "run_dir",
         "configuration",
         "backend",
+        "tmux_server_mode",
+        "tmux_socket_path",
         "native_surface",
         "identity",
         "turns",
@@ -415,7 +465,8 @@ def interrupt_run(path: Path) -> dict[str, Any]:
         if run["configuration"]["mode"] == "web":
             from fixturelib.web import control_raw_web
 
-            control_raw_web(run, "interrupt")
+            with _raw_web_environment(run):
+                control_raw_web(run, "interrupt")
             _save(run)
         elif not _signal_raw_driver(run, signal.SIGINT):
             raise FixtureError("No verified active raw fixture process to interrupt")
@@ -430,15 +481,23 @@ def interrupt_run(path: Path) -> dict[str, Any]:
     return {"status": "interrupt_requested", "run_dir": run["run_dir"]}
 
 
-def _raw_tui(run: dict[str, Any]) -> None:
+def _raw_tui(run: dict[str, Any], *, allow_start: bool) -> None:
     """Start one named tmux session with bindings sourced from a private script."""
 
     name = "fixture-" + Path(run["run_dir"]).name
     command = [sys.executable, str(Path(__file__).with_name("raw_child.py")), run["run_dir"]]
-    started = _fixture_tmux(run).start(
+    owner_options = []
+    if "tmux_server_mode" in run:
+        owner = uuid4().hex
+        run["raw_tmux_owner"] = owner
+        _save(run)
+        owner_options = ["-e", f"{_RAW_TMUX_OWNER}={owner}"]
+    server = _fixture_tmux(run, allow_start=allow_start)
+    started = server.start(
         [
             "new-session",
             "-d",
+            "-E",
             "-P",
             "-F",
             "#{pane_id}",
@@ -446,9 +505,10 @@ def _raw_tui(run: dict[str, Any]) -> None:
             name,
             "-c",
             run["workdir"],
+            *owner_options,
             shlex.join(command),
         ],
-        environment=run_environment(run),
+        environment=owner_tmux_launch_environment(run_environment(run)),
     )
     started.require_success()
     surface = TerminalNativeSurfaceV1(tmux_session_name=name, pane_id=started.stdout.strip())
@@ -456,6 +516,64 @@ def _raw_tui(run: dict[str, Any]) -> None:
         "tmux_session_name": name,
         "native_surface": surface.model_dump(mode="json"),
     }
+    session_id = _owned_raw_tui_session(run, server)
+    if session_id is None:
+        raise FixtureError("Raw fixture session disappeared during launch")
+    run["identity"]["tmux_session_id"] = session_id
+
+
+def _owned_raw_tui_session(run: dict[str, Any], server: TmuxServer) -> str | None:
+    """Return the exact live session ID after validating this fixture's ownership."""
+
+    name = "fixture-" + Path(run["run_dir"]).name
+    identity = run.get("identity", {})
+    recorded_name = identity.get("tmux_session_name", name)
+    if recorded_name != name:
+        raise FixtureError("Raw fixture session name differs from its recorded owner")
+    if name not in server.list_sessions(allow_missing_server=True):
+        return None
+    panes = server.observe_session(name)
+    if panes is None:
+        return None
+    session_id = panes[0].session_id
+    if session_id is None or identity.get("tmux_session_id", session_id) != session_id:
+        raise FixtureError("Raw fixture session identity changed")
+    if "tmux_server_mode" in run:
+        owner = run.get("raw_tmux_owner")
+        actual = server.checked_command(
+            ["show-environment", "-t", session_id, _RAW_TMUX_OWNER], no_start=True
+        )
+        if not isinstance(owner, str) or actual.stdout.strip() != f"{_RAW_TMUX_OWNER}={owner}":
+            raise FixtureError("Raw fixture session ownership changed")
+    else:
+        pane_id = identity.get("native_surface", {}).get("pane_id")
+        if not any(pane.pane_id == pane_id for pane in panes):
+            raise FixtureError("Legacy fixture pane identity changed")
+    return session_id
+
+
+def _record_managed_tmux(run: dict[str, Any]) -> None:
+    """Read the managed launch's concrete socket from its own runtime manifest."""
+
+    identity = run["identity"]
+    path = Path(identity["manifest_path"]).resolve()
+    if not path.is_relative_to(Path(run["run_dir"])):
+        raise FixtureError("Managed fixture manifest lies outside the private run")
+    try:
+        manifest = parse_session_manifest_payload(
+            load_session_manifest(path).payload, source=str(path)
+        )
+    except (SessionManifestError, ValueError) as exc:
+        raise FixtureError("Cannot read the managed fixture's runtime binding") from exc
+    if (
+        manifest.agent_id != identity["agent_id"]
+        or manifest.tmux is None
+        or manifest.tmux.socket_path is None
+    ):
+        raise FixtureError("Managed fixture manifest does not match the launched identity")
+    if manifest.tmux.session_name != identity.get("tmux_session_name"):
+        raise FixtureError("Managed fixture manifest does not match the launched session")
+    run["tmux_socket_path"] = manifest.tmux.socket_path
 
 
 def _passive_launch(run: dict[str, Any], base_url: str) -> dict[str, Any]:
@@ -508,9 +626,6 @@ def launch_run(
         run["prerequisites"] = {"missing": ["client_executable"], "live_requested": True}
         _save(run)
         raise FixtureError("Client executable is unavailable; prepare a fresh fixture run")
-    if config["surface"] == "manager" or config["mode"] in {"tui", "web"}:
-        _fixture_tmux(run)
-        run_environment(run)
     run["status"] = "launching"
     _save(run)
     try:
@@ -532,10 +647,11 @@ def launch_run(
             elif config["mode"] == "web":
                 from fixturelib.web import launch_raw_web
 
-                with command_environment(run_environment(run)):
+                allow_start = _select_raw_tmux(run)
+                with _raw_web_environment(run, allow_start=allow_start):
                     launch_raw_web(run)
             elif config["mode"] == "tui":
-                _raw_tui(run)
+                _raw_tui(run, allow_start=_select_raw_tmux(run))
             else:
                 raise FixtureError("This mode requires the managed fixture surface")
         elif config["surface"] == "manager":
@@ -565,6 +681,7 @@ def launch_run(
                 or result.get("backend") != run["backend"]
             ):
                 raise FixtureError("Managed launch returned a different run mode, tool, or backend")
+            _record_managed_tmux(run)
         else:
             run["identity"] = _passive_launch(run, passive_url or "")
             if not run["identity"].get("tracked_agent_id"):
@@ -578,6 +695,9 @@ def launch_run(
     except (FixtureError, OSError, subprocess.SubprocessError, TmuxCommandError) as exc:
         if isinstance(exc, ManagedCommandError):
             run["identity"] = exc.payload
+            if exc.payload.get("agent_id") and exc.payload.get("manifest_path"):
+                with suppress(FixtureError, OSError):
+                    _record_managed_tmux(run)
         run["status"] = "launch_failed"
         run["error"] = "Launch failed; private run state retained for inspection"
         _save(run)
@@ -619,7 +739,8 @@ def prompt_run(path: Path, *, prompt: str, timeout: float = 300) -> dict[str, An
             from fixturelib.web import prompt_raw_web
 
             try:
-                prompt_raw_web(run, prompt, timeout)
+                with _raw_web_environment(run):
+                    prompt_raw_web(run, prompt, timeout)
             finally:
                 _save(run)
         elif config["mode"] == "headless":
@@ -628,6 +749,8 @@ def prompt_run(path: Path, *, prompt: str, timeout: float = 300) -> dict[str, An
             _raw_turn(run, prompt, timeout)
         else:
             server = _fixture_tmux(run)
+            if _owned_raw_tui_session(run, server) is None:
+                raise FixtureError("Raw fixture session is unavailable")
             target = identity["native_surface"]["pane_id"]
             panes = server.observe_session(identity["tmux_session_name"])
             if panes is None or not any(
@@ -724,12 +847,13 @@ def _cleanup(run: dict[str, Any]) -> None:
 
     identity = run.get("identity", {})
     config = run["configuration"]
+    stopped_owned = bool(identity)
     try:
         if config["surface"] == "raw" and config["mode"] == "web":
             if run.get("raw_web_state"):
                 from fixturelib.web import control_raw_web
 
-                with command_environment(run_environment(run)):
+                with _raw_web_environment(run):
                     control_raw_web(run, "terminate")
         elif config["surface"] == "raw" and run.get("active_process"):
             active = run["active_process"]
@@ -761,11 +885,15 @@ def _cleanup(run: dict[str, Any]) -> None:
         elif config["surface"] == "passive-server" and identity.get("tracked_agent_id"):
             ref = quote(identity["tracked_agent_id"], safe="")
             _http(identity["passive_url"], f"/houmao/agents/{ref}/stop", {})
-        elif config["surface"] == "raw" and identity.get("tmux_session_name"):
-            _fixture_tmux(run).checked_command(
-                ["kill-session", "-t", f"={identity['tmux_session_name']}"],
-            )
-        run["cleanup"] = "stopped_owned_identity" if identity else "no_owned_identity"
+        elif config["surface"] == "raw" and (
+            run.get("raw_tmux_owner") or identity.get("tmux_session_name")
+        ):
+            server = _fixture_tmux(run)
+            session_id = _owned_raw_tui_session(run, server)
+            if session_id is not None:
+                server.checked_command(["kill-session", "-t", session_id], no_start=True)
+                stopped_owned = True
+        run["cleanup"] = "stopped_owned_identity" if stopped_owned else "no_owned_identity"
         if run.get("gateway_cleanup") == "detach_failed":
             try:
                 connection = socket.create_connection(
@@ -805,28 +933,38 @@ def check_run(path: Path, *, live: bool = False) -> dict[str, Any]:
     missing = []
     if not os.access(run["executable"], os.X_OK):
         missing.append("client_executable")
-    if (
-        run["configuration"]["mode"] in {"tui", "web"} or run["configuration"]["surface"] != "raw"
-    ) and shutil.which("tmux") is None:
+    config = run["configuration"]
+    local_tmux = config["surface"] == "manager" or (
+        config["surface"] == "raw" and config["mode"] in {"tui", "web"}
+    )
+    if local_tmux and shutil.which("tmux") is None:
         missing.append("tmux")
     if not (root / "private-env.json").is_file():
         missing.append("private_environment")
     run["prerequisites"] = {"missing": missing, "live_requested": live}
     if live:
         identity = run.get("identity", {})
-        if run["configuration"]["mode"] == "web" and run["configuration"]["surface"] == "raw":
+        if config["mode"] == "web" and config["surface"] == "raw":
             from fixturelib.web import observe_raw_web
 
-            run["native_state"] = observe_raw_web(run)
+            with _raw_web_environment(run):
+                run["native_state"] = observe_raw_web(run)
         elif identity.get("passive_url"):
             ref = quote(identity["tracked_agent_id"], safe="")
             run["usage"] = _http(identity["passive_url"], f"/houmao/agents/{ref}/usage")
-        elif identity.get("gateway_port"):
-            run["usage"] = _gateway_request(run, "/v1/usage")
+        elif config["surface"] == "manager" and identity.get("agent_id"):
+            scope = ["agents", "single", "--agent-id", identity["agent_id"]]
+            env = run_environment(run)
+            status = manager_root_call([*scope, "gateway", "status"], env=env)
+            if status.get("gateway_health") == "healthy" and status.get("gateway_port"):
+                live_identity = {**identity, "gateway_port": status["gateway_port"]}
+                run["usage"] = _gateway_request({**run, "identity": live_identity}, "/v1/usage")
+            else:
+                manager_root_call([*scope, "state"], env=env)
         elif identity.get("tmux_session_name"):
-            if _fixture_tmux(run).observe_session(identity["tmux_session_name"]) is None:
+            if _owned_raw_tui_session(run, _fixture_tmux(run)) is None:
                 raise FixtureError("Fixture tmux session is missing")
-        elif run["configuration"]["surface"] != "raw":
+        elif config["surface"] != "raw":
             raise FixtureError("Live check requires a launched authority identity")
     _save(run)
     return public_run(run)

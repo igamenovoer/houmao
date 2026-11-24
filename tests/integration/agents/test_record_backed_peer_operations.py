@@ -116,18 +116,28 @@ def _wait_for_file(path: Path, *, contents: bytes | None = None) -> bytes:
     pytest.fail(f"Timed out waiting for {path.name}; last contents: {last!r}")
 
 
-def _log_shim_sockets(shim: Path, log: Path) -> None:
-    """Record only socket selectors while preserving the prepared fixture shim."""
+def _write_restricting_shim(shim: Path, log: Path, *, socket: str, tmux: str) -> None:
+    """Allow only the test-owned socket and record attempted explicit selectors."""
 
-    header, script = shim.read_text(encoding="utf-8").split("\n", 1)
+    shim.parent.mkdir()
     destination = shlex.quote(str(log))
-    tracing = (
+    allowed = shlex.quote(socket)
+    shim.write_text(
+        "#!/bin/sh\nunset TMUX TMUX_PANE\n"
         'case "$1" in\n'
         f"""  -S) printf '%s\\n' "$2" >> {destination} ;;\n"""
         f"""  -S*) printf '%s\\n' "${{1#-S}}" >> {destination} ;;\n"""
         "esac\n"
+        'case "$1" in\n'
+        f'  -S) [ "$2" = {allowed} ] || exit 2; shift 2 ;;\n'
+        f"  -S{allowed}) shift ;;\n"
+        "  -S*|-L*) exit 2 ;;\n"
+        "esac\n"
+        'case "$1" in -S*|-L*) exit 2 ;; esac\n'
+        f'exec {shlex.quote(tmux)} -S {allowed} "$@"\n',
+        encoding="utf-8",
     )
-    shim.write_text(header + "\n" + tracing + script, encoding="utf-8")
+    shim.chmod(0o700)
 
 
 @pytest.fixture
@@ -170,23 +180,27 @@ def detached_peers(
     with ExitStack() as cleanup:
         for name in ("sender", "recipient"):
             run = prepare.prepare_run(
-                selection, run_root=tmp_path / "runs", executable=str(executable)
+                selection, run_root=tmp_path / "runs", executable=str(executable), tmux_server="new"
             )
             root = Path(run["run_dir"])
-            server = TmuxServer(run["tmux_socket_path"], executable=tmux)
-            cleanup.callback(server.command, ["kill-server"])
-            cleanup.callback(launch.stop_run, root)
             private_env_path = root / "private-env.json"
             private_env = json.loads(private_env_path.read_text())
             private_env[HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR] = str(registry)
             prepare.write_json(private_env_path, private_env)
+            launched = launch.launch_run(root)
+            identity = launched["identity"]
+            server = TmuxServer(launched["tmux_socket_path"], executable=tmux)
+            cleanup.callback(server.command, ["kill-server"])
+            cleanup.callback(launch.stop_run, root)
             socket_log = root / "tmux-sockets.log"
-            _log_shim_sockets(root / "bin/tmux", socket_log)
-            identity = launch.launch_run(root)["identity"]
+            _write_restricting_shim(
+                root / "bin/tmux", socket_log, socket=server.socket_path, tmux=tmux
+            )
             workdir = Path(run["workdir"])
             context = json.loads(_wait_for_file(workdir / "terminal-context.json"))
             assert context["TMUX"].rsplit(",", 2)[0] == server.socket_path
             owner_env = launch.run_environment(run)
+            owner_env["PATH"] = str(root / "bin") + os.pathsep + owner_env["PATH"]
             peer = _Peer(
                 root=root,
                 workdir=workdir,

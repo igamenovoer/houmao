@@ -18,7 +18,11 @@ from typing import Any, Iterator
 
 from pydantic import ValidationError
 
-from houmao.execution.tmux import capture_tmux_socket_path, validate_tmux_socket_path
+from houmao.execution.tmux import (
+    capture_tmux_socket_path,
+    current_tmux_allow_start,
+    validate_tmux_socket_path,
+)
 from houmao.execution.models import ExecutionBindingV1
 
 from .boundary_models import (
@@ -919,6 +923,7 @@ def _build_manifest_tmux_section(
     return {
         "session_name": tmux_session_name,
         "socket_path": socket_path,
+        "server_allow_start": current_tmux_allow_start(),
         "primary_window_index": "0",
         "primary_window_role": "supervisor_logs"
         if request.launch_plan.mode in {"service", "web"}

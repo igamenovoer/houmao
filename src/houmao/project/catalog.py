@@ -14,6 +14,8 @@ import sqlite3
 from typing import TYPE_CHECKING, Any, Iterator, Literal, cast
 from uuid import uuid4
 
+from pydantic import ValidationError
+
 from houmao.agents.model_selection import parse_reasoning_level
 from houmao.agents.tool_params import validate_tool_params
 from houmao.agents.managed_prompt_header import (
@@ -23,6 +25,7 @@ from houmao.agents.managed_prompt_header import (
     normalize_managed_header_policy,
     normalize_managed_header_section_policy_mapping,
 )
+from houmao.execution.tmux_selection import TmuxServerSelector
 from houmao.owned_mutation import (
     remove_tree_or_path as _remove_tree_or_path,
     replace_file as _replace_file,
@@ -256,6 +259,7 @@ class LaunchProfileCatalogEntry:
     private_skill_entries: tuple[LaunchProfilePrivateSkillCatalogEntry, ...] = ()
     metadata_path: Path | None = None
     tool_params: dict[str, Any] = field(default_factory=dict)
+    tmux_server_selector: TmuxServerSelector | None = None
 
     def resolved_projection_path(self, overlay: HoumaoProjectOverlay) -> Path:
         """Return the compatibility projection launch-profile path."""
@@ -1440,6 +1444,10 @@ class ProjectCatalog:
             relaunch_chat_session_mapping,
             source="launch_profiles.relaunch_chat_session_payload",
         )
+        resolved_posture = dict(posture_mapping or {})
+        tmux_server_selector = _profile_tmux_server_selector(resolved_posture, name=name)
+        if tmux_server_selector is not None:
+            resolved_posture["tmux"] = tmux_server_selector.model_dump(exclude_none=True)
         resolved_registered_skill_names = _normalize_launch_profile_registered_skill_names(
             registered_skill_names
         )
@@ -1574,7 +1582,7 @@ class ProjectCatalog:
                     operator_prompt_mode,
                     json.dumps(env_mapping or {}, sort_keys=True),
                     json.dumps(mailbox_mapping or {}, sort_keys=True),
-                    json.dumps(posture_mapping or {}, sort_keys=True),
+                    json.dumps(resolved_posture, sort_keys=True),
                     json.dumps(system_skills_mapping or {}, sort_keys=True),
                     json.dumps(resolved_relaunch_chat_session or {}, sort_keys=True),
                     resolved_managed_header_policy,
@@ -2795,6 +2803,9 @@ class ProjectCatalog:
             env_payload={str(key): str(value) for key, value in env_payload.items()},
             mailbox_payload=mailbox_payload if mailbox_payload else None,
             posture_payload=posture_payload,
+            tmux_server_selector=_profile_tmux_server_selector(
+                posture_payload, name=str(row["name"])
+            ),
             system_skills_payload=system_skills_payload,
             tool_params=_load_json_mapping(str(row["tool_params_payload"])),
             relaunch_chat_session_payload=relaunch_chat_session_payload,
@@ -3665,6 +3676,21 @@ def _load_json_mapping(raw_value: str) -> dict[str, Any]:
     if not isinstance(loaded, dict):
         raise ValueError("Catalog JSON payload must be a mapping.")
     return cast(dict[str, Any], loaded)
+
+
+def _profile_tmux_server_selector(
+    posture: dict[str, Any], *, name: str
+) -> TmuxServerSelector | None:
+    """Validate the optional tmux block in a profile's stored posture."""
+
+    if "tmux" not in posture:
+        return None
+    try:
+        return TmuxServerSelector.model_validate(posture["tmux"])
+    except ValidationError as exc:
+        error = exc.errors()[0]
+        location = ".".join(["defaults.posture.tmux", *(str(part) for part in error["loc"])])
+        raise ValueError(f"Launch profile `{name}` {location}: {error['msg']}") from exc
 
 
 def _normalize_relaunch_chat_session_payload(

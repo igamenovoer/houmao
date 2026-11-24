@@ -110,7 +110,11 @@ def persisted_execution_scope(manifest_path: Path) -> Iterator[SessionManifestPa
     if binding is not None and binding.tmux_socket is not None:
         if socket_path != binding.tmux_socket:
             raise ValueError("Persisted tmux socket differs from execution binding")
-    with execution_binding_scope(binding), tmux_server_scope(socket_path):
+    assert payload.tmux is not None
+    with (
+        execution_binding_scope(binding),
+        tmux_server_scope(socket_path, allow_start=payload.tmux.server_allow_start is not False),
+    ):
         yield payload
 
 

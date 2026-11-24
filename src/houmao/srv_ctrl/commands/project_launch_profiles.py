@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from houmao.agents.realm_controller.run_modes import RUN_MODES, RunMode
+from houmao.execution.tmux_selection import TMUX_SERVER_MODES, TmuxServerMode
 
 # ruff: noqa: F403,F405
 from .project_common import *
@@ -180,6 +181,10 @@ def get_project_launch_profile_command(name: str) -> None:
     default=None,
     help="Persist the run mode for launches from this profile.",
 )
+@click.option(
+    "--tmux-server", type=click.Choice(TMUX_SERVER_MODES), help="Store a tmux server mode."
+)
+@click.option("--tmux-socket-path", help="Store the absolute path for `--tmux-server socket`.")
 @click.option("--no-gateway", is_flag=True, help="Persist gateway auto-attach disabled.")
 @click.option(
     "--managed-header/--no-managed-header",
@@ -288,6 +293,8 @@ def add_project_launch_profile_command(
     memo_seed_dir: Path | None,
     yes: bool,
     tool_params: str | None = None,
+    tmux_server: TmuxServerMode | None = None,
+    tmux_socket_path: str | None = None,
 ) -> None:
     """Create one recipe-backed explicit launch profile."""
 
@@ -333,6 +340,8 @@ def add_project_launch_profile_command(
         mail_management_url=mail_management_url,
         mode=mode,
         clear_mode=False,
+        tmux_server=tmux_server,
+        tmux_socket_path=tmux_socket_path,
         no_gateway=no_gateway,
         managed_header=managed_header,
         clear_managed_header=False,
@@ -495,6 +504,11 @@ def add_project_launch_profile_command(
     help="Persist the run mode for launches from this profile.",
 )
 @click.option("--clear-mode", is_flag=True, help="Clear the stored run mode.")
+@click.option(
+    "--tmux-server", type=click.Choice(TMUX_SERVER_MODES), help="Store a tmux server mode."
+)
+@click.option("--tmux-socket-path", help="Store the absolute path for `--tmux-server socket`.")
+@click.option("--clear-tmux-server", is_flag=True, help="Clear the stored tmux server selector.")
 @click.option("--no-gateway", is_flag=True, help="Persist gateway auto-attach disabled.")
 @click.option(
     "--managed-header/--no-managed-header",
@@ -648,6 +662,9 @@ def set_project_launch_profile_command(
     clear_memo_seed: bool,
     tool_params: str | None = None,
     clear_tool_params: bool = False,
+    tmux_server: TmuxServerMode | None = None,
+    tmux_socket_path: str | None = None,
+    clear_tmux_server: bool = False,
 ) -> None:
     """Update one recipe-backed explicit launch profile."""
 
@@ -694,6 +711,9 @@ def set_project_launch_profile_command(
         mail_management_url=mail_management_url,
         mode=mode,
         clear_mode=clear_mode,
+        tmux_server=tmux_server,
+        tmux_socket_path=tmux_socket_path,
+        clear_tmux_server=clear_tmux_server,
         no_gateway=no_gateway,
         managed_header=managed_header,
         clear_managed_header=clear_managed_header,

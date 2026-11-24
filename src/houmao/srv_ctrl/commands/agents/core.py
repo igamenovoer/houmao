@@ -17,6 +17,11 @@ import sys
 from typing import Any, Literal, cast
 
 from houmao.execution.tmux import TmuxServer, tmux_server_scope
+from houmao.execution.tmux_selection import (
+    ResolvedTmuxServer,
+    TmuxServerSelector,
+    resolve_tmux_server,
+)
 
 import click
 
@@ -122,6 +127,7 @@ from houmao.agents.realm_controller.manifest import (
     runtime_owned_session_root_from_manifest_path,
 )
 from houmao.agents.realm_controller.runtime import start_runtime_session
+from houmao.agents.realm_controller.boundary_models import SessionManifestTmuxSectionV1
 from houmao.agents.realm_controller.errors import (
     LaunchPlanError,
     LaunchPolicyResolutionError,
@@ -306,6 +312,11 @@ class _ManagedPredecessorHomeContext:
     target: ManagedAgentTarget | None
     session_root: Path | None
     mailbox_cleanup_paths: tuple[Path, ...]
+    tmux_binding: SessionManifestTmuxSectionV1 | None = None
+
+
+class ManagedTmuxPreflightError(click.ClickException):
+    """Report a rejected tmux selection before any agent mutation."""
 
 
 def _last_tmux_session_name_from_record(record: ManagedAgentRegistryRecordV3) -> str | None:
@@ -428,6 +439,7 @@ def _load_managed_predecessor_home_context(
         target=target,
         session_root=session_root,
         mailbox_cleanup_paths=mailbox_cleanup_paths,
+        tmux_binding=payload.tmux,
     )
 
 
@@ -520,6 +532,33 @@ def _resolve_managed_predecessor_home_context(
         require_same_tool=True,
         require_preserved_home_path=True,
     )
+
+
+def _validate_tmux_force_takeover(
+    selected: ResolvedTmuxServer, predecessor: _ManagedPredecessorHomeContext | None
+) -> None:
+    """Keep an existing-only server alive through an approved predecessor stop."""
+
+    if selected.allow_start or predecessor is None or predecessor.target is None:
+        return
+    binding = predecessor.tmux_binding
+    if binding is None or binding.socket_path is None:
+        return
+    if binding.socket_path != selected.socket_path:
+        try:
+            if not Path(binding.socket_path).samefile(selected.socket_path):
+                return
+        except FileNotFoundError:
+            return
+    server = TmuxServer(selected.socket_path, allow_start=False)
+    if server.list_sessions() != {binding.session_name}:
+        return
+    exit_empty = server.checked_command(["show-options", "-s", "-v", "exit-empty"])
+    if exit_empty.stdout.strip() != "off":
+        raise ManagedTmuxPreflightError(
+            f"Replacing this agent would stop the existing-only tmux server at "
+            f"{selected.socket_path}. Keep another session open or select a different server."
+        )
 
 
 def _perform_managed_force_takeover(context: _ManagedPredecessorHomeContext) -> None:
@@ -794,6 +833,7 @@ def launch_managed_agent_locally(
     mode: RunMode | None,
     provider: str,
     working_directory: Path,
+    tmux_selector: TmuxServerSelector | None = None,
     source_working_directory: Path | None = None,
     source_agent_def_dir: Path | None = None,
     source_project_dir: Path | None = None,
@@ -1036,6 +1076,13 @@ def launch_managed_agent_locally(
             )
         elif resolved_backend == "kimi_web":
             validate_kimi_web_launch_version(executable=validated_inputs.adapter.launch_executable)
+        try:
+            resolved_tmux_server = resolve_tmux_server(
+                tmux_selector, execution_binding=owner_binding, environment=owner_env
+            )
+            _validate_tmux_force_takeover(resolved_tmux_server, predecessor_context)
+        except (OSError, TmuxCommandError, ValueError) as exc:
+            raise ManagedTmuxPreflightError(str(exc)) from None
         if predecessor_context is not None and predecessor_context.target is not None:
             if resolved_backend == "codex_app_server":
                 resolve_codex_service_executable(validated_inputs.adapter.launch_executable)
@@ -1153,6 +1200,7 @@ def launch_managed_agent_locally(
             agent_name=agent_name,
             agent_id=managed_launch_identity.agent_id,
             tmux_session_name=session_name,
+            resolved_tmux_server=resolved_tmux_server,
             default_tmux_session_name=default_tmux_session_name,
             launch_env_overrides=effective_launch_env_overrides,
             gateway_auto_attach=gateway_auto_attach,
@@ -1321,9 +1369,12 @@ def emit_local_launch_completion(
         isinstance(surface, TerminalNativeSurfaceV1) and _caller_has_interactive_terminal()
     )
     socket_path = manifest.tmux.socket_path if manifest.tmux is not None else None
+    allow_start = manifest.tmux is None or manifest.tmux.server_allow_start is not False
     if isinstance(surface, TerminalNativeSurfaceV1):
         payload["terminal_handoff"] = "attach" if terminal_handoff else "skipped_non_interactive"
         command = ["tmux", "-S", socket_path] if socket_path else ["tmux"]
+        if not allow_start:
+            command.append("-N")
         payload["attach_command"] = shell_join(
             [*command, "attach-session", "-t", surface.tmux_session_name]
         )
@@ -1340,7 +1391,7 @@ def emit_local_launch_completion(
     )
     if terminal_handoff and isinstance(surface, TerminalNativeSurfaceV1):
         try:
-            with tmux_server_scope(socket_path):
+            with tmux_server_scope(socket_path, allow_start=allow_start):
                 attach_tmux_session_shared(session_name=surface.tmux_session_name)
         except RuntimeError as exc:
             raise click.ClickException(
@@ -1667,6 +1718,7 @@ def launch_agents_command(
     persistent_env_records: dict[str, str] | None = None
     launch_profile_model_config: ModelConfig | None = None
     launch_profile_tool_params: dict[str, Any] | None = None
+    tmux_selector: TmuxServerSelector | None = None
     try:
         direct_tool_params = (
             parse_tool_params_cli_input(tool_params) if tool_params is not None else None
@@ -1809,6 +1861,7 @@ def launch_agents_command(
             profile_name=resolved_profile.entry.name,
         )
         posture_payload = dict(resolved_profile.entry.posture_payload)
+        tmux_selector = resolved_profile.entry.tmux_server_selector
         try:
             stored_mode = profile_run_mode(
                 posture_payload,
@@ -1851,6 +1904,7 @@ def launch_agents_command(
         agent_id_mode=agent_id_mode,
         auth=resolved_auth,
         session_name=session_name,
+        tmux_selector=tmux_selector,
         mode=resolved_mode,
         provider=resolved_provider,
         working_directory=resolved_working_directory,

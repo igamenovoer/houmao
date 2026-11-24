@@ -177,8 +177,11 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
     )
     report["runtime_build"] = json.loads(identity.stdout)
     runs: list[Path] = []
+    tmux_server = "new" if args.surface == "manager" else None
     try:
-        primary = prepare_run(config, run_root=args.run_root, executable=str(args.executable))
+        primary = prepare_run(
+            config, run_root=args.run_root, executable=str(args.executable), tmux_server=tmux_server
+        )
         root = Path(primary["run_dir"])
         runs.append(root)
         launch_run(
@@ -217,7 +220,9 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
             report["usage_records"] = len(records)
         _interrupt_attempt(root, args.timeout)
         report["checks"]["interruption"] = "passed"
-        secondary = prepare_run(config, run_root=args.run_root, executable=str(args.executable))
+        secondary = prepare_run(
+            config, run_root=args.run_root, executable=str(args.executable), tmux_server=tmux_server
+        )
         other = Path(secondary["run_dir"])
         runs.append(other)
         launch_run(

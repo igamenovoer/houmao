@@ -45,7 +45,12 @@ def test_native_fixture_exact_resume(
     config = configuration.resolve_config(
         case=case, client="dsh", mode="headless", surface=surface, process_env=selected
     )
-    run = prepare.prepare_run(config, run_root=tmp_path / "runs", executable=str(dsh_executable))
+    run = prepare.prepare_run(
+        config,
+        run_root=tmp_path / "runs",
+        executable=str(dsh_executable),
+        tmux_server="new" if surface == "manager" else None,
+    )
     root = Path(run["run_dir"])
     try:
         first = launch.launch_run(root, prompt="first fixture turn", timeout=45)

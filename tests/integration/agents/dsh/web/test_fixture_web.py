@@ -86,7 +86,7 @@ def test_native_web_fixture_keeps_one_browser_api_session(
         case=case, client="dsh", mode="web", surface=surface, process_env=selected
     )
     prepared = prepare.prepare_run(
-        config, run_root=tmp_path / "runs", executable=str(dsh_executable)
+        config, run_root=tmp_path / "runs", executable=str(dsh_executable), tmux_server="new"
     )
     root = Path(prepared["run_dir"])
     browser: NativeBrowser | None = None
@@ -273,7 +273,7 @@ def test_managed_browser_entry_selects_bound_workspace_before_and_after_lifecycl
         },
     )
     prepared = prepare.prepare_run(
-        config, run_root=tmp_path / "runs", executable=str(dsh_executable)
+        config, run_root=tmp_path / "runs", executable=str(dsh_executable), tmux_server="new"
     )
     root = Path(prepared["run_dir"])
     try:
@@ -450,7 +450,7 @@ def test_web_manager_and_authenticated_gateway_share_one_native_turn(
         },
     )
     prepared = prepare.prepare_run(
-        config, run_root=tmp_path / "runs", executable=str(dsh_executable)
+        config, run_root=tmp_path / "runs", executable=str(dsh_executable), tmux_server="new"
     )
     root = Path(prepared["run_dir"])
     try:

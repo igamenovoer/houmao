@@ -9,6 +9,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import tomllib
 from typing import Literal
@@ -20,6 +21,8 @@ from houmao.agents.realm_controller.backends.local_interactive import LocalInter
 from houmao.agents.realm_controller.manifest import load_session_manifest
 from houmao.agents.system_skill_manifest import load_system_skill_manifest
 from houmao.agents.system_skills import discover_installed_system_skills
+from houmao.execution import tmux_selection
+from houmao.execution.tmux import TmuxServer
 
 
 def _wait_for_stub(self: LocalInteractiveSession, **_kwargs: object) -> None:
@@ -69,6 +72,151 @@ def test_fixture_refuses_raw_kimi_web_before_preparing_run(tmp_path: Path) -> No
     assert "Kimi Web fixtures require the manager surface" in error
     assert not result.stdout
     assert not run_root.exists()
+
+
+def test_manager_fixtures_share_test_owned_houmao_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Independent fixture registries converge and stopping one keeps its sibling."""
+
+    if shutil.which("tmux") is None:
+        pytest.skip("tmux is required for managed fixture launches")
+    monkeypatch.delenv("TMUX", raising=False)
+    monkeypatch.delenv("TMUX_PANE", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[3] / "scripts/agents/test-fixtures")
+    )
+    config = importlib.import_module("fixturelib.config")
+    prepare = importlib.import_module("fixturelib.prepare")
+    launch = importlib.import_module("fixturelib.launch")
+    executable = tmp_path / "harmless-codex"
+    executable.write_text(
+        "#!/bin/sh\nif [ \"$1\" = --version ]; then printf 'codex-cli 0.167.2\\n'; exit; fi\n"
+        "exec sleep 120\n"
+    )
+    executable.chmod(0o700)
+    inputs = dict(
+        case="self-hosted",
+        client="codex",
+        model="fixture-model",
+        base_url="http://127.0.0.1:1/v1",
+        process_env={"HOUMAO_TEST_SELF_HOSTED_API_KEY": "fixture-shared-synthetic"},
+    )
+    managed = config.resolve_config(mode="headless", surface="manager", **inputs)
+    raw = config.resolve_config(mode="tui", surface="raw", **inputs)
+    with tempfile.TemporaryDirectory(prefix="houmao-fixture-", dir="/tmp") as socket_dir:
+        monkeypatch.setattr(
+            tmux_selection, "_managed_socket_directory", lambda _uid: Path(socket_dir)
+        )
+        prepared = [
+            prepare.prepare_run(selection, run_root=tmp_path / "runs", executable=str(executable))
+            for selection in (managed, managed, raw)
+        ]
+        roots = [Path(run["run_dir"]) for run in prepared]
+        assert all(run["tmux_server_mode"] == "houmao-default" for run in prepared)
+        assert all("tmux_socket_path" not in run for run in prepared)
+        assert roots[0] != roots[1] and not list(Path(socket_dir).iterdir())
+        try:
+            first, second, terminal = [launch.launch_run(root) for root in roots]
+            assert (
+                first["tmux_socket_path"]
+                == second["tmux_socket_path"]
+                == terminal["tmux_socket_path"]
+            )
+            assert Path(second["tmux_socket_path"]).is_relative_to(socket_dir)
+            first_session = first["identity"]["tmux_session_name"]
+            second_session = second["identity"]["tmux_session_name"]
+            raw_session = terminal["identity"]["tmux_session_name"]
+            assert first_session != second_session
+            server = TmuxServer(second["tmux_socket_path"])
+            assert server.list_sessions() == {first_session, second_session, raw_session}
+            assert launch.stop_run(roots[0])["status"] == "stopped"
+            assert server.list_sessions() == {second_session, raw_session}
+            raw_session_id = terminal["identity"]["tmux_session_id"]
+            owner = prepare.load_run(roots[2])["raw_tmux_owner"]
+            marker = ["set-environment", "-t", raw_session_id, "HOUMAO_FIXTURE_RUN_ID"]
+            server.checked_command([*marker, "other-run"])
+            try:
+                with pytest.raises(config.FixtureError, match="Cleanup failed"):
+                    launch.stop_run(roots[2])
+                assert server.list_sessions() == {second_session, raw_session}
+            finally:
+                server.checked_command([*marker, owner])
+            assert launch.stop_run(roots[2])["status"] == "stopped"
+            assert server.list_sessions() == {second_session}
+            prepare.manager_root_call(
+                [
+                    "agents",
+                    "single",
+                    "--agent-id",
+                    second["identity"]["agent_id"],
+                    "gateway",
+                    "detach",
+                ],
+                env=launch.run_environment(prepare.load_run(roots[1])),
+            )
+            assert launch.check_run(roots[1], live=True)["status"] == "launched"
+        finally:
+            for root in roots:
+                launch.stop_run(root)
+
+
+def test_legacy_raw_fixture_stops_only_its_recorded_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An already launched fixture can stop through its original socket and shim."""
+
+    tmux = shutil.which("tmux")
+    if tmux is None:
+        pytest.skip("tmux is required for legacy fixture follow-up")
+    monkeypatch.delenv("TMUX", raising=False)
+    monkeypatch.delenv("TMUX_PANE", raising=False)
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[3] / "scripts/agents/test-fixtures")
+    )
+    prepare = importlib.import_module("fixturelib.prepare")
+    launch = importlib.import_module("fixturelib.launch")
+    root = tmp_path / "legacy-fixture"
+    shim = root / "bin/tmux"
+    shim.parent.mkdir(parents=True)
+    shim.symlink_to(tmux)
+    with tempfile.TemporaryDirectory(prefix="houmao-legacy-", dir="/tmp") as socket_dir:
+        socket = str(Path(socket_dir) / "server.sock")
+        monkeypatch.setattr(prepare, "fixture_tmux_socket_path", lambda _root: socket)
+        monkeypatch.setattr(launch, "fixture_tmux_socket_path", lambda _root: socket)
+        server = TmuxServer(socket)
+        environment = server.native_environment()
+        session = "fixture-legacy-fixture"
+        try:
+            server.start(
+                ["-f", os.devnull, "new-session", "-d", "-s", "sibling"], environment=environment
+            ).require_success()
+            started = server.start(
+                ["new-session", "-d", "-P", "-F", "#{pane_id}", "-s", session],
+                environment=environment,
+            )
+            started.require_success()
+            prepare.write_json(
+                root / "run.json",
+                {
+                    "schema_version": 2,
+                    "status": "launched",
+                    "run_dir": str(root),
+                    "configuration": {"client": "codex", "mode": "tui", "surface": "raw"},
+                    "identity": {
+                        "tmux_session_name": session,
+                        "native_surface": {"pane_id": started.stdout.strip()},
+                    },
+                    "tmux_server": "houmao-fixture-legacy-fixture",
+                    "tmux_socket_path": socket,
+                    "tmux_executable": tmux,
+                },
+            )
+            assert launch.stop_run(root)["status"] == "stopped"
+            assert server.list_sessions() == {"sibling"}
+        finally:
+            server.command(["kill-server"])
 
 
 @pytest.mark.parametrize("policy", ["default", "none"])
@@ -123,6 +271,8 @@ def test_manager_fixture_launch_projects_selected_system_skills(
             str(tmp_path / "runs"),
             "--executable",
             str(executable),
+            "--tmux-server",
+            "new",
             *policy_args,
         ],
         env=env,
@@ -230,11 +380,21 @@ def test_tui_fixture_launch_preserves_selected_env_and_scoped_identity(
         config = config_module.resolve_config(
             case=case, client=client, mode=mode, surface=surface, process_env=env
         )
-        run = prepare.prepare_run(config, run_root=tmp_path / "runs", executable=str(executable))
+        run = prepare.prepare_run(
+            config,
+            run_root=tmp_path / "runs",
+            executable=str(executable),
+            tmux_server="new" if surface == "manager" or mode == "tui" else None,
+        )
         root = Path(run["run_dir"])
         result = launch.launch_run(
             root, prompt="controlled" if mode == "headless" and surface == "raw" else None
         )
+        if surface == "raw" and mode == "tui":
+            server = TmuxServer(result["tmux_socket_path"])
+            server_environment = server.checked_command(["show-environment", "-g"]).stdout
+            assert config.api_key.get_secret_value() not in server_environment
+            assert "competing-parent-key" not in server_environment
         if surface == "manager":
             assert result["identity"]["agent_id"] not in {None, "unknown"}
             manifest = Path(result["identity"]["manifest_path"])

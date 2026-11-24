@@ -347,8 +347,6 @@ def handle_request(
             execution_binding_scope(binding),
             tmux_server_scope(binding.tmux_socket),
         ):
-            if request.operation in {"launch", "relaunch"}:
-                Path(policy.socket_path).parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             # Protocol stdout must contain only the response, even if an existing
             # application helper writes a diagnostic during execution.
             with redirect_stdout(sys.stderr):
@@ -609,6 +607,7 @@ def _validate_launch_shape(arguments: JsonObject) -> None:
     """Validate provided launch values using maintained option types without callbacks."""
 
     import click
+    from houmao.execution.tmux_selection import TmuxServerSelector
     from houmao.srv_ctrl.commands.project_easy import launch_easy_instance_command
 
     parameters = {
@@ -626,6 +625,18 @@ def _validate_launch_shape(arguments: JsonObject) -> None:
         )
     if "project_dir" in arguments and not isinstance(arguments["project_dir"], str):
         raise OwnerAdmissionError("invalid_arguments", "Invalid project launch path.")
+    tmux_server = arguments.get("tmux_server")
+    tmux_socket_path = arguments.get("tmux_socket_path")
+    if tmux_server is not None or tmux_socket_path is not None:
+        try:
+            TmuxServerSelector.model_validate(
+                {"server": tmux_server, "socket_path": tmux_socket_path}
+            )
+        except ValueError:
+            raise OwnerAdmissionError(
+                "invalid_tmux_server",
+                "Invalid tmux selector. Use an absolute --tmux-socket-path with --tmux-server socket.",
+            ) from None
     with click.Context(launch_easy_instance_command) as context:
         for name, value in arguments.items():
             if name == "project_dir" or value is None:

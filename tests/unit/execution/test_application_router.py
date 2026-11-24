@@ -376,6 +376,8 @@ def test_owner_launch_reuses_shared_service_and_output_collector(
                 "mode": "headless",
                 "headless_display_style": "json",
                 "headless_display_detail": "detail",
+                "tmux_server": "socket",
+                "tmux_socket_path": "/owner/worker.sock",
             },
         ),
         boundary.binding,
@@ -386,6 +388,8 @@ def test_owner_launch_reuses_shared_service_and_output_collector(
     assert seen[0]["mode"] == "headless"
     assert seen[0]["headless_display_style"] == "json"
     assert seen[0]["headless_display_detail"] == "detail"
+    assert seen[0]["tmux_server"] == "socket"
+    assert seen[0]["tmux_socket_path"] == "/owner/worker.sock"
     assert seen[0]["workdir"] == Path(boundary.profile.project_root)
     assert "executor" not in seen[0]
 
@@ -458,6 +462,31 @@ def test_owner_resolves_launch_inputs_in_the_target_context(
     assert response.outcome == "completed"
     assert response.result is not None and response.result["agent_id"] == "agent-1"
     assert os.environ["OWNER_SETTING"] == "operator-value"
+
+
+def test_owner_rejects_relative_tmux_socket_before_initializing(
+    boundary: SimpleNamespace,
+) -> None:
+    """Reject malformed one-shot selectors at the owner request boundary."""
+
+    dispatch = Mock()
+    response = handle_request(
+        ExecutionRequestV1(
+            operation="launch",
+            arguments={
+                "specialist": "reviewer",
+                "name": "reviewer",
+                "tmux_server": "socket",
+                "tmux_socket_path": "worker.sock",
+            },
+        ),
+        boundary.policy,
+        dispatch,
+    )
+    assert response.outcome == "rejected"
+    assert response.error_code == "invalid_tmux_server"
+    assert not Path(boundary.policy.runtime_root).exists()
+    dispatch.assert_not_called()
 
 
 @pytest.mark.parametrize(

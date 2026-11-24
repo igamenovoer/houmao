@@ -169,7 +169,9 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
     browser: NativeBrowser | None = None
     observer: DshWebClient | None = None
     try:
-        primary = prepare_run(config, run_root=args.run_root, executable=str(args.executable))
+        primary = prepare_run(
+            config, run_root=args.run_root, executable=str(args.executable), tmux_server="new"
+        )
         root = Path(primary["run_dir"])
         roots.append(root)
         launch_run(
@@ -260,7 +262,9 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
             timeout=args.timeout,
         )
         report["checks"]["exact_host_relaunch"] = "passed"
-        other = prepare_run(config, run_root=args.run_root, executable=str(args.executable))
+        other = prepare_run(
+            config, run_root=args.run_root, executable=str(args.executable), tmux_server="new"
+        )
         other_root = Path(other["run_dir"])
         roots.append(other_root)
         launch_run(other_root, prompt="Reply ISOLATED. Do not use tools.", timeout=args.timeout)

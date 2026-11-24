@@ -22,7 +22,9 @@ import libtmux
 from libtmux.common import escape_trailing_separator
 from libtmux.exc import LibTmuxException
 
-_SOCKET_PATH: ContextVar[str | None] = ContextVar("houmao_tmux_socket_path", default=None)
+_SERVER_SCOPE: ContextVar[tuple[str | None, bool | None]] = ContextVar(
+    "houmao_tmux_server_scope", default=(None, None)
+)
 _DISPATCHING: ContextVar[bool] = ContextVar("houmao_libtmux_dispatching", default=False)
 _PRIVATE_COMMANDS = frozenset(
     {
@@ -138,7 +140,28 @@ def validate_tmux_socket_path(value: str | Path) -> str:
 def current_tmux_socket_path() -> str | None:
     """Return the explicit socket selector for this operation, if bound."""
 
-    return _SOCKET_PATH.get()
+    return _SERVER_SCOPE.get()[0]
+
+
+def current_tmux_allow_start() -> bool | None:
+    """Return the explicit startup policy for the scoped socket, when set."""
+
+    return _SERVER_SCOPE.get()[1]
+
+
+def native_default_tmux_socket_path(env: Mapping[str, str] | None = None) -> str:
+    """Resolve tmux's default socket root without consulting the enclosing TMUX."""
+
+    source = os.environ if env is None else env
+    configured = source.get("TMUX_TMPDIR")
+    if configured:
+        try:
+            directory = Path(configured).resolve(strict=True)
+        except (OSError, RuntimeError):
+            pass
+        else:
+            return str(directory / f"tmux-{os.getuid()}" / "default")
+    return str(Path("/tmp").resolve(strict=True) / f"tmux-{os.getuid()}" / "default")
 
 
 def capture_tmux_socket_path(env: Mapping[str, str] | None = None) -> str:
@@ -160,33 +183,38 @@ def capture_tmux_socket_path(env: Mapping[str, str] | None = None) -> str:
         if len(components) != 3 or not all(part.isdigit() for part in components[1:]):
             raise ValueError("Cannot capture malformed enclosing TMUX socket authority")
         return validate_tmux_socket_path(components[0])
-    default_socket = _native_default_socket(source)
+    default_socket = Path(source.get("TMUX_TMPDIR") or "/tmp") / f"tmux-{os.getuid()}" / "default"
     if not default_socket.is_absolute():
         raise ValueError("TMUX_TMPDIR must be absolute when capturing tmux authority")
     return str(default_socket)
 
 
 @contextmanager
-def tmux_server_scope(socket_path: str | Path | None) -> Iterator[None]:
-    """Bind a runtime socket, retaining enclosing authority when none is supplied."""
+def tmux_server_scope(
+    socket_path: str | Path | None, *, allow_start: bool | None = None
+) -> Iterator[None]:
+    """Bind a socket and startup policy, inheriting an unchanged server's policy."""
 
-    selected = (
-        validate_tmux_socket_path(socket_path)
-        if socket_path is not None
-        else current_tmux_socket_path()
-    )
-    token = _SOCKET_PATH.set(selected)
+    enclosing, enclosing_start = _SERVER_SCOPE.get()
+    selected = validate_tmux_socket_path(socket_path) if socket_path is not None else enclosing
+    if allow_start is None and selected == enclosing:
+        allow_start = enclosing_start
+    token = _SERVER_SCOPE.set((selected, allow_start))
     try:
         yield
     finally:
-        _SOCKET_PATH.reset(token)
+        _SERVER_SCOPE.reset(token)
 
 
 class TmuxServer:
     """Bind one terminal operation's commands to its selected owner socket."""
 
     def __init__(
-        self, socket_path: str | Path | None = None, *, executable: str | None = None
+        self,
+        socket_path: str | Path | None = None,
+        *,
+        executable: str | None = None,
+        allow_start: bool | None = None,
     ) -> None:
         self.m_socket_path: str = (
             capture_tmux_socket_path()
@@ -194,6 +222,11 @@ class TmuxServer:
             else validate_tmux_socket_path(socket_path)
         )
         self.m_executable: str | None = executable
+        if allow_start is None and (
+            socket_path is None or self.m_socket_path == current_tmux_socket_path()
+        ):
+            allow_start = current_tmux_allow_start()
+        self.m_allow_start: bool = allow_start is not False
 
     @property
     def socket_path(self) -> str:
@@ -215,7 +248,7 @@ class TmuxServer:
             server = libtmux.Server(socket_path=self.m_socket_path, tmux_bin=self.m_executable)
             result = (
                 server.cmd("-N", operation, *arguments)
-                if no_start
+                if no_start or not self.m_allow_start
                 else server.cmd(operation, *arguments)
             )
         except (LibTmuxException, OSError, ValueError) as exc:
@@ -349,23 +382,33 @@ class TmuxServer:
         self.checked_command(args)
 
     def start(self, args: Sequence[str], *, environment: Mapping[str, str]) -> TmuxCommandResult:
-        """Start with a curated child environment, unavailable through libtmux."""
+        """Create a session with a curated environment on the bound server."""
+        from houmao.execution.tmux_selection import prepare_tmux_start_path
 
         command = args[2:] if args and args[0] == "-f" else args
         if not command or command[0] not in {"new-session", "start-server"}:
             raise ValueError("Expected a tmux server or session start command")
-        socket = Path(self.m_socket_path)
-        # The native default selector creates its private socket directory on first use.
-        native_default = (
-            socket == _native_default_socket(environment) and not socket.parent.exists()
-        )
-        return self._native_command(
-            args,
-            operation="startup",
-            environment=environment,
-            sensitive=True,
-            native_default=native_default,
-        )
+        try:
+            if self.m_allow_start:
+                prepare_tmux_start_path(Path(self.m_socket_path))
+            result = self._native_command(
+                args,
+                operation="startup",
+                environment=environment,
+                sensitive=True,
+            )
+        except (OSError, ValueError, TmuxCommandError) as exc:
+            raise TmuxCommandError(
+                f"Could not start tmux session at {self.m_socket_path}: {exc}"
+            ) from None
+        if result.returncode != 0:
+            return TmuxCommandResult(
+                result.args,
+                result.returncode,
+                "",
+                f"tmux startup at {self.m_socket_path} exited with status {result.returncode}",
+            )
+        return result
 
     def wait_for(self, channel: str, *, timeout_seconds: float | None = None) -> TmuxCommandResult:
         """Use a native client for waits that require a process deadline."""
@@ -412,11 +455,11 @@ class TmuxServer:
         except TmuxCommandError as exc:
             raise TmuxObservationUnavailable(str(exc), returncode=exc.returncode) from exc
 
-    def _native_argv(self, args: Sequence[str], *, native_default: bool = False) -> list[str]:
+    def _native_argv(self, args: Sequence[str]) -> list[str]:
         """Build the same socket selection for a named native process feature."""
 
-        selector = ["-L", "default"] if native_default else ["-S", self.m_socket_path]
-        return [self.m_executable or "tmux", *selector, *args]
+        no_start = [] if self.m_allow_start else ["-N"]
+        return [self.m_executable or "tmux", "-S", self.m_socket_path, *no_start, *args]
 
     def _native_command(
         self,
@@ -427,13 +470,12 @@ class TmuxServer:
         environment: Mapping[str, str] | None = None,
         timeout_seconds: float | None = None,
         sensitive: bool = False,
-        native_default: bool = False,
     ) -> TmuxCommandResult:
         """Run a named operation that needs native process controls or output."""
 
         try:
             completed = subprocess.run(
-                self._native_argv(args, native_default=native_default),
+                self._native_argv(args),
                 input=input_text,
                 env=self.native_environment()
                 if environment is None
@@ -469,12 +511,6 @@ def _without_tmux_selectors(environment: Mapping[str, str]) -> dict[str, str]:
     """Copy a child environment without inherited client selectors."""
 
     return {key: value for key, value in environment.items() if key not in {"TMUX", "TMUX_PANE"}}
-
-
-def _native_default_socket(environment: Mapping[str, str]) -> Path:
-    """Compute the socket addressed by tmux's native default name."""
-
-    return Path(environment.get("TMUX_TMPDIR") or "/tmp") / f"tmux-{os.getuid()}" / "default"
 
 
 def _lines_to_text(lines: Sequence[str]) -> str:

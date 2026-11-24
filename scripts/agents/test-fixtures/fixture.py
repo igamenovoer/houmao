@@ -106,6 +106,11 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     prepare.add_argument("--role", default="server-api-smoke")
     prepare.add_argument("--system-prompt-file", type=Path)
     prepare.add_argument("--executable")
+    prepare.add_argument(
+        "--tmux-server",
+        choices=("houmao-default", "new"),
+        help="Use the shared Houmao server (default) or a private server for this local run",
+    )
     for name in ("launch", "prompt", "interrupt", "stop", "browser-connection"):
         command = commands.add_parser(name, help=f"{name.title()} one prepared external run")
         command.add_argument("--run-dir", type=Path, required=True)
@@ -247,6 +252,7 @@ def main(argv: list[str] | None = None) -> int:
                     role=args.role,
                     prompt_file=args.system_prompt_file,
                     executable=args.executable,
+                    tmux_server=args.tmux_server,
                 )
                 payload = public_run(run)
             else:

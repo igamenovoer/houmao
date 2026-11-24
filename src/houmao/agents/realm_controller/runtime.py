@@ -31,11 +31,13 @@ from houmao.execution.models import ExecutionBindingV1
 from houmao.execution.tmux import (
     TmuxServer,
     capture_tmux_socket_path,
+    current_tmux_allow_start,
     current_tmux_socket_path,
     tmux_command as run_tmux_shared,
     tmux_server_scope,
     validate_tmux_socket_path,
 )
+from houmao.execution.tmux_selection import ResolvedTmuxServer
 
 from houmao.gateway.plugins import GatewayPluginConfiguration
 
@@ -492,7 +494,12 @@ def _runtime_execution_scope(
         socket_path = binding.tmux_socket
     with (
         execution_binding_scope(binding),
-        tmux_server_scope(str(socket_path) if socket_path is not None else None),
+        tmux_server_scope(
+            str(socket_path) if socket_path is not None else None,
+            allow_start=tmux_binding.server_allow_start is not False
+            if tmux_binding is not None
+            else None,
+        ),
     ):
         yield
 
@@ -612,9 +619,19 @@ def _execution_scoped_start(
         if execution_is_read_only():
             raise SessionManifestError("Read-only execution scope cannot launch an agent")
         binding = current_execution_binding()
-        selected = binding.tmux_socket if binding is not None else None
-        socket_path = selected or capture_tmux_socket_path()
-        with tmux_server_scope(socket_path):
+        pinned_socket = binding.tmux_socket if binding is not None else None
+        selected = kwargs.get("resolved_tmux_server")
+        if isinstance(selected, ResolvedTmuxServer):
+            if pinned_socket is not None and selected.socket_path != pinned_socket:
+                raise SessionManifestError("Selected tmux server differs from execution binding")
+            socket_path = selected.socket_path
+            allow_start = selected.allow_start
+        else:
+            socket_path = pinned_socket or capture_tmux_socket_path()
+            allow_start = not (
+                socket_path == current_tmux_socket_path() and current_tmux_allow_start() is False
+            )
+        with tmux_server_scope(socket_path, allow_start=allow_start):
             return operation(*args, **kwargs)
 
     return bound
@@ -645,7 +662,12 @@ def _execution_scoped_resume(
             raise SessionManifestError("Managed terminal resume requires a saved tmux socket")
         with (
             execution_binding_scope(binding),
-            tmux_server_scope(selected_socket),
+            tmux_server_scope(
+                selected_socket,
+                allow_start=payload.tmux.server_allow_start is not False
+                if payload.tmux is not None
+                else None,
+            ),
             execution_read_only_scope(read_only),
         ):
             return operation(*args, **kwargs)
@@ -755,6 +777,11 @@ class RuntimeSessionController:
         self.m_tmux_binding = SessionManifestTmuxSectionV1(
             session_name=session_name,
             socket_path=socket_path,
+            server_allow_start=(
+                self.m_tmux_binding.server_allow_start
+                if self.m_tmux_binding is not None
+                else current_tmux_allow_start()
+            ),
             primary_window_role=(
                 "supervisor_logs"
                 if self.launch_plan.mode in {"service", "web"}
@@ -2131,6 +2158,7 @@ def start_runtime_session(
     gateway_admin_seed: GatewayLaunchSeed | None = None,
     gateway_access_config: GatewayDeployment | None = None,
     tmux_session_name: str | None = None,
+    resolved_tmux_server: ResolvedTmuxServer | None = None,
     default_tmux_session_name: str | None = None,
     launch_env_overrides: dict[str, str] | None = None,
     managed_force_mode: ManagedLaunchForceMode | None = None,
@@ -4578,9 +4606,7 @@ def _ensure_tmux_session_exists(*, session_name: str) -> None:
     try:
         exists = tmux_session_exists_shared(session_name=session_name)
     except TmuxCommandError as exc:
-        raise SessionManifestError(
-            f"Failed to query tmux session `{session_name}`: {exc}"
-        ) from exc
+        raise SessionManifestError(f"Failed to query tmux session `{session_name}`: {exc}") from exc
     if not exists:
         raise SessionManifestError(
             f"Agent not found: tmux session `{session_name}` does not exist. "
@@ -6012,9 +6038,7 @@ def _launch_same_session_gateway_window(
         or not parts[2][1:].isascii()
         or not parts[2][1:].isdigit()
     ):
-        raise GatewayAttachError(
-            "Unexpected tmux new-window output while launching gateway"
-        )
+        raise GatewayAttachError("Unexpected tmux new-window output while launching gateway")
     handle = _TmuxAuxiliaryWindowHandle(
         window_id=parts[0],
         window_index=parts[1],

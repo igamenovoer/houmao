@@ -736,6 +736,14 @@ def test_kimi_fixtures_share_native_catalog_and_prepare_profile(
     assert native["thinking"]["effort"] == settings["reasoning_effort"]
     assert managed["configuration"]["reasoning_level"] == 2
     assert managed["project_profile"] == "fixture-agent"
+    defaults = fixture_prepare.manager_call(
+        Path(managed["project_dir"]),
+        ["profile", "get", "--name", "fixture-agent"],
+        env=fixture_prepare.isolated_environment({}, run_dir=Path(managed["run_dir"])),
+    )["defaults"]
+    assert defaults["posture"]["tmux"] == {"server": "houmao-default"}
+    assert defaults["model"] == {"name": settings["model"], "reasoning": {"level": 2}}
+    assert "tmux_socket_path" not in managed
     assert not (Path(managed["assets_root"]) / "tools/kimi/setups/fixture/config.toml").exists()
     assert "KIMI_MODEL_NAME" not in env_file.read_text()
 
@@ -876,6 +884,7 @@ def test_managed_fixture_selects_headless_explicitly(
         }
 
     monkeypatch.setattr(fixture_launch, "manager_call", launch)
+    monkeypatch.setattr(fixture_launch, "_record_managed_tmux", lambda _: None)
     report = fixture_launch.launch_run(Path(run["run_dir"]))
     assert report["backend"] == f"{client}_headless"
     assert report["client_version"] == "1.0.0"
