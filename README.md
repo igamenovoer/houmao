@@ -203,11 +203,13 @@ Houmao ships six system skills. Each directory works at rest and installs with a
 | `houmao-admin-welcome` | `admin` | **Start here.** Read-only first-use orientation with five guided paths; `$houmao-admin-welcome start-guided-tour` is the one invocation to learn first. |
 | `houmao-admin-entrypoint` | `admin` | Router for any Houmao-related request from a human operator. Informational requests stay local; operational work keeps the admin frame and requires explicit targets. |
 | `houmao-agent-entrypoint` | `agent` | Router for any Houmao-related request from a genuine managed-agent session. Operational work requires fresh identity verification first. |
-| `houmao-shared-routines` | `admin`, `agent` | Advanced router owning sixteen parent-scoped routines (project, credentials, definitions, messaging, gateway, mailbox, memory, inspection, workspace, and more). |
+| `houmao-shared-routines` | `admin`, `agent` | Advanced router for parent-scoped routines, including project definitions, messaging, gateway access, versioned files, and inspection. |
 | `houmao-agent-loop-pro` | `admin`, `agent` | Explicit entrypoint for schema-rich loop authoring and run control. |
 | `houmao-agent-loop-lite` | `admin`, `agent` | Explicit entrypoint for Markdown/direct-SQL loop authoring and run control. |
 
 Routing follows the actor: in a human-operator session your agent selects the admin entrypoint, and in a genuine managed session it selects the agent entrypoint. Welcome and both loop skills run only when invoked explicitly, and advanced users may call `$houmao-shared-routines` directly. The complete admin pack installs five roots (welcome, admin entrypoint, shared routines, both loops); the agent pack installs four. Pack membership, install lifecycle, route selection, and the full route map live in the [System Skills Overview](docs/getting-started/system-skills-overview.md) and the [System Skills CLI reference](docs/reference/cli/system-skills.md).
+
+For example, use `$houmao-admin-entrypoint agent-access help` for gateway policy or `$houmao-agent-entrypoint agent-files help` for versioned files on a peer gateway.
 
 ## Subsystems at a Glance
 

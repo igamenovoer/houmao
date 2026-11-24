@@ -24,7 +24,7 @@ There is no `system-skills help` subcommand. Skill-level help comes from `$houma
 
 ## V5 Static Collection and Pack Membership
 
-The `houmao-system-skills.v5` manifest records six standalone source directories. Each one has a role, activation posture, pack owners, commands, aliases, dependencies, and a complete source path. It also records sixteen parent-scoped children owned by shared routines, including actor eligibility, route name, dependencies, commands, and aliases.
+The `houmao-system-skills.v5` manifest records six standalone source directories. Each one has a role, activation posture, pack owners, commands, aliases, dependencies, and a complete source path. It also records the parent-scoped children owned by shared routines, including actor eligibility, route name, dependencies, commands, and aliases.
 
 | Pack | Audience | Static Top-Level Members | Default Lane |
 |---|---|---|---|
@@ -35,19 +35,19 @@ The `houmao-system-skills.v5` manifest records six standalone source directories
 
 The two actor entrypoints use narrow implicit activation. `houmao-admin-entrypoint` handles semantically Houmao-related requests in a raw human-operator context, and `houmao-agent-entrypoint` handles them in a genuine managed-agent context. `houmao-admin-welcome`, `houmao-shared-routines`, and both loop roots remain explicit-only. Exact `$houmao-*` handles take precedence over implicit discovery. In a combined installation, current execution context selects the actor entrypoint; prompt claims cannot turn a raw operator into managed self or a managed agent into admin.
 
-The sixteen shared children use `SKILL-MAIN.md` below `houmao-shared-routines/subskills/`. They are route targets, not top-level install members. The v5 manifest has no generated or separate prompt-delivery skill category.
+Declared shared children use `SKILL-MAIN.md` below `houmao-shared-routines/subskills/`. They are route targets, not top-level install members. The v5 manifest has no generated or separate prompt-delivery skill category.
 
 ## Top-Level Release Metadata
 
-Each of the six standalone public `SKILL.md` roots declares one quoted `houmao_version` equal to the Houmao project release. The value identifies the checked-in static tree that a copy-paste installer, Skills CLI, or Houmao lifecycle projects without rendering. Release validation compares all six source values with `[project].version` before local distribution builds and tagged publication.
+Each of the six standalone public `SKILL.md` roots declares one quoted `metadata.houmao_version` equal to the Houmao project release. The value identifies the checked-in static tree that a copy-paste installer, Skills CLI, or Houmao lifecycle projects without rendering. Release validation compares all six source values with `[project].version` before local distribution builds and tagged publication.
 
-The sixteen `SKILL-MAIN.md` children do not declare independent versions. `houmao-shared-routines/SKILL.md` is the release authority for the complete shared tree. Legacy skills, generated execplan skills, and project-authored skills remain outside this contract.
+The parent-scoped `SKILL-MAIN.md` children do not declare independent versions. `houmao-shared-routines/SKILL.md` is the release authority for the complete shared tree. Legacy skills, generated execplan skills, and project-authored skills remain outside this contract.
 
 Three values answer different questions:
 
 | Evidence | Meaning |
 |---|---|
-| Installed `houmao_version` | Release string declared by the installed top-level `SKILL.md`; doctor uses this as observed version evidence. |
+| Installed `houmao_version` | Value of `metadata.houmao_version` in the installed root's `SKILL.md`. Doctor uses this as observed version evidence. |
 | Config `houmao_version` | Houmao package release recorded by the last lifecycle mutation; it does not replace installed frontmatter evidence. |
 | Content digest | Exact complete-tree compatibility with the running packaged source, including commands, assets, scripts, references, and shared children. |
 
@@ -100,7 +100,7 @@ Kimi discovers projected skills when a later launch uses the same `KIMI_CODE_HOM
 
 - each pack's id, audience, description, complete standalone membership, and default lanes;
 - each of the six standalone skills with role, activation posture, pack owners, commands, aliases, and dependencies;
-- each of the sixteen shared children with route, audiences, dependencies, commands, aliases, and parent-qualified invocation;
+- each declared shared child with route, audiences, dependencies, commands, aliases, and parent-qualified invocation;
 - the three overlapping standalone members.
 
 ```bash
@@ -170,7 +170,7 @@ Member and pack integrity classes are:
 | Status | Meaning |
 |---|---|
 | `absent` | The config does not own the member or pack. |
-| `complete` | Every owned static destination has the recorded shape and digest; shared routines contain all sixteen children. |
+| `complete` | Every owned static destination has the recorded shape and digest; shared routines contain all declared children. |
 | `incomplete` | An owned destination or required shared child is missing. |
 | `drifted` | Config-owned content differs from its recorded or packaged digest. |
 | `conflicting` | A destination has the wrong type, symlink target, or ownership shape. |
@@ -197,7 +197,7 @@ houmao-mgr system-skills doctor --tool codex --home ~/.codex --pack admin --pack
 houmao-mgr --print-json system-skills doctor --tool universal --home ~/.agents --pack admin
 ```
 
-A complete copy-paste or Skills CLI installation can be healthy without a Houmao skill config. Doctor reads each installed top-level `SKILL.md`, checks its complete tree against the running package, and requires the exact sixteen shared child entrypoints when shared routines is expected. Config status and config `houmao_version` appear as separate supporting evidence.
+A complete copy-paste or Skills CLI installation can be healthy without a Houmao skill config. Doctor reads each installed top-level `SKILL.md`, checks its complete tree against the running package, and requires exactly the shared child entrypoints declared in the manifest when shared routines is expected. Config status and config `houmao_version` appear as separate supporting evidence.
 
 Managed-agent mode resolves a known local registry record, its session manifest, its brain manifest, the recorded tool, and the persistent home. It does not require a live gateway, lease, tmux session, or provider TUI, so a stopped agent remains diagnosable while those authority files and its home remain readable:
 
@@ -209,7 +209,7 @@ houmao-mgr --print-json system-skills doctor --agent-id <authoritative-agent-id>
 
 Friendly names must resolve to exactly one local record. Use `--agent-id` when a name is ambiguous. Agent selectors cannot be combined with `--tool` or `--home`, and external communication-only agents are not valid doctor targets.
 
-Each member reports integrity independently as `absent`, `complete`, `incomplete`, `drifted`, or `conflicting`. Its version status is one of `match`, `mismatch`, `missing`, `invalid`, or `unavailable`. A matching version does not hide edited content, and a config `houmao_version` does not substitute for missing installed metadata. A running version of `0+unknown` produces `unavailable` rather than a false match.
+Each member reports integrity independently as `absent`, `complete`, `incomplete`, `drifted`, or `conflicting`. Its version status is one of `match`, `mismatch`, `missing`, `invalid`, or `unavailable`. A matching version does not hide edited content, and a config `houmao_version` does not substitute for missing installed metadata. A running version of `0+unknown` produces `unavailable`. If a prior release declares only a top-level `houmao_version`, doctor reports the nested field as `missing`. Use the ordinary pack upgrade for manager-owned installations or replace the complete skill roots through the original installation tool.
 
 Doctor exits with code 0 only when every expected root has current complete content and a matching version. It emits the full diagnostic and exits with code 1 for health failures. Invalid selectors and unresolved targets use Click exit code 2. Doctor never installs, upgrades, repairs, launches, or writes a config. After a mismatch, choose a separate explicit install or upgrade only after reviewing the reported content and ownership evidence.
 
@@ -300,9 +300,9 @@ Direct calls do not bypass actor eligibility, target rules, identity checks, gat
 
 | Logical ID | Eligible Actor | Major Command Family |
 |---|---|---|
-| `houmao-project-mgr` | Admin | Project initialization, status, launch profiles, easy instances |
+| `houmao-project-mgr` | Admin | Project initialization, status, and easy instances |
 | `houmao-credential-mgr` | Admin | Project and native credential operations |
-| `houmao-agent-definition` | Admin | Roles, recipes, launch dossiers, specialists, profiles, launch and stop |
+| `houmao-agent-definition` | Admin | Roles, recipes, launch dossiers, specialists, project profiles, definition authoring and deployment |
 | `houmao-operator-messaging` | Admin | Clarify, confirm, and dispatch prompt or mail |
 | `houmao-process-emails-via-gateway` | Agent | Prompt-provided gateway mail round |
 | `houmao-agent-email-comms` | Admin, Agent | Resolver, scoped mail, gateway API, and transport fallback |
@@ -311,10 +311,12 @@ Direct calls do not bypass actor eligibility, target rules, identity checks, gat
 | `houmao-ext-graphing` | Admin, Agent | Plotly and Vega-Lite graphing workflows |
 | `houmao-mailbox-mgr` | Admin, Agent | Mailbox roots, registration, binding, cleanup, and export |
 | `houmao-memory-mgr` | Admin, Agent | Managed memo read, write, and remove |
-| `houmao-agent-instance` | Admin, Agent | Launch, join, list, stop, relaunch, and cleanup |
+| `houmao-agent-instance` | Admin, Agent | Lifecycle, native resources, runtime variables, mindsets, and private workspace |
 | `houmao-agent-inspect` | Admin, Agent | Discovery, screen, mailbox, artifacts, and logs |
 | `houmao-agent-messaging` | Admin, Agent | Prompt, interrupt, queue, raw input, mail, and reset context |
-| `houmao-agent-gateway` | Admin, Agent | Gateway lifecycle, services, reminders, notifier, and watch |
+| `houmao-agent-gateway` | Admin, Agent | Gateway lifecycle, services, reminders, notifier, and Web entry |
+| `houmao-agent-access` | Admin, Agent | Retained access policy, live administrator roster, peer identity, and signed requests |
+| `houmao-agent-files` | Admin, Agent | Authorized logical mounts, draft edits, candidate publication, and reconciliation |
 | `houmao-interop-ag-ui` | Admin, Agent | AG-UI validation, framing, rendering, and publishing |
 
 `specialist-mgr` remains an admin and direct-shared compatibility alias. It explains the original specialist route and delegates to `houmao-agent-definition`; it does not own another command tree.

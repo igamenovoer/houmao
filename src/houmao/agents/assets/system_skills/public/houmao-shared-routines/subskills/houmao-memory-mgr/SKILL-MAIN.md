@@ -2,19 +2,50 @@
 name: houmao-memory-mgr
 description: "Use when the user's intent is to read or write a Houmao-managed agent's `houmao-memo.md` file or a reusable profile's Houmao memo seed. Necessary trigger: `memo` is mentioned. Sufficient trigger: the prompt or context says `houmao memo`, says `agent memo` where the agent clearly refers to a Houmao-managed agent, or asks for an easy/launch dossier memo seed. An explicit reference to `houmao-memo.md` is a very strong hint to call this skill."
 license: MIT
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Houmao Memory Manager
+
+## Workflow
+
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
+
+1. Determine the target kind before choosing an edit surface:
+   - If the prompt or recent context clearly says the user is working with a reusable launch profile, project profile, profile defaults, birth-time config, future launches, or `--launch-profile`/`--profile`, update that launch profile's Houmao memo seed. Do not mutate any live agent memo for that request.
+   - Otherwise, treat the request as a live managed-agent memory request. If the request is about the current managed agent, prefer `HOUMAO_AGENT_MEMO_FILE` and `HOUMAO_AGENT_PAGES_DIR`; when those are unavailable inside a managed session, use `houmao-mgr agents self memory path`. If it names another managed agent, use `houmao-mgr agents single --agent-name <name> memory path` or `houmao-mgr agents single --agent-id <id> memory path` to find the memo and pages paths.
+2. Choose one `houmao-mgr` launcher for this turn:
+   - first use `command -v houmao-mgr` when available
+   - otherwise use `uv tool run --from houmao houmao-mgr`
+   - only then use a development launcher such as `pixi run houmao-mgr`, `.venv/bin/houmao-mgr`, or `uv run houmao-mgr`
+3. For a launch dossier memo seed, identify the lane:
+   - project profile: inspect directly when needed, then create or update through `project.profile.create` or `project.profile.set`
+   - launch dossier: inspect directly when needed, then create or update through `internals.native-agent.launch-dossiers.add` or `internals.native-agent.launch-dossiers.set`
+   - if the lane is ambiguous after checking prompt and context, ask whether the user means a project profile or a launch dossier before editing.
+4. For a launch dossier memo seed edit, read the profile first, then use the maintained profile `set` command with exactly one memo seed source when setting content:
+   - `--memo-seed-text <text>` for short inline memo content
+   - `--memo-seed-file <path>` for one Markdown file whose content becomes `houmao-memo.md`
+   - `--memo-seed-dir <path>` for a memo-shaped directory containing `houmao-memo.md` and/or `pages/`
+5. Do not pass memo seed fields to `internals config-drafts generate`; config drafts are minimal profile authoring aids that accept only name/source/credential holes. Live memory commands remain direct skill guidance and are not profile config-draft commands.
+6. Memo seeds always replace only the managed-memory components represented by the seed source: text and file seeds touch only `houmao-memo.md`, while directory seeds touch `houmao-memo.md` only when that file is present and pages only when `pages/` is present. Use `--clear-memo-seed` when the user asks to remove stored seed configuration. Never combine `--clear-memo-seed` with a seed source.
+7. Do not use prompt overlays as a substitute for memo seeds. Prompt overlays shape launch prompts; memo seeds materialize durable `houmao-memo.md` and contained `pages/` content before a profile-backed launch starts.
+8. For a live managed-agent edit, read before editing. Use `agents self memory memo show` or `agents single ... memory memo show` for the fixed memo, and `agents self memory read --path <page>` or `agents single ... memory read --path <page>` for a page.
+9. For live memo edits, keep the smallest meaningful change. Prefer `memo append` for simple additions. For removals or rewrites, replace the full memo with `memo set` after preserving unrelated text. Confirm the write using the first receipt's `success`, `action`, and `memo_file` fields. When you need the resulting contents, run `memory memo show` in the same scope.
+10. For live supporting pages, use `tree`, `resolve`, `read`, `write`, `append`, and `delete` with a `--path` relative to `pages/`.
+11. When a live memo should reference a page, author a normal Markdown link such as `[run notes](pages/notes/run.md)`; use `resolve --path <page>` when you need the exact memo-relative link or absolute page path.
+
+
+If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
 
 ## Actor Frame Gate
 
@@ -82,35 +113,6 @@ This skill covers only Houmao-managed memo surfaces:
 
 It does not cover provider-native memory, mailbox state, gateway reminders, runtime manifests, task queues, or arbitrary work artifacts.
 
-## Workflow
-
-Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
-
-1. Determine the target kind before choosing an edit surface:
-   - If the prompt or recent context clearly says the user is working with a reusable launch profile, project profile, profile defaults, birth-time config, future launches, or `--launch-profile`/`--profile`, update that launch profile's Houmao memo seed. Do not mutate any live agent memo for that request.
-   - Otherwise, treat the request as a live managed-agent memory request. If the request is about the current managed agent, prefer `HOUMAO_AGENT_MEMO_FILE` and `HOUMAO_AGENT_PAGES_DIR`; when those are unavailable inside a managed session, use `houmao-mgr agents self memory path`. If it names another managed agent, use `houmao-mgr agents single --agent-name <name> memory path` or `houmao-mgr agents single --agent-id <id> memory path` to find the memo and pages paths.
-2. Choose one `houmao-mgr` launcher for this turn:
-   - first use `command -v houmao-mgr` when available
-   - otherwise use `uv tool run --from houmao houmao-mgr`
-   - only then use a development launcher such as `pixi run houmao-mgr`, `.venv/bin/houmao-mgr`, or `uv run houmao-mgr`
-3. For a launch dossier memo seed, identify the lane:
-   - project profile: inspect directly when needed, then create or update through `project.profile.create` or `project.profile.set`
-   - launch dossier: inspect directly when needed, then create or update through `internals.native-agent.launch-dossiers.add` or `internals.native-agent.launch-dossiers.set`
-   - if the lane is ambiguous after checking prompt and context, ask whether the user means a project profile or a launch dossier before editing.
-4. For a launch dossier memo seed edit, read the profile first, then use the maintained profile `set` command with exactly one memo seed source when setting content:
-   - `--memo-seed-text <text>` for short inline memo content
-   - `--memo-seed-file <path>` for one Markdown file whose content becomes `houmao-memo.md`
-   - `--memo-seed-dir <path>` for a memo-shaped directory containing `houmao-memo.md` and/or `pages/`
-5. Do not pass memo seed fields to `internals config-drafts generate`; config drafts are minimal profile authoring aids that accept only name/source/credential holes. Live memory commands remain direct skill guidance and are not profile config-draft commands.
-6. Memo seeds always replace only the managed-memory components represented by the seed source: text and file seeds touch only `houmao-memo.md`, while directory seeds touch `houmao-memo.md` only when that file is present and pages only when `pages/` is present. Use `--clear-memo-seed` when the user asks to remove stored seed configuration. Never combine `--clear-memo-seed` with a seed source.
-7. Do not use prompt overlays as a substitute for memo seeds. Prompt overlays shape launch prompts; memo seeds materialize durable `houmao-memo.md` and contained `pages/` content before a profile-backed launch starts.
-8. For a live managed-agent edit, read before editing. Use `agents self memory memo show` or `agents single ... memory memo show` for the fixed memo, and `agents self memory read --path <page>` or `agents single ... memory read --path <page>` for a page.
-9. For live memo edits, keep the smallest meaningful change. Prefer `memo append` for simple additions. For removals or rewrites, replace the full memo with `memo set` after preserving unrelated text. Confirm the write using the first receipt's `success`, `action`, and `memo_file` fields. When you need the resulting contents, run `memory memo show` in the same scope.
-10. For live supporting pages, use `tree`, `resolve`, `read`, `write`, `append`, and `delete` with a `--path` relative to `pages/`.
-11. When a live memo should reference a page, author a normal Markdown link such as `[run notes](pages/notes/run.md)`; use `resolve --path <page>` when you need the exact memo-relative link or absolute page path.
-
-
-If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
 ## Missing Input Questions
 
 - Recover required values from the current prompt first and recent chat context second, but only when the user stated them explicitly.

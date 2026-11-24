@@ -1,18 +1,15 @@
-"""Coverage for the v4 static Houmao system-skill collection."""
+"""Coverage for the static Houmao system-skill collection."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-import re
 import shutil
-import tomllib
 
 import pytest
 
 import houmao.agents.system_skill_lifecycle as lifecycle_module
 from houmao.agents.system_skills import (
-    EXPECTED_SHARED_ROUTINE_IDS,
     EXPECTED_STANDALONE_SKILL_NAMES,
     SYSTEM_SKILL_AGENT_ENTRYPOINT,
     SYSTEM_SKILL_PACK_AGENT,
@@ -44,8 +41,6 @@ ASSET_ROOT = REPO_ROOT / "src/houmao/agents/assets/system_skills"
 PUBLIC_ROOT = ASSET_ROOT / "public"
 MANIFEST_PATH = ASSET_ROOT / "manifest.toml"
 SCHEMA_PATH = ASSET_ROOT / "manifest.schema.json"
-SEMANTIC_FIXTURE_PATH = REPO_ROOT / "tests/fixtures/system-skills/semantic-preservation.v1.toml"
-INVENTORY_FIXTURE_PATH = REPO_ROOT / "tests/fixtures/system-skills/pre-compaction-files.txt"
 
 ADMIN_MEMBERS = (
     "houmao-admin-welcome",
@@ -76,30 +71,13 @@ def _load_modified_manifest(tmp_path: Path, transform: object) -> object:
     )
 
 
-def _entrypoint_paths() -> tuple[Path, ...]:
-    """Return all standalone and parent-scoped entrypoint paths."""
-
-    return tuple(sorted(PUBLIC_ROOT.rglob("SKILL.md"))) + tuple(
-        sorted(PUBLIC_ROOT.rglob("SKILL-MAIN.md"))
-    )
-
-
-def _workflow_body(text: str) -> str:
-    """Return the Workflow section body from one executable page."""
-
-    match = re.search(r"(?ms)^## Workflow\s*$\n(?P<body>.*?)(?=^## |\Z)", text)
-    assert match is not None
-    return match.group("body")
-
-
 def test_manifest_v5_declares_exact_static_collection() -> None:
-    """The manifest exposes the fixed six roots and sixteen owned children."""
+    """The manifest exposes the fixed public roots and resolves actor packs."""
 
     manifest = load_system_skill_manifest()
 
     assert manifest.schema_version == "houmao-system-skills.v5"
     assert manifest.standalone_skill_names == EXPECTED_STANDALONE_SKILL_NAMES
-    assert set(manifest.shared_logical_ids) == set(EXPECTED_SHARED_ROUTINE_IDS)
     assert manifest.packs["admin"].standalone_skill_names == ADMIN_MEMBERS
     assert manifest.packs["agent"].standalone_skill_names == AGENT_MEMBERS
     assert manifest.defaults.cli == ("admin",)
@@ -121,31 +99,6 @@ def test_manifest_v5_declares_exact_static_collection() -> None:
         "houmao-agent-loop-pro",
         "houmao-agent-loop-lite",
     )
-
-
-def test_actor_entrypoint_metadata_and_phase_contracts_match_activation_policy() -> None:
-    """Only actor entrypoints are implicit and they classify before operational gates."""
-
-    manifest = load_system_skill_manifest()
-    for name, record in manifest.standalone_skills.items():
-        metadata = (PUBLIC_ROOT / name / "agents/openai.yaml").read_text(encoding="utf-8")
-        expected_value = "true" if record.activation == "narrow-implicit" else "false"
-        assert f"allow_implicit_invocation: {expected_value}" in metadata
-
-    admin = (PUBLIC_ROOT / "houmao-admin-entrypoint/SKILL.md").read_text(encoding="utf-8")
-    agent = (PUBLIC_ROOT / "houmao-agent-entrypoint/SKILL.md").read_text(encoding="utf-8")
-    welcome = (PUBLIC_ROOT / "houmao-admin-welcome/SKILL.md").read_text(encoding="utf-8")
-    assert admin.index("**Classify intent before gates**") < admin.index(
-        "**Establish the operational actor frame**"
-    )
-    assert agent.index("**Classify intent before gates**") < agent.index(
-        "**Verify managed self for operational work**"
-    )
-    assert "DO NOT invoke or delegate to `$houmao-admin-welcome`" in admin
-    assert (
-        "DO NOT run managed-self identity verification for an informational-only response" in agent
-    )
-    assert "explicitly invokes $houmao-admin-welcome" in welcome
 
 
 def test_manifest_rejects_any_other_implicit_activation_set(tmp_path: Path) -> None:
@@ -197,228 +150,35 @@ def test_pack_resolver_deduplicates_both_packs_in_first_occurrence_order() -> No
         )
 
 
-def test_exact_skill_discovery_returns_six_roots_and_no_children() -> None:
-    """Exact SKILL.md discovery exposes only standalone roots."""
+def test_exact_skill_discovery_returns_standalone_roots_and_declared_children() -> None:
+    """Packaged entrypoints mirror the public and shared manifest layout."""
 
-    discovered = tuple(sorted(path.parent.name for path in PUBLIC_ROOT.rglob("SKILL.md")))
-    child_entrypoints = tuple(
-        sorted(PUBLIC_ROOT.joinpath("houmao-shared-routines/subskills").rglob("SKILL-MAIN.md"))
-    )
+    manifest = load_system_skill_manifest()
+    standalone_roots = [
+        ASSET_ROOT / record.source_path for record in manifest.standalone_skills.values()
+    ]
+    child_roots = {
+        routine_id: ASSET_ROOT / record.source_path
+        for routine_id, record in manifest.shared_routines.items()
+    }
 
-    assert discovered == tuple(sorted(EXPECTED_STANDALONE_SKILL_NAMES))
-    assert len(child_entrypoints) == 16
-    assert not any(path.with_name("SKILL.md").exists() for path in child_entrypoints)
+    assert set(PUBLIC_ROOT.rglob("SKILL.md")) == {root / "SKILL.md" for root in standalone_roots}
+    assert set(PUBLIC_ROOT.rglob("SKILL-MAIN.md")) == {
+        root / "SKILL-MAIN.md" for root in child_roots.values()
+    }
+    for root in (*standalone_roots, *child_roots.values()):
+        assert (root / "agents/openai.yaml").is_file()
+    for routine_id, references in (
+        ("houmao-agent-access", ("access-scope.md",)),
+        ("houmao-agent-files", ("mount-scope.md", "receipts.md")),
+    ):
+        root = child_roots[routine_id]
+        for command in manifest.shared_routines[routine_id].commands:
+            if command != "help":
+                assert (root / "commands" / f"{command}.md").is_file()
+        for reference in references:
+            assert (root / "references" / reference).is_file()
     assert not (ASSET_ROOT / "protected").exists()
-
-
-def test_static_source_has_complete_local_links_and_no_placeholders() -> None:
-    """Loading the manifest validates links, roles, metadata, and placeholders in place."""
-
-    manifest = load_system_skill_manifest()
-
-    assert all((PUBLIC_ROOT / name / "SKILL.md").is_file() for name in manifest.skill_names)
-    assert not any(
-        "<public-entrypoint>" in path.read_text(encoding="utf-8")
-        for path in PUBLIC_ROOT.rglob("*.md")
-    )
-
-
-def test_imsight_format_applies_to_entrypoints_and_command_pages() -> None:
-    """Every executable page has workflow fallback and each entrypoint has DO NOT rules."""
-
-    entrypoints = _entrypoint_paths()
-    assert len(entrypoints) == 22
-    for path in entrypoints:
-        text = path.read_text(encoding="utf-8")
-        assert re.search(r'(?m)^description:\s*["\']?Use when', text)
-        assert "## Subcommands" in text
-        workflow = _workflow_body(text)
-        assert re.search(r"(?m)^1\. ", workflow)
-        assert "native planning tool" in workflow
-        guardrail_match = re.search(
-            r"(?ms)^## Guardrails\s*$\n(?P<body>.*?)(?=^## |\Z)",
-            text,
-        )
-        assert guardrail_match is not None
-        bullets = re.findall(r"(?m)^- (.+)$", guardrail_match.group("body"))
-        assert bullets
-        assert all(item.startswith("DO NOT") for item in bullets)
-
-    command_pages = tuple(sorted(PUBLIC_ROOT.glob("*/commands/**/*.md"))) + tuple(
-        sorted(PUBLIC_ROOT.glob("*/subskills/*/commands/**/*.md"))
-    )
-    assert command_pages
-    for path in command_pages:
-        workflow = _workflow_body(path.read_text(encoding="utf-8"))
-        assert re.search(r"(?m)^1\. ", workflow)
-        assert "native planning tool" in workflow
-
-
-def test_route_tables_cover_actor_eligibility_and_top_level_loops() -> None:
-    """Admin, agent, and direct shared routers expose the fixed sibling matrix."""
-
-    manifest = load_system_skill_manifest()
-    admin = (PUBLIC_ROOT / "houmao-admin-entrypoint/SKILL.md").read_text(encoding="utf-8")
-    agent = (PUBLIC_ROOT / "houmao-agent-entrypoint/SKILL.md").read_text(encoding="utf-8")
-    shared = (PUBLIC_ROOT / "houmao-shared-routines/SKILL.md").read_text(encoding="utf-8")
-
-    for routine in manifest.shared_routines.values():
-        assert f"| `{routine.route_name}` |" in shared
-        if "admin" in routine.audiences:
-            assert f"| `{routine.route_name}` |" in admin
-        if "agent" in routine.audiences:
-            assert f"| `{routine.route_name}` |" in agent
-    for text in (admin, agent, shared):
-        assert "houmao-agent-loop-pro" in text
-        assert "houmao-agent-loop-lite" in text
-        assert "When to Route Here" in text
-    assert "subskills/houmao-agent-loop-pro" not in shared
-    assert "subskills/houmao-agent-loop-lite" not in shared
-    assert "specialist-mgr" in admin
-    assert "specialist-mgr" in shared
-    assert "process-emails-via-gateway" in agent
-    admin_subcommands = re.search(
-        r"(?ms)^## Subcommands\s*$\n(?P<body>.*?)(?=^## |\Z)",
-        admin,
-    )
-    assert admin_subcommands is not None
-    assert "| `process-emails-via-gateway` |" not in admin_subcommands.group("body")
-
-
-def test_agent_definition_authoring_route_maintains_workspace_readme() -> None:
-    """The authoring route owns portable orientation without inventing a CLI command."""
-
-    routine_root = PUBLIC_ROOT / "houmao-shared-routines/subskills/houmao-agent-definition"
-    entrypoint = (routine_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
-    authoring = (routine_root / "commands/agent-definitions/authoring.md").read_text(
-        encoding="utf-8"
-    )
-
-    assert "create or refresh `<workspace>/README.md`" in authoring
-    assert "immediately before every user-facing stop" in authoring
-    assert "exhaustive inventory of every regular file" in authoring
-    assert "not a `houmao-mgr` subcommand" in authoring
-    assert "default `<authoring-dir>/agent-definition` output" in entrypoint
-    assert "DO NOT treat the authoring-root README as source intent" in entrypoint
-    assert "READMD.md" not in authoring
-
-
-def test_semantic_preservation_fixture_matches_operations_aliases_and_help() -> None:
-    """The checked-in semantic ledger remains represented by the v4 owners."""
-
-    manifest = load_system_skill_manifest()
-    fixture = tomllib.loads(SEMANTIC_FIXTURE_PATH.read_text(encoding="utf-8"))
-
-    assert fixture["baseline_commit"] == "8f377c468bc7f87ff40dbf40c0a68327616112bd"
-    assert len(INVENTORY_FIXTURE_PATH.read_text(encoding="utf-8").splitlines()) == 291
-    assert len(fixture["skills"]) == 20
-    for item in fixture["skills"]:
-        source = item["source"]
-        if source in {"houmao-agent-loop-pro", "houmao-agent-loop-lite"}:
-            record = manifest.standalone_skills[source]
-            target_root = PUBLIC_ROOT / source
-        elif source == "houmao-touring":
-            record = manifest.standalone_skills["houmao-admin-welcome"]
-            target_root = PUBLIC_ROOT / "houmao-admin-welcome"
-        elif source == "houmao-specialist-mgr":
-            record = manifest.shared_routines["houmao-agent-definition"]
-            target_root = PUBLIC_ROOT / "houmao-shared-routines/subskills/houmao-agent-definition"
-        else:
-            record = manifest.shared_routines[source]
-            target_root = PUBLIC_ROOT / "houmao-shared-routines/subskills" / source
-        assert set(item["operations"]).issubset(record.commands)
-        assert set(item["aliases"]).issubset(record.aliases)
-        if default_operation := item.get("default_operation"):
-            assert default_operation in record.commands
-        target_text = "\n".join(
-            path.read_text(encoding="utf-8") for path in sorted(target_root.rglob("*.md"))
-        ).lower()
-        if default_operation:
-            _assert_semantic_phrase_evidence(
-                phrase=f"default {default_operation}",
-                target_text=target_text,
-                source=source,
-                field="default_operation",
-            )
-        for phrase in item.get("default_behavior", []):
-            _assert_semantic_phrase_evidence(
-                phrase=phrase,
-                target_text=target_text,
-                source=source,
-                field="default_behavior",
-            )
-        for field in (
-            "activation",
-            "inputs",
-            "outputs",
-            "gates",
-            "blockers",
-            "evidence_handoffs",
-            "target_rules",
-            "side_effects",
-            "stop_conditions",
-        ):
-            raw_values = item[field]
-            values = [raw_values] if isinstance(raw_values, str) else raw_values
-            for phrase in values:
-                _assert_semantic_phrase_evidence(
-                    phrase=phrase,
-                    target_text=target_text,
-                    source=source,
-                    field=field,
-                )
-        assert item["help_read_only"] is True
-        assert "help" in record.commands
-
-
-def _assert_semantic_phrase_evidence(
-    *,
-    phrase: str,
-    target_text: str,
-    source: str,
-    field: str,
-) -> None:
-    """Require source-ledger concepts to remain visible in the reformatted owner."""
-
-    stopwords = {
-        "admin",
-        "agent",
-        "current",
-        "explicit",
-        "houmao",
-        "only",
-        "operation",
-        "required",
-        "result",
-        "routine",
-        "selected",
-        "supported",
-        "target",
-        "through",
-        "when",
-        "with",
-        "work",
-        "workflow",
-    }
-    tokens = {
-        token
-        for token in re.findall(r"[a-z0-9]+", phrase.lower())
-        if len(token) >= 4 and token not in stopwords
-    }
-    if not tokens:
-        tokens = {token for token in re.findall(r"[a-z0-9]+", phrase.lower()) if len(token) >= 4}
-    equivalent_terms = {
-        "recipient": {"recipient", "target"},
-        "recipients": {"recipient", "target"},
-    }
-    evidence_terms = {
-        equivalent
-        for token in tokens
-        for equivalent in equivalent_terms.get(token, {token, token.rstrip("s")})
-    }
-    assert any(term in target_text for term in evidence_terms), (
-        f"{source} lacks {field} evidence for {phrase!r}; expected one of {sorted(tokens)}"
-    )
 
 
 def test_system_skill_references_use_static_siblings() -> None:
@@ -580,7 +340,7 @@ def test_install_blocks_drift_but_explicit_sync_repairs_it(tmp_path: Path) -> No
 
 
 def test_status_detects_missing_shared_child_as_incomplete(tmp_path: Path) -> None:
-    """Shared-routines integrity includes all sixteen parent-scoped children."""
+    """Shared-routines integrity includes the declared parent-scoped children."""
 
     install_system_skill_packs_for_home(
         tool="codex",

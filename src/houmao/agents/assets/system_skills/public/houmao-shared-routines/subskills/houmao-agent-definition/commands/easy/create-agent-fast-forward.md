@@ -40,8 +40,8 @@ This workflow creates or selects a specialist, creates or updates a project prof
 8. Report the intended mode, mailbox root, principal ID, and address. For a profile without a stored mode, report the [tool default](../../references/common/profile-lanes.md#run-modes).
 9. Stop. Do not run the launch command.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Defaults To Store
 
 - specialist name
@@ -61,6 +61,8 @@ If the request does not map cleanly to this workflow, use the native planning to
 - prompt overlay: `--prompt-overlay-mode`, `--prompt-overlay-text`, `--prompt-overlay-file`
 - notifier appendix: `--gateway-mail-notifier-appendix-text`
 - memo seed: `--memo-seed-text`, `--memo-seed-file`, `--memo-seed-dir`
+
+- When specialist-create tool or credential is omitted, apply Specialist Create Defaulting.
 
 ## Command Shapes
 
@@ -116,14 +118,13 @@ Report:
 
 ## Guardrails
 
-- Do not launch the managed agent.
-- Do not guess missing specialist, profile, tool, credential, managed-agent identity, workdir, gateway, prompt, model, or env inputs.
-- Do not persist profile `--prompt-mode` unless prompt mode is explicit in the user request or recovered explicit context.
-- Do not treat unattended prompt mode as evidence that headless launch was requested.
-- Do not add raw Kimi `--auto` or `--yolo` launch flags to achieve managed unattended mode.
-- When specialist-create tool or credential is omitted, apply Specialist Create Defaulting.
-- Do not continue if defaulting finds no Houmao target or no registered credentials; report the suggested fix.
-- Do not skip default mailbox setup merely because the user did not mention mailbox; initialize the mailbox root and store default filesystem mailbox posture on the profile.
-- Do not manually preregister the same-root ordinary per-agent mailbox address during fast-forward; the later mailbox-backed launch creates the agent mailbox from the stored profile defaults.
-- Do not describe the ordinary mailbox address as `HOUMAO-<agent-name>@houmao.localhost`; `HOUMAO-<agent-name>` is the principal id, and `<agent-name>@houmao.localhost` is the address.
-- Do not treat `create-agent-fast-forward` as broad live-agent lifecycle work.
+- DO NOT launch the managed agent.
+- DO NOT guess missing specialist, profile, tool, credential, managed-agent identity, workdir, gateway, prompt, model, or env inputs.
+- DO NOT persist profile `--prompt-mode` unless prompt mode is explicit in the user request or recovered explicit context.
+- DO NOT treat unattended prompt mode as evidence that headless launch was requested.
+- DO NOT add raw Kimi `--auto` or `--yolo` launch flags to achieve managed unattended mode.
+- DO NOT continue if defaulting finds no Houmao target or no registered credentials; report the suggested fix.
+- DO NOT skip default mailbox setup merely because the user did not mention mailbox; initialize the mailbox root and store default filesystem mailbox posture on the profile.
+- DO NOT manually preregister the same-root ordinary per-agent mailbox address during fast-forward; the later mailbox-backed launch creates the agent mailbox from the stored profile defaults.
+- DO NOT describe the ordinary mailbox address as `HOUMAO-<agent-name>@houmao.localhost`; `HOUMAO-<agent-name>` is the principal id, and `<agent-name>@houmao.localhost` is the address.
+- DO NOT treat `create-agent-fast-forward` as broad live-agent lifecycle work.

@@ -14,8 +14,8 @@ Use this action only when the user wants to run a maintained provider login help
 8. Preserve the current shell's proxy environment in the tmux session by passing set proxy variables explicitly with tmux `-e` arguments.
 9. Report the credential name, provider command, and temp-home cleanup status returned by the command.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Required Inputs
 
 - `tool`: one of `claude` or `codex`
@@ -64,13 +64,14 @@ If `tmux` is not available, ask the user before falling back to a direct foregro
 
 Do not add `--inherit-auth-env` for ordinary proxy preservation. Proxy variables are preserved by the tmux environment setup above. Use `--inherit-auth-env` only when the user explicitly wants the provider login command to keep ambient provider auth variables such as existing API keys, auth tokens, or OAuth tokens.
 
+- If the command fails and reports a preserved temp home, report that path as recovery context instead of deleting it yourself.
+
 ## Guardrails
 
-- Do not guess the tool family, target, or credential name.
-- Do not run or invent a maintained Kimi login helper; use `../references/kimi-code-login-handling.md` for explicit Kimi Code OAuth login/import requests.
-- Do not add `--update` unless the user explicitly asked to update, replace, or refresh an existing credential.
-- Do not manually create provider home directories, run provider login commands, copy auth files into Houmao storage, or delete temp directories for this ordinary workflow; the maintained Houmao credential login command owns temp-home creation, provider CLI invocation, auth artifact import, successful cleanup, and failed-login temp-home reporting.
-- Do not print proxy values, provider tokens, API keys, or raw auth-file contents while preparing or reporting the tmux login session.
-- Do not use `--inherit-auth-env` as a proxy-inheritance mechanism.
-- Do not scan existing provider homes to infer the account unless the user explicitly asks for a lower-level recovery workflow.
-- If the command fails and reports a preserved temp home, report that path as recovery context instead of deleting it yourself.
+- DO NOT guess the tool family, target, or credential name.
+- DO NOT run or invent a maintained Kimi login helper; use `../references/kimi-code-login-handling.md` for explicit Kimi Code OAuth login/import requests.
+- DO NOT add `--update` unless the user explicitly asked to update, replace, or refresh an existing credential.
+- DO NOT manually create provider home directories, run provider login commands, copy auth files into Houmao storage, or delete temp directories for this ordinary workflow; the maintained Houmao credential login command owns temp-home creation, provider CLI invocation, auth artifact import, successful cleanup, and failed-login temp-home reporting.
+- DO NOT print proxy values, provider tokens, API keys, or raw auth-file contents while preparing or reporting the tmux login session.
+- DO NOT use `--inherit-auth-env` as a proxy-inheritance mechanism.
+- DO NOT scan existing provider homes to infer the account unless the user explicitly asks for a lower-level recovery workflow.

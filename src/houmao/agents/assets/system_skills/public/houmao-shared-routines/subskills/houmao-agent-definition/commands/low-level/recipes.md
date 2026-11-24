@@ -1,14 +1,15 @@
 ---
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Low-Level Recipes
@@ -56,8 +57,8 @@ For `add` and `set`, run the direct command with only explicit recipe fields:
 
 ## Guardrails
 
-- Do not guess the role, recipe name, tool, setup, auth bundle, skills, or prompt mode.
-- Do not treat auth-bundle content mutation as recipe authoring; use `houmao-shared-routines->houmao-credential-mgr`.
-- Do not remove and recreate a recipe for ordinary edits.
-- Do not hand-edit `.houmao/agents/presets/`.
-- Do not add `--prompt-mode` by default; include it only when prompt mode is explicit.
+- DO NOT guess the role, recipe name, tool, setup, auth bundle, skills, or prompt mode.
+- DO NOT treat auth-bundle content mutation as recipe authoring; use `houmao-shared-routines->houmao-credential-mgr`.
+- DO NOT remove and recreate a recipe for ordinary edits.
+- DO NOT hand-edit `.houmao/agents/presets/`.
+- DO NOT add `--prompt-mode` by default; include it only when prompt mode is explicit.

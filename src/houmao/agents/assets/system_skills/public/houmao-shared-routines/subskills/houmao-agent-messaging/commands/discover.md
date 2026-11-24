@@ -1,14 +1,15 @@
 ---
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Discover Managed-Agent Messaging Capability
@@ -27,8 +28,8 @@ Use this action when you need to identify the correct managed agent first or dis
 8. When the caller is already operating through the pair-managed HTTP API instead of the CLI, use the managed-agent routes summarized in `references/managed-agent-http.md`.
 9. Report the selected identity and the evidence relevant to the next action. Describe published mail contact as recorded information, and include `gateway.base_url` only when the response provides a verified live endpoint.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shapes
 
 Use:
@@ -39,12 +40,7 @@ Use:
 <chosen houmao-mgr launcher> agents single --agent-name <name> mail resolve-live
 ```
 
-Authoritative selector alternatives:
-
-- `--agent-id <id>`
-- `--agent-id <id>` at the `agents single` group level
-- `--port <pair-port>` for `agents single ... state` and `agents single ... mail resolve-live`
-- `--pair-port <pair-port>` for `agents single ... gateway status`
+Select the target by `--agent-id` or `--agent-name` on `agents single`. `--port` for `state` or `mail resolve-live` and `--pair-port` for `gateway status` select a transport endpoint for the already selected agent.
 
 Managed-agent HTTP discovery surfaces:
 
@@ -54,9 +50,9 @@ Managed-agent HTTP discovery surfaces:
 
 ## Guardrails
 
-- Do not guess the target managed agent when the selector is missing or ambiguous.
-- Do not keep generic liveness, log, artifact, or tmux inspection on this discovery action once it is clear the request is not about a messaging follow-up.
-- Do not scrape tmux state directly when the managed-agent discovery surfaces already exist.
-- Do not assume a gateway is attached just because the agent is currently running.
-- Do not assume mailbox capability from the provider, role, or specialist name alone.
-- Do not keep using stale capability assumptions across turns when the task depends on current live gateway or mailbox state.
+- DO NOT guess the target managed agent when the selector is missing or ambiguous.
+- DO NOT keep generic liveness, log, artifact, or tmux inspection on this discovery action once it is clear the request is not about a messaging follow-up.
+- DO NOT scrape tmux state directly when the managed-agent discovery surfaces already exist.
+- DO NOT assume a gateway is attached just because the agent is currently running.
+- DO NOT assume mailbox capability from the provider, role, or specialist name alone.
+- DO NOT keep using stale capability assumptions across turns when the task depends on current live gateway or mailbox state.

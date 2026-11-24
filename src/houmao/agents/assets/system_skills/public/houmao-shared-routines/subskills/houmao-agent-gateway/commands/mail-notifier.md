@@ -57,18 +57,23 @@ Pair-managed notifier routes:
 
 Direct live gateway routes:
 
+Apply the target and caller checks in the [gateway HTTP summary](../references/http-surface.md) before making a direct request.
+
 - `GET {gateway.base_url}/v1/mail-notifier/{channel}`
 - `PUT {gateway.base_url}/v1/mail-notifier/{channel}`
 - `DELETE {gateway.base_url}/v1/mail-notifier/{channel}`
 
-## Guardrails
+## Binding And Round Context
 
-- Do not treat the notifier as durable work recovery; it is live gateway background behavior.
 - Require a configured binding for the selected channel; never substitute the other channel.
 - A notifier round carries the exact URL, channel, and expected binding ID. Missing context or a mismatch ends the round.
-- Do not imply degraded context automatically clears context; the default preserves current context.
-- Do not use Codex-specific degraded error labels for other CLI tools. Only `unknown` is shared across tools.
-- Do not describe `unread_only` as a completion signal. Processed mail should be archived so `any_inbox` mode stops notifying for it.
-- Do not describe `mail-notifier` as the same thing as `/v1/reminders`; the notifier is mailbox-driven polling and uses its own dedicated control routes.
-- Do not invent unscoped mail-notifier commands outside the `agents single ... gateway` or `agents self gateway` families.
-- Do not add notifier policy fields unless the user explicitly requested them.
+
+## Guardrails
+
+- DO NOT treat the notifier as durable work recovery; it is live gateway background behavior.
+- DO NOT imply degraded context automatically clears context; the default preserves current context.
+- DO NOT use Codex-specific degraded error labels for other CLI tools. Only `unknown` is shared across tools.
+- DO NOT describe `unread_only` as a completion signal. Processed mail should be archived so `any_inbox` mode stops notifying for it.
+- DO NOT describe `mail-notifier` as the same thing as `/v1/reminders`; the notifier is mailbox-driven polling and uses its own dedicated control routes.
+- DO NOT invent unscoped mail-notifier commands outside the `agents single ... gateway` or `agents self gateway` families.
+- DO NOT add notifier policy fields unless the user explicitly requested them.

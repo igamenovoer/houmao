@@ -21,8 +21,8 @@ Launch dossiers are low-level native-agent launch material. The maintained CLI s
 5. Run the matching launch-dossier command.
 6. Report the returned launch-dossier data and any defaults that affect later launch.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shapes
 
 ```text
@@ -68,12 +68,13 @@ The `internals.native-agent.launch-dossier` config draft is intentionally minima
 - For covered launch-dossier config documents, treat `internals config-drafts generate` output as authoritative for source kind, required credential/auth reference, and YAML shape.
 - `--auth` and `--clear-auth` change the launch-dossier auth override by display name; they do not mutate credential bundle contents.
 
+- Store `--mode` only when the operator requests a supported mode. Use `--clear-mode` to return to the [tool default](../../references/common/profile-lanes.md#run-modes). Choose prompt policy independently.
+
 ## Guardrails
 
-- Do not route `project profile ...` through this subskill.
-- Do not route loosely stated profile requests here; use `profiles` unless the user explicitly asks for native launch dossiers.
-- Do not remove and recreate a launch dossier for ordinary edits.
-- Do not treat launch-dossier `--auth` changes as credential CRUD.
-- Do not route low-level recipe editing through this subskill.
-- Store `--mode` only when the operator requests a supported mode. Use `--clear-mode` to return to the [tool default](../../references/common/profile-lanes.md#run-modes). Choose prompt policy independently.
-- Do not invent launch-dossier names, recipe names, or field overrides.
+- DO NOT route `project profile ...` through this subskill.
+- DO NOT route loosely stated profile requests here; use `profiles` unless the user explicitly asks for native launch dossiers.
+- DO NOT remove and recreate a launch dossier for ordinary edits.
+- DO NOT treat launch-dossier `--auth` changes as credential CRUD.
+- DO NOT route low-level recipe editing through this subskill.
+- DO NOT invent launch-dossier names, recipe names, or field overrides.

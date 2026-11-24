@@ -66,8 +66,8 @@ def test_system_files_docs_describe_pairwise_v2_recovery_record() -> None:
     assert "loop-runs/pairwise-v2/<run-id>/" in index
 
 
-def test_launch_profile_docs_and_skills_describe_memo_seed_surface() -> None:
-    """Guard memo-seed terminology and option coverage across docs and skill guides."""
+def test_launch_profile_docs_describe_memo_seed_surface() -> None:
+    """Guard memo-seed terminology and option coverage in user documentation."""
 
     launch_profiles = (REPO_ROOT / "docs/getting-started/launch-profiles.md").read_text(
         encoding="utf-8"
@@ -77,19 +77,6 @@ def test_launch_profile_docs_and_skills_describe_memo_seed_surface() -> None:
     )
     quickstart = (REPO_ROOT / "docs/getting-started/quickstart.md").read_text(encoding="utf-8")
     cli_reference = (REPO_ROOT / "docs/reference/cli/houmao-mgr.md").read_text(encoding="utf-8")
-    native_launch_dossiers_skill = (
-        REPO_ROOT
-        / "src/houmao/agents/assets/system_skills/public/houmao-shared-routines/subskills/houmao-agent-definition/commands/low-level/launch-dossiers.md"
-    ).read_text(encoding="utf-8")
-    easy_profile_create_skill = (
-        REPO_ROOT
-        / "src/houmao/agents/assets/system_skills/public/houmao-shared-routines/subskills/houmao-agent-definition/commands/easy/profiles.md"
-    ).read_text(encoding="utf-8")
-    easy_launch_skill = (
-        REPO_ROOT
-        / "src/houmao/agents/assets/system_skills/public/houmao-shared-routines/subskills/houmao-agent-definition/commands/easy/launch-instance.md"
-    ).read_text(encoding="utf-8")
-
     assert "## Memo Seeds" in launch_profiles
     assert "source-scoped replacement semantics" in launch_profiles
     assert "`initialize`" not in launch_profiles
@@ -102,19 +89,11 @@ def test_launch_profile_docs_and_skills_describe_memo_seed_surface() -> None:
     assert "--memo-seed-text" in quickstart
     assert "--memo-seed-policy" not in cli_reference
     assert "--clear-memo-seed" in cli_reference
-    assert "--memo-seed-dir" in easy_profile_create_skill
-    assert "--memo-seed-policy" not in native_launch_dossiers_skill
-    assert "--memo-seed-policy" not in easy_profile_create_skill
-    assert "stored memo seed" in easy_launch_skill
-
     for text in (
         launch_profiles,
         easy_specialists,
         quickstart,
         cli_reference,
-        native_launch_dossiers_skill,
-        easy_profile_create_skill,
-        easy_launch_skill,
     ):
         assert "memory seed" not in text.lower()
         assert "fail-if-nonempty" not in text

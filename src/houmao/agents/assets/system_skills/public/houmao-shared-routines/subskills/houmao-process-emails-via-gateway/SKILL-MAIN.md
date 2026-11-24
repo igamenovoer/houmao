@@ -2,19 +2,45 @@
 name: houmao-process-emails-via-gateway
 description: Use when a verified Houmao-managed agent receives a notifier prompt with an exact gateway base URL and must process one bounded round of open inbox mail.
 license: MIT
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Houmao Process Emails Via Gateway
+
+## Workflow
+
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
+
+1. Confirm the current prompt provides the exact gateway base URL, selected channel, and expected binding ID for this round. Keep these values unchanged through every operation.
+2. If any of these three values is missing, stop and report a notifier contract error. Do not rediscover a missing value or infer the channel from the canonical mail address.
+3. Use `houmao-mgr agents self mail status` when needed to confirm the selected channel still has the expected binding. Stop on a mismatch, including replacement after gateway acceptance. Never continue this round against a replacement mailbox.
+4. Read the prompt-provided notifier mode when present. In `any_inbox` mode, list open inbox mail including read or answered unarchived mail; in `unread_only` mode, start from unread unarchived inbox mail.
+5. Use `POST /v1/mail/{channel}/list` with schema version 3, `expected_binding_id`, the mode-derived read filter, and finite `limit` 50 (maximum 200). Without an explicit paging budget, inspect one page. Continue with the opaque `next_cursor` only within the prompt's page/message budget, preserving filters and binding. `has_more` and page counts describe a sample; they are not a full inbox total. Stop the page chain on a stale cursor instead of silently mixing snapshots. Every lifecycle call carries the same expected binding ID, including a fresh send.
+6. Start from mail metadata such as sender identity, subject, timestamps, `message_ref`, `thread_ref`, read state, and answered state.
+7. Check whether any open emails correspond to work you already started in an earlier round but left stalled or interrupted.
+8. When such stalled or interrupted work exists, continue that work in this round before treating unrelated open mail as new work.
+9. Decide which open emails are relevant to process in this round.
+10. Inspect only the selected emails needed to decide and perform the work for this round using peek/read. Check `content_complete` and any content-limit fields. Report missing or truncated content rather than treating it as full inspection; use an authorized retrieval path only if one is supplied.
+11. For each selected email, determine up front whether it needs a reply and remember the reply-required `message_ref`.
+12. If the current prompt requests reply hardening, create one lowest-priority one-off gateway reminder for each reply-required email and remember its `reminder_id`.
+13. Complete the requested work for the selected emails.
+14. For selected emails that need a reply, send the reply through `POST /v1/mail/{channel}/reply` only after the requested work succeeds.
+15. When a reply succeeds through the normal end-of-round path, remove any not-yet-fired reply-hardening reminder for that email.
+16. Archive only the successfully processed selected emails, and only after any required reply for that email succeeds.
+17. Stop after the round and wait for the next notification. Do not proactively poll for more mail on your own.
+
+
+If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
 
 ## Actor Frame Gate
 
@@ -61,30 +87,6 @@ Related skills and boundaries:
 | `help` | this top-level `## Help` section | Explain the bounded notifier-round workflow without taking operational action. |
 | `process-round` | the workflow below | Process exactly one prompt-bootstrapped notifier round, then stop. |
 
-## Workflow
-
-Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
-
-1. Confirm the current prompt provides the exact gateway base URL, selected channel, and expected binding ID for this round. Keep these values unchanged through every operation.
-2. If any of these three values is missing, stop and report a notifier contract error. Do not rediscover a missing value or infer the channel from the canonical mail address.
-3. Use `houmao-mgr agents self mail status` when needed to confirm the selected channel still has the expected binding. Stop on a mismatch, including replacement after gateway acceptance. Never continue this round against a replacement mailbox.
-4. Read the prompt-provided notifier mode when present. In `any_inbox` mode, list open inbox mail including read or answered unarchived mail; in `unread_only` mode, start from unread unarchived inbox mail.
-5. Use `POST /v1/mail/{channel}/list` with schema version 3, `expected_binding_id`, the mode-derived read filter, and finite `limit` 50 (maximum 200). Without an explicit paging budget, inspect one page. Continue with the opaque `next_cursor` only within the prompt's page/message budget, preserving filters and binding. `has_more` and page counts describe a sample; they are not a full inbox total. Stop the page chain on a stale cursor instead of silently mixing snapshots. Every lifecycle call carries the same expected binding ID, including a fresh send.
-6. Start from mail metadata such as sender identity, subject, timestamps, `message_ref`, `thread_ref`, read state, and answered state.
-7. Check whether any open emails correspond to work you already started in an earlier round but left stalled or interrupted.
-8. When such stalled or interrupted work exists, continue that work in this round before treating unrelated open mail as new work.
-9. Decide which open emails are relevant to process in this round.
-10. Inspect only the selected emails needed to decide and perform the work for this round using peek/read. Check `content_complete` and any content-limit fields. Report missing or truncated content rather than treating it as full inspection; use an authorized retrieval path only if one is supplied.
-11. For each selected email, determine up front whether it needs a reply and remember the reply-required `message_ref`.
-12. If the current prompt requests reply hardening, create one lowest-priority one-off gateway reminder for each reply-required email and remember its `reminder_id`.
-13. Complete the requested work for the selected emails.
-14. For selected emails that need a reply, send the reply through `POST /v1/mail/{channel}/reply` only after the requested work succeeds.
-15. When a reply succeeds through the normal end-of-round path, remove any not-yet-fired reply-hardening reminder for that email.
-16. Archive only the successfully processed selected emails, and only after any required reply for that email succeeds.
-17. Stop after the round and wait for the next notification. Do not proactively poll for more mail on your own.
-
-
-If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
 ## Selection Guidance
 
 - Start with metadata-first triage. Do not treat every open inbox email as automatically in scope for the current round.

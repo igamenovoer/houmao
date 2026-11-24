@@ -1,17 +1,18 @@
 ---
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
-# Launch Dossiers Have Moved
+# Profile Authoring Handoff
 
 ## Workflow
 
@@ -24,8 +25,8 @@ If the request does not map cleanly to these steps, use the native planning tool
 
 This file is retained only as a routing note for older installed copies.
 
-Use `houmao-shared-routines->houmao-agent-definition` subcommand `launch-dossiers` for explicit recipe-backed launch-profile authoring through `internals native-agent launch-dossiers list|get|add|set|remove`.
+Use the definition route that matches the stored source:
 
-Current local route: `houmao-agent-definition/commands/low-level/launch-dossiers.md`.
-
-Do not run launch-profile authoring from `houmao-shared-routines->houmao-project-mgr`.
+- `houmao-shared-routines->houmao-agent-definition->profiles()` for specialist-backed `project profile` operations.
+- `houmao-shared-routines->houmao-agent-definition->recipe-profiles()` for recipe-backed `project agents launch-profiles` operations.
+- `houmao-shared-routines->houmao-agent-definition->launch-dossiers()` for explicit `internals native-agent launch-dossiers` work.

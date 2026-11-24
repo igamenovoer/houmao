@@ -2,19 +2,72 @@
 name: houmao-agent-definition
 description: Use when an admin needs Houmao roles, recipes, launch dossiers, specialists, project profiles, reusable agent-definition authoring, immutable revision materialization, single or batch deployment planning, easy launch, or easy stop.
 license: MIT
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Houmao Agent Definition
+
+## Workflow
+
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
+
+1. If the user names a subcommand, route directly to that subcommand.
+2. If no subcommand is named, infer the subcommand from intent:
+   - role work -> `roles`
+   - recipe or preset work -> `recipes`
+   - launch dossier or exact `internals native-agent launch-dossiers` work -> `launch-dossiers`
+   - specialist template work -> `specialists`
+   - a recipe-backed project launch profile or exact `project agents launch-profiles` work -> `recipe-profiles`
+   - profile, agent profile, project profile, or ready profile work without native launch-dossier context -> `profiles`
+   - authoring intent, root README orientation, derived interpretation, approval, materialization, or revision validation -> `definition-authoring`
+   - one definition-backed deployment, deploy-time parameter binding, update, doctor, or removal -> `definition-deployment`
+   - N instances from one immutable definition revision -> `definition-batch`
+   - one-pass specialist plus project profile preparation -> `create-agent-fast-forward`
+   - project launch -> `launch-agent`
+   - project stop -> `stop-agent`
+3. Ask only when the prompt is still ambiguous after applying the routing rules.
+4. Read the shared pages needed by that subcommand:
+   - [references/common/launcher.md](references/common/launcher.md)
+   - [references/common/missing-inputs.md](references/common/missing-inputs.md)
+   - [references/common/profile-lanes.md](references/common/profile-lanes.md) when a profile lane is involved
+   - [references/common/credential-routing.md](references/common/credential-routing.md) when credentials or auth names are involved
+5. Load the selected command page from the subcommand table.
+6. Resolve one `houmao-mgr` launcher and reuse it for the turn:
+   - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
+   - if that lookup fails, use `uv tool run --from houmao houmao-mgr`
+   - only if those do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
+   - if the user explicitly asks for a specific launcher, follow that request
+7. For supported config-document authoring flows, generate the CLI-owned config draft before deciding the final maintained command. Config drafts are minimal opinionated drafts: they expose only required holes and fixed draft-owned values, not the full project subcommand option surface.
+   - `project.specialist`
+   - `project.profile`
+   - `internals.native-agent.launch-dossier`
+8. Generate config drafts only with the required fields for the selected draft id. The JSON intent must be an object with a top-level `fields` mapping; do not pass flat top-level draft fields.
+   - `project.specialist`: `{"fields":{"name":"general-kimi","tool":"kimi","credential":"fixture"}}`
+   - `project.profile`: `{"fields":{"name":"reviewer-fast","specialist":"reviewer","credential":"reviewer-creds"}}`
+   - `internals.native-agent.launch-dossier`: `{"fields":{"name":"reviewer-native","recipe":"reviewer-codex","credential":"reviewer-creds"}}`
+   - `<chosen houmao-mgr launcher> internals config-drafts generate --id <draft-id> --intent '{"fields":{...}}'`
+9. For full customization beyond those required holes, use the maintained project subcommands directly; do not pass hidden full-model fields such as model, env, mailbox, memo seed, gateway, prompt overlay, or credential material to config drafts.
+10. For command-oriented flows that are not config documents, show and run direct maintained commands in fenced `bash` blocks, using only explicit user inputs and recovered explicit context:
+   - `project agents launch`
+   - `internals native-agent roles init|set`
+   - `internals native-agent recipes add|set`
+   - `internals native-agent brain build` when the user explicitly asks for direct native-agent brain-build plumbing
+11. If draft generation reports blockers, or if a direct command would be missing required input or include conflicting explicit inputs, stop and recover the missing or conflicting input before running the target command.
+12. Run maintained project commands only after all required inputs are explicit.
+13. Report command output and any durable identity facts that affect later launch.
+
+
+If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
 
 ## Actor Frame Gate
 
@@ -33,7 +86,7 @@ Purpose: manage persisted pre-launch agent definitions, immutable reusable defin
 Available functionality:
 
 - `roles`, `recipes`, and `launch-dossiers` for low-level reusable agent-definition material.
-- `specialists` and `profiles` for project authoring.
+- `specialists` and `profiles` for specialist-backed project authoring, and `recipe-profiles` for recipe-backed project launch profiles.
 - `definition-authoring` for `intent/src` initialization, interpretation, root `README.md` orientation, approval, immutable materialization, and revision validation.
 - `definition-deployment` for typed deploy-time bindings, single-instance plan/apply, inspection, doctor, update, and safe removal.
 - `definition-batch` for one-definition multi-instance planning and all-or-no-visible deployment.
@@ -70,6 +123,7 @@ This skill is the canonical router for these subcommands:
 | `launch-dossiers` | [commands/low-level/launch-dossiers.md](commands/low-level/launch-dossiers.md) | `houmao-mgr internals native-agent launch-dossiers ...` |
 | `specialists` | [commands/easy/specialists.md](commands/easy/specialists.md) | `houmao-mgr project specialist ...` |
 | `profiles` | [commands/easy/profiles.md](commands/easy/profiles.md) | `houmao-mgr project profile ...` |
+| `recipe-profiles` | [commands/low-level/recipe-profiles.md](commands/low-level/recipe-profiles.md) | `houmao-mgr project agents launch-profiles ...` |
 | `definition-authoring` | [commands/agent-definitions/authoring.md](commands/agent-definitions/authoring.md) | `houmao-mgr project agent-definitions init-intent|derive|approve|materialize|validate ...` |
 | `definition-deployment` | [commands/agent-definitions/deployment.md](commands/agent-definitions/deployment.md) | `houmao-mgr project agent-definitions plan|apply|inspect|doctor|update|remove ...` |
 | `definition-batch` | [commands/agent-definitions/batch.md](commands/agent-definitions/batch.md) | `houmao-mgr project agent-definitions batch-plan|batch-apply|batch-inspect-operation|batch-doctor ...` |
@@ -85,59 +139,10 @@ This skill does not own:
 - broad live managed-agent lifecycle after launch: use `houmao-shared-routines->houmao-agent-instance`
 - direct hand-editing under `.houmao/`
 
-## Workflow
-
-Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
-
-1. If the user names a subcommand, route directly to that subcommand.
-2. If no subcommand is named, infer the subcommand from intent:
-   - role work -> `roles`
-   - recipe or preset work -> `recipes`
-   - launch dossier or exact `internals native-agent launch-dossiers` work -> `launch-dossiers`
-   - specialist template work -> `specialists`
-   - profile, agent profile, project profile, or ready profile work without native launch-dossier context -> `profiles`
-   - authoring intent, root README orientation, derived interpretation, approval, materialization, or revision validation -> `definition-authoring`
-   - one definition-backed deployment, deploy-time parameter binding, update, doctor, or removal -> `definition-deployment`
-   - N instances from one immutable definition revision -> `definition-batch`
-   - one-pass specialist plus project profile preparation -> `create-agent-fast-forward`
-   - project launch -> `launch-agent`
-   - project stop -> `stop-agent`
-3. Ask only when the prompt is still ambiguous after applying the routing rules.
-4. Read the shared pages needed by that subcommand:
-   - [references/common/launcher.md](references/common/launcher.md)
-   - [references/common/missing-inputs.md](references/common/missing-inputs.md)
-   - [references/common/profile-lanes.md](references/common/profile-lanes.md) when a profile lane is involved
-   - [references/common/credential-routing.md](references/common/credential-routing.md) when credentials or auth names are involved
-5. Load exactly one route subskill from the subcommand table.
-6. Resolve one `houmao-mgr` launcher and reuse it for the turn:
-   - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
-   - if that lookup fails, use `uv tool run --from houmao houmao-mgr`
-   - only if those do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
-   - if the user explicitly asks for a specific launcher, follow that request
-7. For supported config-document authoring flows, generate the CLI-owned config draft before deciding the final maintained command. Config drafts are minimal opinionated drafts: they expose only required holes and fixed draft-owned values, not the full project subcommand option surface.
-   - `project.specialist`
-   - `project.profile`
-   - `internals.native-agent.launch-dossier`
-8. Generate config drafts only with the required fields for the selected draft id. The JSON intent must be an object with a top-level `fields` mapping; do not pass flat top-level draft fields.
-   - `project.specialist`: `{"fields":{"name":"general-kimi","tool":"kimi","credential":"fixture"}}`
-   - `project.profile`: `{"fields":{"name":"reviewer-fast","specialist":"reviewer","credential":"reviewer-creds"}}`
-   - `internals.native-agent.launch-dossier`: `{"fields":{"name":"reviewer-native","recipe":"reviewer-codex","credential":"reviewer-creds"}}`
-   - `<chosen houmao-mgr launcher> internals config-drafts generate --id <draft-id> --intent '{"fields":{...}}'`
-9. For full customization beyond those required holes, use the maintained project subcommands directly; do not pass hidden full-model fields such as model, env, mailbox, memo seed, gateway, prompt overlay, or credential material to config drafts.
-10. For command-oriented flows that are not config documents, show and run direct maintained commands in fenced `bash` blocks, using only explicit user inputs and recovered explicit context:
-   - `project agents launch`
-   - `internals native-agent roles init|set`
-   - `internals native-agent recipes add|set`
-   - `internals native-agent brain build` when the user explicitly asks for direct native-agent brain-build plumbing
-11. If draft generation reports blockers, or if a direct command would be missing required input or include conflicting explicit inputs, stop and recover the missing or conflicting input before running the target command.
-12. Run maintained project commands only after all required inputs are explicit.
-13. Report command output and any durable identity facts that affect later launch.
-
-
-If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
 ## Routing Rules
 
 - Use `profiles` as the default meaning of `profile`, `agent profile`, `project profile`, and `ready profile`.
+- Use `recipe-profiles` when the caller identifies a project launch profile backed by a recipe or preset.
 - Use `launch-dossiers` only when the user explicitly says `launch-dossiers`, launch dossier, or `internals native-agent launch-dossiers`.
 - Use `definition-authoring` for the `intent/src -> intent/derived -> materialization` lifecycle. Initialize only `intent/src/agent-def-overview.md`; follow links from that overview rather than imposing more source files. Maintain `<authoring-dir>/README.md` as non-authoritative orientation at every user-facing boundary, and use the default `<authoring-dir>/agent-definition` output unless the user explicitly chooses another root.
 - Use `definition-deployment` only after an exact immutable revision is available. Planning resolves typed inputs and placeholders without launching; applying registers durable project objects and returns an explicit launch handoff.

@@ -12,8 +12,8 @@ Use this action only when the user wants to list credentials for one supported t
 4. If the tool family or target is still missing, ask the user in Markdown before proceeding.
 5. Run the direct credential list command and report the listed credential names.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shape
 
 Run the matching direct command:
@@ -25,7 +25,7 @@ Run the matching direct command:
 
 ## Guardrails
 
-- Do not ask for a credential name when the task is only to list credentials.
-- Do not guess the tool family or target when the prompt and recent chat context do not identify them explicitly.
-- Do not route listing through `project specialist` or managed-agent lifecycle commands.
-- Do not reinterpret the credential list as the set of project profiles or launch dossiers that reference those credentials.
+- DO NOT ask for a credential name when the task is only to list credentials.
+- DO NOT guess the tool family or target when the prompt and recent chat context do not identify them explicitly.
+- DO NOT route listing through `project specialist` or managed-agent lifecycle commands.
+- DO NOT reinterpret the credential list as the set of project profiles or launch dossiers that reference those credentials.

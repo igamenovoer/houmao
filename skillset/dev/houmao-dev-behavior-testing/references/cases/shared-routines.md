@@ -82,6 +82,8 @@ Every current entrypoint route has a committed bounded probe or explicit isolate
 | `agent-inspect` | `ACT-003`, `ADM-003`, `SHR-004`, `SHR-009` | `AGT-008`, `SHR-009` | `discover` read-only |
 | `agent-messaging` | covered | covered | `discover` read-only; send operations isolated-only |
 | `agent-gateway` | covered | covered | `discover` or status read-only |
+| `agent-access` | covered | covered | `help` read-only; inspect policy or export public identity with an isolated fixture |
+| `agent-files` | covered | covered | `help` read-only; mount discovery and publication isolated-only |
 | `interop-ag-ui` | covered | covered | `validate` disposable event fixture |
 | `agent-loop-pro` | `LOOP-002`, `LOOP-004`, `LOOP-008` | `LOOP-005`, `LOOP-006` | top-level sibling help/status/init boundary |
 | `agent-loop-lite` | `LOOP-003`, `LOOP-004` | `LOOP-005`, `LOOP-006`, `LOOP-008` | top-level sibling help/status/init boundary |

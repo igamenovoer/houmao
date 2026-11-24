@@ -10,8 +10,8 @@ Use this action only when the user wants structural message projections for one 
 4. Run the matching mailbox messages list command.
 5. Report the structural message payload and keep the structural-only boundary explicit.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shape
 
 ```bash
@@ -21,6 +21,6 @@ If the request does not map cleanly to this workflow, use the native planning to
 
 ## Guardrails
 
-- Do not treat this action as unread-state inspection.
-- Do not mark messages read, archived, or deleted from this action.
-- Do not switch to `houmao-mgr agents self mail ...` or `houmao-mgr agents single ... mail ...` unless the user actually needs actor-scoped mailbox participation state.
+- DO NOT treat this action as unread-state inspection.
+- DO NOT mark messages read, archived, or deleted from this action.
+- DO NOT switch to `houmao-mgr agents self mail ...` or `houmao-mgr agents single ... mail ...` unless the user actually needs actor-scoped mailbox participation state.

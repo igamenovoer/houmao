@@ -119,14 +119,14 @@ Common update and clear inputs:
 
 ## Guardrails
 
-- Do not guess the specialist name, tool lane, credential name, or auth values.
-- Do not infer tool or credential from installed CLIs, project language, file names, vendor tool homes, or credential storage directory basenames.
-- Do not remove and recreate a project specialist for ordinary prompt, skill, setup, credential, prompt-mode, model, reasoning-level, or env edits; use `project specialist set`.
-- Do not use `project specialist set` for specialist rename or tool-lane changes. Ask whether to create a new specialist instead.
-- Do not enter credential discovery for list, get, set, remove, project profile creation, or launch.
-- Do not execute login flows or auth-generation helpers.
-- Do not treat `auto credentials` as a literal CLI flag.
-- Do not infer auth identity from `.houmao/` auth directory names.
-- Do not hand-author specialist config YAML skeletons; use `internals config-drafts generate` for supported minimal specialist config authoring.
-- Do not pass model, env, mailbox, prompt, skill, or credential material fields to `project.specialist` config drafts.
-- Do not add raw Kimi `--auto` or `--yolo` launch flags to specialists; use prompt mode for managed automation.
+- DO NOT guess the specialist name, tool lane, credential name, or auth values.
+- DO NOT infer tool or credential from installed CLIs, project language, file names, vendor tool homes, or credential storage directory basenames.
+- DO NOT remove and recreate a project specialist for ordinary prompt, skill, setup, credential, prompt-mode, model, reasoning-level, or env edits; use `project specialist set`.
+- DO NOT use `project specialist set` for specialist rename or tool-lane changes. Ask whether to create a new specialist instead.
+- DO NOT enter credential discovery for list, get, set, remove, project profile creation, or launch.
+- DO NOT execute login flows or auth-generation helpers.
+- DO NOT treat `auto credentials` as a literal CLI flag.
+- DO NOT infer auth identity from `.houmao/` auth directory names.
+- DO NOT hand-author specialist config YAML skeletons; use `internals config-drafts generate` for supported minimal specialist config authoring.
+- DO NOT pass model, env, mailbox, prompt, skill, or credential material fields to `project.specialist` config drafts.
+- DO NOT add raw Kimi `--auto` or `--yolo` launch flags to specialists; use prompt mode for managed automation.

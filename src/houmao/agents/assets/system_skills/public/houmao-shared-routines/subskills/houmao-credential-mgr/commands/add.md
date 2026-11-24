@@ -15,8 +15,8 @@ Use this action only when the user wants to create one new credential.
 5. Run the direct command only after required inputs are explicit and conflicts are resolved.
 6. Report the created credential name, written env vars, and written auth-file paths returned by the command.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Required Inputs
 
 - `tool`: one of `claude`, `codex`, or `kimi`
@@ -37,12 +37,12 @@ Use the selected tool's credential-kind reference for supported credential flags
 
 ## Guardrails
 
-- Do not guess the tool family, target, credential name, or credential inputs.
-- Do not continue with add when required explicit credential inputs are still missing.
-- Do not scan env vars, tool homes, or home directories to synthesize credential input unless the user explicitly asked for that narrower inspection.
-- Do not silently choose a Claude credential value. Prefer the `claude setup-token` / `--oauth-token` lane only as guidance when Claude credential material is missing; still obtain the token or another supported credential input explicitly before running `add`.
-- Do not invent unsupported file flags for Claude vendor login files; the maintained lane is `--config-dir`.
-- Do not treat optional Claude state-template input as a credential-providing method.
-- Do not claim that adding one credential also updates any project profile or native launch dossier to use it.
-- Do not reinterpret `add` as `set` when the credential already exists.
-- Do not duplicate unsupported Claude/Codex/Kimi options; use the selected tool reference before choosing credential flags.
+- DO NOT guess the tool family, target, credential name, or credential inputs.
+- DO NOT continue with add when required explicit credential inputs are still missing.
+- DO NOT scan env vars, tool homes, or home directories to synthesize credential input unless the user explicitly asked for that narrower inspection.
+- DO NOT silently choose a Claude credential value. Prefer the `claude setup-token` / `--oauth-token` lane only as guidance when Claude credential material is missing; still obtain the token or another supported credential input explicitly before running `add`.
+- DO NOT invent unsupported file flags for Claude vendor login files; the maintained lane is `--config-dir`.
+- DO NOT treat optional Claude state-template input as a credential-providing method.
+- DO NOT claim that adding one credential also updates any project profile or native launch dossier to use it.
+- DO NOT reinterpret `add` as `set` when the credential already exists.
+- DO NOT duplicate unsupported Claude/Codex/Kimi options; use the selected tool reference before choosing credential flags.

@@ -1,14 +1,15 @@
 ---
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Launch Agent Instance
@@ -24,15 +25,25 @@ Use this action only when the user wants to create one new managed-agent instanc
 3. Recover the required launch inputs from the current prompt first and recent chat context second when they were stated explicitly.
 4. If the source lane or required target inputs are still missing, ask the user in Markdown before proceeding. Prefer a compact table that shows the intended lane and exactly which required fields are still missing.
 5. If the request depends on direct mailbox flags such as `--mail-transport`, `--mail-root`, or `--mail-account-dir`, stop and explain that manual mailbox-enabled launch is outside this skill's scope.
-6. Build the correct direct launch command with `--mode` for a requested override only.
+6. Build the selected launch command. Apply **Tmux Server Selection** and **Default Run Mode** for requested overrides.
 7. Run the direct command only after required inputs are explicit and conflicts are resolved.
 8. Report the managed-agent identity and the verified terminal or browser handoff. For headless and service, report the managed control reference.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Default Run Mode
 
 Launch uses the stored profile mode when supplied. See [Run Modes](../../houmao-agent-definition/references/common/profile-lanes.md#run-modes) for defaults and available selections. Set prompt policy and gateway options independently of run mode.
+
+## Tmux Server Selection
+
+For one launch, set `--tmux-server user-default|houmao-default|new|socket`. The first two select the execution account's native default or its shared Houmao default. The Houmao default has a registry-backed address and starts as needed. Choose `new` to start a private server for the new agent. Choose `socket` with `--tmux-socket-path "$OWNER_SOCKET"` for an already-running server at an absolute owner-side path.
+
+```bash
+houmao-mgr project agents launch --profile worker --name worker-1 --tmux-server houmao-default
+```
+
+The launch flag overrides the profile for this birth. If both omit a choice, Houmao uses an admitted executor socket or explicit local scope, then the enclosing tmux server, then the account's native default. A conflicting pinned execution socket or an unavailable explicit socket is a launch error. Subsequent control follows the recorded birth socket, including relaunch.
 
 ## Command Selection
 
@@ -109,16 +120,16 @@ For Kimi TUI automation, use unattended prompt mode to disable native approval o
 
 ## Guardrails
 
-- Do not guess whether the source should be `project agents launch --specialist` or `project agents launch --profile`.
-- Do not invent role selectors, launch profile names, specialist names, provider ids, or instance names.
-- Do not proceed with partially inferred launch inputs when the prompt and recent chat context do not state them explicitly; ask the user first.
-- Do not route specialist-backed launch through retired root-level managed-agent launch paths.
-- Do not route project-profile-backed launch through retired root-level managed-agent launch paths.
-- Do not route raw role/preset launch through the public `agents` family; use project sources or internal native-agent plumbing when explicitly required.
-- Do not describe `--workdir` as changing the source project, preset owner, selected overlay, runtime root, jobs root, or mailbox root.
-- Do not include direct mailbox launch flags in this skill; manual mailbox-enabled launch is out of scope here.
-- Do not reject the launch-profile lane just because the stored profile carries mailbox or gateway defaults.
-- Do not treat prompt submission or gateway attach as part of launch completion for this skill.
-- Do not add raw Kimi `--auto` or `--yolo` launch flags to achieve managed unattended mode.
-- Do not invent alternate launch command shapes; use the direct scoped commands shown in this action and maintained project/profile guidance.
-- Do not add a background gateway override unless the user explicitly asks for detached background gateway execution.
+- DO NOT guess whether the source should be `project agents launch --specialist` or `project agents launch --profile`.
+- DO NOT invent role selectors, launch profile names, specialist names, provider ids, or instance names.
+- DO NOT proceed with partially inferred launch inputs when the prompt and recent chat context do not state them explicitly; ask the user first.
+- DO NOT route specialist-backed launch through retired root-level managed-agent launch paths.
+- DO NOT route project-profile-backed launch through retired root-level managed-agent launch paths.
+- DO NOT route raw role/preset launch through the public `agents` family; use project sources or internal native-agent plumbing when explicitly required.
+- DO NOT describe `--workdir` as changing the source project, preset owner, selected overlay, runtime root, jobs root, or mailbox root.
+- DO NOT include direct mailbox launch flags in this skill; manual mailbox-enabled launch is out of scope here.
+- DO NOT reject the launch-profile lane just because the stored profile carries mailbox or gateway defaults.
+- DO NOT treat prompt submission or gateway attach as part of launch completion for this skill.
+- DO NOT add raw Kimi `--auto` or `--yolo` launch flags to achieve managed unattended mode.
+- DO NOT invent alternate launch command shapes; use the direct scoped commands shown in this action and maintained project/profile guidance.
+- DO NOT add a background gateway override unless the user explicitly asks for detached background gateway execution.

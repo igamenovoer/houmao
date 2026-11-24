@@ -14,8 +14,8 @@ Use this action only when the user wants to list low-level roles or named recipe
 6. Run `internals native-agent recipes list` for recipes, adding `--role` or `--tool` only when the user explicitly asked for those filters.
 7. Report the returned list.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shapes
 
 Use one of these maintained command shapes:
@@ -27,6 +27,6 @@ Use one of these maintained command shapes:
 
 ## Guardrails
 
-- Do not guess whether the user wanted a role list or a recipe list.
-- Do not add recipe filters the user did not ask for explicitly.
-- Do not use `internals native-agent roles presets ...`.
+- DO NOT guess whether the user wanted a role list or a recipe list.
+- DO NOT add recipe filters the user did not ask for explicitly.
+- DO NOT use `internals native-agent roles presets ...`.

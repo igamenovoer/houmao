@@ -1,0 +1,6 @@
+interface:
+  display_name: "Houmao Agent Access"
+  short_description: "Manage retained gateway policy, administrator keys, and signed peer requests."
+  default_prompt: "Use the agent-access route through the current Houmao actor entrypoint for gateway policy, roster changes, peer signer setup, or signed calls."
+policy:
+  allow_implicit_invocation: false

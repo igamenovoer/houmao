@@ -9,8 +9,8 @@ Use this action only when the user wants operator-facing mailbox registrations u
 3. Run the matching mailbox accounts list command.
 4. Report the listed registrations without inventing extra filtering.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shape
 
 ```bash
@@ -20,5 +20,5 @@ If the request does not map cleanly to this workflow, use the native planning to
 
 ## Guardrails
 
-- Do not ask for an address when the task is only to list accounts.
-- Do not reinterpret this action as actor-scoped inbox listing.
+- DO NOT ask for an address when the task is only to list accounts.
+- DO NOT reinterpret this action as actor-scoped inbox listing.

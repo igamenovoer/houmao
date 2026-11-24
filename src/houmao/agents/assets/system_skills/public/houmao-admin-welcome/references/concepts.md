@@ -17,7 +17,7 @@ This reference is self-contained. It does not depend on any file outside the pac
 - **Specialist** — a reusable agent template that pairs a role prompt, tool adapter, and credentials under one name. You can launch a specialist more than once. Owning routine: `houmao-agent-definition`.
 - **Project profile** — an optional reusable launch-default wrapper layered on top of a specialist. It captures birth-time defaults such as a fixed instance name, working directory, authentication lane, or mailbox posture. Owning routine: `houmao-agent-definition`.
 - **Launch dossier** — the low-level recipe-backed launch-profile object that can be attached to a build request to carry reusable birth-time defaults such as managed-agent identity, workdir, auth override, prompt mode, durable env records, mailbox config, gateway posture, and managed-header policy. Owning routine: `houmao-agent-definition` subcommand `launch-dossiers`.
-- **Managed agent** — the running live instance of an agent that Houmao supervises inside a real tmux session. A managed agent has its own disk state, memory, gateway sidecar, and mailbox binding. Owning routine: `houmao-agent-instance`.
+- **Managed agent** — a running instance that Houmao supervises in a tmux session on the execution owner's server. Its runtime state records the socket and session. Gateway attachment and mailbox binding are optional. Owning routine: `houmao-agent-instance`.
 - **Relaunch** — restart a relaunchable managed session without treating it as a fresh launch. Relaunch preserves the original managed-agent identity and supporting artifacts. Owning routine: `houmao-agent-instance`.
 - **Cleanup** — remove artifacts for a stopped managed-agent session. Cleanup takes a cleanup kind such as `session` or `logs` and is never safe for a live session. Owning routine: `houmao-agent-instance`.
 - **Runtime variable** — a non-secret typed value stored per managed-agent instance with revision history. Launch uses one snapshot, while declared live-consuming skills read the current value at use time. Owning routine: `houmao-agent-instance` subcommand `runtime-variables`.
@@ -25,7 +25,9 @@ This reference is self-contained. It does not depend on any file outside the pac
 
 ## Gateway, Posture, Watch
 
-- **Gateway** — the per-agent HTTP control sidecar that Houmao attaches next to a managed agent. The gateway exposes the agent's live capabilities (prompt, state, mail, notifier, reminders). Owning routine: `houmao-agent-gateway`.
+- **Gateway** — an optional per-agent HTTP sidecar that exposes live capabilities such as prompt, state, mail, notifier, and reminders. Owning routine: `houmao-agent-gateway`.
+- **Gateway access policy** records authorized principals, enrolled keys, roles, and grants for one target. Use the admin entrypoint's `agent-access` route for retained policy and signed request guidance.
+- **Versioned logical mount** exposes a target gateway's published files and private draft workflows. Use the admin entrypoint's `agent-files` route to inspect a revision, save a candidate, or publish it with the required authority.
 - **Gateway sidecar** — the tmux window or background process in which the gateway runs alongside the managed-agent window. A foreground gateway sidecar is visible in a non-zero auxiliary tmux window. Owning routine: `houmao-agent-gateway`.
 - **Foreground vs background posture** — whether the gateway sidecar runs in a visible tmux window (foreground) or detached as a background process. First-run tour launches prefer foreground posture unless the user explicitly asks for background or detached execution. Owning routine: `houmao-agent-gateway`.
 - **Execution mode** — the gateway status field that reports whether the current gateway is running in foreground or background. Use this field to explain current posture; do not infer posture from tmux window names. Owning routine: `houmao-agent-gateway`.

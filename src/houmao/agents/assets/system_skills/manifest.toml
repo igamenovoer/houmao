@@ -35,7 +35,7 @@ role = "entrypoint"
 source_path = "public/houmao-admin-entrypoint"
 activation = "narrow-implicit"
 pack_ids = ["admin"]
-commands = ["help", "welcome", "project-mgr", "credential-mgr", "agent-definition", "specialist-mgr", "operator-messaging", "agent-email-comms", "adv-usage-pattern", "utils-workspace-mgr", "ext-graphing", "mailbox-mgr", "memory-mgr", "agent-instance", "agent-inspect", "agent-messaging", "agent-gateway", "interop-ag-ui", "agent-loop-pro", "agent-loop-lite"]
+commands = ["help", "welcome", "project-mgr", "credential-mgr", "agent-definition", "specialist-mgr", "operator-messaging", "agent-email-comms", "adv-usage-pattern", "utils-workspace-mgr", "ext-graphing", "mailbox-mgr", "memory-mgr", "agent-instance", "agent-inspect", "agent-messaging", "agent-gateway", "agent-access", "agent-files", "interop-ag-ui", "agent-loop-pro", "agent-loop-lite"]
 aliases = ["show-options=welcome", "choose-path=welcome", "show-command-map=welcome", "next-step=welcome", "start-guided-tour=welcome"]
 dependencies = ["houmao-admin-welcome", "houmao-shared-routines", "houmao-agent-loop-pro", "houmao-agent-loop-lite"]
 
@@ -45,7 +45,7 @@ role = "entrypoint"
 source_path = "public/houmao-agent-entrypoint"
 activation = "narrow-implicit"
 pack_ids = ["agent"]
-commands = ["help", "process-emails-via-gateway", "agent-email-comms", "adv-usage-pattern", "utils-workspace-mgr", "ext-graphing", "mailbox-mgr", "memory-mgr", "agent-instance", "agent-inspect", "agent-messaging", "agent-gateway", "interop-ag-ui", "agent-loop-pro", "agent-loop-lite"]
+commands = ["help", "process-emails-via-gateway", "agent-email-comms", "adv-usage-pattern", "utils-workspace-mgr", "ext-graphing", "mailbox-mgr", "memory-mgr", "agent-instance", "agent-inspect", "agent-messaging", "agent-gateway", "agent-access", "agent-files", "interop-ag-ui", "agent-loop-pro", "agent-loop-lite"]
 aliases = []
 dependencies = ["houmao-shared-routines", "houmao-agent-loop-pro", "houmao-agent-loop-lite"]
 
@@ -55,7 +55,7 @@ role = "shared-routines"
 source_path = "public/houmao-shared-routines"
 activation = "explicit"
 pack_ids = ["admin", "agent"]
-commands = ["help", "project-mgr", "credential-mgr", "agent-definition", "specialist-mgr", "operator-messaging", "process-emails-via-gateway", "agent-email-comms", "adv-usage-pattern", "utils-workspace-mgr", "ext-graphing", "mailbox-mgr", "memory-mgr", "agent-instance", "agent-inspect", "agent-messaging", "agent-gateway", "interop-ag-ui", "agent-loop-pro", "agent-loop-lite"]
+commands = ["help", "project-mgr", "credential-mgr", "agent-definition", "specialist-mgr", "operator-messaging", "process-emails-via-gateway", "agent-email-comms", "adv-usage-pattern", "utils-workspace-mgr", "ext-graphing", "mailbox-mgr", "memory-mgr", "agent-instance", "agent-inspect", "agent-messaging", "agent-gateway", "agent-access", "agent-files", "interop-ag-ui", "agent-loop-pro", "agent-loop-lite"]
 aliases = ["specialist-mgr=agent-definition"]
 dependencies = ["houmao-agent-loop-pro", "houmao-agent-loop-lite"]
 
@@ -86,7 +86,7 @@ member_name = "houmao-project-mgr"
 route_name = "project-mgr"
 audiences = ["admin"]
 dependencies = []
-commands = ["help", "init", "status", "launch-profiles", "easy-instances"]
+commands = ["help", "init", "status", "easy-instances"]
 aliases = []
 
 [[shared_routines]]
@@ -106,7 +106,7 @@ member_name = "houmao-agent-definition"
 route_name = "agent-definition"
 audiences = ["admin"]
 dependencies = ["houmao-credential-mgr"]
-commands = ["help", "roles", "recipes", "launch-dossiers", "specialists", "profiles", "create-agent-fast-forward", "launch-agent", "stop-agent"]
+commands = ["help", "roles", "recipes", "launch-dossiers", "specialists", "profiles", "recipe-profiles", "definition-authoring", "definition-deployment", "definition-batch", "create-agent-fast-forward", "launch-agent", "stop-agent"]
 aliases = ["presets=recipes", "specialist-mgr=agent-definition", "ready-profile=create-agent-fast-forward"]
 
 [[shared_routines]]
@@ -196,7 +196,7 @@ member_name = "houmao-agent-instance"
 route_name = "agent-instance"
 audiences = ["admin", "agent"]
 dependencies = []
-commands = ["help", "launch", "join", "list", "stop", "relaunch", "cleanup"]
+commands = ["help", "launch", "join", "list", "stop", "relaunch", "cleanup", "native-resources", "runtime-variables", "mindsets", "private-workspace"]
 aliases = []
 
 [[shared_routines]]
@@ -217,7 +217,7 @@ route_name = "agent-messaging"
 audiences = ["admin", "agent"]
 dependencies = ["houmao-agent-email-comms"]
 commands = ["help", "discover", "prompt", "interrupt", "gateway-queue", "send-keys", "mail", "reset-context"]
-aliases = ["raw-input=send-keys"]
+aliases = ["raw-input=send-keys", "mail-handoff=mail"]
 
 [[shared_routines]]
 logical_id = "houmao-agent-gateway"
@@ -226,7 +226,27 @@ member_name = "houmao-agent-gateway"
 route_name = "agent-gateway"
 audiences = ["admin", "agent"]
 dependencies = []
-commands = ["help", "lifecycle", "discover", "gateway-services", "reminders", "mail-notifier"]
+commands = ["help", "lifecycle", "discover", "gateway-services", "web-entry", "reminders", "mail-notifier"]
+aliases = []
+
+[[shared_routines]]
+logical_id = "houmao-agent-access"
+source_path = "public/houmao-shared-routines/subskills/houmao-agent-access"
+member_name = "houmao-agent-access"
+route_name = "agent-access"
+audiences = ["admin", "agent"]
+dependencies = []
+commands = ["help", "provision", "policy", "admin-roster", "peer-identity", "request"]
+aliases = []
+
+[[shared_routines]]
+logical_id = "houmao-agent-files"
+source_path = "public/houmao-shared-routines/subskills/houmao-agent-files"
+member_name = "houmao-agent-files"
+route_name = "agent-files"
+audiences = ["admin", "agent"]
+dependencies = ["houmao-agent-access"]
+commands = ["help", "discover", "inspect", "edit-draft", "publish", "reconcile"]
 aliases = []
 
 [[shared_routines]]

@@ -10,8 +10,8 @@ Use this action only when the user wants to bootstrap or validate one filesystem
 4. Run the matching mailbox-root initialization command.
 5. Report the returned root summary and root-selection detail.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shape
 
 ```bash
@@ -21,6 +21,6 @@ If the request does not map cleanly to this workflow, use the native planning to
 
 ## Guardrails
 
-- Do not route existing managed-agent late binding through this action.
-- Do not ask for `--mailbox-root` when the user explicitly chose the project mailbox lane.
-- Do not replace mailbox-root initialization with manual directory creation.
+- DO NOT route existing managed-agent late binding through this action.
+- DO NOT ask for `--mailbox-root` when the user explicitly chose the project mailbox lane.
+- DO NOT replace mailbox-root initialization with manual directory creation.

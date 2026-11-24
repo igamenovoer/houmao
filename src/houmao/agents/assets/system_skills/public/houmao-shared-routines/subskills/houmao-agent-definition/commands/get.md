@@ -1,14 +1,15 @@
 ---
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Get Definition
@@ -30,8 +31,8 @@ Use this action only when the user wants to inspect one low-level role or one na
 7. If the user asks to inspect env vars or auth files inside one auth bundle, stop and route that request to `houmao-shared-routines->houmao-credential-mgr`.
 8. Report the returned role or recipe details.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shapes
 
 Use one of these maintained command shapes:
@@ -44,7 +45,7 @@ Use one of these maintained command shapes:
 
 ## Guardrails
 
-- Do not guess whether the user wanted a role or a recipe.
-- Do not add `--include-prompt` unless the user explicitly asked for prompt text or the full low-level role definition.
-- Do not bypass `roles get --include-prompt` by reading `.houmao/agents/roles/<role>/system-prompt.md` directly.
-- Do not treat auth-bundle content inspection as part of this skill.
+- DO NOT guess whether the user wanted a role or a recipe.
+- DO NOT add `--include-prompt` unless the user explicitly asked for prompt text or the full low-level role definition.
+- DO NOT bypass `roles get --include-prompt` by reading `.houmao/agents/roles/<role>/system-prompt.md` directly.
+- DO NOT treat auth-bundle content inspection as part of this skill.

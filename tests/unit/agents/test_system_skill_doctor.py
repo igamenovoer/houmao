@@ -29,7 +29,6 @@ from houmao.agents.system_skills import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-PUBLIC_ROOT = REPO_ROOT / "src/houmao/agents/assets/system_skills/public"
 
 
 def _target(home: Path) -> SystemSkillDoctorTarget:
@@ -56,26 +55,10 @@ def _write_skill(path: Path, frontmatter: str) -> Path:
     return path
 
 
-def test_six_source_roots_have_versions_and_children_remain_unversioned() -> None:
-    """Only the six independently installed roots carry release metadata."""
-
-    result = check_system_skill_source_versions(project_root=REPO_ROOT)
-
-    assert result.healthy
-    assert result.checked_skill_names == EXPECTED_STANDALONE_SKILL_NAMES
-    assert result.project_version == "3.0.0rc6"
-    children = tuple((PUBLIC_ROOT / "houmao-shared-routines/subskills").glob("*/SKILL-MAIN.md"))
-    assert len(children) == 16
-    assert all("houmao_version:" not in path.read_text(encoding="utf-8") for path in children)
-    auto_skill_root = REPO_ROOT / "src/houmao/agents/assets/auto_skills"
-    assert not (auto_skill_root / "__init__.py").exists()
-    assert not (auto_skill_root / "houmao-auto-system-prompt/SKILL.md").exists()
-
-
 def test_frontmatter_parser_preserves_exact_version_string(tmp_path: Path) -> None:
     path = _write_skill(
         tmp_path / "SKILL.md",
-        'name: houmao-test\nhoumao_version: "2.0.0+local.7"',
+        'name: houmao-test\nmetadata:\n  houmao_version: "2.0.0+local.7"',
     )
 
     metadata = parse_top_level_system_skill_frontmatter(path, expected_name="houmao-test")
@@ -88,21 +71,31 @@ def test_frontmatter_parser_preserves_exact_version_string(tmp_path: Path) -> No
     ("text", "expected_name", "code"),
     [
         (
-            "name: houmao-test\nname: duplicate\nhoumao_version: '2.0.0'",
+            "name: houmao-test\nname: duplicate\nmetadata:\n  houmao_version: '2.0.0'",
             "houmao-test",
             "duplicate-key",
         ),
         (
-            "name: houmao-test\nhoumao_version: '2.0.0'\nhoumao_version: '1.2.1'",
+            "name: houmao-test\nmetadata:\n  houmao_version: '2.0.0'\n  houmao_version: '1.2.1'",
             "houmao-test",
             "duplicate-key",
         ),
-        ("name: [broken\nhoumao_version: '2.0.0'", "houmao-test", "malformed-yaml"),
-        ("name: other\nhoumao_version: '2.0.0'", "houmao-test", "name-mismatch"),
-        ("houmao_version: '2.0.0'", "houmao-test", "missing-name"),
+        ("name: [broken\nmetadata:\n  houmao_version: '2.0.0'", "houmao-test", "malformed-yaml"),
+        ("name: other\nmetadata:\n  houmao_version: '2.0.0'", "houmao-test", "name-mismatch"),
+        ("metadata:\n  houmao_version: '2.0.0'", "houmao-test", "missing-name"),
         ("name: houmao-test", "houmao-test", "missing-version"),
-        ("name: houmao-test\nhoumao_version: 1.2", "houmao-test", "non-string-version"),
-        ("name: houmao-test\nhoumao_version: 'not a release'", "houmao-test", "invalid-version"),
+        ("name: houmao-test\nhoumao_version: '2.0.0'", "houmao-test", "missing-version"),
+        ("name: houmao-test\nmetadata: wrong", "houmao-test", "malformed-yaml"),
+        (
+            "name: houmao-test\nmetadata:\n  houmao_version: 1.2",
+            "houmao-test",
+            "non-string-version",
+        ),
+        (
+            "name: houmao-test\nmetadata:\n  houmao_version: 'not a release'",
+            "houmao-test",
+            "invalid-version",
+        ),
     ],
 )
 def test_frontmatter_parser_reports_specific_failures(
@@ -140,31 +133,43 @@ def test_frontmatter_parser_reports_missing_file(tmp_path: Path) -> None:
     assert exc_info.value.code == "missing-file"
 
 
-def test_source_check_fails_project_version_drift_without_rewriting_sources(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("source_value", "observed", "problem"),
+    [
+        ('"2.0.0"', "2.0.0", None),
+        ("'2.0.0'", "2.0.0", None),
+        ('"1.9.9"', "1.9.9", "version mismatch"),
+        ("2.0.0", "2.0.0", "must have a quoted YAML value"),
+    ],
+)
+def test_source_check_requires_matching_quoted_version_without_rewriting_sources(
+    tmp_path: Path, source_value: str, observed: str, problem: str | None
 ) -> None:
-    project_file = tmp_path / "pyproject.toml"
-    project_file.write_text('[project]\nversion = "9.9.9"\n', encoding="utf-8")
-    copied_assets = tmp_path / "src/houmao/agents/assets/system_skills"
-    shutil.copytree(
-        REPO_ROOT / "src/houmao/agents/assets/system_skills",
-        copied_assets,
-    )
-    before = {
-        name: (PUBLIC_ROOT / name / "SKILL.md").read_bytes()
-        for name in EXPECTED_STANDALONE_SKILL_NAMES
-    }
+    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "2.0.0"\n', encoding="utf-8")
+    assets = tmp_path / "src/houmao/agents/assets/system_skills"
+    paths: list[Path] = []
+    records: list[str] = []
+    for name in EXPECTED_STANDALONE_SKILL_NAMES:
+        relative_root = f"public/{name}"
+        entry = assets / relative_root / "SKILL.md"
+        entry.parent.mkdir(parents=True)
+        paths.append(
+            _write_skill(entry, f"name: {name}\nmetadata:\n  houmao_version: {source_value}")
+        )
+        records.append(f'[[standalone_skills]]\nname = "{name}"\nsource_path = "{relative_root}"\n')
+    (assets / "manifest.toml").write_text("\n".join(records), encoding="utf-8")
+    before = [path.read_bytes() for path in paths]
 
     result = check_system_skill_source_versions(project_root=tmp_path)
 
-    assert not result.healthy
-    assert len(result.issues) == 6
-    assert {issue.observed_version for issue in result.issues} == {"3.0.0rc6"}
-    assert {issue.expected_version for issue in result.issues} == {"9.9.9"}
-    assert before == {
-        name: (PUBLIC_ROOT / name / "SKILL.md").read_bytes()
-        for name in EXPECTED_STANDALONE_SKILL_NAMES
-    }
+    assert result.checked_skill_names == EXPECTED_STANDALONE_SKILL_NAMES
+    assert result.healthy is (problem is None)
+    if problem is not None:
+        assert len(result.issues) == len(paths)
+        assert {issue.observed_version for issue in result.issues} == {observed}
+        assert {issue.expected_version for issue in result.issues} == {"2.0.0"}
+        assert all(problem in issue.problem for issue in result.issues)
+    assert before == [path.read_bytes() for path in paths]
 
 
 @pytest.mark.parametrize("symlink", [False, True])
@@ -209,7 +214,7 @@ def test_doctor_separates_missing_incomplete_drift_and_version_mismatch(
     home = tmp_path / "home"
     _install(home)
     shutil.rmtree(home / "skills/houmao-agent-entrypoint")
-    shared_child = home / "skills/houmao-shared-routines/subskills/houmao-project-mgr"
+    shared_child = home / "skills/houmao-shared-routines/subskills/houmao-agent-files"
     shutil.rmtree(shared_child)
     pro = home / "skills/houmao-agent-loop-pro/SKILL.md"
     pro.write_text(pro.read_text(encoding="utf-8") + "\nlocal edit\n", encoding="utf-8")
@@ -345,7 +350,11 @@ def test_manifest_loading_does_not_require_version_metadata(tmp_path: Path) -> N
     shutil.copytree(source_root, copied_root)
     entrypoint = copied_root / "public/houmao-agent-entrypoint/SKILL.md"
     entrypoint.write_text(
-        entrypoint.read_text(encoding="utf-8").replace('houmao_version: "3.0.0rc6"\n', ""),
+        "".join(
+            line
+            for line in entrypoint.read_text(encoding="utf-8").splitlines(keepends=True)
+            if not line.lstrip().startswith("houmao_version:")
+        ),
         encoding="utf-8",
     )
 
@@ -363,7 +372,7 @@ def test_manifest_loading_does_not_require_version_metadata(tmp_path: Path) -> N
     assert manifest.schema_version == "houmao-system-skills.v5"
     assert loaded.schema_version == manifest.schema_version
     staged_entrypoint = staged.skills[0].path / "SKILL.md"
-    assert "houmao_version:" not in staged_entrypoint.read_text(encoding="utf-8")
+    assert staged_entrypoint.read_bytes() == entrypoint.read_bytes()
 
 
 def test_lifecycle_install_and_sync_do_not_call_diagnostic_version_parser(

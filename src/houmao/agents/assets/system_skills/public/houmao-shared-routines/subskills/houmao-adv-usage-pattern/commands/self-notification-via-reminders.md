@@ -1,14 +1,15 @@
 ---
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Self-Notification Via Gateway Reminders
@@ -39,8 +40,8 @@ If you are unsure and durable recovery is not explicitly required, prefer this m
 7. When the reminder fires, reopen the referenced local todo list or working notes and continue that work.
 8. Update or delete the reminder when it no longer represents the current next step.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Reminder Shape
 
 Keep the reminder concise and focused:
@@ -62,9 +63,10 @@ Use a stable title marker such as `[focus-reminder]` or `[self-reminder]` consis
 - `/v1/reminders` is live gateway process state and does not survive gateway shutdown or restart.
 - This mode is therefore richer for live scheduling, but weaker than self-mail for durable recovery.
 
+- Use `houmao-shared-routines->houmao-agent-gateway` for the exact reminder operations instead of restating raw gateway API details here.
+
 ## Guardrails
 
-- Use `houmao-shared-routines->houmao-agent-gateway` for the exact reminder operations instead of restating raw gateway API details here.
-- Do not describe this mode as durable across gateway stop or restart.
-- Do not create many tiny reminders when one major-chunk reminder plus local todo state is enough.
-- Do not use this mode when the reminder must survive gateway loss; use self-mail instead.
+- DO NOT describe this mode as durable across gateway stop or restart.
+- DO NOT create many tiny reminders when one major-chunk reminder plus local todo state is enough.
+- DO NOT use this mode when the reminder must survive gateway loss; use self-mail instead.

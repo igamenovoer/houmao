@@ -46,6 +46,6 @@ The reminder should tell the later round to reopen that local working state inst
 
 ## Guardrails
 
-- Do not treat gateway reminders and self-mail as interchangeable without checking the focus-versus-durability trade-off.
-- Do not choose self-mail by default when the task really wants focused live reminder behavior.
-- Do not choose live gateway reminders when the reminder must survive gateway shutdown or restart.
+- DO NOT treat gateway reminders and self-mail as interchangeable without checking the focus-versus-durability trade-off.
+- DO NOT choose self-mail by default when the task really wants focused live reminder behavior.
+- DO NOT choose live gateway reminders when the reminder must survive gateway shutdown or restart.

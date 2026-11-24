@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import shutil
 import subprocess
+import tomllib
 
 import pytest
 
@@ -65,4 +66,8 @@ def test_local_public_collection_lists_and_installs_explicit_agent_members(tmp_p
         path.parent.name for path in installed_root.glob("*/SKILL.md") if path.is_file()
     } == AGENT_MEMBERS
     shared_children = installed_root.glob("houmao-shared-routines/subskills/*/SKILL-MAIN.md")
-    assert len([path for path in shared_children if path.is_file()]) == 16
+    with (PUBLIC_SOURCE.parent / "manifest.toml").open("rb") as stream:
+        manifest = tomllib.load(stream)
+    assert {path.parent.name for path in shared_children if path.is_file()} == {
+        routine["member_name"] for routine in manifest["shared_routines"]
+    }

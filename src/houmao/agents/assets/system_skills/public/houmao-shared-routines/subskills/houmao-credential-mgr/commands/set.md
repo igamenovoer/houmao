@@ -12,8 +12,8 @@ Use this action only when the user wants to update one existing credential.
 6. Run the direct command only after required inputs are explicit and conflicts are resolved.
 7. Report the resulting written env vars, cleared env vars, written files, and cleared files returned by the command.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Required Inputs
 
 - `tool`: one of `claude`, `codex`, or `kimi`
@@ -36,10 +36,10 @@ Use the selected tool's credential-kind reference for supported update and clear
 
 ## Guardrails
 
-- Do not guess the tool family, target, credential name, or mutation.
-- Do not continue with set when the user has not provided any explicit supported change.
-- Do not invent unsupported clear flags or fake symmetric behavior across tools.
-- Do not dump raw secret values while explaining the update result.
-- Do not use `set` when the requested change is only to repoint a reusable project profile or native launch dossier at a different credential name.
-- Do not route update requests through `add` or direct file editing when `set` is the supported patch-style surface.
-- Do not duplicate unsupported Claude/Codex/Kimi options; use the selected tool reference before choosing update or clear flags.
+- DO NOT guess the tool family, target, credential name, or mutation.
+- DO NOT continue with set when the user has not provided any explicit supported change.
+- DO NOT invent unsupported clear flags or fake symmetric behavior across tools.
+- DO NOT dump raw secret values while explaining the update result.
+- DO NOT use `set` when the requested change is only to repoint a reusable project profile or native launch dossier at a different credential name.
+- DO NOT route update requests through `add` or direct file editing when `set` is the supported patch-style surface.
+- DO NOT duplicate unsupported Claude/Codex/Kimi options; use the selected tool reference before choosing update or clear flags.

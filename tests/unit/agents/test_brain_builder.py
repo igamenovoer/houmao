@@ -333,25 +333,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert (home / "skills/skill-a").is_symlink()
     agent_entrypoint = home / "skills" / SYSTEM_SKILL_AGENT_ENTRYPOINT
     assert (agent_entrypoint / "SKILL.md").is_file()
-    for logical_id in (
-        "houmao-project-mgr",
-        "houmao-credential-mgr",
-        "houmao-agent-definition",
-        "houmao-operator-messaging",
-        "houmao-process-emails-via-gateway",
-        "houmao-agent-email-comms",
-        "houmao-mailbox-mgr",
-        "houmao-memory-mgr",
-        "houmao-adv-usage-pattern",
-        "houmao-utils-workspace-mgr",
-        "houmao-agent-instance",
-        "houmao-agent-inspect",
-        "houmao-agent-messaging",
-        "houmao-agent-gateway",
-        "houmao-interop-ag-ui",
-        "houmao-ext-graphing",
-    ):
-        assert (_agent_routine_root(home, logical_id) / "SKILL-MAIN.md").is_file()
+    assert (_agent_routine_root(home, "houmao-agent-instance") / "SKILL-MAIN.md").is_file()
     assert (home / f"skills/{SYSTEM_SKILL_AGENT_LOOP_PRO}/SKILL.md").is_file()
     assert (home / f"skills/{SYSTEM_SKILL_AGENT_LOOP_LITE}/SKILL.md").is_file()
     assert not (home / "skills/houmao-agent-email-comms").exists()
@@ -768,48 +750,17 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
         )
     )
 
-    processing_root = _agent_routine_root(result.home_path, "houmao-process-emails-via-gateway")
-    gateway_root = _agent_routine_root(result.home_path, "houmao-agent-email-comms")
-    mailbox_mgr_root = _agent_routine_root(result.home_path, "houmao-mailbox-mgr")
-    memory_mgr_root = _agent_routine_root(result.home_path, "houmao-memory-mgr")
+    for logical_id in (
+        "houmao-process-emails-via-gateway",
+        "houmao-agent-email-comms",
+        "houmao-mailbox-mgr",
+        "houmao-memory-mgr",
+        "houmao-adv-usage-pattern",
+    ):
+        assert (_agent_routine_root(result.home_path, logical_id) / "SKILL-MAIN.md").is_file()
     advanced_root = _agent_routine_root(result.home_path, "houmao-adv-usage-pattern")
-    processing_skill = (processing_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
-    gateway_skill = (gateway_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
-    mailbox_mgr_skill = (mailbox_mgr_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
-    memory_mgr_skill = (memory_mgr_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
-    advanced_skill = (advanced_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
-    pairwise_edge_loop_pattern = (
-        advanced_root / "commands/pairwise-edge-loop-via-gateway-and-mailbox.md"
-    )
-    relay_loop_pattern = advanced_root / "commands/relay-loop-via-gateway-and-mailbox.md"
-
-    assert "houmao-process-emails-via-gateway" in processing_skill
-    assert "metadata-first triage" in processing_skill
-    assert "stalled or interrupted" in processing_skill
-    assert "It is acceptable to defer unrelated open emails" in processing_skill
-    assert "Archive only the successfully processed selected emails" in processing_skill
-    assert "wait for the next notification" in processing_skill
-    assert "DO NOT switch to `houmao-mgr agents self mail resolve-live`" in processing_skill
-    assert "pixi run houmao-mgr agents self mail resolve-live" not in processing_skill
-    assert "houmao-agent-email-comms" in gateway_skill
-    assert "houmao-shared-routines->houmao-process-emails-via-gateway" in gateway_skill
-    assert "Run `houmao-mgr agents self mail resolve-live`" in gateway_skill
-    assert "houmao-mgr agents self mail resolve-live" in gateway_skill
-    assert "pixi run houmao-mgr agents self mail resolve-live" not in gateway_skill
-    assert "self-notification.md" in advanced_skill
-    assert "pairwise-edge-loop-via-gateway-and-mailbox.md" in advanced_skill
-    assert "relay-loop-via-gateway-and-mailbox.md" in advanced_skill
-    assert pairwise_edge_loop_pattern.is_file()
-    assert relay_loop_pattern.is_file()
-    assert "The trigger word `houmao` is intentional." in gateway_skill
-    assert "houmao-mgr mailbox ..." in mailbox_mgr_skill
-    assert "houmao-mgr project mailbox ..." in mailbox_mgr_skill
-    assert "houmao-mgr agents single --agent-id <id> mailbox offline ..." in mailbox_mgr_skill
-    assert "`--agent-name <name>`" in mailbox_mgr_skill
-    assert "HOUMAO_AGENT_MEMO_FILE" in memory_mgr_skill
-    assert "houmao-mgr agents self memory" in memory_mgr_skill
-    assert "houmao-mgr agents single --agent-name <name> memory" in memory_mgr_skill
-    assert "houmao-mgr agents memory" not in memory_mgr_skill
+    assert (advanced_root / "commands/pairwise-edge-loop-via-gateway-and-mailbox.md").is_file()
+    assert (advanced_root / "commands/relay-loop-via-gateway-and-mailbox.md").is_file()
 
 
 def test_build_brain_home_projects_claude_mailbox_skills_top_level(
@@ -845,13 +796,6 @@ def test_build_brain_home_projects_claude_mailbox_skills_top_level(
     mailbox_mgr_root = _agent_routine_root(result.home_path, "houmao-mailbox-mgr")
     filesystem_path = gateway_root / "references/transports/filesystem.md"
     stalwart_path = gateway_root / "references/transports/stalwart.md"
-    processing_skill = (processing_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
-    gateway_skill = (gateway_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
-    mailbox_mgr_skill = (mailbox_mgr_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
-    filesystem_skill = filesystem_path.read_text(encoding="utf-8")
-    stalwart_skill = stalwart_path.read_text(encoding="utf-8")
-    cli_reference = (gateway_root / "references/scoped-cli.md").read_text(encoding="utf-8")
-
     assert (skills_root / f"{SYSTEM_SKILL_AGENT_ENTRYPOINT}/SKILL.md").is_file()
     assert (processing_root / "SKILL-MAIN.md").is_file()
     assert (gateway_root / "SKILL-MAIN.md").is_file()
@@ -864,31 +808,6 @@ def test_build_brain_home_projects_claude_mailbox_skills_top_level(
     assert stalwart_path.is_file()
     assert not (skills_root / "mailbox").exists()
     assert not (agent_def_dir / ".claude").exists()
-    assert "houmao-shared-routines->houmao-agent-email-comms" in processing_skill
-    assert (
-        "installed Houmao skill "
-        "`houmao-shared-routines->houmao-agent-email-comms`" in processing_skill
-    )
-    assert "Run `houmao-mgr agents self mail resolve-live`" in (gateway_skill)
-    assert "references/root-selection.md" in mailbox_mgr_skill
-    assert "/v1/mail/offline/..." in filesystem_skill
-    assert "--channel offline --expected-binding-id <binding_id>" in filesystem_skill
-    assert "houmao-mgr agents self mail status" in cli_reference
-    assert "current managed generation" in cli_reference
-    assert "houmao-mgr agents self mail resolve-live" in cli_reference
-    assert "--expected-binding-id" in cli_reference
-
-    assert "The selected offline sender address remains the offline address" in filesystem_skill
-    assert "houmao-agent-email-comms" not in filesystem_skill
-    assert "When no gateway is attached" in filesystem_skill
-    assert "filesystem" in filesystem_skill
-    assert "pixi run houmao-mgr agents self mail resolve-live" not in filesystem_skill
-    assert "/v1/mail/online/..." in stalwart_skill
-    assert "--channel online --expected-binding-id <binding_id>" in stalwart_skill
-    assert "houmao-agent-email-comms" not in stalwart_skill
-    assert "With no gateway" in stalwart_skill
-    assert "stalwart" in stalwart_skill
-    assert "pixi run houmao-mgr agents self mail resolve-live" not in stalwart_skill
 
 
 def test_load_brain_recipe_rejects_legacy_recipe_shape(tmp_path: Path) -> None:

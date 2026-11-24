@@ -15,12 +15,13 @@ from houmao.agents.system_skill_lifecycle import (
     projected_standalone_skill_relative_dir,
 )
 from houmao.agents.system_skill_manifest import (
-    EXPECTED_SHARED_ROUTINE_IDS,
     StandaloneSkillRole,
+    SystemSkillManifest,
     SystemSkillManifestError,
     load_system_skill_manifest,
     resolve_system_skill_pack_members,
     resolve_system_skill_pack_selection,
+    shared_routine_layout_issue,
     standalone_system_skill_content_digest,
     tree_content_digest,
 )
@@ -137,6 +138,7 @@ def inspect_system_skill_doctor(
             path=path,
             skill_name=record.name,
             expected_digest=expected_digest,
+            manifest=manifest,
         )
         observed_version, version_status, version_issues = _inspect_member_version(
             path=path,
@@ -210,6 +212,7 @@ def _inspect_member_integrity(
     path: Path,
     skill_name: str,
     expected_digest: str,
+    manifest: SystemSkillManifest,
 ) -> tuple[MemberIntegrityStatus, str | None, tuple[str, ...]]:
     """Classify one installed root independently from any config."""
 
@@ -232,7 +235,7 @@ def _inspect_member_integrity(
             return "conflicting", None, (str(exc),)
         metadata = None
     if skill_name == "houmao-shared-routines":
-        shared_issue = _shared_routine_shape_issue(path)
+        shared_issue = shared_routine_layout_issue(path, manifest)
         if shared_issue is not None:
             return "incomplete", None, (shared_issue,)
     try:
@@ -281,30 +284,6 @@ def _inspect_member_version(
         "mismatch",
         (f"installed version `{observed}` differs from `{running_houmao_version}`",),
     )
-
-
-def _shared_routine_shape_issue(path: Path) -> str | None:
-    """Return a diagnostic when the shared root lacks its exact child set."""
-
-    child_root = path / "subskills"
-    if not child_root.is_dir():
-        return "shared routines is missing its subskills directory"
-    child_dirs = {child.name for child in child_root.iterdir() if child.is_dir()}
-    expected = set(EXPECTED_SHARED_ROUTINE_IDS)
-    if child_dirs != expected:
-        missing = sorted(expected - child_dirs)
-        extra = sorted(child_dirs - expected)
-        details: list[str] = []
-        if missing:
-            details.append(f"missing children: {', '.join(missing)}")
-        if extra:
-            details.append(f"unexpected children: {', '.join(extra)}")
-        return "shared routines child set is incomplete (" + "; ".join(details) + ")"
-    for child_name in sorted(expected):
-        child = child_root / child_name
-        if not (child / "SKILL-MAIN.md").is_file() or (child / "SKILL.md").exists():
-            return f"shared child `{child_name}` must expose only canonical SKILL-MAIN.md"
-    return None
 
 
 __all__ = (

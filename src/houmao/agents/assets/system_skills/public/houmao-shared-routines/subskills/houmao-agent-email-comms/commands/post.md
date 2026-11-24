@@ -27,7 +27,7 @@ houmao-mgr --print-json agents single --agent-id "$AGENT_ID" mail peek \
 
 If the post outcome is uncertain, inspect the same target binding's inbox and archive where authorized. Report the outcome as unresolved if the evidence is inconclusive.
 
-With a live gateway, post follows the admin rule. Configure an explicit owner-side admin signer for a key-required gateway. A detached gateway uses the separately authorized manager path.
+A gateway post requires `mail.post` on the selected binding. A request carrying owner-file attachments also requires `mail.attachment.owner_file` on that binding. Use the configured owner-side administrator signer for the ordinary scoped CLI on a keyed gateway. A detached gateway uses the separately authorized manager path. [Write Permissions](../references/endpoint-contract.md#write-permissions)
 
 This action is filesystem-only in v1. It delivers from the reserved sender `HOUMAO-operator@houmao.localhost`, refuses Stalwart-backed execution, and does not allow live TUI submission fallback.
 

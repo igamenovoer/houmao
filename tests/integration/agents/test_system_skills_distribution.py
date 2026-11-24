@@ -9,6 +9,8 @@ import tarfile
 import tomllib
 import zipfile
 
+import yaml
+
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PUBLIC_NAMES = {
@@ -22,6 +24,18 @@ PUBLIC_NAMES = {
 PROJECT_VERSION = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
     "project"
 ]["version"]
+SOURCE_MANIFEST = REPO_ROOT / "src/houmao/agents/assets/system_skills/manifest.toml"
+
+
+def _frontmatter(content: bytes) -> dict[str, object]:
+    """Read metadata from the exact entrypoint in a built archive."""
+
+    text = content.decode("utf-8")
+    assert text.startswith("---\n")
+    frontmatter, _ = text[4:].split("\n---\n", maxsplit=1)
+    payload = yaml.safe_load(frontmatter)
+    assert isinstance(payload, dict)
+    return payload
 
 
 def _strip_sdist_prefix(name: str) -> str:
@@ -50,9 +64,11 @@ def _assert_static_collection(
     assert discovered == PUBLIC_NAMES
     for skill_name in PUBLIC_NAMES:
         entrypoint = f"{public_prefix}/{skill_name}/SKILL.md"
-        text = contents[entrypoint].decode("utf-8")
-        assert text.count("houmao_version:") == 1
-        assert f'houmao_version: "{PROJECT_VERSION}"' in text
+        frontmatter = _frontmatter(contents[entrypoint])
+        assert "houmao_version" not in frontmatter
+        metadata = frontmatter["metadata"]
+        assert isinstance(metadata, dict)
+        assert metadata["houmao_version"] == PROJECT_VERSION
 
     shared_prefix = f"{public_prefix}/houmao-shared-routines/subskills"
     children = {
@@ -60,15 +76,20 @@ def _assert_static_collection(
         for name in names
         if name.startswith(f"{shared_prefix}/") and name.endswith("/SKILL-MAIN.md")
     }
-    assert len(children) == 16
+    with SOURCE_MANIFEST.open("rb") as stream:
+        manifest = tomllib.load(stream)
+    assert children == {routine["member_name"] for routine in manifest["shared_routines"]}
     child_entrypoints = {
         name
         for name in names
         if name.startswith(f"{shared_prefix}/") and name.endswith("/SKILL-MAIN.md")
     }
-    assert all(
-        "houmao_version:" not in contents[name].decode("utf-8") for name in child_entrypoints
-    )
+    for name in child_entrypoints:
+        frontmatter = _frontmatter(contents[name])
+        assert "houmao_version" not in frontmatter
+        metadata = frontmatter["metadata"]
+        assert isinstance(metadata, dict)
+        assert "houmao_version" not in metadata
     assert not any(
         name.startswith(f"{package_root}/agents/assets/system_skills/protected/") for name in names
     )

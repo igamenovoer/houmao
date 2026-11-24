@@ -12,7 +12,7 @@ Lifecycle routes require explicit channel selection:
 | `POST /v1/mail/{channel}/peek` | `message_ref`, optional `box`; leaves read state unchanged |
 | `POST /v1/mail/{channel}/read` | `message_ref`, optional `box`; marks read |
 | `POST /v1/mail/{channel}/send` | `to`, optional `cc`, `subject`, `body_content`, optional attachments |
-| `POST /v1/mail/{channel}/post` | operator-origin `subject`, `body_content`, optional reply policy; backend support required |
+| `POST /v1/mail/{channel}/post` | operator-origin `subject`, `body_content`, optional reply policy and attachments; backend support required |
 | `POST /v1/mail/{channel}/reply` | `message_ref`, `body_content`, optional attachments |
 | `POST /v1/mail/{channel}/mark` | `message_refs`, one or more read/answered/archived flags |
 | `POST /v1/mail/{channel}/move` | `message_refs`, `destination_box` |
@@ -23,3 +23,7 @@ Every lifecycle body includes `schema_version: 3` and `expected_binding_id`, inc
 Offline and online delivery remain isolated. Canonical identity, provider outage, or an email domain cannot choose another channel. Peek, read, and answered status are separate from archive completion. See [scoped command examples](scoped-cli.md) for request construction and [manager fallback](managed-agent-fallback.md) when no gateway is attached.
 
 List returns one metadata-only `messages` page, `next_cursor`, `has_more`, and `complete`. Counts describe that page; `total_count` is optional. Preserve filter, account, and binding scope on continuation. Stale cursors interrupt the page chain rather than silently joining incompatible snapshots. `include_body` is rejected. Peek/read return explicit content and disclose `content_complete` plus content-limit information when full retrieval is unavailable.
+
+## Write Permissions
+
+The gateway checks `mail.send`, `mail.reply`, or `mail.post` on the exact selected channel and binding. A request with a nonempty `attachments` list additionally requires `mail.attachment.owner_file` on that same binding. The attachment action authorizes a read under the target owner's file policy. An ordinary text-only request uses the corresponding mail action alone. For enrollment and grants, use the access routine named in [Related Skills](../SKILL-MAIN.md#help).

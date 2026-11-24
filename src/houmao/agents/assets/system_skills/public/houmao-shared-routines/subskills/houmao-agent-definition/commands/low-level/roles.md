@@ -42,9 +42,9 @@ For `init` and `set`, run the direct command with only explicit prompt fields:
 
 ## Guardrails
 
-- Do not use `internals native-agent roles scaffold`.
-- Do not use `internals native-agent roles presets ...`.
-- Do not guess prompt text.
-- Do not hand-edit `.houmao/agents/roles/`.
-- Do not use roles when the user asked for a specialist template with credentials, skills, setup, model, or env defaults.
-- Do not include prompt mutation flags unless the user supplied the prompt text, prompt file, or explicit clear request.
+- DO NOT use `internals native-agent roles scaffold`.
+- DO NOT use `internals native-agent roles presets ...`.
+- DO NOT guess prompt text.
+- DO NOT hand-edit `.houmao/agents/roles/`.
+- DO NOT use roles when the user asked for a specialist template with credentials, skills, setup, model, or env defaults.
+- DO NOT include prompt mutation flags unless the user supplied the prompt text, prompt file, or explicit clear request.

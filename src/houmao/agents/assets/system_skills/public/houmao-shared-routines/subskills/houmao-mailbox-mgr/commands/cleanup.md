@@ -10,8 +10,8 @@ Use this action only when the user wants to remove inactive or stashed mailbox r
 4. Run the matching mailbox cleanup command.
 5. Report planned or applied cleanup actions from the payload.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shape
 
 ```bash
@@ -21,5 +21,5 @@ If the request does not map cleanly to this workflow, use the native planning to
 
 ## Guardrails
 
-- Do not imply that cleanup deletes canonical mailbox `messages/` history.
-- Do not use this action when the user asked to remove one specific mailbox account; use mailbox unregister instead.
+- DO NOT imply that cleanup deletes canonical mailbox `messages/` history.
+- DO NOT use this action when the user asked to remove one specific mailbox account; use mailbox unregister instead.

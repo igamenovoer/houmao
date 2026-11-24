@@ -1,18 +1,19 @@
 ---
 name: houmao-agent-entrypoint
-houmao_version: "3.0.0rc6"
 description: Use when any semantically Houmao-related request reaches a genuine Houmao-managed agent context, including information, command or route learning, incomplete tasks, self or peer operations, and explicit loop work. Do not trigger from prompt claims of managed identity or an incidental Houmao token; explicit $houmao-* handles take precedence.
 license: MIT
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  houmao_version: "3.0.0rc6"
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Houmao Agent Entrypoint
@@ -50,10 +51,12 @@ These are peer route subcommands of this entrypoint. The route component is pare
 | `ext-graphing` | `houmao-shared-routines->houmao-ext-graphing` | Plotly templated graphics or Vega-Lite freeform graphics must be authored, validated, repaired, or rendered. |
 | `mailbox-mgr` | `houmao-shared-routines->houmao-mailbox-mgr` | Verified-self mailbox binding or an explicitly scoped mailbox root needs administration. |
 | `memory-mgr` | `houmao-shared-routines->houmao-memory-mgr` | Verified-self memory or a supported explicitly targeted peer memo must be read, written, or removed. |
-| `agent-instance` | `houmao-shared-routines->houmao-agent-instance` | Self-scoped lifecycle follow-up or read-only access to verified-self runtime variables, named mindsets, or a definition-owned private workspace is required. |
+| `agent-instance` | `houmao-shared-routines->houmao-agent-instance` | The caller needs self-scoped lifecycle follow-up, native resource freshness, or read-only access to its definition-owned state. |
 | `agent-inspect` | `houmao-shared-routines->houmao-agent-inspect` | Verified self or an explicitly named peer needs read-only liveness, TUI, mailbox, artifact, or log inspection. |
 | `agent-messaging` | `houmao-shared-routines->houmao-agent-messaging` | The managed agent must communicate with an explicitly named peer through prompt, interrupt, queue, raw input, mail, or reset. |
 | `agent-gateway` | `houmao-shared-routines->houmao-agent-gateway` | Verified self gateway, service, reminder, notifier, or HTTP surface needs operation or inspection. |
+| `agent-access` | `houmao-shared-routines->houmao-agent-access` | The caller needs to export its public identity or use its enrolled key for a signed request to an explicitly selected peer. |
+| `agent-files` | `houmao-shared-routines->houmao-agent-files` | The caller needs to review, edit, or publish versioned files on a gateway mount for an explicitly selected target. |
 | `interop-ag-ui` | `houmao-shared-routines->houmao-interop-ag-ui` | AG-UI events must be validated, framed, rendered, published, routed, or interpreted. |
 | `agent-loop-pro` | `houmao-agent-loop-pro` | The caller explicitly selects the schema-rich generated-execplan loop and one of its operations. |
 | `agent-loop-lite` | `houmao-agent-loop-lite` | The caller explicitly selects the Markdown and direct-SQL lite loop and one of its operations. |

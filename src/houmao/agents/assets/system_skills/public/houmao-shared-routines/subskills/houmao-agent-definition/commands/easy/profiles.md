@@ -58,11 +58,22 @@ Project profiles may store:
 - durable env: repeatable `--env-set NAME=value`
 - mailbox defaults: `--mail-transport filesystem|stalwart`, `--mail-principal-id`, `--mail-address`, `--mail-root`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url`
 - run mode: `--mode headless|service|tui|web` at `defaults.posture.mode`
+- tmux server: `--tmux-server` and, for `socket`, `--tmux-socket-path`
 - gateway posture: `--no-gateway`, `--gateway-port`
 - managed prompt header: `--managed-header`, `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled`
 - prompt overlay: `--prompt-overlay-mode append|replace`, `--prompt-overlay-text`, `--prompt-overlay-file`
 - gateway mail-notifier default: `--gateway-mail-notifier-appendix-text`
 - memo seed: `--memo-seed-text`, `--memo-seed-file`, `--memo-seed-dir`
+
+## Saved Tmux Server
+
+See [Tmux Server Choices](../../references/common/tmux-server.md) for the four modes and launch precedence. Save the choice through `create` or `set` and verify the resulting `defaults.posture.tmux` with `get`.
+
+```bash
+houmao-mgr project profile create --name worker --specialist researcher --tmux-server houmao-default
+houmao-mgr project profile set --name worker --tmux-server socket --tmux-socket-path /run/user/1000/research.sock
+houmao-mgr project profile get --name worker
+```
 
 ## Default Run Mode
 
@@ -84,6 +95,7 @@ For Kimi-backed profiles, use `--prompt-mode unattended` as the managed no-quest
 - `--clear-env`
 - `--clear-mailbox`
 - `--clear-mode`
+- `--clear-tmux-server`
 - `--clear-managed-header`
 - `--clear-managed-header-section SECTION`
 - `--clear-managed-header-sections`
@@ -94,6 +106,7 @@ For Kimi-backed profiles, use `--prompt-mode unattended` as the managed no-quest
 ## Rules
 
 - Use `project profile set` for ordinary edits.
+- An omitted tmux option preserves the selector on `set`. A new choice replaces it and `--clear-tmux-server` restores launch-time fallback.
 - Use `project profile create --yes` only for intended same-name replacement; replacement clears omitted optional fields.
 - For covered profile config documents, treat `internals config-drafts generate` output as authoritative for the profile lane, source kind, required credential/auth reference, and YAML shape.
 - `--auth` selects a stored auth display-name override; it does not create or edit credentials.
@@ -106,13 +119,14 @@ For Kimi-backed profiles, use `--prompt-mode unattended` as the managed no-quest
 - Supplying a new memo-seed source on `profile set` replaces the stored seed. `--clear-memo-seed` cannot be combined with a new source.
 - Let the project profile or later project launch own ordinary same-root per-agent mailbox bootstrap when the mailbox identity will be derived from the managed-agent name.
 
+- Apply prompt policy and run mode independently. Include clear flags only for requested fields.
+
 ## Guardrails
 
-- Do not enter credential discovery for project profile creation.
-- Do not use `internals native-agent launch-dossiers set` for project profile edits.
-- Do not remove and recreate a project profile for ordinary default edits.
-- Do not treat profile creation as launching or mutating a live managed agent.
-- Apply prompt policy and run mode independently. Include clear flags only for requested fields.
-- Do not add raw Kimi `--auto` or `--yolo` launch flags to profiles; use prompt mode for managed automation.
-- Do not preregister same-root ordinary per-agent mailbox addresses as the default precursor to mailbox-enabled project launch.
-- Do not pass hidden full-model defaults such as model, env, mailbox, memo seed, gateway, or prompt overlay fields to `project.profile` config drafts.
+- DO NOT enter credential discovery for project profile creation.
+- DO NOT use `internals native-agent launch-dossiers set` for project profile edits.
+- DO NOT remove and recreate a project profile for ordinary default edits.
+- DO NOT treat profile creation as launching or mutating a live managed agent.
+- DO NOT add raw Kimi `--auto` or `--yolo` launch flags to profiles; use prompt mode for managed automation.
+- DO NOT preregister same-root ordinary per-agent mailbox addresses as the default precursor to mailbox-enabled project launch.
+- DO NOT pass hidden full-model defaults such as model, env, mailbox, memo seed, gateway, or prompt overlay fields to `project.profile` config drafts.

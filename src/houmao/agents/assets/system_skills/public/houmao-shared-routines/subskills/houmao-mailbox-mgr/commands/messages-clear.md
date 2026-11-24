@@ -11,8 +11,8 @@ Use this action only when the user wants to remove delivered filesystem mailbox 
 5. Run the matching account-scoped mailbox message-clear command.
 6. Report planned, applied, blocked, and preserved actions from the payload.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shape
 
 ```bash
@@ -20,10 +20,13 @@ If the request does not map cleanly to this workflow, use the native planning to
 <chosen houmao-mgr launcher> project mailbox messages clear --address <address> [--dry-run] [--yes]
 ```
 
+## Attachment Boundary
+
+- Explain that external `path_ref` attachment targets are outside the clear operation.
+
 ## Guardrails
 
-- Do not use this action when the user wants to remove all delivered messages from the mailbox root; use `commands/clear-messages.md` for that all-account reset.
-- Do not use this action to remove mailbox accounts; use mailbox unregister for account deregistration.
-- Do not use mailbox cleanup for this task; cleanup removes inactive registrations and retained registration history and preserves canonical message history.
-- Do not hand-edit mailbox-root files when this maintained command covers the request.
-- Explain that external `path_ref` attachment targets are outside the clear operation.
+- DO NOT use this action when the user wants to remove all delivered messages from the mailbox root; use `commands/clear-messages.md` for that all-account reset.
+- DO NOT use this action to remove mailbox accounts; use mailbox unregister for account deregistration.
+- DO NOT use mailbox cleanup for this task; cleanup removes inactive registrations and retained registration history and preserves canonical message history.
+- DO NOT hand-edit mailbox-root files when this maintained command covers the request.

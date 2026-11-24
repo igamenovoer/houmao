@@ -9,8 +9,8 @@ Use this action only when the user wants to inspect which project overlay is sel
 3. Report the selected overlay root, overlay-root source, discovery mode, effective project-aware roots, and `would_bootstrap_overlay`.
 4. If the user is trying to understand why another project-scoped command fails before initialization, explain the difference between this status inspection and non-creating selected-overlay commands.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shape
 
 Use:
@@ -21,6 +21,6 @@ Use:
 
 ## Guardrails
 
-- Do not describe `project status` as mutating the overlay.
-- Do not omit `would_bootstrap_overlay` when the user is asking what happens before initialization.
-- Do not present `project agents list|get|stop` as having the same bootstrap behavior as `project status`.
+- DO NOT describe `project status` as mutating the overlay.
+- DO NOT omit `would_bootstrap_overlay` when the user is asking what happens before initialization.
+- DO NOT present `project agents list|get|stop` as having the same bootstrap behavior as `project status`.

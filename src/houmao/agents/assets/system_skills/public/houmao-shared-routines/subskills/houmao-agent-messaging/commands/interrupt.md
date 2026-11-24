@@ -14,8 +14,8 @@ Use this action only when the user wants the transport-neutral interrupt path fo
 8. For headless managed agents, explain that ordinary interrupt targets active execution work and can return explicit no-op behavior when no headless work is active.
 9. Report the interrupt result returned by the selected managed-agent surface.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shape
 
 Use:
@@ -24,15 +24,12 @@ Use:
 <chosen houmao-mgr launcher> agents single --agent-name <name> interrupt
 ```
 
-Authoritative selector alternatives:
-
-- `--agent-id <id>`
-- `--port <pair-port>`
+Select one target by `--agent-id` or `--agent-name` on `agents single`. On `interrupt`, `--port` selects the pair transport for that target.
 
 ## Guardrails
 
-- Do not redirect ordinary interrupt work to `agents single ... gateway interrupt` or `agents self gateway interrupt` unless the user explicitly wants gateway queue semantics.
-- Do not redirect ordinary TUI interrupt work to `agents single ... gateway send-keys` or `agents self gateway send-keys` merely to deliver `Escape`.
-- Do not guess the target managed agent.
-- Do not describe interrupt as a mailbox or lifecycle action.
-- Do not claim that interrupt guarantees immediate provider termination; it is the supported managed-agent interrupt request path.
+- DO NOT redirect ordinary interrupt work to `agents single ... gateway interrupt` or `agents self gateway interrupt` unless the user explicitly wants gateway queue semantics.
+- DO NOT redirect ordinary TUI interrupt work to `agents single ... gateway send-keys` or `agents self gateway send-keys` merely to deliver `Escape`.
+- DO NOT guess the target managed agent.
+- DO NOT describe interrupt as a mailbox or lifecycle action.
+- DO NOT claim that interrupt guarantees immediate provider termination; it is the supported managed-agent interrupt request path.

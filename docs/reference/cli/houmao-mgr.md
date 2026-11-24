@@ -225,7 +225,7 @@ Install, diagnose, inspect, upgrade, or remove complete Houmao actor packs for r
 
 | Subcommand | Description |
 |---|---|
-| `list` | Show actor packs, six standalone roots, default lanes, shared ownership, activation posture, and sixteen parent-scoped children. |
+| `list` | Show actor packs, six standalone roots, default lanes, shared ownership, activation posture, and the parent-scoped child inventory. |
 | `install` | Transactionally install the external default or repeatable `--pack admin|agent` selections. |
 | `status` | Report config integrity, per-pack state, drift, conflicts, and legacy flat evidence. |
 | `doctor` | Read installed tree and release evidence for an expected pack in an explicit or managed-agent home. |

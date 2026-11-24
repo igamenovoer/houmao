@@ -2,19 +2,39 @@
 name: houmao-agent-email-comms
 description: Use when ordinary Houmao mailbox work needs operator-origin posting, managed-agent shared mail, gateway-backed `/v1/mail/*`, or a supported no-gateway transport fallback.
 license: MIT
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Houmao Agent Email Comms
+
+## Workflow
+
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
+
+1. Decide the caller posture up front.
+2. Preserve the validated actor frame. Admin posting requires an explicit target; a verified agent remains an agent even when its gateway or mailbox is unavailable.
+3. Run `houmao-mgr agents self mail resolve-live` to resolve the current managed session. An operator selects an explicit target with `agents single ... mail resolve-live`.
+4. Read `mailboxes.offline` and `mailboxes.online` separately. Select the channel explicitly from the request or established round context. Pin that slot's `binding.binding_id`. Canonical mail identity describes the preferred address.
+5. Use `houmao-mgr agents self mail <verb> --channel <channel> --expected-binding-id <binding_id>` for routine work. The command signs attached-gateway calls internally with the current managed generation. Scoped operators use their explicitly configured admin signer.
+6. End the operation on an admission refusal, unavailable policy, or a binding change. Keep proof and credentials out of commands and result summaries.
+7. If the gateway is detached, the scoped command uses the established owner-authorized manager path for the selected channel. An `authoritative: false` result reports request status and requires read-only confirmation when the write outcome remains uncertain.
+8. Report send, reply, and post from their first receipts. Use `peek` for details on the binding that owns the receipt reference. Keep message and thread references opaque and preserve their channel and binding.
+9. Begin triage with one metadata page of 50 messages (maximum 200). Preserve filters and the opaque cursor when continuing within an explicit page/message budget. `has_more` describes unseen work; returned counts describe this page. Stop the page chain on a stale cursor or binding conflict. Fetch selected content with peek/read and check its completeness before acting.
+10. Archive processed messages only after the corresponding mailbox action and any required reply succeed.
+11. Include only fields the user explicitly supplied or that were recovered from explicit recent context in fallback commands.
+
+
+If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
 
 ## Actor Frame Gate
 
@@ -62,25 +82,8 @@ Related skills and boundaries:
 - Use `houmao-shared-routines->houmao-mailbox-mgr` for mailbox root, registration, or late-binding administration.
 - Use `houmao-shared-routines->houmao-agent-gateway` for notifier, reminder, or gateway lifecycle work.
 - Use `houmao-shared-routines->houmao-agent-messaging` when the task starts as live-agent prompt, interrupt, or mailbox handoff routing.
+- Use `houmao-shared-routines->houmao-agent-access` when a caller needs a grant for a selected mailbox operation or owner-file attachment.
 
-## Workflow
-
-Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
-
-1. Decide the caller posture up front.
-2. Preserve the validated actor frame. Admin posting requires an explicit target; a verified agent remains an agent even when its gateway or mailbox is unavailable.
-3. Run `houmao-mgr agents self mail resolve-live` to resolve the current managed session. An operator selects an explicit target with `agents single ... mail resolve-live`.
-4. Read `mailboxes.offline` and `mailboxes.online` separately. Select the channel explicitly from the request or established round context. Pin that slot's `binding.binding_id`. Canonical mail identity describes the preferred address.
-5. Use `houmao-mgr agents self mail <verb> --channel <channel> --expected-binding-id <binding_id>` for routine work. The command signs attached-gateway calls internally with the current managed generation. Scoped operators use their explicitly configured admin signer.
-6. End the operation on an admission refusal, unavailable policy, or a binding change. Keep proof and credentials out of commands and result summaries.
-7. If the gateway is detached, the scoped command uses the established owner-authorized manager path for the selected channel. An `authoritative: false` result reports request status and requires read-only confirmation when the write outcome remains uncertain.
-8. Report send, reply, and post from their first receipts. Use `peek` for details on the binding that owns the receipt reference. Keep message and thread references opaque and preserve their channel and binding.
-9. Begin triage with one metadata page of 50 messages (maximum 200). Preserve filters and the opaque cursor when continuing within an explicit page/message budget. `has_more` describes unseen work; returned counts describe this page. Stop the page chain on a stale cursor or binding conflict. Fetch selected content with peek/read and check its completeness before acting.
-10. Archive processed messages only after the corresponding mailbox action and any required reply succeed.
-11. Include only fields the user explicitly supplied or that were recovered from explicit recent context in fallback commands.
-
-
-If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
 ## Missing Input Questions
 
 - Recover required mailbox values from the current prompt, notifier context, resolver output, or recent mailbox context before asking.
@@ -95,15 +98,20 @@ If the request does not map cleanly to this workflow, use the native planning to
 
 ## Subcommands
 
-- Answer `help` from `## Help` before reading action, transport, or reference pages.
-- Read [commands/resolve-live.md](commands/resolve-live.md) only when the current prompt or recent mailbox context does not already provide the exact gateway base URL or current binding set.
-- Read [commands/status.md](commands/status.md) to inspect current mailbox identity, mailbox transport, or live gateway posture.
-- Read [commands/list.md](commands/list.md) to list unread, open, archived, or current mailbox state.
-- Read [commands/read.md](commands/read.md) when deciding whether to peek at or read one selected message.
-- Read [commands/send.md](commands/send.md) to send one new message.
-- Read [commands/post.md](commands/post.md) when the caller is acting as operator or otherwise outside the managed Houmao runtime and needs to leave one operator-origin note in a managed agent mailbox.
-- Read [commands/reply.md](commands/reply.md) to reply to one existing message.
-- Read [commands/archive.md](commands/archive.md) to archive one or more processed messages.
+| Subcommand | Use For | Detail |
+| --- | --- | --- |
+| `help` | Explain mailbox operations without loading action or transport pages. | [Help](#help) |
+| `resolve-live` | Recover the current binding or exact gateway URL when needed. | [Resolve Live](commands/resolve-live.md) |
+| `status` | Inspect current mailbox identity, transport, or gateway posture. | [Status](commands/status.md) |
+| `list` | List mailbox metadata within the requested scope. | [List](commands/list.md) |
+| `peek` | Inspect selected message content without updating read state. | [Read or Peek](commands/read.md) |
+| `read` | Retrieve selected content and mark it read. | [Read or Peek](commands/read.md) |
+| `send` | Send one managed-agent message. | [Send](commands/send.md) |
+| `post` | Leave one operator-origin note in a selected agent mailbox. | [Post](commands/post.md) |
+| `reply` | Reply to one existing message on its selected binding. | [Reply](commands/reply.md) |
+| `mark` | Change a message's read, answered, or archived state. | [Scoped Mail Commands](references/scoped-cli.md) |
+| `move` | Move selected messages to another box in the same binding. | [Gateway Mail Contract](references/endpoint-contract.md) |
+| `archive` | Archive one or more processed messages. | [Archive](commands/archive.md) |
 
 ## Transport Pages
 

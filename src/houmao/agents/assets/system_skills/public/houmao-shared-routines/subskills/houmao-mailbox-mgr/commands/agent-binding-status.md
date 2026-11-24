@@ -9,8 +9,8 @@ Use this action only when the user wants late filesystem mailbox posture for one
 3. Run the managed-agent mailbox status command.
 4. Report the late mailbox binding posture for that managed agent.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shape
 
 ```bash
@@ -20,5 +20,5 @@ If the request does not map cleanly to this workflow, use the native planning to
 
 ## Guardrails
 
-- Do not use mailbox-root actions when the task is only existing-agent binding status.
-- Do not reinterpret this action as generic managed-agent lifecycle work.
+- DO NOT use mailbox-root actions when the task is only existing-agent binding status.
+- DO NOT reinterpret this action as generic managed-agent lifecycle work.

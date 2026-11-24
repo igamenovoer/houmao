@@ -36,8 +36,7 @@
     },
     "shared_routines": {
       "type": "array",
-      "minItems": 16,
-      "maxItems": 16,
+      "minItems": 1,
       "items": {"$ref": "#/$defs/sharedRoutine"}
     },
     "legacy_skills": {

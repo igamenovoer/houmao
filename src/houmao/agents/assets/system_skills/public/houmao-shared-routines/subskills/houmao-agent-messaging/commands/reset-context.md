@@ -16,8 +16,8 @@ Use this action only when the user wants clear-context, reset-then-send, or one-
 8. State clearly when the requested reset flow cannot stay entirely on the current `houmao-mgr` surface because there is no first-class CLI flag for it yet.
 9. Report the chosen HTTP route and whether the request cleared context immediately or only prepared the next headless prompt session.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Current Supported Routes
 
 Managed-agent HTTP:
@@ -32,8 +32,8 @@ Direct gateway HTTP when the exact live `gateway.base_url` is already known:
 
 ## Guardrails
 
-- Do not invent a nonexistent `houmao-mgr` reset-context flag.
-- Do not guess a direct gateway host or port.
-- Do not misdescribe queued gateway prompt submission as reset-context control.
-- Do not claim that TUI-backed reset-context currently has a no-send CLI shortcut; the current supported path is reset-then-send prompt control with `chat_session.mode = "new"`.
-- Do not use direct gateway HTTP when the managed-agent `/houmao/agents/*` route already satisfies the task.
+- DO NOT invent a nonexistent `houmao-mgr` reset-context flag.
+- DO NOT guess a direct gateway host or port.
+- DO NOT misdescribe queued gateway prompt submission as reset-context control.
+- DO NOT claim that TUI-backed reset-context currently has a no-send CLI shortcut; the current supported path is reset-then-send prompt control with `chat_session.mode = "new"`.
+- DO NOT use direct gateway HTTP when the managed-agent `/houmao/agents/*` route already satisfies the task.

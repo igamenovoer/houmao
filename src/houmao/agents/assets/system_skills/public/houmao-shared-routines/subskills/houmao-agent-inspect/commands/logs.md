@@ -15,8 +15,8 @@ Use this action when the user wants logs, turn traces, or append-only runtime ev
 6. Inspect `gateway/events.jsonl` only as append-only event evidence, not as the source of truth for durable queue or manifest state.
 7. When the user wants the overall current posture rather than one specific turn, return to `commands/discover.md` and `commands/screen.md` first before diving into raw logs.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shapes
 
 Headless turn inspection:
@@ -44,7 +44,7 @@ Runtime log artifacts:
 
 ## Guardrails
 
-- Do not treat `/history` as the durable headless turn store.
-- Do not claim that `gateway.log` or `events.jsonl` is the authoritative source of truth for manifest-backed or queue-backed state.
-- Do not infer current runtime posture primarily from raw logs when managed-agent summary or detail surfaces already answer the question.
-- Do not guess a `turn_id` from incomplete context.
+- DO NOT treat `/history` as the durable headless turn store.
+- DO NOT claim that `gateway.log` or `events.jsonl` is the authoritative source of truth for manifest-backed or queue-backed state.
+- DO NOT infer current runtime posture primarily from raw logs when managed-agent summary or detail surfaces already answer the question.
+- DO NOT guess a `turn_id` from incomplete context.

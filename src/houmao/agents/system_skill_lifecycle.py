@@ -15,7 +15,6 @@ from typing import Any, Literal, cast
 from houmao.agents.system_skill_manifest import (
     ActivationPosture,
     AutoInstallKind,
-    EXPECTED_SHARED_ROUTINE_IDS,
     PackAudience,
     StandaloneSkillRole,
     SystemSkillManifest,
@@ -24,6 +23,7 @@ from houmao.agents.system_skill_manifest import (
     load_system_skill_manifest,
     resolve_system_skill_pack_members,
     resolve_system_skill_pack_selection,
+    shared_routine_layout_issue,
     stage_system_skill_collection,
     standalone_system_skill_content_digest,
     standalone_system_skill_source_path,
@@ -1106,7 +1106,7 @@ def _inspect_current_member(
         actual_target = _symlink_target(path)
         if actual_target != expected_target.resolve(strict=False):
             return "conflicting"
-    if record.name == "houmao-shared-routines" and not _shared_children_complete(path):
+    if record.name == "houmao-shared-routines" and shared_routine_layout_issue(path, manifest):
         return "incomplete"
     try:
         digest = tree_content_digest(path)
@@ -1123,22 +1123,6 @@ def _tool_from_config_relative_path(relative_path: str) -> str:
         if root == destination:
             return tool
     raise SystemSkillInstallError(f"Config path `{relative_path}` has an unknown skill root.")
-
-
-def _shared_children_complete(path: Path) -> bool:
-    """Return whether shared routines contains all and only sixteen child entrypoints."""
-
-    child_root = path / "subskills"
-    if not child_root.is_dir():
-        return False
-    actual = {
-        child.name
-        for child in child_root.iterdir()
-        if child.is_dir()
-        and (child / "SKILL-MAIN.md").is_file()
-        and not (child / "SKILL.md").exists()
-    }
-    return actual == set(EXPECTED_SHARED_ROUTINE_IDS)
 
 
 def _persist_config_atomic(config: SystemSkillConfig) -> None:

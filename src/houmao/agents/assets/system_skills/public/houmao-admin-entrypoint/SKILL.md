@@ -1,18 +1,19 @@
 ---
 name: houmao-admin-entrypoint
-houmao_version: "3.0.0rc6"
 description: Use when any semantically Houmao-related request reaches an assistant acting for a human operator, including information, command or route learning, incomplete tasks, state inspection, operations, and explicit loop work. Do not trigger for an incidental Houmao token in otherwise unrelated material; explicit $houmao-* handles take precedence.
 license: MIT
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  houmao_version: "3.0.0rc6"
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Houmao Admin Entrypoint
@@ -44,7 +45,7 @@ These are peer route subcommands of this entrypoint. The route component is pare
 | --- | --- | --- |
 | `welcome` | This entrypoint | The operator asks for first-use orientation, route comparison, reorientation, or guided-tour guidance; answer locally and recommend manual `$houmao-admin-welcome` when useful. |
 | `help` | This entrypoint | The operator asks what the admin router can do, which targets it requires, or which siblings it uses. |
-| `project-mgr` | `houmao-shared-routines->houmao-project-mgr` | A project overlay, `.houmao/` layout, launch profile, or project-scoped state needs administration. |
+| `project-mgr` | `houmao-shared-routines->houmao-project-mgr` | The operator needs to initialize or inspect a project overlay or manage agents through that overlay. |
 | `credential-mgr` | `houmao-shared-routines->houmao-credential-mgr` | A project or native-agent credential must be listed, inspected, added, updated, logged in, renamed, or removed. |
 | `agent-definition` | `houmao-shared-routines->houmao-agent-definition` | Roles, recipes, launch dossiers, specialists, profiles, reusable definition authoring, immutable revision materialization, or single and batch definition deployment are the target. |
 | `specialist-mgr` | `houmao-shared-routines->houmao-agent-definition` | Compatibility wording asks for specialist, profile, fast-forward, launch-agent, or stop-agent work owned by agent-definition. |
@@ -55,10 +56,12 @@ These are peer route subcommands of this entrypoint. The route component is pare
 | `ext-graphing` | `houmao-shared-routines->houmao-ext-graphing` | Plotly templated graphics or Vega-Lite freeform graphics must be authored, validated, repaired, or rendered. |
 | `mailbox-mgr` | `houmao-shared-routines->houmao-mailbox-mgr` | Mailbox roots, accounts, registrations, projections, cleanup, export, or late agent bindings need administration. |
 | `memory-mgr` | `houmao-shared-routines->houmao-memory-mgr` | A Houmao managed-agent memo or reusable profile memo seed must be read, written, or removed. |
-| `agent-instance` | `houmao-shared-routines->houmao-agent-instance` | A managed agent needs lifecycle work or explicit-target runtime-variable, mindset, or definition-owned private-workspace administration. |
+| `agent-instance` | `houmao-shared-routines->houmao-agent-instance` | A managed agent needs lifecycle work, native resource refresh, or explicit-target instance state administration. |
 | `agent-inspect` | `houmao-shared-routines->houmao-agent-inspect` | A named managed agent needs read-only liveness, TUI, mailbox, artifact, or log inspection. |
 | `agent-messaging` | `houmao-shared-routines->houmao-agent-messaging` | A running agent must receive a prompt, interrupt, gateway queue item, raw input, mail handoff, or context reset. |
 | `agent-gateway` | `houmao-shared-routines->houmao-agent-gateway` | A managed-agent gateway, service, reminder, notifier, or gateway HTTP surface needs operation or inspection. |
+| `agent-access` | `houmao-shared-routines->houmao-agent-access` | The operator needs to provision target policy, enroll a peer, manage the live administrator roster, or sign a request for a selected target. |
+| `agent-files` | `houmao-shared-routines->houmao-agent-files` | The operator needs to inspect a gateway-managed file revision, save a draft, publish a candidate, or reconcile a push. |
 | `interop-ag-ui` | `houmao-shared-routines->houmao-interop-ag-ui` | AG-UI events must be validated, framed, rendered, published, routed, or interpreted. |
 | `agent-loop-pro` | `houmao-agent-loop-pro` | The user explicitly selects the schema-rich generated-execplan loop and one of its operations. |
 | `agent-loop-lite` | `houmao-agent-loop-lite` | The user explicitly selects the Markdown and direct-SQL lite loop and one of its operations. |

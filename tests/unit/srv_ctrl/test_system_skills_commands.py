@@ -115,8 +115,14 @@ def test_system_skills_list_reports_static_collection_and_shared_routines() -> N
     }
     shared = payload["shared_routines"]
     assert isinstance(shared, list)
-    assert len(shared) == 16
-    assert all(record["invocation"].startswith("houmao-shared-routines->") for record in shared)
+    routines = load_system_skill_manifest().shared_routines
+    assert len(shared) == len(routines)
+    assert {record["logical_id"] for record in shared} == set(routines)
+    for record in shared:
+        routine_id = record["logical_id"]
+        assert record["invocation"] == f"houmao-shared-routines->{routine_id}"
+        assert record["commands"] == list(routines[routine_id].commands)
+        assert record["aliases"] == list(routines[routine_id].aliases)
     assert "protected_routines" not in payload
     assert "auto_skill_separate" not in payload
 

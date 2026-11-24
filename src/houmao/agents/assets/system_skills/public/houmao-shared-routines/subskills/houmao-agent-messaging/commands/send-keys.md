@@ -13,8 +13,8 @@ Use this action only when the user needs exact raw control input delivered throu
 7. If the caller is already operating through the pair-managed HTTP API, use `POST /houmao/agents/{agent_ref}/gateway/control/send-keys`.
 8. Report the submitted sequence and any relevant visible gateway-owned TUI outcome.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shape
 
 Use:
@@ -33,8 +33,8 @@ Common raw-input cases:
 
 ## Guardrails
 
-- Do not redirect raw control-input work to `agents single ... prompt` or `agents self prompt`.
-- Do not claim that scoped `agents ... gateway send-keys` appends an implicit trailing `Enter`.
-- Do not invent key names or edit the requested sequence unless the user explicitly asked for that transformation.
-- Do not use `send-keys` for mailbox work or transport-neutral interrupt.
-- Do not assume raw control input is safe when the live gateway is unavailable.
+- DO NOT redirect raw control-input work to `agents single ... prompt` or `agents self prompt`.
+- DO NOT claim that scoped `agents ... gateway send-keys` appends an implicit trailing `Enter`.
+- DO NOT invent key names or edit the requested sequence unless the user explicitly asked for that transformation.
+- DO NOT use `send-keys` for mailbox work or transport-neutral interrupt.
+- DO NOT assume raw control input is safe when the live gateway is unavailable.

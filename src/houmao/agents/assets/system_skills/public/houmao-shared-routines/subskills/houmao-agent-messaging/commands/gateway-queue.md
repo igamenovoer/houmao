@@ -18,8 +18,8 @@ Use this action when the user explicitly requests live-gateway prompt admission,
 9. If the caller is already operating through the pair-managed HTTP API, use the managed-agent gateway routes in `references/managed-agent-http.md`.
 10. Report the selected admission policy and the evidence from the first receipt. Use read-only inspection for additional details.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shapes
 
 Policy-controlled prompt:
@@ -57,10 +57,10 @@ Related gateway-owned TUI inspection:
 
 ## Guardrails
 
-- Do not silently replace explicit gateway prompt-control work with `agents single ... prompt`, `agents self prompt`, `agents single ... interrupt`, or `agents self interrupt`.
-- Do not describe direct gateway prompt control as gateway-durable queued work.
-- Do not choose `always` unless the caller explicitly wants submission regardless of readiness and pending input.
-- Do not promise atomic queue-slot reservation for `if-no-pending`.
-- Do not use this action for exact raw key delivery; use `commands/send-keys.md` instead.
-- Do not claim that `tui note-prompt` submits a queued prompt turn.
-- Do not proceed when the requested queued action still lacks a target or prompt body.
+- DO NOT silently replace explicit gateway prompt-control work with `agents single ... prompt`, `agents self prompt`, `agents single ... interrupt`, or `agents self interrupt`.
+- DO NOT describe direct gateway prompt control as gateway-durable queued work.
+- DO NOT choose `always` unless the caller explicitly wants submission regardless of readiness and pending input.
+- DO NOT promise atomic queue-slot reservation for `if-no-pending`.
+- DO NOT use this action for exact raw key delivery; use `commands/send-keys.md` instead.
+- DO NOT claim that `tui note-prompt` submits a queued prompt turn.
+- DO NOT proceed when the requested queued action still lacks a target or prompt body.

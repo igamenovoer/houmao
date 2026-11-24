@@ -17,8 +17,8 @@ Use this action only when the user wants to clean stopped-session managed-agent 
 7. Run the direct command. Session cleanup removes the stopped session envelope, retires the stopped lifecycle record by default, and does not remove the managed-agent memory root. Add `--purge-registry` only when the user explicitly wants to delete the lifecycle record entirely.
 8. Report the resulting `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions`.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shape
 
 Run one of the direct cleanup commands:
@@ -30,11 +30,11 @@ Run one of the direct cleanup commands:
 
 ## Guardrails
 
-- Do not route cleanup work to an `agents self cleanup` path; destructive cleanup belongs under `agents single ... cleanup`.
-- Do not route instance cleanup to `admin cleanup runtime ...`; that broader maintenance surface is out of scope.
-- Do not guess the cleanup kind or cleanup selector.
-- Do not widen a vague cleanup request into session or logs cleanup without user confirmation.
-- Do not assume cleanup is safe for a live session; this skill is for stopped-session cleanup only.
-- Do not add `--purge-registry` unless the user explicitly asks to delete the lifecycle record.
-- Do not create or search stopped-session tombstones, stopped-agent indexes, or unsupported registry state.
-- Do not add `--purge-registry` unless the user explicitly asks to delete the lifecycle record.
+- DO NOT route cleanup work to an `agents self cleanup` path; destructive cleanup belongs under `agents single ... cleanup`.
+- DO NOT route instance cleanup to `admin cleanup runtime ...`; that broader maintenance surface is out of scope.
+- DO NOT guess the cleanup kind or cleanup selector.
+- DO NOT widen a vague cleanup request into session or logs cleanup without user confirmation.
+- DO NOT assume cleanup is safe for a live session; this skill is for stopped-session cleanup only.
+- DO NOT add `--purge-registry` unless the user explicitly asks to delete the lifecycle record.
+- DO NOT create or search stopped-session tombstones, stopped-agent indexes, or unsupported registry state.
+- DO NOT add `--purge-registry` unless the user explicitly asks to delete the lifecycle record.

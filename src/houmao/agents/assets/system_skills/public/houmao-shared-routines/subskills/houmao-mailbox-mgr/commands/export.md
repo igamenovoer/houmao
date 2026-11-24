@@ -13,8 +13,8 @@ Use this action only when the user wants to archive or export filesystem mailbox
 5. Run the matching mailbox export command.
 6. Report the output directory, manifest path, selected scope, symlink mode, and any blocked or skipped artifacts.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shape
 
 Use the `houmao-mgr` launcher already chosen by the top-level skill.
@@ -32,7 +32,7 @@ Managed-copy attachments under the mailbox root's managed attachment directory a
 
 ## Guardrails
 
-- Do not guess the output directory.
-- Do not guess export scope; choose `--all-accounts` only when the user asked for the whole root, otherwise preserve selected addresses.
-- Do not recommend raw recursive mailbox-root copying for archive/export requests covered by this command.
-- Do not add `--symlink-mode preserve` unless the user explicitly asked for symlink preservation.
+- DO NOT guess the output directory.
+- DO NOT guess export scope; choose `--all-accounts` only when the user asked for the whole root, otherwise preserve selected addresses.
+- DO NOT recommend raw recursive mailbox-root copying for archive/export requests covered by this command.
+- DO NOT add `--symlink-mode preserve` unless the user explicitly asked for symlink preservation.

@@ -14,8 +14,8 @@ Use this action only when the user wants to remove one low-level role or one nam
 6. Run `internals native-agent recipes remove --name <recipe>` for one recipe.
 7. Report the removal result. If role removal is blocked because recipes still reference that role, report the CLI error instead of editing files manually.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shapes
 
 Use one of these maintained command shapes:
@@ -27,6 +27,6 @@ Use one of these maintained command shapes:
 
 ## Guardrails
 
-- Do not guess whether the user wanted a role or a recipe removed.
-- Do not guess the target name.
-- Do not bypass CLI safety checks by deleting `.houmao/agents/` files directly.
+- DO NOT guess whether the user wanted a role or a recipe removed.
+- DO NOT guess the target name.
+- DO NOT bypass CLI safety checks by deleting `.houmao/agents/` files directly.

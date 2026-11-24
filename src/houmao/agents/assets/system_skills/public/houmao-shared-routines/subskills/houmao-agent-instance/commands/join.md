@@ -12,8 +12,8 @@ Use this action only when the user wants Houmao to adopt one already-running sup
 6. Run the direct command.
 7. Report the adopted managed-agent identity and resulting lifecycle state returned by the command.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shape
 
 Run the direct join command:
@@ -39,9 +39,9 @@ Other optional inputs:
 
 ## Guardrails
 
-- Do not guess the managed-agent name, provider, or launch args for headless join.
-- Do not continue with headless join from partial assumptions about provider or launch args.
-- Do not treat join as mailbox registration, gateway attach, or prompt submission.
-- Do not claim that join restarts the live provider process; it adopts the existing session into Houmao control.
-- Do not route join work through launch commands.
-- Do not add provider, posture, launch args, launch env, or resume flags unless the user explicitly supplied them or headless join requires them.
+- DO NOT guess the managed-agent name, provider, or launch args for headless join.
+- DO NOT continue with headless join from partial assumptions about provider or launch args.
+- DO NOT treat join as mailbox registration, gateway attach, or prompt submission.
+- DO NOT claim that join restarts the live provider process; it adopts the existing session into Houmao control.
+- DO NOT route join work through launch commands.
+- DO NOT add provider, posture, launch args, launch env, or resume flags unless the user explicitly supplied them or headless join requires them.

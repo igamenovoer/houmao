@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import tomllib
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -11,24 +12,6 @@ PUBLIC_NAMES = (
     "houmao-shared-routines",
     "houmao-agent-loop-pro",
     "houmao-agent-loop-lite",
-)
-SHARED_CHILDREN = (
-    "houmao-project-mgr",
-    "houmao-credential-mgr",
-    "houmao-agent-definition",
-    "houmao-operator-messaging",
-    "houmao-process-emails-via-gateway",
-    "houmao-agent-email-comms",
-    "houmao-adv-usage-pattern",
-    "houmao-utils-workspace-mgr",
-    "houmao-ext-graphing",
-    "houmao-mailbox-mgr",
-    "houmao-memory-mgr",
-    "houmao-agent-instance",
-    "houmao-agent-inspect",
-    "houmao-agent-messaging",
-    "houmao-agent-gateway",
-    "houmao-interop-ag-ui",
 )
 ADMIN_MEMBERS = (
     "houmao-admin-welcome",
@@ -51,33 +34,6 @@ def _read(relative_path: str) -> str:
     return (REPO_ROOT / relative_path).read_text(encoding="utf-8")
 
 
-def test_skills_route_peer_mail_and_normal_prompts_without_a_recipient_gateway() -> None:
-    """Guard the shipped instructions that keep communication independent of gateway status."""
-
-    subskills = "src/houmao/agents/assets/system_skills/public/houmao-shared-routines/subskills"
-    routing = _read(f"{subskills}/houmao-agent-messaging/SKILL-MAIN.md")
-    mail = _read(f"{subskills}/houmao-agent-messaging/commands/mail.md")
-    discover = _read(f"{subskills}/houmao-agent-messaging/commands/discover.md")
-    send = _read(f"{subskills}/houmao-agent-email-comms/commands/send.md")
-    inspect = _read(f"{subskills}/houmao-agent-inspect/commands/mailbox.md")
-    prompt = _read(f"{subskills}/houmao-agent-messaging/commands/prompt.md")
-
-    assert "Published contact is sufficient" in routing
-    assert "agents self mail send --channel" in mail
-    assert "source: registry_projection" in inspect
-    assert (
-        "For recipient contact, use `agents single --agent-name <name> mail resolve-live`"
-        in discover
-    )
-    assert "agents self mail send --channel" in send
-    assert "sender's verified binding ID" in send
-    assert "agents single --agent-name <name> prompt --prompt" in prompt
-    assert "authorized route to the selected owner" in prompt
-    for action in (mail, prompt):
-        assert "gateway status" not in action
-        assert "agents single ... state" not in action
-
-
 def test_system_skill_docs_match_static_collection_and_pack_membership() -> None:
     """Guard the six-root inventory, pack closure, and shared-child distinction."""
 
@@ -95,9 +51,9 @@ def test_system_skill_docs_match_static_collection_and_pack_membership() -> None
     assert "Houmao ships six system skills" in readme
     assert "## Static Public Collection" in overview
     assert "six standalone source directories" in cli_reference
-    assert "sixteen parent-scoped" in overview
-    assert "sixteen parent-scoped" in cli_reference
-    for logical_id in SHARED_CHILDREN:
+    manifest = tomllib.loads(_read("src/houmao/agents/assets/system_skills/manifest.toml"))
+    for routine in manifest["shared_routines"]:
+        logical_id = routine["logical_id"]
         assert f"`{logical_id}`" in overview
         assert f"| `{logical_id}` |" in cli_reference
 

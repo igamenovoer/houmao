@@ -11,8 +11,8 @@ Use this action only when the user wants to deactivate or purge one filesystem m
 5. Run the matching mailbox deregistration command.
 6. Report the resulting deregistration posture clearly.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shape
 
 ```bash
@@ -22,5 +22,5 @@ If the request does not map cleanly to this workflow, use the native planning to
 
 ## Guardrails
 
-- Do not reinterpret deregistration as mailbox-root cleanup.
-- Do not guess whether the user wants `deactivate` or `purge` when they expressed a retention preference.
+- DO NOT reinterpret deregistration as mailbox-root cleanup.
+- DO NOT guess whether the user wants `deactivate` or `purge` when they expressed a retention preference.

@@ -15,8 +15,8 @@ For skills/MCP updates that should preserve the running agent, use the parent's 
 7. Run the direct command.
 8. Report the relaunch result returned by the command. When the selected record was stopped, make it clear that relaunch revived the existing managed session rather than creating a new one.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shape
 
 Run one of the direct relaunch commands:
@@ -33,13 +33,16 @@ Selector meanings:
 - `tool_last_or_new` asks the provider CLI to continue its latest chat when supported.
 - `exact` requires `--chat-session-id` and resumes that provider chat id.
 
+## Unavailable Relaunch
+
+- If relaunch is unavailable because the selected session has no relaunch posture or the current-session authority cannot be resolved, report that relaunch is unavailable instead of silently switching to a fresh launch flow.
+
 ## Guardrails
 
-- Do not guess which live managed agent the user meant.
-- Do not require an explicit selector when the supported current-session relaunch form is already the intended path.
-- Do not reinterpret a relaunch request as `project agents launch`.
-- Do not add `--chat-session-mode tool_last_or_new` or `--chat-session-mode exact` unless the user asks for continuation, gives a provider session id, or explicitly wants to override the stored launch-profile relaunch policy.
-- Do not add chat-session selector flags unless the user explicitly requested them or supplied an exact provider session id.
-- Do not claim that relaunch always recreates a missing tmux session or otherwise acts as a generic fresh-launch recovery path.
-- Do not describe stopped-session relaunch as a fresh launch; it is lifecycle revival of the same managed-agent identity.
-- If relaunch is unavailable because the selected session has no relaunch posture or the current-session authority cannot be resolved, report that relaunch is unavailable instead of silently switching to a fresh launch flow.
+- DO NOT guess which live managed agent the user meant.
+- DO NOT require an explicit selector when the supported current-session relaunch form is already the intended path.
+- DO NOT reinterpret a relaunch request as `project agents launch`.
+- DO NOT add `--chat-session-mode tool_last_or_new` or `--chat-session-mode exact` unless the user asks for continuation, gives a provider session id, or explicitly wants to override the stored launch-profile relaunch policy.
+- DO NOT add chat-session selector flags unless the user explicitly requested them or supplied an exact provider session id.
+- DO NOT claim that relaunch always recreates a missing tmux session or otherwise acts as a generic fresh-launch recovery path.
+- DO NOT describe stopped-session relaunch as a fresh launch; it is lifecycle revival of the same managed-agent identity.

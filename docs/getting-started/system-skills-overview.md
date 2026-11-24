@@ -13,13 +13,13 @@ Public means that an agent host can discover the directory through its normal to
 | `houmao-admin-welcome` | `admin` | Explicit manual first-use orientation or reorientation; execution stays read only. |
 | `houmao-admin-entrypoint` | `admin` | Narrow implicit router for any semantically Houmao-related request made on behalf of a human operator. |
 | `houmao-agent-entrypoint` | `agent` | Narrow implicit router for any semantically Houmao-related request in a genuine Houmao-managed session. |
-| `houmao-shared-routines` | `admin`, `agent` | Explicit advanced router for sixteen parent-scoped ordinary routines. |
+| `houmao-shared-routines` | `admin`, `agent` | Explicit advanced router for the parent-scoped system routines. |
 | `houmao-agent-loop-pro` | `admin`, `agent` | Explicit manual schema-rich loop workflow. |
 | `houmao-agent-loop-lite` | `admin`, `agent` | Explicit manual Markdown/direct-SQL loop workflow. |
 
-The source of truth is [`src/houmao/agents/assets/system_skills/manifest.toml`](../../src/houmao/agents/assets/system_skills/manifest.toml). All six current roots live under `src/houmao/agents/assets/system_skills/public/` and each root `SKILL.md` declares its Houmao release in quoted `houmao_version` metadata. The read-only `legacy/` area exists only for migration classification.
+The source of truth is [`src/houmao/agents/assets/system_skills/manifest.toml`](../../src/houmao/agents/assets/system_skills/manifest.toml). All six current roots live under `src/houmao/agents/assets/system_skills/public/` and each root `SKILL.md` declares its Houmao release in a quoted `metadata.houmao_version` field. The read-only `legacy/` area exists only for migration classification.
 
-The shared root owns sixteen children under `houmao-shared-routines/subskills/<logical-id>/SKILL-MAIN.md`. Those children inherit the shared root release and do not declare independent versions. A child is loaded by its parent after route selection and does not become a seventeenth top-level install unit. Exact top-level `SKILL.md` discovery therefore returns the six names in the table and ignores all parent-scoped children.
+The manifest declares the shared children under `houmao-shared-routines/subskills/<logical-id>/SKILL-MAIN.md`. Each child inherits the shared root's version and loads through its parent after route selection. Exact `SKILL.md` discovery finds the six standalone roots shown above.
 
 Use the read-only doctor to check an expected installation. It defaults to the four-member agent pack and also works for configless copy-paste or Skills CLI installations:
 
@@ -174,7 +174,7 @@ Welcome can answer `help`, show the option or command map, choose a path, recomm
 
 ## Shared Child Route Matrix
 
-The shared router owns sixteen ordinary routines. The actor entrypoint advertises only routes eligible for its frame, while direct shared invocation applies the same eligibility rules.
+The shared router owns the routines declared in the manifest. The actor entrypoint advertises only routes eligible for its frame. Direct shared invocation applies the same eligibility rules. See the [CLI command inventory](../reference/cli/system-skills.md#shared-child-inventory) for the major command families.
 
 | Route | Logical ID | Eligible Actor | Target and Scope |
 |---|---|---|---|
@@ -194,6 +194,8 @@ The shared router owns sixteen ordinary routines. The actor entrypoint advertise
 | `agent-inspect` | `houmao-agent-inspect` | Admin, Agent | Explicit agent for admin; verified self or explicit peer for agent |
 | `agent-messaging` | `houmao-agent-messaging` | Admin, Agent | Explicit recipients and route-specific confirmation rules |
 | `agent-gateway` | `houmao-agent-gateway` | Admin, Agent | Explicit agent for admin; verified self by default for agent |
+| `agent-access` | `houmao-agent-access` | Admin, Agent | `agents single … access` for selected target policy or signed requests; `agents self access public-key` for a configured peer's public identity |
+| `agent-files` | `houmao-agent-files` | Admin, Agent | `agents single … files` for an explicit target gateway and authorized logical mount |
 | `interop-ag-ui` | `houmao-interop-ag-ui` | Admin, Agent | Explicit gateway or output target |
 
 Use `$houmao-admin-entrypoint help`, `$houmao-agent-entrypoint help`, or `$houmao-shared-routines help` to inspect the appropriate route map. Use `$houmao-shared-routines <route> help` for child help. Parent-scoped children remain unavailable as bare top-level triggers.

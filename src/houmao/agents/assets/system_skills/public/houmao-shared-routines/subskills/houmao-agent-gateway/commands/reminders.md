@@ -30,11 +30,11 @@ Use this action when the attached agent needs one or more ranked live reminders 
    - use `--ranking <int>` for exact placement
    - use `--before-all` to insert above the current minimum ranking
    - use `--after-all` to append below the current maximum ranking
-13. Use direct live `{gateway.base_url}/v1/reminders...` only when the task genuinely needs the lower-level live HTTP contract and the exact live base URL is already known.
+13. Use direct live `{gateway.base_url}/v1/reminders...` when the task needs the exact HTTP contract and current target. Apply the target and caller checks in the [gateway HTTP summary](../references/http-surface.md) before making the request.
 14. Confirm an update from its `status: updated`, `reminder_id`, `ranking`, `paused`, and `next_due_at_utc` receipt. Use `reminders get` to read the full definition and `reminders list` to inspect the effective, blocked, or paused reminders in the set.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Preferred CLI Surface
 
 Run direct scoped reminder commands:
@@ -98,14 +98,14 @@ Representative send-keys reminder payload:
 
 ## Guardrails
 
-- Do not claim that reminders survive gateway stop or restart; they are process-local in-memory state.
-- Do not skip the supported `houmao-mgr agents single ... gateway reminders ...`, `houmao-mgr agents self gateway reminders ...`, or `/houmao/agents/{agent_ref}/gateway/reminders...` surfaces when they already satisfy the task.
-- Do not create a repeating reminder without `interval_seconds`.
-- Do not set both `start_after_seconds` and `deliver_at_utc` in the same request.
-- Do not set both `prompt` and `send_keys` in the same reminder, and do not omit both.
-- Do not forget that `send_keys.ensure_enter` defaults to `true`; pure control-key reminders such as `<[Escape]>` usually need `ensure_enter = false`.
-- Do not claim that `send_keys` reminders support `escape_special_keys`; reminder send-keys intentionally use exact special-key semantics only.
-- Do not hide backend limitations: unsupported `send_keys` reminders fail with HTTP `422` at create or update time.
-- Do not describe pausing a reminder as promoting lower-ranked reminders automatically; a paused effective reminder still blocks them.
-- Do not describe reminders as extending the durable public `POST /v1/requests` kinds.
-- Do not hand-author supported reminder CLI commands from Markdown skeletons.
+- DO NOT claim that reminders survive gateway stop or restart; they are process-local in-memory state.
+- DO NOT skip the supported `houmao-mgr agents single ... gateway reminders ...`, `houmao-mgr agents self gateway reminders ...`, or `/houmao/agents/{agent_ref}/gateway/reminders...` surfaces when they already satisfy the task.
+- DO NOT create a repeating reminder without `interval_seconds`.
+- DO NOT set both `start_after_seconds` and `deliver_at_utc` in the same request.
+- DO NOT set both `prompt` and `send_keys` in the same reminder, and do not omit both.
+- DO NOT forget that `send_keys.ensure_enter` defaults to `true`; pure control-key reminders such as `<[Escape]>` usually need `ensure_enter = false`.
+- DO NOT claim that `send_keys` reminders support `escape_special_keys`; reminder send-keys intentionally use exact special-key semantics only.
+- DO NOT hide backend limitations: unsupported `send_keys` reminders fail with HTTP `422` at create or update time.
+- DO NOT describe pausing a reminder as promoting lower-ranked reminders automatically; a paused effective reminder still blocks them.
+- DO NOT describe reminders as extending the durable public `POST /v1/requests` kinds.
+- DO NOT hand-author supported reminder CLI commands from Markdown skeletons.

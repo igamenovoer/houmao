@@ -1,14 +1,15 @@
 ---
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Inspect Mailbox Posture
@@ -26,8 +27,8 @@ Use this action when the inspection task is about mailbox identity, unread postu
 7. Use `agents single ... mailbox status` or `agents self mailbox status` only when the task is to inspect late filesystem mailbox-binding posture for one local managed agent.
 8. If the task turns into mailbox-root administration, mailbox registrations, or projected mailbox structure, hand it off to `houmao-shared-routines->houmao-mailbox-mgr` instead of duplicating that guidance here.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shapes
 
 Use:
@@ -45,9 +46,12 @@ Managed-agent HTTP mailbox inspection routes:
 - `GET /houmao/agents/{agent_ref}/mail/status`
 - `POST /houmao/agents/{agent_ref}/mail/list`
 
-## Guardrails
+## Contact Versus Availability
 
 - Use published contact alone when the request needs the recipient's address. Check current evidence only when the request needs mailbox or gateway availability.
-- Do not treat structural mailbox-root inspection as the same thing as actor-scoped unread or mailbox-identity inspection.
-- Do not route mailbox send, reply, post, mark, move, or archive through this inspection action.
-- Do not use scoped `agents ... mailbox status` as a substitute for ordinary mailbox follow-up state.
+
+## Guardrails
+
+- DO NOT treat structural mailbox-root inspection as the same thing as actor-scoped unread or mailbox-identity inspection.
+- DO NOT route mailbox send, reply, post, mark, move, or archive through this inspection action.
+- DO NOT use scoped `agents ... mailbox status` as a substitute for ordinary mailbox follow-up state.

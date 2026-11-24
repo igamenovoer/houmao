@@ -10,8 +10,8 @@ Use this action only when the user wants to rename one existing credential.
 4. Run the direct credential rename command.
 6. Report the renamed credential name, previous name, and any diagnostic metadata returned by the command.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shape
 
 Run the matching direct command:
@@ -23,8 +23,8 @@ Run the matching direct command:
 
 ## Guardrails
 
-- Do not guess which tool, target, or credential the user meant.
-- Do not treat rename as env or auth-file mutation; use `set` for content changes.
-- Do not present project-backed rename as requiring manual directory moves or launch-profile rewrites.
-- Do not present direct-dir rename as metadata-only; it rewrites maintained `presets/*.yaml` and `launch-profiles/*.yaml` auth references for that selected tool.
-- Do not imply that any returned auth path is always a user-facing identity surface.
+- DO NOT guess which tool, target, or credential the user meant.
+- DO NOT treat rename as env or auth-file mutation; use `set` for content changes.
+- DO NOT present project-backed rename as requiring manual directory moves or launch-profile rewrites.
+- DO NOT present direct-dir rename as metadata-only; it rewrites maintained `presets/*.yaml` and `launch-profiles/*.yaml` auth references for that selected tool.
+- DO NOT imply that any returned auth path is always a user-facing identity surface.

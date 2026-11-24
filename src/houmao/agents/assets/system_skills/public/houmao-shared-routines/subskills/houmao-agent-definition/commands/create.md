@@ -15,8 +15,8 @@ Use this action only when the user wants to create one new low-level role or one
 7. Run the matching direct command with only explicit fields.
 8. Report the created role or recipe details returned by the command.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shape
 
 ```bash
@@ -26,7 +26,7 @@ If the request does not map cleanly to this workflow, use the native planning to
 
 ## Guardrails
 
-- Do not guess whether the user wanted a role or a recipe.
-- Do not guess the role name, recipe name, tool lane, or prompt content.
-- Do not use `internals native-agent roles scaffold`.
-- Do not replace this action with direct filesystem edits under `.houmao/agents/`.
+- DO NOT guess whether the user wanted a role or a recipe.
+- DO NOT guess the role name, recipe name, tool lane, or prompt content.
+- DO NOT use `internals native-agent roles scaffold`.
+- DO NOT replace this action with direct filesystem edits under `.houmao/agents/`.

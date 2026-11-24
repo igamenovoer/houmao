@@ -1,17 +1,35 @@
 ---
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Notifier-Prompt-Driven Mail Loop
+
+## Workflow
+
+1. Confirm the target participant has an explicitly selected offline or online binding and a live attached gateway. Retain its binding ID; canonical identity never selects delivery.
+2. Use `houmao-shared-routines->houmao-agent-gateway` to inspect or enable the gateway mail-notifier.
+3. If the loop needs follow-up tick behavior, configure notifier appendix guidance that says which tick to run after mail processing.
+4. Send loop mail through `houmao-shared-routines->houmao-agent-email-comms`, generated loop mail tooling, or the gateway `/v1/mail/{channel}/send|post|reply` surface.
+5. Include a short `notify_block` only when the sender needs prominent wake-up guidance in the notifier prompt.
+6. When the notifier prompt arrives, use `houmao-shared-routines->houmao-process-emails-via-gateway` for the current open-mail round when available.
+7. For each relevant loop mail item, invoke the matching generated on-event behavior or apply the loop-specific event procedure.
+8. Send required replies through maintained mail support.
+9. Archive the processed mail only after required work and required replies succeed.
+10. If the prompt or loop contract says to tick, run the specified on-tick behavior once.
+11. End the chat turn. Do not wait for more mail inside the same turn.
+
+
+If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
 
 Use this pattern when a Houmao-managed agent loop is driven by mailbox notifications: the gateway mail-notifier detects open mail, prompts the target agent, the agent processes one bounded mail round, optionally runs one bounded tick, then ends the chat turn.
 
@@ -88,22 +106,6 @@ sequenceDiagram
     R-->>G: Finish chat turn
 ```
 
-## Workflow
-
-1. Confirm the target participant has an explicitly selected offline or online binding and a live attached gateway. Retain its binding ID; canonical identity never selects delivery.
-2. Use `houmao-shared-routines->houmao-agent-gateway` to inspect or enable the gateway mail-notifier.
-3. If the loop needs follow-up tick behavior, configure notifier appendix guidance that says which tick to run after mail processing.
-4. Send loop mail through `houmao-shared-routines->houmao-agent-email-comms`, generated loop mail tooling, or the gateway `/v1/mail/{channel}/send|post|reply` surface.
-5. Include a short `notify_block` only when the sender needs prominent wake-up guidance in the notifier prompt.
-6. When the notifier prompt arrives, use `houmao-shared-routines->houmao-process-emails-via-gateway` for the current open-mail round when available.
-7. For each relevant loop mail item, invoke the matching generated on-event behavior or apply the loop-specific event procedure.
-8. Send required replies through maintained mail support.
-9. Archive the processed mail only after required work and required replies succeed.
-10. If the prompt or loop contract says to tick, run the specified on-tick behavior once.
-11. End the chat turn. Do not wait for more mail inside the same turn.
-
-
-If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
 ## Gateway Mail API Contract
 
 Every notified round requires `Gateway: <base-url>`, `channel`, and `expected_binding_id`. Missing context or a binding mismatch ends the round; do not rediscover a replacement. Every lifecycle JSON body carries schema version 2 and the same expected binding ID, including fresh send/post.
@@ -227,11 +229,11 @@ Do not run ticks in a loop. Do not sleep until the next tick. Do not keep the ch
 
 ## Guardrails
 
-- Do not implement mailbox polling in generated skills.
-- Do not ask agents to sleep, poll, tail logs, or wait in-chat for loop progress.
-- Do not describe on-tick skills as periodic background workers.
-- Do not rely on a hidden external periodic driver to invoke ticks.
-- Do not archive mail before required replies and record updates succeed.
-- Do not store important loop semantics only in notifier appendix text or notify blocks.
-- Do not parse `message_ref` or `thread_ref`.
-- Do not use this pattern as a replacement for dedicated loop planning when topology, execplan generation, or run control is required.
+- DO NOT implement mailbox polling in generated skills.
+- DO NOT ask agents to sleep, poll, tail logs, or wait in-chat for loop progress.
+- DO NOT describe on-tick skills as periodic background workers.
+- DO NOT rely on a hidden external periodic driver to invoke ticks.
+- DO NOT archive mail before required replies and record updates succeed.
+- DO NOT store important loop semantics only in notifier appendix text or notify blocks.
+- DO NOT parse `message_ref` or `thread_ref`.
+- DO NOT use this pattern as a replacement for dedicated loop planning when topology, execplan generation, or run control is required.

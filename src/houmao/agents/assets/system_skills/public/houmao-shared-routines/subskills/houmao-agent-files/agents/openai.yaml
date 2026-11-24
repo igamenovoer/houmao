@@ -1,0 +1,6 @@
+interface:
+  display_name: "Houmao Agent Files"
+  short_description: "Inspect and publish versioned logical files on an authorized agent mount."
+  default_prompt: "Use the agent-files route through the current Houmao actor entrypoint to discover, inspect, edit, publish, or reconcile versioned logical files."
+policy:
+  allow_implicit_invocation: false

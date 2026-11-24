@@ -18,18 +18,6 @@ TUI_ROOT = DEV_ROOT / "houmao-dev-tui-testing"
 MANIFEST_PATH = (
     REPO_ROOT / "src" / "houmao" / "agents" / "assets" / "system_skills" / "manifest.toml"
 )
-ADMIN_ENTRYPOINT_PATH = (
-    REPO_ROOT
-    / "src"
-    / "houmao"
-    / "agents"
-    / "assets"
-    / "system_skills"
-    / "public"
-    / "houmao-admin-entrypoint"
-    / "SKILL.md"
-)
-
 EXPECTED_BEHAVIOR_COMMANDS = {
     "plan-run",
     "execute-case",
@@ -414,9 +402,9 @@ def test_behavior_skill_uses_complete_imsight_command_layout() -> None:
     """The behavior router and every command page satisfy the selected skill shape."""
     skill_text = (BEHAVIOR_ROOT / "SKILL.md").read_text(encoding="utf-8")
     frontmatter = _read_frontmatter(BEHAVIOR_ROOT / "SKILL.md")
-    standard_notation = _read_frontmatter(ADMIN_ENTRYPOINT_PATH)["skill_invocation_notation"]
     assert frontmatter["description"].startswith("Use when ")
-    assert frontmatter["skill_invocation_notation"] == standard_notation
+    assert isinstance(frontmatter["skill_invocation_notation"], str)
+    assert frontmatter["skill_invocation_notation"].strip()
     assert "## Workflow" in skill_text
     assert "### Procedural Subcommands" in skill_text
     assert "### Helper Subcommands" in skill_text

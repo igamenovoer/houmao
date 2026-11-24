@@ -9,8 +9,8 @@ Use this action only when the user wants mailbox-root health, registration count
 3. Run the matching mailbox-root status command.
 4. Report the root status payload and keep the mailbox-root lane explicit.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shape
 
 ```bash
@@ -20,5 +20,5 @@ If the request does not map cleanly to this workflow, use the native planning to
 
 ## Guardrails
 
-- Do not reinterpret mailbox-root status as actor-scoped mailbox `status`.
-- Do not ask for an address when the task is root-level status only.
+- DO NOT reinterpret mailbox-root status as actor-scoped mailbox `status`.
+- DO NOT ask for an address when the task is root-level status only.

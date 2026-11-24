@@ -5,12 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import tomllib
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from packaging.version import InvalidVersion, Version
 import yaml
 from yaml.constructor import ConstructorError
-from yaml.nodes import MappingNode
+from yaml.nodes import MappingNode, Node, ScalarNode
 
 from houmao.agents.system_skill_manifest import (
     EXPECTED_STANDALONE_SKILL_NAMES,
@@ -198,18 +198,25 @@ def parse_top_level_system_skill_frontmatter(
                 f"expected skill `{expected_name}`."
             ),
         )
-    if "houmao_version" not in payload:
+    metadata = payload.get("metadata", {})
+    if not isinstance(metadata, dict):
+        raise SystemSkillFrontmatterError(
+            code="malformed-yaml",
+            path=resolved_path,
+            message=f"Frontmatter `metadata` in `{resolved_path}` must be a YAML mapping.",
+        )
+    if "houmao_version" not in metadata:
         raise SystemSkillFrontmatterError(
             code="missing-version",
             path=resolved_path,
-            message=f"Frontmatter in `{resolved_path}` is missing `houmao_version`.",
+            message=f"Frontmatter in `{resolved_path}` is missing `metadata.houmao_version`.",
         )
-    houmao_version = payload["houmao_version"]
+    houmao_version = metadata["houmao_version"]
     if not isinstance(houmao_version, str):
         raise SystemSkillFrontmatterError(
             code="non-string-version",
             path=resolved_path,
-            message=f"Frontmatter `houmao_version` in `{resolved_path}` must be a string.",
+            message=f"Frontmatter `metadata.houmao_version` in `{resolved_path}` must be a string.",
         )
     try:
         Version(houmao_version)
@@ -218,8 +225,8 @@ def parse_top_level_system_skill_frontmatter(
             code="invalid-version",
             path=resolved_path,
             message=(
-                f"Frontmatter `houmao_version` value `{houmao_version}` in `{resolved_path}` "
-                "is not a valid release string."
+                f"Frontmatter `metadata.houmao_version` value `{houmao_version}` in "
+                f"`{resolved_path}` is not a valid release string."
             ),
         ) from exc
     return TopLevelSystemSkillFrontmatter(
@@ -247,7 +254,7 @@ def check_system_skill_source_versions(
     skill_names = tuple(name for name, _ in source_entries)
     if skill_names != EXPECTED_STANDALONE_SKILL_NAMES:
         raise RuntimeError(
-            "The v4 manifest must enumerate exactly the six versioned public skill roots."
+            "The manifest must enumerate exactly the six versioned public skill roots."
         )
     issues: list[SystemSkillVersionSourceIssue] = []
     for skill_name, path in source_entries:
@@ -265,7 +272,6 @@ def check_system_skill_source_versions(
             )
             continue
         observed = metadata.houmao_version
-        exact_line = f'houmao_version: "{project_version}"'
         if observed != project_version:
             issues.append(
                 SystemSkillVersionSourceIssue(
@@ -276,14 +282,14 @@ def check_system_skill_source_versions(
                     problem="version mismatch",
                 )
             )
-        elif exact_line not in metadata.raw_frontmatter.splitlines():
+        elif not _has_quoted_release_value(metadata.raw_frontmatter):
             issues.append(
                 SystemSkillVersionSourceIssue(
                     skill_name=skill_name,
                     path=path,
                     expected_version=project_version,
                     observed_version=observed,
-                    problem=f"metadata must contain exact quoted line `{exact_line}`",
+                    problem="`metadata.houmao_version` must have a quoted YAML value",
                 )
             )
     return SystemSkillVersionSourceCheck(
@@ -291,6 +297,25 @@ def check_system_skill_source_versions(
         checked_skill_names=skill_names,
         issues=tuple(issues),
     )
+
+
+def _has_quoted_release_value(raw_frontmatter: str) -> bool:
+    """Check the source style of the already validated nested release value."""
+
+    root = yaml.compose(raw_frontmatter, Loader=yaml.SafeLoader)
+    metadata = _yaml_mapping_child(root, "metadata")
+    version = _yaml_mapping_child(metadata, "houmao_version")
+    return isinstance(version, ScalarNode) and version.style in {"'", '"'}
+
+
+def _yaml_mapping_child(node: Node | None, key: str) -> Node | None:
+    """Return the node for one named field without interpreting its source style."""
+
+    if isinstance(node, MappingNode):
+        for key_node, value_node in node.value:
+            if isinstance(key_node, ScalarNode) and key_node.value == key:
+                return cast(Node, value_node)
+    return None
 
 
 def _manifest_source_entries(manifest: SystemSkillManifest) -> tuple[tuple[str, Path], ...]:

@@ -1,14 +1,15 @@
 ---
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Route Mailbox Work To The Mail Skills
@@ -24,8 +25,8 @@ Use this action when the current task needs recipient contact or a mailbox hando
 5. Hand off ordinary mailbox work to `houmao-shared-routines->houmao-agent-email-comms`. For outbound agent mail, pass the recipient address and channel to the sender's `agents self mail send --channel <channel>` workflow. Recipient gateway availability and readiness do not gate delivery.
 6. For a notifier-driven open-mail round, hand off to `houmao-shared-routines->houmao-process-emails-via-gateway` with the exact live `gateway.base_url` from current context or verified discovery.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Discovery Shape
 
 Resolve a named recipient's address when needed:
@@ -44,9 +45,9 @@ Pass the recipient address to the mailbox skill. The sender's binding and creden
 
 ## Guardrails
 
-- Do not guess mailbox capability, mailbox addresses, or message references.
-- Do not restate filesystem layout, Stalwart credential handling, managed-agent mailbox operation routes, or the lower-level `/v1/mail/*` contract here.
-- Do not perform mailbox operations directly from this routing page.
-- Do not turn mailbox work into a raw `send-keys` or ordinary prompt workflow.
-- Do not skip scoped `agents ... mail resolve-live` when the task depends on whether a live gateway mailbox facade exists.
-- Do not guess a direct gateway base URL for mailbox work.
+- DO NOT guess mailbox capability, mailbox addresses, or message references.
+- DO NOT restate filesystem layout, Stalwart credential handling, managed-agent mailbox operation routes, or the lower-level `/v1/mail/*` contract here.
+- DO NOT perform mailbox operations directly from this routing page.
+- DO NOT turn mailbox work into a raw `send-keys` or ordinary prompt workflow.
+- DO NOT skip scoped `agents ... mail resolve-live` when the task depends on whether a live gateway mailbox facade exists.
+- DO NOT guess a direct gateway base URL for mailbox work.

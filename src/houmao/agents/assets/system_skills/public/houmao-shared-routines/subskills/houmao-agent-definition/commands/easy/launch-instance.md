@@ -1,14 +1,15 @@
 ---
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Launch Project Managed Agent
@@ -34,8 +35,8 @@ Use this subskill only when the user wants to launch one project managed agent f
 9. Report the launched instance identity and command output.
 10. Tell the user that broader live-agent management now belongs to `houmao-shared-routines->houmao-agent-instance`.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shapes
 
 ```bash
@@ -50,6 +51,7 @@ Add optional flags only when the user supplied them explicitly or the selected t
 - `--auth`
 - `--session-name`
 - `--mode headless|service|tui|web`
+- `--tmux-server user-default|houmao-default|new|socket` and, for `socket`, `--tmux-socket-path`
 - `--no-gateway`
 - `--gateway-port`
 - `--gateway-background` only when the user explicitly requests detached background gateway execution
@@ -66,6 +68,7 @@ Add optional flags only when the user supplied them explicitly or the selected t
 - `--specialist` and `--profile` are mutually exclusive.
 - Profile-backed launch applies stored profile defaults before direct CLI overrides.
 - A launch-level `--mode` overrides the stored mode for this instance. Omit it to preserve the profile default. See [Run Modes](../../references/common/profile-lanes.md#run-modes) for tool defaults.
+- A launch-level tmux choice overrides the saved profile for this birth. See [Tmux Server Choices](../../references/common/tmux-server.md) for owner-side resolution, fallback precedence, and relaunch.
 - Choose prompt policy separately from run mode. For Kimi, set `--prompt-mode unattended` to disable interactive questions through Houmao.
 - Profile-backed launch applies any stored memo seed before prompt composition and provider startup.
 - Direct specialist-backed launch does not apply a stored memo seed because no reusable profile was selected.
@@ -80,12 +83,12 @@ Add optional flags only when the user supplied them explicitly or the selected t
 
 ## Guardrails
 
-- Do not guess whether the source is a specialist or profile.
-- Do not guess specialist name, profile name, or instance name.
-- Do not route specialist-backed launch through retired root-level managed-agent launch paths.
-- Do not route profile-backed launch through retired root-level managed-agent launch paths.
-- Do not add raw Kimi `--auto` or `--yolo` launch flags to achieve managed unattended mode.
-- Do not invent optional launch flags that the user did not request.
-- Do not add `--gateway-background` unless the user explicitly requested background or detached gateway execution.
-- Do not teach preregistering the same-root ordinary per-agent mailbox address as the default precursor to mailbox-enabled project launch.
-- Do not describe `--workdir` as changing the source project, specialist source, selected overlay, runtime root, jobs root, or mailbox root.
+- DO NOT guess whether the source is a specialist or profile.
+- DO NOT guess specialist name, profile name, or instance name.
+- DO NOT route specialist-backed launch through retired root-level managed-agent launch paths.
+- DO NOT route profile-backed launch through retired root-level managed-agent launch paths.
+- DO NOT add raw Kimi `--auto` or `--yolo` launch flags to achieve managed unattended mode.
+- DO NOT invent optional launch flags that the user did not request.
+- DO NOT add `--gateway-background` unless the user explicitly requested background or detached gateway execution.
+- DO NOT teach preregistering the same-root ordinary per-agent mailbox address as the default precursor to mailbox-enabled project launch.
+- DO NOT describe `--workdir` as changing the source project, specialist source, selected overlay, runtime root, jobs root, or mailbox root.

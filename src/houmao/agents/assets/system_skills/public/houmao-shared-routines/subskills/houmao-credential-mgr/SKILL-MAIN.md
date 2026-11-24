@@ -2,19 +2,62 @@
 name: houmao-credential-mgr
 description: Use when an admin needs to list, inspect, add, update, log in, rename, or remove Houmao credentials for a project or internal native-agent root.
 license: MIT
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Houmao Credential Manager
+
+## Workflow
+
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
+
+1. Identify which credential-management action the user wants: `list`, `get`, `add`, `set`, `login`, `rename`, or `remove`.
+2. If the request is really about changing which credential a reusable profile stores for later launches, stop and route it before continuing:
+   - project-profile auth override work belongs to `houmao-shared-routines->houmao-agent-definition`
+   - launch-dossier auth override work belongs to `houmao-shared-routines->houmao-agent-definition` subcommand `launch-dossiers`, not to credential CRUD
+3. If the requested action is still ambiguous after checking the current prompt and recent chat context, ask the user before proceeding.
+4. Choose one `houmao-mgr` launcher for the current turn:
+   - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
+   - if that lookup fails, use `uv tool run --from houmao houmao-mgr`
+   - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
+   - if the user explicitly asks for a specific launcher, follow that request instead of the default order
+5. Recover the target:
+   - use `project [--project-dir <dir>] credentials <tool> ...` when the request is project-local or names a project directory
+   - use `internals native-agent credentials <tool> ... --native-agent-root <path>` when the user explicitly targets a native-agent root
+   - ask before proceeding when the target is still ambiguous
+6. Reuse that same chosen launcher for the selected credential-management action.
+7. For supported credential command authoring, build the direct maintained command with only fields the user explicitly supplied or that were recovered from explicit recent context:
+   - project lane: `project credentials <tool> <verb>`
+   - direct native-agent lane: `internals native-agent credentials <tool> <verb>`
+   - supported CRUD tools: `claude`, `codex`, `kimi`
+   - supported login-helper tools: `claude`, `codex`
+   - supported CRUD verbs: `add`, `set`, `list`, `get`, `rename`, `remove`
+   - supported login-helper verb: `login`
+   - Kimi Code login/import requests use `references/kimi-code-login-handling.md` and must end in an existing Kimi `add` or `set --code-home` import, not a `credentials kimi login` helper command
+8. If required input is missing or explicit inputs conflict, stop and recover the missing or conflicting input before running the target command.
+10. Load exactly one action page:
+   - `commands/list.md`
+   - `commands/get.md`
+   - `commands/add.md`
+   - `commands/set.md`
+   - `commands/login.md`
+   - `commands/rename.md`
+   - `commands/remove.md`
+   - for explicit Kimi Code OAuth login/import, use `references/kimi-code-login-handling.md` instead of inventing a maintained Kimi login helper
+11. Follow the selected action page and report the result from the command that ran.
+
+
+If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
 
 ## Actor Frame Gate
 
@@ -92,47 +135,6 @@ This packaged skill does not cover:
 - direct filesystem editing under `.houmao/agents/tools/`
 - direct filesystem editing under `tools/<tool>/auth/`
 
-## Workflow
-
-Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
-
-1. Identify which credential-management action the user wants: `list`, `get`, `add`, `set`, `login`, `rename`, or `remove`.
-2. If the request is really about changing which credential a reusable profile stores for later launches, stop and route it before continuing:
-   - project-profile auth override work belongs to `houmao-shared-routines->houmao-agent-definition`
-   - launch-dossier auth override work belongs to `houmao-shared-routines->houmao-agent-definition` subcommand `launch-dossiers`, not to credential CRUD
-3. If the requested action is still ambiguous after checking the current prompt and recent chat context, ask the user before proceeding.
-4. Choose one `houmao-mgr` launcher for the current turn:
-   - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
-   - if that lookup fails, use `uv tool run --from houmao houmao-mgr`
-   - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
-   - if the user explicitly asks for a specific launcher, follow that request instead of the default order
-5. Recover the target:
-   - use `project [--project-dir <dir>] credentials <tool> ...` when the request is project-local or names a project directory
-   - use `internals native-agent credentials <tool> ... --native-agent-root <path>` when the user explicitly targets a native-agent root
-   - ask before proceeding when the target is still ambiguous
-6. Reuse that same chosen launcher for the selected credential-management action.
-7. For supported credential command authoring, build the direct maintained command with only fields the user explicitly supplied or that were recovered from explicit recent context:
-   - project lane: `project credentials <tool> <verb>`
-   - direct native-agent lane: `internals native-agent credentials <tool> <verb>`
-   - supported CRUD tools: `claude`, `codex`, `kimi`
-   - supported login-helper tools: `claude`, `codex`
-   - supported CRUD verbs: `add`, `set`, `list`, `get`, `rename`, `remove`
-   - supported login-helper verb: `login`
-   - Kimi Code login/import requests use `references/kimi-code-login-handling.md` and must end in an existing Kimi `add` or `set --code-home` import, not a `credentials kimi login` helper command
-8. If required input is missing or explicit inputs conflict, stop and recover the missing or conflicting input before running the target command.
-10. Load exactly one action page:
-   - `commands/list.md`
-   - `commands/get.md`
-   - `commands/add.md`
-   - `commands/set.md`
-   - `commands/login.md`
-   - `commands/rename.md`
-   - `commands/remove.md`
-   - for explicit Kimi Code OAuth login/import, use `references/kimi-code-login-handling.md` instead of inventing a maintained Kimi login helper
-11. Follow the selected action page and report the result from the command that ran.
-
-
-If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
 ## Missing Input Questions
 
 - Recover required values from the current prompt first and recent chat context second, but only when the user stated them explicitly.

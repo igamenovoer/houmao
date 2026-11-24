@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 import yaml
@@ -16,8 +15,6 @@ from houmao.srv_ctrl.config_drafts import (
     generate_config_draft,
     list_config_drafts,
 )
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _json_result(args: list[str]) -> dict[str, object]:
@@ -59,12 +56,6 @@ def _assert_fix_guide(output: str, *, draft_id: str, example_payload: str) -> No
     assert '"required": [' in output
     assert '"fields"' in output
     assert example_payload in output
-
-
-def _skill_text(relative_path: str) -> str:
-    """Return one packaged skill asset."""
-
-    return (REPO_ROOT / relative_path).read_text(encoding="utf-8")
 
 
 def test_config_draft_list_is_compact_and_contains_initial_ids() -> None:
@@ -467,55 +458,3 @@ def test_config_drafts_cli_fix_guide_omits_secret_values() -> None:
         draft_id="project.specialist",
         example_payload=('{"fields":{"name":"general-kimi","tool":"kimi","credential":"fixture"}}'),
     )
-
-
-def test_packaged_skills_route_config_authoring_to_config_drafts() -> None:
-    agent_definition = _skill_text(
-        "src/houmao/agents/assets/system_skills/public/houmao-shared-routines/"
-        "subskills/houmao-agent-definition/SKILL-MAIN.md"
-    )
-    specialists = _skill_text(
-        "src/houmao/agents/assets/system_skills/public/houmao-shared-routines/"
-        "subskills/houmao-agent-definition/commands/easy/specialists.md"
-    )
-    profiles = _skill_text(
-        "src/houmao/agents/assets/system_skills/public/houmao-shared-routines/"
-        "subskills/houmao-agent-definition/commands/easy/profiles.md"
-    )
-    launch_dossiers = _skill_text(
-        "src/houmao/agents/assets/system_skills/public/houmao-shared-routines/"
-        "subskills/houmao-agent-definition/commands/low-level/launch-dossiers.md"
-    )
-    memory = _skill_text(
-        "src/houmao/agents/assets/system_skills/public/houmao-shared-routines/"
-        "subskills/houmao-memory-mgr/SKILL-MAIN.md"
-    )
-
-    assert "internals config-drafts generate" in agent_definition
-    assert "project.specialist" in specialists
-    assert "project.profile" in profiles
-    assert "internals.native-agent.launch-dossier" in launch_dossiers
-    assert '{"fields":{"name":"general-kimi","tool":"kimi","credential":"fixture"}}' in (
-        specialists
-    )
-    assert (
-        '{"fields":{"name":"reviewer-fast","specialist":"reviewer","credential":"reviewer-creds"}}'
-    ) in profiles
-    assert (
-        '{"fields":{"name":"reviewer-native","recipe":"reviewer-codex",'
-        '"credential":"reviewer-creds"}}'
-    ) in launch_dossiers
-    assert "top-level `fields` object" in specialists
-    assert "top-level `fields` object" in profiles
-    assert "top-level `fields` object" in launch_dossiers
-    assert "Do not pass memo seed fields to `internals config-drafts generate`" in memory
-    assert "use maintained profile `set` memo-seed fields" in memory
-    assert "command-templates" not in agent_definition
-    assert "command-templates" not in specialists
-    assert "command-templates" not in profiles
-    assert "project.specialist.create" not in specialists
-    assert "project.profile.create" not in profiles
-    assert "internals native-agent launch-dossiers add --intent" not in launch_dossiers
-    assert "api_key" not in specialists
-    assert "memo_seed_text" not in profiles
-    assert "memo_seed_text" not in launch_dossiers

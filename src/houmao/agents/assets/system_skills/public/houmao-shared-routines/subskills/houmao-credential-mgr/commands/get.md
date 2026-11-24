@@ -10,8 +10,8 @@ Use this action only when the user wants to inspect one credential safely throug
 4. Run the direct credential get command.
 6. Report the structured credential details returned by the command. If diagnostic `bundle_ref`, projected path, or filesystem path data is returned, keep it secondary to the operator-facing credential name.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shape
 
 Run the matching direct command:
@@ -23,7 +23,7 @@ Run the matching direct command:
 
 ## Guardrails
 
-- Do not guess which tool, target, or credential the user meant.
-- Do not bypass `get` by reading raw `env/vars.env` or raw auth files just to expose secrets.
-- Do not print raw secret values when the command reports them as present but redacted.
-- Do not treat `get` as inspection of a stored project-profile or launch-dossier `--auth` override.
+- DO NOT guess which tool, target, or credential the user meant.
+- DO NOT bypass `get` by reading raw `env/vars.env` or raw auth files just to expose secrets.
+- DO NOT print raw secret values when the command reports them as present but redacted.
+- DO NOT treat `get` as inspection of a stored project-profile or launch-dossier `--auth` override.

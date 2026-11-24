@@ -18,6 +18,7 @@ from urllib.parse import unquote
 
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 from jsonschema.exceptions import SchemaError  # type: ignore[import-untyped]
+import yaml
 
 
 SYSTEM_SKILLS_PACKAGE = "houmao.agents.assets.system_skills"
@@ -28,16 +29,17 @@ SYSTEM_SKILL_MANIFEST_SCHEMA_VERSION = "houmao-system-skills.v5"
 SYSTEM_SKILL_ACTOR_FRAME_HEADING = "## Actor Frame Gate"
 SYSTEM_SKILL_PUBLIC_ENTRYPOINT_FILENAME = "SKILL.md"
 SYSTEM_SKILL_PARENT_SCOPED_ENTRYPOINT_FILENAME = "SKILL-MAIN.md"
-SYSTEM_SKILL_INVOCATION_NOTATION_FRONTMATTER = """skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints."""
+SYSTEM_SKILL_INVOCATION_NOTATION = (
+    "Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use "
+    "SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is "
+    "accepted only as legacy input when SKILL-MAIN.md is absent. "
+    "Skill and subskill entrypoints use bare object paths: `X` invokes skill X and "
+    "`X->Y->Z` invokes subskill Z. Subcommands use parenthesized components: "
+    "`X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of "
+    "subskill Y, and `X->parent()->child()` invokes child subcommand child exposed "
+    "by parent subcommand parent. Intermediate subcommands act as object generators. "
+    "Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints."
+)
 
 EXPECTED_STANDALONE_SKILL_NAMES = (
     "houmao-admin-welcome",
@@ -57,24 +59,6 @@ EXPECTED_EXPLICIT_STANDALONE_SKILL_NAMES = (
     "houmao-agent-loop-pro",
     "houmao-agent-loop-lite",
 )
-EXPECTED_SHARED_ROUTINE_IDS = (
-    "houmao-adv-usage-pattern",
-    "houmao-agent-definition",
-    "houmao-agent-email-comms",
-    "houmao-agent-gateway",
-    "houmao-agent-inspect",
-    "houmao-agent-instance",
-    "houmao-agent-messaging",
-    "houmao-credential-mgr",
-    "houmao-ext-graphing",
-    "houmao-interop-ag-ui",
-    "houmao-mailbox-mgr",
-    "houmao-memory-mgr",
-    "houmao-operator-messaging",
-    "houmao-process-emails-via-gateway",
-    "houmao-project-mgr",
-    "houmao-utils-workspace-mgr",
-)
 EXPECTED_PACK_MEMBERS: dict[str, tuple[str, ...]] = {
     "admin": (
         "houmao-admin-welcome",
@@ -91,6 +75,7 @@ EXPECTED_PACK_MEMBERS: dict[str, tuple[str, ...]] = {
     ),
 }
 
+_FRONTMATTER_RE = re.compile(r"\A---\s*\n(?P<header>.*?)\n---\s*\n", flags=re.DOTALL)
 _MARKDOWN_LINK_RE = re.compile(r"!?\[[^\]]*\]\((?P<target>[^)]+)\)")
 _OBJECT_DESIGNATOR_RE = re.compile(r"\b(?:X|houmao-[a-z0-9-]+)->[A-Za-z0-9<>()_-]+")
 _ACTUAL_INVALID_SKILL_CALL_RE = re.compile(r"\bhoumao-[a-z0-9-]+\(\)(?:->|\b)")
@@ -281,7 +266,7 @@ class StagedSystemSkillCollection:
 
 @lru_cache(maxsize=1)
 def load_system_skill_manifest() -> SystemSkillManifest:
-    """Load and validate the packaged v4 system-skill manifest."""
+    """Load and validate the packaged static system-skill manifest."""
 
     source_root = resources.files(SYSTEM_SKILLS_PACKAGE)
     return _parse_system_skill_manifest(
@@ -457,6 +442,37 @@ def standalone_system_skill_content_digest(
     return resource_tree_content_digest(_resource_at(manifest.source_root, record.source_path))
 
 
+def shared_routine_layout_issue(
+    shared_root: Traversable, manifest: SystemSkillManifest
+) -> str | None:
+    """Describe any discrepancy between a shared root and its declared child layout."""
+
+    child_root = shared_root / "subskills"
+    if not child_root.is_dir():
+        return "shared routines is missing its subskills directory"
+    children = {child.name: child for child in child_root.iterdir()}
+    expected = {record.member_name for record in manifest.shared_routines.values()}
+    if children.keys() != expected:
+        missing = sorted(expected - children.keys())
+        extra = sorted(children.keys() - expected)
+        details: list[str] = []
+        if missing:
+            details.append(f"missing children: {', '.join(missing)}")
+        if extra:
+            details.append(f"unexpected children: {', '.join(extra)}")
+        return "shared routines child set is incomplete (" + "; ".join(details) + ")"
+    for name, child in sorted(children.items()):
+        if (
+            not child.is_dir()
+            or not (child / SYSTEM_SKILL_PARENT_SCOPED_ENTRYPOINT_FILENAME).is_file()
+            or any(
+                entry.name == SYSTEM_SKILL_PUBLIC_ENTRYPOINT_FILENAME for entry in child.iterdir()
+            )
+        ):
+            return f"shared child `{name}` must expose only canonical SKILL-MAIN.md"
+    return None
+
+
 def validate_static_system_skill_source(manifest: SystemSkillManifest) -> None:
     """Validate exact static ownership, entrypoint roles, metadata, links, and routes."""
 
@@ -479,7 +495,9 @@ def validate_static_system_skill_source(manifest: SystemSkillManifest) -> None:
         )
     active_protected = _resource_at(manifest.source_root, "protected")
     if active_protected.is_dir():
-        raise SystemSkillManifestError("The v4 source must not contain an active protected tree.")
+        raise SystemSkillManifestError(
+            "The static source must not contain an active protected tree."
+        )
 
     for record in manifest.standalone_skills.values():
         root = _resource_at(manifest.source_root, record.source_path)
@@ -507,12 +525,9 @@ def validate_static_system_skill_source(manifest: SystemSkillManifest) -> None:
         manifest.source_root,
         manifest.standalone_skills["houmao-shared-routines"].source_path,
     )
-    child_root = shared_root / "subskills"
-    actual_child_names = {child.name for child in child_root.iterdir() if child.is_dir()}
-    if actual_child_names != set(EXPECTED_SHARED_ROUTINE_IDS):
-        raise SystemSkillManifestError(
-            "houmao-shared-routines must own exactly the sixteen canonical children."
-        )
+    layout_issue = shared_routine_layout_issue(shared_root, manifest)
+    if layout_issue is not None:
+        raise SystemSkillManifestError(layout_issue)
     shared_entrypoint = (shared_root / SYSTEM_SKILL_PUBLIC_ENTRYPOINT_FILENAME).read_text(
         encoding="utf-8"
     )
@@ -523,14 +538,6 @@ def validate_static_system_skill_source(manifest: SystemSkillManifest) -> None:
             expected_name=routine.logical_id,
             entrypoint_filename=SYSTEM_SKILL_PARENT_SCOPED_ENTRYPOINT_FILENAME,
         )
-        _reject_resource_file(
-            manifest.source_root,
-            f"{routine.source_path}/{SYSTEM_SKILL_PUBLIC_ENTRYPOINT_FILENAME}",
-        )
-        if routine.member_name != PurePosixPath(routine.source_path).name:
-            raise SystemSkillManifestError(
-                f"Shared routine `{routine.logical_id}` has a mismatched member name."
-            )
         entrypoint_text = (root / SYSTEM_SKILL_PARENT_SCOPED_ENTRYPOINT_FILENAME).read_text(
             encoding="utf-8"
         )
@@ -546,9 +553,6 @@ def validate_static_system_skill_source(manifest: SystemSkillManifest) -> None:
             raise SystemSkillManifestError("Shared router lacks When to Route Here guidance.")
         _validate_metadata_posture(root, activation="explicit", source=routine.source_path)
 
-    for loop_name in ("houmao-agent-loop-pro", "houmao-agent-loop-lite"):
-        if (child_root / loop_name).is_dir():
-            raise SystemSkillManifestError(f"Top-level loop `{loop_name}` must not be a child.")
     _validate_manifest_object_designators(manifest, public_root=public_root)
 
 
@@ -713,8 +717,6 @@ def _validate_manifest_cross_references(
         raise SystemSkillManifestError(f"{source}: unsupported manifest schema version.")
     if tuple(manifest.standalone_skills) != EXPECTED_STANDALONE_SKILL_NAMES:
         raise SystemSkillManifestError(f"{source}: standalone skill inventory is not canonical.")
-    if set(manifest.shared_routines) != set(EXPECTED_SHARED_ROUTINE_IDS):
-        raise SystemSkillManifestError(f"{source}: shared routine inventory is not canonical.")
     if tuple(manifest.packs) != ("admin", "agent"):
         raise SystemSkillManifestError(f"{source}: pack inventory must be admin then agent.")
     narrow_implicit_names = tuple(
@@ -777,12 +779,23 @@ def _validate_manifest_cross_references(
             logical_id=record.name,
         )
     route_names: dict[PackAudience, set[str]] = {"admin": set(), "agent": set()}
+    shared_members: set[str] = set()
     for routine in manifest.shared_routines.values():
         expected_path = "public/houmao-shared-routines/subskills/" + routine.member_name
         if routine.source_path != expected_path:
             raise SystemSkillManifestError(
                 f"{source}: shared routine `{routine.logical_id}` has invalid ownership path."
             )
+        if (
+            routine.member_name in shared_members
+            or routine.member_name in manifest.standalone_skills
+            or routine.logical_id in manifest.standalone_skills
+        ):
+            raise SystemSkillManifestError(
+                f"{source}: shared routine `{routine.logical_id}` reuses a standalone name "
+                "or another shared member."
+            )
+        shared_members.add(routine.member_name)
         for audience in routine.audiences:
             if routine.route_name in route_names[audience]:
                 raise SystemSkillManifestError(
@@ -889,7 +902,7 @@ def _validate_skill_frontmatter(
             f"`{alternate}`."
         )
     text = skill_path.read_text(encoding="utf-8")
-    match = re.match(r"\A---\s*\n(?P<header>.*?)\n---\s*\n", text, flags=re.DOTALL)
+    match = _FRONTMATTER_RE.match(text)
     if match is None:
         raise SystemSkillManifestError(f"Skill `{root}` has invalid frontmatter.")
     name_match = re.search(r"(?m)^name:\s*([^\s]+)\s*$", match.group("header"))
@@ -978,16 +991,32 @@ def _validate_resource_invocation_notation(root: Traversable, *, source: str) ->
                 match.group("value"),
                 source=f"{source}/{relative}",
             )
-        if _OBJECT_DESIGNATOR_RE.search(text) is None:
-            continue
-        frontmatter = re.match(r"\A---\s*\n(?P<header>.*?)\n---\s*\n", text, re.DOTALL)
+        filename = PurePosixPath(relative).name
         if (
-            frontmatter is None
-            or SYSTEM_SKILL_INVOCATION_NOTATION_FRONTMATTER not in frontmatter.group("header")
+            filename
+            not in {
+                SYSTEM_SKILL_PUBLIC_ENTRYPOINT_FILENAME,
+                SYSTEM_SKILL_PARENT_SCOPED_ENTRYPOINT_FILENAME,
+            }
+            and _OBJECT_DESIGNATOR_RE.search(text) is None
+        ):
+            continue
+        frontmatter = _FRONTMATTER_RE.match(text)
+        try:
+            header = yaml.safe_load(frontmatter.group("header")) if frontmatter else None
+        except yaml.YAMLError as exc:
+            raise SystemSkillManifestError(
+                f"Instruction page `{source}/{relative}` has invalid YAML frontmatter."
+            ) from exc
+        metadata = header.get("metadata") if isinstance(header, dict) else None
+        notation = metadata.get("skill_invocation_notation") if isinstance(metadata, dict) else None
+        if (
+            not isinstance(notation, str)
+            or notation.rstrip("\n") != SYSTEM_SKILL_INVOCATION_NOTATION
         ):
             raise SystemSkillManifestError(
-                f"Instruction page `{source}/{relative}` uses object designators without the "
-                "standard skill_invocation_notation declaration."
+                f"Instruction page `{source}/{relative}` must declare standard "
+                "`metadata.skill_invocation_notation`."
             )
 
 

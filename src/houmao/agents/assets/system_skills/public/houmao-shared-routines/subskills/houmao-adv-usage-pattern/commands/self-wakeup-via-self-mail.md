@@ -1,14 +1,15 @@
 ---
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Self-Notification Via Self-Mail
@@ -56,8 +57,8 @@ For multi-step work, prefer keeping the detailed step list in one local todo fil
 10. After one self-mail item is fully complete, archive that completed reminder so it leaves the open mailbox backlog.
 11. Leave unfinished or deferred self-mail unarchived so later rounds can pick it up.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Self-Mail Template
 
 Use one compact self-mail item per planned wake-up step when possible. For multi-step work, prefer one self-mail item per major work chunk, with the detailed checklist kept locally. The subject should make the message obviously recognizable as an internal reminder rather than ordinary inbound mail:
@@ -100,15 +101,16 @@ Use a stable marker such as `[self-wakeup]`, `[self-reminder]`, or another clear
 - Completed self-reminders are not durable backlog and should be pruned so they do not jam later mailbox inspection.
 - This mode intentionally mixes self-reminders with newly arrived unread mail, so later rounds may reprioritize against external incoming mail instead of blindly resuming the self-reminder first.
 
-## Guardrails
-
 - This pattern depends on the filesystem mailbox transport keeping self-addressed self-mail unread until the agent explicitly mutates or removes that mailbox-local state.
 - For multi-step work, prefer one self-reminder that points to a local todo list over many mailbox reminders for individual substeps.
 - Use informative self-reminder titles so later rounds can distinguish internal backlog items from new external mail without opening every unread message first.
-- Do not describe this mode as the best choice for "ignore other new mail and work on this first"; that is the live gateway reminder mode.
-- Do not imply that background gateway execution is the default setup for this pattern.
 - Prefer deleting completed self-reminders when the available supported mailbox surface allows it.
 - If deletion is not available on the current supported mailbox surface, archive a completed self-reminder.
-- Do not archive deferred, failed, or only partially completed self-mail items.
-- Do not treat the advanced pattern as a replacement for ordinary one-step mailbox or gateway actions.
-- Do not confuse mailbox backlog with gateway liveness: unread mail persists as the intent backlog, while notifier and reminders are live attached-gateway behavior.
+
+## Guardrails
+
+- DO NOT describe this mode as the best choice for "ignore other new mail and work on this first"; that is the live gateway reminder mode.
+- DO NOT imply that background gateway execution is the default setup for this pattern.
+- DO NOT archive deferred, failed, or only partially completed self-mail items.
+- DO NOT treat the advanced pattern as a replacement for ordinary one-step mailbox or gateway actions.
+- DO NOT confuse mailbox backlog with gateway liveness: unread mail persists as the intent backlog, while notifier and reminders are live attached-gateway behavior.

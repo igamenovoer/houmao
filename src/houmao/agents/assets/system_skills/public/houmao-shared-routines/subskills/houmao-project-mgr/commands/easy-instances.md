@@ -1,14 +1,15 @@
 ---
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Inspect Or Stop Project Managed Agents Through The Selected Overlay
@@ -24,8 +25,8 @@ Use this action only when the user wants to list, inspect, or stop project-manag
 5. Run the matching project managed-agent command.
 6. Report the selected overlay details and the instance result from the command output.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shape
 
 Use one of:
@@ -44,6 +45,6 @@ Use one of:
 
 ## Guardrails
 
-- Do not guess an instance name for `get` or `stop`.
-- Do not route project managed-agent `launch` through this action.
-- Do not present these commands as the canonical generic lifecycle surface after the user leaves the project-scoped inspection or stop task; broader live-agent lifecycle belongs to `houmao-shared-routines->houmao-agent-instance`.
+- DO NOT guess an instance name for `get` or `stop`.
+- DO NOT route project managed-agent `launch` through this action.
+- DO NOT present these commands as the canonical generic lifecycle surface after the user leaves the project-scoped inspection or stop task; broader live-agent lifecycle belongs to `houmao-shared-routines->houmao-agent-instance`.

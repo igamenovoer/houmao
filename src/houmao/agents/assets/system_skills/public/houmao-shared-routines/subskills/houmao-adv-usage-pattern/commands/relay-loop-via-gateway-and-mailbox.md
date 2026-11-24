@@ -1,14 +1,15 @@
 ---
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Multi-Agent Relay Loop Via Gateway Handoff And Mailbox Exit
@@ -314,11 +315,11 @@ Delete or mark this checkpoint complete once the relay-loop ledger is empty.
 
 ## Guardrails
 
-- Do not describe this pattern as a transactional distributed workflow engine.
-- Do not wait inside one live provider turn for downstream email.
-- Do not invent a fresh `handoff_id` for ordinary resend of the same hop.
-- Do not use mailbox thread ancestry alone as the workflow identity.
-- Do not teach fan-out, multiple relay lanes, or a graph of relay loops as part of this elemental pattern.
-- Do not use one live reminder per active handoff row as the default supervision strategy.
-- Do not store mutable relay-loop bookkeeping in Houmao managed memory pages.
-- Do not guess materially important timing thresholds when the user needs to set them.
+- DO NOT describe this pattern as a transactional distributed workflow engine.
+- DO NOT wait inside one live provider turn for downstream email.
+- DO NOT invent a fresh `handoff_id` for ordinary resend of the same hop.
+- DO NOT use mailbox thread ancestry alone as the workflow identity.
+- DO NOT teach fan-out, multiple relay lanes, or a graph of relay loops as part of this elemental pattern.
+- DO NOT use one live reminder per active handoff row as the default supervision strategy.
+- DO NOT store mutable relay-loop bookkeeping in Houmao managed memory pages.
+- DO NOT guess materially important timing thresholds when the user needs to set them.

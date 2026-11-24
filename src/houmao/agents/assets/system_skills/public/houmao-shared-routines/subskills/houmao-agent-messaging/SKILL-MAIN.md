@@ -2,19 +2,45 @@
 name: houmao-agent-messaging
 description: Use when an already-running Houmao managed agent needs a prompt, interrupt, gateway queue item, raw terminal input, mailbox handoff, or context reset.
 license: MIT
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Houmao Agent Messaging
+
+## Workflow
+
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
+
+1. Select an operation from **Subcommands** and apply **Actor Frame Gate**.
+2. If the request is really about generic read-only inspection of liveness, mailbox posture, logs, runtime artifacts, or tmux backing, route it to `houmao-shared-routines->houmao-agent-inspect` instead of handling it as messaging.
+3. Recover the target managed-agent selector from the current prompt first and recent chat context second when it was stated explicitly.
+4. If the selected action still lacks a required target or explicit message input, ask the user in Markdown before proceeding.
+5. Choose one `houmao-mgr` launcher for the current turn:
+   - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
+   - if that lookup fails, use `uv tool run --from houmao houmao-mgr`
+   - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
+   - if the user explicitly asks for a specific launcher, follow that request instead of the default order
+6. Reuse that same chosen launcher for the selected messaging action.
+7. Use managed records and capabilities to resolve the target. Select a peer with `agents single --agent-id` or `--agent-name`, select verified self with `agents self`, or preserve the caller's pair-managed `/houmao/agents/*` scope.
+8. When an ordinary mail request supplies a name, resolve its address for the selected channel using `agents single ... mail resolve-live`. Published contact is sufficient for addressing the message. Hand off delivery through the verified sender's `agents self mail send --channel <channel>` workflow in `houmao-shared-routines->houmao-agent-email-comms`. Reserve gateway verification for tasks that require it, such as a notifier-driven open-mail round in `houmao-shared-routines->houmao-process-emails-via-gateway`.
+9. Use direct gateway HTTP only with the exact live target and its supported authorization. Use `houmao-shared-routines->houmao-agent-access` when the caller needs an independently signed request.
+10. Load the selected command page from **Subcommands**.
+11. Use the local references only when you need the intent matrix or the managed-agent HTTP route summary:
+   - `references/intent-matrix.md`
+   - `references/managed-agent-http.md`
+
+
+If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
 
 ## Actor Frame Gate
 
@@ -39,7 +65,7 @@ Available functionality:
 
 - Discover target agents and current gateway or mailbox capability.
 - Send ordinary prompts, interrupts, policy-controlled gateway prompts, and raw key input.
-- Resolve recipient contact and route mailbox work to the owning skill.
+- Resolve recipient contact and route mailbox work through `mail` (alias `mail-handoff`).
 - Apply reset-context or reset-then-send workflow guidance.
 
 Common starting prompts:
@@ -58,16 +84,16 @@ Related skills and boundaries:
 
 ## Subcommands
 
-This packaged skill covers exactly these managed-agent communication and control actions:
-
-- `help` (read-only meta operation)
-- `discover`
-- `prompt`
-- `interrupt`
-- `gateway-queue`
-- `send-keys`
-- `mail-handoff`
-- `reset-context`
+| Subcommand | Detail | Use For |
+| --- | --- | --- |
+| `help` | [Help](#help) | Read-only usage. |
+| `discover` | [Discover](commands/discover.md) | Resolve identity, liveness, or messaging capability. |
+| `prompt` | [Prompt](commands/prompt.md) | Submit one ordinary managed prompt. |
+| `interrupt` | [Interrupt](commands/interrupt.md) | Request a transport-neutral interruption. |
+| `gateway-queue` | [Gateway Queue](commands/gateway-queue.md) | Use explicit gateway admission or queue behavior. |
+| `send-keys` | [Send Keys](commands/send-keys.md) | Deliver exact raw TUI keys. Alias `raw-input`. |
+| `mail` | [Mail](commands/mail.md) | Resolve contact and route to mailbox delivery. Alias `mail-handoff`. |
+| `reset-context` | [Reset Context](commands/reset-context.md) | Reset or select a supported conversation context. |
 
 Supported surfaces for this skill include:
 
@@ -92,40 +118,6 @@ This packaged skill does not cover:
 - gateway attach or detach lifecycle work
 - direct filesystem editing under runtime or mailbox paths
 
-## Workflow
-
-Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
-
-1. Identify the messaging intent from the request. Use the action for discovery, ordinary prompt, interrupt, explicit gateway control, raw control input, mailbox work, or reset-context.
-2. If the request is really about generic read-only inspection of liveness, mailbox posture, logs, runtime artifacts, or tmux backing, route it to `houmao-shared-routines->houmao-agent-inspect` instead of handling it as messaging.
-3. Recover the target managed-agent selector from the current prompt first and recent chat context second when it was stated explicitly.
-4. If the selected action still lacks a required target or explicit message input, ask the user in Markdown before proceeding.
-5. Choose one `houmao-mgr` launcher for the current turn:
-   - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
-   - if that lookup fails, use `uv tool run --from houmao houmao-mgr`
-   - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
-   - if the user explicitly asks for a specific launcher, follow that request instead of the default order
-6. Reuse that same chosen launcher for the selected messaging action.
-7. Prefer the managed-agent seam first:
-   - `houmao-mgr agents single ...` for selected-agent CLI-driven work
-   - `houmao-mgr agents self ...` for current-session CLI-driven work
-   - `/houmao/agents/*` for pair-managed HTTP control
-8. When an ordinary mail request supplies a name, resolve its address for the selected channel using `agents single ... mail resolve-live`. Published contact is sufficient for addressing the message. Hand off delivery through the verified sender's `agents self mail send --channel <channel>` workflow in `houmao-shared-routines->houmao-agent-email-comms`. Reserve gateway verification for tasks that require it, such as a notifier-driven open-mail round in `houmao-shared-routines->houmao-process-emails-via-gateway`.
-9. Use direct gateway `/v1/...` HTTP only when the task genuinely needs gateway-only control behavior and the exact live `gateway.base_url` is already available from current context or supported discovery.
-10. Load exactly one action page:
-   - `commands/discover.md`
-   - `commands/prompt.md`
-   - `commands/interrupt.md`
-   - `commands/gateway-queue.md`
-   - `commands/send-keys.md`
-   - `commands/mail.md`
-   - `commands/reset-context.md`
-11. Use the local references only when you need the intent matrix or the managed-agent HTTP route summary:
-   - `references/intent-matrix.md`
-   - `references/managed-agent-http.md`
-
-
-If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
 ## Missing Input Questions
 
 - Recover required values from the current prompt first and recent chat context second, but only when the user stated them explicitly.

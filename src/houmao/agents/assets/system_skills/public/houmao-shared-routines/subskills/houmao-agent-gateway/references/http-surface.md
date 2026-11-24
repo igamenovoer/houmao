@@ -1,23 +1,27 @@
 ---
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Gateway HTTP Surface Summary
 
-Use direct gateway `/v1/...` only when the exact live `gateway.base_url` is already available from current context or supported discovery.
+Prefer a scoped manager command or an already selected pair-managed route. Use direct gateway `/v1/...` when the operation needs its exact HTTP contract and supported discovery or trusted deployment records establish the target.
+
+Public `/health` and `/v1/endpoint` are discovery surfaces. Before calling a protected route, confirm the current target, applicable operation binding, and authorized caller. A valid initialized empty roster supports unsigned gateway calls subject to operation prerequisites. A keyed gateway requires the appropriate verified proof and permission. For independently signed JSON requests, use `houmao-shared-routines->houmao-agent-access->request()` with the trusted URL, target identity, context, generation, listener presence, and applicable TLS trust. Keep private key material local. Use `houmao-shared-routines->houmao-agent-files` for the versioned file surface.
 
 ## Discovery
 
 - `GET {gateway.base_url}/health`
+- `GET {gateway.base_url}/v1/endpoint`
 - `GET {gateway.base_url}/v1/status`
 - `GET /houmao/agents/{agent_ref}/gateway`
 - `GET /houmao/agents/{agent_ref}/mail/resolve-live`
@@ -84,4 +88,4 @@ Use `houmao-shared-routines->houmao-agent-email-comms` for the exact `/v1/mail/*
 - Use `/houmao/agents/{agent_ref}/gateway/reminders...` when the current task is already operating through pair-managed HTTP.
 - Use direct `{gateway.base_url}/v1/reminders...` only when the task genuinely needs the lower-level live gateway contract.
 
-Mail lifecycle bodies use schema version 2 and require `expected_binding_id` from the explicitly selected channel. Summary status reports both channels. Canonical identity never routes delivery, and conflicts do not authorize automatic resend to another binding.
+The mailbox contract requires `expected_binding_id` from the explicitly selected channel. Summary status reports both channels. Canonical identity never routes delivery, and conflicts do not authorize automatic resend to another binding.

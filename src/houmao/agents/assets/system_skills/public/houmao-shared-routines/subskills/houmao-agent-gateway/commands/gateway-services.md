@@ -1,14 +1,15 @@
 ---
-skill_invocation_notation: >
-  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
-  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
-  accepted only as legacy input when SKILL-MAIN.md is absent.
-  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
-  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
-  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
-  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
-  by parent subcommand parent. Intermediate subcommands act as object generators.
-  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Use Gateway-Only Services
@@ -23,11 +24,11 @@ Use this action when the task specifically needs the live gateway's own control,
 4. Run `agents single ... gateway status` or `agents self gateway status` first unless current context already proves that a live gateway is attached.
 5. Run the matching direct gateway command for CLI prompt, interrupt, send-keys, or TUI work.
 6. Use the matching pair-managed routes when the task is already operating through pair-managed HTTP.
-7. Use direct `{gateway.base_url}/v1/...` routes only when the task genuinely needs the lower-level gateway seam and the exact live base URL is already available from current context or supported discovery.
+7. Use direct `{gateway.base_url}/v1/...` only when the operation needs that surface. Verify the exact live target and satisfy the endpoint's current binding and caller permissions. Route independently signed JSON requests through `houmao-shared-routines->houmao-agent-access->request()`.
 8. When the attached agent needs to communicate with other agents through the shared mailbox facade, run `agents self mail resolve-live` to obtain the exact current `gateway.base_url`, then hand off the exact `/v1/mail/*` contract to `houmao-shared-routines->houmao-agent-email-comms`.
 
-
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+
 ## Command Shapes
 
 Run direct scoped gateway-service commands:
@@ -61,11 +62,14 @@ Direct live gateway routes:
 - `GET {gateway.base_url}/v1/control/tui/history`
 - `POST {gateway.base_url}/v1/control/tui/note-prompt`
 
+Use [the HTTP surface summary](../references/http-surface.md) for authorization and target-binding guidance. For versioned files use `houmao-shared-routines->houmao-agent-files`, which owns mount selection and file-specific requests.
+
 ## Guardrails
 
-- Do not silently replace explicit gateway work with `houmao-mgr agents single ... prompt`, `houmao-mgr agents self prompt`, or the transport-neutral `/houmao/agents/{agent_ref}/requests` surface.
-- Do not use raw `send-keys` as a substitute for ordinary prompt-turn work.
-- Do not claim that `tui note-prompt` submits work to the agent.
-- Do not guess `{gateway.base_url}` when the exact live gateway endpoint is not already available.
-- Do not restate the full shared mailbox route contract here; use `houmao-shared-routines->houmao-agent-email-comms` after discovery hands you the exact live base URL.
-- Do not guess prompt text, key sequences, or live gateway endpoints.
+- DO NOT silently replace explicit gateway work with `houmao-mgr agents single ... prompt`, `houmao-mgr agents self prompt`, or the transport-neutral `/houmao/agents/{agent_ref}/requests` surface.
+- DO NOT use raw `send-keys` as a substitute for ordinary prompt-turn work.
+- DO NOT claim that `tui note-prompt` submits work to the agent.
+- DO NOT guess `{gateway.base_url}` when the exact live gateway endpoint is not already available.
+- DO NOT restate the full shared mailbox route contract here; use `houmao-shared-routines->houmao-agent-email-comms` after discovery hands you the exact live base URL.
+- DO NOT guess prompt text, key sequences, or live gateway endpoints.
+- DO NOT substitute raw unsigned HTTP for an operation that requires verified caller proof.
