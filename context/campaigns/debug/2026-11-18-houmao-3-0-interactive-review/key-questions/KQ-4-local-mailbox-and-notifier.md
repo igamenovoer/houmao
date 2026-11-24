@@ -1,6 +1,6 @@
 # KQ-4: Two-Agent Local Filesystem Mail and Notifier
 
-Date: 2026-11-20. Status: active under [Iteration 3](../iterations/2026-11-20-plan-3-mailbox-two-agent.md); answer pending. This file covers only the offline filesystem transport and its gateway notifier. Stalwart online mail and `houmao-cccc` remain deferred.
+Date: 2026-11-20. Updated: 2026-11-24. Status: answered for the offline filesystem lane by R13 and R14; M4 teardown pending. This file covers only the offline filesystem transport and its gateway notifier. Stalwart online mail and `houmao-cccc` remain deferred.
 
 ## Question
 
@@ -34,7 +34,7 @@ The receiver replies and archives the original message; the sender receives the 
 
 ## Answer
 
-Partial. On 2026-11-20, a DSH Web agent and a Kimi Web agent shared one offline filesystem registry and mailbox root, held distinct addresses, and exchanged mail in both directions. Each side's gateway mail-notifier enqueued exactly one completed `mail_notifier_prompt` for the eligible message, and each native turn read, replied, and archived through the direct `/v1/mail/offline/*` API. The notifier disabled cleanly and produced no later wake-up.
+Answered for the local filesystem lane; final teardown pending. On 2026-11-20, a DSH Web agent and a Kimi Web agent shared one offline filesystem registry and mailbox root, held distinct addresses, and exchanged mail in both directions. Each side's gateway mail-notifier enqueued exactly one completed `mail_notifier_prompt` for the eligible message, and each native turn read, replied, and archived through the direct `/v1/mail/offline/*` API. The notifier disabled cleanly and produced no later wake-up.
 
 Two caveats remain from the first run. The test role replied to every message, so the exchange formed a repeating reply chain; both notifiers were disabled before the next wake-up. This is a role-design issue, not a notifier failure. The fixture also set `system_skills.mode: none`, so the agents lacked the managed mailbox skill pack and guessed the `reply` and `archive` field names before succeeding. Busy-skip and final teardown were unrun at that point.
 
@@ -43,6 +43,10 @@ A clean rerun on 2026-11-20 used the updated fixture default and installed the c
 A third run on `houmao-mgr 3.0.0rc5+local.f7f4245.dirty` (commit `f7f42458`) verified the managed-self fix. `agents self identity` returned the managed identity JSON for both agents with exit `0`; the Kimi turn completed in about 43 seconds instead of three minutes. Both inboxes ended empty, both gateways recorded one completed notifier request, and the only remaining error was a minor `mail archive --box` option mismatch that the agent corrected. See the [managed-self fix rerun](../logs/2026-11-20-iter3-two-agent-mail-r3-self-identity-fix.md).
 
 A fourth run on 2026-11-23 used `houmao-mgr 3.0.0rc5+local.0d642af` and host Kimi `2.7.2`. The manifest records `supported_versions: ">=2.6.0"`, live-verifying the Kimi Web version-floor fix from #90. Both managed-self checks and the complete mail round passed without agent-side command errors; the prior `archive --box` mistake did not recur. Kimi produced one `busy_skip` while active, each gateway completed exactly one notifier request, later polls stayed empty, and the `Re:` stop rule prevented a loop. The first launch required an explicit `mailbox init`, which was a test-setup omission and was corrected before launch. R3 teardown completed before R4; R4 remains running for inspection, so its teardown is pending. See the [version-floor rerun](../logs/2026-11-23-iter3-two-agent-mail-r4-version-floor.md).
+
+A fifth run on 2026-11-24 used `houmao-mgr 3.0.0rc6+g151d0891` with both agents on the shared `houmao-default` tmux server. Cross-agent `mail resolve-live` succeeded, and the full round completed with exactly one message in each direction. Kimi's first `mail send` returned the compact write receipt (`status: verified`, `authoritative: true`, top-level `message_ref`); Kimi confirmed the stored message with a read-only peek and did not resend. DSH's notifier woke DSH once, DSH replied `MAIL-OK`, Kimi's notifier woke once, and Kimi archived the reply. Both inboxes ended empty, with one archived message and one sent message on each side. No duplicate delivery occurred. The same run also exercised operator-directed follow-up: Kimi delegated an S2 paper search, persistent upstream HTTP 429s blocked it, the operator redirected DSH to the Tavily CLI, and DSH replied with a four-paper report that Kimi archived. A reply-to-self routing wrinkle during the amendment was detected and corrected by the agent. R13 agents remain running for inspection, so M4 teardown is still pending. See the [compact-receipt rerun](../logs/2026-11-24-iter3-mail-r13-compact-receipts.md).
+
+R14 on 2026-11-24 targeted the documented repeat behavior. In `any_inbox`, DSH's `last_notification_at` advanced at `06:49:33Z`, `06:49:53Z`, and `06:50:54Z` while the same message stayed read and unarchived; DSH replied once per wake-up and left it unarchived. Archiving it stopped the advances across more than two intervals. With `unread_only`, the same read-but-unarchived message did not notify. The repeated wake-ups work as designed; the agent's one-reply-per-reminder behavior produced five test replies that were archived as cleanup. See the [notifier repeat run](../logs/2026-11-24-iter3-mail-r14-notifier-repeat.md).
 
 ## Scope
 

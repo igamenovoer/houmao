@@ -124,3 +124,7 @@ After changing the shim, rerun the same `mail resolve-live` from inside the Kimi
 - DSH web origin: `http://127.0.0.1:39909/` (HTTP 401, alive)
 - DSH gateway: `http://127.0.0.1:32995`
 - Kimi shim: `tmp/houmao-30-iter3-mailbox-r11/runs/self-hosted-kimi-web-manager-ed9c8416cc2c/bin/tmux`
+
+## Follow-Up
+
+Issue [#95](https://github.com/igamenovoer/houmao/issues/95) is closed. Houmao `3.0.0rc6` adds `--tmux-server houmao-default`; [R12](2026-11-24-iter3-mail-r12-default-tmux-mail-round.md) reruns the pair on the shared Houmao server, resolves the peer mailbox successfully, and completes a two-way mail round.
